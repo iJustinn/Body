@@ -60,3 +60,38 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Local Codex and build state
+*.DS_Store
+.Rhistory
+.claude/
+.codex/
+.obsidian/
+.env
+.env.*
+!.env.example
+*.xcuserdatad/
+*.xcuserstate
+*.xcbkptlist
+*.xcworkspace/xcuserdata/
+DerivedData/
+build/
+*.dSYM/
+*.xcarchive/
+*.xcresult/
+*.log
+
+# Local signing material and per-machine build settings
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.p12
+*.p8
+*.private.xcconfig
+*.local.xcconfig
+
+# Local scratch/backup files
+IconArchive/
+*.tmp
+*.bak
+*.orig

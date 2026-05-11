@@ -1,0 +1,36 @@
+# Version History
+
+## 0.1.0 (build 1)
+
+- Added the initial SwiftUI app, WidgetKit extension, and Xcode project structure.
+- Added read-only Apple Health workout sync for the current month.
+- Added shared workout month snapshots for app-to-widget data handoff.
+- Added a bold workout calendar UI for the Charts tab and large widget.
+- Added app group, HealthKit entitlement, privacy manifests, app icons, and project configuration tests.
+- Updated workout calendar styling so workout days use one solid-color Apple/SF workout icon selected by longest duration.
+- Carried over Coin's star, moon, and sun count indicators for workout-day tiles.
+- Added a Coin-style Home/Charts/Settings tab shell with app icon selection, Copyright, and Version rows.
+- Added a large-only Workout Types widget that adapts Coin's By Category chart for workout duration by type.
+- Removed the title/month header and inner card from the Workout Types widget so it matches Coin's full-widget breakdown style.
+- Moved in-app visualizations into Charts and simplified Home to a single settings-style sync button.
+- Added Settings appearance choices for app theme and app accent color, defaulting the app accent to blue.
+- Added Coin-style Home health cards for sleep, resting heart rate, weight, body fat, HRV, blood oxygen, VO2 max, and BMI.
+- Added Charts drill-down sheets for tapped calendar days and workout type rows.
+- Expanded Apple Health workout recognition so specific non-strength workout types no longer collapse into generic Workout.
+- Simplified Home health cards by making Sleep the same size as other cards, reducing value typography, and removing range bars and non-functional navigation cues.
+- Added widget background configuration for System, Black, and White backgrounds, matching Coin's widget appearance picker.
+- Made in-app chart panel backgrounds follow the selected app theme instead of staying dark.
+- Expanded workout type colors into a more distinguishable shared palette while keeping traditional strength training red.
+- Added home health card icons, removed the sleep source label, and refresh Health data automatically when the app becomes active.
+- Updated the in-app workout type chart to use the same full-widget layout as the Workout Types widget.
+- Replaced the default Body 01 app icon artwork with the new blue icon.
+- Added Pink and White app icon choices using Coin-style appicon and preview asset naming.
+- Renamed and reordered Settings app icon choices as Classic, Light, Rose, and Clean.
+- Added Coin-style month history browsing to Charts with the latest three months preloaded and older months loaded on demand.
+- Muted overly bright workout colors so calendar icons and By Type bars stay visually consistent.
+- Switched in-app chart panels from the widget gradient to Coin's solid card background.
+- Added a medium Workout Types widget that shows the top two workout types and kept the large widget capped at five.
+- Made the in-app By Type chart height adapt to the selected month's number of workout types.
+- Added a subtle fade between the fixed month picker and scrolling Charts content.
+- Rebuilt workout type colors from the attached reference swatches only.
+- Fixed the `Issues.md` audit findings across HealthKit sync state, sleep aggregation, locale units, widget families, accessibility, and settings consistency.

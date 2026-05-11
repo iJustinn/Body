@@ -1,0 +1,220 @@
+//
+//  WorkoutMonthSnapshot.swift
+//  Body
+//
+
+import Foundation
+
+struct WorkoutDaySummary: Codable, Equatable, Identifiable {
+    let dateKey: String
+    let day: Int
+    let workouts: [WorkoutSummary]
+
+    var id: String { dateKey }
+
+    var workoutCount: Int {
+        workouts.count
+    }
+
+    var totalDuration: TimeInterval {
+        workouts.reduce(0) { $0 + $1.duration }
+    }
+
+    var totalEnergyKilocalories: Double {
+        workouts.reduce(0) { $0 + ($1.activeEnergyKilocalories ?? 0) }
+    }
+
+    var totalDistanceMeters: Double {
+        workouts.reduce(0) { $0 + ($1.distanceMeters ?? 0) }
+    }
+
+    var primaryWorkoutType: BodyWorkoutType? {
+        workouts
+            .sorted {
+                if $0.duration == $1.duration {
+                    return $0.startDate < $1.startDate
+                }
+                return $0.duration > $1.duration
+            }
+            .first?
+            .type
+    }
+
+    var distinctWorkoutTypes: [BodyWorkoutType] {
+        var seen: Set<BodyWorkoutType> = []
+        return workouts.compactMap { workout in
+            guard seen.insert(workout.type).inserted else { return nil }
+            return workout.type
+        }
+    }
+}
+
+struct WorkoutMonthSnapshot: Codable, Equatable {
+    let month: Int
+    let year: Int
+    let generatedAt: Date
+    let days: [WorkoutDaySummary]
+
+    var activeDayCount: Int {
+        days.filter { !$0.workouts.isEmpty }.count
+    }
+
+    var workoutCount: Int {
+        days.reduce(0) { $0 + $1.workoutCount }
+    }
+
+    var totalDuration: TimeInterval {
+        days.reduce(0) { $0 + $1.totalDuration }
+    }
+
+    var totalEnergyKilocalories: Double {
+        days.reduce(0) { $0 + $1.totalEnergyKilocalories }
+    }
+
+    var workoutTypeBreakdown: [WorkoutTypeBreakdown] {
+        var totals: [BodyWorkoutType: (duration: TimeInterval, count: Int)] = [:]
+
+        for day in days {
+            for workout in day.workouts {
+                let current = totals[workout.type] ?? (duration: 0, count: 0)
+                totals[workout.type] = (
+                    duration: current.duration + workout.duration,
+                    count: current.count + 1
+                )
+            }
+        }
+
+        return totals
+            .map { entry in
+                WorkoutTypeBreakdown(
+                    type: entry.key,
+                    duration: entry.value.duration,
+                    count: entry.value.count
+                )
+            }
+            .sorted {
+                if $0.duration == $1.duration {
+                    return $0.type.displayPriority > $1.type.displayPriority
+                }
+                return $0.duration > $1.duration
+            }
+    }
+
+    var leadingBlankDayCount: Int {
+        let calendar = Calendar.bodyGregorian
+        guard let firstWeekday = dateComponents(day: 1, calendar: calendar).weekday else { return 0 }
+        return (firstWeekday - calendar.firstWeekday + 7) % 7
+    }
+
+    var monthTitle: String {
+        let formatter = DateFormatter()
+        formatter.calendar = .bodyGregorian
+        formatter.locale = .current
+        formatter.dateFormat = "MMMM yyyy"
+
+        guard let date = Calendar.bodyGregorian.date(from: DateComponents(year: year, month: month, day: 1)) else {
+            return "\(month)/\(year)"
+        }
+
+        return formatter.string(from: date)
+    }
+
+    func day(_ number: Int) -> WorkoutDaySummary? {
+        days.first { $0.day == number }
+    }
+
+    static func make(
+        month: Int,
+        year: Int,
+        workouts: [WorkoutSummary],
+        calendar: Calendar = .bodyGregorian,
+        generatedAt: Date = Date()
+    ) -> WorkoutMonthSnapshot {
+        guard let range = calendar.range(of: .day, in: .month, for: date(month: month, year: year, day: 1, calendar: calendar)) else {
+            return WorkoutMonthSnapshot(month: month, year: year, generatedAt: generatedAt, days: [])
+        }
+
+        let grouped = Dictionary(grouping: workouts) { workout in
+            let components = calendar.dateComponents([.year, .month, .day], from: workout.startDate)
+            return dateKey(year: components.year ?? year, month: components.month ?? month, day: components.day ?? 1)
+        }
+
+        let days = range.map { day in
+            let key = dateKey(year: year, month: month, day: day)
+            return WorkoutDaySummary(
+                dateKey: key,
+                day: day,
+                workouts: (grouped[key] ?? []).sorted { $0.startDate < $1.startDate }
+            )
+        }
+
+        return WorkoutMonthSnapshot(month: month, year: year, generatedAt: generatedAt, days: days)
+    }
+
+    static var placeholder: WorkoutMonthSnapshot {
+        let calendar = Calendar.bodyGregorian
+        let sampleWorkouts: [WorkoutSummary] = [
+            sampleWorkout(day: 1, type: .running, duration: 2_400, energy: 310, distance: 5_200, calendar: calendar),
+            sampleWorkout(day: 2, type: .strengthTraining, duration: 3_600, energy: 410, distance: nil, calendar: calendar),
+            sampleWorkout(day: 3, type: .walking, duration: 1_800, energy: 145, distance: 2_100, calendar: calendar),
+            sampleWorkout(day: 4, type: .yoga, duration: 2_700, energy: 120, distance: nil, calendar: calendar),
+            sampleWorkout(day: 5, type: .strengthTraining, duration: 3_000, energy: 330, distance: nil, calendar: calendar),
+            sampleWorkout(day: 6, type: .cycling, duration: 4_200, energy: 520, distance: 18_000, calendar: calendar),
+            sampleWorkout(day: 7, type: .running, duration: 2_200, energy: 285, distance: 4_800, calendar: calendar),
+            sampleWorkout(day: 8, type: .hiit, duration: 1_500, energy: 260, distance: nil, calendar: calendar),
+            sampleWorkout(day: 9, type: .hiking, duration: 5_400, energy: 610, distance: 7_300, calendar: calendar)
+        ]
+
+        return make(month: 5, year: 2026, workouts: sampleWorkouts, calendar: calendar)
+    }
+
+    private func dateComponents(day: Int, calendar: Calendar) -> DateComponents {
+        calendar.dateComponents(
+            [.weekday],
+            from: Self.date(month: month, year: year, day: day, calendar: calendar)
+        )
+    }
+
+    private static func sampleWorkout(
+        day: Int,
+        type: BodyWorkoutType,
+        duration: TimeInterval,
+        energy: Double?,
+        distance: Double?,
+        calendar: Calendar
+    ) -> WorkoutSummary {
+        WorkoutSummary(
+            id: UUID(uuidString: "00000000-0000-0000-0000-\(String(format: "%012d", day))") ?? UUID(),
+            type: type,
+            startDate: date(month: 5, year: 2026, day: day, calendar: calendar),
+            duration: duration,
+            activeEnergyKilocalories: energy,
+            distanceMeters: distance,
+            sourceName: "Preview"
+        )
+    }
+
+    private static func date(month: Int, year: Int, day: Int, calendar: Calendar) -> Date {
+        calendar.date(from: DateComponents(year: year, month: month, day: day, hour: 12)) ?? Date()
+    }
+
+    private static func dateKey(year: Int, month: Int, day: Int) -> String {
+        String(format: "%04d-%02d-%02d", year, month, day)
+    }
+}
+
+struct WorkoutTypeBreakdown: Equatable, Identifiable {
+    let type: BodyWorkoutType
+    let duration: TimeInterval
+    let count: Int
+
+    var id: BodyWorkoutType { type }
+}
+
+extension Calendar {
+    static var bodyGregorian: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.firstWeekday = 1
+        return calendar
+    }
+}
