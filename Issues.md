@@ -49,8 +49,8 @@ Xcode workspace shared scheme XML.
   sets `authorizationState = .authorized` and proceeds to query.
 - **Why it matters:** Users who deny part or all of the read scopes still
   see `authorizationState == .authorized`; every card and calendar shows
-  empty data ("--") with no in-app explanation, sync button copy, or
-  follow-up CTA. There is no path to recover other than going into the
+  empty data ("--") with no in-app explanation or follow-up CTA. There is
+  no path to recover other than going into the
   system Settings, and the app gives no hint that this is required. This
   is the most user-affecting bug in the current build.
 - **Suggested fix:** After the prompt resolves, call
@@ -450,7 +450,7 @@ Xcode workspace shared scheme XML.
 - **HealthKit authorization (N1).** After the prompt completes the app
   reports authorized regardless of the user's actual choice. Empty home
   cards and empty calendar are indistinguishable from "no data" vs
-  "denied". The Sync button shows no error state.
+  "denied". Pull-to-refresh shows no dedicated error state.
 - **Concurrent month loads (N2).** Fast scrolling through the month
   carousel while the recent-months batch is still in flight can leave
   the chart with only the most recently fetched month populated.
@@ -497,7 +497,7 @@ Xcode workspace shared scheme XML.
 - **No empty/error state when HealthKit data is empty after auth.**
   Home shows a grid of "--" cards with no banner. Charts shows an empty
   calendar with the placeholder month if no real data has arrived. A
-  one-line banner under the Sync button would clarify the state.
+  one-line Home banner would clarify the state.
 - **Workout list sheet** dynamically reformats date as
   `.dateTime.weekday(.wide).month(.wide).day()` — good. Sheet title
   truncates with `lineLimit(1)` and `minimumScaleFactor(0.75)` on
@@ -630,7 +630,7 @@ All named issues above were addressed in the app code in this pass.
 - **N1 — HealthKit prompt completion vs. authorization:** `HealthKitWorkoutStore` now checks `statusForAuthorizationRequest(toShare:read:)` before/after requesting HealthKit access, reserves `.denied` for an explicit denied signal, and exposes a Home notice when no Apple Health data is found after sync so "no data" is not silent.
 - **N2 — Concurrent month snapshots:** month refresh now writes each fetched snapshot directly back into `monthSnapshots` after its `await`, and marks each month loaded individually instead of assigning a stale dictionary copy at the end.
 - **N3 — Sleep overlaps:** sleep samples are merged into disjoint intervals before duration is summed, preventing overlapping stage/source samples from inflating the Sleep card. Added a regression test for overlapping intervals.
-- **N4 — Locale units:** Home weight and workout-list distance now format through `BodyValueFormat`, using pounds/miles for US locale and kg/km elsewhere. Duration, energy, and count formatting were centralized in the same formatter.
+- **N4 — Locale units:** Home weight and workout-list distance now format through `BodyValueFormat`, using pounds/miles for US locale and kg/km elsewhere. Settings also offers System, Metric, and Imperial unit choices that override locale. Duration, energy, and count formatting were centralized in the same formatter.
 - **N5 — Dead widget background enum:** removed the unused shared `BodyWidgetBackground.swift`; only the active widget background selection remains in the widget extension.
 - **N6 — Leading blanks:** replaced the no-op Sunday ternary with a calendar-relative leading-blank formula that preserves the current Sunday-first behavior.
 - **N7 — Calendar widget dead medium branch:** the calendar widget view now hardcodes the only supported large style and 14 pt padding.

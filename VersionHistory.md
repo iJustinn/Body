@@ -12,9 +12,10 @@
 - Added a Coin-style Home/Charts/Settings tab shell with app icon selection, Copyright, and Version rows.
 - Added a large-only Workout Types widget that adapts Coin's By Category chart for workout duration by type.
 - Removed the title/month header and inner card from the Workout Types widget so it matches Coin's full-widget breakdown style.
-- Moved in-app visualizations into Charts and simplified Home to a single settings-style sync button.
+- Moved in-app workout visualizations into Charts and simplified Home health refresh to pull-to-refresh.
 - Added Settings appearance choices for app theme and app accent color, defaulting the app accent to blue.
 - Added Coin-style Home health cards for sleep, resting heart rate, weight, body fat, HRV, blood oxygen, VO2 max, and BMI.
+- Added secondary Home card visualization screens with 30-day line charts and dot markers.
 - Added Charts drill-down sheets for tapped calendar days and workout type rows.
 - Expanded Apple Health workout recognition so specific non-strength workout types no longer collapse into generic Workout.
 - Simplified Home health cards by making Sleep the same size as other cards, reducing value typography, and removing range bars and non-functional navigation cues.
@@ -34,3 +35,8 @@
 - Added a subtle fade between the fixed month picker and scrolling Charts content.
 - Rebuilt workout type colors from the attached reference swatches only.
 - Fixed the `Issues.md` audit findings across HealthKit sync state, sleep aggregation, locale units, widget families, accessibility, and settings consistency.
+- Added a Settings Units section for System, Metric, and Imperial formatting.
+- Added Active Energy and Resting Energy Home cards with daily bar-chart detail screens.
+- Moved the Home card trend range option onto each detail screen with Coin-style Recent Week and Recent Month buttons.
+- Added today's sleep-stage timeline to the Sleep detail screen and aligned Sleep summary duration with the latest sleep day bucket.
+- Added Health-style sleep-stage transition shading and denser time labels to the Sleep detail timeline.

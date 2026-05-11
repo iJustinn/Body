@@ -9,6 +9,7 @@ import UIKit
 struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.selectedThemeKey) private var selectedThemeRawValue = BodyAppTheme.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedAccentKey) private var selectedAccentRawValue = BodyAppAccent.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
     @State private var activeSheet: BodySettingsSheet?
     @State private var selectedAppIconName: String?
     @State private var showingAppIconError = false
@@ -23,6 +24,7 @@ struct BodySettingsView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 22) {
                         appearanceSection
+                        unitSection
                         aboutSection
                     }
                     .padding(.horizontal)
@@ -120,6 +122,23 @@ struct BodySettingsView: View {
         }
     }
 
+    private var unitSection: some View {
+        BodySettingsCardSection("Units") {
+            Button {
+                activeSheet = .units
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Measurement",
+                    value: currentUnitPreference.displayName,
+                    iconName: "ruler.fill",
+                    tintColor: .teal,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     private var settingsDivider: some View {
         Divider()
             .padding(.leading, 76)
@@ -143,6 +162,10 @@ struct BodySettingsView: View {
         BodyAppAccent.storedValue(from: selectedAccentRawValue)
     }
 
+    private var currentUnitPreference: BodyValueFormat.UnitPreference {
+        BodyValueFormat.UnitPreference.storedValue(from: selectedUnitPreferenceRawValue)
+    }
+
     private var selectedTheme: Binding<BodyAppTheme> {
         Binding {
             currentTheme
@@ -159,6 +182,14 @@ struct BodySettingsView: View {
         }
     }
 
+    private var selectedUnitPreference: Binding<BodyValueFormat.UnitPreference> {
+        Binding {
+            currentUnitPreference
+        } set: { unitPreference in
+            selectedUnitPreferenceRawValue = unitPreference.rawValue
+        }
+    }
+
     @ViewBuilder
     private func settingsSheet(for sheet: BodySettingsSheet) -> some View {
         switch sheet {
@@ -171,6 +202,8 @@ struct BodySettingsView: View {
                 selectedIconName: selectedAppIconName,
                 onSelect: changeAppIcon
             )
+        case .units:
+            BodyUnitPreferencePickerSheet(selectedUnitPreference: selectedUnitPreference)
         case .copyright:
             BodyCopyrightSettingsSheet()
         }
@@ -207,6 +240,7 @@ private enum BodySettingsSheet: String, Identifiable {
     case theme
     case appAccent
     case appIcon
+    case units
     case copyright
 
     var id: String {
@@ -308,6 +342,77 @@ private struct BodyAccentPickerSheet: View {
                     }
                 }
             }
+        }
+    }
+}
+
+private struct BodyUnitPreferencePickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var selectedUnitPreference: BodyValueFormat.UnitPreference
+
+    private let columns = [
+        GridItem(.flexible()),
+        GridItem(.flexible()),
+        GridItem(.flexible())
+    ]
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(BodyValueFormat.UnitPreference.allCases) { unitPreference in
+                            Button {
+                                selectedUnitPreference = unitPreference
+                                dismiss()
+                            } label: {
+                                BodySymbolSelectionTile(
+                                    title: unitPreference.displayName,
+                                    subtitle: unitPreference.selectionSubtitle,
+                                    iconName: iconName(for: unitPreference),
+                                    tintColor: tintColor(for: unitPreference),
+                                    isSelected: selectedUnitPreference == unitPreference
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding()
+                    .padding(.bottom, 24)
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func iconName(for unitPreference: BodyValueFormat.UnitPreference) -> String {
+        switch unitPreference {
+        case .system:
+            return "iphone"
+        case .metric:
+            return "scalemass.fill"
+        case .imperial:
+            return "ruler.fill"
+        }
+    }
+
+    private func tintColor(for unitPreference: BodyValueFormat.UnitPreference) -> Color {
+        switch unitPreference {
+        case .system:
+            return .blue
+        case .metric:
+            return .green
+        case .imperial:
+            return .orange
         }
     }
 }

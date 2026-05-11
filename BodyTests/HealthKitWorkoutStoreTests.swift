@@ -74,4 +74,34 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
 
         XCTAssertEqual(duration, 27_000)
     }
+
+    func testSleepDurationTextDoesNotRoundDownPartialMinutes() {
+        let sevenHoursTwentyMinutesOneSecond: TimeInterval = (7 * 3_600) + (20 * 60) + 1
+
+        XCTAssertEqual(
+            BodyValueFormat.sleepDurationText(for: sevenHoursTwentyMinutesOneSecond),
+            "7h 21m"
+        )
+    }
+
+    func testSleepDurationExcludesAwakeStageSamples() throws {
+        let calendar = Calendar.bodyGregorian
+        let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))
+        let coreStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 2)))
+        let coreEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 5)))
+        let awakeStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 5)))
+        let awakeEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 5, minute: 15)))
+        let remStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 5, minute: 15)))
+        let remEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 7)))
+
+        let duration = HealthKitWorkoutStore.sleepDuration(
+            from: [
+                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.asleepCore.rawValue, start: coreStart, end: coreEnd),
+                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.awake.rawValue, start: awakeStart, end: awakeEnd),
+                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.asleepREM.rawValue, start: remStart, end: remEnd)
+            ]
+        )
+
+        XCTAssertEqual(duration, 17_100)
+    }
 }

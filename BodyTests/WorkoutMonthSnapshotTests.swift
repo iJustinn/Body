@@ -74,6 +74,46 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(BodyValueFormat.distanceText(meters: 1_000, locale: locale), "1.0 km")
     }
 
+    func testBodyValueFormatUnitPreferenceOverridesLocale() {
+        let usLocale = Locale(identifier: "en_US")
+        let metricLocale = Locale(identifier: "en_GB")
+
+        XCTAssertEqual(
+            BodyValueFormat.massDisplay(
+                kilograms: 69.3,
+                locale: usLocale,
+                unitPreference: .metric
+            ).unit,
+            "kg"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.distanceText(
+                meters: 1_609.344,
+                locale: metricLocale,
+                unitPreference: .imperial
+            ),
+            "1.0 mi"
+        )
+    }
+
+    func testHealthTrendRangeDefaultsToRecentWeek() {
+        XCTAssertEqual(BodyHealthTrendRange.defaultValue, .recentWeek)
+        XCTAssertEqual(BodyHealthTrendRange.storedValue(from: "unknown"), .recentWeek)
+    }
+
+    func testHealthTrendSeriesLimitsToRecentWeek() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 15)))
+        let points = try (-29...0).enumerated().map { index, offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: currentDate)))
+            return HealthTrendDataPoint(date: date, value: Double(index))
+        }
+        let series = HealthTrendSeries(points: points)
+
+        XCTAssertEqual(series.limited(to: .recentWeek, calendar: calendar, date: currentDate).points.map(\.value), [23, 24, 25, 26, 27, 28, 29])
+        XCTAssertEqual(series.limited(to: .recentMonth, calendar: calendar, date: currentDate), series)
+    }
+
     private func workout(day: Int, type: BodyWorkoutType, duration: TimeInterval) -> WorkoutSummary {
         WorkoutSummary(
             id: UUID(uuidString: "00000000-0000-0000-0000-\(String(format: "%012d", day))") ?? UUID(),
