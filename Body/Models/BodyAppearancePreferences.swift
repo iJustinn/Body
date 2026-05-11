@@ -8,6 +8,76 @@ import SwiftUI
 enum BodyAppearancePreference {
     static let selectedThemeKey = "selectedTheme"
     static let selectedAccentKey = "selectedAppAccent"
+    static let selectedUnitPreferenceKey = "selectedUnitPreference"
+}
+
+enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
+    case recentWeek
+    case recentMonth
+
+    static let defaultValue: BodyHealthTrendRange = .recentWeek
+
+    var id: String {
+        rawValue
+    }
+
+    var displayName: String {
+        switch self {
+        case .recentWeek:
+            return "Recent Week"
+        case .recentMonth:
+            return "Recent Month"
+        }
+    }
+
+    var selectionSubtitle: String {
+        switch self {
+        case .recentWeek:
+            return "7 days"
+        case .recentMonth:
+            return "30 days"
+        }
+    }
+
+    var chartTitle: String {
+        switch self {
+        case .recentWeek:
+            return "Last 7 Days"
+        case .recentMonth:
+            return "Last 30 Days"
+        }
+    }
+
+    var dayCount: Int {
+        switch self {
+        case .recentWeek:
+            return 7
+        case .recentMonth:
+            return 30
+        }
+    }
+
+    var axisStrideDayCount: Int {
+        switch self {
+        case .recentWeek:
+            return 1
+        case .recentMonth:
+            return 7
+        }
+    }
+
+    func axisLabel(for date: Date) -> String {
+        switch self {
+        case .recentWeek:
+            return date.formatted(.dateTime.weekday(.abbreviated))
+        case .recentMonth:
+            return date.formatted(.dateTime.month(.abbreviated).day())
+        }
+    }
+
+    static func storedValue(from rawValue: String) -> BodyHealthTrendRange {
+        BodyHealthTrendRange(rawValue: rawValue) ?? defaultValue
+    }
 }
 
 enum BodyAppTheme: String, CaseIterable, Identifiable {

@@ -7,6 +7,7 @@ import SwiftUI
 
 private enum BodyMainTab: Hashable {
     case home
+    case workouts
     case charts
     case settings
 }
@@ -21,6 +22,12 @@ struct MainTabView: View {
                     Label("Home", systemImage: "house.fill")
                 }
                 .tag(BodyMainTab.home)
+
+            BodyWorkoutsView()
+                .tabItem {
+                    Label("Workouts", systemImage: "figure.strengthtraining.traditional")
+                }
+                .tag(BodyMainTab.workouts)
 
             BodyChartsView()
                 .tabItem {

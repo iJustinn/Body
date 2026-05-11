@@ -16,48 +16,43 @@ struct WorkoutCalendarView: View {
 
     let snapshot: WorkoutMonthSnapshot
     let style: WorkoutCalendarDisplayStyle
+    let fillsAvailableHeight: Bool
     let onSelectDay: ((WorkoutDaySummary) -> Void)?
 
     init(
         snapshot: WorkoutMonthSnapshot,
         style: WorkoutCalendarDisplayStyle = .app,
+        fillsAvailableHeight: Bool = true,
         onSelectDay: ((WorkoutDaySummary) -> Void)? = nil
     ) {
         self.snapshot = snapshot
         self.style = style
+        self.fillsAvailableHeight = fillsAvailableHeight
         self.onSelectDay = onSelectDay
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            let columnSpacing: CGFloat = 7
-            let rowSpacing: CGFloat = 7
-            let weekdayHeight: CGFloat = 18
-            let weekdaySpacing: CGFloat = 10
-            let cellSide = calendarCellSide(
-                availableSize: proxy.size,
-                columnSpacing: columnSpacing,
-                rowSpacing: rowSpacing,
-                weekdayHeight: weekdayHeight,
-                weekdaySpacing: weekdaySpacing
-            )
-            let columns = Array(repeating: GridItem(.fixed(cellSide), spacing: columnSpacing), count: 7)
+        let columnSpacing: CGFloat = 7
+        let rowSpacing: CGFloat = 7
+        let weekdayHeight: CGFloat = 18
+        let weekdaySpacing: CGFloat = 10
+        let columns = Array(repeating: GridItem(.flexible(), spacing: columnSpacing), count: 7)
 
-            VStack(spacing: weekdaySpacing) {
-                weekdayHeader(cellSide: cellSide, columnSpacing: columnSpacing, height: weekdayHeight)
+        VStack(spacing: weekdaySpacing) {
+            weekdayHeader(columnSpacing: columnSpacing, height: weekdayHeight)
 
-                LazyVGrid(columns: columns, spacing: rowSpacing) {
-                    ForEach(calendarCells.indices, id: \.self) { index in
-                        calendarCell(calendarCells[index])
-                            .frame(width: cellSide, height: cellSide)
-                    }
+            LazyVGrid(columns: columns, spacing: rowSpacing) {
+                ForEach(calendarCells.indices, id: \.self) { index in
+                    calendarCell(calendarCells[index])
+                        .aspectRatio(1, contentMode: .fit)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
+        .frame(maxWidth: .infinity)
+        .frame(maxHeight: fillsAvailableHeight ? .infinity : nil, alignment: .center)
     }
 
-    private func weekdayHeader(cellSide: CGFloat, columnSpacing: CGFloat, height: CGFloat) -> some View {
+    private func weekdayHeader(columnSpacing: CGFloat, height: CGFloat) -> some View {
         let symbols = weekdaySymbols
 
         return HStack(spacing: columnSpacing) {
@@ -65,7 +60,7 @@ struct WorkoutCalendarView: View {
                 Text(symbols[index])
                     .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundColor(.secondary)
-                    .frame(width: cellSide, height: height)
+                    .frame(maxWidth: .infinity, minHeight: height)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
@@ -189,18 +184,6 @@ struct WorkoutCalendarView: View {
         }
 
         return date.formatted(.dateTime.month(.wide).day())
-    }
-
-    private func calendarCellSide(
-        availableSize: CGSize,
-        columnSpacing: CGFloat,
-        rowSpacing: CGFloat,
-        weekdayHeight: CGFloat,
-        weekdaySpacing: CGFloat
-    ) -> CGFloat {
-        let widthBasedSide = (availableSize.width - (columnSpacing * 6)) / 7
-        let heightBasedSide = (availableSize.height - weekdayHeight - weekdaySpacing - (rowSpacing * 5)) / 6
-        return max(24, min(widthBasedSide, heightBasedSide))
     }
 
     private func moonCount(for workoutCount: Int) -> Int {

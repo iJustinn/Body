@@ -4,6 +4,34 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 
 ## Entries
 
+### 2026-05-11 - Keep sleep duration display from rounding down partial minutes
+- Context: Matching Body's Sleep card to Apple Health's displayed sleep duration.
+- Symptom: Body could show `7h 20m` while Health showed `7h 21m` for the same sleep session.
+- Cause: The shared `BodyValueFormat.durationText(for:)` rounds seconds to the nearest minute, which can round a partial sleep minute down.
+- Fix: Use `BodyValueFormat.sleepDurationText(for:)` for Sleep card/detail display so partial HealthKit sleep minutes are counted instead of hidden.
+- Reuse: When formatting sleep durations, use the sleep-specific formatter; keep the generic duration formatter for workout durations.
+
+### 2026-05-11 - Give daily Swift Charts date marks an explicit unit
+- Context: Checking runtime console warnings after adding recent-month Health metric charts.
+- Symptom: Swift Charts logged `Falling back to a fixed dimension size for a mark`.
+- Cause: Date-based chart marks were plotted without declaring their daily time unit, which is especially noisy for bar marks.
+- Fix: Use `.value("Date", point.date, unit: .day)` for daily LineMark, PointMark, and BarMark x-values.
+- Reuse: When plotting daily HealthKit trend points in Swift Charts, include `unit: .day` on date x-values before tuning bar widths or chart domains.
+
+### 2026-05-11 - Use HealthKit statistics for cumulative energy charts
+- Context: Comparing Body's Resting Energy card against Apple Health's weekly Resting Energy chart.
+- Symptom: Body showed Resting Energy totals around 2-3x higher than Apple Health for the same days.
+- Cause: Body manually summed raw `HKQuantitySample` values from `HKSampleQuery` and grouped them by sample end date; cumulative HealthKit quantities should be bucketed through statistics queries for daily totals.
+- Fix: Use `HKStatisticsCollectionQuery` with `.cumulativeSum` for Active Energy and Resting Energy daily series and current-day summary values.
+- Reuse: For cumulative HealthKit quantities such as energy, steps, and distance, prefer daily `HKStatisticsCollectionQuery` buckets over manually summing raw samples.
+
+### 2026-05-11 - Align Sleep summary with Health's sleep-day bucket
+- Context: Comparing Body's Sleep detail with Apple Health's Day sleep screen.
+- Symptom: Body could show a slightly different Sleep headline and had no stage timeline to compare against Health's REM/Core/Deep/Awake chart.
+- Cause: Body built the Sleep summary from asleep-only samples in a latest-session window, while Apple Health's Day screen presents a sleep-day bucket with staged samples.
+- Fix: Group sleep-analysis samples by end-date day, compute Time Asleep from asleep stages only, and keep today's Awake/REM/Core/Deep segments for the Sleep detail timeline.
+- Reuse: When matching Apple Health Sleep Day views, use the same sleep-day bucket for the headline and stage visualization; exclude Awake from duration but keep it in the timeline.
+
 ### 2026-05-10 - Treat RunningBoard process-state console spam as simulator noise
 - Context: Checking Xcode console logs showing `RBServiceErrorDomain Code=1 "Client not entitled"`, `com.apple.runningboard.process-state`, `elapsedCPUTimeForFrontBoard couldn't generate a task port`, and `com.apple.mobile.usermanagerd.xpc`.
 - Symptom: The console repeats entitlement/task-port errors even though Body has no code requesting RunningBoard process state.

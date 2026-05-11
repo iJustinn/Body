@@ -2,7 +2,7 @@
 
 Body is a privacy-focused iOS health visualization app built with SwiftUI. The first release is centered on a Home Screen widget that turns Apple Health workouts into a bold monthly calendar.
 
-The app shell follows Coin's simple tab structure: Home handles health syncing, Charts holds the visualizations, and Settings handles appearance and app details.
+The app shell follows Coin's simple tab structure: Home handles health cards and recent trends, Charts holds workout visualizations, and Settings handles appearance and app details.
 
 Current app version: **0.1.0 (build 1)**
 
@@ -13,10 +13,10 @@ Current app version: **0.1.0 (build 1)**
 - **Widget appearance** - Widgets include Coin-style background choices for System, Black, and White.
 - **Workout markers** - Workout days replace the date number with the Apple/SF workout icon in a solid color for the specific Apple Health workout type. If a day has multiple workouts, Body shows the longest-duration workout.
 - **Count indicators** - Workout-day tiles keep Coin's count markers: stars count as 1, moons count as 4, and 13 or more workouts shows a sun.
-- **Apple Health sync** - The app requests read-only access to workouts, sleep, heart, and body measurement data; workout summaries are also written for widgets through an App Group.
-- **Home health cards** - Home shows sleep, resting heart rate, weight, body fat, HRV, blood oxygen, VO2 max, and BMI in Coin-style rounded cards.
+- **Apple Health sync** - The app requests read-only access to workouts, sleep, heart, body measurement, and energy data; workout summaries are also written for widgets through an App Group.
+- **Home health cards** - Home shows sleep, resting heart rate, weight, body fat, HRV, blood oxygen, VO2 max, BMI, active energy, and resting energy in Coin-style rounded cards that open recent-week charts by default, with a Coin-style Week/Month switch on each detail screen. Sleep details also include today's sleep-stage timeline.
 - **Charts tab** - The in-app workout calendar and workout type breakdown live in Charts, use theme-aware panel backgrounds, and open workout list sheets when tapped.
-- **Coin-style settings** - The Settings tab includes Appearance choices for theme, app accent, and icon selection plus About rows for Copyright and Version.
+- **Coin-style settings** - The Settings tab includes Appearance choices, Units, icon selection, and About rows for Copyright and Version.
 - **Local-first widget bridge** - Widgets read a cached JSON snapshot from shared `UserDefaults`; they do not query HealthKit directly.
 - **Preview seed data** - A May 2026 placeholder snapshot keeps the widget and app visually useful before HealthKit access is granted.
 
@@ -32,7 +32,7 @@ Current app version: **0.1.0 (build 1)**
 1. Open `body.xcodeproj` in Xcode.
 2. Select the `Body` scheme.
 3. Build and run on an iPhone simulator or device.
-4. On a real device, tap **Sync Health Data** to grant Apple Health workout access.
+4. On a real device, pull down on the Home tab to refresh and grant Apple Health access.
 
 ## Project Structure
 

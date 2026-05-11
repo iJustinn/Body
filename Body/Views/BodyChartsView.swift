@@ -41,11 +41,11 @@ struct BodyChartsView: View {
                                     WorkoutCalendarView(
                                         snapshot: selectedSnapshot,
                                         style: .widgetLarge,
+                                        fillsAvailableHeight: false,
                                         onSelectDay: { day in
                                             selectedWorkouts = .day(day)
                                         }
                                     )
-                                        .frame(height: 360)
                                         .padding(14)
                                         .bodyCardBackground()
                                 }
@@ -66,7 +66,7 @@ struct BodyChartsView: View {
                                 }
                             }
                             .padding(.horizontal)
-                            .padding(.top, 10)
+                            .padding(.top, 30)
                             .padding(.bottom, 110)
                         }
 
@@ -331,6 +331,7 @@ private struct BodyWorkoutListSheet: View {
 }
 
 private struct BodyWorkoutRecordRow: View {
+    @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
     let workout: WorkoutSummary
 
     var body: some View {
@@ -388,11 +389,20 @@ private struct BodyWorkoutRecordRow: View {
         var details = [timeText(for: workout.startDate)]
 
         if let distanceMeters = workout.distanceMeters, distanceMeters > 0 {
-            details.append(BodyValueFormat.distanceText(meters: distanceMeters))
+            details.append(
+                BodyValueFormat.distanceText(
+                    meters: distanceMeters,
+                    unitPreference: selectedUnitPreference
+                )
+            )
         }
 
         details.append(workout.sourceName)
         return details.joined(separator: " · ")
+    }
+
+    private var selectedUnitPreference: BodyValueFormat.UnitPreference {
+        BodyValueFormat.UnitPreference.storedValue(from: selectedUnitPreferenceRawValue)
     }
 }
 
