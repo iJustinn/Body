@@ -342,12 +342,14 @@ final class HealthKitWorkoutStore: ObservableObject {
             HKQuantityTypeIdentifier.restingHeartRate,
             .bodyMass,
             .bodyFatPercentage,
+            .heartRate,
             .heartRateVariabilitySDNN,
             .oxygenSaturation,
             .vo2Max,
             .bodyMassIndex,
             .activeEnergyBurned,
-            .basalEnergyBurned
+            .basalEnergyBurned,
+            .workoutEffortScore
         ].compactMap { HKObjectType.quantityType(forIdentifier: $0) }
             .forEach { types.insert($0) }
 
@@ -364,7 +366,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: [.strictStartDate])
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
 
-        return try await withCheckedThrowingContinuation { continuation in
+        let workouts: [HKWorkout] = try await withCheckedThrowingContinuation { continuation in
             let query = HKSampleQuery(
                 sampleType: HKObjectType.workoutType(),
                 predicate: predicate,
@@ -376,8 +378,90 @@ final class HealthKitWorkoutStore: ObservableObject {
                     return
                 }
 
-                let workouts = (samples as? [HKWorkout] ?? []).map(Self.summary)
-                continuation.resume(returning: workouts)
+                continuation.resume(returning: samples as? [HKWorkout] ?? [])
+            }
+
+            healthStore.execute(query)
+        }
+
+        var summaries: [WorkoutSummary] = []
+        summaries.reserveCapacity(workouts.count)
+
+        for workout in workouts {
+            async let heartRateSamples = fetchHeartRateSamples(for: workout)
+            async let effortLevel = fetchSavedEffortLevel(for: workout)
+            summaries.append(
+                await Self.summary(
+                    for: workout,
+                    heartRateSamples: heartRateSamples,
+                    effortLevel: effortLevel
+                )
+            )
+        }
+
+        return summaries
+    }
+
+    private func fetchHeartRateSamples(for workout: HKWorkout) async -> [WorkoutHeartRateSample] {
+        guard let heartRateType = HKObjectType.quantityType(forIdentifier: .heartRate) else {
+            return []
+        }
+
+        let predicate = HKQuery.predicateForSamples(
+            withStart: workout.startDate,
+            end: workout.endDate,
+            options: [.strictStartDate]
+        )
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+        let heartRateUnit = HKUnit.count().unitDivided(by: .minute())
+
+        return await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: heartRateType,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sort]
+            ) { _, samples, _ in
+                let heartRateSamples = (samples as? [HKQuantitySample] ?? []).compactMap { sample -> WorkoutHeartRateSample? in
+                    let beatsPerMinute = sample.quantity.doubleValue(for: heartRateUnit)
+                    guard beatsPerMinute.isFinite, beatsPerMinute > 0 else {
+                        return nil
+                    }
+
+                    return WorkoutHeartRateSample(
+                        date: sample.startDate,
+                        beatsPerMinute: beatsPerMinute
+                    )
+                }
+
+                continuation.resume(returning: heartRateSamples)
+            }
+
+            healthStore.execute(query)
+        }
+    }
+
+    private func fetchSavedEffortLevel(for workout: HKWorkout) async -> Double? {
+        guard let effortType = HKObjectType.quantityType(forIdentifier: .workoutEffortScore) else {
+            return nil
+        }
+
+        let predicate = HKQuery.predicateForWorkoutEffortSamplesRelated(workout: workout, activity: nil)
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+
+        return await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: effortType,
+                predicate: predicate,
+                limit: 1,
+                sortDescriptors: [sort]
+            ) { _, samples, _ in
+                let effort = (samples as? [HKQuantitySample] ?? [])
+                    .first?
+                    .quantity
+                    .doubleValue(for: .appleEffortScore())
+
+                continuation.resume(returning: effort?.isFinite == true ? effort : nil)
             }
 
             healthStore.execute(query)
@@ -913,14 +997,25 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
-    nonisolated private static func summary(for workout: HKWorkout) -> WorkoutSummary {
-        WorkoutSummary(
+    nonisolated private static func summary(
+        for workout: HKWorkout,
+        heartRateSamples: [WorkoutHeartRateSample] = [],
+        effortLevel: Double? = nil
+    ) -> WorkoutSummary {
+        let activeEnergy = activeEnergyKilocalories(for: workout)
+        let averageHeartRate = averageHeartRate(from: heartRateSamples)
+
+        return WorkoutSummary(
             id: workout.uuid,
             type: workoutType(for: workout.workoutActivityType),
             startDate: workout.startDate,
             duration: workout.duration,
-            activeEnergyKilocalories: activeEnergyKilocalories(for: workout),
+            activeEnergyKilocalories: activeEnergy,
+            totalEnergyKilocalories: totalEnergyKilocalories(for: workout) ?? activeEnergy,
             distanceMeters: workout.totalDistance?.doubleValue(for: .meter()),
+            averageHeartRateBeatsPerMinute: averageHeartRate,
+            effortLevel: effortLevel,
+            heartRateSamples: downsampleHeartRateSamples(heartRateSamples),
             sourceName: workout.sourceRevision.source.name
         )
     }
@@ -933,6 +1028,42 @@ final class HealthKitWorkoutStore: ObservableObject {
         return workout.statistics(for: activeEnergyType)?
             .sumQuantity()?
             .doubleValue(for: .kilocalorie())
+    }
+
+    nonisolated private static func totalEnergyKilocalories(for workout: HKWorkout) -> Double? {
+        let activeEnergy = activeEnergyKilocalories(for: workout)
+        guard let basalEnergyType = HKQuantityType.quantityType(forIdentifier: .basalEnergyBurned),
+              let basalEnergy = workout.statistics(for: basalEnergyType)?
+              .sumQuantity()?
+              .doubleValue(for: .kilocalorie()) else {
+            return activeEnergy
+        }
+
+        return (activeEnergy ?? 0) + basalEnergy
+    }
+
+    nonisolated private static func averageHeartRate(from samples: [WorkoutHeartRateSample]) -> Double? {
+        let values = samples.map(\.beatsPerMinute).filter(\.isFinite)
+        guard !values.isEmpty else {
+            return nil
+        }
+
+        return values.reduce(0, +) / Double(values.count)
+    }
+
+    nonisolated private static func downsampleHeartRateSamples(
+        _ samples: [WorkoutHeartRateSample],
+        maximumCount: Int = 96
+    ) -> [WorkoutHeartRateSample] {
+        let sortedSamples = samples.sorted { $0.date < $1.date }
+        guard sortedSamples.count > maximumCount, maximumCount > 1 else {
+            return sortedSamples
+        }
+
+        let stride = Double(sortedSamples.count - 1) / Double(maximumCount - 1)
+        return (0..<maximumCount).map { index in
+            sortedSamples[Int((Double(index) * stride).rounded())]
+        }
     }
 
     nonisolated static func workoutType(for activityType: HKWorkoutActivityType) -> BodyWorkoutType {
