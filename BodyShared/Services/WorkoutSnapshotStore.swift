@@ -8,7 +8,6 @@ import os
 
 enum WorkoutSnapshotStore {
     static let appGroupIdentifier = "group.com.zihengthedeveloper.Body"
-    static let currentMonthSnapshotKey = "currentMonthWorkoutSnapshot"
     static let currentMonthSnapshotFileName = "currentMonthWorkoutSnapshot.json"
     private static let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "WorkoutSnapshotStore")
 
@@ -97,38 +96,5 @@ enum WorkoutSnapshotStore {
     static func seedPreviewSnapshotIfNeeded() {
         guard load() == nil else { return }
         save(.placeholder)
-    }
-
-    static func save(_ snapshot: WorkoutMonthSnapshot, defaults: UserDefaults?) {
-        guard let defaults else {
-            logger.error("Snapshot save skipped because test defaults are unavailable.")
-            return
-        }
-
-        let data: Data
-        do {
-            data = try JSONEncoder().encode(snapshot)
-        } catch {
-            logger.error("Snapshot encode failed: \(error.localizedDescription, privacy: .public)")
-            return
-        }
-
-        defaults.set(data, forKey: currentMonthSnapshotKey)
-    }
-
-    static func load(defaults: UserDefaults?) -> WorkoutMonthSnapshot? {
-        guard let defaults else {
-            logger.error("Snapshot load skipped because test defaults are unavailable.")
-            return nil
-        }
-
-        guard let data = defaults.data(forKey: currentMonthSnapshotKey) else { return nil }
-
-        do {
-            return try JSONDecoder().decode(WorkoutMonthSnapshot.self, from: data)
-        } catch {
-            logger.error("Snapshot decode failed: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
     }
 }

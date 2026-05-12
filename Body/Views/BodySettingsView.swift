@@ -145,8 +145,8 @@ struct BodySettingsView: View {
     }
 
     private var appVersionDisplay: String {
-        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.3"
-        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.6"
+        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "6"
         return "\(appVersion) (\(buildNumber))"
     }
 

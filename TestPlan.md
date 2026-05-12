@@ -1,14 +1,14 @@
 # Body Test Plan
 
-Generated 2026-05-10 against branch `codex/body-v0.1.0`.
+Generated 2026-05-12 against branch `codex/body-v0.2.6`.
 
 ## 1. Project Testing Overview
 
 ### What Was Reviewed
 
-- App entry and screens: `Body/BodyApp.swift`, `Body/Views/BodyHomeView.swift`, `Body/Views/BodyChartsView.swift`, `Body/Views/BodySettingsView.swift`
+- App entry and screens: `Body/BodyApp.swift`, `Body/Views/BodyHomeView.swift`, `Body/Views/BodyWorkoutsView.swift`, `Body/Views/BodyChartsView.swift`, `Body/Views/BodyMonthYearPicker.swift`, `Body/Views/BodySettingsView.swift`
 - HealthKit ingestion: `Body/Services/HealthKitWorkoutStore.swift`
-- Shared model/storage/UI: `BodyShared/Models/*`, `BodyShared/Services/WorkoutSnapshotStore.swift`, `BodyShared/Components/WorkoutCalendarView.swift`
+- Shared model/storage/UI: `BodyShared/Models/*`, `BodyShared/Services/WorkoutSnapshotStore.swift`, `BodyShared/Components/WorkoutCalendarView.swift`, `BodyShared/Components/WorkoutTypeBreakdownView.swift`
 - Widget extension: `BodyWidgetExtension/WorkoutCalendarWidget.swift`, `BodyWidgetExtension/BodyWidgetExtensionBundle.swift`
 - Configuration: `Body/Body.entitlements`, `BodyWidgetExtension.entitlements`, privacy manifests, `body.xcodeproj/project.pbxproj`
 - Existing tests: `BodyTests/WorkoutMonthSnapshotTests.swift`, `BodyTests/ProjectConfigurationTests.swift`
@@ -28,6 +28,11 @@ Generated 2026-05-10 against branch `codex/body-v0.1.0`.
 | A9 | High | Workout type breakdown aggregates duration | Monthly workout type totals are sorted by total duration and keep workout counts |
 | A10 | High | HealthKit workout activity mapping preserves specific types | Non-strength Apple Health workouts such as pickleball, pilates, rowing, soccer, tennis, cooldown, swim-bike-run, and underwater diving map to specific Body workout types instead of generic Workout |
 | A11 | Medium | Unit preference overrides locale | Explicit Metric/Imperial choices override locale-driven kg/km vs lb/mi formatting |
+| A12 | High | Workouts filter logic | Tapping a workout type plainly toggles it, and active-filter state remains visible even when the selected month has no matching types |
+| A13 | Medium | Health trend ranges | Recent Week limits to 7 days and Recent Month limits to 30 days using Body's Gregorian calendar |
+| A14 | Medium | Sleep-stage-only summaries | Health summaries with sleep stages but no duration or vitals are not treated as empty |
+| A15 | Medium | Calendar day drill-down gating | Empty calendar days are not selectable, while workout days with a handler remain selectable |
+| A16 | Medium | Month picker relative list | Month-year lists rebuild relative to the supplied current date so a new month can appear after a calendar-day change |
 
 ## 3. Manual Tests
 
@@ -51,12 +56,15 @@ Generated 2026-05-10 against branch `codex/body-v0.1.0`.
 | M16 | High | Home card health trends | Tap each Home health card after refreshing Health data | A secondary screen opens with the current value and a Last 7 Days chart by default; non-energy metrics use line charts with dot markers, Active Energy and Resting Energy use bar charts, Basics shows a single dual-axis Weight and Body Fat chart with no BMI chart, and Sleep shows today's three-category Sleep Score, today's stage timeline with soft transition shading, an Apple-style high/typical/low Sleep Vitals chart with Sleep Duration as the fifth metric, and the week/month trend chart at the bottom |
 | M17 | Medium | Unit setting | In Settings > Units, choose System, Metric, and Imperial | Basics weight display and chart switch between kg and lb, and workout distance rows switch between km and mi |
 | M18 | Medium | Home card detail trend range | Tap several Home cards, then switch each detail screen between Recent Week and Recent Month | Detail charts switch between Last 7 Days and Last 30 Days for every Home card, with Recent Week as the default; Recent Week x-axis labels show weekday names and Recent Month labels show dates |
+| M19 | High | Workouts sort, filter, and search | Open Workouts, change sort order, filter to a single type, search by type/source/date, then change months | Visible rows, empty-state copy, and Reset Filters affordance match the active controls |
+| M20 | High | Workout detail sheet | Tap a workout row from Workouts and from a Charts drill-down sheet on small and large iPhones | The sheet shows duration, energy, distance, heart rate, effort, source, and chart content without clipped controls |
+| M21 | High | Activity Rings pagination | Open Home > Activity Rings and scroll upward one month at a time | Older months load only after user scroll gestures and do not prefetch empty placeholder months during initial layout |
+| M22 | Medium | Month boundary refresh | Keep Charts or Workouts open across midnight at a month boundary, or simulate `.NSCalendarDayChanged` | The new current month appears in the picker without a cold launch |
 
 ## 4. Deferred Coverage
 
-- Historical month navigation.
+- Historical month navigation beyond the loaded/paginated ranges.
 - Lock Screen widgets.
 - AppIntent widget configuration.
-- Workout detail drill-downs.
 - HealthKit background delivery.
 - Localization beyond English.

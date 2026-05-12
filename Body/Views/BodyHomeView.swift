@@ -271,6 +271,7 @@ struct BodyHomeView: View {
         switch kind {
         case .sleep:
             return BodyHealthMetricDetailModel(
+                kind: kind,
                 title: "Sleep",
                 value: formattedSleepDuration(summary.sleep.duration),
                 unit: "",
@@ -298,6 +299,7 @@ struct BodyHomeView: View {
                 "BMI " + BodyValueFormat.numberText($0, decimals: 1)
             }
             return BodyHealthMetricDetailModel(
+                kind: kind,
                 title: "Basics",
                 value: display?.value ?? "--",
                 unit: display?.unit ?? massUnit,
@@ -338,6 +340,7 @@ struct BodyHomeView: View {
                 unitPreference: selectedUnitPreference
             ).unit
             return BodyHealthMetricDetailModel(
+                kind: kind,
                 title: "Weight",
                 value: display?.value ?? "--",
                 unit: display?.unit ?? massUnit,
@@ -442,6 +445,7 @@ struct BodyHomeView: View {
     ) -> BodyHealthMetricDetailModel {
         let suffix = unit.isEmpty ? "" : " " + unit
         return BodyHealthMetricDetailModel(
+            kind: kind,
             title: title,
             value: summary.value.map { BodyValueFormat.numberText($0, decimals: decimals) } ?? "--",
             unit: unit,
@@ -498,6 +502,7 @@ private enum BodyHealthMetricChartStyle {
 }
 
 private struct BodyHealthMetricDetailModel {
+    let kind: HealthMetricKind
     let title: String
     let value: String
     let unit: String
@@ -516,6 +521,7 @@ private struct BodyHealthMetricDetailModel {
     let helpText: HealthMetricDetailHelpText?
 
     init(
+        kind: HealthMetricKind,
         title: String,
         value: String,
         unit: String,
@@ -533,6 +539,7 @@ private struct BodyHealthMetricDetailModel {
         headerSecondaryText: String? = nil,
         helpText: HealthMetricDetailHelpText? = nil
     ) {
+        self.kind = kind
         self.title = title
         self.value = value
         self.unit = unit
@@ -588,7 +595,7 @@ private struct BodyHealthMetricDetailView: View {
     }
 
     private var isSleepDetail: Bool {
-        model.title == "Sleep"
+        model.kind == .sleep
     }
 
     @ViewBuilder
@@ -690,7 +697,7 @@ private struct BodyHealthMetricDetailView: View {
 
                 Spacer(minLength: 12)
 
-                if model.title == "Basics" {
+                if model.kind == .basics {
                     BodyBasicsTrendLegend(
                         weightColor: model.symbolColor,
                         bodyFatColor: basicsBodyFatColor
@@ -1069,7 +1076,7 @@ private struct BodyHealthMetricDetailView: View {
     }
 
     private var averageSleepText: String? {
-        guard model.title == "Sleep", !visibleSeries.isEmpty else {
+        guard model.kind == .sleep, !visibleSeries.isEmpty else {
             return nil
         }
 
@@ -1907,7 +1914,9 @@ private struct BodyActivityRingsDetailView: View {
                 if let currentMonthID = calendarMonths.last?.id {
                     proxy.scrollTo(currentMonthID, anchor: .bottom)
                 }
-                DispatchQueue.main.async {
+                Task { @MainActor in
+                    // Let initial LazyVStack layout settle before pagination can react to onAppear.
+                    await Task.yield()
                     canLoadOlderMonths = true
                 }
             }
@@ -2002,11 +2011,7 @@ private struct BodyActivityRingsDetailView: View {
     }
 
     private var weekdaySymbols: [String] {
-        let symbols = DateFormatter().veryShortStandaloneWeekdaySymbols ?? []
-        let fallback = ["S", "M", "T", "W", "T", "F", "S"]
-        let source = symbols.isEmpty ? fallback : symbols
-        let startIndex = max(0, calendar.firstWeekday - 1)
-        return Array(source[startIndex...]) + Array(source[..<startIndex])
+        calendar.bodyRotatedVeryShortWeekdaySymbols()
     }
 
     private func leadingBlankCount(for month: ActivityRingCalendarMonth) -> Int {
@@ -2014,8 +2019,7 @@ private struct BodyActivityRingsDetailView: View {
             return 0
         }
 
-        let weekday = calendar.component(.weekday, from: firstDate)
-        return (weekday - calendar.firstWeekday + 7) % 7
+        return calendar.leadingBlankDayCount(for: firstDate)
     }
 
     private func monthTitle(for month: ActivityRingCalendarMonth) -> String {
@@ -2445,7 +2449,7 @@ private struct BodyHealthNoticeBanner: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "heart.text.square.fill")
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(.blue)
+                .foregroundColor(.accentColor)
                 .accessibilityHidden(true)
 
             Text(message)

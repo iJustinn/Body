@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import os
 
 enum HealthMetricKind: String, CaseIterable, Identifiable {
     case sleep
@@ -85,6 +86,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
     var isEmpty: Bool {
         activityRings.isEmpty &&
             sleep.duration == nil &&
+            sleep.stageSnapshot.isEmpty &&
             sleep.vitals.isEmpty &&
             restingHeartRate.value == nil &&
             bodyMass.value == nil &&
@@ -765,9 +767,14 @@ struct HealthDashboardSnapshot: Codable, Equatable {
 
 enum HealthDashboardSnapshotStore {
     static let healthDashboardSnapshotKey = "lastHealthDashboardSnapshot"
+    private static let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "HealthDashboardSnapshotStore")
 
     static func save(_ snapshot: HealthDashboardSnapshot, defaults: UserDefaults = .standard) {
-        guard let data = try? JSONEncoder().encode(snapshot) else {
+        let data: Data
+        do {
+            data = try JSONEncoder().encode(snapshot)
+        } catch {
+            logger.error("Health dashboard snapshot encode failed: \(error.localizedDescription, privacy: .public)")
             return
         }
 
@@ -779,7 +786,12 @@ enum HealthDashboardSnapshotStore {
             return nil
         }
 
-        return try? JSONDecoder().decode(HealthDashboardSnapshot.self, from: data)
+        do {
+            return try JSONDecoder().decode(HealthDashboardSnapshot.self, from: data)
+        } catch {
+            logger.error("Health dashboard snapshot decode failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     static func loadOrEmpty(defaults: UserDefaults = .standard) -> HealthDashboardSnapshot {
@@ -850,7 +862,7 @@ struct BasicsTrendSummary: Equatable {
 
     static let empty = BasicsTrendSummary(weight: .empty, bodyFat: .empty)
 
-    func limited(to range: BodyHealthTrendRange, calendar: Calendar = .current, date: Date = Date()) -> BasicsTrendSummary {
+    func limited(to range: BodyHealthTrendRange, calendar: Calendar = .bodyGregorian, date: Date = Date()) -> BasicsTrendSummary {
         BasicsTrendSummary(
             weight: weight.limited(to: range, calendar: calendar, date: date),
             bodyFat: bodyFat.limited(to: range, calendar: calendar, date: date)
@@ -890,11 +902,7 @@ struct HealthTrendSeries: Codable, Equatable {
         )
     }
 
-    func limited(to range: BodyHealthTrendRange, calendar: Calendar = .current, date: Date = Date()) -> HealthTrendSeries {
-        guard range != .recentMonth else {
-            return self
-        }
-
+    func limited(to range: BodyHealthTrendRange, calendar: Calendar = .bodyGregorian, date: Date = Date()) -> HealthTrendSeries {
         let currentDayStart = calendar.startOfDay(for: date)
         let startDate = calendar.date(byAdding: .day, value: -(range.dayCount - 1), to: currentDayStart)
             ?? currentDayStart

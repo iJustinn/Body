@@ -11,6 +11,12 @@ enum WorkoutCalendarDisplayStyle: Equatable {
     case widgetLarge
 }
 
+enum WorkoutCalendarDaySelection {
+    static func isSelectable(_ day: WorkoutDaySummary, hasSelectionHandler: Bool) -> Bool {
+        hasSelectionHandler && day.workoutCount > 0
+    }
+}
+
 struct WorkoutCalendarView: View {
     @Environment(\.colorScheme) private var colorScheme
 
@@ -73,7 +79,9 @@ struct WorkoutCalendarView: View {
                 calendarCellContent(day)
                     .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                     .onTapGesture {
-                        onSelectDay?(day)
+                        if WorkoutCalendarDaySelection.isSelectable(day, hasSelectionHandler: onSelectDay != nil) {
+                            onSelectDay?(day)
+                        }
                     }
             } else {
                 Color.clear
@@ -94,20 +102,18 @@ struct WorkoutCalendarView: View {
                         .foregroundColor(workoutType.calendarContentColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
+
+                    workoutMarkers(
+                        count: day.workoutCount,
+                        color: workoutType.calendarContentColor
+                    )
                 } else {
                     Text("\(day.day)")
                         .font(.system(size: 22, weight: .bold, design: .rounded))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
-                }
 
-                if day.workoutCount > 0 {
-                    workoutMarkers(
-                        count: day.workoutCount,
-                        color: day.primaryWorkoutType?.calendarContentColor ?? .white
-                    )
-                } else {
                     Color.clear
                         .frame(height: 9)
                 }
@@ -115,7 +121,7 @@ struct WorkoutCalendarView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel(for: day))
-        .accessibilityHint(onSelectDay == nil ? "" : "Open workouts for this day")
+        .accessibilityHint(WorkoutCalendarDaySelection.isSelectable(day, hasSelectionHandler: onSelectDay != nil) ? "Open workouts for this day" : "")
     }
 
     private var calendarCells: [WorkoutDaySummary?] {
@@ -123,11 +129,7 @@ struct WorkoutCalendarView: View {
     }
 
     private var weekdaySymbols: [String] {
-        let symbols = DateFormatter().veryShortStandaloneWeekdaySymbols ?? []
-        let fallback = ["S", "M", "T", "W", "T", "F", "S"]
-        let source = symbols.isEmpty ? fallback : symbols
-        let startIndex = max(0, Calendar.bodyGregorian.firstWeekday - 1)
-        return Array(source[startIndex...]) + Array(source[..<startIndex])
+        Calendar.bodyGregorian.bodyRotatedVeryShortWeekdaySymbols()
     }
 
     private func cellFill(for day: WorkoutDaySummary) -> Color {

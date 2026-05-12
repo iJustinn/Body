@@ -25,25 +25,6 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.day(9)?.primaryWorkoutType, .strengthTraining)
     }
 
-    func testSnapshotStoreRoundTripsCurrentMonthSnapshot() throws {
-        let suiteName = "BodyTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer {
-            defaults.removePersistentDomain(forName: suiteName)
-        }
-
-        let snapshot = WorkoutMonthSnapshot.make(
-            month: 5,
-            year: 2026,
-            workouts: [workout(day: 3, type: .cycling, duration: 4_200)],
-            calendar: .bodyGregorian
-        )
-
-        WorkoutSnapshotStore.save(snapshot, defaults: defaults)
-
-        XCTAssertEqual(WorkoutSnapshotStore.load(defaults: defaults), snapshot)
-    }
-
     func testSnapshotStoreRoundTripsCurrentMonthSnapshotFromFileURL() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("BodyTests-\(UUID().uuidString)", isDirectory: true)
@@ -278,14 +259,14 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
     func testHealthTrendSeriesLimitsToRecentWeek() throws {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 15)))
-        let points = try (-29...0).enumerated().map { index, offset -> HealthTrendDataPoint in
+        let points = try (-39...0).enumerated().map { index, offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: currentDate)))
             return HealthTrendDataPoint(date: date, value: Double(index))
         }
         let series = HealthTrendSeries(points: points)
 
-        XCTAssertEqual(series.limited(to: .recentWeek, calendar: calendar, date: currentDate).points.map(\.value), [23, 24, 25, 26, 27, 28, 29])
-        XCTAssertEqual(series.limited(to: .recentMonth, calendar: calendar, date: currentDate), series)
+        XCTAssertEqual(series.limited(to: .recentWeek, calendar: calendar, date: currentDate).points.map(\.value), [33, 34, 35, 36, 37, 38, 39])
+        XCTAssertEqual(series.limited(to: .recentMonth, calendar: calendar, date: currentDate).points.map(\.value), Array(10...39).map(Double.init))
     }
 
     func testBasicsTrendSummaryLimitsWeightAndBodyFatTogether() throws {
@@ -508,6 +489,95 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.dateInterval?.end, startDate.addingTimeInterval(90 * 60))
         XCTAssertFalse(summary.sleep.vitals.isEmpty)
         XCTAssertFalse(summary.isEmpty)
+    }
+
+    func testSleepStagesMakeHealthSummaryNonEmptyWithoutDurationOrVitals() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 2)
+        ))
+        let snapshot = SleepStageSnapshot(
+            date: Calendar.bodyGregorian.startOfDay(for: startDate),
+            segments: [
+                SleepStageSegment(
+                    stage: .core,
+                    startDate: startDate,
+                    endDate: startDate.addingTimeInterval(60 * 60)
+                )
+            ]
+        )
+        let summary = HealthSummarySnapshot(
+            activityRings: .empty,
+            sleep: SleepSummary(duration: nil, stageSnapshot: snapshot),
+            restingHeartRate: HealthMetricSummary(value: nil),
+            bodyMass: HealthMetricSummary(value: nil),
+            bodyFatPercentage: HealthMetricSummary(value: nil),
+            heartRateVariability: HealthMetricSummary(value: nil),
+            respiratoryRate: HealthMetricSummary(value: nil),
+            oxygenSaturation: HealthMetricSummary(value: nil),
+            bodyMassIndex: HealthMetricSummary(value: nil),
+            activeEnergy: HealthMetricSummary(value: nil),
+            restingEnergy: HealthMetricSummary(value: nil)
+        )
+
+        XCTAssertFalse(summary.sleep.stageSnapshot.isEmpty)
+        XCTAssertFalse(summary.isEmpty)
+    }
+
+    func testWorkoutCalendarDaySelectionRequiresWorkoutsAndHandler() {
+        let emptyDay = WorkoutDaySummary(dateKey: "2026-05-01", day: 1, workouts: [])
+        let activeDay = WorkoutDaySummary(
+            dateKey: "2026-05-02",
+            day: 2,
+            workouts: [workout(day: 2, type: .running, duration: 1_800)]
+        )
+
+        XCTAssertFalse(WorkoutCalendarDaySelection.isSelectable(emptyDay, hasSelectionHandler: true))
+        XCTAssertFalse(WorkoutCalendarDaySelection.isSelectable(activeDay, hasSelectionHandler: false))
+        XCTAssertTrue(WorkoutCalendarDaySelection.isSelectable(activeDay, hasSelectionHandler: true))
+    }
+
+    func testWorkoutTypeFilterUsesPlainToggleSemantics() {
+        var selectedTypes = Set(BodyWorkoutType.allCases)
+
+        selectedTypes = BodyWorkoutFilterLogic.toggled(.running, in: selectedTypes)
+        XCTAssertFalse(selectedTypes.contains(.running))
+        XCTAssertEqual(selectedTypes.count, BodyWorkoutType.allCases.count - 1)
+
+        selectedTypes = [.running]
+        selectedTypes = BodyWorkoutFilterLogic.toggled(.running, in: selectedTypes)
+        XCTAssertTrue(selectedTypes.isEmpty)
+
+        selectedTypes = BodyWorkoutFilterLogic.toggled(.running, in: selectedTypes)
+        XCTAssertEqual(selectedTypes, [.running])
+    }
+
+    func testWorkoutTypeFilterActiveStateUsesUniversalTypeSet() {
+        XCTAssertFalse(BodyWorkoutFilterLogic.hasActiveFilters(selectedTypes: Set(BodyWorkoutType.allCases)))
+        XCTAssertTrue(BodyWorkoutFilterLogic.hasActiveFilters(selectedTypes: [.running]))
+        XCTAssertTrue(BodyWorkoutFilterLogic.hasActiveFilters(selectedTypes: []))
+    }
+
+    func testMonthYearPickerBuildsListRelativeToProvidedDate() throws {
+        let calendar = Calendar.bodyGregorian
+        let mayEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 31, hour: 23)))
+        let juneStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 1)))
+
+        XCTAssertEqual(
+            BodyMonthYearPicker.monthYearList(monthsToShow: 3, relativeTo: mayEnd, calendar: calendar),
+            [
+                BodyMonthYear(month: 3, year: 2026),
+                BodyMonthYear(month: 4, year: 2026),
+                BodyMonthYear(month: 5, year: 2026)
+            ]
+        )
+        XCTAssertEqual(
+            BodyMonthYearPicker.monthYearList(monthsToShow: 3, relativeTo: juneStart, calendar: calendar),
+            [
+                BodyMonthYear(month: 4, year: 2026),
+                BodyMonthYear(month: 5, year: 2026),
+                BodyMonthYear(month: 6, year: 2026)
+            ]
+        )
     }
 
     func testSleepVitalReferenceRangeClassifiesRegionsAndMarkerPosition() {

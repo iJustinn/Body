@@ -31,14 +31,16 @@ struct BodyMonthYear: Identifiable, Equatable {
 }
 
 struct BodyMonthYearPicker: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Binding var selectedMonth: Int
     @Binding var selectedYear: Int
 
-    private let monthYearList: [BodyMonthYear]
+    private let monthsToShow: Int
     private let allowFutureMonths: Bool
     private let onMonthYearChanged: (() -> Void)?
     private let onMonthYearRequested: ((BodyMonthYear) -> Bool)?
 
+    @State private var monthYearList: [BodyMonthYear]
     @State private var selectedIndex: Int = 0
     @State private var dragOffset: CGFloat = 0
     @State private var isSyncingSelectedIndex = false
@@ -55,12 +57,13 @@ struct BodyMonthYearPicker: View {
     ) {
         self._selectedMonth = selectedMonth
         self._selectedYear = selectedYear
+        self.monthsToShow = monthsToShow
         self.allowFutureMonths = allowFutureMonths
         self.onMonthYearChanged = onMonthYearChanged
         self.onMonthYearRequested = onMonthYearRequested
 
         let list = Self.monthYearList(monthsToShow: monthsToShow)
-        self.monthYearList = list
+        self._monthYearList = State(initialValue: list)
         let initialIndex = list.firstIndex {
             $0.month == selectedMonth.wrappedValue && $0.year == selectedYear.wrappedValue
         } ?? 0
@@ -133,6 +136,14 @@ struct BodyMonthYearPicker: View {
         .onAppear {
             syncSelectedIndex()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            refreshMonthYearListIfNeeded()
+        }
+        .onChange(of: scenePhase) {
+            if scenePhase == .active {
+                refreshMonthYearListIfNeeded()
+            }
+        }
         .onChange(of: selectedMonth) {
             syncSelectedIndex()
         }
@@ -141,7 +152,7 @@ struct BodyMonthYearPicker: View {
         }
     }
 
-    private static func monthYearList(
+    static func monthYearList(
         monthsToShow: Int,
         relativeTo date: Date = Date(),
         calendar: Calendar = .bodyGregorian
@@ -168,6 +179,16 @@ struct BodyMonthYearPicker: View {
         return list
     }
 
+    private func refreshMonthYearListIfNeeded(relativeTo date: Date = Date()) {
+        let updatedList = Self.monthYearList(monthsToShow: monthsToShow, relativeTo: date)
+        guard updatedList != monthYearList else {
+            return
+        }
+
+        monthYearList = updatedList
+        syncSelectedIndex(in: updatedList)
+    }
+
     private var visibleMonthIndices: [Int] {
         guard !monthYearList.isEmpty else {
             return []
@@ -183,7 +204,11 @@ struct BodyMonthYearPicker: View {
     }
 
     private func syncSelectedIndex() {
-        guard let index = monthYearList.firstIndex(where: { $0.month == selectedMonth && $0.year == selectedYear }),
+        syncSelectedIndex(in: monthYearList)
+    }
+
+    private func syncSelectedIndex(in list: [BodyMonthYear]) {
+        guard let index = list.firstIndex(where: { $0.month == selectedMonth && $0.year == selectedYear }),
               selectedIndex != index else {
             return
         }
@@ -268,6 +293,7 @@ struct BodyMonthYearPicker: View {
     private func returnToCurrentMonth() {
         let calendar = Calendar.bodyGregorian
         let today = Date()
+        refreshMonthYearListIfNeeded(relativeTo: today)
         let currentMonth = calendar.component(.month, from: today)
         let currentYear = calendar.component(.year, from: today)
 
