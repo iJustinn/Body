@@ -4,6 +4,48 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 
 ## Entries
 
+### 2026-05-12 - Do not synthesize unloaded Activity Ring calendar months
+- Context: Fixing Activity Rings history where months just beyond the recent three rendered as empty rings before the user paged into them.
+- Symptom: The recent three months had data, but the calendar still showed empty template months between loaded history ranges.
+- Cause: `ActivityRingHistorySnapshot.calendarMonths` filled every month between the oldest loaded data and the current month instead of rendering only loaded month keys.
+- Fix: Build calendar months from loaded/data month starts only, add a newest-month display limit for the detail view, and reveal or fetch one older loaded month per user upward scroll.
+- Reuse: For lazy Activity Rings history, separate loaded data from visible history; never create intermediate calendar sections unless their month key has actually been loaded.
+
+### 2026-05-12 - Keep Activity Ring month loads inside requested months
+- Context: Fixing Activity Rings calendar months that kept only day 1 after loading older history.
+- Symptom: Loading January could leave February with only February 1, and later dates rendered as empty start rings.
+- Cause: HealthKit activity-summary ranges can include boundary days, and `replacingLoadedMonths` inferred replacement months from returned day dates instead of the explicit loaded month keys.
+- Fix: End one-month fetches on the last day of the month, filter fetched days to explicit `ActivityRingMonthKey`s, replace only explicit loaded months, and repair cached boundary-truncated months on store startup.
+- Reuse: When extending Activity Rings history loading, treat `loadedMonthKeys` as the source of truth and avoid inferring replacement scope from returned `HKActivitySummary` day dates.
+
+### 2026-05-12 - Gate Activity Rings calendar pagination on user scrolls
+- Context: The Activity Rings calendar loaded older months through `LazyVStack` section `onAppear`.
+- Symptom: The calendar could show many older months as empty rings even though the user had not intentionally paged to them.
+- Cause: `LazyVStack` may prefetch offscreen sections, so an oldest-month `onAppear` can run during initial layout or programmatic scroll-to-current-month.
+- Fix: Track a user-scroll token and allow only one previous-month load per scroll gesture; keep loaded empty months available for pagination but do not display leading empty placeholder months.
+- Reuse: For SwiftUI lazy scroll pagination, pair `onAppear` with an explicit user gesture/scroll gate before starting network or HealthKit loads.
+
+### 2026-05-12 - Keep build number tests in sync with project bumps
+- Context: Bumping Body's Xcode build number in `body.xcodeproj/project.pbxproj`.
+- Symptom: The full `xcodebuild test` run passed the app code tests but failed `ProjectConfigurationTests.testProjectBuildSettingsMatchInitialReleasePlan`.
+- Cause: The configuration test asserts the literal `CURRENT_PROJECT_VERSION` value.
+- Fix: Update `BodyTests/ProjectConfigurationTests.swift` in the same change when bumping `CURRENT_PROJECT_VERSION`.
+- Reuse: Any time the app or widget build number changes, update the project configuration expectation before rerunning the suite.
+
+### 2026-05-11 - Avoid persistent opacity state for drag styling
+- Context: Home card reordering left the last dragged card visibly darker after dropping.
+- Symptom: A card such as Resting Energy stayed dimmed after reorder completed.
+- Cause: `draggedHomeCard` could remain set when a drop finished on a gap or empty slot, so `.opacity(0.55)` kept applying to the last dragged card.
+- Fix: Remove custom opacity/scale styling from `reorderableHomeCard` and rely on the system drag preview for active drag feedback.
+- Reuse: For SwiftUI drag/drop reorder surfaces, avoid persistent state-driven opacity unless every cancel/drop path is guaranteed to clear the state.
+
+### 2026-05-11 - Do not rely on `gridCellColumns` in `LazyVGrid`
+- Context: Fixing Home card reordering after Activity Rings appeared as a narrow one-column card beside Sleep.
+- Symptom: `.gridCellColumns(2)` was applied to the Activity Rings card, but `LazyVGrid` still laid it out in a single metric-card slot.
+- Cause: The span modifier was not producing a real two-column item in this `LazyVGrid` layout.
+- Fix: Build explicit two-slot Home rows with `VStack`/`HStack`, and model Activity Rings as a two-slot card in `BodyHomeCardKind.layoutRows`.
+- Reuse: When a SwiftUI card must span Home's two metric columns, use explicit row composition or `Grid`, not `LazyVGrid` plus `gridCellColumns`.
+
 ### 2026-05-11 - Avoid `value` helper names inside Swift Charts axis closures
 - Context: Building a dual-axis Swift Charts card for Basics.
 - Symptom: `xcodebuild test` failed with `Cannot call value of non-function type 'AxisValue'`.

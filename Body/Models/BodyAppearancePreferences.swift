@@ -9,6 +9,162 @@ enum BodyAppearancePreference {
     static let selectedThemeKey = "selectedTheme"
     static let selectedAccentKey = "selectedAppAccent"
     static let selectedUnitPreferenceKey = "selectedUnitPreference"
+    static let homeCardOrderKey = "homeCardOrder"
+}
+
+enum BodyHomeCardKind: String, CaseIterable, Identifiable {
+    case activityRings
+    case sleep
+    case basics
+    case restingHeartRate
+    case heartRateVariability
+    case oxygenSaturation
+    case respiratoryRate
+    case activeEnergy
+    case restingEnergy
+
+    static let defaultOrder: [BodyHomeCardKind] = [
+        .activityRings,
+        .sleep,
+        .basics,
+        .restingHeartRate,
+        .heartRateVariability,
+        .oxygenSaturation,
+        .respiratoryRate,
+        .activeEnergy,
+        .restingEnergy
+    ]
+
+    static var defaultRawValue: String {
+        rawValue(from: defaultOrder)
+    }
+
+    var id: String {
+        rawValue
+    }
+
+    var slotCount: Int {
+        switch self {
+        case .activityRings:
+            return 2
+        default:
+            return 1
+        }
+    }
+
+    var healthMetricKind: HealthMetricKind? {
+        switch self {
+        case .activityRings:
+            return nil
+        case .sleep:
+            return .sleep
+        case .basics:
+            return .basics
+        case .restingHeartRate:
+            return .restingHeartRate
+        case .heartRateVariability:
+            return .heartRateVariability
+        case .oxygenSaturation:
+            return .oxygenSaturation
+        case .respiratoryRate:
+            return .respiratoryRate
+        case .activeEnergy:
+            return .activeEnergy
+        case .restingEnergy:
+            return .restingEnergy
+        }
+    }
+
+    static func storedOrder(from rawValue: String) -> [BodyHomeCardKind] {
+        repairedOrder(rawValue.split(separator: ",").compactMap { BodyHomeCardKind(rawValue: String($0)) })
+    }
+
+    static func rawValue(from order: [BodyHomeCardKind]) -> String {
+        repairedOrder(order).map(\.rawValue).joined(separator: ",")
+    }
+
+    static func reordered(
+        _ order: [BodyHomeCardKind],
+        moving source: BodyHomeCardKind,
+        to destination: BodyHomeCardKind
+    ) -> [BodyHomeCardKind] {
+        let baseOrder = repairedOrder(order)
+
+        guard source != destination,
+              let sourceIndex = baseOrder.firstIndex(of: source),
+              let destinationIndex = baseOrder.firstIndex(of: destination) else {
+            return baseOrder
+        }
+
+        var result = baseOrder
+        result.remove(at: sourceIndex)
+        let insertionIndex = sourceIndex < destinationIndex ? min(destinationIndex, result.count) : destinationIndex
+        result.insert(source, at: insertionIndex)
+        return repairedOrder(result)
+    }
+
+    static func layoutRows(from order: [BodyHomeCardKind]) -> [BodyHomeCardLayoutRow] {
+        var rows: [BodyHomeCardLayoutRow] = []
+        var currentCards: [BodyHomeCardKind] = []
+        var currentSlots = 0
+
+        for card in repairedOrder(order) {
+            if card.slotCount >= 2 {
+                if !currentCards.isEmpty {
+                    rows.append(BodyHomeCardLayoutRow(cards: currentCards))
+                    currentCards = []
+                    currentSlots = 0
+                }
+
+                rows.append(BodyHomeCardLayoutRow(cards: [card]))
+                continue
+            }
+
+            if currentSlots + card.slotCount > 2 {
+                rows.append(BodyHomeCardLayoutRow(cards: currentCards))
+                currentCards = []
+                currentSlots = 0
+            }
+
+            currentCards.append(card)
+            currentSlots += card.slotCount
+
+            if currentSlots == 2 {
+                rows.append(BodyHomeCardLayoutRow(cards: currentCards))
+                currentCards = []
+                currentSlots = 0
+            }
+        }
+
+        if !currentCards.isEmpty {
+            rows.append(BodyHomeCardLayoutRow(cards: currentCards))
+        }
+
+        return rows
+    }
+
+    private static func repairedOrder(_ order: [BodyHomeCardKind]) -> [BodyHomeCardKind] {
+        var seen = Set<BodyHomeCardKind>()
+        var repaired = order.filter { seen.insert($0).inserted }
+
+        for card in defaultOrder where !seen.contains(card) {
+            repaired.append(card)
+        }
+
+        return repaired
+    }
+}
+
+struct BodyHomeCardLayoutRow: Equatable, Identifiable {
+    let cards: [BodyHomeCardKind]
+
+    var id: String {
+        cards.map(\.rawValue).joined(separator: "-")
+    }
+
+    var slotCount: Int {
+        cards.reduce(0) { $0 + $1.slotCount }
+    }
 }
 
 enum BodyHealthTrendRange: String, CaseIterable, Identifiable {

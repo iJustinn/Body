@@ -39,19 +39,33 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot]
     @Published private(set) var healthSummary: HealthSummarySnapshot = .empty
     @Published private(set) var healthTrends: HealthTrendSnapshot = .empty
+    @Published private(set) var activityRingHistory: ActivityRingHistorySnapshot = .empty
     @Published private(set) var healthDataNotice: String?
     @Published private(set) var isRefreshing = false
     @Published private(set) var loadingMonthKeys: Set<BodyWorkoutMonthKey> = []
+    @Published private(set) var loadingActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
 
     private let healthStore = HKHealthStore()
     private var loadedMonthKeys: Set<BodyWorkoutMonthKey> = []
+    private var loadedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
     private var lastAppEntrySyncDate: Date?
 
-    init(initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrPlaceholder()) {
+    init(
+        initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrPlaceholder(),
+        initialHealthDashboardSnapshot: HealthDashboardSnapshot = HealthDashboardSnapshotStore.loadOrEmpty(),
+        date: Date = Date()
+    ) {
         snapshot = initialSnapshot
         monthSnapshots = [
             BodyWorkoutMonthKey(month: initialSnapshot.month, year: initialSnapshot.year): initialSnapshot
         ]
+        healthSummary = initialHealthDashboardSnapshot.summary
+        healthTrends = initialHealthDashboardSnapshot.trends
+        activityRingHistory = initialHealthDashboardSnapshot.activityRingHistory.removingLikelyBoundaryTruncatedLoadedMonths(
+            date: date,
+            calendar: .bodyGregorian
+        )
+        loadedActivityRingMonthKeys = Set(activityRingHistory.loadedMonthKeySet(calendar: .bodyGregorian))
     }
 
     func requestAuthorizationAndRefresh() async {
@@ -151,6 +165,69 @@ final class HealthKitWorkoutStore: ObservableObject {
         return loadedMonthKeys.contains(key)
     }
 
+    func loadPreviousActivityRingMonthIfNeeded(date: Date = Date()) async {
+        while isRefreshing, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        guard !Task.isCancelled, loadingActivityRingMonthKeys.isEmpty else {
+            return
+        }
+
+        guard HKHealthStore.isHealthDataAvailable() else {
+            authorizationState = .unavailable
+            healthDataNotice = "Apple Health is not available on this device."
+            return
+        }
+
+        let calendar = Calendar.bodyGregorian
+        if loadedActivityRingMonthKeys.isEmpty {
+            loadedActivityRingMonthKeys = Set(activityRingHistory.loadedMonthKeySet(calendar: calendar))
+        }
+
+        let loadedKeys = loadedActivityRingMonthKeys.isEmpty
+            ? [ActivityRingMonthKey(date: date, calendar: calendar)]
+            : loadedActivityRingMonthKeys.sortedByDate
+        guard
+            let earliestLoadedMonth = loadedKeys.first,
+            let earliestMonthStart = earliestLoadedMonth.startDate(calendar: calendar),
+            let previousMonthDate = calendar.date(byAdding: .month, value: -1, to: earliestMonthStart)
+        else {
+            return
+        }
+
+        let previousMonthKey = ActivityRingMonthKey(date: previousMonthDate, calendar: calendar)
+        guard !loadedActivityRingMonthKeys.contains(previousMonthKey) else {
+            return
+        }
+
+        loadingActivityRingMonthKeys.insert(previousMonthKey)
+        defer { loadingActivityRingMonthKeys.remove(previousMonthKey) }
+
+        do {
+            try await requestAuthorization()
+            let previousHistory = await fetchActivityRingHistory(monthKey: previousMonthKey, calendar: calendar)
+            guard !previousHistory.loadedMonthKeys.isEmpty else {
+                return
+            }
+
+            let nextHistory = activityRingHistory.replacingLoadedMonths(with: previousHistory, calendar: calendar)
+            activityRingHistory = nextHistory
+            loadedActivityRingMonthKeys = Set(nextHistory.loadedMonthKeySet(calendar: calendar))
+            HealthDashboardSnapshotStore.save(
+                HealthDashboardSnapshot(
+                    summary: healthSummary,
+                    trends: healthTrends,
+                    activityRingHistory: nextHistory
+                )
+            )
+            authorizationState = .authorized
+            updateHealthDataNotice()
+        } catch {
+            handleRefreshError(error)
+        }
+    }
+
     func refreshCurrentMonth(date: Date = Date()) async {
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
@@ -175,8 +252,15 @@ final class HealthKitWorkoutStore: ObservableObject {
             try await refresh(monthKeys: keys, calendar: calendar)
             async let nextHealthSummary = fetchHealthSummary(calendar: calendar)
             async let nextHealthTrends = fetchHealthTrends(calendar: calendar)
-            healthSummary = await nextHealthSummary
-            healthTrends = await nextHealthTrends
+            async let nextActivityRingHistory = fetchActivityRingHistory(calendar: calendar)
+            let fetchedHealthSummary = await nextHealthSummary
+            let fetchedHealthTrends = await nextHealthTrends
+            let fetchedActivityRingHistory = await nextActivityRingHistory
+            updateHealthDashboardSnapshot(
+                summary: fetchedHealthSummary,
+                trends: fetchedHealthTrends,
+                activityRingHistory: fetchedActivityRingHistory
+            )
             authorizationState = .authorized
             updateCurrentMonthSnapshot(date: date, calendar: calendar)
             updateHealthDataNotice()
@@ -196,8 +280,15 @@ final class HealthKitWorkoutStore: ObservableObject {
             if updatesHealthSummary {
                 async let nextHealthSummary = fetchHealthSummary(calendar: calendar)
                 async let nextHealthTrends = fetchHealthTrends(calendar: calendar)
-                healthSummary = await nextHealthSummary
-                healthTrends = await nextHealthTrends
+                async let nextActivityRingHistory = fetchActivityRingHistory(calendar: calendar)
+                let fetchedHealthSummary = await nextHealthSummary
+                let fetchedHealthTrends = await nextHealthTrends
+                let fetchedActivityRingHistory = await nextActivityRingHistory
+                updateHealthDashboardSnapshot(
+                    summary: fetchedHealthSummary,
+                    trends: fetchedHealthTrends,
+                    activityRingHistory: fetchedActivityRingHistory
+                )
             }
             authorizationState = .authorized
             updateCurrentMonthSnapshot(date: Date(), calendar: calendar)
@@ -252,6 +343,29 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
+    private func updateHealthDashboardSnapshot(
+        summary: HealthSummarySnapshot,
+        trends: HealthTrendSnapshot,
+        activityRingHistory: ActivityRingHistorySnapshot
+    ) {
+        let calendar = Calendar.bodyGregorian
+        let nextActivityRingHistory = self.activityRingHistory.replacingLoadedMonths(
+            with: activityRingHistory,
+            calendar: calendar
+        )
+        healthSummary = summary
+        healthTrends = trends
+        self.activityRingHistory = nextActivityRingHistory
+        loadedActivityRingMonthKeys = Set(nextActivityRingHistory.loadedMonthKeySet(calendar: calendar))
+        HealthDashboardSnapshotStore.save(
+            HealthDashboardSnapshot(
+                summary: summary,
+                trends: trends,
+                activityRingHistory: nextActivityRingHistory
+            )
+        )
+    }
+
     private func updateCurrentMonthSnapshot(date: Date, calendar: Calendar) {
         let currentKey = BodyWorkoutMonthKey(date: date, calendar: calendar)
         guard let currentSnapshot = monthSnapshots[currentKey] else {
@@ -264,7 +378,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     private func updateHealthDataNotice() {
-        guard snapshot.workoutCount == 0, healthSummary.isEmpty else {
+        guard snapshot.workoutCount == 0, healthSummary.isEmpty, activityRingHistory.isEmpty else {
             healthDataNotice = nil
             return
         }
@@ -297,6 +411,25 @@ final class HealthKitWorkoutStore: ObservableObject {
 
             return BodyWorkoutMonthKey(date: monthDate, calendar: calendar)
         })
+    }
+
+    private static func recentActivityRingMonthKeys(
+        count: Int,
+        from date: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> [ActivityRingMonthKey] {
+        guard let currentMonthStart = calendar.dateInterval(of: .month, for: date)?.start else {
+            return [ActivityRingMonthKey(date: date, calendar: calendar)]
+        }
+
+        return (0..<max(count, 1)).compactMap { offset in
+            guard let monthDate = calendar.date(byAdding: .month, value: -offset, to: currentMonthStart) else {
+                return nil
+            }
+
+            return ActivityRingMonthKey(date: monthDate, calendar: calendar)
+        }
+        .sortedByDate
     }
 
     private func requestAuthorization() async throws {
@@ -524,8 +657,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     private func fetchActivityRingSummary(calendar: Calendar, date: Date = Date()) async -> ActivityRingSummary {
-        var dateComponents = calendar.dateComponents([.year, .month, .day], from: date)
-        dateComponents.calendar = calendar
+        let dateComponents = Self.activityDateComponents(for: date, calendar: calendar)
 
         let predicate = HKQuery.predicateForActivitySummary(with: dateComponents)
         let descriptor = HKActivitySummaryQueryDescriptor(predicate: predicate)
@@ -535,20 +667,75 @@ final class HealthKitWorkoutStore: ObservableObject {
                 return .empty
             }
 
-            return ActivityRingSummary(
-                move: ActivityRingMetric(
-                    value: summary.activeEnergyBurned.doubleValue(for: .kilocalorie()),
-                    goal: summary.activeEnergyBurnedGoal.doubleValue(for: .kilocalorie())
-                ),
-                exercise: ActivityRingMetric(
-                    value: summary.appleExerciseTime.doubleValue(for: .minute()),
-                    goal: summary.appleExerciseTimeGoal.doubleValue(for: .minute())
-                ),
-                stand: ActivityRingMetric(
-                    value: summary.appleStandHours.doubleValue(for: .count()),
-                    goal: summary.appleStandHoursGoal.doubleValue(for: .count())
+            return Self.activityRingSummary(from: summary)
+        } catch {
+            return .empty
+        }
+    }
+
+    private func fetchActivityRingHistory(calendar: Calendar, date: Date = Date()) async -> ActivityRingHistorySnapshot {
+        let interval = activityRingHistoryInterval(calendar: calendar, date: date)
+        let loadedMonthKeys = Self.recentActivityRingMonthKeys(
+            count: Self.recentChartMonthCount,
+            from: date,
+            calendar: calendar
+        )
+        return await fetchActivityRingHistory(
+            start: interval.start,
+            end: interval.end,
+            loadedMonthKeys: loadedMonthKeys,
+            calendar: calendar
+        )
+    }
+
+    private func fetchActivityRingHistory(
+        monthKey: ActivityRingMonthKey,
+        calendar: Calendar
+    ) async -> ActivityRingHistorySnapshot {
+        guard
+            let start = monthKey.startDate(calendar: calendar),
+            let nextMonthStart = calendar.date(byAdding: .month, value: 1, to: start),
+            let end = calendar.date(byAdding: .day, value: -1, to: nextMonthStart)
+        else {
+            return ActivityRingHistorySnapshot(days: [], loadedMonthKeys: [monthKey])
+        }
+
+        return await fetchActivityRingHistory(
+            start: start,
+            end: end,
+            loadedMonthKeys: [monthKey],
+            calendar: calendar
+        )
+    }
+
+    private func fetchActivityRingHistory(
+        start: Date,
+        end: Date,
+        loadedMonthKeys: [ActivityRingMonthKey],
+        calendar: Calendar
+    ) async -> ActivityRingHistorySnapshot {
+        let startComponents = Self.activityDateComponents(for: start, calendar: calendar)
+        let endComponents = Self.activityDateComponents(for: end, calendar: calendar)
+        let predicate = HKQuery.predicate(forActivitySummariesBetweenStart: startComponents, end: endComponents)
+        let descriptor = HKActivitySummaryQueryDescriptor(predicate: predicate)
+
+        do {
+            let summaries = try await descriptor.result(for: healthStore)
+            let days = summaries.compactMap { summary -> ActivityRingDaySummary? in
+                let components = summary.dateComponents(for: calendar)
+                guard let date = calendar.date(from: components) else {
+                    return nil
+                }
+
+                return ActivityRingDaySummary(
+                    date: calendar.startOfDay(for: date),
+                    summary: Self.activityRingSummary(from: summary)
                 )
-            )
+            }
+            .sorted { $0.date < $1.date }
+
+            return ActivityRingHistorySnapshot(days: days, loadedMonthKeys: loadedMonthKeys)
+                .filteringDaysToLoadedMonths(calendar: calendar)
         } catch {
             return .empty
         }
@@ -998,6 +1185,37 @@ final class HealthKitWorkoutStore: ObservableObject {
         return (start, end)
     }
 
+    private func activityRingHistoryInterval(calendar: Calendar, date: Date = Date()) -> (start: Date, end: Date) {
+        let currentDayStart = calendar.startOfDay(for: date)
+        let currentMonthStart = calendar.dateInterval(of: .month, for: currentDayStart)?.start ?? currentDayStart
+        let start = calendar.date(byAdding: .month, value: -(Self.recentChartMonthCount - 1), to: currentMonthStart)
+            ?? currentMonthStart
+        return (start, currentDayStart)
+    }
+
+    nonisolated private static func activityDateComponents(for date: Date, calendar: Calendar) -> DateComponents {
+        var components = calendar.dateComponents([.era, .year, .month, .day], from: date)
+        components.calendar = calendar
+        return components
+    }
+
+    nonisolated private static func activityRingSummary(from summary: HKActivitySummary) -> ActivityRingSummary {
+        ActivityRingSummary(
+            move: ActivityRingMetric(
+                value: summary.activeEnergyBurned.doubleValue(for: .kilocalorie()),
+                goal: summary.activeEnergyBurnedGoal.doubleValue(for: .kilocalorie())
+            ),
+            exercise: ActivityRingMetric(
+                value: summary.appleExerciseTime.doubleValue(for: .minute()),
+                goal: summary.appleExerciseTimeGoal.doubleValue(for: .minute())
+            ),
+            stand: ActivityRingMetric(
+                value: summary.appleStandHours.doubleValue(for: .count()),
+                goal: summary.appleStandHoursGoal.doubleValue(for: .count())
+            )
+        )
+    }
+
     nonisolated private static func normalizedPercentDisplayValue(_ value: Double) -> Double {
         value <= 1 ? value * 100 : value
     }
@@ -1364,6 +1582,24 @@ final class HealthKitWorkoutStore: ObservableObject {
 
 private extension Set where Element == BodyWorkoutMonthKey {
     var sortedByDate: [BodyWorkoutMonthKey] {
+        sorted {
+            if $0.year == $1.year {
+                return $0.month < $1.month
+            }
+
+            return $0.year < $1.year
+        }
+    }
+}
+
+private extension Set where Element == ActivityRingMonthKey {
+    var sortedByDate: [ActivityRingMonthKey] {
+        Array(self).sortedByDate
+    }
+}
+
+private extension Array where Element == ActivityRingMonthKey {
+    var sortedByDate: [ActivityRingMonthKey] {
         sorted {
             if $0.year == $1.year {
                 return $0.month < $1.month
