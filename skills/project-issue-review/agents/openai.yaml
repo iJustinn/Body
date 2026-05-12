@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Issue Review"
+  short_description: "Read-only Body project audit."
+  default_prompt: "Audit the Body project and refresh Issues.md."

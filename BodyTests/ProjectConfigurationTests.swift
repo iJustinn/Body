@@ -50,27 +50,31 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.Body;"))
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.Body.BodyWidgetExtension;"))
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.BodyTests;"))
-        XCTAssertTrue(project.contains("ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = \"Body02 BodyPink BodyWhite\";"))
+        XCTAssertTrue(project.contains("ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = \"BodyClassicAlt BodyPink BodyPinkAlt BodyWhite BodyWhiteAlt\";"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_NSHealthShareUsageDescription"))
         XCTAssertTrue(project.contains("IPHONEOS_DEPLOYMENT_TARGET = 18.0;"))
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = 1;"))
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.2.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.2.3;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
     func testAppIconAssetsIncludePrimaryAndAlternateOptions() throws {
         let iconPaths = [
             "Body/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
-            "Body/Assets.xcassets/Body02.appiconset/Body02.png",
+            "Body/Assets.xcassets/BodyClassicAlt.appiconset/BodyClassicAlt.png",
             "Body/Assets.xcassets/BodyPink.appiconset/BodyPink.png",
+            "Body/Assets.xcassets/BodyPinkAlt.appiconset/BodyPinkAlt.png",
             "Body/Assets.xcassets/BodyWhite.appiconset/BodyWhite.png",
+            "Body/Assets.xcassets/BodyWhiteAlt.appiconset/BodyWhiteAlt.png",
             "Body/Assets.xcassets/BodyIcon01.imageset/BodyIcon01.png",
-            "Body/Assets.xcassets/BodyIcon02.imageset/BodyIcon02.png",
+            "Body/Assets.xcassets/BodyIconClassicAlt.imageset/BodyIconClassicAlt.png",
             "Body/Assets.xcassets/BodyIconPink.imageset/BodyIconPink.png",
+            "Body/Assets.xcassets/BodyIconPinkAlt.imageset/BodyIconPinkAlt.png",
             "Body/Assets.xcassets/BodyIconWhite.imageset/BodyIconWhite.png",
+            "Body/Assets.xcassets/BodyIconWhiteAlt.imageset/BodyIconWhiteAlt.png",
             "BodyWidgetExtension/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
         ]
 

@@ -145,8 +145,8 @@ struct BodySettingsView: View {
     }
 
     private var appVersionDisplay: String {
-        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.0"
-        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "2"
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.3"
+        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
         return "\(appVersion) (\(buildNumber))"
     }
 
@@ -501,11 +501,25 @@ private struct BodyAppIconOption: Identifiable, Equatable {
             previewAssetName: "BodyIconPink"
         ),
         BodyAppIconOption(
-            id: "body02",
-            displayName: "Clean",
+            id: "classicAlt",
+            displayName: "Classic Alt",
             descriptor: "Alternate",
-            alternateIconName: "Body02",
-            previewAssetName: "BodyIcon02"
+            alternateIconName: "BodyClassicAlt",
+            previewAssetName: "BodyIconClassicAlt"
+        ),
+        BodyAppIconOption(
+            id: "lightAlt",
+            displayName: "Light Alt",
+            descriptor: "Alternate",
+            alternateIconName: "BodyWhiteAlt",
+            previewAssetName: "BodyIconWhiteAlt"
+        ),
+        BodyAppIconOption(
+            id: "roseAlt",
+            displayName: "Rose Alt",
+            descriptor: "Alternate",
+            alternateIconName: "BodyPinkAlt",
+            previewAssetName: "BodyIconPinkAlt"
         )
     ]
 

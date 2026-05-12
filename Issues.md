@@ -554,9 +554,9 @@ Xcode workspace shared scheme XML.
 - **`SUPPORTS_MACCATALYST = NO`** and `TARGETED_DEVICE_FAMILY = 1`
   iPhone-only — matches README's "iOS 18.0+" claim.
 - **Widget target** is `APPLICATION_EXTENSION_API_ONLY = YES`. Good.
-- **`Body02 BodyPink BodyWhite`** listed in
-  `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES`; matches the four
-  options in `BodyAppIconOption.all` (one primary + three alternates).
+- **`BodyClassicAlt BodyPink BodyPinkAlt BodyWhite BodyWhiteAlt`** listed in
+  `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES`; matches the six
+  options in `BodyAppIconOption.all` (one primary + five alternates).
 - **Initial `git` state** is a single commit with everything else
   untracked. Worth landing the v0.1.0 source in tracked history before
   any audit work continues.

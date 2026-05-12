@@ -7,12 +7,13 @@ import Foundation
 
 enum HealthMetricKind: String, CaseIterable, Identifiable {
     case sleep
+    case basics
     case restingHeartRate
     case bodyMass
     case bodyFatPercentage
     case heartRateVariability
+    case respiratoryRate
     case oxygenSaturation
-    case vo2Max
     case bodyMassIndex
     case activeEnergy
     case restingEnergy
@@ -20,71 +21,550 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
     var id: String {
         rawValue
     }
+
+    var detailHelpText: HealthMetricDetailHelpText? {
+        switch self {
+        case .restingHeartRate:
+            return HealthMetricDetailHelpText(
+                title: "About Resting Heart Rate",
+                body: "Resting heart rate is the number of beats per minute while your body is at rest. A lower value can come with better aerobic fitness, but your own baseline matters most. Watch for sustained changes from your usual range, especially if they happen with symptoms, illness, stress, dehydration, or medication changes."
+            )
+        case .heartRateVariability:
+            return HealthMetricDetailHelpText(
+                title: "About HRV",
+                body: "Heart rate variability measures the small timing changes between heartbeats. Higher than your usual baseline often points to better recovery and lower strain; lower than usual can follow hard training, poor sleep, alcohol, illness, or stress. Compare trends over weeks instead of judging one day by itself."
+            )
+        case .respiratoryRate:
+            return HealthMetricDetailHelpText(
+                title: "About Respiratory Rate",
+                body: "Respiratory rate is breaths per minute, often measured during sleep or quiet periods. A stable personal baseline is usually the most useful signal. Sustained increases or drops can reflect illness, altitude, stress, alcohol, or sleep disruption; check with a clinician if the change is unusual for you."
+            )
+        case .oxygenSaturation:
+            return HealthMetricDetailHelpText(
+                title: "About Blood Oxygen",
+                body: "Blood oxygen estimates the percentage of oxygen carried by your blood. It is usually fairly steady at rest, and fit or motion can affect readings. Repeated low readings, sudden drops, or low values with shortness of breath, chest pain, or confusion need medical attention."
+            )
+        case .activeEnergy:
+            return HealthMetricDetailHelpText(
+                title: "About Active Energy",
+                body: "Active Energy estimates calories you burn through movement and workouts, above your resting needs. More is not automatically better; useful context comes from matching activity to your goals and checking how sleep, appetite, soreness, and recovery respond."
+            )
+        case .restingEnergy:
+            return HealthMetricDetailHelpText(
+                title: "About Resting Energy",
+                body: "Resting Energy estimates calories your body uses for basic functions while minimally active. It tends to change slowly with body size, age, sex, and lean mass. Day-to-day jumps are often measurement or model changes, so treat the trend as context rather than a target."
+            )
+        case .sleep,
+             .basics,
+             .bodyMass,
+             .bodyFatPercentage,
+             .bodyMassIndex:
+            return nil
+        }
+    }
 }
 
-struct HealthSummarySnapshot: Equatable {
+struct HealthMetricDetailHelpText: Equatable {
+    var title: String
+    var body: String
+}
+
+struct HealthSummarySnapshot: Codable, Equatable {
+    var activityRings: ActivityRingSummary
     var sleep: SleepSummary
     var restingHeartRate: HealthMetricSummary
     var bodyMass: HealthMetricSummary
     var bodyFatPercentage: HealthMetricSummary
     var heartRateVariability: HealthMetricSummary
+    var respiratoryRate: HealthMetricSummary
     var oxygenSaturation: HealthMetricSummary
-    var vo2Max: HealthMetricSummary
     var bodyMassIndex: HealthMetricSummary
     var activeEnergy: HealthMetricSummary
     var restingEnergy: HealthMetricSummary
 
     var isEmpty: Bool {
-        sleep.duration == nil &&
+        activityRings.isEmpty &&
+            sleep.duration == nil &&
+            sleep.vitals.isEmpty &&
             restingHeartRate.value == nil &&
             bodyMass.value == nil &&
             bodyFatPercentage.value == nil &&
             heartRateVariability.value == nil &&
+            respiratoryRate.value == nil &&
             oxygenSaturation.value == nil &&
-            vo2Max.value == nil &&
             bodyMassIndex.value == nil &&
             activeEnergy.value == nil &&
             restingEnergy.value == nil
     }
 
     static let empty = HealthSummarySnapshot(
+        activityRings: .empty,
         sleep: SleepSummary(duration: nil),
         restingHeartRate: HealthMetricSummary(value: nil),
         bodyMass: HealthMetricSummary(value: nil),
         bodyFatPercentage: HealthMetricSummary(value: nil),
         heartRateVariability: HealthMetricSummary(value: nil),
+        respiratoryRate: HealthMetricSummary(value: nil),
         oxygenSaturation: HealthMetricSummary(value: nil),
-        vo2Max: HealthMetricSummary(value: nil),
         bodyMassIndex: HealthMetricSummary(value: nil),
         activeEnergy: HealthMetricSummary(value: nil),
         restingEnergy: HealthMetricSummary(value: nil)
     )
 
     static let placeholder = HealthSummarySnapshot(
-        sleep: SleepSummary(duration: 28_740),
+        activityRings: ActivityRingSummary(
+            move: ActivityRingMetric(value: 670, goal: 500),
+            exercise: ActivityRingMetric(value: 76, goal: 40),
+            stand: ActivityRingMetric(value: 8, goal: 10)
+        ),
+        sleep: SleepSummary(
+            duration: 28_740,
+            vitals: SleepVitalsSummary(
+                heartRate: 58,
+                respiratoryRate: 14,
+                oxygenSaturation: 97,
+                wristTemperatureCelsius: 36.4
+            )
+        ),
         restingHeartRate: HealthMetricSummary(value: 60),
         bodyMass: HealthMetricSummary(value: 69.3),
         bodyFatPercentage: HealthMetricSummary(value: 13.1),
         heartRateVariability: HealthMetricSummary(value: 38.4),
+        respiratoryRate: HealthMetricSummary(value: 14),
         oxygenSaturation: HealthMetricSummary(value: 97),
-        vo2Max: HealthMetricSummary(value: 41.0),
         bodyMassIndex: HealthMetricSummary(value: 22.1),
         activeEnergy: HealthMetricSummary(value: 520),
         restingEnergy: HealthMetricSummary(value: 1_690)
     )
 }
 
-struct SleepSummary: Equatable {
-    var duration: TimeInterval?
-    var stageSnapshot: SleepStageSnapshot
+struct ActivityRingSummary: Codable, Equatable {
+    var move: ActivityRingMetric
+    var exercise: ActivityRingMetric
+    var stand: ActivityRingMetric
 
-    init(duration: TimeInterval?, stageSnapshot: SleepStageSnapshot = .empty) {
-        self.duration = duration
-        self.stageSnapshot = stageSnapshot
+    var isCompleted: Bool {
+        move.progress >= 1 &&
+            exercise.progress >= 1 &&
+            stand.progress >= 1
+    }
+
+    var isEmpty: Bool {
+        move.value == nil &&
+            move.goal == nil &&
+            exercise.value == nil &&
+            exercise.goal == nil &&
+            stand.value == nil &&
+            stand.goal == nil
+    }
+
+    static let empty = ActivityRingSummary(
+        move: .empty,
+        exercise: .empty,
+        stand: .empty
+    )
+}
+
+struct ActivityRingMetric: Codable, Equatable {
+    var value: Double?
+    var goal: Double?
+
+    var progress: Double {
+        min(completionProgress, 1)
+    }
+
+    var completionProgress: Double {
+        guard let value, let goal, goal > 0, value.isFinite, goal.isFinite else {
+            return 0
+        }
+
+        return max(value / goal, 0)
+    }
+
+    var headProgress: Double {
+        completionProgress.truncatingRemainder(dividingBy: 1)
+    }
+
+    var showsFullStartMarker: Bool {
+        completionProgress <= 0
+    }
+
+    static let empty = ActivityRingMetric(value: nil, goal: nil)
+}
+
+struct ActivityRingDaySummary: Codable, Equatable, Identifiable {
+    var date: Date
+    var summary: ActivityRingSummary
+
+    var id: Date {
+        date
     }
 }
 
-struct SleepStageSnapshot: Equatable {
+struct ActivityRingCalendarDay: Equatable, Identifiable {
+    var date: Date
+    var summary: ActivityRingSummary
+    var hasData: Bool
+    var isFuture: Bool
+
+    var id: Date {
+        date
+    }
+}
+
+struct ActivityRingCalendarMonth: Equatable, Identifiable {
+    var month: Int
+    var year: Int
+    var days: [ActivityRingCalendarDay]
+
+    var id: String {
+        "\(year)-\(month)"
+    }
+
+    var completedRingCount: Int {
+        days.filter { day in
+            day.hasData && !day.isFuture && day.summary.isCompleted
+        }
+        .count
+    }
+}
+
+struct ActivityRingCalendarPaginationGate: Equatable {
+    private(set) var scrollToken = 0
+    private var lastLoadToken = 0
+
+    mutating func recordUserScroll() {
+        scrollToken += 1
+    }
+
+    mutating func consumeLoadIfNeeded(isOldestVisible: Bool) -> Bool {
+        guard isOldestVisible, scrollToken > lastLoadToken else {
+            return false
+        }
+
+        lastLoadToken = scrollToken
+        return true
+    }
+}
+
+struct ActivityRingMonthKey: Codable, Equatable, Hashable, Identifiable {
+    let month: Int
+    let year: Int
+
+    var id: String {
+        "\(year)-\(month)"
+    }
+
+    init(month: Int, year: Int) {
+        self.month = month
+        self.year = year
+    }
+
+    init(date: Date, calendar: Calendar = .bodyGregorian) {
+        month = calendar.component(.month, from: date)
+        year = calendar.component(.year, from: date)
+    }
+
+    func startDate(calendar: Calendar = .bodyGregorian) -> Date? {
+        calendar.date(from: DateComponents(year: year, month: month, day: 1))
+    }
+}
+
+struct ActivityRingHistorySnapshot: Codable, Equatable {
+    var days: [ActivityRingDaySummary]
+    var loadedMonthKeys: [ActivityRingMonthKey]
+
+    var isEmpty: Bool {
+        days.isEmpty
+    }
+
+    static let empty = ActivityRingHistorySnapshot(days: [])
+
+    init(days: [ActivityRingDaySummary], loadedMonthKeys: [ActivityRingMonthKey] = []) {
+        self.days = days.sorted { $0.date < $1.date }
+        self.loadedMonthKeys = Self.sortedUniqueMonthKeys(loadedMonthKeys)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case days
+        case loadedMonthKeys
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        days = try container.decode([ActivityRingDaySummary].self, forKey: .days)
+            .sorted { $0.date < $1.date }
+        loadedMonthKeys = Self.sortedUniqueMonthKeys(
+            try container.decodeIfPresent([ActivityRingMonthKey].self, forKey: .loadedMonthKeys) ?? []
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(days, forKey: .days)
+        try container.encode(loadedMonthKeys, forKey: .loadedMonthKeys)
+    }
+
+    func calendarMonths(
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date(),
+        visibleLoadedMonthCount: Int? = nil
+    ) -> [ActivityRingCalendarMonth] {
+        let today = calendar.startOfDay(for: date)
+        var summariesByDay: [Date: ActivityRingSummary] = [:]
+        for day in days.sorted(by: { $0.date < $1.date }) {
+            summariesByDay[calendar.startOfDay(for: day.date)] = day.summary
+        }
+        let currentMonthStart = calendar.dateInterval(of: .month, for: today)?.start ?? today
+        let summaryMonthStarts = Set(summariesByDay.keys
+            .compactMap { calendar.dateInterval(of: .month, for: $0)?.start }
+            .filter { $0 <= currentMonthStart })
+        let loadedMonthStarts = loadedMonthKeySet(calendar: calendar)
+            .compactMap { $0.startDate(calendar: calendar) }
+            .filter { $0 <= currentMonthStart }
+        let earliestSummaryMonthStart = summaryMonthStarts.min()
+        let displayableLoadedMonthStarts = loadedMonthStarts.filter { loadedMonthStart in
+            guard let earliestSummaryMonthStart else {
+                return loadedMonthStart >= currentMonthStart
+            }
+
+            return loadedMonthStart >= earliestSummaryMonthStart
+        }
+        var monthStarts = Array(summaryMonthStarts.union(displayableLoadedMonthStarts))
+            .sorted()
+
+        if monthStarts.isEmpty {
+            monthStarts = [currentMonthStart]
+        }
+
+        if let visibleLoadedMonthCount {
+            monthStarts = Array(monthStarts.suffix(max(visibleLoadedMonthCount, 1)))
+        }
+
+        return monthStarts.compactMap { monthStart in
+            guard calendar.dateInterval(of: .month, for: monthStart) != nil else {
+                return nil
+            }
+
+            let month = calendar.component(.month, from: monthStart)
+            let year = calendar.component(.year, from: monthStart)
+            let dayRange = calendar.range(of: .day, in: .month, for: monthStart) ?? 1..<1
+            let calendarDays = dayRange.compactMap { day -> ActivityRingCalendarDay? in
+                guard let dayDate = calendar.date(from: DateComponents(year: year, month: month, day: day)) else {
+                    return nil
+                }
+
+                let dayStart = calendar.startOfDay(for: dayDate)
+                let summary = summariesByDay[dayStart]
+                return ActivityRingCalendarDay(
+                    date: dayStart,
+                    summary: summary ?? .empty,
+                    hasData: summary != nil,
+                    isFuture: dayStart > today
+                )
+            }
+
+            return ActivityRingCalendarMonth(month: month, year: year, days: calendarDays)
+        }
+    }
+
+    func loadedMonthKeySet(calendar: Calendar = .bodyGregorian) -> [ActivityRingMonthKey] {
+        let dayMonthKeys = days.map { ActivityRingMonthKey(date: $0.date, calendar: calendar) }
+        return Self.sortedUniqueMonthKeys(loadedMonthKeys + dayMonthKeys)
+    }
+
+    func filteringDaysToLoadedMonths(calendar: Calendar = .bodyGregorian) -> ActivityRingHistorySnapshot {
+        let loadedKeys = Set(loadedMonthKeys)
+        guard !loadedKeys.isEmpty else {
+            return self
+        }
+
+        return ActivityRingHistorySnapshot(
+            days: days.filter { loadedKeys.contains(ActivityRingMonthKey(date: $0.date, calendar: calendar)) },
+            loadedMonthKeys: loadedMonthKeys
+        )
+    }
+
+    func removingLikelyBoundaryTruncatedLoadedMonths(
+        date: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> ActivityRingHistorySnapshot {
+        let currentMonthStart = calendar.dateInterval(of: .month, for: date)?.start ?? calendar.startOfDay(for: date)
+        let explicitLoadedKeys = Set(loadedMonthKeys)
+        guard !explicitLoadedKeys.isEmpty else {
+            return self
+        }
+
+        let daysByMonth = Dictionary(grouping: days) { day in
+            ActivityRingMonthKey(date: day.date, calendar: calendar)
+        }
+        let truncatedKeys = explicitLoadedKeys.filter { key in
+            guard
+                let monthStart = key.startDate(calendar: calendar),
+                monthStart < currentMonthStart,
+                let monthDays = daysByMonth[key],
+                monthDays.count == 1,
+                let onlyDay = monthDays.first
+            else {
+                return false
+            }
+
+            return calendar.component(.day, from: onlyDay.date) == 1
+        }
+
+        guard !truncatedKeys.isEmpty else {
+            return self
+        }
+
+        return ActivityRingHistorySnapshot(
+            days: days.filter { !truncatedKeys.contains(ActivityRingMonthKey(date: $0.date, calendar: calendar)) },
+            loadedMonthKeys: loadedMonthKeys.filter { !truncatedKeys.contains($0) }
+        )
+    }
+
+    func merging(
+        _ other: ActivityRingHistorySnapshot,
+        calendar: Calendar = .bodyGregorian
+    ) -> ActivityRingHistorySnapshot {
+        var summariesByDay: [Date: ActivityRingSummary] = [:]
+        for day in days {
+            summariesByDay[calendar.startOfDay(for: day.date)] = day.summary
+        }
+        for day in other.days {
+            summariesByDay[calendar.startOfDay(for: day.date)] = day.summary
+        }
+
+        let mergedDays = summariesByDay
+            .map { ActivityRingDaySummary(date: $0.key, summary: $0.value) }
+            .sorted { $0.date < $1.date }
+        return ActivityRingHistorySnapshot(
+            days: mergedDays,
+            loadedMonthKeys: loadedMonthKeySet(calendar: calendar) + other.loadedMonthKeySet(calendar: calendar)
+        )
+    }
+
+    func replacingLoadedMonths(
+        with other: ActivityRingHistorySnapshot,
+        calendar: Calendar = .bodyGregorian
+    ) -> ActivityRingHistorySnapshot {
+        let otherLoadedKeys = other.loadedMonthKeys.isEmpty
+            ? other.loadedMonthKeySet(calendar: calendar)
+            : other.loadedMonthKeys
+        let replacementKeys = Set(otherLoadedKeys)
+        let retainedDays = days.filter { day in
+            !replacementKeys.contains(ActivityRingMonthKey(date: day.date, calendar: calendar))
+        }
+
+        return ActivityRingHistorySnapshot(
+            days: retainedDays + other.days,
+            loadedMonthKeys: loadedMonthKeys + otherLoadedKeys
+        )
+    }
+
+    private static func sortedUniqueMonthKeys(_ keys: [ActivityRingMonthKey]) -> [ActivityRingMonthKey] {
+        Array(Set(keys)).sorted {
+            if $0.year == $1.year {
+                return $0.month < $1.month
+            }
+
+            return $0.year < $1.year
+        }
+    }
+}
+
+struct SleepSummary: Codable, Equatable {
+    var duration: TimeInterval?
+    var stageSnapshot: SleepStageSnapshot
+    var vitals: SleepVitalsSummary
+
+    init(
+        duration: TimeInterval?,
+        stageSnapshot: SleepStageSnapshot = .empty,
+        vitals: SleepVitalsSummary = .empty
+    ) {
+        self.duration = duration
+        self.stageSnapshot = stageSnapshot
+        self.vitals = vitals
+    }
+
+    var score: SleepScoreSummary? {
+        SleepScoreSummary(sleep: self)
+    }
+}
+
+struct SleepVitalsSummary: Codable, Equatable {
+    var heartRate: Double?
+    var respiratoryRate: Double?
+    var oxygenSaturation: Double?
+    var wristTemperatureCelsius: Double?
+
+    var isEmpty: Bool {
+        heartRate == nil &&
+            respiratoryRate == nil &&
+            oxygenSaturation == nil &&
+            wristTemperatureCelsius == nil
+    }
+
+    static let empty = SleepVitalsSummary(
+        heartRate: nil,
+        respiratoryRate: nil,
+        oxygenSaturation: nil,
+        wristTemperatureCelsius: nil
+    )
+}
+
+enum SleepVitalRegion: Equatable {
+    case low
+    case typical
+    case high
+}
+
+enum SleepVitalStatusTitle {
+    static func text(for regions: [SleepVitalRegion]) -> String {
+        let outlierCount = regions.filter { $0 != .typical }.count
+
+        switch outlierCount {
+        case 0:
+            return "Typical"
+        case 1:
+            return "1 Outlier"
+        default:
+            return "\(outlierCount) Outliers"
+        }
+    }
+}
+
+struct SleepVitalReferenceRange: Equatable {
+    var typicalLowerBound: Double
+    var typicalUpperBound: Double
+
+    func region(for value: Double) -> SleepVitalRegion {
+        if value < typicalLowerBound {
+            return .low
+        }
+
+        if value > typicalUpperBound {
+            return .high
+        }
+
+        return .typical
+    }
+
+    func markerPosition(for value: Double) -> Double {
+        let typicalSpan = max(typicalUpperBound - typicalLowerBound, 1)
+        let lowerBound = typicalLowerBound - typicalSpan
+        let upperBound = typicalUpperBound + typicalSpan
+        let totalSpan = upperBound - lowerBound
+
+        guard totalSpan > 0, value.isFinite else {
+            return 0.5
+        }
+
+        return min(max((value - lowerBound) / totalSpan, 0), 1)
+    }
+}
+
+struct SleepStageSnapshot: Codable, Equatable {
     var date: Date?
     var segments: [SleepStageSegment]
 
@@ -92,10 +572,105 @@ struct SleepStageSnapshot: Equatable {
         segments.isEmpty
     }
 
+    var dateInterval: DateInterval? {
+        guard let startDate = segments.map(\.startDate).min(),
+              let endDate = segments.map(\.endDate).max(),
+              endDate > startDate else {
+            return nil
+        }
+
+        return DateInterval(start: startDate, end: endDate)
+    }
+
+    func duration(for stage: SleepStage) -> TimeInterval {
+        segments
+            .filter { $0.stage == stage }
+            .reduce(0) { partialResult, segment in
+                partialResult + max(0, segment.endDate.timeIntervalSince(segment.startDate))
+            }
+    }
+
     static let empty = SleepStageSnapshot(date: nil, segments: [])
 }
 
-struct SleepStageSegment: Equatable, Identifiable {
+struct SleepScoreSummary: Equatable {
+    let total: Int
+    let categories: [SleepScoreCategory]
+
+    init?(sleep: SleepSummary) {
+        guard let duration = sleep.duration, duration > 0 else {
+            return nil
+        }
+
+        let categoryScores = [
+            Self.category(
+                kind: .duration,
+                value: duration,
+                target: 8 * 60 * 60,
+                maximumPoints: 50
+            ),
+            Self.category(
+                kind: .rem,
+                value: sleep.stageSnapshot.duration(for: .rem),
+                target: 90 * 60,
+                maximumPoints: 25
+            ),
+            Self.category(
+                kind: .deep,
+                value: sleep.stageSnapshot.duration(for: .deep),
+                target: 75 * 60,
+                maximumPoints: 25
+            )
+        ]
+        categories = categoryScores
+        total = categoryScores.reduce(0) { $0 + $1.points }
+    }
+
+    private static func category(
+        kind: SleepScoreCategory.Kind,
+        value: TimeInterval,
+        target: TimeInterval,
+        maximumPoints: Int
+    ) -> SleepScoreCategory {
+        let progress = min(max(value / target, 0), 1)
+        return SleepScoreCategory(
+            kind: kind,
+            points: Int((progress * Double(maximumPoints)).rounded()),
+            maximumPoints: maximumPoints,
+            progress: progress
+        )
+    }
+}
+
+struct SleepScoreCategory: Equatable, Identifiable {
+    enum Kind: String, Equatable {
+        case duration
+        case rem
+        case deep
+
+        var displayName: String {
+            switch self {
+            case .duration:
+                return "Duration"
+            case .rem:
+                return "REM"
+            case .deep:
+                return "Deep"
+            }
+        }
+    }
+
+    let kind: Kind
+    let points: Int
+    let maximumPoints: Int
+    let progress: Double
+
+    var id: Kind {
+        kind
+    }
+}
+
+struct SleepStageSegment: Codable, Equatable, Identifiable {
     var stage: SleepStage
     var startDate: Date
     var endDate: Date
@@ -105,7 +680,7 @@ struct SleepStageSegment: Equatable, Identifiable {
     }
 }
 
-enum SleepStage: String, CaseIterable, Equatable, Identifiable {
+enum SleepStage: String, CaseIterable, Codable, Equatable, Identifiable {
     case awake
     case rem
     case core
@@ -146,18 +721,80 @@ enum SleepStage: String, CaseIterable, Equatable, Identifiable {
     }
 }
 
-struct HealthMetricSummary: Equatable {
+struct HealthMetricSummary: Codable, Equatable {
     var value: Double?
 }
 
-struct HealthTrendSnapshot: Equatable {
+struct HealthDashboardSnapshot: Codable, Equatable {
+    var summary: HealthSummarySnapshot
+    var trends: HealthTrendSnapshot
+    var activityRingHistory: ActivityRingHistorySnapshot
+
+    init(
+        summary: HealthSummarySnapshot,
+        trends: HealthTrendSnapshot,
+        activityRingHistory: ActivityRingHistorySnapshot = .empty
+    ) {
+        self.summary = summary
+        self.trends = trends
+        self.activityRingHistory = activityRingHistory
+    }
+
+    static let empty = HealthDashboardSnapshot(
+        summary: .empty,
+        trends: .empty,
+        activityRingHistory: .empty
+    )
+
+    private enum CodingKeys: String, CodingKey {
+        case summary
+        case trends
+        case activityRingHistory
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try container.decode(HealthSummarySnapshot.self, forKey: .summary)
+        trends = try container.decode(HealthTrendSnapshot.self, forKey: .trends)
+        activityRingHistory = try container.decodeIfPresent(
+            ActivityRingHistorySnapshot.self,
+            forKey: .activityRingHistory
+        ) ?? .empty
+    }
+}
+
+enum HealthDashboardSnapshotStore {
+    static let healthDashboardSnapshotKey = "lastHealthDashboardSnapshot"
+
+    static func save(_ snapshot: HealthDashboardSnapshot, defaults: UserDefaults = .standard) {
+        guard let data = try? JSONEncoder().encode(snapshot) else {
+            return
+        }
+
+        defaults.set(data, forKey: healthDashboardSnapshotKey)
+    }
+
+    static func load(defaults: UserDefaults = .standard) -> HealthDashboardSnapshot? {
+        guard let data = defaults.data(forKey: healthDashboardSnapshotKey) else {
+            return nil
+        }
+
+        return try? JSONDecoder().decode(HealthDashboardSnapshot.self, from: data)
+    }
+
+    static func loadOrEmpty(defaults: UserDefaults = .standard) -> HealthDashboardSnapshot {
+        load(defaults: defaults) ?? .empty
+    }
+}
+
+struct HealthTrendSnapshot: Codable, Equatable {
     var sleep: HealthTrendSeries
     var restingHeartRate: HealthTrendSeries
     var bodyMass: HealthTrendSeries
     var bodyFatPercentage: HealthTrendSeries
     var heartRateVariability: HealthTrendSeries
+    var respiratoryRate: HealthTrendSeries
     var oxygenSaturation: HealthTrendSeries
-    var vo2Max: HealthTrendSeries
     var bodyMassIndex: HealthTrendSeries
     var activeEnergy: HealthTrendSeries
     var restingEnergy: HealthTrendSeries
@@ -168,8 +805,8 @@ struct HealthTrendSnapshot: Equatable {
         bodyMass: .empty,
         bodyFatPercentage: .empty,
         heartRateVariability: .empty,
+        respiratoryRate: .empty,
         oxygenSaturation: .empty,
-        vo2Max: .empty,
         bodyMassIndex: .empty,
         activeEnergy: .empty,
         restingEnergy: .empty
@@ -179,6 +816,8 @@ struct HealthTrendSnapshot: Equatable {
         switch kind {
         case .sleep:
             return sleep
+        case .basics:
+            return .empty
         case .restingHeartRate:
             return restingHeartRate
         case .bodyMass:
@@ -187,10 +826,10 @@ struct HealthTrendSnapshot: Equatable {
             return bodyFatPercentage
         case .heartRateVariability:
             return heartRateVariability
+        case .respiratoryRate:
+            return respiratoryRate
         case .oxygenSaturation:
             return oxygenSaturation
-        case .vo2Max:
-            return vo2Max
         case .bodyMassIndex:
             return bodyMassIndex
         case .activeEnergy:
@@ -201,7 +840,40 @@ struct HealthTrendSnapshot: Equatable {
     }
 }
 
-struct HealthTrendSeries: Equatable {
+struct BasicsTrendSummary: Equatable {
+    var weight: HealthTrendSeries
+    var bodyFat: HealthTrendSeries
+
+    var isEmpty: Bool {
+        weight.isEmpty && bodyFat.isEmpty
+    }
+
+    static let empty = BasicsTrendSummary(weight: .empty, bodyFat: .empty)
+
+    func limited(to range: BodyHealthTrendRange, calendar: Calendar = .current, date: Date = Date()) -> BasicsTrendSummary {
+        BasicsTrendSummary(
+            weight: weight.limited(to: range, calendar: calendar, date: date),
+            bodyFat: bodyFat.limited(to: range, calendar: calendar, date: date)
+        )
+    }
+
+    func nearestDate(to date: Date) -> Date? {
+        let dates = weight.points.map(\.date) + bodyFat.points.map(\.date)
+        return dates.min { first, second in
+            abs(first.timeIntervalSince(date)) < abs(second.timeIntervalSince(date))
+        }
+    }
+
+    func selectionDate(for selectedDate: Date?) -> Date? {
+        guard let selectedDate else {
+            return nil
+        }
+
+        return nearestDate(to: selectedDate)
+    }
+}
+
+struct HealthTrendSeries: Codable, Equatable {
     var points: [HealthTrendDataPoint]
 
     var isEmpty: Bool {
@@ -234,9 +906,27 @@ struct HealthTrendSeries: Equatable {
             }
         )
     }
+
+    func nearestPoint(to date: Date) -> HealthTrendDataPoint? {
+        points.min { first, second in
+            abs(first.date.timeIntervalSince(date)) < abs(second.date.timeIntervalSince(date))
+        }
+    }
+
+    func selectionPoint(for selectedDate: Date?) -> HealthTrendDataPoint? {
+        guard let selectedDate else {
+            return nil
+        }
+
+        return nearestPoint(to: selectedDate)
+    }
+
+    func point(on date: Date) -> HealthTrendDataPoint? {
+        points.first { $0.date == date }
+    }
 }
 
-struct HealthTrendDataPoint: Equatable, Identifiable {
+struct HealthTrendDataPoint: Codable, Equatable, Identifiable {
     var date: Date
     var value: Double
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Karpathy Guidelines"
+  short_description: "Project working rules for Body."
+  default_prompt: "Use the Body Karpathy guidelines while editing this project."

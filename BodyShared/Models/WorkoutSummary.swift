@@ -315,10 +315,11 @@ enum BodyValueFormat {
     static func massDisplay(
         kilograms: Double,
         locale: Locale = .current,
-        unitPreference: UnitPreference = .system
+        unitPreference: UnitPreference = .system,
+        decimals: Int = 1
     ) -> (value: String, unit: String) {
         let display = massValue(kilograms: kilograms, locale: locale, unitPreference: unitPreference)
-        return (numberText(display.value, decimals: 1, locale: locale), display.unit)
+        return (numberText(display.value, decimals: decimals, locale: locale), display.unit)
     }
 
     static func massValue(
@@ -360,6 +361,25 @@ enum BodyValueFormat {
 
     static func heartRateText(beatsPerMinute: Double, locale: Locale = .current) -> String {
         numberText(beatsPerMinute.rounded(), decimals: 0, locale: locale) + " BPM"
+    }
+
+    static func respiratoryRateText(breathsPerMinute: Double, locale: Locale = .current) -> String {
+        numberText(breathsPerMinute.rounded(), decimals: 0, locale: locale) + " br/min"
+    }
+
+    static func temperatureDisplay(
+        celsius: Double,
+        locale: Locale = .current,
+        unitPreference: UnitPreference = .system
+    ) -> (value: String, unit: String) {
+        if usesImperialMeasurements(locale: locale, unitPreference: unitPreference) {
+            let fahrenheit = Measurement(value: celsius, unit: UnitTemperature.celsius)
+                .converted(to: .fahrenheit)
+                .value
+            return (numberText(fahrenheit, decimals: 1, locale: locale), "F")
+        }
+
+        return (numberText(celsius, decimals: 1, locale: locale), "C")
     }
 
     static func numberText(_ value: Double, decimals: Int, locale: Locale = .current) -> String {

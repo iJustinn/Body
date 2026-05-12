@@ -4,7 +4,7 @@ Body is a privacy-focused iOS health visualization app built with SwiftUI. The f
 
 The app shell follows Coin's simple tab structure: Home handles health cards and recent trends, Charts holds workout visualizations, and Settings handles appearance and app details.
 
-Current app version: **0.1.0 (build 1)**
+Current app version: **0.2.3 (build 1)**
 
 ## v0.1.0 Scope
 
@@ -13,8 +13,8 @@ Current app version: **0.1.0 (build 1)**
 - **Widget appearance** - Widgets include Coin-style background choices for System, Black, and White.
 - **Workout markers** - Workout days replace the date number with the Apple/SF workout icon in a solid color for the specific Apple Health workout type. If a day has multiple workouts, Body shows the longest-duration workout.
 - **Count indicators** - Workout-day tiles keep Coin's count markers: stars count as 1, moons count as 4, and 13 or more workouts shows a sun.
-- **Apple Health sync** - The app requests read-only access to workouts, sleep, heart, body measurement, and energy data; workout summaries are also written for widgets through an App Group.
-- **Home health cards** - Home shows sleep, resting heart rate, weight, body fat, HRV, blood oxygen, VO2 max, BMI, active energy, and resting energy in Coin-style rounded cards that open recent-week charts by default, with a Coin-style Week/Month switch on each detail screen. Sleep details also include today's sleep-stage timeline.
+- **Apple Health sync** - The app requests read-only access to workouts, activity rings, sleep, heart, body measurement, and energy data; workout summaries are also written for widgets through an App Group.
+- **Home health cards** - Home shows a two-card-wide Activity Rings summary above sleep, Basics, resting heart rate, HRV, blood oxygen, respiratory rate, active energy, and resting energy cards that open recent-week charts by default, with a Coin-style Week/Month switch on each detail screen. Basics combines weight, body fat, and BMI, while Sleep details show today's sleep score, today's sleep-stage timeline, an Apple-style high/typical/low Sleep Vitals chart with sleep duration as the fifth metric, and the week/month trend chart at the bottom.
 - **Charts tab** - The in-app workout calendar and workout type breakdown live in Charts, use theme-aware panel backgrounds, and open workout list sheets when tapped.
 - **Coin-style settings** - The Settings tab includes Appearance choices, Units, icon selection, and About rows for Copyright and Version.
 - **Local-first widget bridge** - Widgets read a cached JSON snapshot from shared `UserDefaults`; they do not query HealthKit directly.
