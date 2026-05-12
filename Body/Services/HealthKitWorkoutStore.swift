@@ -113,10 +113,6 @@ final class HealthKitWorkoutStore: ObservableObject {
         loadedMonthKeys.contains(BodyWorkoutMonthKey(month: month, year: year))
     }
 
-    func isLoadingSnapshot(month: Int, year: Int) -> Bool {
-        loadingMonthKeys.contains(BodyWorkoutMonthKey(month: month, year: year))
-    }
-
     func loadRecentWorkoutMonthsIfNeeded(date: Date = Date()) async {
         guard !isRefreshing else {
             return
@@ -863,28 +859,6 @@ final class HealthKitWorkoutStore: ObservableObject {
 
             healthStore.execute(query)
         }
-    }
-
-    private func dailyQuantitySummary(
-        for identifier: HKQuantityTypeIdentifier,
-        unit: HKUnit,
-        aggregation: DailyQuantityAggregation,
-        calendar: Calendar,
-        valueTransform: @escaping (Double) -> Double = { $0 }
-    ) async -> HealthMetricSummary? {
-        let series = await fetchDailyQuantitySeries(
-            for: identifier,
-            unit: unit,
-            aggregation: aggregation,
-            calendar: calendar,
-            valueTransform: valueTransform
-        )
-
-        guard let latestPoint = series.points.last else {
-            return nil
-        }
-
-        return HealthMetricSummary(value: latestPoint.value)
     }
 
     private func sleepQuantitySummary(

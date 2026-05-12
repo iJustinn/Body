@@ -102,8 +102,7 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
 
     var leadingBlankDayCount: Int {
         let calendar = Calendar.bodyGregorian
-        guard let firstWeekday = dateComponents(day: 1, calendar: calendar).weekday else { return 0 }
-        return (firstWeekday - calendar.firstWeekday + 7) % 7
+        return calendar.leadingBlankDayCount(for: Self.date(month: month, year: year, day: 1, calendar: calendar))
     }
 
     var monthTitle: String {
@@ -200,6 +199,24 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
 
     private static func dateKey(year: Int, month: Int, day: Int) -> String {
         String(format: "%04d-%02d-%02d", year, month, day)
+    }
+}
+
+extension Calendar {
+    func bodyRotatedVeryShortWeekdaySymbols(locale: Locale = .current) -> [String] {
+        let formatter = DateFormatter()
+        formatter.calendar = self
+        formatter.locale = locale
+        let symbols = formatter.veryShortStandaloneWeekdaySymbols ?? []
+        let fallback = ["S", "M", "T", "W", "T", "F", "S"]
+        let source = symbols.isEmpty ? fallback : symbols
+        let startIndex = max(0, firstWeekday - 1)
+        return Array(source[startIndex...]) + Array(source[..<startIndex])
+    }
+
+    func leadingBlankDayCount(for firstDate: Date) -> Int {
+        let weekday = component(.weekday, from: firstDate)
+        return (weekday - firstWeekday + 7) % 7
     }
 }
 

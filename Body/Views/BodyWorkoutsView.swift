@@ -156,12 +156,7 @@ struct BodyWorkoutsView: View {
     }
 
     private var hasActiveFilters: Bool {
-        let activeTypes = Set(availableWorkoutTypes)
-        guard !activeTypes.isEmpty else {
-            return false
-        }
-
-        return !activeTypes.isSubset(of: selectedWorkoutTypes)
+        BodyWorkoutFilterLogic.hasActiveFilters(selectedTypes: selectedWorkoutTypes)
     }
 
     private var localizedMonthTitle: String {
@@ -386,6 +381,22 @@ struct BodyWorkoutsView: View {
                 }
             }
         }
+    }
+}
+
+enum BodyWorkoutFilterLogic {
+    static func toggled(_ workoutType: BodyWorkoutType, in selectedTypes: Set<BodyWorkoutType>) -> Set<BodyWorkoutType> {
+        var updatedTypes = selectedTypes
+        if updatedTypes.contains(workoutType) {
+            updatedTypes.remove(workoutType)
+        } else {
+            updatedTypes.insert(workoutType)
+        }
+        return updatedTypes
+    }
+
+    static func hasActiveFilters(selectedTypes: Set<BodyWorkoutType>) -> Bool {
+        selectedTypes != Set(BodyWorkoutType.allCases)
     }
 }
 
@@ -1136,20 +1147,8 @@ private struct BodyWorkoutFilterView: View {
         }
     }
 
-    private var allWorkoutTypes: Set<BodyWorkoutType> {
-        Set(workoutTypes)
-    }
-
     private func toggleWorkoutType(_ workoutType: BodyWorkoutType) {
-        if tempSelectedWorkoutTypes.isSuperset(of: allWorkoutTypes) {
-            tempSelectedWorkoutTypes = [workoutType]
-        } else if tempSelectedWorkoutTypes == [workoutType] {
-            tempSelectedWorkoutTypes.formUnion(allWorkoutTypes)
-        } else if tempSelectedWorkoutTypes.contains(workoutType) {
-            tempSelectedWorkoutTypes.remove(workoutType)
-        } else {
-            tempSelectedWorkoutTypes.insert(workoutType)
-        }
+        tempSelectedWorkoutTypes = BodyWorkoutFilterLogic.toggled(workoutType, in: tempSelectedWorkoutTypes)
     }
 }
 

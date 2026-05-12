@@ -53,7 +53,7 @@ struct WorkoutTypeBreakdownView: View {
         VStack(spacing: 8) {
             Image(systemName: "figure.mixed.cardio")
                 .font(.system(size: style == .widgetMedium ? 22 : 28, weight: .bold))
-                .foregroundStyle(Color.white.opacity(0.45))
+                .foregroundStyle(Color.secondary.opacity(0.45))
 
             Text("No workouts yet")
                 .font(.system(size: style == .widgetMedium ? 13 : 16, weight: .bold, design: .rounded))

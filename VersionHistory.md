@@ -1,5 +1,21 @@
 # Version History
 
+## 0.2.6 (build 6)
+
+- Fixed the `Issues.md` v0.2.6 audit findings across dashboard snapshot logging, health detail routing, workout calendar taps, workout filters, trend limiting, month-picker refresh, Activity Rings pagination, and widget/banner color consistency.
+- Updated project build settings, app version fallback text, README, TestPlan, and issue-tracking documentation to match v0.2.6 build 6.
+- Removed stale snapshot and HealthKit helper APIs that were no longer used by production code.
+
+## 0.2.5 (build 5)
+
+- Added Activity Rings history detail with lazy month pagination and safeguards against synthesizing unloaded months.
+- Expanded Health dashboard tests for Activity Rings history, sleep vitals, trend chart behavior, and pagination gates.
+
+## 0.2.4 (build 4)
+
+- Added the Workouts tab with month browsing, sort and filter sheets, search, summary totals, and workout detail sheets.
+- Moved current-month workout snapshot sharing to the app group's JSON file path used by widgets.
+
 ## 0.2.3 (build 1)
 
 - Updated the app version to 0.2.3 build 1.

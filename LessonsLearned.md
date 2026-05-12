@@ -4,6 +4,13 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 
 ## Entries
 
+### 2026-05-12 - Use generic build when CoreSimulator runtimes are unavailable
+- Context: Verifying the v0.2.6 Issues.md fix pass with `xcodebuild test` and `build-for-testing`.
+- Symptom: Simulator test commands failed before running tests with CoreSimulator connection errors and no available simulator runtimes; sandboxed generic builds also failed Swift preview macros with `sandbox_apply: Operation not permitted`.
+- Cause: The local CoreSimulator service/runtime state was unavailable to xcodebuild, and Swift preview macro compilation needed to run outside the Codex sandbox.
+- Fix: Rerun `xcodebuild -project body.xcodeproj ... build` outside the sandbox on `generic/platform=iOS` for compile/product verification, and report that simulator tests were blocked by CoreSimulator.
+- Reuse: If simulator test or test-build commands fail before compiling source with CoreSimulator/runtime errors, use the generic iOS build gate for source verification and retry simulator tests only after the simulator service is repaired.
+
 ### 2026-05-12 - Do not synthesize unloaded Activity Ring calendar months
 - Context: Fixing Activity Rings history where months just beyond the recent three rendered as empty rings before the user paged into them.
 - Symptom: The recent three months had data, but the calendar still showed empty template months between loaded history ranges.

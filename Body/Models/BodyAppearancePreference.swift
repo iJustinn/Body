@@ -1,5 +1,5 @@
 //
-//  BodyAppearancePreferences.swift
+//  BodyAppearancePreference.swift
 //  Body
 //
 
