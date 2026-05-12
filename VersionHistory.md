@@ -1,6 +1,11 @@
 # Version History
 
-## 0.1.0 (build 1)
+## 0.2.3 (build 1)
+
+- Updated the app version to 0.2.3 build 1.
+- Reverted completed Activity Rings to solid full-circle rendering after 100%.
+
+## 0.2.0 (build 3)
 
 - Added the initial SwiftUI app, WidgetKit extension, and Xcode project structure.
 - Added read-only Apple Health workout sync for the current month.
@@ -14,7 +19,7 @@
 - Removed the title/month header and inner card from the Workout Types widget so it matches Coin's full-widget breakdown style.
 - Moved in-app workout visualizations into Charts and simplified Home health refresh to pull-to-refresh.
 - Added Settings appearance choices for app theme and app accent color, defaulting the app accent to blue.
-- Added Coin-style Home health cards for sleep, resting heart rate, weight, body fat, HRV, blood oxygen, VO2 max, and BMI.
+- Added Coin-style Home health cards for sleep, resting heart rate, weight, body fat, HRV, blood oxygen, respiratory rate, and BMI.
 - Added secondary Home card visualization screens with 30-day line charts and dot markers.
 - Added Charts drill-down sheets for tapped calendar days and workout type rows.
 - Expanded Apple Health workout recognition so specific non-strength workout types no longer collapse into generic Workout.
@@ -40,3 +45,10 @@
 - Moved the Home card trend range option onto each detail screen with Coin-style Recent Week and Recent Month buttons.
 - Added today's sleep-stage timeline to the Sleep detail screen and aligned Sleep summary duration with the latest sleep day bucket.
 - Added Health-style sleep-stage transition shading and denser time labels to the Sleep detail timeline.
+- Added average sleep duration labels to Sleep trend charts and a three-category Sleep Score card for today's Sleep detail.
+- Added sleep-window vitals using HealthKit heart rate, respiratory rate, blood oxygen, and sleeping wrist temperature data.
+- Replaced the Home VO2 Max card with Respiratory Rate and refreshed Blood Oxygen card coloring.
+- Changed Sleep Vitals to an Apple-style high/typical/low region chart, with Sleep Duration as the fifth metric and red dots for high or low values.
+- Moved the Sleep week/month trend charts to the end of the Sleep detail screen after score, stages, and vitals.
+- Added a two-card-wide Apple-style Activity Rings card at the top of Home using HealthKit Activity Summary values and goals.
+- Combined Weight, Body Fat, and BMI into a Basics Home card with a dual-axis Weight and Body Fat detail chart.

@@ -4,6 +4,20 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 
 ## Entries
 
+### 2026-05-11 - Avoid `value` helper names inside Swift Charts axis closures
+- Context: Building a dual-axis Swift Charts card for Basics.
+- Symptom: `xcodebuild test` failed with `Cannot call value of non-function type 'AxisValue'`.
+- Cause: The `AxisMarks` closure parameter named `value` shadowed a local helper function also named `value`.
+- Fix: Rename the helper to a specific name such as `denormalizedValue`.
+- Reuse: In Swift Charts axis closures, avoid generic helper names that can collide with `AxisValue`.
+
+### 2026-05-11 - Set a calendar on HealthKit activity summary date components
+- Context: Probing and implementing `HKActivitySummaryQuery` for Home Activity Rings.
+- Symptom: `HKQuery.predicateForActivitySummary(with:)` crashed in a Swift SDK probe with `Date components require a calendar.`
+- Cause: HealthKit activity summary predicates require `DateComponents.calendar` to be set, not just year/month/day values.
+- Fix: Build the components from the app calendar and assign `dateComponents.calendar = calendar` before creating the predicate.
+- Reuse: When querying `HKActivitySummary`, always include the calendar on the day components.
+
 ### 2026-05-11 - Keep sleep duration display from rounding down partial minutes
 - Context: Matching Body's Sleep card to Apple Health's displayed sleep duration.
 - Symptom: Body could show `7h 20m` while Health showed `7h 21m` for the same sleep session.

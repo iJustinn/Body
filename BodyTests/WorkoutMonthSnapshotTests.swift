@@ -95,6 +95,15 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(BodyValueFormat.distanceText(meters: 1_000, locale: locale), "1.0 km")
     }
 
+    func testBodyValueFormatMassDisplaySupportsPrecisionOverride() {
+        let locale = Locale(identifier: "en_GB")
+
+        XCTAssertEqual(
+            BodyValueFormat.massDisplay(kilograms: 69.3, locale: locale, decimals: 2).value,
+            "69.30"
+        )
+    }
+
     func testBodyValueFormatSystemPreferenceUsesLocaleMeasurementOverride() {
         let usMetricLocale = Locale(identifier: "en_US@measure=metric")
 
@@ -240,6 +249,215 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         XCTAssertEqual(series.limited(to: .recentWeek, calendar: calendar, date: currentDate).points.map(\.value), [23, 24, 25, 26, 27, 28, 29])
         XCTAssertEqual(series.limited(to: .recentMonth, calendar: calendar, date: currentDate), series)
+    }
+
+    func testBasicsTrendSummaryLimitsWeightAndBodyFatTogether() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 15)))
+        let days = try (-9...0).map { offset in
+            try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: currentDate)))
+        }
+        let basics = BasicsTrendSummary(
+            weight: HealthTrendSeries(points: days.enumerated().map { index, date in
+                HealthTrendDataPoint(date: date, value: 150 + Double(index))
+            }),
+            bodyFat: HealthTrendSeries(points: days.enumerated().map { index, date in
+                HealthTrendDataPoint(date: date, value: 12 + Double(index) * 0.1)
+            })
+        )
+        let recentWeek = basics.limited(to: .recentWeek, calendar: calendar, date: currentDate)
+
+        XCTAssertEqual(HealthMetricKind.basics.id, "basics")
+        XCTAssertEqual(recentWeek.weight.points.count, 7)
+        XCTAssertEqual(recentWeek.bodyFat.points.count, 7)
+        XCTAssertEqual(recentWeek.weight.points.first?.value, 153)
+        XCTAssertEqual(recentWeek.bodyFat.points.last?.value, 12.9)
+        XCTAssertFalse(recentWeek.isEmpty)
+    }
+
+    func testHealthSummaryUsesRespiratoryRateAsHomeMetric() {
+        let summary = HealthSummarySnapshot(
+            activityRings: .empty,
+            sleep: SleepSummary(duration: nil),
+            restingHeartRate: HealthMetricSummary(value: nil),
+            bodyMass: HealthMetricSummary(value: nil),
+            bodyFatPercentage: HealthMetricSummary(value: nil),
+            heartRateVariability: HealthMetricSummary(value: nil),
+            respiratoryRate: HealthMetricSummary(value: 14),
+            oxygenSaturation: HealthMetricSummary(value: nil),
+            bodyMassIndex: HealthMetricSummary(value: nil),
+            activeEnergy: HealthMetricSummary(value: nil),
+            restingEnergy: HealthMetricSummary(value: nil)
+        )
+        let trends = HealthTrendSnapshot(
+            sleep: .empty,
+            restingHeartRate: .empty,
+            bodyMass: .empty,
+            bodyFatPercentage: .empty,
+            heartRateVariability: .empty,
+            respiratoryRate: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: Date(timeIntervalSince1970: 0), value: 14)
+            ]),
+            oxygenSaturation: .empty,
+            bodyMassIndex: .empty,
+            activeEnergy: .empty,
+            restingEnergy: .empty
+        )
+
+        XCTAssertEqual(HealthMetricKind.respiratoryRate.id, "respiratoryRate")
+        XCTAssertEqual(summary.respiratoryRate.value, 14)
+        XCTAssertEqual(trends.series(for: .respiratoryRate).points.first?.value, 14)
+        XCTAssertFalse(summary.isEmpty)
+    }
+
+    func testSleepScoreUsesDurationREMAndDeepSleep() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 2)
+        ))
+        let snapshot = SleepStageSnapshot(
+            date: Calendar.bodyGregorian.startOfDay(for: startDate),
+            segments: [
+                SleepStageSegment(
+                    stage: .core,
+                    startDate: startDate,
+                    endDate: startDate.addingTimeInterval(5.25 * 60 * 60)
+                ),
+                SleepStageSegment(
+                    stage: .rem,
+                    startDate: startDate.addingTimeInterval(5.25 * 60 * 60),
+                    endDate: startDate.addingTimeInterval(6.75 * 60 * 60)
+                ),
+                SleepStageSegment(
+                    stage: .deep,
+                    startDate: startDate.addingTimeInterval(6.75 * 60 * 60),
+                    endDate: startDate.addingTimeInterval(8 * 60 * 60)
+                )
+            ]
+        )
+        let summary = SleepSummary(duration: 8 * 60 * 60, stageSnapshot: snapshot)
+        let score = try XCTUnwrap(summary.score)
+
+        XCTAssertEqual(score.total, 100)
+        XCTAssertEqual(score.categories.map(\.kind), [.duration, .rem, .deep])
+        XCTAssertEqual(score.categories.map(\.points), [50, 25, 25])
+        XCTAssertEqual(snapshot.duration(for: .rem), 90 * 60)
+        XCTAssertEqual(snapshot.duration(for: .deep), 75 * 60)
+    }
+
+    func testSleepVitalsMakeSleepSummaryNonEmptyAndUseSleepWindow() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 2, minute: 30)
+        ))
+        let snapshot = SleepStageSnapshot(
+            date: Calendar.bodyGregorian.startOfDay(for: startDate),
+            segments: [
+                SleepStageSegment(
+                    stage: .core,
+                    startDate: startDate.addingTimeInterval(30 * 60),
+                    endDate: startDate.addingTimeInterval(90 * 60)
+                ),
+                SleepStageSegment(
+                    stage: .rem,
+                    startDate: startDate,
+                    endDate: startDate.addingTimeInterval(20 * 60)
+                )
+            ]
+        )
+        let summary = HealthSummarySnapshot(
+            activityRings: .empty,
+            sleep: SleepSummary(
+                duration: nil,
+                stageSnapshot: snapshot,
+                vitals: SleepVitalsSummary(
+                    heartRate: 58,
+                    respiratoryRate: 14,
+                    oxygenSaturation: 97,
+                    wristTemperatureCelsius: 36.4
+                )
+            ),
+            restingHeartRate: HealthMetricSummary(value: nil),
+            bodyMass: HealthMetricSummary(value: nil),
+            bodyFatPercentage: HealthMetricSummary(value: nil),
+            heartRateVariability: HealthMetricSummary(value: nil),
+            respiratoryRate: HealthMetricSummary(value: nil),
+            oxygenSaturation: HealthMetricSummary(value: nil),
+            bodyMassIndex: HealthMetricSummary(value: nil),
+            activeEnergy: HealthMetricSummary(value: nil),
+            restingEnergy: HealthMetricSummary(value: nil)
+        )
+
+        XCTAssertEqual(snapshot.dateInterval?.start, startDate)
+        XCTAssertEqual(snapshot.dateInterval?.end, startDate.addingTimeInterval(90 * 60))
+        XCTAssertFalse(summary.sleep.vitals.isEmpty)
+        XCTAssertFalse(summary.isEmpty)
+    }
+
+    func testSleepVitalReferenceRangeClassifiesRegionsAndMarkerPosition() {
+        let range = SleepVitalReferenceRange(typicalLowerBound: 7, typicalUpperBound: 9)
+
+        XCTAssertEqual(range.region(for: 6.5), .low)
+        XCTAssertEqual(range.region(for: 8), .typical)
+        XCTAssertEqual(range.region(for: 9.5), .high)
+        XCTAssertEqual(range.markerPosition(for: 8), 0.5, accuracy: 0.01)
+        XCTAssertEqual(range.markerPosition(for: -10), 0)
+        XCTAssertEqual(range.markerPosition(for: 30), 1)
+    }
+
+    func testSleepVitalStatusTitleCountsOutliers() {
+        XCTAssertEqual(SleepVitalStatusTitle.text(for: [.typical, .typical]), "Typical")
+        XCTAssertEqual(SleepVitalStatusTitle.text(for: [.low, .typical]), "1 Outlier")
+        XCTAssertEqual(SleepVitalStatusTitle.text(for: [.low, .typical, .high]), "2 Outliers")
+        XCTAssertEqual(SleepVitalStatusTitle.text(for: [.low, .high, .high]), "3 Outliers")
+    }
+
+    func testActivityRingSummaryCapsProgressAndMakesSnapshotNonEmpty() {
+        let rings = ActivityRingSummary(
+            move: ActivityRingMetric(value: 670, goal: 500),
+            exercise: ActivityRingMetric(value: 76, goal: 40),
+            stand: ActivityRingMetric(value: 8, goal: 10)
+        )
+        let summary = HealthSummarySnapshot(
+            activityRings: rings,
+            sleep: SleepSummary(duration: nil),
+            restingHeartRate: HealthMetricSummary(value: nil),
+            bodyMass: HealthMetricSummary(value: nil),
+            bodyFatPercentage: HealthMetricSummary(value: nil),
+            heartRateVariability: HealthMetricSummary(value: nil),
+            respiratoryRate: HealthMetricSummary(value: nil),
+            oxygenSaturation: HealthMetricSummary(value: nil),
+            bodyMassIndex: HealthMetricSummary(value: nil),
+            activeEnergy: HealthMetricSummary(value: nil),
+            restingEnergy: HealthMetricSummary(value: nil)
+        )
+
+        XCTAssertEqual(rings.move.progress, 1)
+        XCTAssertEqual(rings.exercise.progress, 1)
+        XCTAssertEqual(rings.stand.progress, 0.8)
+        XCTAssertFalse(rings.isEmpty)
+        XCTAssertFalse(summary.isEmpty)
+    }
+
+    func testBodyValueFormatFormatsSleepVitals() {
+        XCTAssertEqual(
+            BodyValueFormat.respiratoryRateText(breathsPerMinute: 14.2, locale: Locale(identifier: "en_US_POSIX")),
+            "14 br/min"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.temperatureDisplay(
+                celsius: 36.5,
+                locale: Locale(identifier: "en_GB"),
+                unitPreference: .metric
+            ).unit,
+            "C"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.temperatureDisplay(
+                celsius: 36.5,
+                locale: Locale(identifier: "en_US"),
+                unitPreference: .imperial
+            ).unit,
+            "F"
+        )
     }
 
     private func workout(day: Int, type: BodyWorkoutType, duration: TimeInterval) -> WorkoutSummary {
