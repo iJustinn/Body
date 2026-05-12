@@ -123,6 +123,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
             duration: 28_740,
             vitals: SleepVitalsSummary(
                 heartRate: 58,
+                heartRateVariability: 62,
                 respiratoryRate: 14,
                 oxygenSaturation: 97,
                 wristTemperatureCelsius: 36.4
@@ -494,14 +495,85 @@ struct SleepSummary: Codable, Equatable {
     }
 }
 
+struct SleepDaySummary: Codable, Equatable, Identifiable {
+    var date: Date
+    var summary: SleepSummary
+
+    var id: Date {
+        date
+    }
+}
+
+struct SleepHistorySnapshot: Codable, Equatable {
+    var days: [SleepDaySummary]
+
+    var isEmpty: Bool {
+        days.isEmpty
+    }
+
+    var durationSeries: HealthTrendSeries {
+        HealthTrendSeries(
+            points: days.compactMap { day in
+                guard let duration = day.summary.duration, duration > 0 else {
+                    return nil
+                }
+
+                return HealthTrendDataPoint(date: day.date, value: duration / 3_600)
+            }
+        )
+    }
+
+    static let empty = SleepHistorySnapshot(days: [])
+
+    init(days: [SleepDaySummary]) {
+        self.days = days.sorted { $0.date < $1.date }
+    }
+
+    func summary(on date: Date, calendar: Calendar = .bodyGregorian) -> SleepDaySummary? {
+        let dayStart = calendar.startOfDay(for: date)
+        return days.first { calendar.startOfDay(for: $0.date) == dayStart }
+    }
+
+    static func datePickerDates(
+        endingAt date: Date = Date(),
+        dayCount: Int = 30,
+        futureDayCount: Int = 0,
+        calendar: Calendar = .bodyGregorian
+    ) -> [Date] {
+        let currentDayStart = calendar.startOfDay(for: date)
+        let oldestPastOffset = max(dayCount, 1) - 1
+        let newestFutureOffset = -max(futureDayCount, 0)
+
+        return stride(from: oldestPastOffset, through: newestFutureOffset, by: -1).compactMap { offset in
+            calendar.date(byAdding: .day, value: -offset, to: currentDayStart)
+        }
+    }
+}
+
 struct SleepVitalsSummary: Codable, Equatable {
     var heartRate: Double?
+    var heartRateVariability: Double?
     var respiratoryRate: Double?
     var oxygenSaturation: Double?
     var wristTemperatureCelsius: Double?
 
+    init(
+        heartRate: Double? = nil,
+        heartRateVariability: Double? = nil,
+        respiratoryRate: Double? = nil,
+        oxygenSaturation: Double? = nil,
+        wristTemperatureCelsius: Double? = nil
+    ) {
+        self.heartRate = heartRate
+        self.heartRateVariability = heartRateVariability
+        self.respiratoryRate = respiratoryRate
+        self.oxygenSaturation = oxygenSaturation
+        self.wristTemperatureCelsius = wristTemperatureCelsius
+    }
+
     var isEmpty: Bool {
         heartRate == nil &&
+            heartRateVariability == nil &&
             respiratoryRate == nil &&
             oxygenSaturation == nil &&
             wristTemperatureCelsius == nil
@@ -509,6 +581,7 @@ struct SleepVitalsSummary: Codable, Equatable {
 
     static let empty = SleepVitalsSummary(
         heartRate: nil,
+        heartRateVariability: nil,
         respiratoryRate: nil,
         oxygenSaturation: nil,
         wristTemperatureCelsius: nil
@@ -592,6 +665,20 @@ struct SleepStageSnapshot: Codable, Equatable {
             }
     }
 
+    var awakeDuration: TimeInterval {
+        duration(for: .awake)
+    }
+
+    var asleepDuration: TimeInterval {
+        SleepStage.sleepStages.reduce(0) { partialResult, stage in
+            partialResult + duration(for: stage)
+        }
+    }
+
+    var hasDetailedStages: Bool {
+        segments.contains { $0.stage == .rem || $0.stage == .deep }
+    }
+
     static let empty = SleepStageSnapshot(date: nil, segments: [])
 }
 
@@ -604,60 +691,255 @@ struct SleepScoreSummary: Equatable {
             return nil
         }
 
-        let categoryScores = [
+        var categoryScores = [
             Self.category(
                 kind: .duration,
-                value: duration,
-                target: 8 * 60 * 60,
-                maximumPoints: 50
-            ),
-            Self.category(
-                kind: .rem,
-                value: sleep.stageSnapshot.duration(for: .rem),
-                target: 90 * 60,
-                maximumPoints: 25
-            ),
-            Self.category(
-                kind: .deep,
-                value: sleep.stageSnapshot.duration(for: .deep),
-                target: 75 * 60,
-                maximumPoints: 25
+                progress: Self.durationProgress(duration),
+                maximumPoints: 25,
+                valueDescription: BodyValueFormat.sleepDurationText(for: duration)
             )
         ]
+
+        if let continuityCategory = Self.continuityCategory(sleep: sleep) {
+            categoryScores.append(continuityCategory)
+        }
+
+        if sleep.stageSnapshot.hasDetailedStages {
+            categoryScores.append(Self.stagePercentageCategory(
+                kind: .deep,
+                stageDuration: sleep.stageSnapshot.duration(for: .deep),
+                sleepDuration: duration,
+                targetPercentage: 0.20,
+                maximumPoints: 15
+            ))
+            categoryScores.append(Self.stagePercentageCategory(
+                kind: .rem,
+                stageDuration: sleep.stageSnapshot.duration(for: .rem),
+                sleepDuration: duration,
+                targetPercentage: 0.22,
+                maximumPoints: 10
+            ))
+        }
+
+        if let heartRateVariability = sleep.vitals.heartRateVariability, heartRateVariability > 0 {
+            categoryScores.append(Self.category(
+                kind: .pressure,
+                progress: Self.targetProgress(value: heartRateVariability, target: 80),
+                maximumPoints: 15,
+                valueDescription: "\(Int(heartRateVariability.rounded())) ms"
+            ))
+        }
+
+        if let vitalsCategory = Self.vitalsCategory(vitals: sleep.vitals) {
+            categoryScores.append(vitalsCategory)
+        }
+
+        if let temperatureCategory = Self.temperatureCategory(vitals: sleep.vitals) {
+            categoryScores.append(temperatureCategory)
+        }
+
         categories = categoryScores
-        total = categoryScores.reduce(0) { $0 + $1.points }
+        let availablePoints = categoryScores.reduce(0) { $0 + $1.maximumPoints }
+        guard availablePoints > 0 else {
+            return nil
+        }
+        let earnedPoints = categoryScores.reduce(0) { $0 + $1.points }
+        total = min(max(Int((Double(earnedPoints) / Double(availablePoints) * 100).rounded()), 0), 100)
+    }
+
+    func category(for kind: SleepScoreCategory.Kind) -> SleepScoreCategory? {
+        categories.first { $0.kind == kind }
+    }
+
+    var comment: String {
+        Self.comment(for: total)
+    }
+
+    static func comment(for total: Int) -> String {
+        switch total {
+        case 90...:
+            return "Excellent sleep recovery for this day."
+        case 80..<90:
+            return "Strong sleep with small room to improve."
+        case 70..<80:
+            return "Decent sleep, but key areas can improve."
+        case 60..<70:
+            return "Mixed sleep signals for this day."
+        default:
+            return "Low sleep score; prioritize recovery tonight."
+        }
     }
 
     private static func category(
         kind: SleepScoreCategory.Kind,
-        value: TimeInterval,
-        target: TimeInterval,
-        maximumPoints: Int
+        progress: Double,
+        maximumPoints: Int,
+        valueDescription: String? = nil
     ) -> SleepScoreCategory {
-        let progress = min(max(value / target, 0), 1)
+        let clampedProgress = min(max(progress, 0), 1)
         return SleepScoreCategory(
             kind: kind,
-            points: Int((progress * Double(maximumPoints)).rounded()),
+            points: Int((clampedProgress * Double(maximumPoints)).rounded()),
             maximumPoints: maximumPoints,
-            progress: progress
+            progress: clampedProgress,
+            valueDescription: valueDescription
         )
+    }
+
+    private static func continuityCategory(sleep: SleepSummary) -> SleepScoreCategory? {
+        guard let interval = sleep.stageSnapshot.dateInterval else {
+            return nil
+        }
+
+        let inSleepWindowDuration = max(interval.duration, sleep.duration ?? 0)
+        guard inSleepWindowDuration > 0 else {
+            return nil
+        }
+
+        let awakeDuration = sleep.stageSnapshot.awakeDuration
+        let sleepEfficiency = min(max(1 - (awakeDuration / inSleepWindowDuration), 0), 1)
+        let progress = min(max((sleepEfficiency - 0.78) / 0.18, 0), 1)
+        return category(
+            kind: .continuity,
+            progress: progress,
+            maximumPoints: 20,
+            valueDescription: "\(Int((sleepEfficiency * 100).rounded()))%"
+        )
+    }
+
+    private static func stagePercentageCategory(
+        kind: SleepScoreCategory.Kind,
+        stageDuration: TimeInterval,
+        sleepDuration: TimeInterval,
+        targetPercentage: Double,
+        maximumPoints: Int
+    ) -> SleepScoreCategory {
+        let percentage = sleepDuration > 0 ? stageDuration / sleepDuration : 0
+        return category(
+            kind: kind,
+            progress: Self.targetProgress(value: percentage, target: targetPercentage),
+            maximumPoints: maximumPoints,
+            valueDescription: "\(Int((percentage * 100).rounded()))%"
+        )
+    }
+
+    private static func vitalsCategory(vitals: SleepVitalsSummary) -> SleepScoreCategory? {
+        var progressValues: [Double] = []
+
+        if let heartRate = vitals.heartRate {
+            progressValues.append(Self.rangeProgress(value: heartRate, lowerBound: 45, upperBound: 65, tolerance: 20))
+        }
+
+        if let respiratoryRate = vitals.respiratoryRate {
+            progressValues.append(Self.rangeProgress(value: respiratoryRate, lowerBound: 12, upperBound: 20, tolerance: 6))
+        }
+
+        if let oxygenSaturation = vitals.oxygenSaturation {
+            progressValues.append(Self.increasingRangeProgress(value: oxygenSaturation, lowerBound: 90, target: 95))
+        }
+
+        guard !progressValues.isEmpty else {
+            return nil
+        }
+
+        return category(
+            kind: .vitals,
+            progress: progressValues.reduce(0, +) / Double(progressValues.count),
+            maximumPoints: 10
+        )
+    }
+
+    private static func temperatureCategory(vitals: SleepVitalsSummary) -> SleepScoreCategory? {
+        guard let wristTemperatureCelsius = vitals.wristTemperatureCelsius else {
+            return nil
+        }
+
+        return category(
+            kind: .temperature,
+            progress: Self.rangeProgress(value: wristTemperatureCelsius, lowerBound: 35.8, upperBound: 37.2, tolerance: 0.8),
+            maximumPoints: 5,
+            valueDescription: "\(BodyValueFormat.numberText(wristTemperatureCelsius, decimals: 1))C"
+        )
+    }
+
+    private static func durationProgress(_ duration: TimeInterval) -> Double {
+        let hours = duration / 3_600
+
+        if hours <= 8 {
+            return min(max((hours - 5) / 3, 0), 1)
+        }
+
+        if hours <= 9 {
+            return min(max(1 - ((hours - 8) * 0.1), 0), 1)
+        }
+
+        return min(max(0.9 - ((hours - 9) / 3 * 0.5), 0.4), 1)
+    }
+
+    private static func targetProgress(value: Double, target: Double) -> Double {
+        guard value.isFinite, target > 0 else {
+            return 0
+        }
+
+        return min(max(value / target, 0), 1)
+    }
+
+    private static func increasingRangeProgress(value: Double, lowerBound: Double, target: Double) -> Double {
+        guard value.isFinite, target > lowerBound else {
+            return 0
+        }
+
+        return min(max((value - lowerBound) / (target - lowerBound), 0), 1)
+    }
+
+    private static func rangeProgress(
+        value: Double,
+        lowerBound: Double,
+        upperBound: Double,
+        tolerance: Double
+    ) -> Double {
+        guard value.isFinite, lowerBound <= upperBound, tolerance > 0 else {
+            return 0
+        }
+
+        if (lowerBound...upperBound).contains(value) {
+            return 1
+        }
+
+        if value < lowerBound {
+            return min(max(1 - ((lowerBound - value) / tolerance), 0), 1)
+        }
+
+        return min(max(1 - ((value - upperBound) / tolerance), 0), 1)
     }
 }
 
 struct SleepScoreCategory: Equatable, Identifiable {
     enum Kind: String, Equatable {
         case duration
+        case continuity
         case rem
         case deep
+        case pressure
+        case vitals
+        case temperature
 
         var displayName: String {
             switch self {
             case .duration:
-                return "Duration"
+                return "Amount"
+            case .continuity:
+                return "Continuity"
             case .rem:
                 return "REM"
             case .deep:
                 return "Deep"
+            case .pressure:
+                return "Pressure"
+            case .vitals:
+                return "Vitals"
+            case .temperature:
+                return "Temperature"
             }
         }
     }
@@ -666,6 +948,7 @@ struct SleepScoreCategory: Equatable, Identifiable {
     let points: Int
     let maximumPoints: Int
     let progress: Double
+    let valueDescription: String?
 
     var id: Kind {
         kind
@@ -687,6 +970,8 @@ enum SleepStage: String, CaseIterable, Codable, Equatable, Identifiable {
     case rem
     case core
     case deep
+
+    static let sleepStages: [SleepStage] = [.rem, .core, .deep]
 
     var id: String {
         rawValue
@@ -810,6 +1095,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
     var bodyMassIndex: HealthTrendSeries
     var activeEnergy: HealthTrendSeries
     var restingEnergy: HealthTrendSeries
+    var sleepHistory: SleepHistorySnapshot
 
     static let empty = HealthTrendSnapshot(
         sleep: .empty,
@@ -821,8 +1107,64 @@ struct HealthTrendSnapshot: Codable, Equatable {
         oxygenSaturation: .empty,
         bodyMassIndex: .empty,
         activeEnergy: .empty,
-        restingEnergy: .empty
+        restingEnergy: .empty,
+        sleepHistory: .empty
     )
+
+    init(
+        sleep: HealthTrendSeries,
+        restingHeartRate: HealthTrendSeries,
+        bodyMass: HealthTrendSeries,
+        bodyFatPercentage: HealthTrendSeries,
+        heartRateVariability: HealthTrendSeries,
+        respiratoryRate: HealthTrendSeries,
+        oxygenSaturation: HealthTrendSeries,
+        bodyMassIndex: HealthTrendSeries,
+        activeEnergy: HealthTrendSeries,
+        restingEnergy: HealthTrendSeries,
+        sleepHistory: SleepHistorySnapshot = .empty
+    ) {
+        self.sleep = sleep
+        self.restingHeartRate = restingHeartRate
+        self.bodyMass = bodyMass
+        self.bodyFatPercentage = bodyFatPercentage
+        self.heartRateVariability = heartRateVariability
+        self.respiratoryRate = respiratoryRate
+        self.oxygenSaturation = oxygenSaturation
+        self.bodyMassIndex = bodyMassIndex
+        self.activeEnergy = activeEnergy
+        self.restingEnergy = restingEnergy
+        self.sleepHistory = sleepHistory
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sleep
+        case restingHeartRate
+        case bodyMass
+        case bodyFatPercentage
+        case heartRateVariability
+        case respiratoryRate
+        case oxygenSaturation
+        case bodyMassIndex
+        case activeEnergy
+        case restingEnergy
+        case sleepHistory
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sleep = try container.decode(HealthTrendSeries.self, forKey: .sleep)
+        restingHeartRate = try container.decode(HealthTrendSeries.self, forKey: .restingHeartRate)
+        bodyMass = try container.decode(HealthTrendSeries.self, forKey: .bodyMass)
+        bodyFatPercentage = try container.decode(HealthTrendSeries.self, forKey: .bodyFatPercentage)
+        heartRateVariability = try container.decode(HealthTrendSeries.self, forKey: .heartRateVariability)
+        respiratoryRate = try container.decode(HealthTrendSeries.self, forKey: .respiratoryRate)
+        oxygenSaturation = try container.decode(HealthTrendSeries.self, forKey: .oxygenSaturation)
+        bodyMassIndex = try container.decode(HealthTrendSeries.self, forKey: .bodyMassIndex)
+        activeEnergy = try container.decode(HealthTrendSeries.self, forKey: .activeEnergy)
+        restingEnergy = try container.decode(HealthTrendSeries.self, forKey: .restingEnergy)
+        sleepHistory = try container.decodeIfPresent(SleepHistorySnapshot.self, forKey: .sleepHistory) ?? .empty
+    }
 
     func series(for kind: HealthMetricKind) -> HealthTrendSeries {
         switch kind {

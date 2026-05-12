@@ -738,7 +738,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     private func fetchHealthTrends(calendar: Calendar) async -> HealthTrendSnapshot {
-        async let sleep = fetchDailySleepSeries(calendar: calendar)
+        async let sleepHistory = fetchDailySleepHistory(calendar: calendar)
         async let restingHeartRate = fetchDailyQuantitySeries(
             for: .restingHeartRate,
             unit: HKUnit.count().unitDivided(by: .minute()),
@@ -794,8 +794,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             calendar: calendar
         )
 
+        let fetchedSleepHistory = await sleepHistory
         return await HealthTrendSnapshot(
-            sleep: sleep,
+            sleep: fetchedSleepHistory.durationSeries,
             restingHeartRate: restingHeartRate,
             bodyMass: bodyMass,
             bodyFatPercentage: bodyFatPercentage,
@@ -804,7 +805,8 @@ final class HealthKitWorkoutStore: ObservableObject {
             oxygenSaturation: oxygenSaturation,
             bodyMassIndex: bodyMassIndex,
             activeEnergy: activeEnergy,
-            restingEnergy: restingEnergy
+            restingEnergy: restingEnergy,
+            sleepHistory: fetchedSleepHistory
         )
     }
 
@@ -909,6 +911,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             endDate: endDate,
             aggregation: .average
         )
+        async let heartRateVariability = sleepQuantitySummary(
+            for: .heartRateVariabilitySDNN,
+            unit: .secondUnit(with: .milli),
+            startDate: startDate,
+            endDate: endDate,
+            aggregation: .average
+        )
         async let respiratoryRate = sleepQuantitySummary(
             for: .respiratoryRate,
             unit: HKUnit.count().unitDivided(by: .minute()),
@@ -934,6 +943,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         return await SleepVitalsSummary(
             heartRate: heartRate?.value,
+            heartRateVariability: heartRateVariability?.value,
             respiratoryRate: respiratoryRate?.value,
             oxygenSaturation: oxygenSaturation?.value,
             wristTemperatureCelsius: wristTemperature?.value
@@ -1077,18 +1087,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 }
 
                 let summaries = samplesByDay.compactMap { day, daySamples -> SleepSummary? in
-                    let duration = Self.sleepDuration(from: daySamples)
-                    guard duration > 0 else {
-                        return nil
-                    }
-
-                    return SleepSummary(
-                        duration: duration,
-                        stageSnapshot: SleepStageSnapshot(
-                            date: day,
-                            segments: Self.sleepStageSegments(from: daySamples)
-                        )
-                    )
+                    Self.sleepSummary(from: daySamples, date: day)
                 }
 
                 continuation.resume(
@@ -1112,7 +1111,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         return summary
     }
 
-    private func fetchDailySleepSeries(calendar: Calendar) async -> HealthTrendSeries {
+    private func fetchDailySleepHistory(calendar: Calendar) async -> SleepHistorySnapshot {
         guard let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else {
             return .empty
         }
@@ -1121,7 +1120,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         let predicate = HKQuery.predicateForSamples(withStart: interval.start, end: interval.end)
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
 
-        return await withCheckedContinuation { continuation in
+        let days: [SleepDaySummary] = await withCheckedContinuation { continuation in
             let query = HKSampleQuery(
                 sampleType: sleepType,
                 predicate: predicate,
@@ -1134,21 +1133,33 @@ final class HealthKitWorkoutStore: ObservableObject {
                     calendar.startOfDay(for: $0.endDate)
                 }
 
-                let points = samplesByDay.compactMap { day, daySamples -> HealthTrendDataPoint? in
-                    let duration = Self.sleepDuration(from: daySamples)
-                    guard duration > 0 else {
+                let days = samplesByDay.compactMap { day, daySamples -> SleepDaySummary? in
+                    guard let summary = Self.sleepSummary(from: daySamples, date: day) else {
                         return nil
                     }
 
-                    return HealthTrendDataPoint(date: day, value: duration / 3_600)
+                    return SleepDaySummary(date: day, summary: summary)
                 }
                 .sorted { $0.date < $1.date }
 
-                continuation.resume(returning: HealthTrendSeries(points: points))
+                continuation.resume(returning: days)
             }
 
             healthStore.execute(query)
         }
+
+        var hydratedDays: [SleepDaySummary] = []
+        for var day in days {
+            if let interval = day.summary.stageSnapshot.dateInterval {
+                day.summary.vitals = await fetchSleepVitals(
+                    startDate: interval.start,
+                    endDate: interval.end
+                )
+            }
+            hydratedDays.append(day)
+        }
+
+        return SleepHistorySnapshot(days: hydratedDays)
     }
 
     private func recentHealthTrendInterval(calendar: Calendar, date: Date = Date()) -> (start: Date, end: Date) {
@@ -1254,6 +1265,21 @@ final class HealthKitWorkoutStore: ObservableObject {
             intervals: samples
                 .filter(Self.isAsleep)
                 .map { ($0.startDate, $0.endDate) }
+        )
+    }
+
+    nonisolated private static func sleepSummary(from samples: [HKCategorySample], date: Date) -> SleepSummary? {
+        let duration = sleepDuration(from: samples)
+        guard duration > 0 else {
+            return nil
+        }
+
+        return SleepSummary(
+            duration: duration,
+            stageSnapshot: SleepStageSnapshot(
+                date: date,
+                segments: sleepStageSegments(from: samples)
+            )
         )
     }
 

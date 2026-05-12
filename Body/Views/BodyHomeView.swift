@@ -283,6 +283,7 @@ struct BodyHomeView: View {
                 sleepScore: summary.sleep.score,
                 sleepVitals: summary.sleep.vitals,
                 sleepDuration: summary.sleep.duration,
+                sleepHistory: trends.sleepHistory,
                 chartStyle: .line,
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + "h" },
                 secondaryValueFormatter: nil
@@ -514,6 +515,7 @@ private struct BodyHealthMetricDetailModel {
     let sleepScore: SleepScoreSummary?
     let sleepVitals: SleepVitalsSummary?
     let sleepDuration: TimeInterval?
+    let sleepHistory: SleepHistorySnapshot
     let chartStyle: BodyHealthMetricChartStyle
     let valueFormatter: (Double) -> String
     let secondaryValueFormatter: ((Double) -> String)?
@@ -533,6 +535,7 @@ private struct BodyHealthMetricDetailModel {
         sleepScore: SleepScoreSummary?,
         sleepVitals: SleepVitalsSummary?,
         sleepDuration: TimeInterval?,
+        sleepHistory: SleepHistorySnapshot = .empty,
         chartStyle: BodyHealthMetricChartStyle,
         valueFormatter: @escaping (Double) -> String,
         secondaryValueFormatter: ((Double) -> String)?,
@@ -551,6 +554,7 @@ private struct BodyHealthMetricDetailModel {
         self.sleepScore = sleepScore
         self.sleepVitals = sleepVitals
         self.sleepDuration = sleepDuration
+        self.sleepHistory = sleepHistory
         self.chartStyle = chartStyle
         self.valueFormatter = valueFormatter
         self.secondaryValueFormatter = secondaryValueFormatter
@@ -564,6 +568,8 @@ private struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
     @State private var selectedTrendRange = BodyHealthTrendRange.defaultValue
     @State private var selectedTrendDate: Date?
+    @State private var selectedSleepDate: Date?
+    @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
     @GestureState private var isSelectingTrend = false
 
     var body: some View {
@@ -571,15 +577,16 @@ private struct BodyHealthMetricDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 headerCard
                 if isSleepDetail {
-                    sleepSupplementCards
                     BodyHealthTrendRangeSelector(selectedRange: $selectedTrendRange)
                     trendCard
+                    sleepDatePicker
+                    selectedSleepCards
+                    aboutSleepScoreCard
                 } else {
                     BodyHealthTrendRangeSelector(selectedRange: $selectedTrendRange)
                     trendCard
-                    sleepSupplementCards
+                    helpTextCard
                 }
-                helpTextCard
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)
@@ -588,6 +595,12 @@ private struct BodyHealthMetricDetailView: View {
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .navigationTitle(model.title)
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $selectedSleepScoreDetails) { selection in
+            SleepScoreDetailsSheet(selection: selection, accentColor: model.symbolColor)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Color(.systemBackground))
+        }
     }
 
     private var selectedUnitPreference: BodyValueFormat.UnitPreference {
@@ -598,17 +611,53 @@ private struct BodyHealthMetricDetailView: View {
         model.kind == .sleep
     }
 
+    private var selectedSleepDay: Date {
+        let calendar = Calendar.bodyGregorian
+        return calendar.startOfDay(for: selectedSleepDate ?? Date())
+    }
+
+    private var sleepDatePickerDates: [Date] {
+        SleepHistorySnapshot.datePickerDates(dayCount: BodyHealthTrendRange.recentMonth.dayCount, futureDayCount: 1)
+    }
+
+    private var selectedSleepSummary: SleepSummary? {
+        if let summary = model.sleepHistory.summary(on: selectedSleepDay)?.summary {
+            return summary
+        }
+
+        guard Calendar.bodyGregorian.isDate(selectedSleepDay, inSameDayAs: Date()) else {
+            return nil
+        }
+
+        return currentSleepSummary
+    }
+
+    private var currentSleepSummary: SleepSummary? {
+        let stageSnapshot = model.sleepStageSnapshot ?? SleepStageSnapshot(date: selectedSleepDay, segments: [])
+        guard model.sleepDuration != nil || !stageSnapshot.isEmpty || model.sleepVitals?.isEmpty == false else {
+            return nil
+        }
+
+        return SleepSummary(
+            duration: model.sleepDuration,
+            stageSnapshot: stageSnapshot,
+            vitals: model.sleepVitals ?? .empty
+        )
+    }
+
+    private var selectedSleepStageSnapshot: SleepStageSnapshot {
+        selectedSleepSummary?.stageSnapshot ?? SleepStageSnapshot(date: selectedSleepDay, segments: [])
+    }
+
     @ViewBuilder
-    private var sleepSupplementCards: some View {
-        if let sleepScore = model.sleepScore {
+    private var selectedSleepCards: some View {
+        if let sleepScore = selectedSleepSummary?.score {
             sleepScoreCard(sleepScore)
+        } else {
+            unavailableSleepScoreCard
         }
-        if let sleepStageSnapshot = model.sleepStageSnapshot {
-            sleepStageCard(sleepStageSnapshot)
-        }
-        if let sleepVitals = model.sleepVitals {
-            sleepVitalsCard(sleepVitals, duration: model.sleepDuration)
-        }
+
+        sleepStageCard(selectedSleepStageSnapshot)
     }
 
     @ViewBuilder
@@ -843,70 +892,189 @@ private struct BodyHealthMetricDetailView: View {
         .bodyCardBackground()
     }
 
-    private func sleepScoreCard(_ score: SleepScoreSummary) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Sleep Score")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundColor(.primary)
+    private var sleepDatePicker: some View {
+        ScrollViewReader { proxy in
+            ZStack {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(sleepDatePickerDates, id: \.self) { date in
+                            sleepDateTile(for: date)
+                                .id(date)
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                    .padding(.vertical, 1)
                 }
 
-                Spacer(minLength: 12)
-
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text("\(score.total)")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-
-                    Text("/100")
-                        .font(.system(.subheadline, design: .rounded))
-                        .fontWeight(.bold)
-                        .foregroundColor(.secondary)
-                }
+                sleepDateSliderEdgeShade
+                    .allowsHitTesting(false)
             }
+            .background(sleepDateSliderBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .task(id: sleepDatePickerDates.last) {
+                let calendar = Calendar.bodyGregorian
+                let today = calendar.startOfDay(for: Date())
+                let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? today
 
-            VStack(spacing: 12) {
-                ForEach(score.categories) { category in
-                    sleepScoreBar(category)
+                if selectedSleepDate == nil {
+                    selectedSleepDate = today
                 }
+
+                await Task.yield()
+                proxy.scrollTo(tomorrow, anchor: .trailing)
             }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .frame(maxWidth: .infinity)
     }
 
-    private func sleepScoreBar(_ category: SleepScoreCategory) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text(category.kind.displayName)
-                    .font(.system(.subheadline, design: .rounded))
-                    .fontWeight(.semibold)
+    private func sleepDateTile(for date: Date) -> some View {
+        let calendar = Calendar.bodyGregorian
+        let dayStart = calendar.startOfDay(for: date)
+        let today = calendar.startOfDay(for: Date())
+        let isSelected = calendar.isDate(dayStart, inSameDayAs: selectedSleepDay)
+        let isFuture = dayStart > today
+
+        return Button {
+            guard !isFuture else {
+                return
+            }
+
+            selectedSleepDate = dayStart
+        } label: {
+            VStack(spacing: 6) {
+                Text(dayStart.formatted(.dateTime.weekday(.abbreviated)))
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.74)
+
+                Text(dayStart.formatted(.dateTime.day()))
+                    .font(.system(size: 27, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+            .foregroundColor(isFuture ? Color.white.opacity(0.34) : .white)
+            .frame(width: 58, height: 74)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isFuture ? sleepDateTileBackground.opacity(0.62) : sleepDateTileBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(
+                        isSelected ? sleepDateSelectionColor : Color.white.opacity(isFuture ? 0.08 : 0.16),
+                        lineWidth: isSelected ? 2.5 : 1
+                    )
+            )
+            .shadow(color: Color.black.opacity(0.08), radius: 5, x: 0, y: 2)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .animation(.easeInOut(duration: 0.16), value: isSelected)
+        }
+        .buttonStyle(.plain)
+        .disabled(isFuture)
+        .accessibilityLabel(dayStart.formatted(.dateTime.weekday(.wide).month(.wide).day()))
+        .accessibilityHint(isFuture ? "Future date is not selectable" : "")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var sleepDateSliderEdgeShade: some View {
+        HStack(spacing: 0) {
+            LinearGradient(
+                colors: [sleepDateSliderBackground, sleepDateSliderBackground.opacity(0)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: 28)
+
+            Spacer(minLength: 0)
+
+            LinearGradient(
+                colors: [sleepDateSliderBackground.opacity(0), sleepDateSliderBackground],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: 28)
+        }
+    }
+
+    private var sleepDateSelectionColor: Color {
+        Color(red: 0.20, green: 0.72, blue: 1.00)
+    }
+
+    private var sleepDateSliderBackground: Color {
+        Color(red: 0.02, green: 0.02, blue: 0.025)
+    }
+
+    private var sleepDateTileBackground: Color {
+        Color(red: 0.07, green: 0.07, blue: 0.08)
+    }
+
+    private func sleepScoreCard(_ score: SleepScoreSummary) -> some View {
+        Button {
+            selectedSleepScoreDetails = SleepScoreDetailsSelection(date: selectedSleepDay, score: score)
+        } label: {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Sleep Score")
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                            .foregroundColor(.primary)
+
+                        Text(score.comment)
+                            .font(.system(.subheadline, design: .rounded))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    HStack(spacing: 7) {
+                        Text("\(score.total)")
+                            .font(.system(size: 44, weight: .bold, design: .rounded))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.64)
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(model.symbolColor)
+                            .accessibilityHidden(true)
+                    }
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .bodyCardBackground()
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Shows detailed sleep score scoring")
+    }
+
+    private var unavailableSleepScoreCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Sleep Score")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
 
                 Spacer(minLength: 12)
 
-                Text("\(category.points)/\(category.maximumPoints)")
-                    .font(.system(.caption, design: .rounded))
-                    .fontWeight(.bold)
+                Text("--/100")
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
                     .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
 
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Color.secondary.opacity(0.16))
-
-                    Capsule()
-                        .fill(sleepScoreColor(for: category.kind).gradient)
-                        .frame(width: proxy.size.width * category.progress)
-                }
-            }
-            .frame(height: 9)
+            Text("No sleep score for this day")
+                .font(.system(.body, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground()
     }
 
     private func sleepStageCard(_ snapshot: SleepStageSnapshot) -> some View {
@@ -927,15 +1095,42 @@ private struct BodyHealthMetricDetailView: View {
             }
 
             if snapshot.isEmpty {
-                Text("No sleep stages today")
+                Text("No sleep stages for this day")
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 220)
             } else {
                 BodySleepStageChart(snapshot: snapshot)
+                    .id(sleepStageChartIdentity(for: snapshot))
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
                     .frame(height: 260)
             }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground()
+    }
+
+    private func sleepStageChartIdentity(for snapshot: SleepStageSnapshot) -> String {
+        let dateIdentity = snapshot.date.map { String($0.timeIntervalSinceReferenceDate) } ?? "no-date"
+        let segmentIdentity = snapshot.segments.map(\.id).joined(separator: "|")
+        return "\(dateIdentity)-\(segmentIdentity)"
+    }
+
+    private var aboutSleepScoreCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("About Sleep Score")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+
+            Text("Body scores each night from the data available for that sleep window: amount, continuity, deep and REM share, pressure from sleep HRV, sleep vitals, and wrist temperature. Missing sensors are skipped instead of counted as zero.")
+                .font(.system(.body, design: .rounded))
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -992,6 +1187,18 @@ private struct BodyHealthMetricDetailView: View {
                 symbolName: "heart.fill",
                 tintColor: Color(red: 1.00, green: 0.25, blue: 0.45),
                 numericValue: heartRate,
+                referenceRange: SleepVitalReferenceRange(typicalLowerBound: 40, typicalUpperBound: 70)
+            ))
+        }
+
+        if let heartRateVariability = vitals.heartRateVariability {
+            rows.append(SleepVitalDisplayRow(
+                title: "Pressure",
+                value: BodyValueFormat.numberText(heartRateVariability.rounded(), decimals: 0),
+                unit: "ms HRV",
+                symbolName: "waveform.path.ecg",
+                tintColor: Color(red: 0.58, green: 0.42, blue: 0.95),
+                numericValue: heartRateVariability,
                 referenceRange: SleepVitalReferenceRange(typicalLowerBound: 40, typicalUpperBound: 70)
             ))
         }
@@ -1084,17 +1291,6 @@ private struct BodyHealthMetricDetailView: View {
         return BodyValueFormat.sleepDurationText(for: averageHours * 60 * 60)
     }
 
-    private func sleepScoreColor(for kind: SleepScoreCategory.Kind) -> Color {
-        switch kind {
-        case .duration:
-            return model.symbolColor
-        case .rem:
-            return Color(red: 0.42, green: 0.80, blue: 1.00)
-        case .deep:
-            return Color(red: 0.25, green: 0.25, blue: 0.82)
-        }
-    }
-
     private var trendChartPressGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .updating($isSelectingTrend) { _, isSelecting, _ in
@@ -1144,6 +1340,168 @@ private struct BodyHealthMetricDetailView: View {
 
         let padding = max((maximum - minimum) * 0.12, 1)
         return max(0, minimum - padding)...(maximum + padding)
+    }
+}
+
+private struct SleepScoreDetailsSelection: Identifiable {
+    let date: Date
+    let score: SleepScoreSummary
+
+    var id: String {
+        "\(date.timeIntervalSinceReferenceDate)-\(score.total)"
+    }
+}
+
+private struct SleepScoreDetailsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let selection: SleepScoreDetailsSelection
+    let accentColor: Color
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    header
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Detailed Scoring")
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                            .foregroundColor(.primary)
+
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(selection.score.categories) { category in
+                                BodySleepScoreCategoryRow(
+                                    category: category,
+                                    color: bodySleepScoreColor(for: category.kind, accentColor: accentColor)
+                                )
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+                .padding(.bottom, 36)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(.systemBackground).ignoresSafeArea())
+            .navigationTitle("Sleep Score")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground).ignoresSafeArea())
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: "bed.double.fill")
+                .font(.system(size: 26, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(accentColor)
+                .frame(width: 58, height: 58)
+                .background(accentColor.opacity(0.14))
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .lastTextBaseline, spacing: 4) {
+                    Text("\(selection.score.total)")
+                        .font(.system(size: 44, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.64)
+
+                    Text("/100")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+
+                Text(selection.date.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.bold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+
+                Text(selection.score.comment)
+                    .font(.system(.body, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+private struct BodySleepScoreCategoryRow: View {
+    let category: SleepScoreCategory
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(category.kind.displayName)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+
+                    if let valueDescription = category.valueDescription {
+                        Text(valueDescription)
+                            .font(.system(.caption, design: .rounded))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Spacer(minLength: 12)
+
+                Text("\(category.points)/\(category.maximumPoints)")
+                    .font(.system(.caption, design: .rounded))
+                    .fontWeight(.bold)
+                    .foregroundColor(.secondary)
+            }
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.16))
+
+                    Capsule()
+                        .fill(color.gradient)
+                        .frame(width: proxy.size.width * category.progress)
+                }
+            }
+            .frame(height: 9)
+        }
+    }
+}
+
+private func bodySleepScoreColor(for kind: SleepScoreCategory.Kind, accentColor: Color) -> Color {
+    switch kind {
+    case .duration:
+        return accentColor
+    case .continuity:
+        return Color(red: 0.14, green: 0.72, blue: 0.42)
+    case .rem:
+        return Color(red: 0.42, green: 0.80, blue: 1.00)
+    case .deep:
+        return Color(red: 0.25, green: 0.25, blue: 0.82)
+    case .pressure:
+        return Color(red: 0.58, green: 0.42, blue: 0.95)
+    case .vitals:
+        return Color(red: 1.00, green: 0.25, blue: 0.45)
+    case .temperature:
+        return Color(red: 1.00, green: 0.57, blue: 0.24)
     }
 }
 
@@ -1488,26 +1846,28 @@ private struct BodySleepStageChart: View {
 
     var body: some View {
         Chart {
-            ForEach(stageTransitions) { transition in
+            ForEach(snapshot.segments) { segment in
                 RectangleMark(
-                    xStart: .value("Transition Start", transition.startDate),
-                    xEnd: .value("Transition End", transition.endDate),
-                    yStart: .value("Transition Stage Start", transition.lowerStagePosition),
-                    yEnd: .value("Transition Stage End", transition.upperStagePosition)
+                    xStart: .value("Start", segmentDisplayStartDate(for: segment)),
+                    xEnd: .value("End", segmentDisplayEndDate(for: segment)),
+                    yStart: .value("Stage Start", segment.stage.chartPosition - 0.32),
+                    yEnd: .value("Stage End", segment.stage.chartPosition + 0.32)
                 )
-                .foregroundStyle(color(for: transition.tintStage).opacity(0.20))
+                .foregroundStyle(segmentGradient(for: segment.stage))
                 .cornerRadius(7)
             }
 
             ForEach(snapshot.segments) { segment in
-                RectangleMark(
-                    xStart: .value("Start", segment.startDate),
-                    xEnd: .value("End", segment.endDate),
-                    yStart: .value("Stage Start", segment.stage.chartPosition - 0.32),
-                    yEnd: .value("Stage End", segment.stage.chartPosition + 0.32)
-                )
-                .foregroundStyle(color(for: segment.stage).gradient)
-                .cornerRadius(6)
+                if hasRoomForStageHighlight(segment) {
+                    RectangleMark(
+                        xStart: .value("Highlight Start", segmentHighlightStartDate(for: segment)),
+                        xEnd: .value("Highlight End", segmentHighlightEndDate(for: segment)),
+                        yStart: .value("Highlight Stage Start", segment.stage.chartPosition + 0.15),
+                        yEnd: .value("Highlight Stage End", segment.stage.chartPosition + 0.28)
+                    )
+                    .foregroundStyle(Color.white.opacity(0.10))
+                    .cornerRadius(4)
+                }
             }
         }
         .chartXScale(domain: chartXDomain)
@@ -1545,35 +1905,50 @@ private struct BodySleepStageChart: View {
         }
     }
 
-    private var stageTransitions: [SleepStageTransition] {
-        let sortedSegments = snapshot.segments.sorted { $0.startDate < $1.startDate }
-        let maximumConnectedGap: TimeInterval = 8 * 60
-        let halfConnectorWidth: TimeInterval = 2 * 60
-        let connectorStageInset = 0.28
+    private func segmentGradient(for stage: SleepStage) -> LinearGradient {
+        let stageColor = color(for: stage)
+        return LinearGradient(
+            colors: [
+                stageColor.opacity(0.98),
+                stageColor.opacity(0.84)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
 
-        return zip(sortedSegments, sortedSegments.dropFirst()).compactMap { previous, next in
-            guard previous.stage != next.stage else {
-                return nil
-            }
+    private func hasRoomForStageHighlight(_ segment: SleepStageSegment) -> Bool {
+        segmentDisplayEndDate(for: segment).timeIntervalSince(segmentDisplayStartDate(for: segment)) > 4 * 60
+    }
 
-            let gap = next.startDate.timeIntervalSince(previous.endDate)
-            guard abs(gap) <= maximumConnectedGap else {
-                return nil
-            }
+    private func segmentHighlightStartDate(for segment: SleepStageSegment) -> Date {
+        segmentDisplayStartDate(for: segment).addingTimeInterval(segmentHighlightInset(for: segment))
+    }
 
-            let boundaryStart = min(previous.endDate, next.startDate).addingTimeInterval(-halfConnectorWidth)
-            let boundaryEnd = max(previous.endDate, next.startDate).addingTimeInterval(halfConnectorWidth)
-            let tintStage = next.stage == .awake ? previous.stage : next.stage
+    private func segmentHighlightEndDate(for segment: SleepStageSegment) -> Date {
+        segmentDisplayEndDate(for: segment).addingTimeInterval(-segmentHighlightInset(for: segment))
+    }
 
-            return SleepStageTransition(
-                id: "\(previous.id)-\(next.id)",
-                startDate: boundaryStart,
-                endDate: boundaryEnd,
-                lowerStagePosition: min(previous.stage.chartPosition, next.stage.chartPosition) + connectorStageInset,
-                upperStagePosition: max(previous.stage.chartPosition, next.stage.chartPosition) - connectorStageInset,
-                tintStage: tintStage
-            )
+    private func segmentHighlightInset(for segment: SleepStageSegment) -> TimeInterval {
+        let duration = segmentDisplayEndDate(for: segment).timeIntervalSince(segmentDisplayStartDate(for: segment))
+        return min(max(duration * 0.10, 20), 75)
+    }
+
+    private func segmentDisplayStartDate(for segment: SleepStageSegment) -> Date {
+        segment.startDate.addingTimeInterval(segmentSpacingInset(for: segment))
+    }
+
+    private func segmentDisplayEndDate(for segment: SleepStageSegment) -> Date {
+        segment.endDate.addingTimeInterval(-segmentSpacingInset(for: segment))
+    }
+
+    private func segmentSpacingInset(for segment: SleepStageSegment) -> TimeInterval {
+        let duration = max(0, segment.endDate.timeIntervalSince(segment.startDate))
+        guard duration > 90 else {
+            return 0
         }
+
+        return min(duration * 0.06, 35)
     }
 
     private var chartXDomain: ClosedRange<Date> {
@@ -1631,15 +2006,6 @@ private struct BodySleepStageChart: View {
             return Color(red: 0.25, green: 0.25, blue: 0.82)
         }
     }
-}
-
-private struct SleepStageTransition: Identifiable {
-    let id: String
-    let startDate: Date
-    let endDate: Date
-    let lowerStagePosition: Double
-    let upperStagePosition: Double
-    let tintStage: SleepStage
 }
 
 private struct SleepVitalDisplayRow: Identifiable {
