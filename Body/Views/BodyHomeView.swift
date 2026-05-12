@@ -1846,28 +1846,24 @@ private struct BodySleepStageChart: View {
 
     var body: some View {
         Chart {
-            ForEach(snapshot.segments) { segment in
+            ForEach(stageBridges) { bridge in
                 RectangleMark(
-                    xStart: .value("Start", segmentDisplayStartDate(for: segment)),
-                    xEnd: .value("End", segmentDisplayEndDate(for: segment)),
-                    yStart: .value("Stage Start", segment.stage.chartPosition - 0.32),
-                    yEnd: .value("Stage End", segment.stage.chartPosition + 0.32)
+                    xStart: .value("Bridge Start", bridge.startDate),
+                    xEnd: .value("Bridge End", bridge.endDate),
+                    yStart: .value("Bridge Y Start", bridge.yStart),
+                    yEnd: .value("Bridge Y End", bridge.yEnd)
                 )
-                .foregroundStyle(segmentGradient(for: segment.stage))
-                .cornerRadius(7)
+                .foregroundStyle(bridgeGradient(for: bridge))
             }
 
             ForEach(snapshot.segments) { segment in
-                if hasRoomForStageHighlight(segment) {
-                    RectangleMark(
-                        xStart: .value("Highlight Start", segmentHighlightStartDate(for: segment)),
-                        xEnd: .value("Highlight End", segmentHighlightEndDate(for: segment)),
-                        yStart: .value("Highlight Stage Start", segment.stage.chartPosition + 0.15),
-                        yEnd: .value("Highlight Stage End", segment.stage.chartPosition + 0.28)
-                    )
-                    .foregroundStyle(Color.white.opacity(0.10))
-                    .cornerRadius(4)
-                }
+                RectangleMark(
+                    xStart: .value("Start", segmentRenderStartDate(for: segment)),
+                    xEnd: .value("End", segmentRenderEndDate(for: segment)),
+                    yStart: .value("Stage Start", segment.stage.chartPosition - 0.32),
+                    yEnd: .value("Stage End", segment.stage.chartPosition + 0.32)
+                )
+                .foregroundStyle(color(for: segment.stage))
             }
         }
         .chartXScale(domain: chartXDomain)
@@ -1905,33 +1901,76 @@ private struct BodySleepStageChart: View {
         }
     }
 
-    private func segmentGradient(for stage: SleepStage) -> LinearGradient {
-        let stageColor = color(for: stage)
-        return LinearGradient(
+    private struct StageBridge: Identifiable {
+        let id: String
+        let startDate: Date
+        let endDate: Date
+        let yStart: Double
+        let yEnd: Double
+        let upperStage: SleepStage
+        let lowerStage: SleepStage
+    }
+
+    private var stageBridges: [StageBridge] {
+        let segments = snapshot.segments
+        guard segments.count >= 2 else { return [] }
+
+        var bridges: [StageBridge] = []
+        for index in 0..<(segments.count - 1) {
+            let current = segments[index]
+            let next = segments[index + 1]
+            guard current.stage != next.stage else { continue }
+
+            let gapSeconds = next.startDate.timeIntervalSince(current.endDate)
+            guard gapSeconds < 15 * 60 else { continue }
+
+            let upperStage: SleepStage
+            let lowerStage: SleepStage
+            if current.stage.chartPosition > next.stage.chartPosition {
+                upperStage = current.stage
+                lowerStage = next.stage
+            } else {
+                upperStage = next.stage
+                lowerStage = current.stage
+            }
+
+            let connectedStart = segmentDisplayEndDate(for: current)
+            let connectedEnd = segmentDisplayStartDate(for: next)
+            let bridgeStart = min(connectedStart, connectedEnd)
+            let bridgeEnd = max(connectedStart, connectedEnd)
+
+            let bridgeStageOverlap = 0.14
+            let segmentHalfHeight = 0.32
+            let yStart = lowerStage.chartPosition + segmentHalfHeight - bridgeStageOverlap
+            let yEnd = upperStage.chartPosition - segmentHalfHeight + bridgeStageOverlap
+
+            bridges.append(StageBridge(
+                id: "bridge-\(current.id)-\(next.id)",
+                startDate: bridgeStart,
+                endDate: bridgeEnd,
+                yStart: yStart,
+                yEnd: yEnd,
+                upperStage: upperStage,
+                lowerStage: lowerStage
+            ))
+        }
+
+        return bridges
+    }
+
+    private func bridgeGradient(for bridge: StageBridge) -> LinearGradient {
+        LinearGradient(
             colors: [
-                stageColor.opacity(0.98),
-                stageColor.opacity(0.84)
+                color(for: bridge.upperStage).opacity(0.92),
+                color(for: bridge.lowerStage).opacity(0.92)
             ],
             startPoint: .top,
             endPoint: .bottom
         )
     }
 
-    private func hasRoomForStageHighlight(_ segment: SleepStageSegment) -> Bool {
-        segmentDisplayEndDate(for: segment).timeIntervalSince(segmentDisplayStartDate(for: segment)) > 4 * 60
-    }
-
-    private func segmentHighlightStartDate(for segment: SleepStageSegment) -> Date {
-        segmentDisplayStartDate(for: segment).addingTimeInterval(segmentHighlightInset(for: segment))
-    }
-
-    private func segmentHighlightEndDate(for segment: SleepStageSegment) -> Date {
-        segmentDisplayEndDate(for: segment).addingTimeInterval(-segmentHighlightInset(for: segment))
-    }
-
-    private func segmentHighlightInset(for segment: SleepStageSegment) -> TimeInterval {
-        let duration = segmentDisplayEndDate(for: segment).timeIntervalSince(segmentDisplayStartDate(for: segment))
-        return min(max(duration * 0.10, 20), 75)
+    private var segmentBridgeCoverWidth: TimeInterval {
+        60
     }
 
     private func segmentDisplayStartDate(for segment: SleepStageSegment) -> Date {
@@ -1940,6 +1979,14 @@ private struct BodySleepStageChart: View {
 
     private func segmentDisplayEndDate(for segment: SleepStageSegment) -> Date {
         segment.endDate.addingTimeInterval(-segmentSpacingInset(for: segment))
+    }
+
+    private func segmentRenderStartDate(for segment: SleepStageSegment) -> Date {
+        segmentDisplayStartDate(for: segment).addingTimeInterval(-segmentBridgeCoverWidth)
+    }
+
+    private func segmentRenderEndDate(for segment: SleepStageSegment) -> Date {
+        segmentDisplayEndDate(for: segment).addingTimeInterval(segmentBridgeCoverWidth)
     }
 
     private func segmentSpacingInset(for segment: SleepStageSegment) -> TimeInterval {
