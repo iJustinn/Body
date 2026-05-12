@@ -41,7 +41,7 @@ Generated 2026-05-10 against branch `codex/body-v0.1.0`.
 | M6 | Medium | Empty workout month | Test with a month/device that has no workouts | Calendar shows inactive days and zero workout summary |
 | M7 | Medium | Multiple workout types in one day | Record/import running and strength workouts on one day | Day tile shows count badge and colored glyphs |
 | M8 | Medium | Coin-style count indicators | Test days with 1, 4, 5, and 13 workouts | Tiles show star, moon, moon+star, and sun respectively |
-| M9 | Medium | Settings app icon picker | Open Settings, choose each icon option, and return to Home | App icon updates and the Home/Charts/Settings tabs remain available |
+| M9 | Medium | Settings app icon picker | Open Settings, choose each icon option, and return to Home | App icon updates for Classic, Light, Rose, Classic Alt, Light Alt, and Rose Alt; the Home/Charts/Settings tabs remain available |
 | M10 | High | Workout Types widget | Add the Workout Types widget from the widget gallery | Only large size is offered; no title/month header appears; bars directly fill the widget and reflect current-month workout durations by type |
 | M11 | High | Charts tab visualizations | Open Charts after syncing or with preview data, then switch app theme between Light and Dark | Workout Calendar matches the large widget styling, Workout Types shows the monthly type breakdown, and chart panel backgrounds follow the selected app theme |
 | M12 | Medium | Appearance theme and accent | In Settings, choose System, Light, and Dark themes; choose several app accents | App color scheme follows the selected theme and app tint uses the selected accent color |

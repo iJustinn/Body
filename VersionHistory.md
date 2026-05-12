@@ -26,7 +26,7 @@
 - Updated the in-app workout type chart to use the same full-widget layout as the Workout Types widget.
 - Replaced the default Body 01 app icon artwork with the new blue icon.
 - Added Pink and White app icon choices using Coin-style appicon and preview asset naming.
-- Renamed and reordered Settings app icon choices as Classic, Light, Rose, and Clean.
+- Refreshed the Classic, Light, and Rose app icons and added Classic Alt, Light Alt, and Rose Alt as the second icon-picker row.
 - Added Coin-style month history browsing to Charts with the latest three months preloaded and older months loaded on demand.
 - Muted overly bright workout colors so calendar icons and By Type bars stay visually consistent.
 - Switched in-app chart panels from the widget gradient to Coin's solid card background.

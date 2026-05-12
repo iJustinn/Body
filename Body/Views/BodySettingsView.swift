@@ -501,11 +501,25 @@ private struct BodyAppIconOption: Identifiable, Equatable {
             previewAssetName: "BodyIconPink"
         ),
         BodyAppIconOption(
-            id: "body02",
-            displayName: "Clean",
+            id: "classicAlt",
+            displayName: "Classic Alt",
             descriptor: "Alternate",
-            alternateIconName: "Body02",
-            previewAssetName: "BodyIcon02"
+            alternateIconName: "BodyClassicAlt",
+            previewAssetName: "BodyIconClassicAlt"
+        ),
+        BodyAppIconOption(
+            id: "lightAlt",
+            displayName: "Light Alt",
+            descriptor: "Alternate",
+            alternateIconName: "BodyWhiteAlt",
+            previewAssetName: "BodyIconWhiteAlt"
+        ),
+        BodyAppIconOption(
+            id: "roseAlt",
+            displayName: "Rose Alt",
+            descriptor: "Alternate",
+            alternateIconName: "BodyPinkAlt",
+            previewAssetName: "BodyIconPinkAlt"
         )
     ]
 
