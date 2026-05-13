@@ -37,33 +37,29 @@ struct BodyChartsView: View {
                     ZStack(alignment: .top) {
                         ScrollView(.vertical, showsIndicators: false) {
                             VStack(alignment: .leading, spacing: 22) {
-                                BodyChartSection("Workout Calendar") {
-                                    WorkoutCalendarView(
-                                        snapshot: selectedSnapshot,
-                                        style: .widgetLarge,
-                                        fillsAvailableHeight: false,
-                                        onSelectDay: { day in
-                                            selectedWorkouts = .day(day)
-                                        }
-                                    )
-                                        .padding(14)
-                                        .bodyCardBackground()
-                                }
+                                WorkoutCalendarView(
+                                    snapshot: selectedSnapshot,
+                                    style: .widgetLarge,
+                                    fillsAvailableHeight: false,
+                                    onSelectDay: { day in
+                                        selectedWorkouts = .day(day)
+                                    }
+                                )
+                                .padding(14)
+                                .bodyCardBackground()
 
-                                BodyChartSection("Workout Types") {
-                                    WorkoutTypeBreakdownView(
-                                        snapshot: selectedSnapshot,
-                                        style: .app,
-                                        onSelectType: { type in
-                                            selectedWorkouts = .type(
-                                                type,
-                                                workouts: workouts(for: type)
-                                            )
-                                        }
-                                    )
-                                        .padding(14)
-                                        .bodyCardBackground()
-                                }
+                                WorkoutTypeBreakdownView(
+                                    snapshot: selectedSnapshot,
+                                    style: .app,
+                                    onSelectType: { type in
+                                        selectedWorkouts = .type(
+                                            type,
+                                            workouts: workouts(for: type)
+                                        )
+                                    }
+                                )
+                                .padding(14)
+                                .bodyCardBackground()
                             }
                             .padding(.horizontal)
                             .padding(.top, 30)
@@ -167,7 +163,7 @@ private struct BodyChartsLoadingBanner: View {
     }
 }
 
-private enum BodyWorkoutListSelection: Identifiable {
+enum BodyWorkoutListSelection: Identifiable {
     case day(WorkoutDaySummary)
     case type(BodyWorkoutType, workouts: [WorkoutSummary])
 
@@ -241,7 +237,7 @@ private enum BodyWorkoutListSelection: Identifiable {
     }
 }
 
-private struct BodyWorkoutListSheet: View {
+struct BodyWorkoutListSheet: View {
     @Environment(\.dismiss) private var dismiss
     let selection: BodyWorkoutListSelection
 
@@ -408,26 +404,6 @@ private struct BodyWorkoutRecordRow: View {
 
 private func timeText(for date: Date) -> String {
     date.formatted(.dateTime.hour().minute())
-}
-
-private struct BodyChartSection<Content: View>: View {
-    let title: String
-    private let content: Content
-
-    init(_ title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
-
-            content
-        }
-    }
 }
 
 #Preview {

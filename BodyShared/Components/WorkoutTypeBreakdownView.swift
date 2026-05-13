@@ -11,6 +11,16 @@ enum WorkoutTypeBreakdownDisplayStyle: Equatable {
     case widgetLarge
 }
 
+struct WorkoutTypeBreakdownRowPresentation: Equatable {
+    let titleText: String
+    let detailText: String
+
+    init(entry: WorkoutTypeBreakdown) {
+        titleText = "\(entry.type.displayName) × \(entry.count)"
+        detailText = BodyValueFormat.durationText(for: entry.duration)
+    }
+}
+
 struct WorkoutTypeBreakdownView: View {
     let snapshot: WorkoutMonthSnapshot
     let style: WorkoutTypeBreakdownDisplayStyle
@@ -122,7 +132,9 @@ struct WorkoutTypeBreakdownView: View {
     }
 
     private func workoutTypeDetails(_ entry: WorkoutTypeBreakdown) -> some View {
-        HStack(spacing: detailSpacing) {
+        let presentation = WorkoutTypeBreakdownRowPresentation(entry: entry)
+
+        return HStack(spacing: detailSpacing) {
             Image(systemName: entry.type.symbolName)
                 .font(.system(size: iconFontSize, weight: iconWeight))
                 .symbolRenderingMode(.hierarchical)
@@ -130,13 +142,13 @@ struct WorkoutTypeBreakdownView: View {
                 .frame(width: iconFrameSide, height: iconFrameSide)
 
             VStack(alignment: .leading, spacing: detailTextSpacing) {
-                Text(entry.type.displayName)
+                Text(presentation.titleText)
                     .font(.system(size: titleFontSize, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.68)
 
-                Text(detailText(for: entry))
+                Text(presentation.detailText)
                     .font(.system(size: detailFontSize, weight: detailFontWeight, design: .rounded))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -150,10 +162,6 @@ struct WorkoutTypeBreakdownView: View {
 
         let percentage = Int(((duration / distributionTotal) * 100).rounded())
         return "\(percentage)%"
-    }
-
-    private func detailText(for entry: WorkoutTypeBreakdown) -> String {
-        "\(BodyValueFormat.durationText(for: entry.duration)) · \(BodyValueFormat.workoutCountText(entry.count))"
     }
 
     private func detailReserveWidth(for availableWidth: CGFloat) -> CGFloat {

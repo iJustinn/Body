@@ -1,5 +1,11 @@
 # Version History
 
+## 0.3.0 (build 1)
+
+- Renamed the Home tab to Summary and moved workout visualizations into Workouts.
+- Placed the monthly workout calendar above workout rows and merged monthly totals with the workout type breakdown at the bottom of Workouts.
+- Updated the app, widget, and test bundle version to 0.3.0 build 1.
+
 ## 0.2.7 (build 3)
 
 - Added Exercise Minutes, Wrist Temperature, Time In Daylight, and Steps as first-class Home cards with dedicated detail screens and matching bar or line chart previews.

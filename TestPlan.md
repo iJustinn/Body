@@ -1,6 +1,6 @@
 # Body Test Plan
 
-Generated 2026-05-13 against branch `codex/body-v0.2.7`.
+Generated 2026-05-13 against branch `codex/body-v0.3.0`.
 
 ## 1. Project Testing Overview
 
@@ -33,8 +33,8 @@ Generated 2026-05-13 against branch `codex/body-v0.2.7`.
 | A14 | Medium | Sleep-stage-only summaries | Health summaries with sleep stages but no duration or vitals are not treated as empty |
 | A15 | Medium | Calendar day drill-down gating | Empty calendar days are not selectable, while workout days with a handler remain selectable |
 | A16 | Medium | Month picker relative list | Month-year lists rebuild relative to the supplied current date so a new month can appear after a calendar-day change |
-| A17 | High | Home card permission filtering | Disabled Health permissions remove matching summary and trend data from the Home dashboard while preserving enabled categories |
-| A18 | Medium | Home preview chart windows | Small-card preview charts use the most recent four eligible days, omit today's placeholder when today's data is missing, and preserve placeholders for earlier missing days |
+| A17 | High | Summary card permission filtering | Disabled Health permissions remove matching summary and trend data from the Summary dashboard while preserving enabled categories |
+| A18 | Medium | Summary preview chart windows | Small-card preview charts use the most recent four eligible days, omit today's placeholder when today's data is missing, and preserve placeholders for earlier missing days |
 | A19 | Medium | Health trend styling | Week and Month line charts use colored strokes and larger colored hollow point markers; 6 Months and Year hide point markers, and Year uses a thinner stroke than 6 Months |
 | A20 | Medium | Metric About coverage | Every `HealthMetricKind` detail route has non-empty About text |
 
@@ -43,30 +43,30 @@ Generated 2026-05-13 against branch `codex/body-v0.2.7`.
 | ID | Priority | Case | Steps | Expected |
 | --- | --- | --- | --- | --- |
 | M1 | Critical | First launch before Health permission | Install fresh build and open Body | App shows health cards with empty states and no sync button without crashing |
-| M2 | Critical | Apple Health authorization | Pull down on the Home tab on a physical device with workout, sleep, heart, body, and energy data | Permission prompt appears; after approval, current month workouts and home health cards render |
+| M2 | Critical | Apple Health authorization | Pull down on the Summary tab on a physical device with workout, sleep, heart, body, and energy data | Permission prompt appears; after approval, current month workouts and summary health cards render |
 | M3 | Critical | Widget reads app snapshot | Refresh workouts, add the large widget to Home Screen | Widget calendar matches app snapshot |
 | M4 | High | Widget placeholder | Add widget before opening app | Widget shows May 2026 preview data |
 | M5 | High | Widget background choices | Add both large widgets and edit their widget configuration background between System, Black, and White | Day numbers, glyphs, type bars, and labels remain readable in each background choice |
 | M6 | Medium | Empty workout month | Test with a month/device that has no workouts | Calendar shows inactive days and zero workout summary |
 | M7 | Medium | Multiple workout types in one day | Record/import running and strength workouts on one day | Day tile shows count badge and colored glyphs |
 | M8 | Medium | Coin-style count indicators | Test days with 1, 4, 5, and 13 workouts | Tiles show star, moon, moon+star, and sun respectively |
-| M9 | Medium | Settings app icon picker | Open Settings, choose each icon option, and return to Home | App icon updates for Classic, Light, Rose, Classic Alt, Light Alt, and Rose Alt; the Home/Charts/Settings tabs remain available |
+| M9 | Medium | Settings app icon picker | Open Settings, choose each icon option, and return to Summary | App icon updates for Classic, Light, Rose, Classic Alt, Light Alt, and Rose Alt; the Summary/Workouts/Settings tabs remain available |
 | M10 | High | Workout Types widget | Add the Workout Types widget from the widget gallery | Only large size is offered; no title/month header appears; bars directly fill the widget and reflect current-month workout durations by type |
-| M11 | High | Charts tab visualizations | Open Charts after syncing or with preview data, then switch app theme between Light and Dark | Workout Calendar matches the large widget styling, Workout Types shows the monthly type breakdown, and chart panel backgrounds follow the selected app theme |
+| M11 | High | Workouts visualizations | Open Workouts after syncing or with preview data, then switch app theme between Light and Dark | The calendar appears above workout rows, the monthly total/type breakdown card appears at the bottom, and chart panel backgrounds follow the selected app theme |
 | M12 | Medium | Appearance theme and accent | In Settings, choose System, Light, and Dark themes; choose several app accents | App color scheme follows the selected theme and app tint uses the selected accent color |
-| M13 | High | Home health cards | Refresh on a physical device with Apple Health samples | Home shows a two-card-wide Activity Rings summary at the top, then same-sized tappable cards for Exercise Minutes, Wrist Temperature, Time In Daylight, Steps, Sleep, Basics, resting heart rate, HRV, blood oxygen, respiratory rate, active energy, and resting energy; each small card has a recent four-day preview chart positioned above the icon |
-| M14 | High | Calendar workout drill-down | In Charts, tap a calendar day | A sheet opens with all workouts for that day |
-| M15 | High | Workout type drill-down | In Charts, tap a Workout Types row | A sheet opens with all workouts of that type for the month |
-| M16 | High | Home card health trends | Tap each Home health card after refreshing Health data | A secondary screen opens with the current value and a Week chart by default; line-chart pages use colored lines and colored hollow dots for Week and Month, hide dots for 6 Months and Year, and switch ranges without lingering old dots; bar-chart pages use matching bar charts; Basics shows equal-size body fat and weight current values, a Difference Range card under the Week/Month/6 Months/Year selector with Body Fat, Weight, and BMI ranges, then a dual-axis Weight and Body Fat chart and a separate BMI chart; Sleep shows today's three-category Sleep Score, today's stage timeline with soft transition shading, an Apple-style high/typical/low Sleep Vitals chart with Sleep Duration as the fifth metric, and the range trend chart at the bottom |
+| M13 | High | Summary health cards | Refresh on a physical device with Apple Health samples | Summary shows a two-card-wide Activity Rings summary at the top, then same-sized tappable cards for Exercise Minutes, Wrist Temperature, Time In Daylight, Steps, Sleep, Basics, resting heart rate, HRV, blood oxygen, respiratory rate, active energy, and resting energy; each small card has a recent four-day preview chart positioned above the icon |
+| M14 | High | Calendar workout drill-down | In Workouts, tap a calendar day | A sheet opens with all workouts for that day |
+| M15 | High | Workout type drill-down | In Workouts, tap a workout type row in the bottom summary card | A sheet opens with all workouts of that type for the month |
+| M16 | High | Summary card health trends | Tap each Summary health card after refreshing Health data | A secondary screen opens with the current value and a Week chart by default; line-chart pages use colored lines and colored hollow dots for Week and Month, hide dots for 6 Months and Year, and switch ranges without lingering old dots; bar-chart pages use matching bar charts; Basics shows equal-size body fat and weight current values, a Difference Range card under the Week/Month/6 Months/Year selector with Body Fat, Weight, and BMI ranges, then a dual-axis Weight and Body Fat chart and a separate BMI chart; Sleep shows today's three-category Sleep Score, today's stage timeline with soft transition shading, an Apple-style high/typical/low Sleep Vitals chart with Sleep Duration as the fifth metric, and the range trend chart at the bottom |
 | M17 | Medium | Unit setting | In Settings > Units, choose System, Metric, and Imperial | Basics weight display and chart switch between kg and lb, and workout distance rows switch between km and mi |
-| M18 | Medium | Home card detail trend range | Tap several Home cards, then switch each detail screen between Week, Month, 6 Months, and Year | Detail charts switch between Last 7 Days, Last 30 Days, Last 6 Months, and Last Year for every Home card, with Week as the default; Week x-axis labels show weekday names, Month labels show dates, and longer ranges show month labels |
+| M18 | Medium | Summary card detail trend range | Tap several Summary cards, then switch each detail screen between Week, Month, 6 Months, and Year | Detail charts switch between Last 7 Days, Last 30 Days, Last 6 Months, and Last Year for every Summary card, with Week as the default; Week x-axis labels show weekday names, Month labels show dates, and longer ranges show month labels |
 | M19 | High | Workouts sort, filter, and search | Open Workouts, change sort order, filter to a single type, search by type/source/date, then change months | Visible rows, empty-state copy, and Reset Filters affordance match the active controls |
-| M20 | High | Workout detail sheet | Tap a workout row from Workouts and from a Charts drill-down sheet on small and large iPhones | The sheet shows duration, energy, distance, heart rate, effort, source, and chart content without clipped controls |
-| M21 | High | Activity Rings pagination | Open Home > Activity Rings and scroll upward one month at a time | Older months load only after user scroll gestures and do not prefetch empty placeholder months during initial layout |
-| M22 | Medium | Month boundary refresh | Keep Charts or Workouts open across midnight at a month boundary, or simulate `.NSCalendarDayChanged` | The new current month appears in the picker without a cold launch |
-| M23 | Medium | Activity Rings completion star | Complete Move, Exercise, and Stand rings for today, then open Home | A gold star appears at the top right of the Home rings graphic and scales with the smaller Home ring size |
-| M24 | High | Settings Data permissions | Open Settings > Data > Permissions and toggle several categories off and on | Disabled categories disappear or show empty data on Home/detail charts while enabled categories remain visible; toggles persist across app relaunch |
-| M25 | Medium | Metric About cards | Open every Home card detail page | Every detail page shows an About card with metric-specific explanatory copy above the Apple Health data-source footer |
+| M20 | High | Workout detail sheet | Tap a workout row from Workouts and from a workout chart drill-down sheet on small and large iPhones | The sheet shows duration, energy, distance, heart rate, effort, source, and chart content without clipped controls |
+| M21 | High | Activity Rings pagination | Open Summary > Activity Rings and scroll upward one month at a time | Older months load only after user scroll gestures and do not prefetch empty placeholder months during initial layout |
+| M22 | Medium | Month boundary refresh | Keep Workouts open across midnight at a month boundary, or simulate `.NSCalendarDayChanged` | The new current month appears in the picker without a cold launch |
+| M23 | Medium | Activity Rings completion star | Complete Move, Exercise, and Stand rings for today, then open Summary | A gold star appears at the top right of the Summary rings graphic and scales with the smaller Summary ring size |
+| M24 | High | Settings Data permissions | Open Settings > Data > Permissions and toggle several categories off and on | Disabled categories disappear or show empty data on Summary/detail charts while enabled categories remain visible; toggles persist across app relaunch |
+| M25 | Medium | Metric About cards | Open every Summary card detail page | Every detail page shows an About card with metric-specific explanatory copy above the Apple Health data-source footer |
 | M26 | Medium | Sleep score sheet height | Open Sleep detail and tap the Sleep Score card | The scoring breakdown sheet opens at a suitable height that shows all scoring metrics without needing to pull the sheet to full screen |
 
 ## 4. Deferred Coverage

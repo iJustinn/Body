@@ -62,6 +62,68 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(breakdown.first?.count, 2)
     }
 
+    func testWorkoutTypeBreakdownRowPresentationMovesWorkoutCountIntoTitle() {
+        let presentation = WorkoutTypeBreakdownRowPresentation(
+            entry: WorkoutTypeBreakdown(
+                type: .strengthTraining,
+                duration: 18_960,
+                count: 5
+            )
+        )
+
+        XCTAssertEqual(presentation.titleText, "Strength × 5")
+        XCTAssertEqual(presentation.detailText, "5h 16m")
+        XCTAssertFalse(presentation.detailText.contains("workout"))
+    }
+
+    func testWorkoutRowPresentationUsesActiveEnergyWhenWorkoutHasNoDistance() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 4, day: 29, hour: 14, minute: 6)
+        ))
+        let workout = WorkoutSummary(
+            type: .strengthTraining,
+            startDate: startDate,
+            duration: 4_800,
+            activeEnergyKilocalories: 530,
+            distanceMeters: nil,
+            sourceName: "Motra"
+        )
+
+        let presentation = BodyWorkoutRowPresentation(
+            workout: workout,
+            locale: Locale(identifier: "en_US_POSIX"),
+            unitPreference: .metric
+        )
+
+        XCTAssertEqual(presentation.detailIconName, "flame.fill")
+        XCTAssertEqual(presentation.detailText, "530 kcal")
+        XCTAssertNil(presentation.trailingEnergyText)
+    }
+
+    func testWorkoutRowPresentationKeepsDistancePrimaryWhenAvailable() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 4, day: 30, hour: 20, minute: 27)
+        ))
+        let workout = WorkoutSummary(
+            type: .walking,
+            startDate: startDate,
+            duration: 1_500,
+            activeEnergyKilocalories: 77,
+            distanceMeters: 1_400,
+            sourceName: "Motra"
+        )
+
+        let presentation = BodyWorkoutRowPresentation(
+            workout: workout,
+            locale: Locale(identifier: "en_US_POSIX"),
+            unitPreference: .metric
+        )
+
+        XCTAssertEqual(presentation.detailIconName, "map.fill")
+        XCTAssertEqual(presentation.detailText, "1.4 km")
+        XCTAssertEqual(presentation.trailingEnergyText, "77 kcal")
+    }
+
     func testBodyValueFormatUsesImperialUnitsForUSLocale() {
         let locale = Locale(identifier: "en_US")
 
@@ -365,6 +427,162 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(BodyHomeMetricCardPreview.linePreviewWidth, 42, accuracy: 0.001)
         XCTAssertEqual(BodyHomeMetricCardPreview.barPreviewWidth, 42, accuracy: 0.001)
         XCTAssertEqual(BodyHomeMetricCardPreview.linePreviewWidth, BodyHomeMetricCardPreview.barPreviewWidth)
+    }
+
+    func testHomeTrendCardPresentationComparesRecentWeekAgainstPriorThreeWeeks() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let points = try (-27...0).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
+            let value = offset < -6 ? 70.0 : 56.0
+            return HealthTrendDataPoint(date: date, value: value)
+        }
+
+        let presentation = try XCTUnwrap(BodyHomeTrendCardPresentation.make(
+            kind: .restingHeartRate,
+            title: "Resting Heart Rate",
+            series: HealthTrendSeries(points: points),
+            chartStyle: .line,
+            valueFormatter: { "\(Int($0.rounded())) BPM" },
+            messageStyle: .average(subject: "your resting heart rate"),
+            calendar: calendar,
+            date: currentDate
+        ))
+
+        XCTAssertEqual(presentation.messageText, "On average, your resting heart rate decreased over the last 7 days.")
+        XCTAssertEqual(presentation.baselineAverage, 70, accuracy: 0.001)
+        XCTAssertEqual(presentation.recentAverage, 56, accuracy: 0.001)
+        XCTAssertEqual(presentation.baselineAverageText, "70 BPM")
+        XCTAssertEqual(presentation.recentAverageText, "56 BPM")
+        XCTAssertEqual(presentation.baselinePeriodText, "21-day avg")
+        XCTAssertEqual(presentation.recentPeriodText, "7-day avg")
+        XCTAssertEqual(presentation.calendarPoints.count, 28)
+
+        let averageLineSegments = presentation.averageLineSegments(in: 270)
+        XCTAssertEqual(averageLineSegments.baseline.lowerBound, 0, accuracy: 0.001)
+        XCTAssertEqual(averageLineSegments.baseline.upperBound, 200, accuracy: 0.001)
+        XCTAssertEqual(averageLineSegments.recent.lowerBound, 210, accuracy: 0.001)
+        XCTAssertEqual(averageLineSegments.recent.upperBound, 270, accuracy: 0.001)
+    }
+
+    func testHomeTrendCardPresentationCanDetectLongerRecentTrendWindow() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let points = try (-27...0).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
+            let value = offset < -22 ? 9_000.0 : 5_000.0
+            return HealthTrendDataPoint(date: date, value: value)
+        }
+
+        let presentation = try XCTUnwrap(BodyHomeTrendCardPresentation.make(
+            kind: .steps,
+            title: "Steps",
+            series: HealthTrendSeries(points: points),
+            chartStyle: .bar,
+            valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) },
+            messageStyle: .quantity(subject: "The number of steps you took per day"),
+            calendar: calendar,
+            date: currentDate
+        ))
+
+        XCTAssertEqual(presentation.messageText, "The number of steps you took per day was lower over the last 23 days.")
+        XCTAssertEqual(presentation.baselineAverage, 9_000, accuracy: 0.001)
+        XCTAssertEqual(presentation.recentAverage, 5_000, accuracy: 0.001)
+        XCTAssertEqual(presentation.baselinePeriodText, "5-day avg")
+        XCTAssertEqual(presentation.recentPeriodText, "23-day avg")
+
+        let averageLineSegments = presentation.averageLineSegments(in: 270)
+        XCTAssertEqual(averageLineSegments.baseline.lowerBound, 0, accuracy: 0.001)
+        XCTAssertEqual(averageLineSegments.baseline.upperBound, 40, accuracy: 0.001)
+        XCTAssertEqual(averageLineSegments.recent.lowerBound, 50, accuracy: 0.001)
+        XCTAssertEqual(averageLineSegments.recent.upperBound, 270, accuracy: 0.001)
+    }
+
+    func testHomeTrendCardPresentationKeepsAtLeastThreeDaysInEachTrendWindow() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let points = try (-27...0).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
+            let value = offset > -3 ? 200.0 : 100.0
+            return HealthTrendDataPoint(date: date, value: value)
+        }
+
+        let presentation = try XCTUnwrap(BodyHomeTrendCardPresentation.make(
+            kind: .heartRateVariability,
+            title: "HRV",
+            series: HealthTrendSeries(points: points),
+            chartStyle: .line,
+            valueFormatter: { "\(Int($0.rounded())) ms" },
+            messageStyle: .average(subject: "your HRV"),
+            calendar: calendar,
+            date: currentDate
+        ))
+
+        XCTAssertEqual(BodyHomeTrendCardPresentation.minimumTrendSegmentDayCount, 3)
+        XCTAssertEqual(presentation.messageText, "On average, your HRV increased over the last 3 days.")
+        XCTAssertEqual(presentation.baselinePeriodText, "25-day avg")
+        XCTAssertEqual(presentation.recentPeriodText, "3-day avg")
+    }
+
+    func testHomeTrendCardPresentationRequiresBaselineAndRecentHistory() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let points = try (-6...0).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
+            return HealthTrendDataPoint(date: date, value: 56)
+        }
+
+        XCTAssertNil(BodyHomeTrendCardPresentation.make(
+            kind: .steps,
+            title: "Steps",
+            series: HealthTrendSeries(points: points),
+            chartStyle: .bar,
+            valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) },
+            messageStyle: .quantity(subject: "The number of steps you took per day"),
+            calendar: calendar,
+            date: currentDate
+        ))
+    }
+
+    func testHomeTrendCardPresentationCanIncludeStableTrendsForShowAll() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let points = try (-27...0).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
+            let value = offset < -6 ? 100.0 : 100.5
+            return HealthTrendDataPoint(date: date, value: value)
+        }
+
+        let significantOnly = BodyHomeTrendCardPresentation.make(
+            kind: .steps,
+            title: "Steps",
+            series: HealthTrendSeries(points: points),
+            chartStyle: .bar,
+            valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) },
+            messageStyle: .quantity(subject: "The number of steps you took per day"),
+            calendar: calendar,
+            date: currentDate
+        )
+        let showAllPresentation = try XCTUnwrap(BodyHomeTrendCardPresentation.make(
+            kind: .steps,
+            title: "Steps",
+            series: HealthTrendSeries(points: points),
+            chartStyle: .bar,
+            valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) },
+            messageStyle: .quantity(subject: "The number of steps you took per day"),
+            includesStable: true,
+            calendar: calendar,
+            date: currentDate
+        ))
+
+        XCTAssertNil(significantOnly)
+        XCTAssertEqual(BodyHomeTrendCardPresentation.minimumRelativeChange, 0.01, accuracy: 0.001)
+        XCTAssertEqual(showAllPresentation.messageText, "The number of steps you took per day stayed about the same over the last 7 days.")
     }
 
     func testHealthPermissionSelectionStoresEnabledPermissionsInDisplayOrder() {

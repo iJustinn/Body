@@ -16,6 +16,7 @@ struct BodyWorkoutsView: View {
     @State private var selectedSortOption: BodyWorkoutListSortOption = .dateDescending
     @State private var selectedWorkoutTypes = Set(BodyWorkoutType.allCases)
     @State private var selectedWorkoutForDetails: WorkoutSummary?
+    @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
 
     var body: some View {
@@ -41,9 +42,7 @@ struct BodyWorkoutsView: View {
 
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: 16) {
-                            if !visibleWorkouts.isEmpty {
-                                summaryCard(workouts: visibleWorkouts)
-                            }
+                            workoutCalendarCard
 
                             if visibleWorkouts.isEmpty {
                                 emptyStateView
@@ -67,6 +66,8 @@ struct BodyWorkoutsView: View {
                                     }
                                 }
                             }
+
+                            workoutTypeSummaryCard(workouts: allWorkouts)
                         }
                         .padding(.horizontal)
                         .padding(.top, 32)
@@ -105,6 +106,11 @@ struct BodyWorkoutsView: View {
             }
             .sheet(item: $selectedWorkoutForDetails) { workout in
                 BodyWorkoutDetailSheet(workout: workout)
+            }
+            .sheet(item: $selectedWorkoutListSelection) { selection in
+                BodyWorkoutListSheet(selection: selection)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
             }
             .task {
                 await workoutStore.loadRecentWorkoutMonthsIfNeeded()
@@ -218,6 +224,19 @@ struct BodyWorkoutsView: View {
         .frame(height: 46)
     }
 
+    private var workoutCalendarCard: some View {
+        WorkoutCalendarView(
+            snapshot: selectedSnapshot,
+            style: .widgetLarge,
+            fillsAvailableHeight: false,
+            onSelectDay: { day in
+                selectedWorkoutListSelection = .day(day)
+            }
+        )
+        .padding(14)
+        .bodyCardBackground()
+    }
+
     private func searchControlCard(iconName: String, size: CGFloat) -> some View {
         Image(systemName: iconName)
             .font(.system(size: size, weight: .semibold))
@@ -226,37 +245,60 @@ struct BodyWorkoutsView: View {
             .bodyWorkoutsToolbarCardBackground(colorScheme: colorScheme)
     }
 
-    private func summaryCard(workouts: [WorkoutSummary]) -> some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Total for \(localizedMonthTitle)")
-                        .font(.system(.body, design: .rounded))
-                        .foregroundColor(.secondary)
+    private func workoutTypeSummaryCard(workouts: [WorkoutSummary]) -> some View {
+        VStack(spacing: 18) {
+            monthlySummaryHeader(workouts: workouts)
 
-                    Text(BodyValueFormat.durationText(for: totalDuration(for: workouts)))
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .fontWeight(.bold)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.65)
+            Divider()
+                .overlay(Color.secondary.opacity(0.18))
+
+            WorkoutTypeBreakdownView(
+                snapshot: selectedSnapshot,
+                style: .app,
+                onSelectType: { type in
+                    selectedWorkoutListSelection = .type(
+                        type,
+                        workouts: workoutsForType(type)
+                    )
                 }
+            )
+        }
+        .padding(18)
+        .bodyCardBackground()
+    }
 
-                Spacer()
+    private func monthlySummaryHeader(workouts: [WorkoutSummary]) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Total for \(localizedMonthTitle)")
+                    .font(.system(.body, design: .rounded))
+                    .foregroundColor(.secondary)
 
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("Workouts")
-                        .font(.system(.body, design: .rounded))
-                        .foregroundColor(.secondary)
+                Text(BodyValueFormat.durationText(for: totalDuration(for: workouts)))
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .fontWeight(.bold)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+            }
 
-                    Text("\(workouts.count)")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .fontWeight(.bold)
-                }
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 4) {
+                Text("Workouts")
+                    .font(.system(.body, design: .rounded))
+                    .foregroundColor(.secondary)
+
+                Text("\(workouts.count)")
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .fontWeight(.bold)
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 18)
-        .bodyCardBackground()
+    }
+
+    private func workoutsForType(_ type: BodyWorkoutType) -> [WorkoutSummary] {
+        allWorkouts
+            .filter { $0.type == type }
+            .sorted { $0.startDate > $1.startDate }
     }
 
     private var emptyStateView: some View {
@@ -425,6 +467,40 @@ private enum BodyWorkoutListSortOption: String, CaseIterable, Identifiable {
     }
 }
 
+struct BodyWorkoutRowPresentation {
+    let detailIconName: String
+    let detailText: String
+    let trailingEnergyText: String?
+
+    init(
+        workout: WorkoutSummary,
+        locale: Locale = .current,
+        unitPreference: BodyValueFormat.UnitPreference = .system
+    ) {
+        let energyText = workout.activeEnergyKilocalories.map {
+            BodyValueFormat.energyText(kilocalories: $0, locale: locale)
+        }
+
+        if let distanceMeters = workout.distanceMeters, distanceMeters > 0 {
+            detailIconName = "map.fill"
+            detailText = BodyValueFormat.distanceText(
+                meters: distanceMeters,
+                locale: locale,
+                unitPreference: unitPreference
+            )
+            trailingEnergyText = energyText
+        } else if let energyText {
+            detailIconName = "flame.fill"
+            detailText = energyText
+            trailingEnergyText = nil
+        } else {
+            detailIconName = "heart.text.square.fill"
+            detailText = workout.sourceName
+            trailingEnergyText = nil
+        }
+    }
+}
+
 private struct BodyWorkoutExpenseStyleRow: View {
     @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
     let workout: WorkoutSummary
@@ -456,11 +532,11 @@ private struct BodyWorkoutExpenseStyleRow: View {
                     .minimumScaleFactor(0.75)
 
                 HStack(spacing: 6) {
-                    Image(systemName: detailIconName)
+                    Image(systemName: presentation.detailIconName)
                         .font(.system(size: metadataFontSize, weight: .semibold))
                         .foregroundColor(workout.type.color)
 
-                    Text(detailText)
+                    Text(presentation.detailText)
                         .font(.system(size: metadataFontSize, weight: .semibold))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
@@ -478,8 +554,8 @@ private struct BodyWorkoutExpenseStyleRow: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
 
-                if let activeEnergyKilocalories = workout.activeEnergyKilocalories {
-                    Text(BodyValueFormat.energyText(kilocalories: activeEnergyKilocalories))
+                if let trailingEnergyText = presentation.trailingEnergyText {
+                    Text(trailingEnergyText)
                         .font(.system(size: metadataFontSize, weight: .semibold))
                         .fontWeight(.semibold)
                         .foregroundColor(.secondary)
@@ -509,23 +585,11 @@ private struct BodyWorkoutExpenseStyleRow: View {
         workout.startDate.formatted(.dateTime.hour().minute())
     }
 
-    private var detailIconName: String {
-        if let distanceMeters = workout.distanceMeters, distanceMeters > 0 {
-            return "map.fill"
-        }
-
-        return "heart.text.square.fill"
-    }
-
-    private var detailText: String {
-        if let distanceMeters = workout.distanceMeters, distanceMeters > 0 {
-            return BodyValueFormat.distanceText(
-                meters: distanceMeters,
-                unitPreference: selectedUnitPreference
-            )
-        }
-
-        return workout.sourceName
+    private var presentation: BodyWorkoutRowPresentation {
+        BodyWorkoutRowPresentation(
+            workout: workout,
+            unitPreference: selectedUnitPreference
+        )
     }
 
     private var selectedUnitPreference: BodyValueFormat.UnitPreference {
