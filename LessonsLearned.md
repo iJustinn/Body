@@ -4,6 +4,13 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 
 ## Entries
 
+### 2026-05-12 - Compile BodyTests with build-for-testing outside sandbox when CoreSimulator blocks tests
+- Context: Adding model tests for selected-day Health metric series while CoreSimulator was unavailable.
+- Symptom: `xcodebuild test` failed before compiling tests with no matching simulator, and sandboxed `build-for-testing` failed during asset catalog work with simulator-runtime errors.
+- Cause: The local simulator service was unavailable to sandboxed Xcode tooling, but generic iphoneos test-target compilation could still run outside the sandbox.
+- Fix: Use `xcodebuild build-for-testing -project body.xcodeproj -scheme Body -destination generic/platform=iOS -derivedDataPath /private/tmp/body-test-derived CODE_SIGNING_ALLOWED=NO` outside the sandbox to verify the app and test targets compile.
+- Reuse: When a model/UI change adds tests but simulator execution is blocked before Swift compilation, use outside-sandbox `build-for-testing` as the strongest available test compile gate.
+
 ### 2026-05-12 - Use generic build when CoreSimulator runtimes are unavailable
 - Context: Verifying the v0.2.6 Issues.md fix pass with `xcodebuild test` and `build-for-testing`.
 - Symptom: Simulator test commands failed before running tests with CoreSimulator connection errors and no available simulator runtimes; sandboxed generic builds also failed Swift preview macros with `sandbox_apply: Operation not permitted`.

@@ -63,11 +63,33 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
             return nil
         }
     }
+
+    var detailDataSourceText: HealthMetricDetailDataSourceText? {
+        switch self {
+        case .sleep,
+             .basics,
+             .restingHeartRate,
+             .heartRateVariability,
+             .respiratoryRate,
+             .oxygenSaturation,
+             .activeEnergy,
+             .restingEnergy:
+            return HealthMetricDetailDataSourceText(sourceText: "Apple Health")
+        case .bodyMass,
+             .bodyFatPercentage,
+             .bodyMassIndex:
+            return nil
+        }
+    }
 }
 
 struct HealthMetricDetailHelpText: Equatable {
     var title: String
     var body: String
+}
+
+struct HealthMetricDetailDataSourceText: Equatable {
+    var sourceText: String
 }
 
 struct HealthSummarySnapshot: Codable, Equatable {
@@ -1096,6 +1118,10 @@ struct HealthTrendSnapshot: Codable, Equatable {
     var activeEnergy: HealthTrendSeries
     var restingEnergy: HealthTrendSeries
     var sleepHistory: SleepHistorySnapshot
+    var restingHeartRateDaySamples: HealthTrendSeries
+    var heartRateVariabilityDaySamples: HealthTrendSeries
+    var respiratoryRateDaySamples: HealthTrendSeries
+    var oxygenSaturationDaySamples: HealthTrendSeries
 
     static let empty = HealthTrendSnapshot(
         sleep: .empty,
@@ -1108,7 +1134,11 @@ struct HealthTrendSnapshot: Codable, Equatable {
         bodyMassIndex: .empty,
         activeEnergy: .empty,
         restingEnergy: .empty,
-        sleepHistory: .empty
+        sleepHistory: .empty,
+        restingHeartRateDaySamples: .empty,
+        heartRateVariabilityDaySamples: .empty,
+        respiratoryRateDaySamples: .empty,
+        oxygenSaturationDaySamples: .empty
     )
 
     init(
@@ -1122,7 +1152,11 @@ struct HealthTrendSnapshot: Codable, Equatable {
         bodyMassIndex: HealthTrendSeries,
         activeEnergy: HealthTrendSeries,
         restingEnergy: HealthTrendSeries,
-        sleepHistory: SleepHistorySnapshot = .empty
+        sleepHistory: SleepHistorySnapshot = .empty,
+        restingHeartRateDaySamples: HealthTrendSeries = .empty,
+        heartRateVariabilityDaySamples: HealthTrendSeries = .empty,
+        respiratoryRateDaySamples: HealthTrendSeries = .empty,
+        oxygenSaturationDaySamples: HealthTrendSeries = .empty
     ) {
         self.sleep = sleep
         self.restingHeartRate = restingHeartRate
@@ -1135,6 +1169,10 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.activeEnergy = activeEnergy
         self.restingEnergy = restingEnergy
         self.sleepHistory = sleepHistory
+        self.restingHeartRateDaySamples = restingHeartRateDaySamples
+        self.heartRateVariabilityDaySamples = heartRateVariabilityDaySamples
+        self.respiratoryRateDaySamples = respiratoryRateDaySamples
+        self.oxygenSaturationDaySamples = oxygenSaturationDaySamples
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1149,6 +1187,10 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case activeEnergy
         case restingEnergy
         case sleepHistory
+        case restingHeartRateDaySamples
+        case heartRateVariabilityDaySamples
+        case respiratoryRateDaySamples
+        case oxygenSaturationDaySamples
     }
 
     init(from decoder: Decoder) throws {
@@ -1164,6 +1206,22 @@ struct HealthTrendSnapshot: Codable, Equatable {
         activeEnergy = try container.decode(HealthTrendSeries.self, forKey: .activeEnergy)
         restingEnergy = try container.decode(HealthTrendSeries.self, forKey: .restingEnergy)
         sleepHistory = try container.decodeIfPresent(SleepHistorySnapshot.self, forKey: .sleepHistory) ?? .empty
+        restingHeartRateDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .restingHeartRateDaySamples
+        ) ?? .empty
+        heartRateVariabilityDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .heartRateVariabilityDaySamples
+        ) ?? .empty
+        respiratoryRateDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .respiratoryRateDaySamples
+        ) ?? .empty
+        oxygenSaturationDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .oxygenSaturationDaySamples
+        ) ?? .empty
     }
 
     func series(for kind: HealthMetricKind) -> HealthTrendSeries {
@@ -1190,6 +1248,27 @@ struct HealthTrendSnapshot: Codable, Equatable {
             return activeEnergy
         case .restingEnergy:
             return restingEnergy
+        }
+    }
+
+    func daySeries(for kind: HealthMetricKind) -> HealthTrendSeries {
+        switch kind {
+        case .restingHeartRate:
+            return restingHeartRateDaySamples
+        case .heartRateVariability:
+            return heartRateVariabilityDaySamples
+        case .respiratoryRate:
+            return respiratoryRateDaySamples
+        case .oxygenSaturation:
+            return oxygenSaturationDaySamples
+        case .sleep,
+             .basics,
+             .bodyMass,
+             .bodyFatPercentage,
+             .bodyMassIndex,
+             .activeEnergy,
+             .restingEnergy:
+            return .empty
         }
     }
 }
@@ -1274,6 +1353,42 @@ struct HealthTrendSeries: Codable, Equatable {
     func point(on date: Date) -> HealthTrendDataPoint? {
         points.first { $0.date == date }
     }
+
+    func points(on date: Date, calendar: Calendar = .bodyGregorian) -> HealthTrendSeries {
+        let dayStart = calendar.startOfDay(for: date)
+        let nextDayStart = calendar.date(byAdding: .day, value: 1, to: dayStart)
+            ?? dayStart.addingTimeInterval(86_400)
+
+        return HealthTrendSeries(
+            points: points
+                .filter { point in
+                    point.date >= dayStart && point.date < nextDayStart
+                }
+                .sorted { $0.date < $1.date }
+        )
+    }
+
+    func hourlyAverageBuckets(on date: Date, calendar: Calendar = .bodyGregorian) -> [HealthTrendHourlyBucket] {
+        let dayPoints = points(on: date, calendar: calendar).points.filter { $0.value.isFinite }
+        let pointsByHour = Dictionary(grouping: dayPoints) { point in
+            calendar.dateInterval(of: .hour, for: point.date)?.start ?? point.date
+        }
+
+        return pointsByHour.compactMap { hourStart, samples -> HealthTrendHourlyBucket? in
+            let sortedSamples = samples.sorted { $0.date < $1.date }
+            guard !sortedSamples.isEmpty else {
+                return nil
+            }
+
+            let averageValue = sortedSamples.reduce(0) { $0 + $1.value } / Double(sortedSamples.count)
+            return HealthTrendHourlyBucket(
+                hourStart: hourStart,
+                averageValue: averageValue,
+                samples: sortedSamples
+            )
+        }
+        .sorted { $0.hourStart < $1.hourStart }
+    }
 }
 
 struct HealthTrendDataPoint: Codable, Equatable, Identifiable {
@@ -1282,5 +1397,19 @@ struct HealthTrendDataPoint: Codable, Equatable, Identifiable {
 
     var id: Date {
         date
+    }
+}
+
+struct HealthTrendHourlyBucket: Equatable, Identifiable {
+    var hourStart: Date
+    var averageValue: Double
+    var samples: [HealthTrendDataPoint]
+
+    var id: Date {
+        hourStart
+    }
+
+    var plotDate: Date {
+        hourStart.addingTimeInterval(30 * 60)
     }
 }

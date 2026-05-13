@@ -1,21 +1,82 @@
-MIT License
+Body Source-Available License
 
-Copyright (c) 2026 iJustin
+Copyright (c) 2026 iJustin and contributors.
+All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This Source-Available License ("License") applies to the Body app source code,
+documentation, project files, app design, and assets in this repository, except
+for files or components that contain or are accompanied by a different license
+notice. Third-party and upstream notices are summarized in
+THIRD_PARTY_NOTICES.md.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Body is made public for transparency, personal evaluation, learning, and
+reference. Body is not open-source software and is not licensed for commercial
+use, redistribution, derivative app publishing, or sublicensing.
+
+## Limited Permission
+
+Subject to this License, you may view and read the repository contents and
+reference the implementation for personal, non-commercial learning, evaluation,
+security review, or research.
+
+You may create a personal GitHub fork only to the extent GitHub's
+public-repository features require or allow it for viewing, issue discussion,
+or pull request contribution back to this repository. This does not grant
+permission to publish, redistribute, deploy, sell, or use the software outside
+the limited purposes above.
+
+## Restrictions
+
+Without prior written permission from the copyright holder, you may not:
+
+1. use, run, build, compile, copy, modify, merge, adapt, publish, distribute,
+   sublicense, rent, lease, sell, host, provide, or otherwise exploit the
+   software or any substantial part of it, except as expressly allowed above;
+2. use any part of the software in a commercial, revenue-generating, business,
+   professional, paid, sponsored, advertising-supported, or internal company
+   context;
+3. submit, distribute, or make available the software or any derivative, fork,
+   clone, or substantially similar app through the Apple App Store, TestFlight,
+   enterprise distribution, another app marketplace, a website, or any hosted
+   service;
+4. use the Body name, app icons, screenshots, artwork, product design, visual
+   identity, trademarks, or branding except to identify this repository in
+   attribution, discussion, or contribution back to this repository;
+5. remove, obscure, or alter copyright, license, attribution, or third-party
+   notices; or
+6. grant any third party permission to do anything prohibited by this License.
+
+## Contributions
+
+Unless a separate written agreement says otherwise, by submitting a contribution
+to this repository you grant iJustin and the project maintainers a perpetual,
+worldwide, royalty-free, irrevocable license to use, reproduce, modify,
+distribute, sublicense, and relicense your contribution as part of Body.
+
+If you do not want to grant these rights, do not submit the contribution.
+
+## Third-Party And Upstream Materials
+
+Third-party and upstream materials remain governed by their own license notices.
+Where a separate license grants broader rights to a separately identifiable
+third-party or upstream component, this License does not restrict those rights
+for that component standing alone. This License applies to the iJustin-owned
+Body modifications, additions, branding, assets, documentation, project
+configuration, and the repository compilation to the fullest extent permitted by
+law.
+
+## Permission Requests
+
+Commercial use, redistribution, derivative app publishing, sublicensing, and
+other uses outside this License require prior written permission from the
+copyright holder.
+
+## No Warranty
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES,
+OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE,
+ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OF OR OTHER
+DEALINGS IN THE SOFTWARE.

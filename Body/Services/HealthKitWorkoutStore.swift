@@ -777,6 +777,27 @@ final class HealthKitWorkoutStore: ObservableObject {
             calendar: calendar,
             valueTransform: Self.normalizedPercentDisplayValue
         )
+        async let restingHeartRateDaySamples = fetchQuantitySampleSeries(
+            for: .restingHeartRate,
+            unit: HKUnit.count().unitDivided(by: .minute()),
+            calendar: calendar
+        )
+        async let heartRateVariabilityDaySamples = fetchQuantitySampleSeries(
+            for: .heartRateVariabilitySDNN,
+            unit: .secondUnit(with: .milli),
+            calendar: calendar
+        )
+        async let respiratoryRateDaySamples = fetchQuantitySampleSeries(
+            for: .respiratoryRate,
+            unit: HKUnit.count().unitDivided(by: .minute()),
+            calendar: calendar
+        )
+        async let oxygenSaturationDaySamples = fetchQuantitySampleSeries(
+            for: .oxygenSaturation,
+            unit: .percent(),
+            calendar: calendar,
+            valueTransform: Self.normalizedPercentDisplayValue
+        )
         async let bodyMassIndex = fetchDailyQuantitySeries(
             for: .bodyMassIndex,
             unit: .count(),
@@ -806,7 +827,11 @@ final class HealthKitWorkoutStore: ObservableObject {
             bodyMassIndex: bodyMassIndex,
             activeEnergy: activeEnergy,
             restingEnergy: restingEnergy,
-            sleepHistory: fetchedSleepHistory
+            sleepHistory: fetchedSleepHistory,
+            restingHeartRateDaySamples: restingHeartRateDaySamples,
+            heartRateVariabilityDaySamples: heartRateVariabilityDaySamples,
+            respiratoryRateDaySamples: respiratoryRateDaySamples,
+            oxygenSaturationDaySamples: oxygenSaturationDaySamples
         )
     }
 
@@ -897,6 +922,43 @@ final class HealthKitWorkoutStore: ObservableObject {
                 }
 
                 continuation.resume(returning: HealthMetricSummary(value: value))
+            }
+
+            healthStore.execute(query)
+        }
+    }
+
+    private func fetchQuantitySampleSeries(
+        for identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        calendar: Calendar,
+        valueTransform: @escaping (Double) -> Double = { $0 }
+    ) async -> HealthTrendSeries {
+        guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
+            return .empty
+        }
+
+        let interval = recentHealthTrendInterval(calendar: calendar)
+        let predicate = HKQuery.predicateForSamples(withStart: interval.start, end: interval.end)
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
+
+        return await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: quantityType,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sort]
+            ) { _, samples, _ in
+                let points = (samples as? [HKQuantitySample] ?? []).compactMap { sample -> HealthTrendDataPoint? in
+                    let value = valueTransform(sample.quantity.doubleValue(for: unit))
+                    guard value.isFinite else {
+                        return nil
+                    }
+
+                    return HealthTrendDataPoint(date: sample.endDate, value: value)
+                }
+
+                continuation.resume(returning: HealthTrendSeries(points: points))
             }
 
             healthStore.execute(query)

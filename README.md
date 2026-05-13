@@ -1,10 +1,14 @@
 # Body
 
+<p align="center">
+  <img src="Body/Assets.xcassets/AppIcon.appiconset/AppIcon.png" alt="Body app icon" width="120">
+</p>
+
 Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, sleep, energy, body measurements, and Activity Rings into a local-first app and widget experience.
 
 The app shell follows Coin's simple tab structure: Home handles health cards and recent trends, Workouts provides searchable workout history, Charts holds workout visualizations, and Settings handles appearance and app details.
 
-Current app version: **0.2.6 (build 6)**
+Current app version: **0.2.6 (build 7)**
 
 ## Current Scope
 
