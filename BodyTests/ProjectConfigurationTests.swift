@@ -36,6 +36,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(BodySettingsDataTab.permissions.sheet, .permissions)
     }
 
+    func testSummaryTabUsesHealthDashboardIcon() throws {
+        let source = try text(at: "Body/Views/MainTabView.swift")
+
+        XCTAssertTrue(source.contains(#"Label("Summary", systemImage: "heart.text.square.fill")"#))
+        XCTAssertFalse(source.contains(#"Label("Summary", systemImage: "house.fill")"#))
+    }
+
     func testAppAndWidgetShareAppGroupEntitlement() throws {
         let appEntitlements = try propertyList(at: "Body/Body.entitlements")
         let widgetEntitlements = try propertyList(at: "BodyWidgetExtension.entitlements")
@@ -170,7 +177,21 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("BodyProView()"))
         XCTAssertTrue(settingsSource.contains("BodySettingsTypography.sectionTitleFontSize"))
         XCTAssertTrue(bodyProSource.contains("BodyProFlippableIcon"))
+        XCTAssertTrue(bodyProSource.contains("BodyProIconGlow()"))
+        XCTAssertTrue(bodyProSource.contains("private struct BodyProIconGlow"))
+        XCTAssertTrue(bodyProSource.contains("RadialGradient("))
+        XCTAssertTrue(bodyProSource.contains("BodyProPalette.gold.opacity(0.28)"))
+        XCTAssertTrue(bodyProSource.contains("BodyProPalette.gold.opacity(0.10)"))
+        XCTAssertTrue(bodyProSource.contains("BodyProPalette.gold.opacity(0.08)"))
+        XCTAssertFalse(bodyProSource.contains("BodyProPalette.gold.opacity(0.42)"))
         XCTAssertTrue(bodyProSource.contains("BodyAppearancePreference.bodyProIconAssetName(showsBack:"))
+        XCTAssertTrue(bodyProSource.contains(#"Text("Unlock All Pro Features")"#))
+        XCTAssertFalse(bodyProSource.contains(#"Text("Unlock Body Pro")"#))
+        XCTAssertTrue(bodyProSource.contains("private struct BodyProFeatureCheckmark"))
+        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeatureCheckmark()"), 2)
+        XCTAssertFalse(bodyProSource.contains("HStack(alignment: .top, spacing: 14)"))
+        XCTAssertFalse(bodyProSource.contains(".padding(.top, 2)"))
+        XCTAssertFalse(bodyProSource.contains(".padding(.top, 8)"))
         XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 2)
         XCTAssertTrue(bodyProSource.contains("Six-Month and Year Charts"))
         XCTAssertTrue(bodyProSource.contains("Body Widgets"))

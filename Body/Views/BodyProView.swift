@@ -52,7 +52,7 @@ struct BodyProView: View {
 
     private var featureList: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Unlock Body Pro")
+            Text("Unlock All Pro Features")
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 
@@ -115,6 +115,8 @@ private struct BodyProHeroView: View {
         VStack(spacing: 12) {
             ZStack {
                 BodyProConfetti()
+
+                BodyProIconGlow()
 
                 BodyProFlippableIcon()
             }
@@ -188,6 +190,37 @@ private struct BodyProFlippableIcon: View {
     }
 }
 
+private struct BodyProIconGlow: View {
+    var body: some View {
+        ZStack {
+            Ellipse()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            BodyProPalette.gold.opacity(0.28),
+                            BodyProPalette.gold.opacity(0.10),
+                            .clear
+                        ],
+                        center: .center,
+                        startRadius: 8,
+                        endRadius: 116
+                    )
+                )
+                .frame(width: 252, height: 140)
+                .blur(radius: 18)
+
+            Ellipse()
+                .fill(BodyProPalette.gold.opacity(0.08))
+                .frame(width: 180, height: 70)
+                .blur(radius: 22)
+                .offset(y: 18)
+        }
+        .blendMode(.screen)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 private struct BodyProConfetti: View {
     private let items: [(icon: String, color: Color, x: CGFloat, y: CGFloat, rotation: Double, size: CGFloat)] = [
         ("diamond.fill", .green, -118, -38, 18, 11),
@@ -257,9 +290,8 @@ private struct BodyProFeatureRow: View {
     let feature: BodyProFeature
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(spacing: 14) {
             BodyProFeatureIconTile(iconName: feature.iconName, color: BodyProPalette.gold)
-                .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(feature.title)
@@ -275,10 +307,7 @@ private struct BodyProFeatureRow: View {
 
             Spacer(minLength: 6)
 
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 23, weight: .semibold))
-                .foregroundColor(BodyProPalette.gold)
-                .padding(.top, 8)
+            BodyProFeatureCheckmark()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -298,6 +327,14 @@ private struct BodyProFeatureIconTile: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(color.opacity(0.14))
             )
+    }
+}
+
+private struct BodyProFeatureCheckmark: View {
+    var body: some View {
+        Image(systemName: "checkmark.circle.fill")
+            .font(.system(size: 23, weight: .semibold))
+            .foregroundColor(BodyProPalette.gold)
     }
 }
 
@@ -325,9 +362,8 @@ private struct BodyProFeature: Identifiable {
 
 private struct BodyProFutureUpdatesNote: View {
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(spacing: 14) {
             BodyProFeatureIconTile(iconName: "bolt.fill", color: BodyProPalette.gold)
-                .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Future Pro Updates")
@@ -342,6 +378,8 @@ private struct BodyProFutureUpdatesNote: View {
             }
 
             Spacer(minLength: 6)
+
+            BodyProFeatureCheckmark()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
