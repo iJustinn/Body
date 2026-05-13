@@ -103,7 +103,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("bodyFatAverageText: basicsBodyFatAverageText"))
         XCTAssertTrue(source.contains("legendItem(title: \"Body Fat\", valueText: bodyFatAverageText, color: bodyFatColor)"))
         XCTAssertTrue(source.contains("legendItem(title: \"Weight\", valueText: weightAverageText, color: weightColor)"))
-        XCTAssertTrue(source.contains("if let valueText"))
+        XCTAssertTrue(source.contains("if let valueText {\n                Text(\"Avg \\(valueText)\")\n                    .font(.system(.caption, design: .rounded))\n                    .fontWeight(.semibold)\n                    .foregroundColor(.secondary)\n            }"))
+        XCTAssertFalse(source.contains("Text(valueText)"))
+        XCTAssertFalse(source.contains("Text(\"Avg \\(valueText)\")\n                    .font(.system(.caption, design: .rounded))\n                    .fontWeight(.semibold)\n                    .foregroundColor(.primary)"))
     }
 
     func testWorkoutHeartRateXAxisLabelsStayInsidePlotEdges() throws {

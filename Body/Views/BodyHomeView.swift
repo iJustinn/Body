@@ -3119,10 +3119,10 @@ private struct BodyBasicsTrendLegend: View {
                 .foregroundColor(.secondary)
 
             if let valueText {
-                Text(valueText)
+                Text("Avg \(valueText)")
                     .font(.system(.caption, design: .rounded))
                     .fontWeight(.semibold)
-                    .foregroundColor(.primary)
+                    .foregroundColor(.secondary)
             }
         }
     }
