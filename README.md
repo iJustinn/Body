@@ -8,7 +8,7 @@ Body is a privacy-focused iOS health visualization app built with SwiftUI. It tu
 
 The app shell follows Coin's simple tab structure: Summary handles health cards and recent trends, Workouts provides searchable workout history plus monthly workout visualizations, and Settings handles appearance and app details.
 
-Current app version: **0.3.0 (build 1)**
+Current app version: **0.3.3 (build 1)**
 
 ## Current Scope
 

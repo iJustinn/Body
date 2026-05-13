@@ -1,5 +1,9 @@
 # Version History
 
+## 0.3.3 (build 1)
+
+- Updated the app, widget, and test bundle version to 0.3.3 build 1.
+
 ## 0.3.0 (build 1)
 
 - Renamed the Home tab to Summary and moved workout visualizations into Workouts.

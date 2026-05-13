@@ -137,7 +137,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = 1;"))
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.3.0;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.3.3;"))
         XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
