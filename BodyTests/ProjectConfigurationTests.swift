@@ -86,13 +86,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(source.occurrenceCount(of: "width: .fixed(selectedTrendRange.chartBarWidth)"), 2)
     }
 
-    func testBasicsWeightBodyFatMonthChartHidesPointMarksOnlyInDualChart() throws {
+    func testBasicsWeightBodyFatMonthChartKeepsStandardPointMarks() throws {
         let source = try text(at: "Body/Views/BodyHomeView.swift")
 
-        XCTAssertTrue(source.contains("private var showsWeightBodyFatPointMarks: Bool"))
-        XCTAssertTrue(source.contains("selectedRange.showsPointMarks && selectedRange != .recentMonth"))
-        XCTAssertEqual(source.occurrenceCount(of: "if showsWeightBodyFatPointMarks"), 2)
-        XCTAssertTrue(source.contains("if selectedRange.showsPointMarks"))
+        XCTAssertFalse(source.contains("private var showsWeightBodyFatPointMarks: Bool"))
+        XCTAssertFalse(source.contains("selectedRange.showsPointMarks && selectedRange != .recentMonth"))
+        XCTAssertFalse(source.contains("if showsWeightBodyFatPointMarks"))
+        XCTAssertEqual(source.occurrenceCount(of: "if selectedRange.showsPointMarks"), 3)
         XCTAssertTrue(source.contains("if selectedTrendRange.showsPointMarks"))
     }
 

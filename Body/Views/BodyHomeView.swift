@@ -3597,7 +3597,7 @@ private struct BodyBasicsTrendChart: View {
                     .foregroundStyle(lineStrokeColor(for: weightColor))
                     .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
 
-                    if showsWeightBodyFatPointMarks {
+                    if selectedRange.showsPointMarks {
                         if selectedRange.usesPreviewLineChartStyle {
                             PointMark(
                                 x: .value("Date", point.date, unit: .day),
@@ -3634,7 +3634,7 @@ private struct BodyBasicsTrendChart: View {
                     .foregroundStyle(lineStrokeColor(for: bodyFatColor))
                     .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
 
-                    if showsWeightBodyFatPointMarks {
+                    if selectedRange.showsPointMarks {
                         if selectedRange.usesPreviewLineChartStyle {
                             PointMark(
                                 x: .value("Date", point.date, unit: .day),
@@ -3819,10 +3819,6 @@ private struct BodyBasicsTrendChart: View {
 
     private func lineStrokeColor(for color: Color) -> Color {
         selectedRange.usesMetricColorLineStroke ? color : BodyLineChartPreviewStyle.lineColor
-    }
-
-    private var showsWeightBodyFatPointMarks: Bool {
-        selectedRange.showsPointMarks && selectedRange != .recentMonth
     }
 
     private var lineStrokeWidth: CGFloat {
