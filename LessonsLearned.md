@@ -4,6 +4,13 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 
 ## Entries
 
+### 2026-05-13 - Anchor Swift Charts patches to the specific chart struct
+- Context: Disabling range-transition animation in `BodyHomeView.swift`.
+- Symptom: A generic patch for `.chartXSelection(...).simultaneousGesture(...)` landed on the day chart, causing `cannot find 'selectedRange' in scope`.
+- Cause: Several chart structs share identical modifier chains but only the range-based charts have `selectedRange`.
+- Fix: Re-read nearby line numbers and patch with anchors from the intended chart struct before rerunning `rtk xcodebuild`.
+- Reuse: When editing repeated Swift Charts modifier chains, anchor patches by the surrounding struct or helper names, not only the shared modifier sequence.
+
 ### 2026-05-12 - Compile BodyTests with build-for-testing outside sandbox when CoreSimulator blocks tests
 - Context: Adding model tests for selected-day Health metric series while CoreSimulator was unavailable.
 - Symptom: `xcodebuild test` failed before compiling tests with no matching simulator, and sandboxed `build-for-testing` failed during asset catalog work with simulator-runtime errors.
