@@ -837,6 +837,28 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertFalse(recentWeek.isEmpty)
     }
 
+    func testBasicsTrendSummaryExposesWeightAndBodyFatAveragesForLegend() throws {
+        let date = try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 5, day: 11)))
+        let basics = BasicsTrendSummary(
+            weight: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: date, value: 150),
+                HealthTrendDataPoint(date: date.addingTimeInterval(86_400), value: 154)
+            ]),
+            bodyFat: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: date, value: 12.2),
+                HealthTrendDataPoint(date: date.addingTimeInterval(86_400), value: 12.8)
+            ]),
+            bodyMassIndex: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: date, value: 21.3)
+            ])
+        )
+
+        XCTAssertEqual(basics.weightAverage, 152)
+        XCTAssertEqual(try XCTUnwrap(basics.bodyFatAverage), 12.5, accuracy: 0.001)
+        XCTAssertNil(BasicsTrendSummary.empty.weightAverage)
+        XCTAssertNil(BasicsTrendSummary.empty.bodyFatAverage)
+    }
+
     func testBasicsTrendSummaryComputesMetricHalfSpreads() throws {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 15)))

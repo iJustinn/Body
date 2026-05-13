@@ -96,6 +96,16 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("if selectedTrendRange.showsPointMarks"))
     }
 
+    func testBasicsTrendLegendShowsAverageValuesBehindMetricLabels() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertTrue(source.contains("weightAverageText: basicsWeightAverageText"))
+        XCTAssertTrue(source.contains("bodyFatAverageText: basicsBodyFatAverageText"))
+        XCTAssertTrue(source.contains("legendItem(title: \"Body Fat\", valueText: bodyFatAverageText, color: bodyFatColor)"))
+        XCTAssertTrue(source.contains("legendItem(title: \"Weight\", valueText: weightAverageText, color: weightColor)"))
+        XCTAssertTrue(source.contains("if let valueText"))
+    }
+
     func testWorkoutHeartRateXAxisLabelsStayInsidePlotEdges() throws {
         let source = try text(at: "Body/Views/BodyWorkoutsView.swift")
 

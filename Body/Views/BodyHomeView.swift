@@ -1710,7 +1710,9 @@ private struct BodyHealthMetricDetailView: View {
                 if model.kind == .basics {
                     BodyBasicsTrendLegend(
                         weightColor: model.symbolColor,
-                        bodyFatColor: basicsBodyFatColor
+                        bodyFatColor: basicsBodyFatColor,
+                        weightAverageText: basicsWeightAverageText,
+                        bodyFatAverageText: basicsBodyFatAverageText
                     )
                 } else if let averageTrendText {
                     averageHeaderText(averageTrendText)
@@ -2513,6 +2515,16 @@ private struct BodyHealthMetricDetailView: View {
         }
     }
 
+    private var basicsWeightAverageText: String? {
+        visibleBasicsTrend?.weightAverage.map(model.valueFormatter)
+    }
+
+    private var basicsBodyFatAverageText: String? {
+        visibleBasicsTrend?.bodyFatAverage.map {
+            (model.secondaryValueFormatter ?? { BodyValueFormat.numberText($0, decimals: 1) + "%" })($0)
+        }
+    }
+
     private func averageHeaderText(_ text: String) -> some View {
         Text("Avg \(text)")
             .font(.system(.subheadline, design: .rounded))
@@ -3083,25 +3095,35 @@ private struct BodyHealthTrendRangeSelector: View {
 private struct BodyBasicsTrendLegend: View {
     let weightColor: Color
     let bodyFatColor: Color
+    let weightAverageText: String?
+    let bodyFatAverageText: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            legendItem(title: "Body Fat", color: bodyFatColor)
-            legendItem(title: "Weight", color: weightColor)
+            legendItem(title: "Body Fat", valueText: bodyFatAverageText, color: bodyFatColor)
+            legendItem(title: "Weight", valueText: weightAverageText, color: weightColor)
         }
         .lineLimit(1)
         .minimumScaleFactor(0.78)
     }
 
-    private func legendItem(title: String, color: Color) -> some View {
+    private func legendItem(title: String, valueText: String?, color: Color) -> some View {
         HStack(spacing: 5) {
             Circle()
                 .fill(color)
                 .frame(width: 8, height: 8)
+
             Text(title)
                 .font(.system(.caption, design: .rounded))
                 .fontWeight(.semibold)
                 .foregroundColor(.secondary)
+
+            if let valueText {
+                Text(valueText)
+                    .font(.system(.caption, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+            }
         }
     }
 }

@@ -1569,6 +1569,14 @@ struct BasicsTrendSummary: Equatable {
         halfSpread(for: bodyMassIndex)
     }
 
+    var weightAverage: Double? {
+        weight.averageValue
+    }
+
+    var bodyFatAverage: Double? {
+        bodyFat.averageValue
+    }
+
     private func halfSpread(for series: HealthTrendSeries) -> Double? {
         let values = series.points.map(\.value).filter(\.isFinite)
         guard let minimum = values.min(), let maximum = values.max() else {
