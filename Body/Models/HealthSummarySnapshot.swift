@@ -1673,6 +1673,54 @@ struct HealthTrendSeries: Codable, Equatable {
         }
     }
 
+    func chartCalendarPoints(
+        to range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> [HealthTrendCalendarPoint] {
+        let dailyPoints = calendarPoints(to: range, calendar: calendar, date: date)
+        let aggregationDayCount = range.chartAggregationDayCount
+        guard aggregationDayCount > 1 else {
+            return dailyPoints
+        }
+
+        return stride(from: 0, to: dailyPoints.count, by: aggregationDayCount).compactMap { startIndex in
+            let endIndex = min(startIndex + aggregationDayCount, dailyPoints.count)
+            let bucket = dailyPoints[startIndex..<endIndex]
+            guard let bucketStartDate = bucket.first?.date,
+                  let bucketEndDate = bucket.last?.date else {
+                return nil
+            }
+
+            let finiteValues = bucket.compactMap(\.value).filter(\.isFinite)
+            let averageValue = finiteValues.isEmpty
+                ? nil
+                : finiteValues.reduce(0, +) / Double(finiteValues.count)
+            return HealthTrendCalendarPoint(
+                date: bucketEndDate,
+                value: averageValue,
+                startDate: bucketStartDate,
+                endDate: bucketEndDate
+            )
+        }
+    }
+
+    func chartSeries(
+        to range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> HealthTrendSeries {
+        HealthTrendSeries(
+            points: chartCalendarPoints(to: range, calendar: calendar, date: date).compactMap { point in
+                guard let value = point.value, value.isFinite else {
+                    return nil
+                }
+
+                return HealthTrendDataPoint(date: point.date, value: value)
+            }
+        )
+    }
+
     func nearestPoint(to date: Date) -> HealthTrendDataPoint? {
         points.min { first, second in
             abs(first.date.timeIntervalSince(date)) < abs(second.date.timeIntervalSince(date))
@@ -1740,6 +1788,15 @@ struct HealthTrendDataPoint: Codable, Equatable, Identifiable {
 struct HealthTrendCalendarPoint: Equatable, Identifiable {
     var date: Date
     var value: Double?
+    var startDate: Date
+    var endDate: Date
+
+    init(date: Date, value: Double?, startDate: Date? = nil, endDate: Date? = nil) {
+        self.date = date
+        self.value = value
+        self.startDate = startDate ?? date
+        self.endDate = endDate ?? date
+    }
 
     var id: Date {
         date
@@ -1747,6 +1804,10 @@ struct HealthTrendCalendarPoint: Equatable, Identifiable {
 
     var hasValue: Bool {
         value != nil
+    }
+
+    var representsDateRange: Bool {
+        startDate != endDate
     }
 }
 

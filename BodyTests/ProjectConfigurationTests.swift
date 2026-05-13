@@ -68,6 +68,24 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(source.contains("let trailingPadding: TimeInterval = 18 * 60 * 60"))
     }
 
+    func testLineHealthChartsDoNotRenderEmptyDatePlaceholderMarks() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertFalse(source.contains("BodyLineChartPlaceholderSymbol"))
+        XCTAssertFalse(source.contains("placeholderSymbolSize"))
+        XCTAssertTrue(source.contains("placeholderBarYValue"))
+    }
+
+    func testAggregatedHealthChartsWireRangeLabelsAndBarWidths() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertTrue(source.contains("private func bodyChartSelectionDateText(for point: HealthTrendCalendarPoint) -> String?"))
+        XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedTrendPoint)"), 1)
+        XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedPoint)"), 1)
+        XCTAssertTrue(source.contains("dateText: selectedTrendDateText"))
+        XCTAssertEqual(source.occurrenceCount(of: "width: .fixed(selectedTrendRange.chartBarWidth)"), 2)
+    }
+
     func testWorkoutHeartRateXAxisLabelsStayInsidePlotEdges() throws {
         let source = try text(at: "Body/Views/BodyWorkoutsView.swift")
 

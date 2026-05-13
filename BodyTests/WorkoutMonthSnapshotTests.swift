@@ -319,14 +319,82 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
     }
 
-    func testHealthTrendRangeUsesThinnerLinesOnLongRanges() {
+    func testHealthTrendRangeUsesMonthLineWidthOnLongRanges() {
         XCTAssertEqual(BodyHealthTrendRange.recentWeek.trendLineWidth, 3, accuracy: 0.001)
         XCTAssertEqual(BodyHealthTrendRange.recentMonth.trendLineWidth, 3, accuracy: 0.001)
-        XCTAssertEqual(BodyHealthTrendRange.recentSixMonths.trendLineWidth, 2.25, accuracy: 0.001)
-        XCTAssertEqual(BodyHealthTrendRange.recentYear.trendLineWidth, 2, accuracy: 0.001)
-        XCTAssertLessThan(
-            BodyHealthTrendRange.recentYear.trendLineWidth,
-            BodyHealthTrendRange.recentSixMonths.trendLineWidth
+        XCTAssertEqual(BodyHealthTrendRange.recentSixMonths.trendLineWidth, 3, accuracy: 0.001)
+        XCTAssertEqual(BodyHealthTrendRange.recentYear.trendLineWidth, 3, accuracy: 0.001)
+    }
+
+    func testHealthTrendRangeWidensAggregatedBars() {
+        XCTAssertGreaterThan(
+            BodyHealthTrendRange.recentSixMonths.chartBarWidth,
+            BodyHealthTrendRange.recentMonth.chartBarWidth
+        )
+        XCTAssertEqual(
+            BodyHealthTrendRange.recentYear.chartBarWidth,
+            BodyHealthTrendRange.recentSixMonths.chartBarWidth,
+            accuracy: 0.001
+        )
+    }
+
+    func testHealthTrendSeriesAveragesLongRangeChartBuckets() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 15)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let sixMonthStart = try XCTUnwrap(calendar.date(
+            byAdding: .day,
+            value: -(BodyHealthTrendRange.recentSixMonths.dayCount - 1),
+            to: currentDayStart
+        ))
+        let yearStart = try XCTUnwrap(calendar.date(
+            byAdding: .day,
+            value: -(BodyHealthTrendRange.recentYear.dayCount - 1),
+            to: currentDayStart
+        ))
+        let sixMonthPoints = try (0..<12).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: sixMonthStart))
+            return HealthTrendDataPoint(date: date, value: Double(offset + 1))
+        }
+        let yearPoints = try (0..<24).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: yearStart))
+            return HealthTrendDataPoint(date: date, value: Double(offset + 1))
+        }
+
+        let sixMonthSeries = HealthTrendSeries(points: sixMonthPoints)
+        let yearSeries = HealthTrendSeries(points: yearPoints)
+        let sixMonthChartPoints = sixMonthSeries.chartCalendarPoints(
+            to: .recentSixMonths,
+            calendar: calendar,
+            date: currentDate
+        )
+        let yearChartPoints = yearSeries.chartCalendarPoints(
+            to: .recentYear,
+            calendar: calendar,
+            date: currentDate
+        )
+
+        XCTAssertEqual(BodyHealthTrendRange.recentWeek.chartAggregationDayCount, 1)
+        XCTAssertEqual(BodyHealthTrendRange.recentMonth.chartAggregationDayCount, 1)
+        XCTAssertEqual(BodyHealthTrendRange.recentSixMonths.chartAggregationDayCount, 6)
+        XCTAssertEqual(BodyHealthTrendRange.recentYear.chartAggregationDayCount, 12)
+        XCTAssertEqual(sixMonthChartPoints.count, 31)
+        XCTAssertEqual(yearChartPoints.count, 31)
+        XCTAssertEqual(sixMonthChartPoints.prefix(3).map(\.value), [3.5, 9.5, nil])
+        XCTAssertEqual(yearChartPoints.prefix(3).map(\.value), [6.5, 18.5, nil])
+        XCTAssertEqual(sixMonthChartPoints.first?.startDate, sixMonthStart)
+        XCTAssertEqual(sixMonthChartPoints.first?.date, try XCTUnwrap(calendar.date(byAdding: .day, value: 5, to: sixMonthStart)))
+        XCTAssertEqual(sixMonthChartPoints.first?.endDate, try XCTUnwrap(calendar.date(byAdding: .day, value: 5, to: sixMonthStart)))
+        XCTAssertEqual(yearChartPoints.first?.startDate, yearStart)
+        XCTAssertEqual(yearChartPoints.first?.date, try XCTUnwrap(calendar.date(byAdding: .day, value: 11, to: yearStart)))
+        XCTAssertEqual(yearChartPoints.first?.endDate, try XCTUnwrap(calendar.date(byAdding: .day, value: 11, to: yearStart)))
+        XCTAssertEqual(
+            sixMonthSeries.chartSeries(to: .recentSixMonths, calendar: calendar, date: currentDate).points.map(\.value),
+            [3.5, 9.5]
+        )
+        XCTAssertEqual(
+            yearSeries.chartSeries(to: .recentYear, calendar: calendar, date: currentDate).points.map(\.value),
+            [6.5, 18.5]
         )
     }
 

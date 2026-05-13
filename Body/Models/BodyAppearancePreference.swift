@@ -484,6 +484,30 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
         }
     }
 
+    var chartAggregationDayCount: Int {
+        switch self {
+        case .recentWeek,
+             .recentMonth:
+            return 1
+        case .recentSixMonths:
+            return 6
+        case .recentYear:
+            return 12
+        }
+    }
+
+    var chartBarWidth: CGFloat {
+        switch self {
+        case .recentWeek:
+            return 12
+        case .recentMonth:
+            return 7
+        case .recentSixMonths,
+             .recentYear:
+            return 9
+        }
+    }
+
     var showsPointMarks: Bool {
         switch self {
         case .recentWeek,
@@ -517,15 +541,7 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
     }
 
     var trendLineWidth: CGFloat {
-        switch self {
-        case .recentWeek,
-             .recentMonth:
-            return 3
-        case .recentSixMonths:
-            return 2.25
-        case .recentYear:
-            return 2
-        }
+        3
     }
 
     var linePointDiameter: CGFloat {
