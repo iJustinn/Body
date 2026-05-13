@@ -904,6 +904,8 @@ private struct BodyWorkoutHeartRateChartCard: View {
 private struct BodyWorkoutHeartRateChart: View {
     let samples: [WorkoutHeartRateSample]
 
+    private static let timeMarkLabelHorizontalInset: CGFloat = 24
+
     var body: some View {
         GeometryReader { geometry in
             let metrics = BodyWorkoutHeartRateChartMetrics(samples: samples)
@@ -937,7 +939,7 @@ private struct BodyWorkoutHeartRateChart: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                         .position(
-                            x: plotRect.minX + plotRect.width * mark.fraction,
+                            x: timeMarkLabelX(for: mark, in: plotRect),
                             y: plotRect.maxY + 18
                         )
                 }
@@ -958,8 +960,8 @@ private struct BodyWorkoutHeartRateChart: View {
         )
 
         var verticalGrid = Path()
-        for fraction in [0.0, 0.25, 0.5, 0.75] {
-            let x = plotRect.minX + plotRect.width * fraction
+        for fraction in BodyWorkoutHeartRateChartMetrics.timeMarkFractions {
+            let x = plotRect.minX + plotRect.width * CGFloat(fraction)
             verticalGrid.move(to: CGPoint(x: x, y: plotRect.minY))
             verticalGrid.addLine(to: CGPoint(x: x, y: plotRect.maxY))
         }
@@ -994,6 +996,14 @@ private struct BodyWorkoutHeartRateChart: View {
             )
         }
     }
+
+    private func timeMarkLabelX(for mark: BodyWorkoutHeartRateTimeMark, in plotRect: CGRect) -> CGFloat {
+        let rawX = plotRect.minX + plotRect.width * CGFloat(mark.fraction)
+        let lowerBound = plotRect.minX + Self.timeMarkLabelHorizontalInset
+        let upperBound = max(lowerBound, plotRect.maxX - Self.timeMarkLabelHorizontalInset)
+
+        return min(max(rawX, lowerBound), upperBound)
+    }
 }
 
 private struct BodyWorkoutHeartRateChartMetrics {
@@ -1002,6 +1012,8 @@ private struct BodyWorkoutHeartRateChartMetrics {
     let maximumValue: Double
     let startDate: Date
     let endDate: Date
+
+    static let timeMarkFractions = [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0]
 
     var minimumLabel: Int {
         Int(minimumValue.rounded())
@@ -1012,7 +1024,7 @@ private struct BodyWorkoutHeartRateChartMetrics {
     }
 
     var timeMarks: [BodyWorkoutHeartRateTimeMark] {
-        [0.0, 0.25, 0.5, 0.75].map { fraction in
+        Self.timeMarkFractions.map { fraction in
             let date = startDate.addingTimeInterval(duration * fraction)
             return BodyWorkoutHeartRateTimeMark(
                 fraction: fraction,

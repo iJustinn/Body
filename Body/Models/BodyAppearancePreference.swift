@@ -11,6 +11,12 @@ enum BodyAppearancePreference {
     static let selectedUnitPreferenceKey = "selectedUnitPreference"
     static let homeCardOrderKey = "homeCardOrder"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
+    static let bodyProIconShowsBackKey = "bodyProIconShowsBack"
+    static let creatorSurpriseIconsUnlockedKey = "creatorSurpriseIconsUnlocked"
+
+    static func bodyProIconAssetName(showsBack: Bool) -> String {
+        showsBack ? "BodyProIconBack" : "BodyProIcon"
+    }
 }
 
 enum BodyHealthPermission: String, CaseIterable, Identifiable {

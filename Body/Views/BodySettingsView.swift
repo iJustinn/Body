@@ -11,10 +11,14 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.selectedThemeKey) private var selectedThemeRawValue = BodyAppTheme.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedAccentKey) private var selectedAccentRawValue = BodyAppAccent.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
+    @AppStorage(BodyAppearancePreference.creatorSurpriseIconsUnlockedKey) private var creatorSurpriseIconsUnlocked = false
     @State private var activeSheet: BodySettingsSheet?
     @State private var selectedAppIconName: String?
     @State private var showingAppIconError = false
     @State private var appIconErrorMessage = ""
+    @State private var versionTapCount = 0
+    @State private var showingCreatorSurprise = false
 
     var body: some View {
         NavigationStack {
@@ -24,6 +28,7 @@ struct BodySettingsView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 22) {
+                        bodyProEntryCard
                         appearanceSection
                         unitSection
                         dataSection
@@ -33,7 +38,19 @@ struct BodySettingsView: View {
                     .padding(.top, 10)
                     .padding(.bottom, 110)
                 }
+
+                if showingCreatorSurprise {
+                    BodyCreatorSurpriseOverlay(
+                        onChooseIcons: openCreatorSurpriseIcons,
+                        onDismiss: {
+                            showingCreatorSurprise = false
+                        }
+                    )
+                    .transition(.opacity)
+                    .zIndex(10)
+                }
             }
+            .animation(.easeInOut(duration: 0.2), value: showingCreatorSurprise)
             .onAppear {
                 selectedAppIconName = UIApplication.shared.alternateIconName
             }
@@ -48,6 +65,42 @@ struct BodySettingsView: View {
                 Text(appIconErrorMessage)
             }
         }
+    }
+
+    private var bodyProEntryCard: some View {
+        NavigationLink {
+            BodyProView()
+        } label: {
+            HStack(spacing: 15) {
+                Image(BodyAppearancePreference.bodyProIconAssetName(showsBack: bodyProIconShowsBack))
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 58, height: 58)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Body Pro")
+                        .font(.system(size: 23, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
+
+                    Text("Unlock premium features")
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(.caption, weight: .bold))
+                    .foregroundColor(.secondary.opacity(0.7))
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+            .bodyCardBackground(cornerRadius: 28)
+        }
+        .buttonStyle(.plain)
     }
 
     private var appearanceSection: some View {
@@ -145,12 +198,17 @@ struct BodySettingsView: View {
             }
             .buttonStyle(.plain)
         } else {
-            BodySettingsRowLabel(
-                title: tab.title,
-                value: appVersionDisplay,
-                iconName: tab.iconName,
-                tintColor: tab.tintColor
-            )
+            Button {
+                handleVersionCardTap()
+            } label: {
+                BodySettingsRowLabel(
+                    title: tab.title,
+                    value: appVersionDisplay,
+                    iconName: tab.iconName,
+                    tintColor: tab.tintColor
+                )
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -236,6 +294,7 @@ struct BodySettingsView: View {
         case .appIcon:
             BodyAppIconPickerSheet(
                 selectedIconName: selectedAppIconName,
+                showsCreatorSurprises: creatorSurpriseIconsUnlocked,
                 onSelect: changeAppIcon
             )
         case .units:
@@ -279,6 +338,41 @@ struct BodySettingsView: View {
                 activeSheet = nil
             }
         }
+    }
+
+    private func handleVersionCardTap() {
+        versionTapCount += 1
+        playSelectionHaptic()
+
+        guard versionTapCount >= 5 else {
+            return
+        }
+
+        versionTapCount = 0
+        creatorSurpriseIconsUnlocked = true
+        showingCreatorSurprise = true
+        playSuccessHaptic()
+    }
+
+    private func openCreatorSurpriseIcons() {
+        showingCreatorSurprise = false
+
+        Task {
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            activeSheet = .appIcon
+        }
+    }
+
+    private func playSelectionHaptic() {
+        let generator = UISelectionFeedbackGenerator()
+        generator.prepare()
+        generator.selectionChanged()
+    }
+
+    private func playSuccessHaptic() {
+        let generator = UINotificationFeedbackGenerator()
+        generator.prepare()
+        generator.notificationOccurred(.success)
     }
 }
 
@@ -644,14 +738,42 @@ private struct BodyHealthPermissionToggleRow: View {
 
             Spacer(minLength: 12)
 
-            Toggle("", isOn: $isEnabled)
+            Toggle(permission.title, isOn: $isEnabled)
                 .labelsHidden()
-                .tint(permission.tintColor)
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
         .contentShape(Rectangle())
+    }
+}
+
+private struct BodyPermissionSwitchToggleStyle: ToggleStyle {
+    let onColor: Color
+    let offColor: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                configuration.isOn.toggle()
+            }
+        } label: {
+            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                Capsule()
+                    .fill(configuration.isOn ? onColor : offColor)
+
+                Circle()
+                    .fill(.white)
+                    .frame(width: 28, height: 28)
+                    .shadow(color: .black.opacity(0.18), radius: 1.5, y: 1)
+                    .padding(2)
+            }
+            .frame(width: 52, height: 32)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -715,21 +837,15 @@ private struct BodyAppIconOption: Identifiable, Equatable {
     let descriptor: String
     let alternateIconName: String?
     let previewAssetName: String
+    var isCreatorSurprise = false
 
-    static let all: [BodyAppIconOption] = [
+    static let standard: [BodyAppIconOption] = [
         BodyAppIconOption(
             id: "body01",
             displayName: "Classic",
             descriptor: "Original",
             alternateIconName: nil,
             previewAssetName: "BodyIcon01"
-        ),
-        BodyAppIconOption(
-            id: "white",
-            displayName: "Light",
-            descriptor: "White",
-            alternateIconName: "BodyWhite",
-            previewAssetName: "BodyIconWhite"
         ),
         BodyAppIconOption(
             id: "pink",
@@ -739,31 +855,99 @@ private struct BodyAppIconOption: Identifiable, Equatable {
             previewAssetName: "BodyIconPink"
         ),
         BodyAppIconOption(
-            id: "classicAlt",
-            displayName: "Classic Alt",
-            descriptor: "Alternate",
-            alternateIconName: "BodyClassicAlt",
-            previewAssetName: "BodyIconClassicAlt"
+            id: "purple",
+            displayName: "Violet",
+            descriptor: "Purple",
+            alternateIconName: "BodyPurple",
+            previewAssetName: "BodyIconPurple"
         ),
         BodyAppIconOption(
-            id: "lightAlt",
-            displayName: "Light Alt",
-            descriptor: "Alternate",
-            alternateIconName: "BodyWhiteAlt",
-            previewAssetName: "BodyIconWhiteAlt"
+            id: "black",
+            displayName: "Midnight",
+            descriptor: "Black",
+            alternateIconName: "BodyBlack",
+            previewAssetName: "BodyIconBlack"
         ),
         BodyAppIconOption(
-            id: "roseAlt",
-            displayName: "Rose Alt",
-            descriptor: "Alternate",
-            alternateIconName: "BodyPinkAlt",
-            previewAssetName: "BodyIconPinkAlt"
+            id: "gray",
+            displayName: "Neutral",
+            descriptor: "Gray",
+            alternateIconName: "BodyGray",
+            previewAssetName: "BodyIconGray"
+        ),
+        BodyAppIconOption(
+            id: "white",
+            displayName: "Light",
+            descriptor: "White",
+            alternateIconName: "BodyWhite",
+            previewAssetName: "BodyIconWhite"
         )
     ]
+
+    static let creatorSurprises: [BodyAppIconOption] = [
+        BodyAppIconOption(
+            id: "classicPresent",
+            displayName: "Classic",
+            descriptor: "Present",
+            alternateIconName: "BodyClassicAlt",
+            previewAssetName: "BodyIconClassicAlt",
+            isCreatorSurprise: true
+        ),
+        BodyAppIconOption(
+            id: "rosePresent",
+            displayName: "Rose",
+            descriptor: "Present",
+            alternateIconName: "BodyPinkAlt",
+            previewAssetName: "BodyIconPinkAlt",
+            isCreatorSurprise: true
+        ),
+        BodyAppIconOption(
+            id: "violetPresent",
+            displayName: "Violet",
+            descriptor: "Present",
+            alternateIconName: "BodyPurpleAlt",
+            previewAssetName: "BodyIconPurpleAlt",
+            isCreatorSurprise: true
+        ),
+        BodyAppIconOption(
+            id: "midnightPresent",
+            displayName: "Midnight",
+            descriptor: "Present",
+            alternateIconName: "BodyBlackAlt",
+            previewAssetName: "BodyIconBlackAlt",
+            isCreatorSurprise: true
+        ),
+        BodyAppIconOption(
+            id: "neutralPresent",
+            displayName: "Neutral",
+            descriptor: "Present",
+            alternateIconName: "BodyGrayAlt",
+            previewAssetName: "BodyIconGrayAlt",
+            isCreatorSurprise: true
+        ),
+        BodyAppIconOption(
+            id: "lightPresent",
+            displayName: "Light",
+            descriptor: "Present",
+            alternateIconName: "BodyWhiteAlt",
+            previewAssetName: "BodyIconWhiteAlt",
+            isCreatorSurprise: true
+        )
+    ]
+
+    static let all: [BodyAppIconOption] = standard + creatorSurprises
+
+    static func availableOptions(includeCreatorSurprises: Bool) -> [BodyAppIconOption] {
+        includeCreatorSurprises ? all : standard
+    }
 
     static func option(named alternateIconName: String?) -> BodyAppIconOption {
         all.first { $0.alternateIconName == alternateIconName } ?? all[0]
     }
+}
+
+private enum BodySettingsTypography {
+    static let sectionTitleFontSize: CGFloat = 29
 }
 
 private struct BodySettingsCardSection<Content: View>: View {
@@ -778,7 +962,7 @@ private struct BodySettingsCardSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .font(.system(size: BodySettingsTypography.sectionTitleFontSize, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 
             VStack(spacing: 0) {
@@ -864,6 +1048,7 @@ private struct BodySettingsIconTile: View {
 private struct BodyAppIconPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     let selectedIconName: String?
+    let showsCreatorSurprises: Bool
     let onSelect: (BodyAppIconOption) -> Void
 
     private let columns = [
@@ -871,6 +1056,17 @@ private struct BodyAppIconPickerSheet: View {
         GridItem(.flexible()),
         GridItem(.flexible())
     ]
+
+    private var options: [BodyAppIconOption] {
+        let availableOptions = BodyAppIconOption.availableOptions(includeCreatorSurprises: showsCreatorSurprises)
+
+        guard let selectedOption = BodyAppIconOption.all.first(where: { $0.alternateIconName == selectedIconName }),
+              !availableOptions.contains(selectedOption) else {
+            return availableOptions
+        }
+
+        return availableOptions + [selectedOption]
+    }
 
     var body: some View {
         NavigationStack {
@@ -880,7 +1076,7 @@ private struct BodyAppIconPickerSheet: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(BodyAppIconOption.all) { option in
+                        ForEach(options) { option in
                             Button {
                                 onSelect(option)
                             } label: {
@@ -903,6 +1099,8 @@ private struct BodyAppIconPickerSheet: View {
                     }
                 }
             }
+            .navigationTitle("App Icon")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
@@ -956,6 +1154,163 @@ private struct BodyAppIconSelectionTile: View {
         .scaleEffect(isSelected ? 1.03 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.78), value: isSelected)
     }
+}
+
+private struct BodyCreatorSurpriseOverlay: View {
+    let onChooseIcons: () -> Void
+    let onDismiss: () -> Void
+
+    @State private var ribbonsAreFalling = false
+
+    private let ribbons = BodyCreatorRibbon.all
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .onTapGesture(perform: onDismiss)
+
+                ForEach(ribbons) { ribbon in
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(ribbon.color)
+                        .frame(width: ribbon.width, height: ribbon.height)
+                        .rotationEffect(.degrees(ribbonsAreFalling ? ribbon.endRotation : ribbon.startRotation))
+                        .offset(
+                            x: ribbon.xOffset(in: proxy.size.width),
+                            y: ribbonsAreFalling
+                                ? proxy.size.height + ribbon.endYOffset
+                                : -proxy.size.height * 0.45 - ribbon.startYOffset
+                        )
+                        .opacity(ribbonsAreFalling ? 0.95 : 0)
+                        .animation(
+                            .linear(duration: ribbon.duration)
+                                .delay(ribbon.delay)
+                                .repeatForever(autoreverses: false),
+                            value: ribbonsAreFalling
+                        )
+                }
+
+                VStack(spacing: 18) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 38, weight: .bold))
+                        .foregroundColor(.yellow)
+                        .frame(width: 76, height: 76)
+                        .background(
+                            Circle()
+                                .fill(Color.yellow.opacity(0.18))
+                        )
+
+                    VStack(spacing: 8) {
+                        Text("Surprise Unlocked")
+                            .font(.system(.title2, design: .rounded))
+                            .fontWeight(.bold)
+                            .multilineTextAlignment(.center)
+
+                        Text("You unlocked a surprise from the creator.")
+                            .font(.system(.body, design: .rounded))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+
+                        Text("Six Present app icons are now available.")
+                            .font(.system(.subheadline, design: .rounded))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    HStack(spacing: 12) {
+                        Button {
+                            onDismiss()
+                        } label: {
+                            Text("Later")
+                                .font(.system(.headline, design: .rounded))
+                                .fontWeight(.semibold)
+                                .foregroundColor(Color.accentColor)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .fill(Color.accentColor.opacity(0.14))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                                .stroke(Color.accentColor.opacity(0.45), lineWidth: 1)
+                                        )
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            onChooseIcons()
+                        } label: {
+                            Text("Choose Icons")
+                                .font(.system(.headline, design: .rounded))
+                                .fontWeight(.semibold)
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .fill(Color.accentColor)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(24)
+                .frame(maxWidth: 360)
+                .bodyCardBackground()
+                .padding(.horizontal, 24)
+            }
+            .onAppear {
+                ribbonsAreFalling = true
+            }
+        }
+    }
+}
+
+private struct BodyCreatorRibbon: Identifiable {
+    let id: Int
+    let xFraction: CGFloat
+    let width: CGFloat
+    let height: CGFloat
+    let startRotation: Double
+    let endRotation: Double
+    let startYOffset: CGFloat
+    let endYOffset: CGFloat
+    let delay: Double
+    let duration: Double
+    let color: Color
+
+    func xOffset(in width: CGFloat) -> CGFloat {
+        (xFraction - 0.5) * width
+    }
+
+    static let all: [BodyCreatorRibbon] = {
+        let palette: [Color] = [.pink, .yellow, .blue, .green, .purple, .orange, .cyan, .mint, .red, .indigo]
+        let columns: [CGFloat] = [0.04, 0.09, 0.14, 0.19, 0.24, 0.29, 0.34, 0.39, 0.44, 0.49, 0.54, 0.59, 0.64, 0.69, 0.74, 0.79, 0.84, 0.89, 0.94]
+
+        return (0..<48).map { index in
+            let column = columns[index % columns.count]
+            let jitter = CGFloat(((index * 37) % 9) - 4) / 100
+            let xFraction = min(max(column + jitter, 0.03), 0.97)
+
+            return BodyCreatorRibbon(
+                id: index,
+                xFraction: xFraction,
+                width: CGFloat(6 + (index * 5) % 8),
+                height: CGFloat(28 + (index * 11) % 34),
+                startRotation: Double(((index * 23) % 90) - 45),
+                endRotation: Double(((index * 61) % 560) - 280),
+                startYOffset: CGFloat((index * 29) % 220),
+                endYOffset: CGFloat((index * 43) % 260),
+                delay: Double(index % 16) * 0.09,
+                duration: 2.4 + Double((index * 7) % 12) * 0.11,
+                color: palette[index % palette.count]
+            )
+        }
+    }()
 }
 
 private struct BodyHowToUseSettingsSheet: View {
@@ -1208,7 +1563,7 @@ private struct BodyCopyrightSettingsSheet: View {
                     VStack(alignment: .leading, spacing: 16) {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Copyright")
-                                .font(.system(size: 22, weight: .bold, design: .rounded))
+                                .font(.system(size: BodySettingsTypography.sectionTitleFontSize, weight: .bold, design: .rounded))
                                 .foregroundColor(.primary)
 
                             Text("Copyright (c) 2026 Ziheng Zhong. All rights reserved.")

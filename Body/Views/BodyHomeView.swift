@@ -7,6 +7,23 @@ import Charts
 import SwiftUI
 import UniformTypeIdentifiers
 
+private let bodyChartSelectionOverflowResolution = AnnotationOverflowResolution(
+    x: .fit(to: .chart),
+    y: .disabled
+)
+
+private let bodyHealthDetailChartLeadingDatePadding: TimeInterval = 2 * 60 * 60
+private let bodyHealthDetailChartTrailingDatePadding: TimeInterval = 36 * 60 * 60
+
+private func bodyHealthDetailChartXDomain(for dates: [Date]) -> ClosedRange<Date> {
+    guard let startDate = dates.min(), let endDate = dates.max() else {
+        let now = Date()
+        return now.addingTimeInterval(-bodyHealthDetailChartLeadingDatePadding)...now.addingTimeInterval(bodyHealthDetailChartTrailingDatePadding)
+    }
+
+    return startDate.addingTimeInterval(-bodyHealthDetailChartLeadingDatePadding)...endDate.addingTimeInterval(bodyHealthDetailChartTrailingDatePadding)
+}
+
 struct BodyHomeView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @AppStorage(BodyAppearancePreference.selectedAccentKey) private var selectedAccentRawValue = BodyAppAccent.defaultValue.rawValue
@@ -1756,7 +1773,11 @@ private struct BodyHealthMetricDetailView: View {
                         RuleMark(x: .value("Selected Date", selectedTrendPoint.date, unit: .day))
                             .foregroundStyle(model.chartStyle == .bar ? Color.clear : Color.secondary.opacity(0.48))
                             .lineStyle(StrokeStyle(lineWidth: 1.4))
-                            .annotation(position: .top, spacing: 8) {
+                            .annotation(
+                                position: .top,
+                                spacing: 8,
+                                overflowResolution: bodyChartSelectionOverflowResolution
+                            ) {
                                 BodyChartSelectionAnnotation(
                                     eyebrow: model.chartStyle == .bar ? "TOTAL" : nil,
                                     values: [
@@ -2489,15 +2510,7 @@ private struct BodyHealthMetricDetailView: View {
 
     private var chartXDomain: ClosedRange<Date> {
         let dates = visibleCalendarPoints.map(\.date)
-        let leadingPadding: TimeInterval = 6 * 60 * 60
-        let trailingPadding: TimeInterval = 18 * 60 * 60
-
-        guard let startDate = dates.min(), let endDate = dates.max() else {
-            let now = Date()
-            return now.addingTimeInterval(-leadingPadding)...now.addingTimeInterval(trailingPadding)
-        }
-
-        return startDate.addingTimeInterval(-leadingPadding)...endDate.addingTimeInterval(trailingPadding)
+        return bodyHealthDetailChartXDomain(for: dates)
     }
 
     private var placeholderYValue: Double {
@@ -3155,7 +3168,11 @@ private struct BodyHealthMetricDayChart: View {
                 RuleMark(x: .value("Selected Time", selectedBucket.plotDate))
                     .foregroundStyle(Color.secondary.opacity(0.48))
                     .lineStyle(StrokeStyle(lineWidth: 1.4))
-                    .annotation(position: .top, spacing: 8) {
+                    .annotation(
+                        position: .top,
+                        spacing: 8,
+                        overflowResolution: bodyChartSelectionOverflowResolution
+                    ) {
                         BodyHealthMetricDayAnnotation(
                             bucket: selectedBucket,
                             color: color,
@@ -3384,7 +3401,11 @@ private struct BodyBasicsBodyMassIndexTrendChart: View {
                 RuleMark(x: .value("Selected Date", selectedPoint.date, unit: .day))
                     .foregroundStyle(Color.secondary.opacity(0.48))
                     .lineStyle(StrokeStyle(lineWidth: 1.4))
-                    .annotation(position: .top, spacing: 8) {
+                    .annotation(
+                        position: .top,
+                        spacing: 8,
+                        overflowResolution: bodyChartSelectionOverflowResolution
+                    ) {
                         BodyChartSelectionAnnotation(
                             eyebrow: nil,
                             values: [
@@ -3468,15 +3489,7 @@ private struct BodyBasicsBodyMassIndexTrendChart: View {
 
     private var chartXDomain: ClosedRange<Date> {
         let dates = calendarPoints.map(\.date)
-        let leadingPadding: TimeInterval = 6 * 60 * 60
-        let trailingPadding: TimeInterval = 18 * 60 * 60
-
-        guard let startDate = dates.min(), let endDate = dates.max() else {
-            let now = Date()
-            return now.addingTimeInterval(-leadingPadding)...now.addingTimeInterval(trailingPadding)
-        }
-
-        return startDate.addingTimeInterval(-leadingPadding)...endDate.addingTimeInterval(trailingPadding)
+        return bodyHealthDetailChartXDomain(for: dates)
     }
 
     private var placeholderYValue: Double {
@@ -3648,7 +3661,11 @@ private struct BodyBasicsTrendChart: View {
                 RuleMark(x: .value("Selected Date", selectedTrendDate, unit: .day))
                     .foregroundStyle(Color.secondary.opacity(0.48))
                     .lineStyle(StrokeStyle(lineWidth: 1.4))
-                    .annotation(position: .top, spacing: 8) {
+                    .annotation(
+                        position: .top,
+                        spacing: 8,
+                        overflowResolution: bodyChartSelectionOverflowResolution
+                    ) {
                         BodyChartSelectionAnnotation(
                             eyebrow: nil,
                             values: selectionValues(for: selectedTrendDate),
@@ -3761,15 +3778,7 @@ private struct BodyBasicsTrendChart: View {
 
     private var chartXDomain: ClosedRange<Date> {
         let dates = weightCalendarPoints.map(\.date) + bodyFatCalendarPoints.map(\.date)
-        let leadingPadding: TimeInterval = 6 * 60 * 60
-        let trailingPadding: TimeInterval = 18 * 60 * 60
-
-        guard let startDate = dates.min(), let endDate = dates.max() else {
-            let now = Date()
-            return now.addingTimeInterval(-leadingPadding)...now.addingTimeInterval(trailingPadding)
-        }
-
-        return startDate.addingTimeInterval(-leadingPadding)...endDate.addingTimeInterval(trailingPadding)
+        return bodyHealthDetailChartXDomain(for: dates)
     }
 
     private var weightDomain: ClosedRange<Double> {
@@ -3893,7 +3902,11 @@ private struct BodySleepStageChart: View {
                 RuleMark(x: .value("Selected Segment", segmentMidpointDate(for: selectedStageSegment)))
                     .foregroundStyle(Color.secondary.opacity(0.48))
                     .lineStyle(StrokeStyle(lineWidth: 1.4))
-                    .annotation(position: .top, spacing: 8) {
+                    .annotation(
+                        position: .top,
+                        spacing: 8,
+                        overflowResolution: bodyChartSelectionOverflowResolution
+                    ) {
                         SleepStageSegmentIndicator(
                             stageName: selectedStageSegment.stage.displayName,
                             durationText: segmentDurationText(for: selectedStageSegment),
