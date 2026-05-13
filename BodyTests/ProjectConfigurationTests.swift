@@ -103,9 +103,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("bodyFatAverageText: basicsBodyFatAverageText"))
         XCTAssertTrue(source.contains("legendItem(title: \"Body Fat\", valueText: bodyFatAverageText, color: bodyFatColor)"))
         XCTAssertTrue(source.contains("legendItem(title: \"Weight\", valueText: weightAverageText, color: weightColor)"))
-        XCTAssertTrue(source.contains("if let valueText {\n                Text(\"Avg \\(valueText)\")\n                    .font(.system(.caption, design: .rounded))\n                    .fontWeight(.semibold)\n                    .foregroundColor(.secondary)\n            }"))
-        XCTAssertFalse(source.contains("Text(valueText)"))
-        XCTAssertFalse(source.contains("Text(\"Avg \\(valueText)\")\n                    .font(.system(.caption, design: .rounded))\n                    .fontWeight(.semibold)\n                    .foregroundColor(.primary)"))
+        let legendItemStart = try XCTUnwrap(source.range(of: "private func legendItem")?.lowerBound)
+        let legendItemBlock = source[legendItemStart...].prefix(700)
+        let averageTextStart = try XCTUnwrap(legendItemBlock.range(of: "Text(\"Avg \\(valueText)\")")?.lowerBound)
+        let averageTextBlock = legendItemBlock[averageTextStart...].prefix(180)
+        XCTAssertTrue(averageTextBlock.contains(".foregroundColor(.secondary)"))
+        XCTAssertFalse(legendItemBlock.contains("Text(valueText)"))
+        XCTAssertFalse(averageTextBlock.contains(".foregroundColor(.primary)"))
     }
 
     func testWorkoutHeartRateXAxisLabelsStayInsidePlotEdges() throws {

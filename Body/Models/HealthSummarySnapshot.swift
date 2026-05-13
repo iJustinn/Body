@@ -1713,6 +1713,19 @@ struct HealthTrendSeries: Codable, Equatable {
         }
     }
 
+    func lineChartCalendarPoints(
+        to range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> [HealthTrendCalendarPoint] {
+        let chartPoints = chartCalendarPoints(to: range, calendar: calendar, date: date)
+        guard let maximumPointCount = range.lineChartMaximumPointCount else {
+            return chartPoints
+        }
+
+        return chartPoints.compressedStableLineChartPoints(maximumCount: maximumPointCount)
+    }
+
     func chartSeries(
         to range: BodyHealthTrendRange,
         calendar: Calendar = .bodyGregorian,
@@ -1720,6 +1733,22 @@ struct HealthTrendSeries: Codable, Equatable {
     ) -> HealthTrendSeries {
         HealthTrendSeries(
             points: chartCalendarPoints(to: range, calendar: calendar, date: date).compactMap { point in
+                guard let value = point.value, value.isFinite else {
+                    return nil
+                }
+
+                return HealthTrendDataPoint(date: point.date, value: value)
+            }
+        )
+    }
+
+    func lineChartSeries(
+        to range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> HealthTrendSeries {
+        HealthTrendSeries(
+            points: lineChartCalendarPoints(to: range, calendar: calendar, date: date).compactMap { point in
                 guard let value = point.value, value.isFinite else {
                     return nil
                 }
@@ -1816,6 +1845,114 @@ struct HealthTrendCalendarPoint: Equatable, Identifiable {
 
     var representsDateRange: Bool {
         startDate != endDate
+    }
+}
+
+private struct HealthTrendStableLineBucket {
+    var points: [HealthTrendCalendarPoint]
+
+    var averageValue: Double? {
+        let finiteValues = points.compactMap(\.value).filter(\.isFinite)
+        guard !finiteValues.isEmpty else {
+            return nil
+        }
+
+        return finiteValues.reduce(0, +) / Double(finiteValues.count)
+    }
+
+    func merged(with other: HealthTrendStableLineBucket) -> HealthTrendStableLineBucket {
+        HealthTrendStableLineBucket(points: points + other.points)
+    }
+
+    var calendarPoint: HealthTrendCalendarPoint? {
+        guard let firstPoint = points.first, let lastPoint = points.last else {
+            return nil
+        }
+
+        return HealthTrendCalendarPoint(
+            date: lastPoint.date,
+            value: averageValue,
+            startDate: firstPoint.startDate,
+            endDate: lastPoint.endDate
+        )
+    }
+}
+
+private struct HealthTrendStableLineMergeCandidate {
+    let index: Int
+    let valueDelta: Double
+    let combinedPointCount: Int
+
+    func isBetter(than other: HealthTrendStableLineMergeCandidate) -> Bool {
+        guard valueDelta == other.valueDelta else {
+            return valueDelta < other.valueDelta
+        }
+
+        guard combinedPointCount == other.combinedPointCount else {
+            return combinedPointCount < other.combinedPointCount
+        }
+
+        return index < other.index
+    }
+}
+
+private extension Array where Element == HealthTrendCalendarPoint {
+    func compressedStableLineChartPoints(maximumCount: Int) -> [HealthTrendCalendarPoint] {
+        guard maximumCount > 0 else {
+            return []
+        }
+
+        let finitePoints = filter { point in
+            point.value?.isFinite == true
+        }
+        guard finitePoints.count > maximumCount else {
+            return self
+        }
+
+        var buckets = finitePoints.map { point in
+            HealthTrendStableLineBucket(points: [point])
+        }
+
+        while buckets.count > maximumCount {
+            var bestCandidate: HealthTrendStableLineMergeCandidate?
+
+            for index in buckets.indices.dropLast() {
+                let candidate = mergeCandidate(at: index, in: buckets)
+                if bestCandidate.map({ candidate.isBetter(than: $0) }) ?? true {
+                    bestCandidate = candidate
+                }
+            }
+
+            guard let bestCandidate else {
+                break
+            }
+
+            buckets[bestCandidate.index] = buckets[bestCandidate.index].merged(with: buckets[bestCandidate.index + 1])
+            buckets.remove(at: bestCandidate.index + 1)
+        }
+
+        return buckets.compactMap(\.calendarPoint)
+    }
+
+    private func mergeCandidate(
+        at index: Int,
+        in buckets: [HealthTrendStableLineBucket]
+    ) -> HealthTrendStableLineMergeCandidate {
+        let firstBucket = buckets[index]
+        let secondBucket = buckets[index + 1]
+        let valueDelta: Double
+        if let firstAverage = firstBucket.averageValue,
+           let secondAverage = secondBucket.averageValue {
+            valueDelta = abs(firstAverage - secondAverage)
+        } else {
+            valueDelta = .greatestFiniteMagnitude
+        }
+
+        return HealthTrendStableLineMergeCandidate(
+            index: index,
+            valueDelta: valueDelta,
+            combinedPointCount: firstBucket.points.count + secondBucket.points.count
+        )
     }
 }
 

@@ -398,6 +398,60 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
     }
 
+    func testHealthTrendSeriesCompressesMonthLineChartToTwentyStablePoints() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 30, hour: 15)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let monthStart = try XCTUnwrap(calendar.date(
+            byAdding: .day,
+            value: -(BodyHealthTrendRange.recentMonth.dayCount - 1),
+            to: currentDayStart
+        ))
+        let points = try (0..<BodyHealthTrendRange.recentMonth.dayCount).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: monthStart))
+            let value: Double
+            switch offset {
+            case 10:
+                value = 120
+            case 20:
+                value = 80
+            default:
+                value = 100
+            }
+            return HealthTrendDataPoint(date: date, value: value)
+        }
+        let series = HealthTrendSeries(points: points)
+
+        let standardChartPoints = series.chartCalendarPoints(
+            to: .recentMonth,
+            calendar: calendar,
+            date: currentDate
+        )
+        let lineChartPoints = series.lineChartCalendarPoints(
+            to: .recentMonth,
+            calendar: calendar,
+            date: currentDate
+        )
+
+        XCTAssertEqual(standardChartPoints.count, BodyHealthTrendRange.recentMonth.dayCount)
+        XCTAssertEqual(lineChartPoints.count, 20)
+        XCTAssertEqual(lineChartPoints.compactMap(\.value).count, 20)
+
+        let highChangeDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 10, to: monthStart))
+        let lowChangeDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 20, to: monthStart))
+        let highChangePoint = try XCTUnwrap(lineChartPoints.first { $0.value == 120 })
+        let lowChangePoint = try XCTUnwrap(lineChartPoints.first { $0.value == 80 })
+        XCTAssertEqual(highChangePoint.date, highChangeDate)
+        XCTAssertEqual(lowChangePoint.date, lowChangeDate)
+        XCTAssertFalse(highChangePoint.representsDateRange)
+        XCTAssertFalse(lowChangePoint.representsDateRange)
+
+        let compressedStablePoint = try XCTUnwrap(lineChartPoints.first { point in
+            point.representsDateRange && abs((point.value ?? 0) - 100) < 0.001
+        })
+        XCTAssertLessThan(compressedStablePoint.startDate, compressedStablePoint.endDate)
+    }
+
     func testHomeMetricCardPreviewUsesOnlyRecentFourDayPoints() throws {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 13, hour: 12)))

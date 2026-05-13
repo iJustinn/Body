@@ -2422,11 +2422,21 @@ private struct BodyHealthMetricDetailView: View {
     }
 
     private var visibleChartSeries: HealthTrendSeries {
-        model.series.chartSeries(to: selectedTrendRange)
+        switch model.chartStyle {
+        case .line:
+            return model.series.lineChartSeries(to: selectedTrendRange)
+        case .bar:
+            return model.series.chartSeries(to: selectedTrendRange)
+        }
     }
 
     private var visibleCalendarPoints: [HealthTrendCalendarPoint] {
-        model.series.chartCalendarPoints(to: selectedTrendRange)
+        switch model.chartStyle {
+        case .line:
+            return model.series.lineChartCalendarPoints(to: selectedTrendRange)
+        case .bar:
+            return model.series.chartCalendarPoints(to: selectedTrendRange)
+        }
     }
 
     private var chartDomainCalendarPoints: [HealthTrendCalendarPoint] {
@@ -3513,11 +3523,11 @@ private struct BodyBasicsBodyMassIndexTrendChart: View {
     }
 
     private var chartSeries: HealthTrendSeries {
-        series.chartSeries(to: selectedRange)
+        series.lineChartSeries(to: selectedRange)
     }
 
     private var calendarPoints: [HealthTrendCalendarPoint] {
-        series.chartCalendarPoints(to: selectedRange)
+        series.lineChartCalendarPoints(to: selectedRange)
     }
 
     private var chartDomainCalendarPoints: [HealthTrendCalendarPoint] {
@@ -3769,19 +3779,19 @@ private struct BodyBasicsTrendChart: View {
     }
 
     private var weightChartSeries: HealthTrendSeries {
-        trend.weight.chartSeries(to: selectedRange)
+        trend.weight.lineChartSeries(to: selectedRange)
     }
 
     private var bodyFatChartSeries: HealthTrendSeries {
-        trend.bodyFat.chartSeries(to: selectedRange)
+        trend.bodyFat.lineChartSeries(to: selectedRange)
     }
 
     private var weightCalendarPoints: [HealthTrendCalendarPoint] {
-        trend.weight.chartCalendarPoints(to: selectedRange)
+        trend.weight.lineChartCalendarPoints(to: selectedRange)
     }
 
     private var bodyFatCalendarPoints: [HealthTrendCalendarPoint] {
-        trend.bodyFat.chartCalendarPoints(to: selectedRange)
+        trend.bodyFat.lineChartCalendarPoints(to: selectedRange)
     }
 
     private var chartDomainCalendarPoints: [HealthTrendCalendarPoint] {

@@ -496,6 +496,17 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
         }
     }
 
+    var lineChartMaximumPointCount: Int? {
+        switch self {
+        case .recentMonth:
+            return 20
+        case .recentWeek,
+             .recentSixMonths,
+             .recentYear:
+            return nil
+        }
+    }
+
     var chartBarWidth: CGFloat {
         switch self {
         case .recentWeek:
