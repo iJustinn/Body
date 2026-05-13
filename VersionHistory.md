@@ -1,5 +1,9 @@
 # Version History
 
+## 0.2.6 (build 7)
+
+- Bumped the app, widget, and test bundle build number to 7.
+
 ## 0.2.6 (build 6)
 
 - Fixed the `Issues.md` v0.2.6 audit findings across dashboard snapshot logging, health detail routing, workout calendar taps, workout filters, trend limiting, month-picker refresh, Activity Rings pagination, and widget/banner color consistency.

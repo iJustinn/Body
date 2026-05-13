@@ -4,8 +4,33 @@
 //
 
 import XCTest
+@testable import Body
 
 final class ProjectConfigurationTests: XCTestCase {
+    func testSettingsAboutTabsMatchCoinAboutSet() {
+        XCTAssertEqual(
+            BodySettingsAboutTab.allCases.map(\.title),
+            [
+                "How to Use",
+                "Feedback",
+                "Privacy",
+                "Disclaimer",
+                "Copyright",
+                "Version"
+            ]
+        )
+        XCTAssertEqual(
+            BodySettingsAboutTab.allCases.filter(\.opensSheet).map(\.title),
+            [
+                "How to Use",
+                "Feedback",
+                "Privacy",
+                "Disclaimer",
+                "Copyright"
+            ]
+        )
+    }
+
     func testAppAndWidgetShareAppGroupEntitlement() throws {
         let appEntitlements = try propertyList(at: "Body/Body.entitlements")
         let widgetEntitlements = try propertyList(at: "BodyWidgetExtension.entitlements")
@@ -57,7 +82,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.2.6;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 6;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 7;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 

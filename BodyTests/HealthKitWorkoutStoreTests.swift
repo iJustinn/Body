@@ -227,6 +227,7 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
                 ),
                 vitals: SleepVitalsSummary(
                     heartRate: 58,
+                    heartRateVariability: 62,
                     respiratoryRate: 14,
                     oxygenSaturation: 97,
                     wristTemperatureCelsius: 36.4

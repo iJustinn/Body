@@ -319,6 +319,135 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(series.selectionPoint(for: date)?.value, 69.25)
     }
 
+    func testHealthTrendSeriesFiltersPointsByCalendarDay() throws {
+        let calendar = Calendar.bodyGregorian
+        let previousDayPoint = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 10, hour: 23, minute: 50)))
+        let selectedDayStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11)))
+        let selectedMorningPoint = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 7, minute: 15)))
+        let selectedEveningPoint = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 22, minute: 5)))
+        let nextDayPoint = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 12, hour: 0, minute: 10)))
+        let series = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: nextDayPoint, value: 4),
+            HealthTrendDataPoint(date: selectedEveningPoint, value: 3),
+            HealthTrendDataPoint(date: previousDayPoint, value: 1),
+            HealthTrendDataPoint(date: selectedMorningPoint, value: 2)
+        ])
+
+        let selectedDaySeries = series.points(on: selectedDayStart, calendar: calendar)
+
+        XCTAssertEqual(selectedDaySeries.points.map(\.date), [selectedMorningPoint, selectedEveningPoint])
+        XCTAssertEqual(selectedDaySeries.points.map(\.value), [2, 3])
+    }
+
+    func testHealthTrendSeriesBuildsHourlyAverageBucketsWithRawSamples() throws {
+        let calendar = Calendar.bodyGregorian
+        let selectedDayStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11)))
+        let firstHourStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 7)))
+        let firstSample = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 7, minute: 5)))
+        let secondSample = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 7, minute: 40)))
+        let secondHourStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 8)))
+        let thirdSample = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 8, minute: 20)))
+        let nextDaySample = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 12, hour: 0, minute: 5)))
+        let series = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: secondSample, value: 66),
+            HealthTrendDataPoint(date: firstSample, value: 60),
+            HealthTrendDataPoint(date: nextDaySample, value: 100),
+            HealthTrendDataPoint(date: thirdSample, value: 72)
+        ])
+
+        let buckets = series.hourlyAverageBuckets(on: selectedDayStart, calendar: calendar)
+
+        XCTAssertEqual(buckets.map(\.hourStart), [firstHourStart, secondHourStart])
+        XCTAssertEqual(buckets.map(\.averageValue), [63, 72])
+        XCTAssertEqual(buckets[0].samples.map(\.date), [firstSample, secondSample])
+        XCTAssertEqual(buckets[0].samples.map(\.value), [60, 66])
+        XCTAssertEqual(buckets[0].plotDate, firstHourStart.addingTimeInterval(30 * 60))
+    }
+
+    func testHealthTrendSnapshotReturnsDaySeriesForVitalsDayView() throws {
+        let date = Date(timeIntervalSince1970: 0)
+        let restingHeartRateSamples = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: date, value: 61)
+        ])
+        let heartRateVariabilitySamples = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: date, value: 42)
+        ])
+        let respiratoryRateSamples = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: date, value: 14)
+        ])
+        let oxygenSaturationSamples = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: date, value: 98)
+        ])
+        let trends = HealthTrendSnapshot(
+            sleep: .empty,
+            restingHeartRate: .empty,
+            bodyMass: .empty,
+            bodyFatPercentage: .empty,
+            heartRateVariability: .empty,
+            respiratoryRate: .empty,
+            oxygenSaturation: .empty,
+            bodyMassIndex: .empty,
+            activeEnergy: .empty,
+            restingEnergy: .empty,
+            restingHeartRateDaySamples: restingHeartRateSamples,
+            heartRateVariabilityDaySamples: heartRateVariabilitySamples,
+            respiratoryRateDaySamples: respiratoryRateSamples,
+            oxygenSaturationDaySamples: oxygenSaturationSamples
+        )
+
+        XCTAssertEqual(trends.daySeries(for: .restingHeartRate), restingHeartRateSamples)
+        XCTAssertEqual(trends.daySeries(for: .heartRateVariability), heartRateVariabilitySamples)
+        XCTAssertEqual(trends.daySeries(for: .respiratoryRate), respiratoryRateSamples)
+        XCTAssertEqual(trends.daySeries(for: .oxygenSaturation), oxygenSaturationSamples)
+        XCTAssertTrue(trends.daySeries(for: .activeEnergy).isEmpty)
+    }
+
+    func testSleepHistoryDatePickerDatesEndWithToday() throws {
+        let calendar = Calendar.bodyGregorian
+        let today = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 16, hour: 20)))
+
+        let dates = SleepHistorySnapshot.datePickerDates(endingAt: today, dayCount: 7, calendar: calendar)
+
+        XCTAssertEqual(dates.map { calendar.component(.day, from: $0) }, [10, 11, 12, 13, 14, 15, 16])
+        XCTAssertEqual(dates.last, calendar.startOfDay(for: today))
+    }
+
+    func testSleepHistoryDatePickerDatesCanIncludeFuturePlaceholderDays() throws {
+        let calendar = Calendar.bodyGregorian
+        let today = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 16, hour: 20)))
+
+        let dates = SleepHistorySnapshot.datePickerDates(endingAt: today, dayCount: 7, futureDayCount: 1, calendar: calendar)
+
+        XCTAssertEqual(dates.map { calendar.component(.day, from: $0) }, [10, 11, 12, 13, 14, 15, 16, 17])
+        XCTAssertEqual(dates[dates.count - 2], calendar.startOfDay(for: today))
+    }
+
+    func testSleepHistoryFindsSummaryByCalendarDay() throws {
+        let calendar = Calendar.bodyGregorian
+        let dayStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11)))
+        let selectedDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 14)))
+        let summary = SleepSummary(duration: 7.5 * 3600)
+        let history = SleepHistorySnapshot(days: [
+            SleepDaySummary(date: dayStart, summary: summary)
+        ])
+
+        XCTAssertEqual(history.summary(on: selectedDate, calendar: calendar)?.summary.duration, summary.duration)
+        XCTAssertNil(history.summary(on: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 12))), calendar: calendar))
+    }
+
+    func testSleepHistoryBuildsSortedDurationSeries() throws {
+        let calendar = Calendar.bodyGregorian
+        let earlier = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 10)))
+        let later = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11)))
+        let history = SleepHistorySnapshot(days: [
+            SleepDaySummary(date: later, summary: SleepSummary(duration: 8 * 3600)),
+            SleepDaySummary(date: earlier, summary: SleepSummary(duration: 6.5 * 3600))
+        ])
+
+        XCTAssertEqual(history.durationSeries.points.map(\.date), [earlier, later])
+        XCTAssertEqual(history.durationSeries.points.map(\.value), [6.5, 8])
+    }
+
     func testBasicsTrendSummaryFindsNearestDateAcrossWeightAndBodyFat() throws {
         let calendar = Calendar.bodyGregorian
         let weightDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 9)))
@@ -409,7 +538,32 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertNil(HealthMetricKind.basics.detailHelpText)
     }
 
-    func testSleepScoreUsesDurationREMAndDeepSleep() throws {
+    func testHealthMetricDataSourceTargetsHomeCardDetailScreens() {
+        let sourcedKinds = HealthMetricKind.allCases.filter { $0.detailDataSourceText != nil }
+
+        XCTAssertEqual(
+            sourcedKinds,
+            [
+                .sleep,
+                .basics,
+                .restingHeartRate,
+                .heartRateVariability,
+                .respiratoryRate,
+                .oxygenSaturation,
+                .activeEnergy,
+                .restingEnergy
+            ]
+        )
+        XCTAssertEqual(HealthMetricKind.sleep.detailDataSourceText?.sourceText, "Apple Health")
+        XCTAssertEqual(HealthMetricKind.basics.detailDataSourceText?.sourceText, "Apple Health")
+        XCTAssertEqual(HealthMetricKind.restingHeartRate.detailDataSourceText?.sourceText, "Apple Health")
+        XCTAssertEqual(HealthMetricKind.oxygenSaturation.detailDataSourceText?.sourceText, "Apple Health")
+        XCTAssertEqual(HealthMetricKind.activeEnergy.detailDataSourceText?.sourceText, "Apple Health")
+        XCTAssertNil(HealthMetricKind.bodyMass.detailDataSourceText)
+        XCTAssertNil(HealthMetricKind.bodyMassIndex.detailDataSourceText)
+    }
+
+    func testSleepScoreUsesStagePercentagesPressureAndVitals() throws {
         let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
             from: DateComponents(year: 2026, month: 5, day: 11, hour: 2)
         ))
@@ -419,28 +573,166 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 SleepStageSegment(
                     stage: .core,
                     startDate: startDate,
+                    endDate: startDate.addingTimeInterval(5.2 * 60 * 60)
+                ),
+                SleepStageSegment(
+                    stage: .rem,
+                    startDate: startDate.addingTimeInterval(5.2 * 60 * 60),
+                    endDate: startDate.addingTimeInterval(6.8 * 60 * 60)
+                ),
+                SleepStageSegment(
+                    stage: .deep,
+                    startDate: startDate.addingTimeInterval(6.8 * 60 * 60),
+                    endDate: startDate.addingTimeInterval(8 * 60 * 60)
+                )
+            ]
+        )
+        let summary = SleepSummary(
+            duration: 8 * 60 * 60,
+            stageSnapshot: snapshot,
+            vitals: SleepVitalsSummary(
+                heartRate: 55,
+                heartRateVariability: 72,
+                respiratoryRate: 14,
+                oxygenSaturation: 98,
+                wristTemperatureCelsius: 36.4
+            )
+        )
+        let score = try XCTUnwrap(summary.score)
+
+        XCTAssertEqual(score.total, 94)
+        XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .deep, .rem, .pressure, .vitals, .temperature])
+        XCTAssertEqual(score.categories.map(\.points), [25, 20, 11, 9, 14, 10, 5])
+        XCTAssertEqual(score.category(for: .deep)?.valueDescription, "15%")
+        XCTAssertEqual(score.category(for: .rem)?.valueDescription, "20%")
+        XCTAssertEqual(score.category(for: .pressure)?.valueDescription, "72 ms")
+        XCTAssertEqual(snapshot.duration(for: .rem), 1.6 * 60 * 60, accuracy: 0.01)
+        XCTAssertEqual(snapshot.duration(for: .deep), 1.2 * 60 * 60, accuracy: 0.01)
+    }
+
+    func testSleepScoreNormalizesToAvailableContributors() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 2)
+        ))
+        let snapshot = SleepStageSnapshot(
+            date: Calendar.bodyGregorian.startOfDay(for: startDate),
+            segments: [
+                SleepStageSegment(
+                    stage: .core,
+                    startDate: startDate,
+                    endDate: startDate.addingTimeInterval(5.2 * 60 * 60)
+                ),
+                SleepStageSegment(
+                    stage: .rem,
+                    startDate: startDate.addingTimeInterval(5.2 * 60 * 60),
+                    endDate: startDate.addingTimeInterval(6.8 * 60 * 60)
+                ),
+                SleepStageSegment(
+                    stage: .deep,
+                    startDate: startDate.addingTimeInterval(6.8 * 60 * 60),
+                    endDate: startDate.addingTimeInterval(8 * 60 * 60)
+                )
+            ]
+        )
+        let score = try XCTUnwrap(SleepSummary(duration: 8 * 60 * 60, stageSnapshot: snapshot).score)
+
+        XCTAssertEqual(score.total, 93)
+        XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .deep, .rem])
+        XCTAssertEqual(score.categories.map(\.points), [25, 20, 11, 9])
+    }
+
+    func testSleepScoreCommentSummarizesScoreBand() {
+        XCTAssertEqual(SleepScoreSummary.comment(for: 95), "Excellent sleep recovery for this day.")
+        XCTAssertEqual(SleepScoreSummary.comment(for: 84), "Strong sleep with small room to improve.")
+        XCTAssertEqual(SleepScoreSummary.comment(for: 72), "Decent sleep, but key areas can improve.")
+        XCTAssertEqual(SleepScoreSummary.comment(for: 63), "Mixed sleep signals for this day.")
+        XCTAssertEqual(SleepScoreSummary.comment(for: 45), "Low sleep score; prioritize recovery tonight.")
+    }
+
+    func testSleepScorePenalizesLowDeepPercentageAndPressure() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 2)
+        ))
+        let snapshot = SleepStageSnapshot(
+            date: Calendar.bodyGregorian.startOfDay(for: startDate),
+            segments: [
+                SleepStageSegment(
+                    stage: .core,
+                    startDate: startDate,
+                    endDate: startDate.addingTimeInterval(6.4 * 60 * 60)
+                ),
+                SleepStageSegment(
+                    stage: .rem,
+                    startDate: startDate.addingTimeInterval(6.4 * 60 * 60),
+                    endDate: startDate.addingTimeInterval(7.4 * 60 * 60)
+                ),
+                SleepStageSegment(
+                    stage: .deep,
+                    startDate: startDate.addingTimeInterval(7.4 * 60 * 60),
+                    endDate: startDate.addingTimeInterval(8 * 60 * 60)
+                )
+            ]
+        )
+        let summary = SleepSummary(
+            duration: 8 * 60 * 60,
+            stageSnapshot: snapshot,
+            vitals: SleepVitalsSummary(heartRateVariability: 30)
+        )
+        let score = try XCTUnwrap(summary.score)
+
+        XCTAssertEqual(score.category(for: .deep)?.points, 6)
+        XCTAssertEqual(score.category(for: .deep)?.valueDescription, "8%")
+        XCTAssertEqual(score.category(for: .pressure)?.points, 6)
+        XCTAssertEqual(score.category(for: .pressure)?.valueDescription, "30 ms")
+        XCTAssertLessThan(score.total, 100)
+    }
+
+    func testSleepScoreKeepsGoodButImperfectNightsBelowExcellent() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 1, minute: 30)
+        ))
+        let snapshot = SleepStageSnapshot(
+            date: Calendar.bodyGregorian.startOfDay(for: startDate),
+            segments: [
+                SleepStageSegment(
+                    stage: .core,
+                    startDate: startDate,
+                    endDate: startDate.addingTimeInterval(4.75 * 60 * 60)
+                ),
+                SleepStageSegment(
+                    stage: .awake,
+                    startDate: startDate.addingTimeInterval(4.75 * 60 * 60),
                     endDate: startDate.addingTimeInterval(5.25 * 60 * 60)
                 ),
                 SleepStageSegment(
                     stage: .rem,
                     startDate: startDate.addingTimeInterval(5.25 * 60 * 60),
-                    endDate: startDate.addingTimeInterval(6.75 * 60 * 60)
+                    endDate: startDate.addingTimeInterval(6.6 * 60 * 60)
                 ),
                 SleepStageSegment(
                     stage: .deep,
-                    startDate: startDate.addingTimeInterval(6.75 * 60 * 60),
-                    endDate: startDate.addingTimeInterval(8 * 60 * 60)
+                    startDate: startDate.addingTimeInterval(6.6 * 60 * 60),
+                    endDate: startDate.addingTimeInterval(7.5 * 60 * 60)
                 )
             ]
         )
-        let summary = SleepSummary(duration: 8 * 60 * 60, stageSnapshot: snapshot)
+        let summary = SleepSummary(
+            duration: 7.5 * 60 * 60,
+            stageSnapshot: snapshot,
+            vitals: SleepVitalsSummary(
+                heartRate: 55,
+                heartRateVariability: 50,
+                respiratoryRate: 14,
+                oxygenSaturation: 97,
+                wristTemperatureCelsius: 36.4
+            )
+        )
         let score = try XCTUnwrap(summary.score)
 
-        XCTAssertEqual(score.total, 100)
-        XCTAssertEqual(score.categories.map(\.kind), [.duration, .rem, .deep])
-        XCTAssertEqual(score.categories.map(\.points), [50, 25, 25])
-        XCTAssertEqual(snapshot.duration(for: .rem), 90 * 60)
-        XCTAssertEqual(snapshot.duration(for: .deep), 75 * 60)
+        XCTAssertLessThan(score.total, 90)
+        XCTAssertEqual(score.category(for: .duration)?.points, 21)
+        XCTAssertEqual(score.category(for: .continuity)?.points, 18)
+        XCTAssertEqual(score.category(for: .pressure)?.points, 9)
     }
 
     func testSleepVitalsMakeSleepSummaryNonEmptyAndUseSleepWindow() throws {
