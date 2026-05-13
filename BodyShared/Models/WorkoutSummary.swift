@@ -372,14 +372,23 @@ enum BodyValueFormat {
         locale: Locale = .current,
         unitPreference: UnitPreference = .system
     ) -> (value: String, unit: String) {
+        let display = temperatureValue(celsius: celsius, locale: locale, unitPreference: unitPreference)
+        return (numberText(display.value, decimals: 1, locale: locale), display.unit)
+    }
+
+    static func temperatureValue(
+        celsius: Double,
+        locale: Locale = .current,
+        unitPreference: UnitPreference = .system
+    ) -> (value: Double, unit: String) {
         if usesImperialMeasurements(locale: locale, unitPreference: unitPreference) {
             let fahrenheit = Measurement(value: celsius, unit: UnitTemperature.celsius)
                 .converted(to: .fahrenheit)
                 .value
-            return (numberText(fahrenheit, decimals: 1, locale: locale), "F")
+            return (fahrenheit, "F")
         }
 
-        return (numberText(celsius, decimals: 1, locale: locale), "C")
+        return (celsius, "C")
     }
 
     static func numberText(_ value: Double, decimals: Int, locale: Locale = .current) -> String {

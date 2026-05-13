@@ -4,11 +4,11 @@
   <img src="Body/Assets.xcassets/AppIcon.appiconset/AppIcon.png" alt="Body app icon" width="120">
 </p>
 
-Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, sleep, energy, body measurements, and Activity Rings into a local-first app and widget experience.
+Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
 The app shell follows Coin's simple tab structure: Home handles health cards and recent trends, Workouts provides searchable workout history, Charts holds workout visualizations, and Settings handles appearance and app details.
 
-Current app version: **0.2.6 (build 7)**
+Current app version: **0.2.7 (build 3)**
 
 ## Current Scope
 
@@ -17,11 +17,16 @@ Current app version: **0.2.6 (build 7)**
 - **Widget appearance** - Widgets include Coin-style background choices for System, Black, and White.
 - **Workout markers** - Workout days replace the date number with the Apple/SF workout icon in a solid color for the specific Apple Health workout type. If a day has multiple workouts, Body shows the longest-duration workout.
 - **Count indicators** - Workout-day tiles keep Coin's count markers: stars count as 1, moons count as 4, and 13 or more workouts shows a sun.
-- **Apple Health sync** - The app requests read-only access to workouts, activity rings, sleep, heart, body measurement, and energy data; workout summaries are also written for widgets through an App Group.
-- **Home health cards** - Home shows a two-card-wide Activity Rings summary above sleep, Basics, resting heart rate, HRV, blood oxygen, respiratory rate, active energy, and resting energy cards that open recent-week charts by default, with a Coin-style Week/Month switch on each detail screen. Basics combines weight, body fat, and BMI, while Sleep details show today's sleep score, today's sleep-stage timeline, an Apple-style high/typical/low Sleep Vitals chart with sleep duration as the fifth metric, and the week/month trend chart at the bottom.
+- **Apple Health sync** - The app requests read-only access to workouts, activity rings, sleep, heart, body measurement, energy, daylight, steps, exercise-minute, and wrist-temperature data; workout summaries are also written for widgets through an App Group.
+- **Home health cards** - Home shows a two-card-wide Activity Rings summary above Exercise Minutes, Wrist Temperature, Time In Daylight, Steps, Sleep, Basics, resting heart rate, HRV, blood oxygen, respiratory rate, active energy, and resting energy cards. Each small card includes a recent four-day preview chart, using bars for bar-chart detail pages and lines for line-chart detail pages.
+- **Activity Rings completion** - The Home Activity Rings card mirrors the monthly rings view by showing a scaled gold star when all three rings are complete for today.
+- **Health detail ranges** - Detail screens open Week charts by default and include Week, Month, 6 Months, and Year range buttons. Week and Month line charts use colored lines and colored hollow point markers, while 6 Months and Year use cleaner point-free lines with the Year stroke slightly thinner than 6 Months.
+- **Basics detail** - Basics shows equal-weight current body fat and weight values, then opens a timeframe-aware Difference Range card for Body Fat, Weight, and BMI above the dual-axis Weight and Body Fat chart and separate BMI chart.
+- **Sleep detail** - Sleep details show today's sleep score, today's sleep-stage timeline, an Apple-style high/typical/low Sleep Vitals chart with sleep duration as the fifth metric, and the range trend chart at the bottom. The sleep score sheet opens at a height that shows the full scoring breakdown without pulling it to full screen.
+- **Metric About cards** - Every Home detail page includes an About card explaining the metric and its interpretation.
 - **Charts tab** - The in-app workout calendar and workout type breakdown live in Charts, use theme-aware panel backgrounds, and open workout list sheets when tapped.
 - **Workouts tab** - A dedicated workout history surface supports month browsing, search, sort, type filters, summary totals, and workout detail sheets.
-- **Coin-style settings** - The Settings tab includes Appearance choices, Units, icon selection, and About rows for Copyright and Version.
+- **Coin-style settings** - The Settings tab includes Appearance choices, Units, icon selection, a Data > Permissions section for controlling which Apple Health categories Body may read in-app, and About rows for Copyright and Version.
 - **Local-first widget bridge** - Widgets read a cached JSON snapshot from the app group's shared file container; they do not query HealthKit directly.
 - **Preview seed data** - A May 2026 placeholder snapshot keeps the widget and app visually useful before HealthKit access is granted.
 
@@ -52,7 +57,7 @@ Body/
 
 ## Privacy
 
-Body reads health data from Apple Health only after permission is granted. Workout summaries are stored locally on device and mirrored to the widget through the app group's shared `UserDefaults`. Body does not collect tracking data.
+Body reads health data from Apple Health only after permission is granted. Users can also hide health categories inside Settings > Data > Permissions, which removes those categories from the in-app dashboard without changing system-level Apple Health authorization. Workout summaries are stored locally on device and mirrored to the widget through the app group's shared `UserDefaults`. Body does not collect tracking data.
 
 ## Documentation
 

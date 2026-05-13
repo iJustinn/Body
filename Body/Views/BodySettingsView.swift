@@ -7,6 +7,7 @@ import SwiftUI
 import UIKit
 
 struct BodySettingsView: View {
+    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @AppStorage(BodyAppearancePreference.selectedThemeKey) private var selectedThemeRawValue = BodyAppTheme.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedAccentKey) private var selectedAccentRawValue = BodyAppAccent.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
@@ -25,6 +26,7 @@ struct BodySettingsView: View {
                     VStack(alignment: .leading, spacing: 22) {
                         appearanceSection
                         unitSection
+                        dataSection
                         aboutSection
                     }
                     .padding(.horizontal)
@@ -96,6 +98,25 @@ struct BodySettingsView: View {
         }
     }
 
+    private var dataSection: some View {
+        BodySettingsCardSection("Data") {
+            ForEach(BodySettingsDataTab.allCases) { tab in
+                Button {
+                    activeSheet = tab.sheet
+                } label: {
+                    BodySettingsRowLabel(
+                        title: tab.title,
+                        value: permissionSummaryText,
+                        iconName: tab.iconName,
+                        tintColor: tab.tintColor,
+                        accessory: .chevron
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private var aboutSection: some View {
         BodySettingsCardSection("About") {
             ForEach(BodySettingsAboutTab.allCases) { tab in
@@ -156,9 +177,13 @@ struct BodySettingsView: View {
     }
 
     private var appVersionDisplay: String {
-        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.6"
-        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "7"
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.7"
+        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "3"
         return "\(appVersion) (\(buildNumber))"
+    }
+
+    private var permissionSummaryText: String {
+        "\(workoutStore.permissionSelection.enabledCount)/\(BodyHealthPermission.allCases.count)"
     }
 
     private var currentAppIconOption: BodyAppIconOption {
@@ -215,6 +240,8 @@ struct BodySettingsView: View {
             )
         case .units:
             BodyUnitPreferencePickerSheet(selectedUnitPreference: selectedUnitPreference)
+        case .permissions:
+            BodyHealthPermissionsSettingsSheet(workoutStore: workoutStore)
         case .howToUse:
             BodyHowToUseSettingsSheet()
         case .feedback:
@@ -260,6 +287,7 @@ enum BodySettingsSheet: String, Identifiable {
     case appAccent
     case appIcon
     case units
+    case permissions
     case howToUse
     case feedback
     case privacy
@@ -268,6 +296,42 @@ enum BodySettingsSheet: String, Identifiable {
 
     var id: String {
         rawValue
+    }
+}
+
+enum BodySettingsDataTab: String, CaseIterable, Identifiable {
+    case permissions
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .permissions:
+            return "Permissions"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .permissions:
+            return "checkmark.shield.fill"
+        }
+    }
+
+    var tintColor: Color {
+        switch self {
+        case .permissions:
+            return .green
+        }
+    }
+
+    var sheet: BodySettingsSheet {
+        switch self {
+        case .permissions:
+            return .permissions
+        }
     }
 }
 
@@ -522,6 +586,72 @@ private struct BodyUnitPreferencePickerSheet: View {
         case .imperial:
             return .orange
         }
+    }
+}
+
+private struct BodyHealthPermissionsSettingsSheet: View {
+    @ObservedObject var workoutStore: HealthKitWorkoutStore
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Permissions") {
+            VStack(spacing: 0) {
+                ForEach(BodyHealthPermission.allCases) { permission in
+                    BodyHealthPermissionToggleRow(
+                        permission: permission,
+                        isEnabled: Binding {
+                            workoutStore.permissionSelection.includes(permission)
+                        } set: { isEnabled in
+                            Task {
+                                await workoutStore.updateHealthPermission(permission, isEnabled: isEnabled)
+                            }
+                        }
+                    )
+
+                    if permission.id != BodyHealthPermission.allCases.last?.id {
+                        Divider()
+                            .padding(.leading, 76)
+                    }
+                }
+            }
+            .bodyCardBackground()
+        }
+    }
+}
+
+private struct BodyHealthPermissionToggleRow: View {
+    let permission: BodyHealthPermission
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: permission.iconName, color: permission.tintColor)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(permission.title)
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text(permission.subtitle)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("", isOn: $isEnabled)
+                .labelsHidden()
+                .tint(permission.tintColor)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 
@@ -865,7 +995,7 @@ private struct BodyHowToUseSettingsSheet: View {
             iconName: "chart.xyaxis.line",
             tintColor: .indigo,
             steps: [
-                "Resting Heart Rate, HRV, Respiratory Rate, and Blood Oxygen include a Day View below the Week/Month trend.",
+                "Resting Heart Rate, HRV, Respiratory Rate, and Blood Oxygen include a Day View below the range trend.",
                 "Choose a day with the date slider.",
                 "The chart averages multiple readings in the same hour; press the chart to reveal the raw readings behind that hourly point."
             ]
@@ -993,7 +1123,7 @@ private struct BodyPrivacySettingsSheet: View {
             iconName: "heart.text.square.fill",
             tintColor: .red,
             details: [
-                "Body requests read-only access to workouts, Activity Rings, sleep, heart, respiratory, blood oxygen, body measurement, and energy data.",
+                "Body requests read-only access to workouts, Activity Rings, exercise, steps, daylight, sleep, heart, respiratory, blood oxygen, body measurement, and energy data.",
                 "Body does not write health samples back to Apple Health."
             ]
         ),
@@ -1280,4 +1410,5 @@ private struct BodySettingsInfoCard: View {
 
 #Preview {
     BodySettingsView()
+        .environmentObject(HealthKitWorkoutStore())
 }

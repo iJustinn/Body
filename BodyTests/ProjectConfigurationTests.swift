@@ -31,6 +31,11 @@ final class ProjectConfigurationTests: XCTestCase {
         )
     }
 
+    func testSettingsDataTabsExposePermissions() {
+        XCTAssertEqual(BodySettingsDataTab.allCases.map(\.title), ["Permissions"])
+        XCTAssertEqual(BodySettingsDataTab.permissions.sheet, .permissions)
+    }
+
     func testAppAndWidgetShareAppGroupEntitlement() throws {
         let appEntitlements = try propertyList(at: "Body/Body.entitlements")
         let widgetEntitlements = try propertyList(at: "BodyWidgetExtension.entitlements")
@@ -81,8 +86,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = 1;"))
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.2.6;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 7;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.2.7;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 

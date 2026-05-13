@@ -10,10 +10,220 @@ enum BodyAppearancePreference {
     static let selectedAccentKey = "selectedAppAccent"
     static let selectedUnitPreferenceKey = "selectedUnitPreference"
     static let homeCardOrderKey = "homeCardOrder"
+    static let healthPermissionSelectionKey = "healthPermissionSelection"
+}
+
+enum BodyHealthPermission: String, CaseIterable, Identifiable {
+    case activityRings
+    case workouts
+    case sleep
+    case heart
+    case basics
+    case bloodOxygen
+    case respiratory
+    case energy
+    case exerciseMinutes
+    case wristTemperature
+    case timeInDaylight
+    case steps
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .activityRings:
+            return "Activity Rings"
+        case .workouts:
+            return "Workouts"
+        case .sleep:
+            return "Sleep"
+        case .heart:
+            return "Heart"
+        case .basics:
+            return "Basics"
+        case .bloodOxygen:
+            return "Blood Oxygen"
+        case .respiratory:
+            return "Respiratory"
+        case .energy:
+            return "Energy"
+        case .exerciseMinutes:
+            return "Exercise Minutes"
+        case .wristTemperature:
+            return "Wrist Temperature"
+        case .timeInDaylight:
+            return "Time in Daylight"
+        case .steps:
+            return "Steps"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .activityRings:
+            return "Move, Exercise, and Stand rings"
+        case .workouts:
+            return "Workout history, effort, and details"
+        case .sleep:
+            return "Sleep duration, stages, and score"
+        case .heart:
+            return "Heart rate and HRV"
+        case .basics:
+            return "Weight, body fat, and BMI"
+        case .bloodOxygen:
+            return "Blood oxygen readings"
+        case .respiratory:
+            return "Breathing rate readings"
+        case .energy:
+            return "Active and resting calories"
+        case .exerciseMinutes:
+            return "Exercise minute totals"
+        case .wristTemperature:
+            return "Sleeping wrist temperature"
+        case .timeInDaylight:
+            return "Daylight exposure time"
+        case .steps:
+            return "Step count totals"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .activityRings:
+            return "circle.circle.fill"
+        case .workouts:
+            return "figure.strengthtraining.traditional"
+        case .sleep:
+            return "bed.double.fill"
+        case .heart:
+            return "heart.fill"
+        case .basics:
+            return "scalemass.fill"
+        case .bloodOxygen:
+            return "drop.fill"
+        case .respiratory:
+            return "lungs.fill"
+        case .energy:
+            return "bolt.fill"
+        case .exerciseMinutes:
+            return "figure.run"
+        case .wristTemperature:
+            return "thermometer.medium"
+        case .timeInDaylight:
+            return "sun.max.fill"
+        case .steps:
+            return "figure.walk"
+        }
+    }
+
+    var tintColor: Color {
+        switch self {
+        case .activityRings:
+            return .pink
+        case .workouts:
+            return .orange
+        case .sleep:
+            return Color(red: 0.20, green: 0.72, blue: 1.00)
+        case .heart:
+            return Color(red: 1.00, green: 0.25, blue: 0.45)
+        case .basics:
+            return .purple
+        case .bloodOxygen,
+             .respiratory,
+             .wristTemperature:
+            return Color(red: 0.00, green: 0.75, blue: 0.85)
+        case .energy,
+             .exerciseMinutes:
+            return Color(red: 1.00, green: 0.38, blue: 0.12)
+        case .timeInDaylight:
+            return .blue
+        case .steps:
+            return .green
+        }
+    }
+}
+
+struct BodyHealthPermissionSelection: Equatable {
+    static let defaultValue = BodyHealthPermissionSelection(
+        enabledPermissions: Set(BodyHealthPermission.allCases)
+    )
+    static var defaultRawValue: String {
+        defaultValue.rawValue
+    }
+
+    var enabledPermissions: Set<BodyHealthPermission>
+
+    var rawValue: String {
+        guard !enabledPermissions.isEmpty else {
+            return "none"
+        }
+
+        return BodyHealthPermission.allCases
+            .filter { enabledPermissions.contains($0) }
+            .map(\.rawValue)
+            .joined(separator: ",")
+    }
+
+    var enabledCount: Int {
+        enabledPermissions.count
+    }
+
+    func includes(_ permission: BodyHealthPermission) -> Bool {
+        enabledPermissions.contains(permission)
+    }
+
+    func setting(_ permission: BodyHealthPermission, isEnabled: Bool) -> BodyHealthPermissionSelection {
+        var nextPermissions = enabledPermissions
+        if isEnabled {
+            nextPermissions.insert(permission)
+        } else {
+            nextPermissions.remove(permission)
+        }
+
+        return BodyHealthPermissionSelection(enabledPermissions: nextPermissions)
+    }
+
+    static func storedValue(from rawValue: String) -> BodyHealthPermissionSelection {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty else {
+            return defaultValue
+        }
+
+        guard trimmedValue != "none" else {
+            return BodyHealthPermissionSelection(enabledPermissions: [])
+        }
+
+        let permissions = Set(trimmedValue.split(separator: ",").compactMap {
+            BodyHealthPermission(rawValue: String($0))
+        })
+
+        guard !permissions.isEmpty else {
+            return defaultValue
+        }
+
+        return BodyHealthPermissionSelection(enabledPermissions: permissions)
+    }
+
+    static func load(defaults: UserDefaults = .standard) -> BodyHealthPermissionSelection {
+        storedValue(
+            from: defaults.string(forKey: BodyAppearancePreference.healthPermissionSelectionKey)
+                ?? defaultRawValue
+        )
+    }
+
+    func save(defaults: UserDefaults = .standard) {
+        defaults.set(rawValue, forKey: BodyAppearancePreference.healthPermissionSelectionKey)
+    }
 }
 
 enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     case activityRings
+    case exerciseMinutes
+    case wristTemperature
+    case timeInDaylight
+    case steps
     case sleep
     case basics
     case restingHeartRate
@@ -25,6 +235,10 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
 
     static let defaultOrder: [BodyHomeCardKind] = [
         .activityRings,
+        .exerciseMinutes,
+        .wristTemperature,
+        .timeInDaylight,
+        .steps,
         .sleep,
         .basics,
         .restingHeartRate,
@@ -56,6 +270,14 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         switch self {
         case .activityRings:
             return nil
+        case .exerciseMinutes:
+            return .exerciseMinutes
+        case .wristTemperature:
+            return .wristTemperature
+        case .timeInDaylight:
+            return .timeInDaylight
+        case .steps:
+            return .steps
         case .sleep:
             return .sleep
         case .basics:
@@ -76,7 +298,15 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     }
 
     static func storedOrder(from rawValue: String) -> [BodyHomeCardKind] {
-        repairedOrder(rawValue.split(separator: ",").compactMap { BodyHomeCardKind(rawValue: String($0)) })
+        let parsedOrder = rawValue.split(separator: ",").compactMap { rawCard -> BodyHomeCardKind? in
+            if rawCard == "workoutDuration" {
+                return .wristTemperature
+            }
+
+            return BodyHomeCardKind(rawValue: String(rawCard))
+        }
+
+        return repairedOrder(parsedOrder)
     }
 
     static func rawValue(from order: [BodyHomeCardKind]) -> String {
@@ -170,8 +400,14 @@ struct BodyHomeCardLayoutRow: Equatable, Identifiable {
 enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
     case recentWeek
     case recentMonth
+    case recentSixMonths
+    case recentYear
 
     static let defaultValue: BodyHealthTrendRange = .recentWeek
+
+    static var maximumDayCount: Int {
+        allCases.map(\.dayCount).max() ?? defaultValue.dayCount
+    }
 
     var id: String {
         rawValue
@@ -180,9 +416,13 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .recentWeek:
-            return "Recent Week"
+            return "Week"
         case .recentMonth:
-            return "Recent Month"
+            return "Month"
+        case .recentSixMonths:
+            return "6 Months"
+        case .recentYear:
+            return "Year"
         }
     }
 
@@ -192,6 +432,10 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
             return "7 days"
         case .recentMonth:
             return "30 days"
+        case .recentSixMonths:
+            return "6 months"
+        case .recentYear:
+            return "1 year"
         }
     }
 
@@ -201,6 +445,10 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
             return "Last 7 Days"
         case .recentMonth:
             return "Last 30 Days"
+        case .recentSixMonths:
+            return "Last 6 Months"
+        case .recentYear:
+            return "Last Year"
         }
     }
 
@@ -210,6 +458,10 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
             return 7
         case .recentMonth:
             return 30
+        case .recentSixMonths:
+            return 183
+        case .recentYear:
+            return 365
         }
     }
 
@@ -219,6 +471,76 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
             return 1
         case .recentMonth:
             return 7
+        case .recentSixMonths:
+            return 30
+        case .recentYear:
+            return 60
+        }
+    }
+
+    var showsPointMarks: Bool {
+        switch self {
+        case .recentWeek,
+             .recentMonth:
+            return true
+        case .recentSixMonths,
+             .recentYear:
+            return false
+        }
+    }
+
+    var usesPreviewLineChartStyle: Bool {
+        switch self {
+        case .recentWeek,
+             .recentMonth:
+            return true
+        case .recentSixMonths,
+             .recentYear:
+            return false
+        }
+    }
+
+    var usesMetricColorLineStroke: Bool {
+        switch self {
+        case .recentWeek,
+             .recentMonth,
+             .recentSixMonths,
+             .recentYear:
+            return true
+        }
+    }
+
+    var trendLineWidth: CGFloat {
+        switch self {
+        case .recentWeek,
+             .recentMonth:
+            return 3
+        case .recentSixMonths:
+            return 2.25
+        case .recentYear:
+            return 2
+        }
+    }
+
+    var linePointDiameter: CGFloat {
+        switch self {
+        case .recentWeek,
+             .recentMonth:
+            return 8
+        case .recentSixMonths,
+             .recentYear:
+            return 0
+        }
+    }
+
+    var lineCurrentPointDiameter: CGFloat {
+        switch self {
+        case .recentWeek,
+             .recentMonth:
+            return 10
+        case .recentSixMonths,
+             .recentYear:
+            return 0
         }
     }
 
@@ -228,6 +550,9 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
             return date.formatted(.dateTime.weekday(.abbreviated))
         case .recentMonth:
             return date.formatted(.dateTime.month(.abbreviated).day())
+        case .recentSixMonths,
+             .recentYear:
+            return date.formatted(.dateTime.month(.abbreviated))
         }
     }
 

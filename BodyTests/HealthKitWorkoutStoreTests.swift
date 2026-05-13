@@ -48,6 +48,19 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(store.activityRingHistory, cachedSnapshot.activityRingHistory)
     }
 
+    func testHealthPermissionSelectionLimitsHealthKitReadTypes() throws {
+        let readTypes = HealthKitWorkoutStore.readObjectTypes(
+            for: BodyHealthPermissionSelection(enabledPermissions: [.steps, .wristTemperature])
+        )
+
+        XCTAssertTrue(readTypes.contains(try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .stepCount))))
+        XCTAssertTrue(readTypes.contains(try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .appleSleepingWristTemperature))))
+        XCTAssertFalse(readTypes.contains(HKObjectType.workoutType()))
+        XCTAssertFalse(readTypes.contains(HKObjectType.activitySummaryType()))
+        XCTAssertFalse(readTypes.contains(try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .restingHeartRate))))
+        XCTAssertFalse(readTypes.contains(try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))))
+    }
+
     func testHealthDashboardSnapshotStoreRoundTripsCachedHomeData() throws {
         let suiteName = "BodyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

@@ -1,5 +1,20 @@
 # Version History
 
+## 0.2.7 (build 3)
+
+- Added Exercise Minutes, Wrist Temperature, Time In Daylight, and Steps as first-class Home cards with dedicated detail screens and matching bar or line chart previews.
+- Added recent four-day preview charts to Home metric cards, including placeholder behavior for missing prior-day data and no preview placeholder for missing current-day data.
+- Added Basics detail refinements for Body Fat/Weight ordering, selected chart annotation sizing, a separate BMI chart, and a timeframe-aware Difference Range card for Body Fat, Weight, and BMI above the Basics charts.
+- Expanded Home card detail trend ranges from Week and Month to Week, Month, 6 Months, and Year.
+- Updated Week and Month line charts to use colored lines and colored hollow point markers; longer ranges hide points, and the Year line is slightly thinner than 6 Months.
+- Added range-transition safeguards so line chart dots rebuild immediately instead of lingering while moving to new positions.
+- Added average labels across non-Basics trend charts, while leaving the combined Weight and Body Fat chart focused on its two-series comparison.
+- Added a scaled gold completion star to the Home Activity Rings card when all three rings are complete today.
+- Added Settings > Data > Permissions toggles so users can control which Health categories appear in Body.
+- Added About cards for every metric detail page.
+- Refined Sleep card sizing, Sleep Score display, Sleep Score sheet height, Sleep Stages date display, and Sleep Vitals chart layout.
+- Updated the app, widget, and test bundle version to 0.2.7 build 3.
+
 ## 0.2.6 (build 7)
 
 - Bumped the app, widget, and test bundle build number to 7.
