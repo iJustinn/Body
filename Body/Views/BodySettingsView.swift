@@ -738,14 +738,42 @@ private struct BodyHealthPermissionToggleRow: View {
 
             Spacer(minLength: 12)
 
-            Toggle("", isOn: $isEnabled)
+            Toggle(permission.title, isOn: $isEnabled)
                 .labelsHidden()
-                .tint(permission.tintColor)
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
         .contentShape(Rectangle())
+    }
+}
+
+private struct BodyPermissionSwitchToggleStyle: ToggleStyle {
+    let onColor: Color
+    let offColor: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                configuration.isOn.toggle()
+            }
+        } label: {
+            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                Capsule()
+                    .fill(configuration.isOn ? onColor : offColor)
+
+                Circle()
+                    .fill(.white)
+                    .frame(width: 28, height: 28)
+                    .shadow(color: .black.opacity(0.18), radius: 1.5, y: 1)
+                    .padding(2)
+            }
+            .frame(width: 52, height: 32)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 

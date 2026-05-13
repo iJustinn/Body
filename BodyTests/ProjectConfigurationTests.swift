@@ -36,6 +36,50 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(BodySettingsDataTab.permissions.sheet, .permissions)
     }
 
+    func testHealthPermissionTogglesUseGreenOnAndRedOffSwitchColors() throws {
+        let source = try text(at: "Body/Views/BodySettingsView.swift")
+
+        XCTAssertTrue(source.contains("private struct BodyPermissionSwitchToggleStyle: ToggleStyle"))
+        XCTAssertTrue(source.contains("BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red)"))
+        XCTAssertTrue(source.contains("configuration.isOn ? onColor : offColor"))
+        XCTAssertTrue(source.contains("configuration.isOn.toggle()"))
+        XCTAssertFalse(source.contains(".tint(permission.tintColor)"))
+    }
+
+    func testHealthMetricChartSelectionAnnotationsFitWithinChartEdges() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertTrue(source.contains("private let bodyChartSelectionOverflowResolution"))
+        XCTAssertTrue(source.contains("AnnotationOverflowResolution("))
+        XCTAssertTrue(source.contains("x: .fit(to: .chart)"))
+        XCTAssertTrue(source.contains("y: .disabled"))
+        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 5)
+        XCTAssertFalse(source.contains(".annotation(position: .top, spacing: 8) {"))
+    }
+
+    func testHealthMetricChartDateDomainsFavorRightSidePadding() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertTrue(source.contains("bodyHealthDetailChartLeadingDatePadding: TimeInterval = 2 * 60 * 60"))
+        XCTAssertTrue(source.contains("bodyHealthDetailChartTrailingDatePadding: TimeInterval = 36 * 60 * 60"))
+        XCTAssertTrue(source.contains("private func bodyHealthDetailChartXDomain(for dates: [Date]) -> ClosedRange<Date>"))
+        XCTAssertEqual(source.occurrenceCount(of: "return bodyHealthDetailChartXDomain(for:"), 3)
+        XCTAssertFalse(source.contains("let leadingPadding: TimeInterval = 6 * 60 * 60"))
+        XCTAssertFalse(source.contains("let trailingPadding: TimeInterval = 18 * 60 * 60"))
+    }
+
+    func testWorkoutHeartRateXAxisLabelsStayInsidePlotEdges() throws {
+        let source = try text(at: "Body/Views/BodyWorkoutsView.swift")
+
+        XCTAssertTrue(source.contains("private static let timeMarkLabelHorizontalInset: CGFloat = 24"))
+        XCTAssertTrue(source.contains("static let timeMarkFractions = [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0]"))
+        XCTAssertTrue(source.contains("Self.timeMarkFractions.map"))
+        XCTAssertTrue(source.contains("BodyWorkoutHeartRateChartMetrics.timeMarkFractions"))
+        XCTAssertTrue(source.contains("timeMarkLabelX(for: mark, in: plotRect)"))
+        XCTAssertTrue(source.contains("min(max(rawX, lowerBound), upperBound)"))
+        XCTAssertFalse(source.contains("x: plotRect.minX + plotRect.width * mark.fraction"))
+    }
+
     func testSummaryTabUsesHealthDashboardIcon() throws {
         let source = try text(at: "Body/Views/MainTabView.swift")
 
