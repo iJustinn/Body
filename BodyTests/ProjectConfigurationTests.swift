@@ -76,6 +76,18 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("placeholderBarYValue"))
     }
 
+    func testMetricDayLineChartUsesPreviewDotSymbols() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyHealthMetricDayChart")?.lowerBound)
+        let chartBlock = source[chartStart...].prefix(4_500)
+
+        XCTAssertTrue(chartBlock.contains("BodyLineChartPreviewPointSymbol("))
+        XCTAssertTrue(chartBlock.contains("isCurrent: isLatestBucket(bucket)"))
+        XCTAssertTrue(chartBlock.contains("pointDiameter: Self.pointDiameter"))
+        XCTAssertTrue(chartBlock.contains("currentPointDiameter: Self.currentPointDiameter"))
+        XCTAssertFalse(chartBlock.contains(".symbolSize(24)"))
+    }
+
     func testAggregatedHealthChartsWireRangeLabelsAndBarWidths() throws {
         let source = try text(at: "Body/Views/BodyHomeView.swift")
 
@@ -83,7 +95,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedTrendPoint)"), 1)
         XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedPoint)"), 1)
         XCTAssertTrue(source.contains("dateText: selectedTrendDateText"))
-        XCTAssertEqual(source.occurrenceCount(of: "width: .fixed(selectedTrendRange.chartBarWidth)"), 2)
+        XCTAssertEqual(
+            source.occurrenceCount(of: "let chartBarWidth = selectedTrendRange.chartBarWidth(forAvailableWidth: proxy.size.width)"),
+            1
+        )
+        XCTAssertEqual(source.occurrenceCount(of: "width: .fixed(chartBarWidth)"), 2)
     }
 
     func testBasicsWeightBodyFatMonthChartKeepsStandardPointMarks() throws {
@@ -182,7 +198,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.3.3;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 

@@ -410,6 +410,7 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
     case recentYear
 
     static let defaultValue: BodyHealthTrendRange = .recentWeek
+    static let bodyFatWeightLineChartMaximumPointCount = 20
 
     static var maximumDayCount: Int {
         allCases.map(\.dayCount).max() ?? defaultValue.dayCount
@@ -498,19 +499,19 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
 
     var lineChartMaximumPointCount: Int? {
         switch self {
-        case .recentMonth:
-            return 20
-        case .recentWeek,
+        case .recentWeek:
+            return nil
+        case .recentMonth,
              .recentSixMonths,
              .recentYear:
-            return nil
+            return 25
         }
     }
 
     var chartBarWidth: CGFloat {
         switch self {
         case .recentWeek:
-            return 12
+            return 32
         case .recentMonth:
             return 7
         case .recentSixMonths,
@@ -519,25 +520,34 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
         }
     }
 
+    func chartBarWidth(forAvailableWidth availableWidth: CGFloat) -> CGFloat {
+        switch self {
+        case .recentSixMonths,
+             .recentYear:
+            return availableWidth <= 330 ? 6 : chartBarWidth
+        case .recentWeek,
+             .recentMonth:
+            return chartBarWidth
+        }
+    }
+
     var showsPointMarks: Bool {
         switch self {
         case .recentWeek,
-             .recentMonth:
-            return true
-        case .recentSixMonths,
+             .recentMonth,
+             .recentSixMonths,
              .recentYear:
-            return false
+            return true
         }
     }
 
     var usesPreviewLineChartStyle: Bool {
         switch self {
         case .recentWeek,
-             .recentMonth:
-            return true
-        case .recentSixMonths,
+             .recentMonth,
+             .recentSixMonths,
              .recentYear:
-            return false
+            return true
         }
     }
 
@@ -558,22 +568,20 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
     var linePointDiameter: CGFloat {
         switch self {
         case .recentWeek,
-             .recentMonth:
-            return 8
-        case .recentSixMonths,
+             .recentMonth,
+             .recentSixMonths,
              .recentYear:
-            return 0
+            return 8
         }
     }
 
     var lineCurrentPointDiameter: CGFloat {
         switch self {
         case .recentWeek,
-             .recentMonth:
-            return 10
-        case .recentSixMonths,
+             .recentMonth,
+             .recentSixMonths,
              .recentYear:
-            return 0
+            return 10
         }
     }
 

@@ -1716,14 +1716,16 @@ struct HealthTrendSeries: Codable, Equatable {
     func lineChartCalendarPoints(
         to range: BodyHealthTrendRange,
         calendar: Calendar = .bodyGregorian,
-        date: Date = Date()
+        date: Date = Date(),
+        maximumPointCount: Int? = nil
     ) -> [HealthTrendCalendarPoint] {
         let chartPoints = chartCalendarPoints(to: range, calendar: calendar, date: date)
-        guard let maximumPointCount = range.lineChartMaximumPointCount else {
+        let effectiveMaximumPointCount = maximumPointCount ?? range.lineChartMaximumPointCount
+        guard let effectiveMaximumPointCount else {
             return chartPoints
         }
 
-        return chartPoints.compressedStableLineChartPoints(maximumCount: maximumPointCount)
+        return chartPoints.compressedStableLineChartPoints(maximumCount: effectiveMaximumPointCount)
     }
 
     func chartSeries(
@@ -1745,10 +1747,16 @@ struct HealthTrendSeries: Codable, Equatable {
     func lineChartSeries(
         to range: BodyHealthTrendRange,
         calendar: Calendar = .bodyGregorian,
-        date: Date = Date()
+        date: Date = Date(),
+        maximumPointCount: Int? = nil
     ) -> HealthTrendSeries {
         HealthTrendSeries(
-            points: lineChartCalendarPoints(to: range, calendar: calendar, date: date).compactMap { point in
+            points: lineChartCalendarPoints(
+                to: range,
+                calendar: calendar,
+                date: date,
+                maximumPointCount: maximumPointCount
+            ).compactMap { point in
                 guard let value = point.value, value.isFinite else {
                     return nil
                 }

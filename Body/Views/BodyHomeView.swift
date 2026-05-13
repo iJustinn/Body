@@ -1732,138 +1732,142 @@ private struct BodyHealthMetricDetailView: View {
                 )
                 .frame(height: BodyHealthDetailChartLayout.standardHeight)
             } else {
-                Chart {
-                    if model.chartStyle == .bar, let selectedTrendPoint {
-                        RuleMark(x: .value("Selected Date", selectedTrendPoint.date, unit: .day))
-                            .foregroundStyle(Color.secondary.opacity(0.48))
-                            .lineStyle(StrokeStyle(lineWidth: 1.4))
-                    }
+                GeometryReader { proxy in
+                    let chartBarWidth = selectedTrendRange.chartBarWidth(forAvailableWidth: proxy.size.width)
 
-                    ForEach(visibleCalendarPoints) { point in
-                        if let value = point.value {
-                            switch model.chartStyle {
-                            case .line:
-                                LineMark(
-                                    x: .value("Date", point.date, unit: .day),
-                                    y: .value(model.title, value)
-                                )
-                                .interpolationMethod(.catmullRom)
-                                .foregroundStyle(lineChartStrokeColor)
-                                .lineStyle(StrokeStyle(lineWidth: lineChartStrokeWidth, lineCap: .round, lineJoin: .round))
+                    Chart {
+                        if model.chartStyle == .bar, let selectedTrendPoint {
+                            RuleMark(x: .value("Selected Date", selectedTrendPoint.date, unit: .day))
+                                .foregroundStyle(Color.secondary.opacity(0.48))
+                                .lineStyle(StrokeStyle(lineWidth: 1.4))
+                        }
 
-                                if selectedTrendRange.showsPointMarks {
-                                    if selectedTrendRange.usesPreviewLineChartStyle {
-                                        PointMark(
-                                            x: .value("Date", point.date, unit: .day),
-                                            y: .value(model.title, value)
-                                        )
-                                        .symbol {
-                                            BodyLineChartPreviewPointSymbol(
-                                                tintColor: model.symbolColor,
-                                                isCurrent: isLatestVisiblePoint(point),
-                                                pointDiameter: selectedTrendRange.linePointDiameter,
-                                                currentPointDiameter: selectedTrendRange.lineCurrentPointDiameter
+                        ForEach(visibleCalendarPoints) { point in
+                            if let value = point.value {
+                                switch model.chartStyle {
+                                case .line:
+                                    LineMark(
+                                        x: .value("Date", point.date, unit: .day),
+                                        y: .value(model.title, value)
+                                    )
+                                    .interpolationMethod(.catmullRom)
+                                    .foregroundStyle(lineChartStrokeColor)
+                                    .lineStyle(StrokeStyle(lineWidth: lineChartStrokeWidth, lineCap: .round, lineJoin: .round))
+
+                                    if selectedTrendRange.showsPointMarks {
+                                        if selectedTrendRange.usesPreviewLineChartStyle {
+                                            PointMark(
+                                                x: .value("Date", point.date, unit: .day),
+                                                y: .value(model.title, value)
                                             )
+                                            .symbol {
+                                                BodyLineChartPreviewPointSymbol(
+                                                    tintColor: model.symbolColor,
+                                                    isCurrent: isLatestVisiblePoint(point),
+                                                    pointDiameter: selectedTrendRange.linePointDiameter,
+                                                    currentPointDiameter: selectedTrendRange.lineCurrentPointDiameter
+                                                )
+                                            }
+                                        } else {
+                                            PointMark(
+                                                x: .value("Date", point.date, unit: .day),
+                                                y: .value(model.title, value)
+                                            )
+                                            .foregroundStyle(model.symbolColor)
+                                            .symbolSize(28)
                                         }
-                                    } else {
-                                        PointMark(
-                                            x: .value("Date", point.date, unit: .day),
-                                            y: .value(model.title, value)
-                                        )
-                                        .foregroundStyle(model.symbolColor)
-                                        .symbolSize(28)
                                     }
+                                case .bar:
+                                    BarMark(
+                                        x: .value("Date", point.date, unit: .day),
+                                        y: .value(model.title, value),
+                                        width: .fixed(chartBarWidth)
+                                    )
+                                    .foregroundStyle(model.symbolColor.gradient)
+                                    .cornerRadius(4)
                                 }
-                            case .bar:
+                            } else if model.chartStyle == .bar {
                                 BarMark(
                                     x: .value("Date", point.date, unit: .day),
-                                    y: .value(model.title, value),
-                                    width: .fixed(selectedTrendRange.chartBarWidth)
+                                    y: .value(model.title, placeholderBarYValue),
+                                    width: .fixed(chartBarWidth)
                                 )
-                                .foregroundStyle(model.symbolColor.gradient)
+                                .foregroundStyle(Color.secondary.opacity(0.14))
                                 .cornerRadius(4)
                             }
-                        } else if model.chartStyle == .bar {
-                            BarMark(
-                                x: .value("Date", point.date, unit: .day),
-                                y: .value(model.title, placeholderBarYValue),
-                                width: .fixed(selectedTrendRange.chartBarWidth)
-                            )
-                            .foregroundStyle(Color.secondary.opacity(0.14))
-                            .cornerRadius(4)
                         }
-                    }
 
-                    if let selectedTrendPoint, let selectedTrendValue = selectedTrendPoint.value {
-                        RuleMark(x: .value("Selected Date", selectedTrendPoint.date, unit: .day))
-                            .foregroundStyle(model.chartStyle == .bar ? Color.clear : Color.secondary.opacity(0.48))
-                            .lineStyle(StrokeStyle(lineWidth: 1.4))
-                            .annotation(
-                                position: .top,
-                                spacing: 8,
-                                overflowResolution: bodyChartSelectionOverflowResolution
-                            ) {
-                                BodyChartSelectionAnnotation(
-                                    eyebrow: model.chartStyle == .bar ? barSelectionEyebrow : nil,
-                                    values: [
-                                        BodyChartSelectionValue(
-                                            title: nil,
-                                            value: chartSelectionText(for: selectedTrendValue),
-                                            color: model.symbolColor
-                                        )
-                                    ],
-                                    date: selectedTrendPoint.date,
-                                    dateText: bodyChartSelectionDateText(for: selectedTrendPoint)
+                        if let selectedTrendPoint, let selectedTrendValue = selectedTrendPoint.value {
+                            RuleMark(x: .value("Selected Date", selectedTrendPoint.date, unit: .day))
+                                .foregroundStyle(model.chartStyle == .bar ? Color.clear : Color.secondary.opacity(0.48))
+                                .lineStyle(StrokeStyle(lineWidth: 1.4))
+                                .annotation(
+                                    position: .top,
+                                    spacing: 8,
+                                    overflowResolution: bodyChartSelectionOverflowResolution
+                                ) {
+                                    BodyChartSelectionAnnotation(
+                                        eyebrow: model.chartStyle == .bar ? barSelectionEyebrow : nil,
+                                        values: [
+                                            BodyChartSelectionValue(
+                                                title: nil,
+                                                value: chartSelectionText(for: selectedTrendValue),
+                                                color: model.symbolColor
+                                            )
+                                        ],
+                                        date: selectedTrendPoint.date,
+                                        dateText: bodyChartSelectionDateText(for: selectedTrendPoint)
+                                    )
+                                }
+
+                            if model.chartStyle == .line {
+                                PointMark(
+                                    x: .value("Selected Date", selectedTrendPoint.date, unit: .day),
+                                    y: .value(model.title, selectedTrendValue)
                                 )
-                            }
-
-                        if model.chartStyle == .line {
-                            PointMark(
-                                x: .value("Selected Date", selectedTrendPoint.date, unit: .day),
-                                y: .value(model.title, selectedTrendValue)
-                            )
-                            .foregroundStyle(model.symbolColor)
-                            .symbolSize(82)
-                        }
-                    }
-                }
-                .chartXScale(domain: chartXDomain)
-                .chartYScale(domain: chartYDomain)
-                .chartXAxis {
-                    AxisMarks(values: .stride(by: .day, count: selectedTrendRange.axisStrideDayCount)) { value in
-                        AxisGridLine()
-                            .foregroundStyle(Color.secondary.opacity(0.18))
-                        AxisTick()
-                            .foregroundStyle(Color.secondary.opacity(0.28))
-                        AxisValueLabel {
-                            if let date = value.as(Date.self) {
-                                Text(selectedTrendRange.axisLabel(for: date))
-                                    .font(.system(.caption2, design: .rounded))
-                                    .foregroundStyle(Color.secondary)
+                                .foregroundStyle(model.symbolColor)
+                                .symbolSize(82)
                             }
                         }
                     }
-                }
-                .chartYAxis {
-                    AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
-                        AxisGridLine()
-                            .foregroundStyle(Color.secondary.opacity(0.18))
-                        AxisTick()
-                            .foregroundStyle(Color.secondary.opacity(0.28))
-                        AxisValueLabel {
-                            if let yValue = value.as(Double.self) {
-                                Text(model.valueFormatter(yValue))
-                                    .font(.system(.caption2, design: .rounded))
-                                    .foregroundStyle(Color.secondary)
+                    .chartXScale(domain: chartXDomain)
+                    .chartYScale(domain: chartYDomain)
+                    .chartXAxis {
+                        AxisMarks(values: .stride(by: .day, count: selectedTrendRange.axisStrideDayCount)) { value in
+                            AxisGridLine()
+                                .foregroundStyle(Color.secondary.opacity(0.18))
+                            AxisTick()
+                                .foregroundStyle(Color.secondary.opacity(0.28))
+                            AxisValueLabel {
+                                if let date = value.as(Date.self) {
+                                    Text(selectedTrendRange.axisLabel(for: date))
+                                        .font(.system(.caption2, design: .rounded))
+                                        .foregroundStyle(Color.secondary)
+                                }
                             }
                         }
                     }
-                }
-                .chartXSelection(value: $selectedTrendDate)
-                .simultaneousGesture(trendChartPressGesture)
-                .id(trendChartIdentity)
-                .transaction { transaction in
-                    transaction.animation = nil
+                    .chartYAxis {
+                        AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
+                            AxisGridLine()
+                                .foregroundStyle(Color.secondary.opacity(0.18))
+                            AxisTick()
+                                .foregroundStyle(Color.secondary.opacity(0.28))
+                            AxisValueLabel {
+                                if let yValue = value.as(Double.self) {
+                                    Text(model.valueFormatter(yValue))
+                                        .font(.system(.caption2, design: .rounded))
+                                        .foregroundStyle(Color.secondary)
+                                }
+                            }
+                        }
+                    }
+                    .chartXSelection(value: $selectedTrendDate)
+                    .simultaneousGesture(trendChartPressGesture)
+                    .id(trendChartIdentity)
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
                 }
                 .frame(height: BodyHealthDetailChartLayout.standardHeight)
             }
@@ -3205,6 +3209,9 @@ private struct BodyHealthMetricDayChart: View {
     let color: Color
     let valueFormatter: (Double) -> String
 
+    private static let pointDiameter: CGFloat = 8
+    private static let currentPointDiameter: CGFloat = 10
+
     @State private var selectedDate: Date?
     @GestureState private var isSelecting = false
 
@@ -3223,8 +3230,14 @@ private struct BodyHealthMetricDayChart: View {
                     x: .value("Time", bucket.plotDate),
                     y: .value(title, bucket.averageValue)
                 )
-                .foregroundStyle(color)
-                .symbolSize(24)
+                .symbol {
+                    BodyLineChartPreviewPointSymbol(
+                        tintColor: color,
+                        isCurrent: isLatestBucket(bucket),
+                        pointDiameter: Self.pointDiameter,
+                        currentPointDiameter: Self.currentPointDiameter
+                    )
+                }
             }
 
             if let selectedBucket {
@@ -3299,6 +3312,14 @@ private struct BodyHealthMetricDayChart: View {
         return hourlyBuckets.min { first, second in
             abs(first.plotDate.timeIntervalSince(selectedDate)) < abs(second.plotDate.timeIntervalSince(selectedDate))
         }
+    }
+
+    private var latestBucketDate: Date? {
+        hourlyBuckets.last?.plotDate
+    }
+
+    private func isLatestBucket(_ bucket: HealthTrendHourlyBucket) -> Bool {
+        bucket.plotDate == latestBucketDate
     }
 
     private var chartXDomain: ClosedRange<Date> {
@@ -3779,19 +3800,31 @@ private struct BodyBasicsTrendChart: View {
     }
 
     private var weightChartSeries: HealthTrendSeries {
-        trend.weight.lineChartSeries(to: selectedRange)
+        trend.weight.lineChartSeries(
+            to: selectedRange,
+            maximumPointCount: BodyHealthTrendRange.bodyFatWeightLineChartMaximumPointCount
+        )
     }
 
     private var bodyFatChartSeries: HealthTrendSeries {
-        trend.bodyFat.lineChartSeries(to: selectedRange)
+        trend.bodyFat.lineChartSeries(
+            to: selectedRange,
+            maximumPointCount: BodyHealthTrendRange.bodyFatWeightLineChartMaximumPointCount
+        )
     }
 
     private var weightCalendarPoints: [HealthTrendCalendarPoint] {
-        trend.weight.lineChartCalendarPoints(to: selectedRange)
+        trend.weight.lineChartCalendarPoints(
+            to: selectedRange,
+            maximumPointCount: BodyHealthTrendRange.bodyFatWeightLineChartMaximumPointCount
+        )
     }
 
     private var bodyFatCalendarPoints: [HealthTrendCalendarPoint] {
-        trend.bodyFat.lineChartCalendarPoints(to: selectedRange)
+        trend.bodyFat.lineChartCalendarPoints(
+            to: selectedRange,
+            maximumPointCount: BodyHealthTrendRange.bodyFatWeightLineChartMaximumPointCount
+        )
     }
 
     private var chartDomainCalendarPoints: [HealthTrendCalendarPoint] {
