@@ -177,8 +177,8 @@ struct BodySettingsView: View {
     }
 
     private var appVersionDisplay: String {
-        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.7"
-        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "3"
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.0"
+        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
         return "\(appVersion) (\(buildNumber))"
     }
 
@@ -967,15 +967,15 @@ private struct BodyHowToUseSettingsSheet: View {
             steps: [
                 "Grant read permission when Body asks for Apple Health access.",
                 "Use a real device for complete Health data. Some HealthKit data is limited or empty in Simulator.",
-                "Pull down on Home to refresh the dashboard after new workouts, sleep, or vitals are recorded."
+                "Pull down on Summary to refresh the dashboard after new workouts, sleep, or vitals are recorded."
             ]
         ),
         BodyHowToUseGuideSection(
-            title: "Read Home",
+            title: "Read Summary",
             iconName: "rectangle.grid.2x2.fill",
             tintColor: .blue,
             steps: [
-                "Home shows Activity Rings, Sleep, Basics, resting heart rate, HRV, blood oxygen, respiratory rate, active energy, and resting energy.",
+                "Summary shows Activity Rings, Sleep, Basics, resting heart rate, HRV, blood oxygen, respiratory rate, active energy, and resting energy.",
                 "Tap a card to open its secondary screen with recent Week and Month trends.",
                 "Use Settings to change appearance, app accent, icon, and measurement units."
             ]
@@ -1011,11 +1011,11 @@ private struct BodyHowToUseSettingsSheet: View {
             ]
         ),
         BodyHowToUseGuideSection(
-            title: "Charts & Widgets",
+            title: "Workouts & Widgets",
             iconName: "square.grid.2x2.fill",
             tintColor: .purple,
             steps: [
-                "Charts shows monthly workout calendars and workout-type breakdowns.",
+                "Workouts shows monthly workout calendars and workout-type breakdowns.",
                 "Workout widgets read Body's shared cached snapshot, so open the app and refresh when widget data looks stale.",
                 "Widget backgrounds can use System, Black, or White styling."
             ]

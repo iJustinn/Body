@@ -13,6 +13,7 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeCardOrderKey) private var homeCardOrderRawValue = BodyHomeCardKind.defaultRawValue
     @State private var draggedHomeCard: BodyHomeCardKind?
+    @State private var showsAllHomeTrends = false
 
     var body: some View {
         NavigationStack {
@@ -43,6 +44,8 @@ struct BodyHomeView: View {
                             }
                         }
                         .animation(.spring(response: 0.25, dampingFraction: 0.85), value: homeCardOrder)
+
+                        homeTrendsSection
                     }
                     .padding(.horizontal)
                     .padding(.top, 10)
@@ -64,6 +67,24 @@ struct BodyHomeView: View {
 
     private var homeCardRows: [BodyHomeCardLayoutRow] {
         BodyHomeCardKind.layoutRows(from: homeCardOrder)
+    }
+
+    @ViewBuilder
+    private var homeTrendsSection: some View {
+        let visibleTrendCards = visibleHomeTrendCards
+
+        if !visibleTrendCards.isEmpty {
+            BodyHomeSectionDivider()
+                .padding(.top, 8)
+
+            BodyHomeTrendsSection(
+                cards: visibleTrendCards,
+                canToggleAll: canToggleAllHomeTrends,
+                showsAllTrends: showsAllHomeTrends,
+                toggleAll: toggleAllHomeTrends
+            )
+            .padding(.top, 8)
+        }
     }
 
     private var metricCards: [BodyHealthMetricCard.Model] {
@@ -173,6 +194,165 @@ struct BodyHomeView: View {
                 chartPreview: trends.series(for: .restingEnergy)
             )
         ]
+    }
+
+    private var visibleHomeTrendCards: [BodyHomeTrendCard.Model] {
+        if showsAllHomeTrends {
+            return allHomeTrendCards
+        }
+
+        return Array(significantHomeTrendCards.prefix(4))
+    }
+
+    private var canToggleAllHomeTrends: Bool {
+        showsAllHomeTrends || allHomeTrendCards.count > visibleHomeTrendCards.count
+    }
+
+    private var significantHomeTrendCards: [BodyHomeTrendCard.Model] {
+        makeHomeTrendCards(includesStable: false)
+    }
+
+    private var allHomeTrendCards: [BodyHomeTrendCard.Model] {
+        makeHomeTrendCards(includesStable: true)
+    }
+
+    private func makeHomeTrendCards(includesStable: Bool) -> [BodyHomeTrendCard.Model] {
+        let trends = workoutStore.healthTrends
+        let temperatureUnit = BodyValueFormat.temperatureDisplay(
+            celsius: 0,
+            unitPreference: selectedUnitPreference
+        ).unit
+        let cards = [
+            homeTrendCard(
+                kind: .restingHeartRate,
+                title: "Resting Heart Rate",
+                series: trends.series(for: .restingHeartRate),
+                chartStyle: .line,
+                symbolName: "heart.fill",
+                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " BPM" },
+                messageStyle: .average(subject: "your resting heart rate"),
+                includesStable: includesStable
+            ),
+            homeTrendCard(
+                kind: .heartRateVariability,
+                title: "HRV",
+                series: trends.series(for: .heartRateVariability),
+                chartStyle: .line,
+                symbolName: "waveform.path.ecg",
+                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " ms" },
+                messageStyle: .average(subject: "your HRV"),
+                includesStable: includesStable
+            ),
+            homeTrendCard(
+                kind: .respiratoryRate,
+                title: "Respiratory Rate",
+                series: trends.series(for: .respiratoryRate),
+                chartStyle: .line,
+                symbolName: "lungs.fill",
+                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " br/min" },
+                messageStyle: .average(subject: "your respiratory rate"),
+                includesStable: includesStable
+            ),
+            homeTrendCard(
+                kind: .oxygenSaturation,
+                title: "Blood Oxygen",
+                series: trends.series(for: .oxygenSaturation),
+                chartStyle: .line,
+                symbolName: "drop.fill",
+                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + "%" },
+                messageStyle: .average(subject: "your blood oxygen"),
+                includesStable: includesStable
+            ),
+            homeTrendCard(
+                kind: .sleep,
+                title: "Sleep",
+                series: trends.series(for: .sleep),
+                chartStyle: .line,
+                symbolName: "bed.double.fill",
+                symbolColor: Color(red: 0.20, green: 0.72, blue: 1.00),
+                valueFormatter: { BodyValueFormat.sleepDurationText(for: $0 * 60 * 60) },
+                messageStyle: .average(subject: "your sleep duration"),
+                includesStable: includesStable
+            ),
+            homeTrendCard(
+                kind: .wristTemperature,
+                title: "Wrist Temperature",
+                series: trends.series(for: .wristTemperature).mapValues {
+                    BodyValueFormat.temperatureValue(
+                        celsius: $0,
+                        unitPreference: selectedUnitPreference
+                    ).value
+                },
+                chartStyle: .line,
+                symbolName: "thermometer.medium",
+                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + " " + temperatureUnit },
+                messageStyle: .average(subject: "your wrist temperature"),
+                includesStable: includesStable
+            ),
+            homeTrendCard(
+                kind: .steps,
+                title: "Steps",
+                series: trends.series(for: .steps),
+                chartStyle: .bar,
+                symbolName: "flame.fill",
+                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " steps" },
+                messageStyle: .quantity(subject: "The number of steps you took per day"),
+                includesStable: includesStable
+            ),
+            homeTrendCard(
+                kind: .activeEnergy,
+                title: "Active Energy",
+                series: trends.series(for: .activeEnergy),
+                chartStyle: .bar,
+                symbolName: "flame.fill",
+                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " kcal" },
+                messageStyle: .quantity(subject: "Your active energy"),
+                includesStable: includesStable
+            ),
+            homeTrendCard(
+                kind: .restingEnergy,
+                title: "Resting Energy",
+                series: trends.series(for: .restingEnergy),
+                chartStyle: .bar,
+                symbolName: "leaf.fill",
+                symbolColor: Color(red: 0.14, green: 0.72, blue: 0.42),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " kcal" },
+                messageStyle: .quantity(subject: "Your resting energy"),
+                includesStable: includesStable
+            ),
+            homeTrendCard(
+                kind: .exerciseMinutes,
+                title: "Exercise Minutes",
+                series: trends.series(for: .exerciseMinutes),
+                chartStyle: .bar,
+                symbolName: "figure.run",
+                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " min" },
+                messageStyle: .quantity(subject: "Your exercise minutes"),
+                includesStable: includesStable
+            ),
+            homeTrendCard(
+                kind: .timeInDaylight,
+                title: "Time In Daylight",
+                series: trends.series(for: .timeInDaylight),
+                chartStyle: .bar,
+                symbolName: "plus",
+                symbolColor: Color(red: 0.10, green: 0.58, blue: 1.00),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " min" },
+                messageStyle: .quantity(subject: "Your time in daylight"),
+                includesStable: includesStable
+            )
+        ]
+        .compactMap { $0 }
+
+        return cards
     }
 
     private var selectedAccent: BodyAppAccent {
@@ -294,6 +474,42 @@ struct BodyHomeView: View {
             ],
             chartPreview: chartPreview
         )
+    }
+
+    private func homeTrendCard(
+        kind: HealthMetricKind,
+        title: String,
+        series: HealthTrendSeries,
+        chartStyle: BodyHealthMetricChartStyle,
+        symbolName: String,
+        symbolColor: Color,
+        valueFormatter: @escaping (Double) -> String,
+        messageStyle: BodyHomeTrendMessageStyle,
+        includesStable: Bool
+    ) -> BodyHomeTrendCard.Model? {
+        guard let presentation = BodyHomeTrendCardPresentation.make(
+            kind: kind,
+            title: title,
+            series: series,
+            chartStyle: chartStyle,
+            valueFormatter: valueFormatter,
+            messageStyle: messageStyle,
+            includesStable: includesStable
+        ) else {
+            return nil
+        }
+
+        return BodyHomeTrendCard.Model(
+            presentation: presentation,
+            symbolName: symbolName,
+            symbolColor: symbolColor
+        )
+    }
+
+    private func toggleAllHomeTrends() {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+            showsAllHomeTrends.toggle()
+        }
     }
 
     private func formattedSleepDuration(_ duration: TimeInterval?) -> String {
@@ -755,6 +971,265 @@ enum BodyHomeMetricCardPreview {
             ?? currentDayStart
 
         return (startDate, endDate)
+    }
+}
+
+enum BodyHomeTrendMessageStyle {
+    case average(subject: String)
+    case quantity(subject: String)
+
+    func text(direction: BodyHomeTrendDirection, recentDayCount: Int) -> String {
+        switch self {
+        case .average(let subject):
+            return "On average, \(subject) \(direction.averagePhrase) over the last \(recentDayCount) days."
+        case .quantity(let subject):
+            return "\(subject) \(direction.quantityPhrase) over the last \(recentDayCount) days."
+        }
+    }
+}
+
+enum BodyHomeTrendDirection {
+    case increased
+    case decreased
+    case stable
+
+    var averagePhrase: String {
+        switch self {
+        case .increased:
+            return "increased"
+        case .decreased:
+            return "decreased"
+        case .stable:
+            return "stayed about the same"
+        }
+    }
+
+    var quantityPhrase: String {
+        switch self {
+        case .increased:
+            return "was higher"
+        case .decreased:
+            return "was lower"
+        case .stable:
+            return "stayed about the same"
+        }
+    }
+}
+
+struct BodyHomeTrendCardPresentation: Identifiable {
+    static let comparisonDayCount = 28
+    static let preferredRecentDayCount = 7
+    static let minimumTrendSegmentDayCount = 3
+    static let minimumRelativeChange = 0.01
+    static let minimumAbsoluteChange = 0.01
+
+    let kind: HealthMetricKind
+    let title: String
+    let messageText: String
+    let baselineAverage: Double
+    let recentAverage: Double
+    let baselineAverageText: String
+    let recentAverageText: String
+    let baselinePeriodText: String
+    let recentPeriodText: String
+    let chartStyle: BodyHealthMetricChartStyle
+    let calendarPoints: [HealthTrendCalendarPoint]
+    let baselineDayCount: Int
+    let recentDayCount: Int
+
+    var id: String {
+        kind.id
+    }
+
+    var recentStartIndex: Int {
+        baselineDayCount
+    }
+
+    static func make(
+        kind: HealthMetricKind,
+        title: String,
+        series: HealthTrendSeries,
+        chartStyle: BodyHealthMetricChartStyle,
+        valueFormatter: (Double) -> String,
+        messageStyle: BodyHomeTrendMessageStyle,
+        includesStable: Bool = false,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> BodyHomeTrendCardPresentation? {
+        let calendarPoints = comparisonCalendarPoints(from: series, calendar: calendar, date: date)
+        guard let comparisonWindow = bestComparisonWindow(in: calendarPoints, includesStable: includesStable) else {
+            return nil
+        }
+
+        let direction: BodyHomeTrendDirection
+        if comparisonWindow.isMeaningful == false {
+            direction = .stable
+        } else {
+            direction = comparisonWindow.absoluteChange > 0 ? .increased : .decreased
+        }
+        return BodyHomeTrendCardPresentation(
+            kind: kind,
+            title: title,
+            messageText: messageStyle.text(direction: direction, recentDayCount: comparisonWindow.recentDayCount),
+            baselineAverage: comparisonWindow.baselineAverage,
+            recentAverage: comparisonWindow.recentAverage,
+            baselineAverageText: valueFormatter(comparisonWindow.baselineAverage),
+            recentAverageText: valueFormatter(comparisonWindow.recentAverage),
+            baselinePeriodText: "\(comparisonWindow.baselineDayCount)-day avg",
+            recentPeriodText: "\(comparisonWindow.recentDayCount)-day avg",
+            chartStyle: chartStyle,
+            calendarPoints: calendarPoints,
+            baselineDayCount: comparisonWindow.baselineDayCount,
+            recentDayCount: comparisonWindow.recentDayCount
+        )
+    }
+
+    func averageLineSegments(in width: CGFloat) -> (baseline: ClosedRange<CGFloat>, recent: ClosedRange<CGFloat>) {
+        let lastPointIndex = max(calendarPoints.count - 1, 0)
+        let baselineEndIndex = min(max(baselineDayCount - 1, 0), lastPointIndex)
+        let recentStartIndex = min(max(baselineDayCount, 0), lastPointIndex)
+        let denominator = max(CGFloat(lastPointIndex), 1)
+
+        func xPosition(for index: Int) -> CGFloat {
+            width * CGFloat(index) / denominator
+        }
+
+        return (
+            baseline: xPosition(for: 0)...xPosition(for: baselineEndIndex),
+            recent: xPosition(for: recentStartIndex)...xPosition(for: lastPointIndex)
+        )
+    }
+
+    private static func bestComparisonWindow(
+        in calendarPoints: [HealthTrendCalendarPoint],
+        includesStable: Bool
+    ) -> ComparisonWindow? {
+        let maximumBaselineDayCount = Self.comparisonDayCount - Self.minimumTrendSegmentDayCount
+        let candidates: [ComparisonWindow] = (Self.minimumTrendSegmentDayCount...maximumBaselineDayCount).compactMap { baselineDayCount -> ComparisonWindow? in
+            let recentDayCount = Self.comparisonDayCount - baselineDayCount
+            let baselinePoints = Array(calendarPoints.prefix(baselineDayCount))
+            let recentPoints = Array(calendarPoints.suffix(recentDayCount))
+            let baselineValues = finiteValues(from: baselinePoints)
+            let recentValues = finiteValues(from: recentPoints)
+
+            guard baselineValues.count >= Self.minimumTrendSegmentDayCount,
+                  recentValues.count >= Self.minimumTrendSegmentDayCount else {
+                return nil
+            }
+
+            let baselineAverage = average(baselineValues)
+            let recentAverage = average(recentValues)
+            let absoluteChange = recentAverage - baselineAverage
+            let minimumMeaningfulChange = max(
+                abs(baselineAverage) * Self.minimumRelativeChange,
+                Self.minimumAbsoluteChange
+            )
+
+            return ComparisonWindow(
+                baselineDayCount: baselineDayCount,
+                recentDayCount: recentDayCount,
+                baselineValueCount: baselineValues.count,
+                recentValueCount: recentValues.count,
+                baselineAverage: baselineAverage,
+                recentAverage: recentAverage,
+                absoluteChange: absoluteChange,
+                minimumMeaningfulChange: minimumMeaningfulChange
+            )
+        }
+        let eligibleCandidates = includesStable
+            ? candidates
+            : candidates.filter { $0.isMeaningful }
+
+        return eligibleCandidates.max { lhs, rhs in
+            isBetterComparisonWindow(rhs, than: lhs)
+        }
+    }
+
+    private static func isBetterComparisonWindow(_ lhs: ComparisonWindow, than rhs: ComparisonWindow) -> Bool {
+        if lhs.isMeaningful != rhs.isMeaningful {
+            return lhs.isMeaningful
+        }
+
+        let scoreDelta = lhs.score - rhs.score
+        if abs(scoreDelta) > 0.000001 {
+            return scoreDelta > 0
+        }
+
+        let lhsRecentDistance = abs(lhs.recentDayCount - Self.preferredRecentDayCount)
+        let rhsRecentDistance = abs(rhs.recentDayCount - Self.preferredRecentDayCount)
+        if lhsRecentDistance != rhsRecentDistance {
+            return lhsRecentDistance < rhsRecentDistance
+        }
+
+        if lhs.valueCount != rhs.valueCount {
+            return lhs.valueCount > rhs.valueCount
+        }
+
+        return lhs.recentDayCount < rhs.recentDayCount
+    }
+
+    private static func comparisonCalendarPoints(
+        from series: HealthTrendSeries,
+        calendar: Calendar,
+        date: Date
+    ) -> [HealthTrendCalendarPoint] {
+        let currentDayStart = calendar.startOfDay(for: date)
+        let totalDayCount = Self.comparisonDayCount
+        let startDate = calendar.date(byAdding: .day, value: -(totalDayCount - 1), to: currentDayStart)
+            ?? currentDayStart
+        let endDate = calendar.date(byAdding: .day, value: 1, to: currentDayStart)
+            ?? date
+        let pointsByDay = Dictionary(grouping: series.points.filter { point in
+            point.date >= startDate && point.date < endDate
+        }) {
+            calendar.startOfDay(for: $0.date)
+        }
+
+        return (0..<totalDayCount).compactMap { offset in
+            guard let day = calendar.date(byAdding: .day, value: offset, to: startDate) else {
+                return nil
+            }
+
+            let value = pointsByDay[day]?
+                .sorted { $0.date < $1.date }
+                .last?
+                .value
+            return HealthTrendCalendarPoint(
+                date: day,
+                value: value?.isFinite == true ? value : nil
+            )
+        }
+    }
+
+    private static func finiteValues(from points: [HealthTrendCalendarPoint]) -> [Double] {
+        points.compactMap(\.value).filter(\.isFinite)
+    }
+
+    private static func average(_ values: [Double]) -> Double {
+        values.reduce(0, +) / Double(values.count)
+    }
+
+    private struct ComparisonWindow {
+        let baselineDayCount: Int
+        let recentDayCount: Int
+        let baselineValueCount: Int
+        let recentValueCount: Int
+        let baselineAverage: Double
+        let recentAverage: Double
+        let absoluteChange: Double
+        let minimumMeaningfulChange: Double
+
+        var isMeaningful: Bool {
+            abs(absoluteChange) >= minimumMeaningfulChange
+        }
+
+        var score: Double {
+            abs(absoluteChange) / max(minimumMeaningfulChange, .ulpOfOne)
+        }
+
+        var valueCount: Int {
+            baselineValueCount + recentValueCount
+        }
     }
 }
 
@@ -1556,7 +2031,7 @@ private struct BodyHealthMetricDetailView: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(
-                        isSelected ? sleepDateSelectionColor : Color.white.opacity(isFuture ? 0.08 : 0.16),
+                        isSelected ? dateSliderSelectionColor : Color.white.opacity(isFuture ? 0.08 : 0.16),
                         lineWidth: isSelected ? 2.5 : 1
                     )
             )
@@ -1605,7 +2080,7 @@ private struct BodyHealthMetricDetailView: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(
-                        isSelected ? model.symbolColor : Color.white.opacity(isFuture ? 0.08 : 0.16),
+                        isSelected ? dateSliderSelectionColor : Color.white.opacity(isFuture ? 0.08 : 0.16),
                         lineWidth: isSelected ? 2.5 : 1
                     )
             )
@@ -1640,8 +2115,8 @@ private struct BodyHealthMetricDetailView: View {
         }
     }
 
-    private var sleepDateSelectionColor: Color {
-        Color(red: 0.20, green: 0.72, blue: 1.00)
+    private var dateSliderSelectionColor: Color {
+        Color.accentColor
     }
 
     private var sleepDateSliderBackground: Color {
@@ -2226,6 +2701,307 @@ private func bodySleepScoreColor(for kind: SleepScoreCategory.Kind, accentColor:
         return Color(red: 1.00, green: 0.25, blue: 0.45)
     case .temperature:
         return Color(red: 1.00, green: 0.57, blue: 0.24)
+    }
+}
+
+private struct BodyHomeSectionDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.22))
+            .frame(height: 1)
+            .frame(maxWidth: .infinity)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct BodyHomeTrendsSection: View {
+    let cards: [BodyHomeTrendCard.Model]
+    let canToggleAll: Bool
+    let showsAllTrends: Bool
+    let toggleAll: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(spacing: 14) {
+                ForEach(cards) { card in
+                    NavigationLink(value: card.presentation.kind) {
+                        BodyHomeTrendCard(model: card)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if canToggleAll {
+                Button(action: toggleAll) {
+                    Text(showsAllTrends ? "Show Fewer Trends" : "Show All Trends")
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundColor(.accentColor)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(Color(.secondarySystemGroupedBackground))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct BodyHomeTrendCard: View {
+    struct Model: Identifiable {
+        let presentation: BodyHomeTrendCardPresentation
+        let symbolName: String
+        let symbolColor: Color
+
+        var id: String {
+            presentation.id
+        }
+    }
+
+    let model: Model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            header
+
+            Text(model.presentation.messageText)
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(2)
+
+            Divider()
+                .overlay(Color.secondary.opacity(0.18))
+
+            VStack(spacing: 8) {
+                BodyHomeTrendComparisonChart(
+                    presentation: model.presentation,
+                    color: model.symbolColor
+                )
+                .frame(height: 128)
+
+                averageLabels
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(cornerRadius: 28)
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Image(systemName: model.symbolName)
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(model.symbolColor)
+                .accessibilityHidden(true)
+
+            Text(model.presentation.title)
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundColor(model.symbolColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundColor(.secondary.opacity(0.55))
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var averageLabels: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(model.presentation.baselineAverageText)
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+
+                Text(model.presentation.baselinePeriodText)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+
+            Spacer(minLength: 12)
+
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(model.presentation.recentAverageText)
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundColor(model.symbolColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+
+                Text(model.presentation.recentPeriodText)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundColor(model.symbolColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+        }
+    }
+}
+
+private struct BodyHomeTrendComparisonChart: View {
+    let presentation: BodyHomeTrendCardPresentation
+    let color: Color
+
+    private struct PlotEntry: Identifiable {
+        let point: HealthTrendCalendarPoint
+        let position: CGPoint
+        let index: Int
+
+        var id: Date {
+            point.date
+        }
+
+        var hasValue: Bool {
+            point.value?.isFinite == true
+        }
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let entries = plotEntries(in: proxy.size)
+            ZStack {
+                switch presentation.chartStyle {
+                case .line:
+                    linePlot(entries: entries)
+                case .bar:
+                    barPlot(entries: entries, size: proxy.size)
+                }
+
+                averageLine(
+                    value: presentation.baselineAverage,
+                    in: proxy.size,
+                    color: Color.secondary.opacity(0.64),
+                    xRange: presentation.averageLineSegments(in: proxy.size.width).baseline
+                )
+
+                averageLine(
+                    value: presentation.recentAverage,
+                    in: proxy.size,
+                    color: color,
+                    xRange: presentation.averageLineSegments(in: proxy.size.width).recent
+                )
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func linePlot(entries: [PlotEntry]) -> some View {
+        let valueEntries = entries.filter(\.hasValue)
+
+        return ZStack {
+            if valueEntries.count > 1 {
+                Path { path in
+                    path.move(to: valueEntries[0].position)
+                    for entry in valueEntries.dropFirst() {
+                        path.addLine(to: entry.position)
+                    }
+                }
+                .stroke(
+                    Color.secondary.opacity(0.28),
+                    style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
+                )
+            }
+
+            ForEach(valueEntries) { entry in
+                Circle()
+                    .stroke(Color.secondary.opacity(0.34), lineWidth: 3)
+                    .background(Circle().fill(Color(.secondarySystemBackground)))
+                    .frame(width: 8, height: 8)
+                    .position(entry.position)
+            }
+        }
+    }
+
+    private func barPlot(entries: [PlotEntry], size: CGSize) -> some View {
+        let barWidth = max((size.width - CGFloat(max(entries.count - 1, 0)) * 5) / CGFloat(max(entries.count, 1)), 3)
+
+        return HStack(alignment: .bottom, spacing: 5) {
+            ForEach(entries) { entry in
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(barColor(for: entry))
+                    .frame(width: barWidth, height: barHeight(for: entry.point.value, in: size.height))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+    }
+
+    private func averageLine(value: Double, in size: CGSize, color: Color, xRange: ClosedRange<CGFloat>) -> some View {
+        let y = yPosition(for: value, in: size)
+
+        return Path { path in
+            path.move(to: CGPoint(x: xRange.lowerBound, y: y))
+            path.addLine(to: CGPoint(x: xRange.upperBound, y: y))
+        }
+        .stroke(color, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+    }
+
+    private func plotEntries(in size: CGSize) -> [PlotEntry] {
+        let points = presentation.calendarPoints
+        let denominator = max(CGFloat(points.count - 1), 1)
+        return points.enumerated().map { index, point in
+            let x = size.width * CGFloat(index) / denominator
+            let y = yPosition(for: point.value ?? chartMinimum, in: size)
+            return PlotEntry(point: point, position: CGPoint(x: x, y: y), index: index)
+        }
+    }
+
+    private func barColor(for entry: PlotEntry) -> Color {
+        guard entry.hasValue else {
+            return Color.secondary.opacity(0.10)
+        }
+
+        return entry.index >= presentation.recentStartIndex
+            ? color.opacity(0.42)
+            : Color.secondary.opacity(0.28)
+    }
+
+    private func barHeight(for value: Double?, in height: CGFloat) -> CGFloat {
+        guard let value, value.isFinite else {
+            return max(height * 0.05, 4)
+        }
+
+        let range = max(chartMaximum - chartMinimum, 1)
+        let normalized = min(max((value - chartMinimum) / range, 0), 1)
+        return max(height * CGFloat(normalized), 4)
+    }
+
+    private func yPosition(for value: Double, in size: CGSize) -> CGFloat {
+        let range = max(chartMaximum - chartMinimum, 1)
+        let normalized = min(max((value - chartMinimum) / range, 0), 1)
+        return size.height - (size.height * CGFloat(normalized))
+    }
+
+    private var chartValues: [Double] {
+        presentation.calendarPoints.compactMap(\.value).filter(\.isFinite)
+            + [presentation.baselineAverage, presentation.recentAverage]
+    }
+
+    private var chartMinimum: Double {
+        let minimum = chartValues.min() ?? 0
+        guard presentation.chartStyle == .line else {
+            return 0
+        }
+
+        let maximum = chartValues.max() ?? minimum
+        let padding = max((maximum - minimum) * 0.16, 1)
+        return max(0, minimum - padding)
+    }
+
+    private var chartMaximum: Double {
+        let maximum = chartValues.max() ?? 1
+        let minimum = chartValues.min() ?? maximum
+        let padding = max((maximum - minimum) * 0.16, 1)
+        return maximum + padding
     }
 }
 

@@ -6,34 +6,27 @@
 import SwiftUI
 
 private enum BodyMainTab: Hashable {
-    case home
+    case summary
     case workouts
-    case charts
     case settings
 }
 
 struct MainTabView: View {
-    @State private var selectedTab: BodyMainTab = .home
+    @State private var selectedTab: BodyMainTab = .summary
 
     var body: some View {
         TabView(selection: $selectedTab) {
             BodyHomeView()
                 .tabItem {
-                    Label("Home", systemImage: "house.fill")
+                    Label("Summary", systemImage: "house.fill")
                 }
-                .tag(BodyMainTab.home)
+                .tag(BodyMainTab.summary)
 
             BodyWorkoutsView()
                 .tabItem {
                     Label("Workouts", systemImage: "figure.strengthtraining.traditional")
                 }
                 .tag(BodyMainTab.workouts)
-
-            BodyChartsView()
-                .tabItem {
-                    Label("Charts", systemImage: "chart.bar.fill")
-                }
-                .tag(BodyMainTab.charts)
 
             BodySettingsView()
                 .tabItem {
