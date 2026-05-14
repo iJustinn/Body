@@ -1569,6 +1569,14 @@ struct BasicsTrendSummary: Equatable {
         halfSpread(for: bodyMassIndex)
     }
 
+    var weightAverage: Double? {
+        weight.averageValue
+    }
+
+    var bodyFatAverage: Double? {
+        bodyFat.averageValue
+    }
+
     private func halfSpread(for series: HealthTrendSeries) -> Double? {
         let values = series.points.map(\.value).filter(\.isFinite)
         guard let minimum = values.min(), let maximum = values.max() else {
@@ -1673,6 +1681,91 @@ struct HealthTrendSeries: Codable, Equatable {
         }
     }
 
+    func chartCalendarPoints(
+        to range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> [HealthTrendCalendarPoint] {
+        let dailyPoints = calendarPoints(to: range, calendar: calendar, date: date)
+        let aggregationDayCount = range.chartAggregationDayCount
+        guard aggregationDayCount > 1 else {
+            return dailyPoints
+        }
+
+        return stride(from: 0, to: dailyPoints.count, by: aggregationDayCount).compactMap { startIndex in
+            let endIndex = min(startIndex + aggregationDayCount, dailyPoints.count)
+            let bucket = dailyPoints[startIndex..<endIndex]
+            guard let bucketStartDate = bucket.first?.date,
+                  let bucketEndDate = bucket.last?.date else {
+                return nil
+            }
+
+            let finiteValues = bucket.compactMap(\.value).filter(\.isFinite)
+            let averageValue = finiteValues.isEmpty
+                ? nil
+                : finiteValues.reduce(0, +) / Double(finiteValues.count)
+            return HealthTrendCalendarPoint(
+                date: bucketEndDate,
+                value: averageValue,
+                startDate: bucketStartDate,
+                endDate: bucketEndDate
+            )
+        }
+    }
+
+    func lineChartCalendarPoints(
+        to range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date(),
+        maximumPointCount: Int? = nil
+    ) -> [HealthTrendCalendarPoint] {
+        let chartPoints = chartCalendarPoints(to: range, calendar: calendar, date: date)
+        let effectiveMaximumPointCount = maximumPointCount ?? range.lineChartMaximumPointCount
+        guard let effectiveMaximumPointCount else {
+            return chartPoints
+        }
+
+        return chartPoints.compressedStableLineChartPoints(maximumCount: effectiveMaximumPointCount)
+    }
+
+    func chartSeries(
+        to range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> HealthTrendSeries {
+        HealthTrendSeries(
+            points: chartCalendarPoints(to: range, calendar: calendar, date: date).compactMap { point in
+                guard let value = point.value, value.isFinite else {
+                    return nil
+                }
+
+                return HealthTrendDataPoint(date: point.date, value: value)
+            }
+        )
+    }
+
+    func lineChartSeries(
+        to range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date(),
+        maximumPointCount: Int? = nil
+    ) -> HealthTrendSeries {
+        HealthTrendSeries(
+            points: lineChartCalendarPoints(
+                to: range,
+                calendar: calendar,
+                date: date,
+                maximumPointCount: maximumPointCount
+            ).compactMap { point in
+                guard let value = point.value, value.isFinite else {
+                    return nil
+                }
+
+                return HealthTrendDataPoint(date: point.date, value: value)
+            }
+        )
+    }
+
     func nearestPoint(to date: Date) -> HealthTrendDataPoint? {
         points.min { first, second in
             abs(first.date.timeIntervalSince(date)) < abs(second.date.timeIntervalSince(date))
@@ -1740,6 +1833,15 @@ struct HealthTrendDataPoint: Codable, Equatable, Identifiable {
 struct HealthTrendCalendarPoint: Equatable, Identifiable {
     var date: Date
     var value: Double?
+    var startDate: Date
+    var endDate: Date
+
+    init(date: Date, value: Double?, startDate: Date? = nil, endDate: Date? = nil) {
+        self.date = date
+        self.value = value
+        self.startDate = startDate ?? date
+        self.endDate = endDate ?? date
+    }
 
     var id: Date {
         date
@@ -1747,6 +1849,118 @@ struct HealthTrendCalendarPoint: Equatable, Identifiable {
 
     var hasValue: Bool {
         value != nil
+    }
+
+    var representsDateRange: Bool {
+        startDate != endDate
+    }
+}
+
+private struct HealthTrendStableLineBucket {
+    var points: [HealthTrendCalendarPoint]
+
+    var averageValue: Double? {
+        let finiteValues = points.compactMap(\.value).filter(\.isFinite)
+        guard !finiteValues.isEmpty else {
+            return nil
+        }
+
+        return finiteValues.reduce(0, +) / Double(finiteValues.count)
+    }
+
+    func merged(with other: HealthTrendStableLineBucket) -> HealthTrendStableLineBucket {
+        HealthTrendStableLineBucket(points: points + other.points)
+    }
+
+    var calendarPoint: HealthTrendCalendarPoint? {
+        guard let firstPoint = points.first, let lastPoint = points.last else {
+            return nil
+        }
+
+        return HealthTrendCalendarPoint(
+            date: lastPoint.date,
+            value: averageValue,
+            startDate: firstPoint.startDate,
+            endDate: lastPoint.endDate
+        )
+    }
+}
+
+private struct HealthTrendStableLineMergeCandidate {
+    let index: Int
+    let valueDelta: Double
+    let combinedPointCount: Int
+
+    func isBetter(than other: HealthTrendStableLineMergeCandidate) -> Bool {
+        guard valueDelta == other.valueDelta else {
+            return valueDelta < other.valueDelta
+        }
+
+        guard combinedPointCount == other.combinedPointCount else {
+            return combinedPointCount < other.combinedPointCount
+        }
+
+        return index < other.index
+    }
+}
+
+private extension Array where Element == HealthTrendCalendarPoint {
+    func compressedStableLineChartPoints(maximumCount: Int) -> [HealthTrendCalendarPoint] {
+        guard maximumCount > 0 else {
+            return []
+        }
+
+        let finitePoints = filter { point in
+            point.value?.isFinite == true
+        }
+        guard finitePoints.count > maximumCount else {
+            return self
+        }
+
+        var buckets = finitePoints.map { point in
+            HealthTrendStableLineBucket(points: [point])
+        }
+
+        while buckets.count > maximumCount {
+            var bestCandidate: HealthTrendStableLineMergeCandidate?
+
+            for index in buckets.indices.dropLast() {
+                let candidate = mergeCandidate(at: index, in: buckets)
+                if bestCandidate.map({ candidate.isBetter(than: $0) }) ?? true {
+                    bestCandidate = candidate
+                }
+            }
+
+            guard let bestCandidate else {
+                break
+            }
+
+            buckets[bestCandidate.index] = buckets[bestCandidate.index].merged(with: buckets[bestCandidate.index + 1])
+            buckets.remove(at: bestCandidate.index + 1)
+        }
+
+        return buckets.compactMap(\.calendarPoint)
+    }
+
+    private func mergeCandidate(
+        at index: Int,
+        in buckets: [HealthTrendStableLineBucket]
+    ) -> HealthTrendStableLineMergeCandidate {
+        let firstBucket = buckets[index]
+        let secondBucket = buckets[index + 1]
+        let valueDelta: Double
+        if let firstAverage = firstBucket.averageValue,
+           let secondAverage = secondBucket.averageValue {
+            valueDelta = abs(firstAverage - secondAverage)
+        } else {
+            valueDelta = .greatestFiniteMagnitude
+        }
+
+        return HealthTrendStableLineMergeCandidate(
+            index: index,
+            valueDelta: valueDelta,
+            combinedPointCount: firstBucket.points.count + secondBucket.points.count
+        )
     }
 }
 

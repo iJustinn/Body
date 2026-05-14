@@ -62,7 +62,7 @@ struct WorkoutCalendarProvider: AppIntentTimelineProvider {
         in context: Context
     ) async -> Timeline<WorkoutCalendarEntry> {
         let entry = loadEntry(configuration: configuration)
-        let nextRefresh = Calendar.current.date(byAdding: .minute, value: 30, to: entry.date) ?? entry.date.addingTimeInterval(1_800)
+        let nextRefresh = Calendar.bodyGregorian.date(byAdding: .minute, value: 30, to: entry.date) ?? entry.date.addingTimeInterval(1_800)
         return Timeline(entries: [entry], policy: .after(nextRefresh))
     }
 

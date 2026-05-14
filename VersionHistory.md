@@ -1,5 +1,16 @@
 # Version History
 
+## 0.3.3 (build 2)
+
+- Added range-aware chart aggregation for six-month and year health charts, including averaged buckets and timeframe-aware selection labels.
+- Added average values to the Basics weight/body fat legend and kept those labels visually secondary.
+- Updated long-range and day-view line charts to use consistent point markers, capped dense line charts, and tuned bar widths for weekly and small-screen long-range views.
+- Updated the app, widget, and test bundle version to 0.3.3 build 2.
+
+## 0.3.3 (build 1)
+
+- Updated the app, widget, and test bundle version to 0.3.3 build 1.
+
 ## 0.3.0 (build 1)
 
 - Renamed the Home tab to Summary and moved workout visualizations into Workouts.

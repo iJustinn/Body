@@ -1,12 +1,12 @@
 # Body Test Plan
 
-Generated 2026-05-13 against branch `codex/body-v0.3.0`.
+Generated 2026-05-13 against branch `codex/body-v0.3.3`.
 
 ## 1. Project Testing Overview
 
 ### What Was Reviewed
 
-- App entry and screens: `Body/BodyApp.swift`, `Body/Views/BodyHomeView.swift`, `Body/Views/BodyWorkoutsView.swift`, `Body/Views/BodyChartsView.swift`, `Body/Views/BodyMonthYearPicker.swift`, `Body/Views/BodySettingsView.swift`
+- App entry and screens: `Body/BodyApp.swift`, `Body/Views/BodyHomeView.swift`, `Body/Views/BodyWorkoutsView.swift`, `Body/Views/BodyWorkoutListSheet.swift`, `Body/Views/BodyMonthYearPicker.swift`, `Body/Views/BodySettingsView.swift`, `Body/Views/BodyProView.swift`
 - HealthKit ingestion: `Body/Services/HealthKitWorkoutStore.swift`
 - Shared model/storage/UI: `BodyShared/Models/*`, `BodyShared/Services/WorkoutSnapshotStore.swift`, `BodyShared/Components/WorkoutCalendarView.swift`, `BodyShared/Components/WorkoutTypeBreakdownView.swift`
 - Widget extension: `BodyWidgetExtension/WorkoutCalendarWidget.swift`, `BodyWidgetExtension/BodyWidgetExtensionBundle.swift`
@@ -35,8 +35,9 @@ Generated 2026-05-13 against branch `codex/body-v0.3.0`.
 | A16 | Medium | Month picker relative list | Month-year lists rebuild relative to the supplied current date so a new month can appear after a calendar-day change |
 | A17 | High | Summary card permission filtering | Disabled Health permissions remove matching summary and trend data from the Summary dashboard while preserving enabled categories |
 | A18 | Medium | Summary preview chart windows | Small-card preview charts use the most recent four eligible days, omit today's placeholder when today's data is missing, and preserve placeholders for earlier missing days |
-| A19 | Medium | Health trend styling | Week and Month line charts use colored strokes and larger colored hollow point markers; 6 Months and Year hide point markers, and Year uses a thinner stroke than 6 Months |
+| A19 | Medium | Health trend styling | Week, Month, 6 Months, and Year line charts use colored strokes and hollow point markers, long ranges cap dense point counts, and bar charts use range-aware widths |
 | A20 | Medium | Metric About coverage | Every `HealthMetricKind` detail route has non-empty About text |
+| A21 | Medium | Body Pro source coverage | Body Pro entry copy, icon assets, flippable icon state, feature list, and placeholder purchase copy stay wired |
 
 ## 3. Manual Tests
 
@@ -57,7 +58,7 @@ Generated 2026-05-13 against branch `codex/body-v0.3.0`.
 | M13 | High | Summary health cards | Refresh on a physical device with Apple Health samples | Summary shows a two-card-wide Activity Rings summary at the top, then same-sized tappable cards for Exercise Minutes, Wrist Temperature, Time In Daylight, Steps, Sleep, Basics, resting heart rate, HRV, blood oxygen, respiratory rate, active energy, and resting energy; each small card has a recent four-day preview chart positioned above the icon |
 | M14 | High | Calendar workout drill-down | In Workouts, tap a calendar day | A sheet opens with all workouts for that day |
 | M15 | High | Workout type drill-down | In Workouts, tap a workout type row in the bottom summary card | A sheet opens with all workouts of that type for the month |
-| M16 | High | Summary card health trends | Tap each Summary health card after refreshing Health data | A secondary screen opens with the current value and a Week chart by default; line-chart pages use colored lines and colored hollow dots for Week and Month, hide dots for 6 Months and Year, and switch ranges without lingering old dots; bar-chart pages use matching bar charts; Basics shows equal-size body fat and weight current values, a Difference Range card under the Week/Month/6 Months/Year selector with Body Fat, Weight, and BMI ranges, then a dual-axis Weight and Body Fat chart and a separate BMI chart; Sleep shows today's three-category Sleep Score, today's stage timeline with soft transition shading, an Apple-style high/typical/low Sleep Vitals chart with Sleep Duration as the fifth metric, and the range trend chart at the bottom |
+| M16 | High | Summary card health trends | Tap each Summary health card after refreshing Health data | A secondary screen opens with the current value and a Week chart by default; line-chart pages use colored lines and hollow dots across Week, Month, 6 Months, and Year while limiting dense long-range points; bar-chart pages use matching range-aware bar widths; Basics shows equal-size body fat and weight current values, a Difference Range card under the Week/Month/6 Months/Year selector with Body Fat, Weight, and BMI ranges, then a dual-axis Weight and Body Fat chart and a separate BMI chart; Sleep shows today's three-category Sleep Score, today's stage timeline with soft transition shading, an Apple-style high/typical/low Sleep Vitals chart with Sleep Duration as the fifth metric, and the range trend chart at the bottom |
 | M17 | Medium | Unit setting | In Settings > Units, choose System, Metric, and Imperial | Basics weight display and chart switch between kg and lb, and workout distance rows switch between km and mi |
 | M18 | Medium | Summary card detail trend range | Tap several Summary cards, then switch each detail screen between Week, Month, 6 Months, and Year | Detail charts switch between Last 7 Days, Last 30 Days, Last 6 Months, and Last Year for every Summary card, with Week as the default; Week x-axis labels show weekday names, Month labels show dates, and longer ranges show month labels |
 | M19 | High | Workouts sort, filter, and search | Open Workouts, change sort order, filter to a single type, search by type/source/date, then change months | Visible rows, empty-state copy, and Reset Filters affordance match the active controls |
@@ -68,6 +69,10 @@ Generated 2026-05-13 against branch `codex/body-v0.3.0`.
 | M24 | High | Settings Data permissions | Open Settings > Data > Permissions and toggle several categories off and on | Disabled categories disappear or show empty data on Summary/detail charts while enabled categories remain visible; toggles persist across app relaunch |
 | M25 | Medium | Metric About cards | Open every Summary card detail page | Every detail page shows an About card with metric-specific explanatory copy above the Apple Health data-source footer |
 | M26 | Medium | Sleep score sheet height | Open Sleep detail and tap the Sleep Score card | The scoring breakdown sheet opens at a suitable height that shows all scoring metrics without needing to pull the sheet to full screen |
+| M27 | Medium | Body Pro entry navigation | Open Settings and tap Body Pro | Body Pro opens from Settings with the premium feature list and current placeholder purchase actions |
+| M28 | Medium | Body Pro icon flip | Open Body Pro and tap the large icon | The icon flips between front and back artwork and persists with `bodyProIconShowsBackKey` |
+| M29 | Medium | Settings version-card unlock | Tap the Settings Version row five times | Creator-surprise icons unlock and the icon picker exposes the creator-surprise icon sheet |
+| M30 | Medium | Creator-surprise icon sheet | After version-card unlock, open Settings > Appearance > App Icon | The creator-surprise icon sheet can be opened and dismissed without breaking the regular icon options |
 
 ## 4. Deferred Coverage
 

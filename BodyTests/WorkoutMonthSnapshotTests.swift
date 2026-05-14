@@ -4,6 +4,7 @@
 //
 
 import XCTest
+import CoreGraphics
 @testable import Body
 
 final class WorkoutMonthSnapshotTests: XCTestCase {
@@ -283,18 +284,18 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(BodyHealthTrendRange.allCases.map(\.displayName), ["Week", "Month", "6 Months", "Year"])
     }
 
-    func testHealthTrendRangeOnlyShowsPointMarksOnShortRanges() {
+    func testHealthTrendRangeShowsPointMarksOnLineRanges() {
         XCTAssertTrue(BodyHealthTrendRange.recentWeek.showsPointMarks)
         XCTAssertTrue(BodyHealthTrendRange.recentMonth.showsPointMarks)
-        XCTAssertFalse(BodyHealthTrendRange.recentSixMonths.showsPointMarks)
-        XCTAssertFalse(BodyHealthTrendRange.recentYear.showsPointMarks)
+        XCTAssertTrue(BodyHealthTrendRange.recentSixMonths.showsPointMarks)
+        XCTAssertTrue(BodyHealthTrendRange.recentYear.showsPointMarks)
     }
 
-    func testHealthTrendRangeUsesPreviewLineStyleOnlyOnShortRanges() {
+    func testHealthTrendRangeUsesPreviewLineStyleForAllLineRanges() {
         XCTAssertTrue(BodyHealthTrendRange.recentWeek.usesPreviewLineChartStyle)
         XCTAssertTrue(BodyHealthTrendRange.recentMonth.usesPreviewLineChartStyle)
-        XCTAssertFalse(BodyHealthTrendRange.recentSixMonths.usesPreviewLineChartStyle)
-        XCTAssertFalse(BodyHealthTrendRange.recentYear.usesPreviewLineChartStyle)
+        XCTAssertTrue(BodyHealthTrendRange.recentSixMonths.usesPreviewLineChartStyle)
+        XCTAssertTrue(BodyHealthTrendRange.recentYear.usesPreviewLineChartStyle)
     }
 
     func testHealthTrendRangeUsesMetricColorStrokeForAllRanges() {
@@ -304,11 +305,15 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(BodyHealthTrendRange.recentYear.usesMetricColorLineStroke)
     }
 
-    func testHealthTrendRangeUsesLargerLineDotsOnShortRanges() {
+    func testHealthTrendRangeUsesLargerLineDotsOnLineRanges() {
         XCTAssertEqual(BodyHealthTrendRange.recentWeek.linePointDiameter, 8, accuracy: 0.001)
         XCTAssertEqual(BodyHealthTrendRange.recentWeek.lineCurrentPointDiameter, 10, accuracy: 0.001)
         XCTAssertEqual(BodyHealthTrendRange.recentMonth.linePointDiameter, 8, accuracy: 0.001)
         XCTAssertEqual(BodyHealthTrendRange.recentMonth.lineCurrentPointDiameter, 10, accuracy: 0.001)
+        XCTAssertEqual(BodyHealthTrendRange.recentSixMonths.linePointDiameter, 8, accuracy: 0.001)
+        XCTAssertEqual(BodyHealthTrendRange.recentSixMonths.lineCurrentPointDiameter, 10, accuracy: 0.001)
+        XCTAssertEqual(BodyHealthTrendRange.recentYear.linePointDiameter, 8, accuracy: 0.001)
+        XCTAssertEqual(BodyHealthTrendRange.recentYear.lineCurrentPointDiameter, 10, accuracy: 0.001)
         XCTAssertEqual(
             BodyHealthTrendRange.recentWeek.linePointDiameter,
             BodyHealthTrendRange.recentMonth.linePointDiameter
@@ -319,15 +324,260 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
     }
 
-    func testHealthTrendRangeUsesThinnerLinesOnLongRanges() {
+    func testHealthTrendRangeUsesMonthLineWidthOnLongRanges() {
         XCTAssertEqual(BodyHealthTrendRange.recentWeek.trendLineWidth, 3, accuracy: 0.001)
         XCTAssertEqual(BodyHealthTrendRange.recentMonth.trendLineWidth, 3, accuracy: 0.001)
-        XCTAssertEqual(BodyHealthTrendRange.recentSixMonths.trendLineWidth, 2.25, accuracy: 0.001)
-        XCTAssertEqual(BodyHealthTrendRange.recentYear.trendLineWidth, 2, accuracy: 0.001)
-        XCTAssertLessThan(
-            BodyHealthTrendRange.recentYear.trendLineWidth,
-            BodyHealthTrendRange.recentSixMonths.trendLineWidth
+        XCTAssertEqual(BodyHealthTrendRange.recentSixMonths.trendLineWidth, 3, accuracy: 0.001)
+        XCTAssertEqual(BodyHealthTrendRange.recentYear.trendLineWidth, 3, accuracy: 0.001)
+    }
+
+    func testHealthTrendRangeWidensAggregatedBars() {
+        XCTAssertEqual(BodyHealthTrendRange.recentWeek.chartBarWidth, 32, accuracy: 0.001)
+        XCTAssertGreaterThan(
+            BodyHealthTrendRange.recentWeek.chartBarWidth,
+            BodyHealthTrendRange.recentMonth.chartBarWidth
         )
+        XCTAssertGreaterThan(
+            BodyHealthTrendRange.recentSixMonths.chartBarWidth,
+            BodyHealthTrendRange.recentMonth.chartBarWidth
+        )
+        XCTAssertEqual(
+            BodyHealthTrendRange.recentYear.chartBarWidth,
+            BodyHealthTrendRange.recentSixMonths.chartBarWidth,
+            accuracy: 0.001
+        )
+    }
+
+    func testHealthTrendRangeNarrowsLongRangeBarsOnSmallChartWidths() {
+        let smallChartWidth = CGFloat(325)
+        let regularChartWidth = CGFloat(362)
+
+        XCTAssertEqual(
+            BodyHealthTrendRange.recentSixMonths.chartBarWidth(forAvailableWidth: smallChartWidth),
+            6,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            BodyHealthTrendRange.recentYear.chartBarWidth(forAvailableWidth: smallChartWidth),
+            6,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            BodyHealthTrendRange.recentSixMonths.chartBarWidth(forAvailableWidth: regularChartWidth),
+            BodyHealthTrendRange.recentSixMonths.chartBarWidth,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            BodyHealthTrendRange.recentYear.chartBarWidth(forAvailableWidth: regularChartWidth),
+            BodyHealthTrendRange.recentYear.chartBarWidth,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            BodyHealthTrendRange.recentWeek.chartBarWidth(forAvailableWidth: smallChartWidth),
+            BodyHealthTrendRange.recentWeek.chartBarWidth,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            BodyHealthTrendRange.recentMonth.chartBarWidth(forAvailableWidth: smallChartWidth),
+            BodyHealthTrendRange.recentMonth.chartBarWidth,
+            accuracy: 0.001
+        )
+    }
+
+    func testHealthTrendRangeCapsLineChartPointsForExpandedRanges() {
+        XCTAssertNil(BodyHealthTrendRange.recentWeek.lineChartMaximumPointCount)
+        XCTAssertEqual(BodyHealthTrendRange.recentMonth.lineChartMaximumPointCount, 25)
+        XCTAssertEqual(BodyHealthTrendRange.recentSixMonths.lineChartMaximumPointCount, 25)
+        XCTAssertEqual(BodyHealthTrendRange.recentYear.lineChartMaximumPointCount, 25)
+        XCTAssertEqual(BodyHealthTrendRange.bodyFatWeightLineChartMaximumPointCount, 20)
+    }
+
+    func testHealthTrendSeriesAveragesLongRangeChartBuckets() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 15)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let sixMonthStart = try XCTUnwrap(calendar.date(
+            byAdding: .day,
+            value: -(BodyHealthTrendRange.recentSixMonths.dayCount - 1),
+            to: currentDayStart
+        ))
+        let yearStart = try XCTUnwrap(calendar.date(
+            byAdding: .day,
+            value: -(BodyHealthTrendRange.recentYear.dayCount - 1),
+            to: currentDayStart
+        ))
+        let sixMonthPoints = try (0..<12).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: sixMonthStart))
+            return HealthTrendDataPoint(date: date, value: Double(offset + 1))
+        }
+        let yearPoints = try (0..<24).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: yearStart))
+            return HealthTrendDataPoint(date: date, value: Double(offset + 1))
+        }
+
+        let sixMonthSeries = HealthTrendSeries(points: sixMonthPoints)
+        let yearSeries = HealthTrendSeries(points: yearPoints)
+        let sixMonthChartPoints = sixMonthSeries.chartCalendarPoints(
+            to: .recentSixMonths,
+            calendar: calendar,
+            date: currentDate
+        )
+        let yearChartPoints = yearSeries.chartCalendarPoints(
+            to: .recentYear,
+            calendar: calendar,
+            date: currentDate
+        )
+
+        XCTAssertEqual(BodyHealthTrendRange.recentWeek.chartAggregationDayCount, 1)
+        XCTAssertEqual(BodyHealthTrendRange.recentMonth.chartAggregationDayCount, 1)
+        XCTAssertEqual(BodyHealthTrendRange.recentSixMonths.chartAggregationDayCount, 6)
+        XCTAssertEqual(BodyHealthTrendRange.recentYear.chartAggregationDayCount, 12)
+        XCTAssertEqual(sixMonthChartPoints.count, 31)
+        XCTAssertEqual(yearChartPoints.count, 31)
+        XCTAssertEqual(sixMonthChartPoints.prefix(3).map(\.value), [3.5, 9.5, nil])
+        XCTAssertEqual(yearChartPoints.prefix(3).map(\.value), [6.5, 18.5, nil])
+        XCTAssertEqual(sixMonthChartPoints.first?.startDate, sixMonthStart)
+        XCTAssertEqual(sixMonthChartPoints.first?.date, try XCTUnwrap(calendar.date(byAdding: .day, value: 5, to: sixMonthStart)))
+        XCTAssertEqual(sixMonthChartPoints.first?.endDate, try XCTUnwrap(calendar.date(byAdding: .day, value: 5, to: sixMonthStart)))
+        XCTAssertEqual(yearChartPoints.first?.startDate, yearStart)
+        XCTAssertEqual(yearChartPoints.first?.date, try XCTUnwrap(calendar.date(byAdding: .day, value: 11, to: yearStart)))
+        XCTAssertEqual(yearChartPoints.first?.endDate, try XCTUnwrap(calendar.date(byAdding: .day, value: 11, to: yearStart)))
+        XCTAssertEqual(
+            sixMonthSeries.chartSeries(to: .recentSixMonths, calendar: calendar, date: currentDate).points.map(\.value),
+            [3.5, 9.5]
+        )
+        XCTAssertEqual(
+            yearSeries.chartSeries(to: .recentYear, calendar: calendar, date: currentDate).points.map(\.value),
+            [6.5, 18.5]
+        )
+    }
+
+    func testHealthTrendSeriesCompressesMonthLineChartToTwentyFiveStablePointsByDefault() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 30, hour: 15)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let monthStart = try XCTUnwrap(calendar.date(
+            byAdding: .day,
+            value: -(BodyHealthTrendRange.recentMonth.dayCount - 1),
+            to: currentDayStart
+        ))
+        let points = try (0..<BodyHealthTrendRange.recentMonth.dayCount).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: monthStart))
+            let value: Double
+            switch offset {
+            case 10:
+                value = 120
+            case 20:
+                value = 80
+            default:
+                value = 100
+            }
+            return HealthTrendDataPoint(date: date, value: value)
+        }
+        let series = HealthTrendSeries(points: points)
+
+        let standardChartPoints = series.chartCalendarPoints(
+            to: .recentMonth,
+            calendar: calendar,
+            date: currentDate
+        )
+        let lineChartPoints = series.lineChartCalendarPoints(
+            to: .recentMonth,
+            calendar: calendar,
+            date: currentDate
+        )
+
+        XCTAssertEqual(standardChartPoints.count, BodyHealthTrendRange.recentMonth.dayCount)
+        XCTAssertEqual(lineChartPoints.count, 25)
+        XCTAssertEqual(lineChartPoints.compactMap(\.value).count, 25)
+
+        let highChangeDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 10, to: monthStart))
+        let lowChangeDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 20, to: monthStart))
+        let highChangePoint = try XCTUnwrap(lineChartPoints.first { $0.value == 120 })
+        let lowChangePoint = try XCTUnwrap(lineChartPoints.first { $0.value == 80 })
+        XCTAssertEqual(highChangePoint.date, highChangeDate)
+        XCTAssertEqual(lowChangePoint.date, lowChangeDate)
+        XCTAssertFalse(highChangePoint.representsDateRange)
+        XCTAssertFalse(lowChangePoint.representsDateRange)
+
+        let compressedStablePoint = try XCTUnwrap(lineChartPoints.first { point in
+            point.representsDateRange && abs((point.value ?? 0) - 100) < 0.001
+        })
+        XCTAssertLessThan(compressedStablePoint.startDate, compressedStablePoint.endDate)
+    }
+
+    func testHealthTrendSeriesCanUseBodyFatWeightTwentyPointLineChartCap() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 30, hour: 15)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let monthStart = try XCTUnwrap(calendar.date(
+            byAdding: .day,
+            value: -(BodyHealthTrendRange.recentMonth.dayCount - 1),
+            to: currentDayStart
+        ))
+        let points = try (0..<BodyHealthTrendRange.recentMonth.dayCount).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: monthStart))
+            return HealthTrendDataPoint(date: date, value: 100)
+        }
+        let series = HealthTrendSeries(points: points)
+
+        let lineChartPoints = series.lineChartCalendarPoints(
+            to: .recentMonth,
+            calendar: calendar,
+            date: currentDate,
+            maximumPointCount: BodyHealthTrendRange.bodyFatWeightLineChartMaximumPointCount
+        )
+
+        XCTAssertEqual(lineChartPoints.count, 20)
+        XCTAssertEqual(lineChartPoints.compactMap(\.value).count, 20)
+    }
+
+    func testHealthTrendSeriesCompressesSixMonthAndYearLineChartsToTwentyFivePoints() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 15)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let sixMonthStart = try XCTUnwrap(calendar.date(
+            byAdding: .day,
+            value: -(BodyHealthTrendRange.recentSixMonths.dayCount - 1),
+            to: currentDayStart
+        ))
+        let yearStart = try XCTUnwrap(calendar.date(
+            byAdding: .day,
+            value: -(BodyHealthTrendRange.recentYear.dayCount - 1),
+            to: currentDayStart
+        ))
+        let sixMonthPoints = try (0..<BodyHealthTrendRange.recentSixMonths.dayCount).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: sixMonthStart))
+            return HealthTrendDataPoint(date: date, value: offset == 60 ? 120 : 100)
+        }
+        let yearPoints = try (0..<BodyHealthTrendRange.recentYear.dayCount).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: yearStart))
+            return HealthTrendDataPoint(date: date, value: offset == 120 ? 80 : 100)
+        }
+        let sixMonthSeries = HealthTrendSeries(points: sixMonthPoints)
+        let yearSeries = HealthTrendSeries(points: yearPoints)
+
+        let sixMonthLineChartPoints = sixMonthSeries.lineChartCalendarPoints(
+            to: .recentSixMonths,
+            calendar: calendar,
+            date: currentDate
+        )
+        let yearLineChartPoints = yearSeries.lineChartCalendarPoints(
+            to: .recentYear,
+            calendar: calendar,
+            date: currentDate
+        )
+
+        XCTAssertEqual(sixMonthSeries.chartCalendarPoints(to: .recentSixMonths, calendar: calendar, date: currentDate).count, 31)
+        XCTAssertEqual(yearSeries.chartCalendarPoints(to: .recentYear, calendar: calendar, date: currentDate).count, 31)
+        XCTAssertEqual(sixMonthLineChartPoints.count, 25)
+        XCTAssertEqual(yearLineChartPoints.count, 25)
+        XCTAssertNotNil(sixMonthLineChartPoints.first { point in
+            abs((point.value ?? 0) - (620.0 / 6.0)) < 0.001
+        })
+        XCTAssertNotNil(yearLineChartPoints.first { point in
+            abs((point.value ?? 0) - (1_180.0 / 12.0)) < 0.001
+        })
     }
 
     func testHomeMetricCardPreviewUsesOnlyRecentFourDayPoints() throws {
@@ -767,6 +1017,28 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(recentWeek.bodyFat.points.last?.value, 12.9)
         XCTAssertEqual(recentWeek.bodyMassIndex.points.last?.value, 21.45)
         XCTAssertFalse(recentWeek.isEmpty)
+    }
+
+    func testBasicsTrendSummaryExposesWeightAndBodyFatAveragesForLegend() throws {
+        let date = try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 5, day: 11)))
+        let basics = BasicsTrendSummary(
+            weight: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: date, value: 150),
+                HealthTrendDataPoint(date: date.addingTimeInterval(86_400), value: 154)
+            ]),
+            bodyFat: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: date, value: 12.2),
+                HealthTrendDataPoint(date: date.addingTimeInterval(86_400), value: 12.8)
+            ]),
+            bodyMassIndex: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: date, value: 21.3)
+            ])
+        )
+
+        XCTAssertEqual(basics.weightAverage, 152)
+        XCTAssertEqual(try XCTUnwrap(basics.bodyFatAverage), 12.5, accuracy: 0.001)
+        XCTAssertNil(BasicsTrendSummary.empty.weightAverage)
+        XCTAssertNil(BasicsTrendSummary.empty.bodyFatAverage)
     }
 
     func testBasicsTrendSummaryComputesMetricHalfSpreads() throws {

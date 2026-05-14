@@ -68,6 +68,66 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(source.contains("let trailingPadding: TimeInterval = 18 * 60 * 60"))
     }
 
+    func testLineHealthChartsDoNotRenderEmptyDatePlaceholderMarks() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertFalse(source.contains("BodyLineChartPlaceholderSymbol"))
+        XCTAssertFalse(source.contains("placeholderSymbolSize"))
+        XCTAssertTrue(source.contains("placeholderBarYValue"))
+    }
+
+    func testMetricDayLineChartUsesPreviewDotSymbols() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyHealthMetricDayChart")?.lowerBound)
+        let chartBlock = source[chartStart...].prefix(4_500)
+
+        XCTAssertTrue(chartBlock.contains("BodyLineChartPreviewPointSymbol("))
+        XCTAssertTrue(chartBlock.contains("isCurrent: isLatestBucket(bucket)"))
+        XCTAssertTrue(chartBlock.contains("pointDiameter: Self.pointDiameter"))
+        XCTAssertTrue(chartBlock.contains("currentPointDiameter: Self.currentPointDiameter"))
+        XCTAssertFalse(chartBlock.contains(".symbolSize(24)"))
+    }
+
+    func testAggregatedHealthChartsWireRangeLabelsAndBarWidths() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertTrue(source.contains("private func bodyChartSelectionDateText(for point: HealthTrendCalendarPoint) -> String?"))
+        XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedTrendPoint)"), 1)
+        XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedPoint)"), 1)
+        XCTAssertTrue(source.contains("dateText: selectedTrendDateText"))
+        XCTAssertEqual(
+            source.occurrenceCount(of: "let chartBarWidth = selectedTrendRange.chartBarWidth(forAvailableWidth: proxy.size.width)"),
+            1
+        )
+        XCTAssertEqual(source.occurrenceCount(of: "width: .fixed(chartBarWidth)"), 2)
+    }
+
+    func testBasicsWeightBodyFatMonthChartKeepsStandardPointMarks() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertFalse(source.contains("private var showsWeightBodyFatPointMarks: Bool"))
+        XCTAssertFalse(source.contains("selectedRange.showsPointMarks && selectedRange != .recentMonth"))
+        XCTAssertFalse(source.contains("if showsWeightBodyFatPointMarks"))
+        XCTAssertEqual(source.occurrenceCount(of: "if selectedRange.showsPointMarks"), 3)
+        XCTAssertTrue(source.contains("if selectedTrendRange.showsPointMarks"))
+    }
+
+    func testBasicsTrendLegendShowsAverageValuesBehindMetricLabels() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertTrue(source.contains("weightAverageText: basicsWeightAverageText"))
+        XCTAssertTrue(source.contains("bodyFatAverageText: basicsBodyFatAverageText"))
+        XCTAssertTrue(source.contains("legendItem(title: \"Body Fat\", valueText: bodyFatAverageText, color: bodyFatColor)"))
+        XCTAssertTrue(source.contains("legendItem(title: \"Weight\", valueText: weightAverageText, color: weightColor)"))
+        let legendItemStart = try XCTUnwrap(source.range(of: "private func legendItem")?.lowerBound)
+        let legendItemBlock = source[legendItemStart...].prefix(700)
+        let averageTextStart = try XCTUnwrap(legendItemBlock.range(of: "Text(\"Avg \\(valueText)\")")?.lowerBound)
+        let averageTextBlock = legendItemBlock[averageTextStart...].prefix(180)
+        XCTAssertTrue(averageTextBlock.contains(".foregroundColor(.secondary)"))
+        XCTAssertFalse(legendItemBlock.contains("Text(valueText)"))
+        XCTAssertFalse(averageTextBlock.contains(".foregroundColor(.primary)"))
+    }
+
     func testWorkoutHeartRateXAxisLabelsStayInsidePlotEdges() throws {
         let source = try text(at: "Body/Views/BodyWorkoutsView.swift")
 
@@ -137,9 +197,93 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = 1;"))
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.3.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.3.3;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
+    }
+
+    func testVersionDocumentationAndSettingsFallbackMatchBuildTwo() throws {
+        let readme = try text(at: "README.md")
+        let versionHistory = try text(at: "VersionHistory.md")
+        let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
+
+        XCTAssertTrue(readme.contains("Current app version: **0.3.3 (build 2)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.3.3 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("range-aware chart aggregation"))
+        XCTAssertFalse(readme.contains("Current app version: **0.3.3 (build 1)**"))
+        XCTAssertFalse(settingsSource.contains(#"?? "1""#))
+        XCTAssertGreaterThanOrEqual(settingsSource.occurrenceCount(of: #"?? "Unknown""#), 4)
+    }
+
+    func testHealthKitUsageDescriptionListsRequestedHealthCategories() throws {
+        let project = try text(at: "body.xcodeproj/project.pbxproj")
+        let usageDescription = "Body reads workouts, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, wrist temperature, daylight, and steps from Apple Health to power your dashboard, charts, and widgets."
+
+        XCTAssertEqual(project.occurrenceCount(of: usageDescription), 2)
+        XCTAssertFalse(project.contains("Body reads workout, sleep, heart, and body measurement data"))
+    }
+
+    func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
+        let testPlan = try text(at: "TestPlan.md")
+
+        XCTAssertTrue(testPlan.contains("branch `codex/body-v0.3.3`"))
+        XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.0`"))
+        XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))
+        XCTAssertTrue(testPlan.contains("Body Pro entry navigation"))
+        XCTAssertTrue(testPlan.contains("Body Pro icon flip"))
+        XCTAssertTrue(testPlan.contains("version-card unlock"))
+        XCTAssertTrue(testPlan.contains("creator-surprise icon sheet"))
+    }
+
+    func testWorkoutsMonthLoadUsesPendingBannerInsteadOfEmptyPlaceholder() throws {
+        let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
+
+        XCTAssertTrue(workoutsSource.contains("@State private var pendingMonthSelection: BodyMonthYear?"))
+        XCTAssertTrue(workoutsSource.contains("if let pendingMonthSelection {"))
+        XCTAssertTrue(workoutsSource.contains("BodyWorkoutMonthLoadingBanner(monthYear: pendingMonthSelection)"))
+        XCTAssertTrue(workoutsSource.contains("pendingMonthSelection = monthYear"))
+        XCTAssertTrue(workoutsSource.contains("let didLoad = await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)"))
+        XCTAssertTrue(workoutsSource.contains("guard pendingMonthSelection == monthYear else"))
+        XCTAssertTrue(workoutsSource.contains("if didLoad {"))
+        XCTAssertTrue(workoutsSource.contains("applyMonthSelection(monthYear)"))
+        XCTAssertTrue(workoutsSource.contains("return false"))
+    }
+
+    func testDeadChartsViewAndHealthCardAccessoryBranchAreRemoved() throws {
+        let oldChartsViewURL = projectRoot.appendingPathComponent("Body/Views/BodyChartsView.swift")
+        let chartsSource = try text(at: "Body/Views/BodyWorkoutListSheet.swift")
+        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldChartsViewURL.path))
+        XCTAssertFalse(chartsSource.contains("struct BodyChartsView"))
+        XCTAssertFalse(chartsSource.contains("BodyChartsScrollTransitionShade"))
+        XCTAssertFalse(chartsSource.contains("BodyChartsLoadingBanner"))
+        XCTAssertFalse(homeSource.contains("AccessoryMetric"))
+        XCTAssertFalse(homeSource.contains("accessoryMetrics"))
+        XCTAssertFalse(homeSource.contains("accessoryContent"))
+        XCTAssertFalse(homeSource.contains("accessoryMetricStrip"))
+    }
+
+    func testSleepAndMetricDayPickersShareDateTileHelper() throws {
+        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertTrue(homeSource.contains("private var recentDatePickerDates: [Date]"))
+        XCTAssertTrue(homeSource.contains("private func datePicker("))
+        XCTAssertTrue(homeSource.contains("private func dateTile("))
+        XCTAssertFalse(homeSource.contains("private var sleepDatePickerDates"))
+        XCTAssertFalse(homeSource.contains("private var metricDatePickerDates"))
+        XCTAssertFalse(homeSource.contains("private func sleepDateTile"))
+        XCTAssertFalse(homeSource.contains("private func metricDateTile"))
+    }
+
+    func testProjectDateMathUsesBodyGregorianForSleepAxisAndWidgetTimeline() throws {
+        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+        let widgetSource = try text(at: "BodyWidgetExtension/WorkoutCalendarWidget.swift")
+
+        XCTAssertFalse(homeSource.contains("let calendar = Calendar.current"))
+        XCTAssertFalse(widgetSource.contains("Calendar.current.date(byAdding: .minute"))
+        XCTAssertTrue(homeSource.contains("let calendar = Calendar.bodyGregorian"))
+        XCTAssertTrue(widgetSource.contains("Calendar.bodyGregorian.date(byAdding: .minute"))
     }
 
     func testAppIconAssetsIncludePrimaryAndAlternateOptions() throws {
