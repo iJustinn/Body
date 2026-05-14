@@ -4599,52 +4599,27 @@ private struct BodyActivityRingCompletionStar: View {
 private struct BodyActivityRingsDetailView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @State private var canLoadOlderMonths = false
-    @State private var isDraggingCalendar = false
-    @State private var paginationGate = ActivityRingCalendarPaginationGate()
-    @State private var visibleCalendarMonthCount = HealthKitWorkoutStore.recentChartMonthCount
-    @State private var visibleMonthIDs: Set<String> = []
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
     private let calendar = Calendar.bodyGregorian
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 46) {
-                    ForEach(calendarMonths) { month in
-                        monthSection(month)
-                            .id(month.id)
-                    }
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 18)
-                .padding(.bottom, 36)
-            }
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 12)
-                    .onChanged { _ in
-                        guard !isDraggingCalendar else {
-                            return
-                        }
-
-                        isDraggingCalendar = true
-                        paginationGate.recordUserScroll()
-                        loadPreviousVisibleMonthIfNeeded()
-                    }
-                    .onEnded { _ in
-                        isDraggingCalendar = false
-                    }
-            )
-            .onAppear {
-                if let currentMonthID = calendarMonths.last?.id {
-                    proxy.scrollTo(currentMonthID, anchor: .bottom)
-                }
-                Task { @MainActor in
-                    // Let initial LazyVStack layout settle before pagination can react to onAppear.
-                    await Task.yield()
-                    canLoadOlderMonths = true
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 46) {
+                ForEach(calendarMonths) { month in
+                    monthSection(month)
+                        .id(month.id)
                 }
             }
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 36)
+        }
+        .defaultScrollAnchor(.bottom)
+        .task {
+            // Let initial LazyVStack layout settle before pagination can react to onAppear.
+            await Task.yield()
+            canLoadOlderMonths = true
         }
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .navigationTitle("Activity Rings")
@@ -4652,13 +4627,6 @@ private struct BodyActivityRingsDetailView: View {
     }
 
     private var calendarMonths: [ActivityRingCalendarMonth] {
-        displayHistory.calendarMonths(
-            calendar: calendar,
-            visibleLoadedMonthCount: visibleCalendarMonthCount
-        )
-    }
-
-    private var allCalendarMonths: [ActivityRingCalendarMonth] {
         displayHistory.calendarMonths(calendar: calendar)
     }
 
@@ -4712,11 +4680,7 @@ private struct BodyActivityRingsDetailView: View {
             }
         }
         .onAppear {
-            visibleMonthIDs.insert(month.id)
             loadPreviousMonthIfNeeded(for: month)
-        }
-        .onDisappear {
-            visibleMonthIDs.remove(month.id)
         }
     }
 
@@ -4756,31 +4720,16 @@ private struct BodyActivityRingsDetailView: View {
     }
 
     private func loadPreviousMonthIfNeeded(for month: ActivityRingCalendarMonth) {
-        guard canLoadOlderMonths, month.id == calendarMonths.first?.id else {
-            return
-        }
-
-        loadPreviousVisibleMonthIfNeeded()
-    }
-
-    private func loadPreviousVisibleMonthIfNeeded() {
         guard
             canLoadOlderMonths,
-            let oldestMonthID = calendarMonths.first?.id,
-            visibleMonthIDs.contains(oldestMonthID),
-            paginationGate.consumeLoadIfNeeded(isOldestVisible: true)
+            month.id == calendarMonths.first?.id,
+            workoutStore.loadingActivityRingMonthKeys.isEmpty
         else {
-            return
-        }
-
-        if allCalendarMonths.count > calendarMonths.count {
-            visibleCalendarMonthCount += 1
             return
         }
 
         Task {
             await workoutStore.loadPreviousActivityRingMonthIfNeeded()
-            visibleCalendarMonthCount += 1
         }
     }
 }

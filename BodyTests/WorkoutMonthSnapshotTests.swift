@@ -2044,20 +2044,6 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(month.completedRingCount, 1)
     }
 
-    func testActivityRingCalendarPaginationGateAllowsOneLoadPerUserScroll() {
-        var gate = ActivityRingCalendarPaginationGate()
-
-        XCTAssertFalse(gate.consumeLoadIfNeeded(isOldestVisible: true))
-
-        gate.recordUserScroll()
-        XCTAssertFalse(gate.consumeLoadIfNeeded(isOldestVisible: false))
-        XCTAssertTrue(gate.consumeLoadIfNeeded(isOldestVisible: true))
-        XCTAssertFalse(gate.consumeLoadIfNeeded(isOldestVisible: true))
-
-        gate.recordUserScroll()
-        XCTAssertTrue(gate.consumeLoadIfNeeded(isOldestVisible: true))
-    }
-
     func testActivityRingHistoryBuildsCompleteCalendarMonths() throws {
         let calendar = Calendar.bodyGregorian
         let april2 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 2)))
