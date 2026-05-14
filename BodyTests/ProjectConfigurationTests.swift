@@ -197,20 +197,20 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = 1;"))
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.3.3;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.3.4;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
-    func testVersionDocumentationAndSettingsFallbackMatchBuildTwo() throws {
+    func testVersionDocumentationAndSettingsFallbackMatchBuildOne() throws {
         let readme = try text(at: "README.md")
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.3.3 (build 2)**"))
-        XCTAssertTrue(versionHistory.contains("## 0.3.3 (build 2)"))
-        XCTAssertTrue(versionHistory.contains("range-aware chart aggregation"))
-        XCTAssertFalse(readme.contains("Current app version: **0.3.3 (build 1)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.3.4 (build 1)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.3.4 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.3.4 build 1."))
+        XCTAssertFalse(readme.contains("Current app version: **0.3.3 (build 2)**"))
         XCTAssertFalse(settingsSource.contains(#"?? "1""#))
         XCTAssertGreaterThanOrEqual(settingsSource.occurrenceCount(of: #"?? "Unknown""#), 4)
     }
@@ -226,7 +226,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `codex/body-v0.3.3`"))
+        XCTAssertTrue(testPlan.contains("branch `codex/body-v0.3.4`"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.0`"))
         XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))
         XCTAssertTrue(testPlan.contains("Body Pro entry navigation"))

@@ -1,6 +1,6 @@
 # Body Test Plan
 
-Generated 2026-05-13 against branch `codex/body-v0.3.3`.
+Generated 2026-05-13 against branch `codex/body-v0.3.4`.
 
 ## 1. Project Testing Overview
 
