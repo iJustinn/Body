@@ -63,7 +63,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("bodyHealthDetailChartLeadingDatePadding: TimeInterval = 2 * 60 * 60"))
         XCTAssertTrue(source.contains("bodyHealthDetailChartTrailingDatePadding: TimeInterval = 36 * 60 * 60"))
         XCTAssertTrue(source.contains("private func bodyHealthDetailChartXDomain(for dates: [Date]) -> ClosedRange<Date>"))
-        XCTAssertEqual(source.occurrenceCount(of: "return bodyHealthDetailChartXDomain(for:"), 3)
+        XCTAssertEqual(source.occurrenceCount(of: "self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates)"), 3)
         XCTAssertFalse(source.contains("let leadingPadding: TimeInterval = 6 * 60 * 60"))
         XCTAssertFalse(source.contains("let trailingPadding: TimeInterval = 18 * 60 * 60"))
     }
@@ -124,7 +124,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedPoint)"), 1)
         XCTAssertTrue(source.contains("dateText: selectedTrendDateText"))
         XCTAssertEqual(
-            source.occurrenceCount(of: "let chartBarWidth = selectedTrendRange.chartBarWidth(forAvailableWidth: proxy.size.width)"),
+            source.occurrenceCount(of: "let chartBarWidth = selectedRange.chartBarWidth(forAvailableWidth: proxy.size.width)"),
             1
         )
         XCTAssertEqual(source.occurrenceCount(of: "width: .fixed(chartBarWidth)"), 2)
@@ -136,8 +136,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(source.contains("private var showsWeightBodyFatPointMarks: Bool"))
         XCTAssertFalse(source.contains("selectedRange.showsPointMarks && selectedRange != .recentMonth"))
         XCTAssertFalse(source.contains("if showsWeightBodyFatPointMarks"))
-        XCTAssertEqual(source.occurrenceCount(of: "if selectedRange.showsPointMarks"), 3)
-        XCTAssertTrue(source.contains("if selectedTrendRange.showsPointMarks"))
+        XCTAssertEqual(source.occurrenceCount(of: "if selectedRange.showsPointMarks"), 4)
+
+        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyBasicsTrendChart")?.lowerBound)
+        let chartBlock = String(source[chartStart...].prefix(7_000))
+        XCTAssertEqual(chartBlock.occurrenceCount(of: "if selectedRange.showsPointMarks"), 2)
     }
 
     func testBasicsTrendLegendShowsAverageValuesBehindMetricLabels() throws {
