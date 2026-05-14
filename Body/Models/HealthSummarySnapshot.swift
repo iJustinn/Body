@@ -437,24 +437,6 @@ struct ActivityRingCalendarMonth: Equatable, Identifiable {
     }
 }
 
-struct ActivityRingCalendarPaginationGate: Equatable {
-    private(set) var scrollToken = 0
-    private var lastLoadToken = 0
-
-    mutating func recordUserScroll() {
-        scrollToken += 1
-    }
-
-    mutating func consumeLoadIfNeeded(isOldestVisible: Bool) -> Bool {
-        guard isOldestVisible, scrollToken > lastLoadToken else {
-            return false
-        }
-
-        lastLoadToken = scrollToken
-        return true
-    }
-}
-
 struct ActivityRingMonthKey: Codable, Equatable, Hashable, Identifiable {
     let month: Int
     let year: Int

@@ -63,7 +63,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("bodyHealthDetailChartLeadingDatePadding: TimeInterval = 2 * 60 * 60"))
         XCTAssertTrue(source.contains("bodyHealthDetailChartTrailingDatePadding: TimeInterval = 36 * 60 * 60"))
         XCTAssertTrue(source.contains("private func bodyHealthDetailChartXDomain(for dates: [Date]) -> ClosedRange<Date>"))
-        XCTAssertEqual(source.occurrenceCount(of: "return bodyHealthDetailChartXDomain(for:"), 3)
+        XCTAssertEqual(source.occurrenceCount(of: "self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates)"), 3)
         XCTAssertFalse(source.contains("let leadingPadding: TimeInterval = 6 * 60 * 60"))
         XCTAssertFalse(source.contains("let trailingPadding: TimeInterval = 18 * 60 * 60"))
     }
@@ -88,6 +88,34 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(chartBlock.contains(".symbolSize(24)"))
     }
 
+    func testSummaryMetricValuesUseClockStyleNumericTransitions() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertTrue(source.contains("private struct BodyAnimatedMetricValueText: View"))
+        XCTAssertTrue(source.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
+        XCTAssertTrue(source.contains(".contentTransition(reduceMotion ? .identity : .numericText())"))
+        XCTAssertTrue(source.contains(".monospacedDigit()"))
+        XCTAssertTrue(source.contains(".animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: value)"))
+        XCTAssertGreaterThanOrEqual(source.occurrenceCount(of: "BodyAnimatedMetricValueText("), 3)
+    }
+
+    func testActivityRingGraphicAnimatesProgressWithCircularSweep() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let graphicStart = try XCTUnwrap(source.range(of: "private struct BodyActivityRingGraphic")?.lowerBound)
+        let graphicBlock = String(source[graphicStart...].prefix(2_400))
+        let arcStart = try XCTUnwrap(source.range(of: "private struct BodyActivityRingArc")?.lowerBound)
+        let arcBlock = String(source[arcStart...].prefix(2_800))
+
+        XCTAssertTrue(graphicBlock.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
+        XCTAssertTrue(graphicBlock.contains("private func sweepAnimation(ringIndex: Int) -> Animation?"))
+        XCTAssertEqual(graphicBlock.occurrenceCount(of: ".animation(sweepAnimation(ringIndex:"), 3)
+        XCTAssertTrue(graphicBlock.contains(".smooth(duration: 0.75, extraBounce: 0)"))
+        XCTAssertTrue(graphicBlock.contains(".delay(Double(ringIndex) * 0.05)"))
+        XCTAssertTrue(source.contains("private struct BodyActivityRingHeadPosition: GeometryEffect"))
+        XCTAssertTrue(source.contains("var animatableData: Double"))
+        XCTAssertTrue(arcBlock.contains(".modifier(BodyActivityRingHeadPosition(progress: animatedHeadProgress, radius: radius))"))
+    }
+
     func testAggregatedHealthChartsWireRangeLabelsAndBarWidths() throws {
         let source = try text(at: "Body/Views/BodyHomeView.swift")
 
@@ -96,7 +124,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedPoint)"), 1)
         XCTAssertTrue(source.contains("dateText: selectedTrendDateText"))
         XCTAssertEqual(
-            source.occurrenceCount(of: "let chartBarWidth = selectedTrendRange.chartBarWidth(forAvailableWidth: proxy.size.width)"),
+            source.occurrenceCount(of: "let chartBarWidth = selectedRange.chartBarWidth(forAvailableWidth: proxy.size.width)"),
             1
         )
         XCTAssertEqual(source.occurrenceCount(of: "width: .fixed(chartBarWidth)"), 2)
@@ -108,8 +136,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(source.contains("private var showsWeightBodyFatPointMarks: Bool"))
         XCTAssertFalse(source.contains("selectedRange.showsPointMarks && selectedRange != .recentMonth"))
         XCTAssertFalse(source.contains("if showsWeightBodyFatPointMarks"))
-        XCTAssertEqual(source.occurrenceCount(of: "if selectedRange.showsPointMarks"), 3)
-        XCTAssertTrue(source.contains("if selectedTrendRange.showsPointMarks"))
+        XCTAssertEqual(source.occurrenceCount(of: "if selectedRange.showsPointMarks"), 4)
+
+        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyBasicsTrendChart")?.lowerBound)
+        let chartBlock = String(source[chartStart...].prefix(7_000))
+        XCTAssertEqual(chartBlock.occurrenceCount(of: "if selectedRange.showsPointMarks"), 2)
     }
 
     func testBasicsTrendLegendShowsAverageValuesBehindMetricLabels() throws {
@@ -197,7 +228,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = 1;"))
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.3.3;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.3.4;"))
         XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
@@ -207,10 +238,12 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.3.3 (build 2)**"))
-        XCTAssertTrue(versionHistory.contains("## 0.3.3 (build 2)"))
-        XCTAssertTrue(versionHistory.contains("range-aware chart aggregation"))
-        XCTAssertFalse(readme.contains("Current app version: **0.3.3 (build 1)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.3.4 (build 2)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.3.4 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Added animated Summary metric number transitions and Activity Rings sweep updates."))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.3.4 build 2."))
+        XCTAssertFalse(readme.contains("Current app version: **0.3.4 (build 1)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.3.3 (build 2)**"))
         XCTAssertFalse(settingsSource.contains(#"?? "1""#))
         XCTAssertGreaterThanOrEqual(settingsSource.occurrenceCount(of: #"?? "Unknown""#), 4)
     }
@@ -226,7 +259,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `codex/body-v0.3.3`"))
+        XCTAssertTrue(testPlan.contains("branch `codex/body-v0.3.4`"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.0`"))
         XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))
         XCTAssertTrue(testPlan.contains("Body Pro entry navigation"))

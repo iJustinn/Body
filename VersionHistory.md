@@ -1,5 +1,14 @@
 # Version History
 
+## 0.3.4 (build 2)
+
+- Added animated Summary metric number transitions and Activity Rings sweep updates.
+- Updated the app, widget, and test bundle version to 0.3.4 build 2.
+
+## 0.3.4 (build 1)
+
+- Updated the app, widget, and test bundle version to 0.3.4 build 1.
+
 ## 0.3.3 (build 2)
 
 - Added range-aware chart aggregation for six-month and year health charts, including averaged buckets and timeframe-aware selection labels.
