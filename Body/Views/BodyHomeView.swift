@@ -1361,6 +1361,26 @@ private struct BodyMetricDisplayValue: Identifiable {
     }
 }
 
+private struct BodyAnimatedMetricValueText: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let value: String
+    let fontSize: CGFloat
+    let color: Color
+    let minimumScaleFactor: CGFloat
+
+    var body: some View {
+        Text(value)
+            .font(.system(size: fontSize, weight: .bold, design: .rounded))
+            .foregroundColor(color)
+            .monospacedDigit()
+            .contentTransition(reduceMotion ? .identity : .numericText())
+            .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: value)
+            .lineLimit(1)
+            .minimumScaleFactor(minimumScaleFactor)
+    }
+}
+
 private struct BodyHealthMetricDetailModel {
     let kind: HealthMetricKind
     let title: String
@@ -1683,11 +1703,12 @@ private struct BodyHealthMetricDetailView: View {
 
     private func headerValueRow(_ display: BodyMetricDisplayValue) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(display.value)
-                .font(.system(size: 30, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+            BodyAnimatedMetricValueText(
+                value: display.value,
+                fontSize: 30,
+                color: .primary,
+                minimumScaleFactor: 0.6
+            )
 
             if !display.unit.isEmpty {
                 Text(display.unit)
@@ -4856,11 +4877,12 @@ private struct BodyActivityRingMetricRow: View {
                 .foregroundColor(.primary)
 
             HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(valueText)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundColor(metricTextColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.65)
+                BodyAnimatedMetricValueText(
+                    value: valueText,
+                    fontSize: 24,
+                    color: metricTextColor,
+                    minimumScaleFactor: 0.65
+                )
 
                 Text(unit)
                     .font(.system(size: 15, weight: .bold, design: .rounded))
@@ -4891,6 +4913,8 @@ private struct BodyActivityRingMetricRow: View {
 }
 
 private struct BodyActivityRingGraphic: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let summary: ActivityRingSummary
     let moveColor: Color
     let exerciseColor: Color
@@ -4906,32 +4930,38 @@ private struct BodyActivityRingGraphic: View {
 
             BodyActivityRingArc(
                 progress: summary.move.completionProgress,
-                headProgress: summary.move.headProgress,
                 showsFullStartMarker: summary.move.showsFullStartMarker,
                 color: moveColor,
                 lineWidth: geometry.ringLineWidth
             )
                 .frame(width: geometry.moveDiameter, height: geometry.moveDiameter)
+                .animation(sweepAnimation(ringIndex: 0), value: summary.move.completionProgress)
             BodyActivityRingArc(
                 progress: summary.exercise.completionProgress,
-                headProgress: summary.exercise.headProgress,
                 showsFullStartMarker: summary.exercise.showsFullStartMarker,
                 color: exerciseColor,
                 lineWidth: geometry.ringLineWidth
             )
                 .frame(width: geometry.exerciseDiameter, height: geometry.exerciseDiameter)
+                .animation(sweepAnimation(ringIndex: 1), value: summary.exercise.completionProgress)
             BodyActivityRingArc(
                 progress: summary.stand.completionProgress,
-                headProgress: summary.stand.headProgress,
                 showsFullStartMarker: summary.stand.showsFullStartMarker,
                 color: standColor,
                 lineWidth: geometry.ringLineWidth
             )
                 .frame(width: geometry.standDiameter, height: geometry.standDiameter)
+                .animation(sweepAnimation(ringIndex: 2), value: summary.stand.completionProgress)
 
             BodyActivityRingFence(diameter: geometry.outerFenceDiameter, color: fenceColor)
             BodyActivityRingFence(diameter: geometry.innerFenceDiameter, color: fenceColor)
         }
+    }
+
+    private func sweepAnimation(ringIndex: Int) -> Animation? {
+        guard !reduceMotion else { return nil }
+        return .smooth(duration: 0.75, extraBounce: 0)
+            .delay(Double(ringIndex) * 0.05)
     }
 }
 
@@ -4948,7 +4978,6 @@ private struct BodyActivityRingFence: View {
 
 private struct BodyActivityRingArc: View {
     let progress: Double
-    let headProgress: Double
     let showsFullStartMarker: Bool
     let color: Color
     let lineWidth: CGFloat
@@ -4965,21 +4994,13 @@ private struct BodyActivityRingArc: View {
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
                     )
 
-                if clampedProgress >= 0.995 {
-                    Circle()
-                        .stroke(
-                            color,
-                            style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
-                        )
-                } else {
-                    Circle()
-                        .trim(from: 0, to: clampedProgress)
-                        .stroke(
-                            color,
-                            style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
-                        )
-                        .rotationEffect(.degrees(-90))
-                }
+                Circle()
+                    .trim(from: 0, to: clampedProgress)
+                    .stroke(
+                        color,
+                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
 
                 if showsFullStartMarker {
                     Circle()
@@ -4993,11 +5014,8 @@ private struct BodyActivityRingArc: View {
 
                 BodyActivityRingHead(color: color)
                     .frame(width: lineWidth, height: lineWidth)
-                    .rotationEffect(.degrees(normalizedHeadProgress * 360))
-                    .offset(
-                        x: headOffsetX(progress: normalizedHeadProgress, radius: radius),
-                        y: headOffsetY(progress: normalizedHeadProgress, radius: radius)
-                    )
+                    .rotationEffect(.degrees(animatedHeadProgress * 360))
+                    .modifier(BodyActivityRingHeadPosition(progress: animatedHeadProgress, radius: radius))
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
@@ -5015,12 +5033,12 @@ private struct BodyActivityRingArc: View {
         return max(progress, 0)
     }
 
-    private var normalizedHeadProgress: Double {
-        guard headProgress.isFinite else {
-            return 0
-        }
+    private var animatedHeadProgress: Double {
+        normalizedProgress
+    }
 
-        return min(max(headProgress, 0), 1)
+    private var normalizedHeadProgress: Double {
+        animatedHeadProgress.truncatingRemainder(dividingBy: 1)
     }
 
     private func headOffsetX(progress: Double, radius: CGFloat) -> CGFloat {
@@ -5029,6 +5047,23 @@ private struct BodyActivityRingArc: View {
 
     private func headOffsetY(progress: Double, radius: CGFloat) -> CGFloat {
         -CGFloat(cos(progress * 2 * .pi)) * radius
+    }
+}
+
+private struct BodyActivityRingHeadPosition: GeometryEffect {
+    var progress: Double
+    let radius: CGFloat
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        let headOffsetX = CGFloat(sin(progress * 2 * .pi)) * radius
+        let headOffsetY = -CGFloat(cos(progress * 2 * .pi)) * radius
+
+        return ProjectionTransform(CGAffineTransform(translationX: headOffsetX, y: headOffsetY))
     }
 }
 
@@ -5246,11 +5281,12 @@ private struct BodyHealthMetricCard: View {
 
     private func displayValueRow(_ display: BodyMetricDisplayValue, valueFontSize: CGFloat) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(display.value)
-                .font(.system(size: valueFontSize, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.60)
+            BodyAnimatedMetricValueText(
+                value: display.value,
+                fontSize: valueFontSize,
+                color: .primary,
+                minimumScaleFactor: 0.60
+            )
                 .layoutPriority(1)
 
             if !display.unit.isEmpty {

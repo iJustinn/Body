@@ -1,5 +1,10 @@
 # Version History
 
+## 0.3.4 (build 2)
+
+- Added animated Summary metric number transitions and Activity Rings sweep updates.
+- Updated the app, widget, and test bundle version to 0.3.4 build 2.
+
 ## 0.3.4 (build 1)
 
 - Updated the app, widget, and test bundle version to 0.3.4 build 1.

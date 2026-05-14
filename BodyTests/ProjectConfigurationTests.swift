@@ -88,6 +88,34 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(chartBlock.contains(".symbolSize(24)"))
     }
 
+    func testSummaryMetricValuesUseClockStyleNumericTransitions() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertTrue(source.contains("private struct BodyAnimatedMetricValueText: View"))
+        XCTAssertTrue(source.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
+        XCTAssertTrue(source.contains(".contentTransition(reduceMotion ? .identity : .numericText())"))
+        XCTAssertTrue(source.contains(".monospacedDigit()"))
+        XCTAssertTrue(source.contains(".animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: value)"))
+        XCTAssertGreaterThanOrEqual(source.occurrenceCount(of: "BodyAnimatedMetricValueText("), 3)
+    }
+
+    func testActivityRingGraphicAnimatesProgressWithCircularSweep() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let graphicStart = try XCTUnwrap(source.range(of: "private struct BodyActivityRingGraphic")?.lowerBound)
+        let graphicBlock = String(source[graphicStart...].prefix(2_400))
+        let arcStart = try XCTUnwrap(source.range(of: "private struct BodyActivityRingArc")?.lowerBound)
+        let arcBlock = String(source[arcStart...].prefix(2_800))
+
+        XCTAssertTrue(graphicBlock.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
+        XCTAssertTrue(graphicBlock.contains("private func sweepAnimation(ringIndex: Int) -> Animation?"))
+        XCTAssertEqual(graphicBlock.occurrenceCount(of: ".animation(sweepAnimation(ringIndex:"), 3)
+        XCTAssertTrue(graphicBlock.contains(".smooth(duration: 0.75, extraBounce: 0)"))
+        XCTAssertTrue(graphicBlock.contains(".delay(Double(ringIndex) * 0.05)"))
+        XCTAssertTrue(source.contains("private struct BodyActivityRingHeadPosition: GeometryEffect"))
+        XCTAssertTrue(source.contains("var animatableData: Double"))
+        XCTAssertTrue(arcBlock.contains(".modifier(BodyActivityRingHeadPosition(progress: animatedHeadProgress, radius: radius))"))
+    }
+
     func testAggregatedHealthChartsWireRangeLabelsAndBarWidths() throws {
         let source = try text(at: "Body/Views/BodyHomeView.swift")
 
@@ -198,18 +226,20 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.3.4;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
-    func testVersionDocumentationAndSettingsFallbackMatchBuildOne() throws {
+    func testVersionDocumentationAndSettingsFallbackMatchBuildTwo() throws {
         let readme = try text(at: "README.md")
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.3.4 (build 1)**"))
-        XCTAssertTrue(versionHistory.contains("## 0.3.4 (build 1)"))
-        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.3.4 build 1."))
+        XCTAssertTrue(readme.contains("Current app version: **0.3.4 (build 2)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.3.4 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Added animated Summary metric number transitions and Activity Rings sweep updates."))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.3.4 build 2."))
+        XCTAssertFalse(readme.contains("Current app version: **0.3.4 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.3.3 (build 2)**"))
         XCTAssertFalse(settingsSource.contains(#"?? "1""#))
         XCTAssertGreaterThanOrEqual(settingsSource.occurrenceCount(of: #"?? "Unknown""#), 4)
