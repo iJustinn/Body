@@ -10,6 +10,20 @@ The app shell follows Coin's simple tab structure: Summary handles health cards 
 
 Current app version: **0.3.3 (build 2)**
 
+## Screenshots
+
+<p align="center">
+  <img src="Screenshots/v0.3.3-01.PNG" alt="Body screenshot 1" width="30%"/>
+  <img src="Screenshots/v0.3.3-02.PNG" alt="Body screenshot 2" width="30%"/>
+  <img src="Screenshots/v0.3.3-03.PNG" alt="Body screenshot 3" width="30%"/>
+</p>
+
+<p align="center">
+  <img src="Screenshots/v0.3.3-04.PNG" alt="Body screenshot 4" width="30%"/>
+  <img src="Screenshots/v0.3.3-05.PNG" alt="Body screenshot 5" width="30%"/>
+  <img src="Screenshots/v0.3.3-06.PNG" alt="Body screenshot 6" width="30%"/>
+</p>
+
 ## Current Scope
 
 - **Workout calendar widget** - The large widget shows workout days for the current month with screenshot-style rounded square calendar tiles.
@@ -64,3 +78,9 @@ Body reads health data from Apple Health only after permission is granted. Users
 - [LessonsLearned.md](LessonsLearned.md) captures project-specific implementation notes and gotchas.
 - [TestPlan.md](TestPlan.md) tracks the current app and widget test plan.
 - [VersionHistory.md](VersionHistory.md) records release notes.
+
+## License
+
+Body is source-available, not open source. The code is public for transparency and personal, non-commercial evaluation/reference only. Commercial use, redistribution, App Store/TestFlight/enterprise distribution, derivative app publishing, sublicensing, and reuse of Body branding/assets are prohibited without prior written permission.
+
+See [LICENSE](LICENSE) for the full Body Source-Available License. Third-party and upstream notices are summarized in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
