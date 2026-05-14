@@ -1431,6 +1431,11 @@ private struct BodyHealthMetricDetailModel {
     }
 }
 
+private enum BodyMetricDetailDatePicker {
+    case sleep
+    case metric
+}
+
 private struct BodyHealthMetricDetailView: View {
     let model: BodyHealthMetricDetailModel
     @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
@@ -1532,11 +1537,7 @@ private struct BodyHealthMetricDetailView: View {
         return calendar.startOfDay(for: selectedMetricDate ?? Date())
     }
 
-    private var sleepDatePickerDates: [Date] {
-        SleepHistorySnapshot.datePickerDates(dayCount: BodyHealthTrendRange.recentMonth.dayCount, futureDayCount: 1)
-    }
-
-    private var metricDatePickerDates: [Date] {
+    private var recentDatePickerDates: [Date] {
         SleepHistorySnapshot.datePickerDates(dayCount: BodyHealthTrendRange.recentMonth.dayCount, futureDayCount: 1)
     }
 
@@ -1951,47 +1952,20 @@ private struct BodyHealthMetricDetailView: View {
     }
 
     private var sleepDatePicker: some View {
-        ScrollViewReader { proxy in
-            ZStack {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(sleepDatePickerDates, id: \.self) { date in
-                            sleepDateTile(for: date)
-                                .id(date)
-                        }
-                    }
-                    .padding(.horizontal, 2)
-                    .padding(.vertical, 1)
-                }
-
-                sleepDateSliderEdgeShade
-                    .allowsHitTesting(false)
-            }
-            .background(sleepDateSliderBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .task(id: sleepDatePickerDates.last) {
-                let calendar = Calendar.bodyGregorian
-                let today = calendar.startOfDay(for: Date())
-                let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? today
-
-                if selectedSleepDate == nil {
-                    selectedSleepDate = today
-                }
-
-                await Task.yield()
-                proxy.scrollTo(tomorrow, anchor: .trailing)
-            }
-        }
-        .frame(maxWidth: .infinity)
+        datePicker(.sleep)
     }
 
     private var metricDatePicker: some View {
+        datePicker(.metric)
+    }
+
+    private func datePicker(_ picker: BodyMetricDetailDatePicker) -> some View {
         ScrollViewReader { proxy in
             ZStack {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(metricDatePickerDates, id: \.self) { date in
-                            metricDateTile(for: date)
+                        ForEach(recentDatePickerDates, id: \.self) { date in
+                            dateTile(for: date, picker: picker)
                                 .id(date)
                         }
                     }
@@ -2004,14 +1978,12 @@ private struct BodyHealthMetricDetailView: View {
             }
             .background(sleepDateSliderBackground)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .task(id: metricDatePickerDates.last) {
+            .task(id: recentDatePickerDates.last) {
                 let calendar = Calendar.bodyGregorian
                 let today = calendar.startOfDay(for: Date())
                 let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? today
 
-                if selectedMetricDate == nil {
-                    selectedMetricDate = today
-                }
+                setInitialDateIfNeeded(today, for: picker)
 
                 await Task.yield()
                 proxy.scrollTo(tomorrow, anchor: .trailing)
@@ -2048,11 +2020,11 @@ private struct BodyHealthMetricDetailView: View {
         .bodyCardBackground()
     }
 
-    private func sleepDateTile(for date: Date) -> some View {
+    private func dateTile(for date: Date, picker: BodyMetricDetailDatePicker) -> some View {
         let calendar = Calendar.bodyGregorian
         let dayStart = calendar.startOfDay(for: date)
         let today = calendar.startOfDay(for: Date())
-        let isSelected = calendar.isDate(dayStart, inSameDayAs: selectedSleepDay)
+        let isSelected = calendar.isDate(dayStart, inSameDayAs: selectedDay(for: picker))
         let isFuture = dayStart > today
 
         return Button {
@@ -2060,7 +2032,7 @@ private struct BodyHealthMetricDetailView: View {
                 return
             }
 
-            selectedSleepDate = dayStart
+            selectDate(dayStart, for: picker)
         } label: {
             VStack(spacing: 6) {
                 Text(dayStart.formatted(.dateTime.weekday(.abbreviated)))
@@ -2097,53 +2069,35 @@ private struct BodyHealthMetricDetailView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private func metricDateTile(for date: Date) -> some View {
-        let calendar = Calendar.bodyGregorian
-        let dayStart = calendar.startOfDay(for: date)
-        let today = calendar.startOfDay(for: Date())
-        let isSelected = calendar.isDate(dayStart, inSameDayAs: selectedMetricDay)
-        let isFuture = dayStart > today
-
-        return Button {
-            guard !isFuture else {
-                return
-            }
-
-            selectedMetricDate = dayStart
-        } label: {
-            VStack(spacing: 6) {
-                Text(dayStart.formatted(.dateTime.weekday(.abbreviated)))
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.74)
-
-                Text(dayStart.formatted(.dateTime.day()))
-                    .font(.system(size: 27, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-            }
-            .foregroundColor(isFuture ? Color.white.opacity(0.34) : .white)
-            .frame(width: 58, height: 74)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isFuture ? sleepDateTileBackground.opacity(0.62) : sleepDateTileBackground)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(
-                        isSelected ? dateSliderSelectionColor : Color.white.opacity(isFuture ? 0.08 : 0.16),
-                        lineWidth: isSelected ? 2.5 : 1
-                    )
-            )
-            .shadow(color: Color.black.opacity(0.08), radius: 5, x: 0, y: 2)
-            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .animation(.easeInOut(duration: 0.16), value: isSelected)
+    private func selectedDay(for picker: BodyMetricDetailDatePicker) -> Date {
+        switch picker {
+        case .sleep:
+            return selectedSleepDay
+        case .metric:
+            return selectedMetricDay
         }
-        .buttonStyle(.plain)
-        .disabled(isFuture)
-        .accessibilityLabel(dayStart.formatted(.dateTime.weekday(.wide).month(.wide).day()))
-        .accessibilityHint(isFuture ? "Future date is not selectable" : "")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func selectDate(_ date: Date, for picker: BodyMetricDetailDatePicker) {
+        switch picker {
+        case .sleep:
+            selectedSleepDate = date
+        case .metric:
+            selectedMetricDate = date
+        }
+    }
+
+    private func setInitialDateIfNeeded(_ date: Date, for picker: BodyMetricDetailDatePicker) {
+        switch picker {
+        case .sleep:
+            if selectedSleepDate == nil {
+                selectedSleepDate = date
+            }
+        case .metric:
+            if selectedMetricDate == nil {
+                selectedMetricDate = date
+            }
+        }
     }
 
     private var sleepDateSliderEdgeShade: some View {
@@ -4196,7 +4150,7 @@ private struct BodySleepStageChart: View {
     }
 
     private func axisValues(strideHours: Int, minimumCount: Int) -> [Date] {
-        let calendar = Calendar.current
+        let calendar = Calendar.bodyGregorian
         let lowerBound = chartXDomain.lowerBound
         let upperBound = chartXDomain.upperBound
         var components = calendar.dateComponents([.year, .month, .day, .hour], from: lowerBound)
@@ -5157,22 +5111,12 @@ private struct BodyHealthNoticeBanner: View {
 
 private struct BodyHealthMetricCard: View {
     struct Model: Identifiable {
-        struct AccessoryMetric: Identifiable {
-            let title: String
-            let value: String
-
-            var id: String {
-                title
-            }
-        }
-
         let kind: HealthMetricKind
         let title: String
         let value: String
         let unit: String
         let symbolName: String
         let symbolColor: Color
-        let accessoryMetrics: [AccessoryMetric]
         let prominentMetrics: [BodyMetricDisplayValue]
         let chartPreviewStyle: BodyHomeMetricCardPreview.Style
         let chartPreview: HealthTrendSeries?
@@ -5184,7 +5128,6 @@ private struct BodyHealthMetricCard: View {
             unit: String,
             symbolName: String,
             symbolColor: Color,
-            accessoryMetrics: [AccessoryMetric] = [],
             prominentMetrics: [BodyMetricDisplayValue] = [],
             chartPreviewStyle: BodyHomeMetricCardPreview.Style = .line,
             chartPreview: HealthTrendSeries? = nil
@@ -5195,7 +5138,6 @@ private struct BodyHealthMetricCard: View {
             self.unit = unit
             self.symbolName = symbolName
             self.symbolColor = symbolColor
-            self.accessoryMetrics = accessoryMetrics
             self.prominentMetrics = prominentMetrics
             self.chartPreviewStyle = chartPreviewStyle
             self.chartPreview = chartPreview
@@ -5211,8 +5153,8 @@ private struct BodyHealthMetricCard: View {
     var body: some View {
         cardContent
             .padding(.horizontal, 16)
-            .padding(.top, metric.accessoryMetrics.isEmpty ? 18 : 15)
-            .padding(.bottom, metric.accessoryMetrics.isEmpty ? 10 : 9)
+            .padding(.top, 18)
+            .padding(.bottom, 10)
             .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
             .bodyCardBackground(cornerRadius: 28)
     }
@@ -5221,10 +5163,8 @@ private struct BodyHealthMetricCard: View {
     private var cardContent: some View {
         if !metric.prominentMetrics.isEmpty {
             prominentContent
-        } else if metric.accessoryMetrics.isEmpty {
-            regularContent
         } else {
-            accessoryContent
+            regularContent
         }
     }
 
@@ -5235,20 +5175,6 @@ private struct BodyHealthMetricCard: View {
 
                 Spacer(minLength: 0)
 
-                valueRow
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .layoutPriority(1)
-
-            visualStack
-        }
-    }
-
-    private var accessoryContent: some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            VStack(alignment: .leading, spacing: 6) {
-                titleLabel
-                accessoryMetricStrip
                 valueRow
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -5308,28 +5234,7 @@ private struct BodyHealthMetricCard: View {
                 .accessibilityHidden(true)
         }
         .frame(width: BodyHomeMetricCardPreview.barPreviewWidth, alignment: .bottomTrailing)
-        .padding(.bottom, metric.accessoryMetrics.isEmpty ? 4 : 3)
-    }
-
-    private var accessoryMetricStrip: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            ForEach(metric.accessoryMetrics) { accessory in
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text(accessory.title)
-                        .font(.system(size: 9, weight: .bold, design: .rounded))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-
-                    Text(accessory.value)
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 4)
     }
 
     private var valueRow: some View {

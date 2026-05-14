@@ -8,7 +8,7 @@ Body is a privacy-focused iOS health visualization app built with SwiftUI. It tu
 
 The app shell follows Coin's simple tab structure: Summary handles health cards and recent trends, Workouts provides searchable workout history plus monthly workout visualizations, and Settings handles appearance and app details.
 
-Current app version: **0.3.3 (build 1)**
+Current app version: **0.3.3 (build 2)**
 
 ## Current Scope
 
@@ -20,7 +20,7 @@ Current app version: **0.3.3 (build 1)**
 - **Apple Health sync** - The app requests read-only access to workouts, activity rings, sleep, heart, body measurement, energy, daylight, steps, exercise-minute, and wrist-temperature data; workout summaries are also written for widgets through an App Group.
 - **Summary health cards** - Summary shows a two-card-wide Activity Rings summary above Exercise Minutes, Wrist Temperature, Time In Daylight, Steps, Sleep, Basics, resting heart rate, HRV, blood oxygen, respiratory rate, active energy, and resting energy cards. Each small card includes a recent four-day preview chart, using bars for bar-chart detail pages and lines for line-chart detail pages.
 - **Activity Rings completion** - The Summary Activity Rings card mirrors the monthly rings view by showing a scaled gold star when all three rings are complete for today.
-- **Health detail ranges** - Detail screens open Week charts by default and include Week, Month, 6 Months, and Year range buttons. Week and Month line charts use colored lines and colored hollow point markers, while 6 Months and Year use cleaner point-free lines with the Year stroke slightly thinner than 6 Months.
+- **Health detail ranges** - Detail screens open Week charts by default and include Week, Month, 6 Months, and Year range buttons. Line charts use colored lines and hollow point markers across all ranges, with Month, 6 Months, and Year capped to reduce visual noise. Long-range charts aggregate nearby days before rendering.
 - **Basics detail** - Basics shows equal-weight current body fat and weight values, then opens a timeframe-aware Difference Range card for Body Fat, Weight, and BMI above the dual-axis Weight and Body Fat chart and separate BMI chart.
 - **Sleep detail** - Sleep details show today's sleep score, today's sleep-stage timeline, an Apple-style high/typical/low Sleep Vitals chart with sleep duration as the fifth metric, and the range trend chart at the bottom. The sleep score sheet opens at a height that shows the full scoring breakdown without pulling it to full screen.
 - **Metric About cards** - Every Summary detail page includes an About card explaining the metric and its interpretation.

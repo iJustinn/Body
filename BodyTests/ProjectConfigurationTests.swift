@@ -202,6 +202,90 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
+    func testVersionDocumentationAndSettingsFallbackMatchBuildTwo() throws {
+        let readme = try text(at: "README.md")
+        let versionHistory = try text(at: "VersionHistory.md")
+        let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
+
+        XCTAssertTrue(readme.contains("Current app version: **0.3.3 (build 2)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.3.3 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("range-aware chart aggregation"))
+        XCTAssertFalse(readme.contains("Current app version: **0.3.3 (build 1)**"))
+        XCTAssertFalse(settingsSource.contains(#"?? "1""#))
+        XCTAssertGreaterThanOrEqual(settingsSource.occurrenceCount(of: #"?? "Unknown""#), 4)
+    }
+
+    func testHealthKitUsageDescriptionListsRequestedHealthCategories() throws {
+        let project = try text(at: "body.xcodeproj/project.pbxproj")
+        let usageDescription = "Body reads workouts, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, wrist temperature, daylight, and steps from Apple Health to power your dashboard, charts, and widgets."
+
+        XCTAssertEqual(project.occurrenceCount(of: usageDescription), 2)
+        XCTAssertFalse(project.contains("Body reads workout, sleep, heart, and body measurement data"))
+    }
+
+    func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
+        let testPlan = try text(at: "TestPlan.md")
+
+        XCTAssertTrue(testPlan.contains("branch `codex/body-v0.3.3`"))
+        XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.0`"))
+        XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))
+        XCTAssertTrue(testPlan.contains("Body Pro entry navigation"))
+        XCTAssertTrue(testPlan.contains("Body Pro icon flip"))
+        XCTAssertTrue(testPlan.contains("version-card unlock"))
+        XCTAssertTrue(testPlan.contains("creator-surprise icon sheet"))
+    }
+
+    func testWorkoutsMonthLoadUsesPendingBannerInsteadOfEmptyPlaceholder() throws {
+        let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
+
+        XCTAssertTrue(workoutsSource.contains("@State private var pendingMonthSelection: BodyMonthYear?"))
+        XCTAssertTrue(workoutsSource.contains("if let pendingMonthSelection {"))
+        XCTAssertTrue(workoutsSource.contains("BodyWorkoutMonthLoadingBanner(monthYear: pendingMonthSelection)"))
+        XCTAssertTrue(workoutsSource.contains("pendingMonthSelection = monthYear"))
+        XCTAssertTrue(workoutsSource.contains("let didLoad = await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)"))
+        XCTAssertTrue(workoutsSource.contains("guard pendingMonthSelection == monthYear else"))
+        XCTAssertTrue(workoutsSource.contains("if didLoad {"))
+        XCTAssertTrue(workoutsSource.contains("applyMonthSelection(monthYear)"))
+        XCTAssertTrue(workoutsSource.contains("return false"))
+    }
+
+    func testDeadChartsViewAndHealthCardAccessoryBranchAreRemoved() throws {
+        let oldChartsViewURL = projectRoot.appendingPathComponent("Body/Views/BodyChartsView.swift")
+        let chartsSource = try text(at: "Body/Views/BodyWorkoutListSheet.swift")
+        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldChartsViewURL.path))
+        XCTAssertFalse(chartsSource.contains("struct BodyChartsView"))
+        XCTAssertFalse(chartsSource.contains("BodyChartsScrollTransitionShade"))
+        XCTAssertFalse(chartsSource.contains("BodyChartsLoadingBanner"))
+        XCTAssertFalse(homeSource.contains("AccessoryMetric"))
+        XCTAssertFalse(homeSource.contains("accessoryMetrics"))
+        XCTAssertFalse(homeSource.contains("accessoryContent"))
+        XCTAssertFalse(homeSource.contains("accessoryMetricStrip"))
+    }
+
+    func testSleepAndMetricDayPickersShareDateTileHelper() throws {
+        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertTrue(homeSource.contains("private var recentDatePickerDates: [Date]"))
+        XCTAssertTrue(homeSource.contains("private func datePicker("))
+        XCTAssertTrue(homeSource.contains("private func dateTile("))
+        XCTAssertFalse(homeSource.contains("private var sleepDatePickerDates"))
+        XCTAssertFalse(homeSource.contains("private var metricDatePickerDates"))
+        XCTAssertFalse(homeSource.contains("private func sleepDateTile"))
+        XCTAssertFalse(homeSource.contains("private func metricDateTile"))
+    }
+
+    func testProjectDateMathUsesBodyGregorianForSleepAxisAndWidgetTimeline() throws {
+        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+        let widgetSource = try text(at: "BodyWidgetExtension/WorkoutCalendarWidget.swift")
+
+        XCTAssertFalse(homeSource.contains("let calendar = Calendar.current"))
+        XCTAssertFalse(widgetSource.contains("Calendar.current.date(byAdding: .minute"))
+        XCTAssertTrue(homeSource.contains("let calendar = Calendar.bodyGregorian"))
+        XCTAssertTrue(widgetSource.contains("Calendar.bodyGregorian.date(byAdding: .minute"))
+    }
+
     func testAppIconAssetsIncludePrimaryAndAlternateOptions() throws {
         let iconPaths = [
             "Body/Assets.xcassets/AppIcon.appiconset/AppIcon.png",

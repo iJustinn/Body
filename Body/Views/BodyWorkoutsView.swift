@@ -10,6 +10,7 @@ struct BodyWorkoutsView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var selectedMonth = Calendar.bodyGregorian.component(.month, from: Date())
     @State private var selectedYear = Calendar.bodyGregorian.component(.year, from: Date())
+    @State private var pendingMonthSelection: BodyMonthYear?
     @State private var searchText = ""
     @State private var showingSortSheet = false
     @State private var showingFilterSheet = false
@@ -35,6 +36,12 @@ struct BodyWorkoutsView: View {
                     )
                     .padding(.horizontal)
                     .padding(.top, 8)
+
+                    if let pendingMonthSelection {
+                        BodyWorkoutMonthLoadingBanner(monthYear: pendingMonthSelection)
+                            .padding(.horizontal)
+                            .padding(.top, 8)
+                    }
 
                     searchAndControlsRow
                         .padding(.horizontal)
@@ -355,18 +362,33 @@ struct BodyWorkoutsView: View {
             return true
         }
 
-        selectedMonth = monthYear.month
-        selectedYear = monthYear.year
-
-        guard !workoutStore.hasLoadedSnapshot(month: monthYear.month, year: monthYear.year) else {
+        if workoutStore.hasLoadedSnapshot(month: monthYear.month, year: monthYear.year) {
+            applyMonthSelection(monthYear)
             return true
         }
 
+        pendingMonthSelection = monthYear
         Task {
-            _ = await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)
+            let didLoad = await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)
+            await MainActor.run {
+                guard pendingMonthSelection == monthYear else {
+                    return
+                }
+
+                if didLoad {
+                    applyMonthSelection(monthYear)
+                }
+
+                pendingMonthSelection = nil
+            }
         }
 
-        return true
+        return false
+    }
+
+    private func applyMonthSelection(_ monthYear: BodyMonthYear) {
+        selectedMonth = monthYear.month
+        selectedYear = monthYear.year
     }
 
     private func sorted(workouts: [WorkoutSummary]) -> [WorkoutSummary] {
@@ -423,6 +445,28 @@ struct BodyWorkoutsView: View {
                 }
             }
         }
+    }
+}
+
+private struct BodyWorkoutMonthLoadingBanner: View {
+    let monthYear: BodyMonthYear
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+
+            Text("Loading \(monthYear.displayName)")
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
