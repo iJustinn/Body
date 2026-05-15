@@ -1058,6 +1058,13 @@ final class HealthKitWorkoutStore: ObservableObject {
                 calendar: calendar
             )
         }
+        async let heartRateVariabilityRanges = fetchIfPermitted(.heart, default: HealthTrendRangeSeries.empty) {
+            await fetchDailyQuantityRangeSeries(
+                for: .heartRateVariabilitySDNN,
+                unit: .secondUnit(with: .milli),
+                calendar: calendar
+            )
+        }
         async let respiratoryRate = fetchIfPermitted(.respiratory, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .respiratoryRate,
@@ -1066,11 +1073,26 @@ final class HealthKitWorkoutStore: ObservableObject {
                 calendar: calendar
             )
         }
+        async let respiratoryRateRanges = fetchIfPermitted(.respiratory, default: HealthTrendRangeSeries.empty) {
+            await fetchDailyQuantityRangeSeries(
+                for: .respiratoryRate,
+                unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar
+            )
+        }
         async let oxygenSaturation = fetchIfPermitted(.bloodOxygen, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .oxygenSaturation,
                 unit: .percent(),
                 aggregation: .average,
+                calendar: calendar,
+                valueTransform: Self.normalizedPercentDisplayValue
+            )
+        }
+        async let oxygenSaturationRanges = fetchIfPermitted(.bloodOxygen, default: HealthTrendRangeSeries.empty) {
+            await fetchDailyQuantityRangeSeries(
+                for: .oxygenSaturation,
+                unit: .percent(),
                 calendar: calendar,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
@@ -1175,8 +1197,11 @@ final class HealthKitWorkoutStore: ObservableObject {
             bodyMass: bodyMass,
             bodyFatPercentage: bodyFatPercentage,
             heartRateVariability: heartRateVariability,
+            heartRateVariabilityRanges: heartRateVariabilityRanges,
             respiratoryRate: respiratoryRate,
+            respiratoryRateRanges: respiratoryRateRanges,
             oxygenSaturation: oxygenSaturation,
+            oxygenSaturationRanges: oxygenSaturationRanges,
             bodyMassIndex: bodyMassIndex,
             activeEnergy: activeEnergy,
             restingEnergy: restingEnergy,

@@ -1303,8 +1303,11 @@ struct HealthTrendSnapshot: Codable, Equatable {
     var bodyMass: HealthTrendSeries
     var bodyFatPercentage: HealthTrendSeries
     var heartRateVariability: HealthTrendSeries
+    var heartRateVariabilityRanges: HealthTrendRangeSeries
     var respiratoryRate: HealthTrendSeries
+    var respiratoryRateRanges: HealthTrendRangeSeries
     var oxygenSaturation: HealthTrendSeries
+    var oxygenSaturationRanges: HealthTrendRangeSeries
     var bodyMassIndex: HealthTrendSeries
     var activeEnergy: HealthTrendSeries
     var restingEnergy: HealthTrendSeries
@@ -1328,8 +1331,11 @@ struct HealthTrendSnapshot: Codable, Equatable {
         bodyMass: .empty,
         bodyFatPercentage: .empty,
         heartRateVariability: .empty,
+        heartRateVariabilityRanges: .empty,
         respiratoryRate: .empty,
+        respiratoryRateRanges: .empty,
         oxygenSaturation: .empty,
+        oxygenSaturationRanges: .empty,
         bodyMassIndex: .empty,
         activeEnergy: .empty,
         restingEnergy: .empty,
@@ -1354,8 +1360,11 @@ struct HealthTrendSnapshot: Codable, Equatable {
         bodyMass: HealthTrendSeries,
         bodyFatPercentage: HealthTrendSeries,
         heartRateVariability: HealthTrendSeries,
+        heartRateVariabilityRanges: HealthTrendRangeSeries = .empty,
         respiratoryRate: HealthTrendSeries,
+        respiratoryRateRanges: HealthTrendRangeSeries = .empty,
         oxygenSaturation: HealthTrendSeries,
+        oxygenSaturationRanges: HealthTrendRangeSeries = .empty,
         bodyMassIndex: HealthTrendSeries,
         activeEnergy: HealthTrendSeries,
         restingEnergy: HealthTrendSeries,
@@ -1378,8 +1387,11 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.bodyMass = bodyMass
         self.bodyFatPercentage = bodyFatPercentage
         self.heartRateVariability = heartRateVariability
+        self.heartRateVariabilityRanges = heartRateVariabilityRanges
         self.respiratoryRate = respiratoryRate
+        self.respiratoryRateRanges = respiratoryRateRanges
         self.oxygenSaturation = oxygenSaturation
+        self.oxygenSaturationRanges = oxygenSaturationRanges
         self.bodyMassIndex = bodyMassIndex
         self.activeEnergy = activeEnergy
         self.restingEnergy = restingEnergy
@@ -1404,8 +1416,11 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case bodyMass
         case bodyFatPercentage
         case heartRateVariability
+        case heartRateVariabilityRanges
         case respiratoryRate
+        case respiratoryRateRanges
         case oxygenSaturation
+        case oxygenSaturationRanges
         case bodyMassIndex
         case activeEnergy
         case restingEnergy
@@ -1431,8 +1446,20 @@ struct HealthTrendSnapshot: Codable, Equatable {
         bodyMass = try container.decode(HealthTrendSeries.self, forKey: .bodyMass)
         bodyFatPercentage = try container.decode(HealthTrendSeries.self, forKey: .bodyFatPercentage)
         heartRateVariability = try container.decode(HealthTrendSeries.self, forKey: .heartRateVariability)
+        heartRateVariabilityRanges = try container.decodeIfPresent(
+            HealthTrendRangeSeries.self,
+            forKey: .heartRateVariabilityRanges
+        ) ?? .empty
         respiratoryRate = try container.decode(HealthTrendSeries.self, forKey: .respiratoryRate)
+        respiratoryRateRanges = try container.decodeIfPresent(
+            HealthTrendRangeSeries.self,
+            forKey: .respiratoryRateRanges
+        ) ?? .empty
         oxygenSaturation = try container.decode(HealthTrendSeries.self, forKey: .oxygenSaturation)
+        oxygenSaturationRanges = try container.decodeIfPresent(
+            HealthTrendRangeSeries.self,
+            forKey: .oxygenSaturationRanges
+        ) ?? .empty
         bodyMassIndex = try container.decode(HealthTrendSeries.self, forKey: .bodyMassIndex)
         activeEnergy = try container.decode(HealthTrendSeries.self, forKey: .activeEnergy)
         restingEnergy = try container.decode(HealthTrendSeries.self, forKey: .restingEnergy)
@@ -1507,14 +1534,17 @@ struct HealthTrendSnapshot: Codable, Equatable {
         switch kind {
         case .heartRate:
             return heartRateRanges
+        case .heartRateVariability:
+            return heartRateVariabilityRanges
+        case .respiratoryRate:
+            return respiratoryRateRanges
+        case .oxygenSaturation:
+            return oxygenSaturationRanges
         case .sleep,
              .basics,
              .restingHeartRate,
              .bodyMass,
              .bodyFatPercentage,
-             .heartRateVariability,
-             .respiratoryRate,
-             .oxygenSaturation,
              .bodyMassIndex,
              .activeEnergy,
              .restingEnergy,
@@ -1567,6 +1597,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             filtered.heartRateRanges = .empty
             filtered.restingHeartRate = .empty
             filtered.heartRateVariability = .empty
+            filtered.heartRateVariabilityRanges = .empty
             filtered.heartRateDaySamples = .empty
             filtered.restingHeartRateDaySamples = .empty
             filtered.heartRateVariabilityDaySamples = .empty
@@ -1578,10 +1609,12 @@ struct HealthTrendSnapshot: Codable, Equatable {
         }
         if !selection.includes(.bloodOxygen) {
             filtered.oxygenSaturation = .empty
+            filtered.oxygenSaturationRanges = .empty
             filtered.oxygenSaturationDaySamples = .empty
         }
         if !selection.includes(.respiratory) {
             filtered.respiratoryRate = .empty
+            filtered.respiratoryRateRanges = .empty
             filtered.respiratoryRateDaySamples = .empty
         }
         if !selection.includes(.energy) {
@@ -1670,6 +1703,23 @@ struct BasicsTrendSummary: Equatable {
 
         return nearestDate(to: selectedDate)
     }
+}
+
+private func bodyTrendAggregationBuckets<Point>(
+    from points: [Point],
+    aggregationDayCount: Int
+) -> [ArraySlice<Point>] {
+    var ranges = stride(from: 0, to: points.count, by: aggregationDayCount).map { startIndex in
+        startIndex..<min(startIndex + aggregationDayCount, points.count)
+    }
+
+    if let finalRange = ranges.last,
+       finalRange.count < aggregationDayCount,
+       ranges.count > 1 {
+        ranges.removeLast()
+    }
+
+    return ranges.map { points[$0] }
 }
 
 struct HealthTrendRangeSeries: Codable, Equatable {
@@ -1761,9 +1811,10 @@ struct HealthTrendRangeSeries: Codable, Equatable {
             return dailyPoints
         }
 
-        return stride(from: 0, to: dailyPoints.count, by: aggregationDayCount).compactMap { startIndex in
-            let endIndex = min(startIndex + aggregationDayCount, dailyPoints.count)
-            let bucket = dailyPoints[startIndex..<endIndex]
+        return bodyTrendAggregationBuckets(
+            from: dailyPoints,
+            aggregationDayCount: aggregationDayCount
+        ).compactMap { bucket in
             guard let bucketStartDate = bucket.first?.date,
                   let bucketEndDate = bucket.last?.date else {
                 return nil
@@ -1915,9 +1966,10 @@ struct HealthTrendSeries: Codable, Equatable {
             return dailyPoints
         }
 
-        return stride(from: 0, to: dailyPoints.count, by: aggregationDayCount).compactMap { startIndex in
-            let endIndex = min(startIndex + aggregationDayCount, dailyPoints.count)
-            let bucket = dailyPoints[startIndex..<endIndex]
+        return bodyTrendAggregationBuckets(
+            from: dailyPoints,
+            aggregationDayCount: aggregationDayCount
+        ).compactMap { bucket in
             guard let bucketStartDate = bucket.first?.date,
                   let bucketEndDate = bucket.last?.date else {
                 return nil

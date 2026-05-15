@@ -31,6 +31,36 @@ private func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: Body
     return startDate.addingTimeInterval(-bodyHealthDetailChartLeadingDatePadding)...endDate.addingTimeInterval(trailingDatePadding)
 }
 
+enum BodyHealthMetricRangeYDomain {
+    static func bloodOxygen(from values: [Double]) -> ClosedRange<Double> {
+        fiveStepDomain(from: values, defaultDomain: 90...100, minimumUpperBound: 100)
+    }
+
+    static func respiratoryRate(from values: [Double]) -> ClosedRange<Double> {
+        fiveStepDomain(from: values, defaultDomain: 10...25)
+    }
+
+    private static func fiveStepDomain(
+        from values: [Double],
+        defaultDomain: ClosedRange<Double>,
+        minimumUpperBound: Double? = nil
+    ) -> ClosedRange<Double> {
+        let finiteValues = values.filter(\.isFinite)
+        guard let minimum = finiteValues.min(), let maximum = finiteValues.max() else {
+            return defaultDomain
+        }
+
+        let lower = max(0, ceil(minimum / 5) * 5 - 5)
+        let roundedUpper = ceil(maximum / 5) * 5
+        let upper = minimumUpperBound.map { max(roundedUpper, $0) } ?? roundedUpper
+        guard lower < upper else {
+            return lower...max(upper, lower + 5)
+        }
+
+        return lower...upper
+    }
+}
+
 private func bodyChartSelectionDateText(for point: HealthTrendCalendarPoint) -> String? {
     bodyChartSelectionDateText(startDate: point.startDate, endDate: point.endDate)
 }
@@ -262,7 +292,8 @@ struct BodyHomeView: View {
                 decimals: 0,
                 symbolName: "drop.fill",
                 symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
-                chartPreview: trends.series(for: .oxygenSaturation)
+                chartPreviewStyle: .range,
+                chartRangePreview: trends.rangeSeries(for: .oxygenSaturation)
             ),
             metric(
                 kind: .respiratoryRate,
@@ -272,7 +303,8 @@ struct BodyHomeView: View {
                 decimals: 0,
                 symbolName: "lungs.fill",
                 symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
-                chartPreview: trends.series(for: .respiratoryRate)
+                chartPreviewStyle: .range,
+                chartRangePreview: trends.rangeSeries(for: .respiratoryRate)
             ),
             metric(
                 kind: .activeEnergy,
@@ -497,7 +529,9 @@ struct BodyHomeView: View {
         symbolName: String,
         symbolColor: Color,
         chartStyle: BodyHealthMetricChartStyle = .line,
-        chartPreview: HealthTrendSeries? = nil
+        chartPreviewStyle: BodyHomeMetricCardPreview.Style? = nil,
+        chartPreview: HealthTrendSeries? = nil,
+        chartRangePreview: HealthTrendRangeSeries? = nil
     ) -> BodyHealthMetricCard.Model {
         BodyHealthMetricCard.Model(
             kind: kind,
@@ -506,8 +540,9 @@ struct BodyHomeView: View {
             unit: unit,
             symbolName: symbolName,
             symbolColor: symbolColor,
-            chartPreviewStyle: BodyHomeMetricCardPreview.Style.matching(chartStyle: chartStyle),
-            chartPreview: chartPreview
+            chartPreviewStyle: chartPreviewStyle ?? BodyHomeMetricCardPreview.Style.matching(chartStyle: chartStyle),
+            chartPreview: chartPreview,
+            chartRangePreview: chartRangePreview
         )
     }
 
@@ -936,7 +971,8 @@ struct BodyHomeView: View {
                 unit: "ms",
                 decimals: 1,
                 symbolName: "waveform.path.ecg",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45)
+                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
+                sleepHistory: trends.sleepHistory
             )
         case .oxygenSaturation:
             return metricDetail(
@@ -1003,7 +1039,8 @@ struct BodyHomeView: View {
         symbolColor: Color,
         chartStyle: BodyHealthMetricChartStyle = .line,
         highlightedRange: BodyHealthMetricTrendHighlightedRange? = nil,
-        highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil
+        highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
+        sleepHistory: SleepHistorySnapshot = .empty
     ) -> BodyHealthMetricDetailModel {
         let suffix = unit.isEmpty ? "" : " " + unit
         return BodyHealthMetricDetailModel(
@@ -1015,11 +1052,13 @@ struct BodyHomeView: View {
             symbolColor: symbolColor,
             series: workoutStore.healthTrends.series(for: kind),
             daySeries: workoutStore.healthTrends.daySeries(for: kind),
+            rangeSeries: workoutStore.healthTrends.rangeSeries(for: kind),
             basicsTrend: nil,
             sleepStageSnapshot: nil,
             sleepScore: nil,
             sleepVitals: nil,
             sleepDuration: nil,
+            sleepHistory: sleepHistory,
             chartStyle: chartStyle,
             highlightedRange: highlightedRange,
             highlightedRangeResolver: highlightedRangeResolver,
@@ -1073,6 +1112,7 @@ enum BodyHomeMetricCardPreview {
     enum Style: Equatable {
         case line
         case bar
+        case range
 
         static func matching(chartStyle: BodyHealthMetricChartStyle) -> Style {
             switch chartStyle {
@@ -1121,6 +1161,45 @@ enum BodyHomeMetricCardPreview {
         }
     }
 
+    static func rangeCalendarPoints(
+        from series: HealthTrendRangeSeries,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> [HealthTrendRangeCalendarPoint] {
+        let bounds = previewDateBounds(for: series, calendar: calendar, date: date)
+        let pointsByDay = Dictionary(grouping: rangePoints(from: series, calendar: calendar, date: date)) {
+            calendar.startOfDay(for: $0.date)
+        }
+
+        return (0..<previewDayCount).compactMap { offset in
+            guard let day = calendar.date(byAdding: .day, value: offset, to: bounds.startDate) else {
+                return nil
+            }
+
+            let point = pointsByDay[day]?.last
+            return HealthTrendRangeCalendarPoint(
+                date: day,
+                lowValue: point?.lowValue.isFinite == true ? point?.lowValue : nil,
+                highValue: point?.highValue.isFinite == true ? point?.highValue : nil,
+                averageValue: point?.averageValue?.isFinite == true ? point?.averageValue : nil
+            )
+        }
+    }
+
+    private static func rangePoints(
+        from series: HealthTrendRangeSeries,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> [HealthTrendRangeDataPoint] {
+        let bounds = previewDateBounds(for: series, calendar: calendar, date: date)
+
+        return series.points
+            .filter { point in
+                point.date >= bounds.startDate && point.date < bounds.endDate
+            }
+            .sorted { $0.date < $1.date }
+    }
+
     private static func previewDateBounds(
         for series: HealthTrendSeries,
         calendar: Calendar,
@@ -1131,6 +1210,27 @@ enum BodyHomeMetricCardPreview {
             ?? date
         let hasCurrentDayValue = series.points.contains { point in
             point.date >= currentDayStart && point.date < nextDayStart && point.value.isFinite
+        }
+        let endDate = hasCurrentDayValue ? nextDayStart : currentDayStart
+        let startDate = calendar.date(byAdding: .day, value: -previewDayCount, to: endDate)
+            ?? currentDayStart
+
+        return (startDate, endDate)
+    }
+
+    private static func previewDateBounds(
+        for series: HealthTrendRangeSeries,
+        calendar: Calendar,
+        date: Date
+    ) -> (startDate: Date, endDate: Date) {
+        let currentDayStart = calendar.startOfDay(for: date)
+        let nextDayStart = calendar.date(byAdding: .day, value: 1, to: currentDayStart)
+            ?? date
+        let hasCurrentDayValue = series.points.contains { point in
+            point.date >= currentDayStart &&
+                point.date < nextDayStart &&
+                point.lowValue.isFinite &&
+                point.highValue.isFinite
         }
         let endDate = hasCurrentDayValue ? nextDayStart : currentDayStart
         let startDate = calendar.date(byAdding: .day, value: -previewDayCount, to: endDate)
@@ -1819,6 +1919,9 @@ private struct BodyHealthMetricDetailView: View {
                     if isBasicsDetail {
                         bodyMassIndexTrendCard
                     }
+                    if model.kind == .wristTemperature {
+                        wristTemperatureBaselineCard
+                    }
                     if supportsMetricDayView {
                         metricDatePicker
                         metricDayChartCard
@@ -2075,8 +2178,8 @@ private struct BodyHealthMetricDetailView: View {
                         weightAverageText: basicsWeightAverageText,
                         bodyFatAverageText: basicsBodyFatAverageText
                     )
-                } else if model.kind == .heartRate, let heartRateRangeHeaderText {
-                    averageHeaderText(heartRateRangeHeaderText, prefix: "Range")
+                } else if usesRangeTrendChart, let metricRangeHeaderText {
+                    averageHeaderText(metricRangeHeaderText, prefix: "Range")
                 } else if let averageTrendText {
                     averageHeaderText(averageTrendText)
                 }
@@ -2094,13 +2197,15 @@ private struct BodyHealthMetricDetailView: View {
                     }
                 )
                 .frame(height: BodyHealthDetailChartLayout.standardHeight)
-            } else if model.kind == .heartRate, let visibleHeartRateRangeSeries {
+            } else if usesRangeTrendChart, let visibleMetricRangeSeries {
                 BodyHeartRateRangeTrendChart(
                     title: model.title,
                     selectedRange: selectedTrendRange,
-                    rangeSeries: visibleHeartRateRangeSeries,
+                    rangeSeries: visibleMetricRangeSeries,
                     symbolColor: model.symbolColor,
-                    valueFormatter: model.valueFormatter
+                    valueFormatter: model.valueFormatter,
+                    showsAverageLineOverlay: model.kind == .heartRate || model.kind == .heartRateVariability,
+                    yDomain: metricRangeYDomain
                 )
                 .frame(height: BodyHealthDetailChartLayout.standardHeight)
             } else {
@@ -2206,6 +2311,24 @@ private struct BodyHealthMetricDetailView: View {
         .bodyCardBackground()
     }
 
+    private var wristTemperatureBaselineCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Variation From Baseline")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+
+            BodyWristTemperatureBaselineChart(
+                series: workoutStore.healthTrends.wristTemperature,
+                selectedRange: selectedTrendRange,
+                symbolColor: model.symbolColor
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground()
+    }
+
     private var sleepDatePicker: some View {
         datePicker(.sleep)
     }
@@ -2282,7 +2405,7 @@ private struct BodyHealthMetricDetailView: View {
     }
 
     private var selectedMetricDayContextIntervals: [BodyHealthMetricDayContextInterval] {
-        guard model.kind == .heartRate else {
+        guard model.kind == .heartRate || model.kind == .heartRateVariability else {
             return []
         }
 
@@ -2706,8 +2829,23 @@ private struct BodyHealthMetricDetailView: View {
         model.basicsTrend?.limited(to: selectedTrendRange)
     }
 
-    private var visibleHeartRateRangeSeries: HealthTrendRangeSeries? {
+    private var visibleMetricRangeSeries: HealthTrendRangeSeries? {
         model.rangeSeries?.limited(to: selectedTrendRange)
+    }
+
+    private var usesRangeTrendChart: Bool {
+        model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .oxygenSaturation || model.kind == .respiratoryRate
+    }
+
+    private var metricRangeYDomain: (([Double]) -> ClosedRange<Double>)? {
+        switch model.kind {
+        case .oxygenSaturation:
+            return BodyHealthMetricRangeYDomain.bloodOxygen
+        case .respiratoryRate:
+            return BodyHealthMetricRangeYDomain.respiratoryRate
+        default:
+            return nil
+        }
     }
 
     private var visibleBodyMassIndexTrend: HealthTrendSeries {
@@ -2762,14 +2900,15 @@ private struct BodyHealthMetricDetailView: View {
         return model.valueFormatter(averageValue)
     }
 
-    private var heartRateRangeHeaderText: String? {
-        guard let range = visibleHeartRateRangeSeries?.valueRange else {
+    private var metricRangeHeaderText: String? {
+        guard let range = visibleMetricRangeSeries?.valueRange else {
             return nil
         }
 
         let lower = BodyValueFormat.numberText(range.lowerBound, decimals: 0)
         let upper = BodyValueFormat.numberText(range.upperBound, decimals: 0)
-        return "\(lower)-\(upper) bpm"
+        let suffix = model.unit.isEmpty ? "" : " \(model.unit)"
+        return "\(lower)-\(upper)\(suffix)"
     }
 
     private var bodyMassIndexAverageText: String? {
@@ -3503,7 +3642,7 @@ private struct BodyHealthMetricDayChart: View {
                     x: .value("Time", bucket.plotDate),
                     y: .value(title, bucket.averageValue)
                 )
-                .interpolationMethod(.catmullRom)
+                .interpolationMethod(.linear)
                 .foregroundStyle(color)
                 .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
 
@@ -3739,7 +3878,7 @@ private struct BodyBasicsBodyMassIndexTrendChart: View {
                         x: .value("Date", point.date, unit: .day),
                         y: .value("BMI", value)
                     )
-                    .interpolationMethod(.catmullRom)
+                    .interpolationMethod(.linear)
                     .foregroundStyle(lineStrokeColor)
                     .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
 
@@ -3896,9 +4035,11 @@ private struct BodyHeartRateRangeTrendChart: View {
     let selectedRange: BodyHealthTrendRange
     let symbolColor: Color
     let valueFormatter: (Double) -> String
+    let showsAverageLineOverlay: Bool
 
     private let rangePoints: [HealthTrendRangeCalendarPoint]
     private let finiteRangePoints: [HealthTrendRangeCalendarPoint]
+    private let latestAveragePointDate: Date?
     private let chartXDomain: ClosedRange<Date>
     private let chartYDomain: ClosedRange<Double>
 
@@ -3911,16 +4052,22 @@ private struct BodyHeartRateRangeTrendChart: View {
         selectedRange: BodyHealthTrendRange,
         rangeSeries: HealthTrendRangeSeries,
         symbolColor: Color,
-        valueFormatter: @escaping (Double) -> String
+        valueFormatter: @escaping (Double) -> String,
+        showsAverageLineOverlay: Bool = false,
+        yDomain: (([Double]) -> ClosedRange<Double>)? = nil
     ) {
         self.title = title
         self.selectedRange = selectedRange
         self.symbolColor = symbolColor
         self.valueFormatter = valueFormatter
+        self.showsAverageLineOverlay = showsAverageLineOverlay
 
         let points = rangeSeries.chartCalendarPoints(to: selectedRange)
         self.rangePoints = points
         self.finiteRangePoints = points.filter(\.hasValue)
+        self.latestAveragePointDate = points.last { point in
+            point.averageValue?.isFinite == true
+        }?.date
         let domainValues = points.flatMap { point -> [Double] in
             guard let low = point.lowValue, let high = point.highValue else {
                 return []
@@ -3928,7 +4075,7 @@ private struct BodyHeartRateRangeTrendChart: View {
 
             return [low, high]
         }
-        self.chartYDomain = Self.computeYDomain(from: domainValues)
+        self.chartYDomain = yDomain?(domainValues) ?? Self.computeYDomain(from: domainValues)
         let domainDates = rangeSeries.calendarPoints(to: selectedRange).map(\.date)
         self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
     }
@@ -3952,10 +4099,12 @@ private struct BodyHeartRateRangeTrendChart: View {
                             yEnd: .value("High \(title)", highValue),
                             width: .fixed(chartBarWidth)
                         )
-                        .foregroundStyle(symbolColor)
+                        .foregroundStyle(rangeBarColor)
                         .cornerRadius(chartBarWidth / 2)
                     }
                 }
+
+                averageLineOverlay
 
                 if let selectedRangePoint,
                    let lowValue = selectedRangePoint.lowValue,
@@ -4027,6 +4176,47 @@ private struct BodyHeartRateRangeTrendChart: View {
         }
     }
 
+    @ChartContentBuilder
+    private var averageLineOverlay: some ChartContent {
+        if showsAverageLineOverlay {
+            ForEach(rangePoints) { point in
+                if let averageValue = point.averageValue, averageValue.isFinite {
+                    LineMark(
+                        x: .value("Date", point.date, unit: .day),
+                        y: .value("Average \(title)", averageValue)
+                    )
+                    .interpolationMethod(.linear)
+                    .foregroundStyle(symbolColor)
+                    .lineStyle(StrokeStyle(lineWidth: BodyLineChartPreviewStyle.lineWidth, lineCap: .round, lineJoin: .round))
+
+                    if selectedRange.showsPointMarks {
+                        if selectedRange.usesPreviewLineChartStyle {
+                            PointMark(
+                                x: .value("Date", point.date, unit: .day),
+                                y: .value("Average \(title)", averageValue)
+                            )
+                            .symbol {
+                                BodyLineChartPreviewPointSymbol(
+                                    tintColor: symbolColor,
+                                    isCurrent: isLatestAveragePoint(point),
+                                    pointDiameter: selectedRange.linePointDiameter,
+                                    currentPointDiameter: selectedRange.lineCurrentPointDiameter
+                                )
+                            }
+                        } else {
+                            PointMark(
+                                x: .value("Date", point.date, unit: .day),
+                                y: .value("Average \(title)", averageValue)
+                            )
+                            .foregroundStyle(symbolColor)
+                            .symbolSize(28)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private var selectedRangePoint: HealthTrendRangeCalendarPoint? {
         guard isSelecting, let selectedDate else {
             return nil
@@ -4035,6 +4225,14 @@ private struct BodyHeartRateRangeTrendChart: View {
         return finiteRangePoints.min { first, second in
             abs(first.date.timeIntervalSince(selectedDate)) < abs(second.date.timeIntervalSince(selectedDate))
         }
+    }
+
+    private var rangeBarColor: Color {
+        showsAverageLineOverlay ? Color.secondary.opacity(0.24) : symbolColor
+    }
+
+    private func isLatestAveragePoint(_ point: HealthTrendRangeCalendarPoint) -> Bool {
+        point.date == latestAveragePointDate
     }
 
     private var chartPressGesture: some Gesture {
@@ -4156,7 +4354,7 @@ private struct BodyHealthMetricTrendChart: View {
                                 x: .value("Date", point.date, unit: .day),
                                 y: .value(title, value)
                             )
-                            .interpolationMethod(.catmullRom)
+                            .interpolationMethod(.linear)
                             .foregroundStyle(lineChartStrokeColor)
                             .lineStyle(StrokeStyle(lineWidth: lineChartStrokeWidth, lineCap: .round, lineJoin: .round))
 
@@ -4384,6 +4582,205 @@ private struct BodyHealthMetricTrendChart: View {
     }
 }
 
+private struct BodyWristTemperatureBaselineChart: View {
+    let selectedRange: BodyHealthTrendRange
+    let symbolColor: Color
+
+    private let baseline: Double
+    private let deviationPoints: [HealthTrendCalendarPoint]
+    private let finiteDeviationPoints: [HealthTrendCalendarPoint]
+    private let latestPointDate: Date?
+    private let chartXDomain: ClosedRange<Date>
+    private let chartYDomain: ClosedRange<Double>
+
+    @State private var selectedDate: Date?
+    @GestureState private var isSelecting = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(series: HealthTrendSeries, selectedRange: BodyHealthTrendRange, symbolColor: Color) {
+        self.selectedRange = selectedRange
+        self.symbolColor = symbolColor
+
+        let points = series.lineChartCalendarPoints(to: selectedRange)
+        let finiteValues = points.compactMap(\.value).filter(\.isFinite)
+        let baselineValue = finiteValues.isEmpty
+            ? 0
+            : finiteValues.reduce(0, +) / Double(finiteValues.count)
+        self.baseline = baselineValue
+
+        let deviations = points.map { point in
+            HealthTrendCalendarPoint(
+                date: point.date,
+                value: point.value.map { $0 - baselineValue },
+                startDate: point.startDate,
+                endDate: point.endDate
+            )
+        }
+        self.deviationPoints = deviations
+        let finiteDeviations = deviations.filter { $0.value?.isFinite == true }
+        self.finiteDeviationPoints = finiteDeviations
+        self.latestPointDate = finiteDeviations.last?.date
+
+        let deviationValues = finiteDeviations.compactMap(\.value)
+        let observedExtreme = deviationValues.map({ abs($0) }).max() ?? 0
+        let halfRange = max(2.0, ceil(observedExtreme + 0.2))
+        self.chartYDomain = -halfRange ... halfRange
+
+        let domainDates = series.calendarPoints(to: selectedRange).map(\.date)
+        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
+    }
+
+    var body: some View {
+        Chart {
+            RuleMark(y: .value("Baseline", 0.0))
+                .foregroundStyle(Color.secondary.opacity(0.55))
+                .lineStyle(StrokeStyle(lineWidth: 1.0))
+
+            ForEach(deviationPoints) { point in
+                if let value = point.value {
+                    LineMark(
+                        x: .value("Date", point.date, unit: .day),
+                        y: .value("Variation", value)
+                    )
+                    .interpolationMethod(.linear)
+                    .foregroundStyle(symbolColor)
+                    .lineStyle(StrokeStyle(lineWidth: BodyLineChartPreviewStyle.lineWidth, lineCap: .round, lineJoin: .round))
+
+                    if selectedRange.showsPointMarks {
+                        PointMark(
+                            x: .value("Date", point.date, unit: .day),
+                            y: .value("Variation", value)
+                        )
+                        .symbol {
+                            BodyLineChartPreviewPointSymbol(
+                                tintColor: symbolColor,
+                                isCurrent: point.date == latestPointDate,
+                                pointDiameter: selectedRange.linePointDiameter,
+                                currentPointDiameter: selectedRange.lineCurrentPointDiameter
+                            )
+                        }
+                    }
+                }
+            }
+
+            if let selectedDeviationPoint, let value = selectedDeviationPoint.value {
+                RuleMark(x: .value("Selected Date", selectedDeviationPoint.date, unit: .day))
+                    .foregroundStyle(Color.secondary.opacity(0.48))
+                    .lineStyle(StrokeStyle(lineWidth: 1.4))
+                    .annotation(
+                        position: .top,
+                        spacing: 8,
+                        overflowResolution: bodyChartSelectionOverflowResolution
+                    ) {
+                        BodyChartSelectionAnnotation(
+                            eyebrow: nil,
+                            values: [
+                                BodyChartSelectionValue(
+                                    title: nil,
+                                    value: selectionText(for: value),
+                                    color: symbolColor
+                                )
+                            ],
+                            date: selectedDeviationPoint.date,
+                            dateText: bodyChartSelectionDateText(for: selectedDeviationPoint)
+                        )
+                    }
+
+                PointMark(
+                    x: .value("Selected Date", selectedDeviationPoint.date, unit: .day),
+                    y: .value("Variation", value)
+                )
+                .foregroundStyle(symbolColor)
+                .symbolSize(82)
+            }
+        }
+        .chartXScale(domain: chartXDomain)
+        .chartYScale(domain: chartYDomain)
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .day, count: selectedRange.axisStrideDayCount)) { value in
+                AxisGridLine()
+                    .foregroundStyle(Color.secondary.opacity(0.18))
+                AxisTick()
+                    .foregroundStyle(Color.secondary.opacity(0.28))
+                AxisValueLabel {
+                    if let date = value.as(Date.self) {
+                        Text(selectedRange.axisLabel(for: date))
+                            .font(.system(.caption2, design: .rounded))
+                            .foregroundStyle(Color.secondary)
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: yAxisValues) { value in
+                AxisGridLine()
+                    .foregroundStyle(Color.secondary.opacity(0.18))
+                AxisTick()
+                    .foregroundStyle(Color.secondary.opacity(0.28))
+                AxisValueLabel {
+                    if let yValue = value.as(Double.self) {
+                        Text(yAxisLabel(for: yValue))
+                            .font(.system(.caption2, design: .rounded))
+                            .foregroundStyle(Color.secondary)
+                    }
+                }
+            }
+        }
+        .chartXSelection(value: $selectedDate)
+        .simultaneousGesture(chartPressGesture)
+        .id("wrist-temperature-baseline-\(selectedRange.rawValue)")
+        .transition(
+            .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
+        )
+        .transaction { transaction in
+            transaction.animation = nil
+        }
+    }
+
+    private var yAxisValues: [Double] {
+        let upper = chartYDomain.upperBound
+        return [-upper, 0, upper]
+    }
+
+    private func yAxisLabel(for value: Double) -> String {
+        if abs(value) < 0.05 {
+            return "Baseline"
+        }
+
+        let magnitude = BodyValueFormat.numberText(abs(value), decimals: 0)
+        return value > 0 ? "+\(magnitude)°C" : "−\(magnitude)°C"
+    }
+
+    private func selectionText(for deviation: Double) -> String {
+        if abs(deviation) < 0.05 {
+            return "Baseline"
+        }
+
+        let magnitude = BodyValueFormat.numberText(abs(deviation), decimals: 1)
+        return deviation > 0 ? "+\(magnitude)°C" : "−\(magnitude)°C"
+    }
+
+    private var selectedDeviationPoint: HealthTrendCalendarPoint? {
+        guard isSelecting, let selectedDate else {
+            return nil
+        }
+
+        return finiteDeviationPoints.min { first, second in
+            abs(first.date.timeIntervalSince(selectedDate)) < abs(second.date.timeIntervalSince(selectedDate))
+        }
+    }
+
+    private var chartPressGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .updating($isSelecting) { _, isSelecting, _ in
+                isSelecting = true
+            }
+            .onEnded { _ in
+                selectedDate = nil
+            }
+    }
+}
+
 private struct BodyBasicsTrendChart: View {
     let selectedRange: BodyHealthTrendRange
     let weightColor: Color
@@ -4470,7 +4867,7 @@ private struct BodyBasicsTrendChart: View {
                         y: .value("Weight", normalized(value, in: weightDomain)),
                         series: .value("Metric", "Weight")
                     )
-                    .interpolationMethod(.catmullRom)
+                    .interpolationMethod(.linear)
                     .foregroundStyle(lineStrokeColor(for: weightColor))
                     .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
 
@@ -4507,7 +4904,7 @@ private struct BodyBasicsTrendChart: View {
                         y: .value("Body Fat", normalized(value, in: bodyFatDomain)),
                         series: .value("Metric", "Body Fat")
                     )
-                    .interpolationMethod(.catmullRom)
+                    .interpolationMethod(.linear)
                     .foregroundStyle(lineStrokeColor(for: bodyFatColor))
                     .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
 
@@ -5301,6 +5698,7 @@ private struct BodyHealthMetricCard: View {
         let prominentMetrics: [BodyMetricDisplayValue]
         let chartPreviewStyle: BodyHomeMetricCardPreview.Style
         let chartPreview: HealthTrendSeries?
+        let chartRangePreview: HealthTrendRangeSeries?
 
         init(
             kind: HealthMetricKind,
@@ -5311,7 +5709,8 @@ private struct BodyHealthMetricCard: View {
             symbolColor: Color,
             prominentMetrics: [BodyMetricDisplayValue] = [],
             chartPreviewStyle: BodyHomeMetricCardPreview.Style = .line,
-            chartPreview: HealthTrendSeries? = nil
+            chartPreview: HealthTrendSeries? = nil,
+            chartRangePreview: HealthTrendRangeSeries? = nil
         ) {
             self.kind = kind
             self.title = title
@@ -5322,6 +5721,7 @@ private struct BodyHealthMetricCard: View {
             self.prominentMetrics = prominentMetrics
             self.chartPreviewStyle = chartPreviewStyle
             self.chartPreview = chartPreview
+            self.chartRangePreview = chartRangePreview
         }
 
         var id: String {
@@ -5396,9 +5796,10 @@ private struct BodyHealthMetricCard: View {
 
     private var visualStack: some View {
         VStack(alignment: .trailing, spacing: 20) {
-            if let chartPreview = metric.chartPreview {
+            if metric.chartPreview != nil || metric.chartRangePreview != nil {
                 BodyHealthMetricCardTrendPreview(
-                    series: chartPreview,
+                    series: metric.chartPreview,
+                    rangeSeries: metric.chartRangePreview,
                     tintColor: metric.symbolColor,
                     style: metric.chartPreviewStyle
                 )
@@ -5448,7 +5849,8 @@ private struct BodyHealthMetricCard: View {
 }
 
 private struct BodyHealthMetricCardTrendPreview: View {
-    let series: HealthTrendSeries
+    let series: HealthTrendSeries?
+    let rangeSeries: HealthTrendRangeSeries?
     let tintColor: Color
     let style: BodyHomeMetricCardPreview.Style
 
@@ -5467,7 +5869,19 @@ private struct BodyHealthMetricCardTrendPreview: View {
     }
 
     private var calendarPoints: [HealthTrendCalendarPoint] {
-        BodyHomeMetricCardPreview.calendarPoints(from: series)
+        guard let series else {
+            return []
+        }
+
+        return BodyHomeMetricCardPreview.calendarPoints(from: series)
+    }
+
+    private var rangeCalendarPoints: [HealthTrendRangeCalendarPoint] {
+        guard let rangeSeries else {
+            return []
+        }
+
+        return BodyHomeMetricCardPreview.rangeCalendarPoints(from: rangeSeries)
     }
 
     private var values: [Double] {
@@ -5484,6 +5898,25 @@ private struct BodyHealthMetricCardTrendPreview: View {
         }
     }
 
+    private var rangeValues: [Double] {
+        rangeCalendarPoints.flatMap { point -> [Double] in
+            guard let lowValue = point.lowValue,
+                  let highValue = point.highValue,
+                  lowValue.isFinite,
+                  highValue.isFinite else {
+                return []
+            }
+
+            return [lowValue, highValue]
+        }
+    }
+
+    private var lastRangeValueIndex: Int? {
+        rangeCalendarPoints.lastIndex { point in
+            point.hasValue
+        }
+    }
+
     var body: some View {
         Group {
             switch style {
@@ -5491,6 +5924,8 @@ private struct BodyHealthMetricCardTrendPreview: View {
                 linePreview
             case .bar:
                 barPreview
+            case .range:
+                rangePreview
             }
         }
         .frame(width: previewWidth, height: 42, alignment: .bottomTrailing)
@@ -5502,6 +5937,8 @@ private struct BodyHealthMetricCardTrendPreview: View {
         case .line:
             return BodyHomeMetricCardPreview.linePreviewWidth
         case .bar:
+            return BodyHomeMetricCardPreview.barPreviewWidth
+        case .range:
             return BodyHomeMetricCardPreview.barPreviewWidth
         }
     }
@@ -5517,6 +5954,19 @@ private struct BodyHealthMetricCardTrendPreview: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+    }
+
+    private var rangePreview: some View {
+        GeometryReader { proxy in
+            let indexedPoints = Array(rangeCalendarPoints.enumerated())
+
+            HStack(alignment: .bottom, spacing: 4) {
+                ForEach(indexedPoints, id: \.element.id) { index, point in
+                    rangeBar(for: point, at: index, in: proxy.size)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        }
     }
 
     private var linePreview: some View {
@@ -5582,6 +6032,45 @@ private struct BodyHealthMetricCardTrendPreview: View {
         }
 
         return max(6, CGFloat(value / maximumValue) * 42)
+    }
+
+    private func rangeBar(for point: HealthTrendRangeCalendarPoint, at index: Int, in size: CGSize) -> some View {
+        let frame = rangeBarFrame(for: point, in: size)
+
+        return ZStack(alignment: .bottom) {
+            Capsule(style: .continuous)
+                .fill(rangeBarColor(for: point, at: index))
+                .frame(width: 5, height: frame.height)
+                .offset(y: -frame.bottomOffset)
+        }
+        .frame(width: 5, height: size.height, alignment: .bottom)
+    }
+
+    private func rangeBarFrame(for point: HealthTrendRangeCalendarPoint, in size: CGSize) -> (height: CGFloat, bottomOffset: CGFloat) {
+        guard let lowValue = point.lowValue,
+              let highValue = point.highValue,
+              lowValue.isFinite,
+              highValue.isFinite else {
+            return (5, 0)
+        }
+
+        let minimum = rangeValues.min() ?? lowValue
+        let maximum = rangeValues.max() ?? highValue
+        let valueRange = max(maximum - minimum, 1)
+        let plotHeight = max(size.height - 4, 1)
+        let normalizedLow = (min(lowValue, highValue) - minimum) / valueRange
+        let normalizedHigh = (max(lowValue, highValue) - minimum) / valueRange
+        let bottomOffset = CGFloat(max(normalizedLow, 0)) * plotHeight
+        let height = max(6, CGFloat(max(normalizedHigh - normalizedLow, 0)) * plotHeight)
+        return (height, bottomOffset)
+    }
+
+    private func rangeBarColor(for point: HealthTrendRangeCalendarPoint, at index: Int) -> Color {
+        guard point.hasValue else {
+            return Color.secondary.opacity(0.14)
+        }
+
+        return index == (lastRangeValueIndex ?? -1) ? tintColor : Color.secondary.opacity(0.24)
     }
 
     private func linePlotEntries(in size: CGSize) -> [LinePlotEntry] {

@@ -4,6 +4,20 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 
 ## Entries
 
+### 2026-05-15 - Use temporary DerivedData for renamed XCTest cases
+- Context: Renaming focused `WorkoutMonthSnapshotTests` while validating aggregate chart bucket behavior.
+- Symptom: `xcodebuild -only-testing` against the default DerivedData path reported success but ran stale old test method names.
+- Cause: The default Xcode DerivedData test bundle had stale XCTest discovery after the rename.
+- Fix: Re-run with `-derivedDataPath /private/tmp/body-test-derived CODE_SIGNING_ALLOWED=NO` so the test bundle rebuilds from current sources.
+- Reuse: When renamed Swift tests do not appear in `xcodebuild` output, switch to the project temporary DerivedData path before trusting the result.
+
+### 2026-05-15 - Drop final partial chart buckets
+- Context: Fixing overlap between the final two bars in long-range metric charts.
+- Symptom: Six-month/year bar and range charts showed the final partial bucket almost on top of the previous fixed-width bar.
+- Cause: `HealthTrendSeries.chartCalendarPoints` and `HealthTrendRangeSeries.chartCalendarPoints` plotted aggregated buckets at `bucketEndDate`; the final partial bucket ends only a few days after the previous full bucket.
+- Fix: Drop the final short bucket, then plot each full aggregate at `bucketEndDate` while preserving `startDate`/`endDate` for selection labels.
+- Reuse: When long-range charts use aggregated buckets with fixed-width marks, avoid rendering a tiny final partial bucket as its own bar.
+
 ### 2026-05-13 - Anchor Swift Charts patches to the specific chart struct
 - Context: Disabling range-transition animation in `BodyHomeView.swift`.
 - Symptom: A generic patch for `.chartXSelection(...).simultaneousGesture(...)` landed on the day chart, causing `cannot find 'selectedRange' in scope`.
