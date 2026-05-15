@@ -53,6 +53,7 @@ struct BodySettingsView: View {
             .animation(.easeInOut(duration: 0.2), value: showingCreatorSurprise)
             .onAppear {
                 selectedAppIconName = UIApplication.shared.alternateIconName
+                versionTapCount = 0
             }
             .sheet(item: $activeSheet) { sheet in
                 settingsSheet(for: sheet)

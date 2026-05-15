@@ -1,17 +1,17 @@
 # Body Test Plan
 
-Generated 2026-05-13 against branch `codex/body-v0.3.4`.
+Generated 2026-05-15 against branch `body-v0.3.5` (app version 0.3.9 build 2).
 
 ## 1. Project Testing Overview
 
 ### What Was Reviewed
 
-- App entry and screens: `Body/BodyApp.swift`, `Body/Views/BodyHomeView.swift`, `Body/Views/BodyWorkoutsView.swift`, `Body/Views/BodyWorkoutListSheet.swift`, `Body/Views/BodyMonthYearPicker.swift`, `Body/Views/BodySettingsView.swift`, `Body/Views/BodyProView.swift`
-- HealthKit ingestion: `Body/Services/HealthKitWorkoutStore.swift`
+- App entry and screens: `Body/BodyApp.swift`, `Body/Views/BodyHomeView.swift`, `Body/Views/BodyWorkoutsView.swift`, `Body/Views/BodyWorkoutListSheet.swift`, `Body/Views/BodyMonthYearPicker.swift`, `Body/Views/BodySettingsView.swift`, `Body/Views/BodyProView.swift`, `Body/Views/BodyActivityRingsDetailView.swift`
+- HealthKit ingestion: `Body/Services/HealthKitWorkoutStore.swift`, `Body/Services/HealthDashboardSnapshotStore.swift`
 - Shared model/storage/UI: `BodyShared/Models/*`, `BodyShared/Services/WorkoutSnapshotStore.swift`, `BodyShared/Components/WorkoutCalendarView.swift`, `BodyShared/Components/WorkoutTypeBreakdownView.swift`
 - Widget extension: `BodyWidgetExtension/WorkoutCalendarWidget.swift`, `BodyWidgetExtension/BodyWidgetExtensionBundle.swift`
 - Configuration: `Body/Body.entitlements`, `BodyWidgetExtension.entitlements`, privacy manifests, `body.xcodeproj/project.pbxproj`
-- Existing tests: `BodyTests/WorkoutMonthSnapshotTests.swift`, `BodyTests/ProjectConfigurationTests.swift`
+- Existing tests: `BodyTests/WorkoutMonthSnapshotTests.swift`, `BodyTests/ProjectConfigurationTests.swift`, `BodyTests/HealthKitWorkoutStoreTests.swift`, `BodyTests/BodyWorkoutTypeTests.swift`
 
 ## 2. Automated Tests
 
@@ -55,7 +55,7 @@ Generated 2026-05-13 against branch `codex/body-v0.3.4`.
 | M10 | High | Workout Types widget | Add the Workout Types widget from the widget gallery | Only large size is offered; no title/month header appears; bars directly fill the widget and reflect current-month workout durations by type |
 | M11 | High | Workouts visualizations | Open Workouts after syncing or with preview data, then switch app theme between Light and Dark | The calendar appears above workout rows, the monthly total/type breakdown card appears at the bottom, and chart panel backgrounds follow the selected app theme |
 | M12 | Medium | Appearance theme and accent | In Settings, choose System, Light, and Dark themes; choose several app accents | App color scheme follows the selected theme and app tint uses the selected accent color |
-| M13 | High | Summary health cards | Refresh on a physical device with Apple Health samples | Summary shows a two-card-wide Activity Rings summary at the top, then same-sized tappable cards for Exercise Minutes, Wrist Temperature, Time In Daylight, Steps, Sleep, Basics, resting heart rate, HRV, blood oxygen, respiratory rate, active energy, and resting energy; each small card has a recent four-day preview chart positioned above the icon |
+| M13 | High | Summary health cards | Refresh on a physical device with Apple Health samples | Summary shows a two-card-wide Activity Rings summary at the top, then same-sized tappable cards for Exercise Minutes, Training Load, Wrist Temperature, Time In Daylight, Steps, Sleep, Basics, Heart Rate, resting heart rate, HRV, blood oxygen, respiratory rate, active energy, and resting energy; each small card has a recent four-day preview chart positioned above the icon |
 | M14 | High | Calendar workout drill-down | In Workouts, tap a calendar day | A sheet opens with all workouts for that day |
 | M15 | High | Workout type drill-down | In Workouts, tap a workout type row in the bottom summary card | A sheet opens with all workouts of that type for the month |
 | M16 | High | Summary card health trends | Tap each Summary health card after refreshing Health data | A secondary screen opens with the current value and a Week chart by default; line-chart pages use colored lines and hollow dots across Week, Month, 6 Months, and Year while limiting dense long-range points; bar-chart pages use matching range-aware bar widths; Basics shows equal-size body fat and weight current values, a Difference Range card under the Week/Month/6 Months/Year selector with Body Fat, Weight, and BMI ranges, then a dual-axis Weight and Body Fat chart and a separate BMI chart; Sleep shows today's three-category Sleep Score, today's stage timeline with soft transition shading, an Apple-style high/typical/low Sleep Vitals chart with Sleep Duration as the fifth metric, and the range trend chart at the bottom |
@@ -73,6 +73,12 @@ Generated 2026-05-13 against branch `codex/body-v0.3.4`.
 | M28 | Medium | Body Pro icon flip | Open Body Pro and tap the large icon | The icon flips between front and back artwork and persists with `bodyProIconShowsBackKey` |
 | M29 | Medium | Settings version-card unlock | Tap the Settings Version row five times | Creator-surprise icons unlock and the icon picker exposes the creator-surprise icon sheet |
 | M30 | Medium | Creator-surprise icon sheet | After version-card unlock, open Settings > Appearance > App Icon | The creator-surprise icon sheet can be opened and dismissed without breaking the regular icon options |
+| M31 | High | Training Load card and detail | Open Summary, locate the Training Load card, tap it | Card shows the current acute/chronic ratio with no unit; detail shows a line chart with a colored interval band (Resting / Optimal / Medium Injury Risk / High Injury Risk); scrubbing across an interval boundary smoothly transitions the band's color and bounds; the interval distribution bars below the chart show day counts per interval |
+| M32 | High | Heart Rate card and detail | Open Summary, locate the Heart Rate card, tap it | Card shows the latest BPM reading; detail shows a line chart, a heart-rate range bar chart, and an hourly day-view chart below the date picker; range bars have a corner radius equal to bar width / 2 |
+| M33 | Medium | Chart range-switch animation | On Heart Rate, Basics, BMI, and standard metric detail pages, tap between Week / Month / 6 Months / Year | All chart panels cross-fade between ranges; none hard-snap; reduce-motion users see an instant transition |
+| M34 | Medium | Day-view chart switch | On Heart Rate detail, change the selected date in the day picker | The hourly day chart cross-fades between days; sleep / workout context bars update with the day |
+| M35 | Medium | Activity Rings calendar opens on current month | Open Summary, tap the Activity Rings card | The calendar opens scrolled to the current month at the bottom of the screen; older months are visible above |
+| M36 | Medium | Workouts pending-month load | In Workouts, tap a month with no cached snapshot | A "Loading [Month]" banner appears below the picker; the calendar and list keep showing the previous month; when the snapshot loads, the new month renders; if HealthKit hangs, the banner clears after 15 seconds |
 
 ## 4. Deferred Coverage
 

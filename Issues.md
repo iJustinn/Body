@@ -1,9 +1,8 @@
 # Body — Issues Report
 
-Audit of branch `codex/body-v0.3.3` on 2026-05-13. Read-only review; no code
-was modified. No prior `Issues.md` was present at the repo root, so no
-archive rename happened in this run (the previous report is preserved as
-`docs/IssuesArchive-02.md`).
+Audit of branch `body-v0.3.5` on 2026-05-15. Read-only review; no code was
+modified. The previous report has been archived as
+`docs/IssuesArchive-03.md`.
 
 Severity legend: Critical (data loss / crash / store-blocking), High
 (incorrect behavior or significant UX regression under normal use), Medium
@@ -14,295 +13,350 @@ or maintainability delta).
 
 ## 1. Project review summary
 
-Body v0.3.3 is a coherent three-tab app (Summary / Workouts / Settings)
-backed by a HealthKit-powered dashboard, a Workouts history surface, two
-widgets, and a Body Pro upsell page. The architecture survived the v0.2.6
-fix pass intact: silent `try?` JSON paths are gone, the metric detail view
-branches on `HealthMetricKind` rather than display titles, and the
-month-year picker rebuilds on day-change notifications. The most
-user-affecting risks in this run cluster in three places: (1) version-string
-drift across project / docs / in-app fallback now that the build bumped
-from 1 to 2 mid-v0.3.3, (2) `BodyWorkoutsView` immediately switches to a
-not-yet-loaded month and shows the "No workouts" empty state with no
-loading hint, and (3) `BodyChartsView` plus several helpers in the same
-file are dead code that the file's name still implies are alive.
-Smaller hygiene items include a substantial copy-paste between the sleep
-and metric day-pickers, two unused `accessoryMetrics` paths inside
-`BodyHealthMetricCard.Model`, and a couple of `Calendar.current` callers in
-otherwise-`bodyGregorian` code. Areas reviewed: app entry / scene phase,
-HealthKit ingestion (authorization, summary, trends, activity rings),
-workout aggregation, snapshot persistence (file + UserDefaults), Summary
-dashboard, Workouts tab, settings (theme / accent / icon / units /
-permissions / about / Body Pro), month-year picker, widgets, entitlements,
-project build settings, privacy manifests, and the test suite.
-Intentionally not reviewed: rendered runtime behavior on device (no build
-in this run), asset catalog binary contents (only path existence per
-`ProjectConfigurationTests`), LaunchScreen XML, Xcode scheme XML.
+Body has shipped v0.3.9 build 2 with new Heart Rate, Wrist Temperature, and
+Training Load surfaces, a heart-rate range bar chart, a training-load
+interval band with cross-fade-through-chartBackground animation, file-backed
+dashboard cache, and refreshed Activity Rings calendar paging. All nine
+findings from `docs/IssuesArchive-03.md` (N1-N9) are addressed in code:
+project / README / VersionHistory / Settings fallback are aligned at 0.3.9
+build 2 (Settings now falls back to "Unknown" rather than hardcoded
+strings); the dead `BodyChartsView` file is gone; `accessoryMetrics` is
+removed; the sleep/metric date pickers share `dateTile(for:picker:)`; the
+sleep-stage axis and widget timeline use `Calendar.bodyGregorian`; and
+`NSHealthShareUsageDescription` enumerates all 12 read categories.
+
+The current run surfaces a smaller crop of issues focused on consistency,
+not correctness. The most user-facing item is N1 — the chart-switch
+fade animation that was added to `BodyHealthMetricTrendChart` is missing
+from `BodyBasicsTrendChart`, `BodyBasicsBodyMassIndexTrendChart`, and
+`BodyHeartRateRangeTrendChart`, so Basics / BMI / Heart Rate Range detail
+pages still hard-snap when the user switches between Week / Month / etc.
+N2-N3 are documentation drift (README screenshots and TestPlan branch /
+card list both predate the v0.3.9 additions). N4-N5 are small Body Pro
+purchase-page UX inconsistencies that were partly noted in archive 03.
+The remainder are hygiene items: BodyHomeView.swift continues to grow
+(now 6,289 lines), HealthSummarySnapshot.swift bundles model + calculator
++ store (2,608 lines), and a few small surprises in animations,
+pagination timeouts, and global `UIScrollView.appearance()` side effects.
+
+Areas reviewed: app entry / scene phase, HealthKit ingestion
+(authorization, summary, trends, training-load and heart-rate-range
+queries, activity rings), workout aggregation, snapshot persistence (file
++ app-group + UserDefaults legacy migration), Summary dashboard, Workouts
+tab (now with pending-month banner), Settings (Body Pro entry, Permissions,
+theme, accent, icon, units, version unlock), Body Pro page, month-year
+picker, widgets, entitlements, project build settings, privacy manifests,
+the recently-refactored training-load interval band (chartBackground +
+SwiftUI Rectangles), and the test suite. Intentionally not reviewed:
+rendered runtime behavior on device (no build in this run), Lock Screen /
+Accessory widget families, localization, LaunchScreen XML, Xcode shared
+scheme XML, asset catalog binary contents beyond
+`ProjectConfigurationTests` validation.
 
 ---
 
 ## 2. Issue list
 
-### N1. `CURRENT_PROJECT_VERSION` bumped to 2 but README, VersionHistory, and the Settings fallback still report build 1
+### N1. Range-switch fade only applies to `BodyHealthMetricTrendChart`; Basics, BMI, and Heart Rate Range charts snap
 
 - **Severity:** Medium
-- **Related files:** `body.xcodeproj/project.pbxproj:462,500,538,568,595,620`,
-  `README.md:11`, `VersionHistory.md:3-5`,
-  `Body/Views/BodySettingsView.swift:237-241`
-- **Description:** The latest commit `309578d` ("Refine health chart range
-  presentation") bumped `CURRENT_PROJECT_VERSION` from 1 to 2 in all six
-  configurations and updated `ProjectConfigurationTests.testProjectBuildSettingsMatchInitialReleasePlan`
-  (`BodyTests/ProjectConfigurationTests.swift:201` now asserts `= 2`). The
-  rest of the project still presents build 1:
-  - `README.md:11` — "Current app version: **0.3.3 (build 1)**"
-  - `VersionHistory.md:3-5` — only "0.3.3 (build 1)" exists; no entry for
-    build 2 even though build 2 added range-aware line caps, basics
-    averages legend, and aggregated long-range chart buckets.
-  - `Body/Views/BodySettingsView.swift:239` — `appVersionDisplay` falls
-    back to `"1"` (`buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"`).
-- **Why it matters:** Three sources of truth (project settings, docs,
-  in-app Settings fallback) disagree. The Settings fallback is unreachable
-  while the Info.plist is intact, but it silently becomes wrong if those
-  keys ever go missing. The README/VersionHistory drift is the same class
-  of bug archive N3 flagged for v0.2.6.
-- **Suggested fix:** Either (a) decide build 2 is the shipped state, add a
-  VersionHistory entry for "0.3.3 (build 2)" that lists the chart range /
-  basics legend / point-cap changes, bump the README line to "build 2", and
-  change the Settings fallback to `"2"`, or (b) revert the project to
-  `CURRENT_PROJECT_VERSION = 1` and update the configuration test. Option
-  (a) matches the recent commits; pick it unless build 2 was unintended.
-- **Risks / dependencies:** `ProjectConfigurationTests.testProjectBuildSettingsMatchInitialReleasePlan`
-  must agree with the chosen number; per the 2026-05-12 lessons-learned
-  entry, missing this is the usual gate that fails on a fresh test run.
-
-### N2. `BodyWorkoutsView` shows the "No workouts" empty state during a pending month load
-
-- **Severity:** Medium
-- **Related files:** `Body/Views/BodyWorkoutsView.swift:11-13,125-131,304-351,353-370`
-- **Description:** `requestMonthYearSelection(_:)` updates
-  `selectedMonth/Year` immediately (lines 358-359), starts a detached
-  `Task { _ = await workoutStore.loadMonthIfNeeded(...) }`, and returns
-  `true` so the picker keeps the new selection. `selectedSnapshot`
-  immediately resolves to `workoutStore.snapshot(month:year:)`, which for
-  unloaded months returns an empty placeholder built by
-  `WorkoutMonthSnapshot.make(... workouts: [])`
-  (`Body/Services/HealthKitWorkoutStore.swift:132-139`). `allWorkouts`
-  becomes `[]`, `filteredWorkouts` becomes `[]`, and the view renders
-  `emptyStateView`:
+- **Related files:** `Body/Views/BodyHomeView.swift:4280-4300` (trend chart
+  with `.transition`), `Body/Views/BodyHomeView.swift:3835-3839`
+  (`BodyBasicsBodyMassIndexTrendChart` — `.id` + `.transaction { animation = nil }`
+  only), `Body/Views/BodyHomeView.swift:4614-4619`
+  (`BodyBasicsTrendChart`), `Body/Views/BodyHomeView.swift:4014-4018`
+  (`BodyHeartRateRangeTrendChart`)
+- **Description:** The recent animation pass added a `.transition(
+  .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration:
+  0.35)))` modifier between `.id(chartIdentity)` and the `.transaction`
+  blocks of `BodyHealthMetricTrendChart`. The three other chart structs
+  that also rebuild on range change — the Basics dual-axis chart, the BMI
+  chart, and the Heart Rate Range bar chart — keep the older shape:
   ```swift
-  if visibleWorkouts.isEmpty {
-      emptyStateView
+  .chartXSelection(value: $selectedDate)
+  .simultaneousGesture(chartPressGesture)
+  .id(selectedRange.rawValue)             // or .id("heart-rate-range-\(...)")
+  .transaction { transaction in
+      transaction.animation = nil
   }
   ```
-  with either "Try selecting more workout types in the filter" (when
-  `hasActiveFilters`) or "No workouts for May 2026". There is no loading
-  indicator while the HealthKit query is in flight. The deleted
-  `BodyChartsView` (`Body/Views/BodyChartsView.swift:31-35,144-164`) used
-  to render a `BodyChartsLoadingBanner` for the same flow.
-- **Why it matters:** A user scrubbing the month picker quickly past
-  unloaded months sees an empty state that reads as "this month has no
-  workouts" rather than "loading". For months that genuinely have data,
-  the user has no signal that anything is happening — they may scroll
-  back, conclude the data is missing, and try to refresh.
-- **Suggested fix:** Add a pending-month state to `BodyWorkoutsView`
-  (similar to the `pendingMonthSelection` state in the dead
-  `BodyChartsView`) and either (a) hold the previous month's content
-  until the load finishes, or (b) render a "Loading [Month]" banner above
-  the list while the task is in flight. Option (b) matches the existing
-  loading banner shape and keeps the calendar/empty-state UX out of the
-  picture during loads.
-- **Risks / dependencies:** Touches view state only. Does not affect the
-  store's `loadMonthIfNeeded` semantics. Verify with
-  `WorkoutMonthSnapshotTests` — no test pins the current empty-flow
-  behavior.
-
-### N3. `BodyChartsView`, `BodyChartsLoadingBanner`, and `BodyChartsScrollTransitionShade` are dead code in `BodyChartsView.swift`
-
-- **Severity:** Low
-- **Related files:** `Body/Views/BodyChartsView.swift:8-126,128-142,144-164`,
-  `Body/Views/MainTabView.swift`
-- **Description:** `MainTabView` defines three tabs (Summary, Workouts,
-  Settings) — no Charts tab. The `BodyChartsView` struct, the
-  `BodyChartsScrollTransitionShade` overlay, and the
-  `BodyChartsLoadingBanner` row inside it are referenced only by the
-  file's `#Preview` and by each other. The same file still hosts
-  `BodyWorkoutListSelection`, `BodyWorkoutListSheet`, and
-  `BodyWorkoutRecordRow` (lines 166-407), which `BodyWorkoutsView` uses
-  for tap-through sheets. Grep:
-  ```
-  rg "BodyChartsView\b|BodyChartsLoadingBanner|BodyChartsScrollTransitionShade" Body BodyShared BodyTests
-  ```
-  finds only the self-references and one previously-noted
-  `requestMonthYearSelection` parallel in `BodyWorkoutsView`.
-- **Why it matters:** Future contributors look at `BodyChartsView.swift`
-  and reasonably assume it's the active Charts tab. The dead view also
-  duplicates pending-month state machinery (`pendingMonthSelection`,
-  loading banner) that `BodyWorkoutsView` is missing (see N2).
-- **Suggested fix:** Either (a) delete `BodyChartsView` /
-  `BodyChartsScrollTransitionShade` / `BodyChartsLoadingBanner` and
-  rename the file to `BodyWorkoutListSheet.swift` (or move the surviving
-  types alongside `BodyWorkoutsView.swift`), or (b) reuse
-  `BodyChartsLoadingBanner` from the same file to fix N2. Option (b)
-  makes the dead code worth keeping until N2 lands.
-- **Risks / dependencies:** None. `BodyWorkoutListSelection` /
-  `BodyWorkoutListSheet` / `BodyWorkoutRecordRow` must remain for
-  `BodyWorkoutsView`'s tap-through sheets.
-
-### N4. `BodyHealthMetricCard.Model.accessoryMetrics` and its render branch are unreachable
-
-- **Severity:** Low
-- **Related files:** `Body/Views/BodyHomeView.swift:5160-5167,5175,5187,5198,5224-5228,5247-5259,5314-5333`
-- **Description:** `BodyHealthMetricCard.Model` declares an
-  `accessoryMetrics: [AccessoryMetric]` property with a default of `[]`.
-  Every construction site (`Body/Views/BodyHomeView.swift:447, 467, 490,
-  524`) omits the argument. `cardContent` branches:
+  with no `.transition`. When the user taps Week → Month on the Basics
+  detail (or BMI panel below, or Heart Rate detail's range bar chart),
+  the chart hard-cuts; the line chart above (which is the standard trend
+  chart) cross-fades. The mismatch is visible on a single screen because
+  the Basics detail renders the dual-axis chart and BMI chart back to
+  back, and the Heart Rate detail renders the line chart and the range
+  chart back to back.
+- **Why it matters:** UX inconsistency on the same screen. The behaviour
+  reads as a partial fix rather than a polish pass. Reduce-Motion users
+  are unaffected.
+- **Suggested fix:** Mirror the trend-chart modifier shape on each of the
+  three remaining charts. Add `@Environment(\.accessibilityReduceMotion) private var reduceMotion`
+  to each, then insert
   ```swift
-  if !metric.prominentMetrics.isEmpty {
-      prominentContent
-  } else if metric.accessoryMetrics.isEmpty {
-      regularContent
-  } else {
-      accessoryContent
-  }
+  .transition(.opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35)))
   ```
-  The else branch (`accessoryContent`) is unreachable because no caller
-  ever populates `accessoryMetrics`. The nested `AccessoryMetric` struct,
-  the `accessoryContent` view, and `accessoryMetricStrip` (lines
-  5314-5333) are all dead.
-- **Why it matters:** Hidden API surface. A future contributor reading the
-  card model would assume Body has a third card layout that just isn't
-  used today. Removing the dead branch makes the card's two real states
-  (regular vs. prominent) visible.
-- **Suggested fix:** Delete the `AccessoryMetric` struct, the
-  `accessoryMetrics` property and its init parameter, the
-  `accessoryContent` view, and `accessoryMetricStrip`. Replace the
-  three-way `cardContent` branch with `metric.prominentMetrics.isEmpty ?
-  regularContent : prominentContent`.
-- **Risks / dependencies:** None — no test references
-  `accessoryMetrics`.
+  between the existing `.id(...)` and `.transaction { transaction.animation = nil }`.
+  No new tests are required; the existing `ProjectConfigurationTests`
+  chart-structure assertions do not pin these structs.
+- **Risks / dependencies:** None. Mirrors the existing trend-chart change.
 
-### N5. `sleepDateTile(for:)` and `metricDateTile(for:)` are near-identical 95-line duplicates
+### N2. `README.md` screenshots are pinned to `v0.3.3` but the build is `v0.3.9`
 
 - **Severity:** Low
-- **Related files:** `Body/Views/BodyHomeView.swift:2051-2098,2100-2147`
-- **Description:** Both functions construct an identical day-tile button
-  with the same fonts, frames, colors, shadow, accessibility, and disabled
-  behavior. They differ only in which date the tile updates
-  (`selectedSleepDate` vs. `selectedMetricDate`) and which derived day
-  the selection comparison reads (`selectedSleepDay` vs.
-  `selectedMetricDay`). The companion picker computed properties
-  `sleepDatePickerDates` and `metricDatePickerDates`
-  (`Body/Views/BodyHomeView.swift:1535-1541`) are also duplicates of
-  each other and call `SleepHistorySnapshot.datePickerDates(...)` with
-  the same arguments. The `sleepDatePicker` / `metricDatePicker`
-  scroll containers (lines 1953-2021) repeat the same shape.
-- **Why it matters:** Five SwiftUI helpers exist where one would do.
-  Future styling tweaks must be applied twice; the basics range card
-  and BMI trend card already follow that same pair shape, so the cost
-  scales with each new "tappable detail day picker".
-- **Suggested fix:** Extract `dateTile(for:isSelected:onSelect:)` as a
-  single function that takes a `Binding<Date?>` (or a `(Date) -> Void`
-  closure) plus the comparison day; collapse the date-picker computed
-  property into one `recentDatePickerDates`. Or move the date-picker
-  scaffold into its own `private struct BodyDayPicker` that the sleep
-  and metric detail panels each instantiate.
-- **Risks / dependencies:** Touches `BodyHealthMetricDetailView` only.
-  No existing test pins the duplicated structure.
+- **Related files:** `README.md:14-23`, `Screenshots/v0.3.3-01.PNG`
+  through `Screenshots/v0.3.3-06.PNG`
+- **Description:** README v0.3.9 (build 2) embeds six screenshots whose
+  filenames are `Screenshots/v0.3.3-NN.PNG`. v0.3.4 added animated Summary
+  numbers; v0.3.9 added the Heart Rate, Training Load, and Wrist
+  Temperature cards plus the training-load interval band. None of those
+  surfaces can appear in v0.3.3 screenshots.
+- **Why it matters:** A reader landing on README sees a v0.3.9 build line
+  but stale UI screenshots. New cards / new range-aware long charts are
+  invisible. Low impact because the README is also for repo browsers.
+- **Suggested fix:** Either (a) refresh the screenshots and rename to
+  `Screenshots/v0.3.9-NN.PNG`, updating the six `<img>` references in
+  README, or (b) keep v0.3.3 screenshots but mark them "older UI". (a) is
+  the cleaner option since the test file does not pin screenshot names.
+- **Risks / dependencies:** None. No test references screenshot filenames
+  (`rg "Screenshots/v0" BodyTests` is empty).
 
-### N6. `Calendar.current` in the sleep-stage chart and the widget timeline diverge from `Calendar.bodyGregorian` used everywhere else
+### N3. `TestPlan.md` is pinned to branch `codex/body-v0.3.4` and does not list Heart Rate or Training Load cards
 
 - **Severity:** Low
-- **Related files:** `Body/Views/BodyHomeView.swift:4199`,
-  `BodyWidgetExtension/WorkoutCalendarWidget.swift:65`
-- **Description:** The sleep-stage detail chart's `axisValues(strideHours:minimumCount:)`
-  helper builds its hourly axis ticks from `Calendar.current` (line
-  4199), while every other date-math site in the project goes through
-  `Calendar.bodyGregorian`. The widget timeline at line 65 of
-  `WorkoutCalendarWidget.swift` computes the next refresh window with
-  `Calendar.current.date(byAdding: .minute, value: 30, to: entry.date)`.
-- **Why it matters:** For users on a non-gregorian default calendar
-  (or for the rare case of a calendar override) the sleep stage axis
-  labels may shift relative to `chartXDomain`, which is built from the
-  HealthKit segment dates in the user's wall-clock timezone. The widget
-  timeline is even less risky (it's just an interval) but inconsistent.
-  Same class of issue as archive N11.
-- **Suggested fix:** Replace both with `Calendar.bodyGregorian`. For the
-  widget case, since the goal is "30 minutes from now", an explicit
-  `.bodyGregorian` is no worse and makes the convention consistent.
-- **Risks / dependencies:** None. No tests rely on the current behavior.
-
-### N7. `NSHealthShareUsageDescription` understates the read scopes Body actually requests
-
-- **Severity:** Low
-- **Related files:** `body.xcodeproj/project.pbxproj:468,506`,
-  `Body/Services/HealthKitWorkoutStore.swift:571-636`
-- **Description:** The Info.plist usage description reads "Body reads
-  workout, sleep, heart, and body measurement data from Apple Health to
-  build your health dashboard, charts, and widgets." But
-  `HealthKitWorkoutStore.readObjectTypes(for:)` requests:
-  workouts, activitySummaryType, workoutEffortScore, restingHeartRate,
-  heartRate, heartRateVariabilitySDNN, bodyMass, bodyFatPercentage,
-  bodyMassIndex, respiratoryRate, oxygenSaturation, activeEnergyBurned,
-  basalEnergyBurned, appleExerciseTime, appleSleepingWristTemperature,
-  timeInDaylight, stepCount, and sleepAnalysis. The user-visible
-  permission prompt does not mention exercise minutes, daylight, steps,
-  wrist temperature, blood oxygen, respiratory rate, energy, or activity
-  rings.
-- **Why it matters:** The system permission sheet (the only chance the
-  user has to see this string) lists permissions Apple shows from the
-  request — a category the user can't predict from the description.
-  Apple does not require an exact match, but stricter App Store reviews
-  flag this if it materially understates scope. Users denying a category
-  Body actually requests is also more likely when the description omits
-  it.
-- **Suggested fix:** Broaden the description to enumerate the actual
-  categories — e.g. "Body reads workouts, Activity Rings, sleep, heart
-  rate, HRV, blood oxygen, respiratory rate, body measurements, energy,
-  exercise minutes, wrist temperature, daylight, and steps from Apple
-  Health to power your dashboard, charts, and widgets."
-- **Risks / dependencies:** None. Description is build-time text in the
-  pbxproj `INFOPLIST_KEY_NSHealthShareUsageDescription`.
-
-### N8. `TestPlan.md` is pinned to branch `codex/body-v0.3.0` and omits `BodyProView` from its reviewed-files list
-
-- **Severity:** Low
-- **Related files:** `TestPlan.md:3,9-15`
+- **Related files:** `TestPlan.md:3`, `TestPlan.md:58` (M13 enumeration)
 - **Description:** `TestPlan.md:3` reads "Generated 2026-05-13 against
-  branch `codex/body-v0.3.0`" — the current branch is
-  `codex/body-v0.3.3`. The "What Was Reviewed" section lists app entry,
-  HealthKit, shared models, widgets, and configuration — but not
-  `Body/Views/BodyProView.swift`, which was added in commits `9f639d8`
-  and `3ba63bc` and is the destination of the Settings > Body Pro
-  navigation. The automated tables include `A20 Metric About coverage`
-  but no Body Pro coverage; the manual tables likewise omit any
-  Body Pro / creator-surprise icon case.
-- **Why it matters:** TestPlan is presented as authoritative scope.
-  Drift hides untested surfaces (Body Pro's flippable icon, the
-  five-tap version unlock for creator surprises, the lifetime / restore
-  buttons that today only set status text) from the audit trail.
-- **Suggested fix:** Bump the branch reference, add `BodyProView.swift`
-  to "What Was Reviewed", and add manual cases for: Body Pro entry
-  navigation, the flippable icon toggling `bodyProIconShowsBackKey`,
-  the five-tap version-card unlock, and the creator-surprise icon
-  sheet. Bundle this with N1 so docs ship together.
-- **Risks / dependencies:** Pair with N1.
+  branch `codex/body-v0.3.4`"; the current branch is `body-v0.3.5` and
+  the shipped build is v0.3.9 (build 2). M13 enumerates the Summary
+  cards as "Exercise Minutes, Wrist Temperature, Time In Daylight, Steps,
+  Sleep, Basics, resting heart rate, HRV, blood oxygen, respiratory rate,
+  active energy, and resting energy" (12 cards), but the live list now
+  also includes `trainingLoad` (`Body/Views/BodyHomeView.swift:188-198`)
+  and `heartRate` (`Body/Views/BodyHomeView.swift:227-236`). There is no
+  case for the training-load interval bands, the training-load
+  distribution breakdown, or the heart-rate range bar chart. Carry-forward
+  from archive 03 N8.
+- **Why it matters:** TestPlan is treated as authoritative in commit
+  messages and audits. Drift hides untested surfaces (training-load
+  interval transitions, heart-rate range chart axes, the new day-chart
+  cross-fade) from the audit trail. Manual coverage matters for
+  HealthKit-bound features that unit tests cannot exercise.
+- **Suggested fix:** Update branch reference to `body-v0.3.5`; add cases
+  for: Training Load card + interval band + interval distribution;
+  Heart Rate card + range chart; the chart-switch cross-fade (M13 or a
+  new manual case); the Workouts pending-month loading banner (no
+  current case). Update "What Was Reviewed" to include
+  `BodyHomeView.swift`'s new chart structs.
+- **Risks / dependencies:** None. Pair with N2 so docs ship together.
 
-### N9. Settings `appVersionDisplay` formats the build with a hardcoded fallback that diverges from the test-asserted project version
+### N4. Body Pro "Lifetime" card shows a price but the buy button only sets a status string
 
 - **Severity:** Low
-- **Related files:** `Body/Views/BodySettingsView.swift:237-241`,
-  `BodyTests/ProjectConfigurationTests.swift:200-201`
-- **Description:** Already partly covered by N1, but worth flagging
-  separately: when Info.plist values are missing, the Settings card
-  displays "0.3.3 (1)", while the project's actual build number is 2
-  (`ProjectConfigurationTests` pins it at 2). The fallback never runs
-  when Info.plist is intact, but it codifies the wrong number.
-- **Why it matters:** Defensive fallback that's already wrong. If the
-  Info.plist generation ever regresses, the user-visible Settings
-  Version row will silently lie about the build.
-- **Suggested fix:** Replace the fallback strings with "Unknown" (which
-  is what `supportEmailBody` at line 1457-1458 already does), or update
-  them in lockstep with `CURRENT_PROJECT_VERSION`.
+- **Related files:** `Body/Views/BodyProView.swift:41-50,250-287`,
+  `Body/Views/BodyProView.swift:80-110`
+- **Description:** `BodyProPurchaseOptionCard` renders "Lifetime — One
+  purchase for lifetime Body Pro access — $5.99 — arrow button". Tapping
+  the arrow calls `onChoose`, which is `statusMessage = "Body Pro
+  lifetime purchases are not available in this build."` (line 48). The
+  same shape repeats for "Redeem Pro" (line 89) and "Restore Purchases"
+  (line 100). A user landing on the page sees a price and a styled
+  purchase button — nothing in the disabled state suggests this is a
+  placeholder. The footnote-sized "not available" status only appears
+  after the tap. Already partially noted in archive 03's UI/UX section.
+- **Why it matters:** Mistakes Body Pro for a real purchase surface.
+  Either users get confused or — once IAP wiring exists — the visual
+  states will need redoing anyway. Low priority because the page is
+  reachable only from Settings > Body Pro.
+- **Suggested fix:** Either (a) disable the three buttons + show a
+  static "Coming Soon" pill on the Lifetime card, or (b) gate the
+  Lifetime / Redeem / Restore stack behind a `#if PRO_PURCHASES_ENABLED`
+  feature flag and ship a single "Body Pro is coming" message until
+  the IAP wiring exists. Visual verification on device.
+- **Risks / dependencies:** None.
+
+### N5. Body Pro feature rows and the "Future Pro Updates" placeholder share the same gold checkmark
+
+- **Severity:** Low
+- **Related files:** `Body/Views/BodyProView.swift:289-315,363-388`
+- **Description:** `BodyProFeatureRow` (line 289) renders a feature with
+  `BodyProFeatureCheckmark()` on the right edge — a gold filled
+  checkmark — used as an "unlocked" indicator. `BodyProFutureUpdatesNote`
+  (line 363) is a placeholder row that says "More Body Pro features will
+  be added in future updates" and renders the same
+  `BodyProFeatureCheckmark()`. The placeholder reads as if "future
+  updates" is itself an unlocked feature.
+- **Why it matters:** Confusing semantics on a marketing page. The
+  checkmark icon implies "this is included"; the row body says "this is
+  coming later". Trivial to fix; low impact.
+- **Suggested fix:** Replace the checkmark on `BodyProFutureUpdatesNote`
+  with a less definitive glyph (`sparkles`, `arrow.up.forward.circle`,
+  or simply omit it). Keep the gold checkmark on real feature rows.
+- **Risks / dependencies:** None.
+
+### N6. `BodyHealthMetricTrendChart` has a leftover empty line where the highlight `RectangleMark`s used to live
+
+- **Severity:** Low
+- **Related files:** `Body/Views/BodyHomeView.swift:4136-4143`
+- **Description:** When the highlight-band rendering moved out of
+  `Chart { ... }` and into `.chartBackground { chartProxy in ... }`
+  earlier in this branch, the conditional `if let highlightedRange =
+  displayedHighlightedRange { ... }` block was removed but the empty
+  line it occupied was not collapsed:
+  ```swift
+  Chart {
+
+      if chartStyle == .bar, let selectedTrendPoint {
+  ```
+  Two-line-pad before the first remaining mark. Cosmetic only.
+- **Why it matters:** Style nit; will eventually drift into a "why is
+  this here?" comment thread on a future PR. Affects nothing at
+  runtime.
+- **Suggested fix:** Delete the blank line after `Chart {`.
+- **Risks / dependencies:** None.
+
+### N7. `BodyHomeView.swift` is now 6,289 lines and bundles every detail screen, ring graphic, and card background extension
+
+- **Severity:** Low
+- **Related files:** `Body/Views/BodyHomeView.swift` (whole file)
+- **Description:** The file grew from ~5,585 lines in archive 03 to 6,289
+  lines in this run with the Training Load / Heart Rate / Wrist
+  Temperature additions and the chartBackground refactor. It still
+  bundles: the Home grid, `BodyHealthMetricDetailView` (and every sleep
+  supplement card, basics range card, BMI panel), 5 distinct chart
+  structs (`BodyHealthMetricTrendChart`, `BodyHealthMetricDayChart`,
+  `BodyBasicsTrendChart`, `BodyBasicsBodyMassIndexTrendChart`,
+  `BodyHeartRateRangeTrendChart`), the `BodySleepStageChart` and
+  `BodySleepVitalsRegionChart`, `BodyActivityRingsDetailView` + ring
+  graphic / arc / completion-star, training-load interval
+  presentation + interval breakdown chart, and several View extensions
+  for card backgrounds.
+- **Why it matters:** Editor latency, find-in-file pain, and merge
+  conflicts. Same observation as archive 03 N7; the file kept growing.
+- **Suggested fix:** Carve off in three medium-size moves: (1)
+  `BodyActivityRingsDetailView` + ring graphic into
+  `BodyActivityRingsDetailView.swift` (~900 lines), (2)
+  `BodyHealthMetricDetailView` plus its sleep / basics panels into
+  `BodyHealthMetricDetailView.swift` (~1,500 lines), (3) the five chart
+  structs into a `Charts/` group. Each split must be verified against
+  `ProjectConfigurationTests`'s several `source.range(of: "private struct
+  ...")` lookups (chart prefixes are 7,500 / 12,000 / 3,200 chars wide
+  in different tests) — increasing prefixes if necessary.
+- **Risks / dependencies:** `ProjectConfigurationTests` performs source
+  substring assertions across `BodyHomeView.swift`; splits must keep
+  those assertions valid (most tests look up by struct name so they
+  survive file moves).
+
+### N8. `HealthSummarySnapshot.swift` is 2,608 lines and bundles snapshot, trend, calculator, and store types
+
+- **Severity:** Low
+- **Related files:** `Body/Models/HealthSummarySnapshot.swift` (whole
+  file)
+- **Description:** The file holds `HealthMetricKind`, `HealthMetricSummary`,
+  `HealthSummarySnapshot`, `HealthDashboardSnapshot`,
+  `HealthDashboardSnapshotStore` (file-backed),
+  `HealthTrendSnapshot`, `HealthTrendSeries`,
+  `HealthTrendCalendarPoint`, `HealthTrendRangeCalendarPoint`,
+  `HealthTrendHourlyBucket`, `HealthTrendStableLineBucket`,
+  `HealthTrendRangeSeries`, `SleepSummary`, `SleepStageSnapshot`,
+  `SleepScoreSummary`, `SleepVitalsSummary`, `SleepHistorySnapshot`,
+  `ActivityRingSummary`, `ActivityRingMetric`,
+  `ActivityRingHistorySnapshot`, `ActivityRingDaySummary`,
+  `ActivityRingCalendarMonth`, `ActivityRingCalendarDay`,
+  `ActivityRingMonthKey`, `TrainingLoadCalculator`,
+  `TrainingLoadInterval`, `TrainingLoadIntervalBreakdownEntry`, and
+  `TrainingLoadIntervalBreakdown`. Plus `decodeIfPresent` plumbing for
+  each new property as snapshots evolved.
+- **Why it matters:** Same class of issue as N7. The file is the
+  authoritative source for HealthKit data shapes; future contributors
+  do a lot of scrolling.
+- **Suggested fix:** Split by concern: `Models/Snapshots/` for
+  summary / dashboard / trend snapshots; `Models/Sleep/` for sleep
+  summary + score + vitals; `Models/ActivityRings/` for ring summary +
+  history + calendar; `Models/TrainingLoad/` for calculator + interval
+  + breakdown; `Services/HealthDashboardSnapshotStore.swift` for the
+  file-backed store (it is a service, not a model). No fix until N7 is
+  also touched, to avoid two large concurrent moves.
+- **Risks / dependencies:** `decodeIfPresent` round-trip is covered by
+  `HealthKitWorkoutStoreTests.testHealthDashboardSnapshotStoreRoundTripsCachedHomeData`
+  and friends; any move must keep `HealthDashboardSnapshot.CodingKeys`
+  stable so cached files keep decoding.
+
+### N9. `BodyApp.init()` sets `UIScrollView.appearance()` indicator flags globally
+
+- **Severity:** Low
+- **Related files:** `Body/BodyApp.swift:16-19`
+- **Description:**
+  ```swift
+  init() {
+      UIScrollView.appearance().showsVerticalScrollIndicator = false
+      UIScrollView.appearance().showsHorizontalScrollIndicator = false
+      WorkoutSnapshotStore.seedPreviewSnapshotIfNeeded()
+  }
+  ```
+  `UIScrollView.appearance()` affects every `UIScrollView` the process
+  hosts — Body's `ScrollView`s, system sheets that contain
+  `UIScrollView`s, presentation sheets, alerts that scroll, the
+  app-icon picker scroll view inside a system sheet, and (in theory)
+  any third-party `SFSafariViewController` content. All Body's
+  `ScrollView` callers already pass `showsIndicators: false`, so the
+  global pin is redundant for app-owned views; the side effect on
+  system views is the concern.
+- **Why it matters:** Subtle global mutation. The intent reads "hide
+  scroll indicators app-wide", but the side effect on system / sheet
+  scroll views may not be desirable. Users on iOS 18+ generally expect
+  the system's auto-hide indicator behavior on system sheets.
+- **Suggested fix:** Remove both `UIScrollView.appearance()` lines and
+  rely on the `showsIndicators: false` parameter already passed to each
+  SwiftUI `ScrollView`. If the in-app picker scroll behaviors regress,
+  add `.scrollIndicators(.hidden)` per view instead of using the global
+  appearance proxy. Needs visual verification on device.
+- **Risks / dependencies:** Visual diff on Settings > App Icon picker
+  scroll view, Sleep Score detail sheet, and any other scrollable
+  sheet.
+
+### N10. Workouts pending-month banner has no timeout if the HealthKit query never completes
+
+- **Severity:** Low
+- **Related files:** `Body/Views/BodyWorkoutsView.swift:360-387`
+- **Description:** `requestMonthYearSelection` sets `pendingMonthSelection
+  = monthYear`, fires a task that calls `workoutStore.loadMonthIfNeeded(...)`,
+  and only clears `pendingMonthSelection` inside the task's
+  `MainActor.run` block. If `loadMonthIfNeeded` hangs (the store's
+  `while isRefreshing, !Task.isCancelled { try? await Task.sleep(...) }`
+  loop in `HealthKitWorkoutStore.swift:173-183,181-183` can in theory
+  spin forever if `isRefreshing` never flips false), the
+  pending-month banner stays visible until the user navigates away.
+  No user-visible failure mode short of a HealthKit query hang.
+- **Why it matters:** Theoretical, not observed. Worth a timeout for
+  defensive UX once we have telemetry.
+- **Suggested fix:** Either (a) wrap the load in
+  `await withTaskCancellationHandler` and set a 15-second deadline that
+  clears `pendingMonthSelection` + shows a one-shot "Try again later"
+  toast, or (b) add a `cancelPendingMonthLoad()` button to the banner
+  that the user can hit if the load stalls. (a) is more robust; (b) is
+  cheaper.
+- **Risks / dependencies:** None. Touches view state only.
+
+### N11. `versionTapCount` persists across navigations away from Settings
+
+- **Severity:** Low
+- **Related files:** `Body/Views/BodySettingsView.swift:20,343-355`
+- **Description:** `versionTapCount` is a `@State` on `BodySettingsView`.
+  `handleVersionCardTap()` only resets the counter when it reaches 5
+  (the unlock count). If the user taps 4 times on the Version row,
+  navigates to Body Pro / Permissions / another tab, comes back, and
+  taps once more, the counter is at 5 and the unlock fires. Practically
+  the counter never resets unless the unlock triggers (the view stays
+  in the tab navigation stack), so the "five taps in a row" guarantee
+  isn't enforced.
+- **Why it matters:** The five-tap unlock is a subtle Easter-egg gate;
+  carrying the count silently is mildly surprising. Edge case. Same
+  view-state pattern as `versionTapCount` carry-over is harmless if
+  the user is doing it on purpose.
+- **Suggested fix:** Reset `versionTapCount = 0` in an
+  `.onAppear { versionTapCount = 0 }` on the Settings view, or wrap
+  taps in a debounce that resets the counter when 1.5 seconds elapse
+  between taps. The `.onAppear` reset is the smallest behavior change.
 - **Risks / dependencies:** None.
 
 ---
@@ -310,289 +364,277 @@ in this run), asset catalog binary contents (only path existence per
 ## 3. Code quality findings
 
 - **Duplicated code:**
-  - `Body/Views/BodyHomeView.swift:2051-2098` and `:2100-2147` —
-    `sleepDateTile` and `metricDateTile` are 95-line near-duplicates
-    (see N5).
-  - `Body/Views/BodyHomeView.swift:1535-1541` —
-    `sleepDatePickerDates` and `metricDatePickerDates` are identical
-    one-liners.
-  - `Body/Views/BodyHomeView.swift:1953-2021` —
-    `sleepDatePicker` and `metricDatePicker` use the same
-    `ScrollViewReader` shape and `.task(id:)` body.
-  - Calendar weekday-symbol rotation already lives at
-    `BodyShared/Models/WorkoutMonthSnapshot.swift:206-220`; the
-    Activity Rings detail still inlines a `weekdayHeader` /
-    `weekdaySymbols` pair (`Body/Views/BodyHomeView.swift:4684-4701`)
-    rather than calling the shared helper. The duplication is small
-    (~15 lines) and harmless today; lift the helper if it grows again.
+  - `Body/Views/BodyHomeView.swift:4053-4302` (`BodyHealthMetricTrendChart`)
+    vs. `Body/Views/BodyHomeView.swift:3890-4020` (`BodyHeartRateRangeTrendChart`)
+    vs. `Body/Views/BodyHomeView.swift:4380-4620` (`BodyBasicsTrendChart`)
+    vs. `Body/Views/BodyHomeView.swift:3698-3840`
+    (`BodyBasicsBodyMassIndexTrendChart`) — all four chart structs
+    redeclare the same `chartPressGesture`, `selectedDate` /
+    `isSelecting` selection state, `chartXAxis` / `chartYAxis` axis
+    styling, and `chartXSelection` wiring. Lifting a shared
+    `BodyHealthChartSelectionState` view modifier (or extracting the
+    axis bodies into private functions) would cut ~200 lines and is
+    a precondition to fixing N1 cleanly.
+  - The weekday-header pair in `BodyActivityRingsDetailView`
+    (`Body/Views/BodyHomeView.swift:5433-5450`) still inlines
+    `weekdayHeader` + `weekdaySymbols` instead of calling the shared
+    helper in `BodyShared/Models/WorkoutMonthSnapshot.swift:206-220`.
+    Carry-forward observation from archive 03.
+
 - **Unused or outdated files / symbols:**
-  - `Body/Views/BodyChartsView.swift:8-126,128-142,144-164` — dead
-    `BodyChartsView`, `BodyChartsScrollTransitionShade`,
-    `BodyChartsLoadingBanner` (see N3). Verified with
-    `rg "BodyChartsView\b" Body BodyShared BodyTests`.
-  - `Body/Views/BodyHomeView.swift:5160-5167,5247-5259,5314-5333` —
-    dead `AccessoryMetric`, `accessoryContent`, `accessoryMetricStrip`
-    (see N4). Verified with `rg "accessoryMetrics: \[" Body BodyShared`.
-  - Archive `docs/IssuesArchive-02.md` claimed
-    `HealthKitWorkoutStore.dailyQuantitySummary` was removed in N8.
-    The function is back at
-    `Body/Services/HealthKitWorkoutStore.swift:1221-1241` and is now
-    used by wrist-temperature aggregation
-    (`Body/Services/HealthKitWorkoutStore.swift:815-820`) — it is no
-    longer dead, so N8 in archive 02 is stale, not regressed.
+  - None new. `BodyChartsView.swift` and `BodyHealthMetricCard.AccessoryMetric`
+    from archive 03 are gone.
+
 - **Overly complex files or functions:**
-  - `Body/Views/BodyHomeView.swift` is now 5,585 lines and still
-    bundles the Home grid, the entire detail-view machinery, every
-    sleep-supplement card, Activity Rings, basics dual-axis chart,
-    line/bar previews, and the card backgrounds extension. Splitting
-    `BodyActivityRingsDetailView` (and its ring graphic stack) into
-    its own file would drop ~900 lines; splitting
-    `BodyHealthMetricDetailView` plus all its sleep panels another
-    ~1,300. Same observation as archive 02; the file kept growing.
+  - `Body/Views/BodyHomeView.swift` — 6,289 lines (see N7).
+  - `Body/Models/HealthSummarySnapshot.swift` — 2,608 lines (see N8).
+  - `Body/Services/HealthKitWorkoutStore.swift` — 2,187 lines; smaller
+    surface than the above two, but `loadMonthIfNeeded` polling
+    (`HealthKitWorkoutStore.swift:166-191`) with three nested
+    `while ... { try? await Task.sleep(nanoseconds: 100_000_000) }`
+    busy-waits is a smell that could be replaced with a single
+    `withCheckedContinuation` keyed off the `loadingMonthKeys` set.
+    Same intent, no 100 ms polling loop. Not blocking; flag only.
+
 - **Naming inconsistencies:**
-  - `Body/Views/BodyChartsView.swift` is misnamed — the file's only
-    living types are workout-list helpers used by `BodyWorkoutsView`.
+  - `BodyHealthMetricCard.Model.unit` is `""` for the home-card preview
+    of Exercise Minutes / Steps / Training Load
+    (`Body/Views/BodyHomeView.swift:181,192,218`) but the detail page
+    sets `unit: "min"` / `"steps"` / `""` for the same metrics
+    (`Body/Views/BodyHomeView.swift:741,809,753`). The home card by
+    design omits the unit, but the inconsistency in the model parameter
+    name (`unit: ""` vs. `unit: "min"` for the same `kind`) makes the
+    helper call hard to read. Cosmetic.
+
 - **Structural improvements:**
-  - Repeat the archive-02 suggestion: lift the metric-detail day
-    picker into a reusable `BodyMetricDayPicker(selectedDate:dates:)`
-    component, replacing the sleep/metric duplicate pair.
-  - `BodyChartsView`'s pending-month state machine
-    (`pendingMonthSelection` + banner) is almost the right scaffolding
-    for the N2 fix in `BodyWorkoutsView`; consider lifting it out as a
-    standalone helper instead of deleting it.
+  - Lift a `BodyTrendChartContainer` modifier or wrapper that supplies
+    `.chartXSelection`, `.simultaneousGesture`, `.id`, `.transition`,
+    and the `.transaction { animation = nil }` to all four range-aware
+    chart structs. This is the cleanest way to fix N1 without copying
+    the same six modifiers four times.
 
 ---
 
 ## 4. Functional issues
 
-- **Month switch in Workouts shows the empty state during a HealthKit
-  load (N2):** `BodyWorkoutsView` immediately swaps to the new month;
-  for an unloaded month the user sees "No workouts for [month]" or
-  "Try selecting more workout types" with no hint that a query is in
-  flight. The calendar card on top of the workouts list also renders
-  empty during the load.
-- **`BodyChartsView` is wired only to a `#Preview`:** the dead view
-  itself isn't a user-visible bug, but its dead pending-month banner
-  (`BodyChartsLoadingBanner`) is exactly what Workouts is missing for
-  N2.
-- **Sleep-stage axis builds with `Calendar.current` (N6):** axis tick
-  positions can diverge by an hour at boundary timezones / non-gregorian
-  default calendars; downstream display of `chartXDomain` is unaffected.
+- **Range-switch animation gap (N1):** Basics dual-axis, BMI, and Heart
+  Rate Range charts snap when switching Week / Month / 6 Months /
+  Year; the other line and bar charts cross-fade. Visible on the
+  Basics and Heart Rate detail screens because both render multiple
+  charts back-to-back.
+- **No other functional regressions surfaced in this run.** All nine
+  prior findings (N1-N9 in archive 03) have been confirmed against
+  the current code:
+  - Version drift (archive N1) — fixed; tests pin 0.3.9 build 2.
+  - Workouts pending-month UX (archive N2) — fixed; banner at
+    `BodyWorkoutsView.swift:40-44`.
+  - `BodyChartsView` dead code (archive N3) — file removed.
+  - `accessoryMetrics` dead branch (archive N4) — removed.
+  - Sleep / metric date-picker duplicates (archive N5) — collapsed
+    into `dateTile(for:picker:)` at `BodyHomeView.swift:2344`.
+  - `Calendar.current` callers (archive N6) — none remain
+    (`rg "Calendar.current" Body BodyShared BodyWidgetExtension` is
+    empty; widget timeline uses `Calendar.bodyGregorian`).
+  - HealthKit usage description (archive N7) — enumerates all 12
+    categories at `body.xcodeproj/project.pbxproj:468,506`.
+  - TestPlan branch reference (archive N8) — partially fixed; see N3
+    above.
+  - Settings appVersionDisplay fallback (archive N9) — now "Unknown"
+    at `BodySettingsView.swift:238-240`.
 
 ---
 
 ## 5. UI/UX issues
 
-- **No loading state in Workouts month switch (N2)** — empty state is
-  the most user-facing UX gap in this audit.
-- **`NSHealthShareUsageDescription` understates scope (N7)** — the
-  system permission prompt user-visible text omits exercise minutes,
-  daylight, steps, wrist temperature, blood oxygen, respiratory rate,
-  energy, and Activity Rings.
-- **Sleep / metric date picker pairs duplicate styling (N5)** — small
-  divergences are easy to introduce because the two surfaces share no
-  helper.
-- **Body Pro lifetime / restore buttons set a status string instead of
-  showing a non-functional indicator** (`Body/Views/BodyProView.swift:47-49,88-101`)
-  — the page is intentionally a placeholder for future IAP wiring, but
-  the only feedback today is a small footnote-sized "not available in
-  this build" line under both buttons. A reader doesn't know whether
-  the buttons are intended to work; consider disabling them and
-  pointing at a clearer "Coming Soon" affordance, or hiding them until
-  the IAP path is real. Needs verification on device — visual only.
-- **Workout Calendar Widget configuration display name "Workout
-  Calendar" vs. "Workout Types" — both widgets use the same
-  configuration intent (`BodyWidgetConfigurationIntent`), which has a
-  single `background` parameter (`BodyWidgetExtension/WorkoutCalendarWidget.swift:24-36`).
-  No issue.
+- **Chart-switch animation inconsistency (N1)** — most visible issue.
+- **Body Pro purchase buttons (N4) and "Future Updates" checkmark
+  (N5)** — small marketing-page polish items.
+- **Body Pro page presents a real-looking purchase UI without a
+  disabled state** (carry-forward observation from archive 03 N4) —
+  the only disabled feedback is the post-tap status message; nothing
+  in the steady state communicates "placeholder".
 
 ---
 
 ## 6. Data and persistence issues
 
-- **Snapshot codec resilience (carry-forward from archive 02):**
-  `WorkoutSnapshotStore.load(fileURL:)` and
-  `HealthDashboardSnapshotStore.load(defaults:)` now log on decode
-  failures via `os.Logger`. `HealthDashboardSnapshot.init(from:)` uses
-  `decodeIfPresent` for the optional `activityRingHistory` and
-  per-trend `decodeIfPresent` calls for added trends. Forward-compatible.
-- **No schema version field:** `WorkoutMonthSnapshot` and
-  `HealthDashboardSnapshot` still don't carry an explicit schema
-  version. A `BodyWorkoutType` raw-value rename would fail the entire
-  decode (additions are tolerated by the mapping fallback to `.other`,
-  but enum-removal would break the decode). Same observation as archive
-  02 — low priority until a workout-type case is removed.
-- **App group / file path round-trip:** `WorkoutSnapshotStore` writes
-  the current month snapshot to the app-group container; the widget
-  reads from the same path. Verified by `testAppAndWidgetShareAppGroupEntitlement`.
-- **`HealthDashboardSnapshotStore` UserDefaults round-trip:** Now
-  covered by `HealthKitWorkoutStoreTests.testHealthDashboardSnapshotStoreRoundTripsCachedHomeData`
-  and `testHealthDashboardSnapshotStoreLoadsOlderCacheWithoutActivityRingHistory`.
-- **No new data loss paths surfaced in this run.**
+- **`HealthDashboardSnapshotStore` now writes to Application Support
+  (`HealthDashboardSnapshotStore/lastHealthDashboardSnapshot.json`)
+  with proper `do/catch` and `os.Logger` failure paths.** Verified at
+  `Body/Models/HealthSummarySnapshot.swift:1299-1402`. The legacy
+  UserDefaults blob is migrated on first load and deleted after a
+  successful re-write.
+- **No schema version field on either `WorkoutMonthSnapshot` or
+  `HealthDashboardSnapshot`.** Carry-forward observation. Additions
+  tolerate via `decodeIfPresent`, but a workout-type case removal
+  would break the entire decode. Not a near-term concern.
+- **No new persistence regressions.** `WorkoutSnapshotStore` and the
+  shared app group key `group.com.zihengthedeveloper.Body` are
+  unchanged and covered by `testAppAndWidgetShareAppGroupEntitlement`.
 
 ---
 
 ## 7. Configuration and platform issues
 
-- **Version drift (N1):** Project at `MARKETING_VERSION = 0.3.3` /
-  `CURRENT_PROJECT_VERSION = 2`. README and VersionHistory still report
-  build 1. Settings fallback hardcodes "0.3.3" / "1".
-- **`NSHealthShareUsageDescription` description text is too narrow (N7).**
-- **App group identifier** `group.com.zihengthedeveloper.Body` parities
-  app + widget entitlements; asserted by
-  `testAppAndWidgetShareAppGroupEntitlement`.
-- **HealthKit entitlement** present at `Body/Body.entitlements:5-6`;
-  asserted by `testAppDeclaresHealthKitEntitlement`.
-- **Privacy manifests** for both targets declare
+- **Build settings:** `MARKETING_VERSION = 0.3.9` /
+  `CURRENT_PROJECT_VERSION = 2` in all six configurations
+  (`body.xcodeproj/project.pbxproj:462,479,500,517,538,550,568,580,595,605,620,630`).
+  `ProjectConfigurationTests.swift:355-373` pins this.
+- **HealthKit usage description:** Now enumerates "workouts, Activity
+  Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body
+  measurements, energy, exercise minutes, wrist temperature,
+  daylight, and steps" (project.pbxproj:468, 506). All 12 read
+  categories are covered.
+- **App group:** `group.com.zihengthedeveloper.Body` parities app +
+  widget entitlements.
+- **Privacy manifests:** `Body/PrivacyInfo.xcprivacy` and
+  `BodyWidgetExtension/PrivacyInfo.xcprivacy` both declare
   `NSPrivacyAccessedAPICategoryUserDefaults` with reason `CA92.1` and
-  `NSPrivacyTracking = false`; asserted by
-  `testPrivacyManifestsDeclareUserDefaultsAndNoTracking`.
-- **Deployment target** `IPHONEOS_DEPLOYMENT_TARGET = 18.0` across all
-  six configurations.
-- **Alternate app icons** match `BodyAppIconOption.standard +
-  creatorSurprises` and the `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES`
-  list; asserted by `testAppIconAssetsIncludePrimaryAndAlternateOptions`
-  and `testSettingsVersionTapUnlocksCreatorSurpriseIcons`.
-- **No `NSHealthUpdateUsageDescription`** — correct, since the app never
-  writes HealthKit samples.
+  `NSPrivacyTracking = false`. No `NSPrivacyCollectedDataTypes`.
+- **Deployment target:** `IPHONEOS_DEPLOYMENT_TARGET = 18.0` across
+  all six configurations.
+- **`UIScrollView.appearance()` global (N9)** — process-wide
+  side effect from `BodyApp.init()`.
 
 ---
 
 ## 8. Testing gaps
 
 - **Highest-risk uncovered features:**
-  - `BodyWorkoutsView` pending-month UX (N2) — no test covers the
-    loading-state path; today the empty state is the load state.
-  - `BodyHealthMetricDetailView` sleep vs. metric date-picker pair (N5)
-    — visual test or focused snapshot test could pin the parity
-    between the two surfaces.
-  - `BodyProView` flippable icon, version-tap unlock, and the
-    "not available in this build" buttons — no behavioral tests beyond
-    the `ProjectConfigurationTests` source-grep checks.
-  - `Calendar.bodyGregorian` vs. `Calendar.current` (N6) — no test
-    pins the sleep-stage axis calendar.
+  - `BodyHealthMetricTrendChart` chartBackground render path (the new
+    SwiftUI Rectangle overlay) — `testTrainingLoadTrendChartDrawsDynamicHorizontalCurrentIntervalBandWithoutInlineLabel`
+    (`BodyTests/ProjectConfigurationTests.swift:168`) covers the source
+    shape but not the runtime layout against the chart proxy's
+    `plotFrame` and `position(forY:)`.
+  - The three charts in N1 — no test pins their range-switch
+    transition (which is what makes the missing `.transition` invisible
+    until you flip ranges on a device).
+  - `BodyActivityRingsDetailView` scroll-to-current-month after the
+    recent `ScrollViewReader + proxy.scrollTo` restore — no test pins
+    that the calendar opens with the current month at the bottom.
+  - `loadMonthIfNeeded` polling loop in
+    `HealthKitWorkoutStore.swift:166-191` — no test for the
+    "while isRefreshing" wait timing.
+
 - **Suggested tests:**
-  - Add a `BodyWorkoutsView`/store integration test that exercises
-    `requestMonthYearSelection` against an unloaded month, asserts an
-    expected pending-state flag, and confirms the empty state is gated
-    on `!isLoading`.
-  - Add a unit test pinning the sleep-stage axis values against
-    `Calendar.bodyGregorian` after N6 lands.
-  - Manual / on-device cases not in `TestPlan.md` (N8):
-    - Body Pro entry navigation, icon flip, version-tap unlock.
-    - Workouts tab pending-month load (N2).
-    - HealthKit permission prompt copy (N7) — verify the description
-      reads correctly on first launch.
-    - Widget timeline behavior across midnight and DST boundaries
-      (N6, follow-up).
+  - Add a `ProjectConfigurationTests` source-shape assertion for the
+    three charts in N1 (similar to the existing
+    `testTrainingLoadTrendChart...` block) that pins
+    `.transition(.opacity.animation(...))` on each.
+  - Add an integration / preview test that renders
+    `BodyActivityRingsDetailView` with a fixture history and asserts
+    the bottom-most month section ID matches today's `ActivityRingMonthKey`.
+  - Manual / on-device cases that need to land in `TestPlan.md`
+    (see N3):
+    - Training Load card on Summary, interval band at scrub, interval
+      distribution bar (per range).
+    - Heart Rate card on Summary, heart-rate range bar chart at each
+      range, range-switch animation parity (post-N1 fix).
+    - Body Pro Lifetime / Redeem / Restore in placeholder state (N4).
+    - Workouts pending-month banner during a real HealthKit load.
 
 ---
 
 ## 9. Priority recommendations
 
 - **Fix first:**
-  - N1 — version drift across project / docs / Settings fallback; this
-    is the only item that blocks a clean v0.3.3 ship and the next
-    archive run.
-  - N2 — Workouts tab "No workouts" empty state during pending month
-    loads is the most user-visible UX bug in this run.
+  - **N1** — extend the chart-switch fade to Basics, BMI, and
+    Heart Rate Range charts. Single-screen visible inconsistency.
 - **Fix next:**
-  - N3 — delete (or repurpose for N2) the dead `BodyChartsView` and
-    its loading banner.
-  - N7 — broaden the HealthKit usage description so the system prompt
-    matches the actual read scopes.
-  - N8 — refresh `TestPlan.md` for the branch and add `BodyProView`
+  - **N2** — refresh README screenshots to v0.3.9 (or note them as
+    older UI).
+  - **N3** — update `TestPlan.md` branch reference and add Training
+    Load / Heart Rate / range-switch animation / pending-month
     coverage.
+  - **N4** — clarify Body Pro purchase placeholder UI.
 - **Optional cleanup:**
-  - N4 — remove unused `accessoryMetrics` branch in
-    `BodyHealthMetricCard.Model`.
-  - N5 — collapse `sleepDateTile` / `metricDateTile` and their
-    picker scaffolds into a shared helper.
-  - N6 — switch the sleep-stage axis and widget timeline to
-    `Calendar.bodyGregorian`.
-  - N9 — change the Settings version fallback strings to "Unknown" or
-    bump them in lockstep with N1.
+  - **N5** — remove the misleading checkmark on the Body Pro
+    "Future Updates" row.
+  - **N6** — collapse the blank line inside `Chart {}` after the
+    chartBackground refactor.
+  - **N7 / N8** — split `BodyHomeView.swift` and
+    `HealthSummarySnapshot.swift` into smaller files.
+  - **N9** — drop the global `UIScrollView.appearance()` calls.
+  - **N10** — add a timeout / cancel for the Workouts pending-month
+    banner.
+  - **N11** — reset `versionTapCount` on Settings appear.
 
 ---
 
 ## What was checked
 
 - App entry: `Body/BodyApp.swift`, `Body/Views/MainTabView.swift`.
-- App models: `Body/Models/BodyAppearancePreference.swift`,
-  `Body/Models/HealthSummarySnapshot.swift` (full).
-- App services: `Body/Services/HealthKitWorkoutStore.swift` (full).
-- App views: `Body/Views/BodyHomeView.swift` (selective: detail-view
-  routing, basics chart, sleep date picker pair, activity rings detail,
-  card model, card background; full file scanned via `rg`),
+- App models: `Body/Models/BodyAppearancePreference.swift` (selective:
+  `BodyHealthPermission`, `BodyHealthPermissionSelection`,
+  `BodyHomeCardKind`, `BodyHealthTrendRange`),
+  `Body/Models/HealthSummarySnapshot.swift` (selective: training-load
+  calculator, training-load interval, dashboard store, trend snapshot,
+  metric detail help text).
+- App services: `Body/Services/HealthKitWorkoutStore.swift` (selective:
+  `loadMonthIfNeeded`, `fetchTrainingLoadSummary` /
+  `fetchTrainingLoadSeries`, `fetchSavedEffortLevel`,
+  `recentHealthTrendInterval`).
+- App views: `Body/Views/BodyHomeView.swift` (selective via `rg`:
+  trend card, day chart card, training-load presentation /
+  breakdown, heart-rate range chart, activity rings detail, basics
+  range card, animations + `.transition` modifiers, `Calendar.current`
+  callers, `metricCards` definition site),
   `Body/Views/BodyWorkoutsView.swift` (full),
-  `Body/Views/BodyChartsView.swift` (full),
-  `Body/Views/BodyMonthYearPicker.swift` (full),
-  `Body/Views/BodySettingsView.swift` (full),
-  `Body/Views/BodyProView.swift` (full).
-- Shared models: `BodyShared/Models/BodyWorkoutType.swift`,
-  `BodyShared/Models/WorkoutMonthSnapshot.swift`,
-  `BodyShared/Models/WorkoutSummary.swift`.
-- Shared components: `BodyShared/Components/WorkoutCalendarView.swift`,
-  `BodyShared/Components/WorkoutTypeBreakdownView.swift`.
-- Shared services: `BodyShared/Services/WorkoutSnapshotStore.swift`.
-- Widgets: `BodyWidgetExtension/BodyWidgetExtensionBundle.swift`,
-  `BodyWidgetExtension/WorkoutCalendarWidget.swift`,
-  `BodyWidgetExtension/Info.plist`.
-- Tests: `BodyTests/WorkoutMonthSnapshotTests.swift` (top 250 lines +
-  function index; 94 test functions),
-  `BodyTests/HealthKitWorkoutStoreTests.swift`,
-  `BodyTests/BodyWorkoutTypeTests.swift`,
-  `BodyTests/ProjectConfigurationTests.swift`.
-- Configuration: `Body/Body.entitlements`,
-  `BodyWidgetExtension.entitlements`,
+  `Body/Views/BodySettingsView.swift` (selective: appearance section,
+  Body Pro entry card, version unlock handler, `appVersionDisplay`),
+  `Body/Views/BodyProView.swift` (full),
+  `Body/Views/BodyMonthYearPicker.swift` (skim).
+- Shared models / services: `BodyShared/Models/WorkoutMonthSnapshot.swift`,
+  `BodyShared/Services/WorkoutSnapshotStore.swift`.
+- Widget: `BodyWidgetExtension/WorkoutCalendarWidget.swift` (full).
+- Configuration: `Body/PrivacyInfo.xcprivacy`,
   `body.xcodeproj/project.pbxproj` (build settings, version pins,
-  alternate icon list, HealthKit usage description, deployment target,
-  target families).
+  HealthKit usage description, deployment target).
+- Tests: `BodyTests/ProjectConfigurationTests.swift` (function index +
+  recent version / chart assertions), `BodyTests/HealthKitWorkoutStoreTests.swift`
+  (function index), `BodyTests/BodyWorkoutTypeTests.swift` (function
+  index).
 - Docs: `README.md`, `VersionHistory.md`, `TestPlan.md`,
-  `LessonsLearned.md`, `AGENTS.md` (skim).
-- Archive cross-reference: `docs/IssuesArchive-02.md` and (skim)
-  `docs/IssuesArchive-01.md`. Archive 02 N1-N18 confirmed against
-  current code; N8's "removed `dailyQuantitySummary`" claim is now
-  stale because the method is reused by wrist-temperature aggregation.
+  `LessonsLearned.md`.
+- Archive cross-reference: `docs/IssuesArchive-03.md` N1-N9.
 - Grep queries:
-  - `rg "TODO|FIXME|XXX|HACK" Body BodyShared BodyWidgetExtension BodyTests` — no source matches.
-  - `rg "model.title ==" Body/Views` — no matches (archive N2 stayed fixed).
-  - `rg "model.kind ==" Body/Views/BodyHomeView.swift` — 4 hits, all
-    on the new `HealthMetricKind` branching path.
-  - `rg "Calendar.current" Body BodyShared BodyWidgetExtension` —
-    surfaces the two N6 callers.
-  - `rg "try?" Body BodyShared BodyWidgetExtension` — only `Task.sleep`
-    callers remain; no silent JSON paths.
-  - `rg "BodyChartsView\b" Body BodyShared BodyTests` — confirmed dead.
-  - `rg "accessoryMetrics" Body/Views/BodyHomeView.swift` — confirmed
-    no non-default caller.
-  - `rg "dailyQuantitySummary|isLoadingSnapshot|recentActivityRingMonthKeys"
-    Body/Services/HealthKitWorkoutStore.swift` — confirmed
-    `dailyQuantitySummary` and `recentActivityRingMonthKeys` are used;
-    `isLoadingSnapshot` is removed.
-  - `rg "DispatchQueue\.main" Body BodyShared BodyWidgetExtension` —
-    surfaces the icon-flip / icon-change / haptic GCD hops in
-    `BodyProView` and `BodySettingsView`; archive N16's GCD-in-rings
-    case is fixed (`Task { @MainActor in ... await Task.yield() }` at
-    `BodyHomeView.swift:4603-4606`).
+  - `rg "TODO|FIXME|XXX|HACK" Body BodyShared BodyWidgetExtension BodyTests`
+    — no matches.
+  - `rg "Calendar.current" Body BodyShared BodyWidgetExtension` — no
+    matches.
+  - `rg "try!|fatalError|preconditionFailure|as!" Body BodyShared
+    BodyWidgetExtension` — no matches.
+  - `rg "try?" Body BodyShared BodyWidgetExtension` — only
+    `try? await Task.sleep(...)` callers remain; no silent JSON
+    paths.
+  - `rg "model.title ==" Body/Views` — no matches (archive 02 N2 stayed
+    fixed).
+  - `rg "BodyChartsView" Body BodyShared BodyTests` — no matches.
+  - `rg "accessoryMetrics|AccessoryMetric" Body BodyShared` — no
+    matches.
+  - `rg "\.transition" Body/Views/BodyHomeView.swift` — confirms only
+    the trend chart, the day-chart card, and the sleep-stage card use
+    `.transition(...)`; the three charts in N1 do not.
+  - `rg "displayedHighlightedRange" Body/Views/BodyHomeView.swift` —
+    confirms the let binding is read inside `chartBackground` after
+    the refactor.
 
 ## Not checked (worth a follow-up)
 
-- Running the project on simulator or device. Verifying N2's empty-state
-  flow during a real HealthKit query, N7's permission prompt copy on
-  first launch, and any of the visual checks in §5 requires a build.
-- Lock Screen / accessory widget families (deferred per
-  `TestPlan.md` §4).
-- Localization beyond English (deferred per `TestPlan.md` §4).
-- LaunchScreen XML and the workspace shared scheme XML.
-- HealthKit background delivery (deferred per `TestPlan.md` §4).
+- Running the project on simulator or device. Verifying N1's range-switch
+  animation on Basics / BMI / Heart Rate detail pages, the Activity
+  Rings calendar's scroll-to-current-month on first open, the new
+  training-load interval band + color cross-fade, and the heart-rate
+  range chart axes all require a build.
+- Lock Screen / accessory widget families (deferred per TestPlan §4).
+- HealthKit background delivery (deferred per TestPlan §4).
+- Localization beyond English (deferred per TestPlan §4).
+- LaunchScreen XML and Xcode shared scheme XML.
 - Asset catalog `Contents.json` JSON validation beyond
-  `ProjectConfigurationTests.testAppIconAssetsIncludePrimaryAndAlternateOptions`
-  (which confirms file existence and non-zero PNG bytes only).
-- `WorkoutMonthSnapshotTests.swift` (2,137 lines, 94 tests) was
-  function-indexed but not read in full; spot checks against the
-  recent commits suggest range-cap and aggregation coverage is in
-  place.
-- Carry-forward verification: archive 02's "Fix pass resolution" was
-  cross-referenced via grep, not by re-deriving each fix's behavior
-  on device.
+  `ProjectConfigurationTests.testAppIconAssetsIncludePrimaryAndAlternateOptions`.
+- `WorkoutMonthSnapshotTests.swift` (2,420 lines) was function-indexed
+  but not read in full.
+- N9 (`UIScrollView.appearance()` global) needs visual verification on
+  sheets and the app-icon picker.
+- N10 (pending-month timeout) is theoretical; needs Instruments to
+  confirm the `while isRefreshing` busy-wait can actually stall.

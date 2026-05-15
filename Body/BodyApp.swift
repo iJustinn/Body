@@ -4,7 +4,6 @@
 //
 
 import SwiftUI
-import UIKit
 
 @main
 struct BodyApp: App {
@@ -14,8 +13,6 @@ struct BodyApp: App {
     @AppStorage(BodyAppearancePreference.selectedAccentKey) private var selectedAccentRawValue = BodyAppAccent.defaultValue.rawValue
 
     init() {
-        UIScrollView.appearance().showsVerticalScrollIndicator = false
-        UIScrollView.appearance().showsHorizontalScrollIndicator = false
         WorkoutSnapshotStore.seedPreviewSnapshotIfNeeded()
     }
 

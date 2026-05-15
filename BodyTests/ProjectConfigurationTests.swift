@@ -209,7 +209,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testSummaryMetricValuesUseClockStyleNumericTransitions() throws {
         let source = try text(at: "Body/Views/BodyHomeView.swift")
 
-        XCTAssertTrue(source.contains("private struct BodyAnimatedMetricValueText: View"))
+        XCTAssertTrue(source.contains("struct BodyAnimatedMetricValueText: View"))
         XCTAssertTrue(source.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
         XCTAssertTrue(source.contains(".contentTransition(reduceMotion ? .identity : .numericText())"))
         XCTAssertTrue(source.contains(".monospacedDigit()"))
@@ -218,7 +218,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testActivityRingGraphicAnimatesProgressWithCircularSweep() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try text(at: "Body/Views/BodyActivityRingsDetailView.swift")
         let graphicStart = try XCTUnwrap(source.range(of: "private struct BodyActivityRingGraphic")?.lowerBound)
         let graphicBlock = String(source[graphicStart...].prefix(2_400))
         let arcStart = try XCTUnwrap(source.range(of: "private struct BodyActivityRingArc")?.lowerBound)
@@ -385,8 +385,9 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `codex/body-v0.3.4`"))
+        XCTAssertTrue(testPlan.contains("branch `body-v0.3.5`"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.0`"))
+        XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.4`"))
         XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))
         XCTAssertTrue(testPlan.contains("Body Pro entry navigation"))
         XCTAssertTrue(testPlan.contains("Body Pro icon flip"))
@@ -401,9 +402,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(workoutsSource.contains("if let pendingMonthSelection {"))
         XCTAssertTrue(workoutsSource.contains("BodyWorkoutMonthLoadingBanner(monthYear: pendingMonthSelection)"))
         XCTAssertTrue(workoutsSource.contains("pendingMonthSelection = monthYear"))
-        XCTAssertTrue(workoutsSource.contains("let didLoad = await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)"))
+        XCTAssertTrue(workoutsSource.contains("await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)"))
         XCTAssertTrue(workoutsSource.contains("guard pendingMonthSelection == monthYear else"))
-        XCTAssertTrue(workoutsSource.contains("if didLoad {"))
+        XCTAssertTrue(workoutsSource.contains("if didLoad == true {"))
         XCTAssertTrue(workoutsSource.contains("applyMonthSelection(monthYear)"))
         XCTAssertTrue(workoutsSource.contains("return false"))
     }
