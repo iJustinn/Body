@@ -227,3 +227,31 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 - Cause: In a `HealthSummarySnapshot(...)` initializer argument, `.empty.sleep` was inferred from the argument type instead of the containing snapshot type.
 - Fix: Use `HealthSummarySnapshot.empty.sleep` and the fully qualified metric paths.
 - Reuse: When accessing a static aggregate fixture from inside a typed initializer, qualify the root type instead of relying on shorthand member lookup.
+
+### 2026-05-14 - Update chart source-shape tests when adding chart marks
+- Context: Adding the Heart Rate range chart and day-view sleep/workout overlays in `Body/Views/BodyHomeView.swift`.
+- Symptom: The full `rtk xcodebuild test` run passed compilation but failed `ProjectConfigurationTests.testAggregatedHealthChartsWireRangeLabelsAndBarWidths` and `testHealthMetricChartSelectionAnnotationsFitWithinChartEdges`.
+- Cause: Those tests count chart annotation overflow wiring, selected-date label wiring, and fixed bar-width occurrences in source text.
+- Fix: Update the source-shape assertions alongside intentional new chart annotations or fixed-width bar marks, then rerun the focused `ProjectConfigurationTests`.
+- Reuse: Before adding a new Swift Charts view or annotation in `BodyHomeView.swift`, check `ProjectConfigurationTests` for count-based chart wiring guards.
+
+### 2026-05-15 - Complete Notion MCP OAuth after 2FA
+- Context: Repairing Codex access to the hosted Notion MCP server.
+- Symptom: `codex mcp list` showed the Notion server enabled at `https://mcp.notion.com/mcp`, but no Notion/MCP entry appeared in `~/.codex/auth.json`.
+- Cause: The Notion OAuth flow needed a browser login and two-step verification before the local callback could finish.
+- Fix: Run `codex mcp login notion`, open the authorization URL in Chrome, complete Notion 2FA, then reopen the authorization URL if Chrome lands on a workspace page instead of the callback.
+- Reuse: When Notion MCP is configured but unauthenticated, prefer rerunning the hosted OAuth login before editing the MCP config.
+
+### 2026-05-14 - Resolve day-chart context by selected metric day
+- Context: Fixing Heart Rate Day View sleep overlays and selection labels.
+- Symptom: Sleep time frames appeared for today but disappeared on prior metric days, while selected heart-rate annotations listed too many raw samples.
+- Cause: The overlay read `selectedSleepSummary`, which is coupled to the sleep picker date, and the annotation rendered every raw sample in the selected hourly bucket.
+- Fix: Resolve sleep context with `sleepSummary(for: selectedMetricDay)` and summarize selected hourly heart-rate samples into fixed 10-minute windows before rendering details.
+- Reuse: When a detail chart mixes sleep/workout context with another metric, derive context from the chart's selected day and keep selection annotations scoped to the selected chart bucket.
+
+### 2026-05-15 - Avoid shadowing calculator helpers inside reducers
+- Context: Adding `TrainingLoadCalculator.summary(on:from:calendar:)` in `Body/Models/HealthSummarySnapshot.swift`.
+- Symptom: `xcodebuild test` failed with `Cannot call value of non-function type 'Int'` at `load(for: workout)`.
+- Cause: A local reducer accumulator named `load` shadowed the static `load(for:)` helper in the same type.
+- Fix: Rename the accumulated value to `totalLoad` before calling `load(for:)`.
+- Reuse: When static calculators use verb-like helper names, avoid reusing those names for local totals inside closures.

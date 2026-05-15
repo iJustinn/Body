@@ -1330,8 +1330,8 @@ private struct BodyHowToUseSettingsSheet: View {
             iconName: "rectangle.grid.2x2.fill",
             tintColor: .blue,
             steps: [
-                "Summary shows Activity Rings, Sleep, Basics, resting heart rate, HRV, blood oxygen, respiratory rate, active energy, and resting energy.",
-                "Tap a card to open its secondary screen with recent Week and Month trends.",
+                "Summary shows Activity Rings, Sleep, Basics, training load, heart rate, resting heart rate, HRV, blood oxygen, respiratory rate, active energy, and resting energy.",
+                "Tap a card to open its secondary screen with recent Week, Month, 6 Months, and Year trends.",
                 "Use Settings to change appearance, app accent, icon, and measurement units."
             ]
         ),
@@ -1350,9 +1350,9 @@ private struct BodyHowToUseSettingsSheet: View {
             iconName: "chart.xyaxis.line",
             tintColor: .indigo,
             steps: [
-                "Resting Heart Rate, HRV, Respiratory Rate, and Blood Oxygen include a Day View below the range trend.",
+                "Heart Rate, Resting Heart Rate, HRV, Respiratory Rate, and Blood Oxygen include a Day View below the range trend.",
                 "Choose a day with the date slider.",
-                "The chart averages multiple readings in the same hour; press the chart to reveal the raw readings behind that hourly point."
+                "Heart Rate also overlays sleep and workout windows; press the chart to reveal the raw readings behind each hourly point."
             ]
         ),
         BodyHowToUseGuideSection(
