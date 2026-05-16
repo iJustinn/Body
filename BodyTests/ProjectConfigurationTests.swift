@@ -32,8 +32,10 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testSettingsDataTabsExposePermissions() {
-        XCTAssertEqual(BodySettingsDataTab.allCases.map(\.title), ["Permissions"])
+        XCTAssertEqual(BodySettingsDataTab.allCases.map(\.title), ["Permissions", "Health Data Sync", "Cache"])
         XCTAssertEqual(BodySettingsDataTab.permissions.sheet, .permissions)
+        XCTAssertEqual(BodySettingsDataTab.syncStatus.sheet, .syncStatus)
+        XCTAssertEqual(BodySettingsDataTab.cache.sheet, .cache)
     }
 
     func testHealthPermissionTogglesUseGreenOnAndRedOffSwitchColors() throws {
@@ -433,22 +435,23 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = 1;"))
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.3.9;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.4.1;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
-    func testVersionDocumentationAndSettingsFallbackMatchBuildTwo() throws {
+    func testVersionDocumentationAndSettingsFallbackMatchCurrentRelease() throws {
         let readme = try text(at: "README.md")
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.3.9 (build 2)**"))
-        XCTAssertTrue(versionHistory.contains("## 0.3.9 (build 2)"))
+        XCTAssertTrue(readme.contains("Current app version: **0.4.1 (build 1)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.4.1 (build 1)"))
         XCTAssertTrue(versionHistory.contains("Added Heart Rate, Wrist Temperature, and Training Load dashboard cards with dedicated detail charts."))
         XCTAssertTrue(versionHistory.contains("Moved the dashboard cache out of UserDefaults into file-backed storage to avoid oversized preferences writes."))
-        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.3.9 build 2."))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.4.1 build 1."))
         XCTAssertFalse(readme.contains("Current app version: **0.3.5"))
+        XCTAssertFalse(readme.contains("Current app version: **0.3.9 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.3.4 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.3.3 (build 2)**"))
         XCTAssertFalse(settingsSource.contains(#"?? "1""#))
@@ -466,7 +469,8 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-v0.3.5`"))
+        XCTAssertTrue(testPlan.contains("branch `body-v0.4.1`"))
+        XCTAssertTrue(testPlan.contains("app version 0.4.1 build 1"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.0`"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.4`"))
         XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))
@@ -599,11 +603,124 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"descriptor: "Present""#), 6)
     }
 
+    func testSettingsMetricsSectionGroupsUnitsSummaryCardsAndTrendControls() throws {
+        let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
+        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+        let appearanceStart = try XCTUnwrap(settingsSource.range(of: "private var appearanceSection: some View")?.lowerBound)
+        let appearanceBlock = String(settingsSource[appearanceStart...].prefix(2_500))
+        let metricsStart = try XCTUnwrap(settingsSource.range(of: "private var metricsSection: some View")?.lowerBound)
+        let metricsBlock = String(settingsSource[metricsStart...].prefix(4_000))
+        let stackStart = try XCTUnwrap(
+            settingsSource.range(of: "VStack(alignment: .leading, spacing: 22) {")?.lowerBound
+        )
+        let settingsStack = String(settingsSource[stackStart...].prefix(400))
+        let appearanceSectionRange = try XCTUnwrap(settingsStack.range(of: "appearanceSection"))
+        let metricsSectionRange = try XCTUnwrap(settingsStack.range(of: "metricsSection"))
+        let dataSectionRange = try XCTUnwrap(settingsStack.range(of: "dataSection"))
+        let iconRange = try XCTUnwrap(appearanceBlock.range(of: #"title: "Icon""#))
+        let unitsRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Units""#))
+        let summaryCardsRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Summary Cards""#))
+        let chartsRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Charts Range""#))
+        let trendCardsRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Trend Cards""#))
+
+        XCTAssertLessThan(appearanceSectionRange.lowerBound, metricsSectionRange.lowerBound)
+        XCTAssertLessThan(metricsSectionRange.lowerBound, dataSectionRange.lowerBound)
+        XCTAssertTrue(metricsBlock.contains(#"BodySettingsCardSection("Metrics")"#))
+        XCTAssertLessThan(unitsRange.lowerBound, chartsRange.lowerBound)
+        XCTAssertLessThan(chartsRange.lowerBound, summaryCardsRange.lowerBound)
+        XCTAssertLessThan(summaryCardsRange.lowerBound, trendCardsRange.lowerBound)
+        XCTAssertFalse(appearanceBlock.contains(#"title: "Summary Cards""#))
+        XCTAssertFalse(appearanceBlock.contains(#"title: "Charts Range""#))
+        XCTAssertFalse(appearanceBlock.contains(#"title: "Trend Cards""#))
+        XCTAssertFalse(settingsSource.contains("private var unitSection: some View"))
+        XCTAssertFalse(settingsSource.contains(#"title: "Measurement""#))
+        XCTAssertTrue(settingsSource.contains(#".navigationTitle("Charts Range")"#))
+        XCTAssertTrue(settingsSource.contains(#"BodySettingsAboutSheetScaffold(title: "Trend Cards")"#))
+        XCTAssertFalse(settingsSource.contains(#".navigationTitle("Default Trend Range")"#))
+        XCTAssertFalse(settingsSource.contains(#"BodySettingsAboutSheetScaffold(title: "Home Trend Cards")"#))
+        XCTAssertLessThan(iconRange.lowerBound, appearanceBlock.endIndex)
+        XCTAssertTrue(settingsSource.contains("@AppStorage(BodyAppearancePreference.summaryCardSelectionKey)"))
+        XCTAssertTrue(settingsSource.contains("@AppStorage(BodyAppearancePreference.defaultTrendRangeKey)"))
+        XCTAssertTrue(settingsSource.contains("@AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey)"))
+        XCTAssertTrue(settingsSource.contains("case .summaryCards:"))
+        XCTAssertTrue(settingsSource.contains("case .defaultTrendRange:"))
+        XCTAssertTrue(settingsSource.contains("case .homeTrendCards:"))
+        XCTAssertTrue(settingsSource.contains("BodySummaryCardsSettingsSheet("))
+        XCTAssertTrue(settingsSource.contains("BodyDefaultTrendRangePickerSheet("))
+        XCTAssertTrue(settingsSource.contains("BodyHomeTrendCardsSettingsSheet("))
+        XCTAssertTrue(settingsSource.contains("ForEach(BodyHomeCardKind.defaultOrder)"))
+        XCTAssertTrue(settingsSource.contains("ForEach(BodyHomeTrendCardKind.defaultOrder)"))
+        XCTAssertTrue(settingsSource.contains("BodySummaryCardToggleRow("))
+        XCTAssertTrue(settingsSource.contains("BodyHomeTrendCardToggleRow("))
+        XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.defaultTrendRangeKey)"))
+        XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey)"))
+        XCTAssertTrue(homeSource.contains("initialTrendRange: defaultTrendRange"))
+        XCTAssertTrue(homeSource.contains(".filter { homeTrendCardSelection.includes($0.presentation.kind) }"))
+    }
+
+    func testSettingsUnitsPageHasSystemToggleAndIndependentUnitControls() throws {
+        let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
+        let appearanceSource = try text(at: "Body/Models/BodyAppearancePreference.swift")
+        let formatterSource = try text(at: "BodyShared/Models/WorkoutSummary.swift")
+
+        let unitSheetStart = try XCTUnwrap(settingsSource.range(of: "private struct BodyUnitPreferencePickerSheet")?.lowerBound)
+        let unitSheetBlock = String(settingsSource[unitSheetStart...].prefix(8_000))
+
+        XCTAssertTrue(appearanceSource.contains("followsSystemUnitsKey"))
+        XCTAssertTrue(appearanceSource.contains("selectedWeightUnitKey"))
+        XCTAssertTrue(appearanceSource.contains("selectedDistanceUnitKey"))
+        XCTAssertTrue(appearanceSource.contains("selectedEnergyUnitKey"))
+        XCTAssertTrue(appearanceSource.contains("selectedTemperatureUnitKey"))
+        XCTAssertTrue(settingsSource.contains("@AppStorage(BodyAppearancePreference.followsSystemUnitsKey)"))
+        XCTAssertTrue(settingsSource.contains("@AppStorage(BodyAppearancePreference.selectedWeightUnitKey)"))
+        XCTAssertTrue(settingsSource.contains("@AppStorage(BodyAppearancePreference.selectedDistanceUnitKey)"))
+        XCTAssertTrue(settingsSource.contains("@AppStorage(BodyAppearancePreference.selectedEnergyUnitKey)"))
+        XCTAssertTrue(settingsSource.contains("@AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey)"))
+        XCTAssertTrue(unitSheetBlock.contains(#"Toggle("Follow System""#))
+        XCTAssertTrue(unitSheetBlock.contains(#"title: "Weight""#))
+        XCTAssertTrue(unitSheetBlock.contains(#"title: "Distance""#))
+        XCTAssertTrue(unitSheetBlock.contains(#"title: "Energy""#))
+        XCTAssertTrue(unitSheetBlock.contains(#"title: "Temperature""#))
+        XCTAssertTrue(unitSheetBlock.contains("BodyValueFormat.WeightUnitPreference.allCases"))
+        XCTAssertTrue(unitSheetBlock.contains("BodyValueFormat.DistanceUnitPreference.allCases"))
+        XCTAssertTrue(unitSheetBlock.contains("BodyValueFormat.EnergyUnitPreference.allCases"))
+        XCTAssertTrue(unitSheetBlock.contains("BodyValueFormat.TemperatureUnitPreference.allCases"))
+        XCTAssertTrue(unitSheetBlock.contains("isEnabled: !followsSystemUnits"))
+        XCTAssertTrue(unitSheetBlock.contains(".disabled(followsSystemUnits)"))
+        XCTAssertTrue(formatterSource.contains("enum WeightUnitPreference"))
+        XCTAssertTrue(formatterSource.contains("enum DistanceUnitPreference"))
+        XCTAssertTrue(formatterSource.contains("enum EnergyUnitPreference"))
+        XCTAssertTrue(formatterSource.contains("enum TemperatureUnitPreference"))
+    }
+
+    func testSettingsDataSectionExposesSyncStatusAndCacheControls() throws {
+        let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
+        let dataStart = try XCTUnwrap(settingsSource.range(of: "private var dataSection: some View")?.lowerBound)
+        let dataBlock = String(settingsSource[dataStart...].prefix(3_000))
+        XCTAssertTrue(dataBlock.contains("BodySettingsDataTab.allCases"))
+        XCTAssertTrue(dataBlock.contains("dataValue(for: tab)"))
+        XCTAssertTrue(settingsSource.contains(#"return "Health Data Sync""#))
+        XCTAssertTrue(settingsSource.contains(#"return "Cache""#))
+        XCTAssertTrue(settingsSource.contains("case .syncStatus:"))
+        XCTAssertTrue(settingsSource.contains("case .cache:"))
+        XCTAssertTrue(settingsSource.contains("BodyHealthSyncStatusSettingsSheet(workoutStore: workoutStore)"))
+        XCTAssertTrue(settingsSource.contains("BodyCacheSettingsSheet(workoutStore: workoutStore)"))
+        XCTAssertTrue(settingsSource.contains("workoutStore.healthSyncStatusSummaryText"))
+        XCTAssertTrue(settingsSource.contains("workoutStore.cacheStatus.summaryText"))
+    }
+
     func testBodyProPageUsesCoinStyleSettingsEntryAndIconAssets() throws {
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
         let bodyProSource = try text(at: "Body/Views/BodyProView.swift")
+        let settingsStackStart = try XCTUnwrap(
+            settingsSource.range(of: "VStack(alignment: .leading, spacing: 22) {")?.lowerBound
+        )
+        let settingsStack = String(settingsSource[settingsStackStart...].prefix(350))
+        let aboutSectionRange = try XCTUnwrap(settingsStack.range(of: "aboutSection"))
+        let bodyProEntryRange = try XCTUnwrap(settingsStack.range(of: "bodyProEntryCard"))
 
         XCTAssertTrue(settingsSource.contains("bodyProEntryCard"))
+        XCTAssertLessThan(aboutSectionRange.lowerBound, bodyProEntryRange.lowerBound)
         XCTAssertTrue(settingsSource.contains("NavigationLink {"))
         XCTAssertTrue(settingsSource.contains("BodyProView()"))
         XCTAssertTrue(settingsSource.contains("BodySettingsTypography.sectionTitleFontSize"))

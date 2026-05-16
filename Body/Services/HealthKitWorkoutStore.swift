@@ -22,6 +22,39 @@ struct BodyWorkoutMonthKey: Hashable {
     }
 }
 
+struct BodyHealthCacheStatus: Equatable {
+    let hasHealthDashboardData: Bool
+    let workoutMonthCount: Int
+    let workoutCount: Int
+    let activityRingMonthCount: Int
+
+    var isEmpty: Bool {
+        !hasHealthDashboardData && workoutMonthCount == 0 && activityRingMonthCount == 0
+    }
+
+    var summaryText: String {
+        isEmpty ? "Empty" : "Cached"
+    }
+
+    var detailLines: [String] {
+        [
+            hasHealthDashboardData
+                ? "Health summary, trend, or Activity Ring data is available in the local dashboard cache."
+                : "Health dashboard cache is empty.",
+            "\(workoutMonthCount) workout \(monthWord(for: workoutMonthCount)) cached with \(workoutCount) \(workoutWord(for: workoutCount)).",
+            "\(activityRingMonthCount) Activity Ring \(monthWord(for: activityRingMonthCount)) cached."
+        ]
+    }
+
+    private func monthWord(for count: Int) -> String {
+        count == 1 ? "month" : "months"
+    }
+
+    private func workoutWord(for count: Int) -> String {
+        count == 1 ? "workout" : "workouts"
+    }
+}
+
 @MainActor
 final class HealthKitWorkoutStore: ObservableObject {
     static let recentChartMonthCount = 3
@@ -43,6 +76,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var permissionSelection: BodyHealthPermissionSelection
     @Published private(set) var healthDataNotice: String?
     @Published private(set) var isRefreshing = false
+    @Published private(set) var lastSuccessfulRefreshDate: Date?
     @Published private(set) var loadingMonthKeys: Set<BodyWorkoutMonthKey> = []
     @Published private(set) var loadingActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
 
@@ -78,6 +112,62 @@ final class HealthKitWorkoutStore: ObservableObject {
             calendar: .bodyGregorian
         )
         loadedActivityRingMonthKeys = Set(activityRingHistory.loadedMonthKeySet(calendar: .bodyGregorian))
+    }
+
+    var healthSyncStatusSummaryText: String {
+        if isRefreshing {
+            return "Refreshing"
+        }
+
+        switch authorizationState {
+        case .unknown:
+            return lastSuccessfulRefreshDate == nil ? "Not Synced" : "Updated"
+        case .unavailable:
+            return "Unavailable"
+        case .authorized:
+            return "Updated"
+        case .denied:
+            return "Denied"
+        case .failed:
+            return "Failed"
+        }
+    }
+
+    var healthSyncStatusDetailText: String {
+        if isRefreshing {
+            return "Body is refreshing Apple Health data now."
+        }
+
+        switch authorizationState {
+        case .unknown:
+            return lastSuccessfulRefreshDate == nil
+                ? "Body has not completed a HealthKit refresh in this app session."
+                : "Body has cached Health data from a previous refresh."
+        case .unavailable:
+            return "Apple Health is not available on this device."
+        case .authorized:
+            return "Body can read the Health data permissions enabled below."
+        case .denied:
+            return "Health access was denied. Review Body's permissions in Apple Health or iOS Settings."
+        case .failed(let message):
+            return "The last refresh failed: \(message)"
+        }
+    }
+
+    var cacheStatus: BodyHealthCacheStatus {
+        let workoutSnapshotsWithData = monthSnapshots.values.filter { $0.workoutCount > 0 }
+        let dashboardSnapshot = HealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: healthTrends,
+            activityRingHistory: activityRingHistory
+        )
+
+        return BodyHealthCacheStatus(
+            hasHealthDashboardData: !dashboardSnapshot.isEmpty,
+            workoutMonthCount: workoutSnapshotsWithData.count,
+            workoutCount: workoutSnapshotsWithData.reduce(0) { $0 + $1.workoutCount },
+            activityRingMonthCount: loadedActivityRingMonthKeys.count
+        )
     }
 
     func requestAuthorizationAndRefresh() async {
@@ -253,6 +343,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 )
             )
             authorizationState = .authorized
+            markRefreshSucceeded(date: Date())
             updateHealthDataNotice()
         } catch {
             handleRefreshError(error)
@@ -270,6 +361,36 @@ final class HealthKitWorkoutStore: ObservableObject {
         let month = calendar.component(.month, from: date)
         let year = calendar.component(.year, from: date)
         await refresh(month: month, year: year, calendar: calendar, updatesHealthSummary: true)
+    }
+
+    func clearLocalCache(date: Date = Date()) {
+        let calendar = Calendar.bodyGregorian
+        let month = calendar.component(.month, from: date)
+        let year = calendar.component(.year, from: date)
+        let key = BodyWorkoutMonthKey(month: month, year: year)
+        let emptySnapshot = WorkoutMonthSnapshot.make(
+            month: month,
+            year: year,
+            workouts: [],
+            calendar: calendar
+        )
+
+        snapshot = emptySnapshot
+        monthSnapshots = [key: emptySnapshot]
+        healthSummary = .empty
+        healthTrends = .empty
+        activityRingHistory = .empty
+        loadedMonthKeys.removeAll()
+        loadedActivityRingMonthKeys.removeAll()
+        loadingMonthKeys.removeAll()
+        loadingActivityRingMonthKeys.removeAll()
+        lastSuccessfulRefreshDate = nil
+        authorizationState = .unknown
+        healthDataNotice = "Local cache cleared. Refresh to load Apple Health data again."
+
+        WorkoutSnapshotStore.delete()
+        HealthDashboardSnapshotStore.delete()
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     private func refreshRecentMonths(date: Date = Date()) async {
@@ -297,6 +418,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 activityRingHistory: fetchedActivityRingHistory
             )
             authorizationState = .authorized
+            markRefreshSucceeded(date: date)
             updateCurrentMonthSnapshot(date: date, calendar: calendar)
             updateHealthDataNotice()
         } catch {
@@ -330,7 +452,9 @@ final class HealthKitWorkoutStore: ObservableObject {
                 )
             }
             authorizationState = .authorized
-            updateCurrentMonthSnapshot(date: Date(), calendar: calendar)
+            let refreshDate = Date()
+            markRefreshSucceeded(date: refreshDate)
+            updateCurrentMonthSnapshot(date: refreshDate, calendar: calendar)
             updateHealthDataNotice()
         } catch {
             handleRefreshError(error)
@@ -368,6 +492,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             try await requestAuthorization()
             try await refresh(monthKeys: keysToLoad, calendar: .bodyGregorian)
             authorizationState = .authorized
+            markRefreshSucceeded(date: Date())
             updateHealthDataNotice()
         } catch {
             handleRefreshError(error)
@@ -414,6 +539,10 @@ final class HealthKitWorkoutStore: ObservableObject {
                 activityRingHistory: nextActivityRingHistory
             )
         )
+    }
+
+    private func markRefreshSucceeded(date: Date) {
+        lastSuccessfulRefreshDate = date
     }
 
     private func applyPermissionSelectionToCachedData() {

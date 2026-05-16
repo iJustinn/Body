@@ -83,6 +83,31 @@ enum HealthDashboardSnapshotStore {
         load(defaults: defaults, fileURL: fileURL) ?? .empty
     }
 
+    static func exists(fileURL: URL? = snapshotFileURL) -> Bool {
+        guard let fileURL else {
+            return false
+        }
+
+        return FileManager.default.fileExists(atPath: fileURL.path)
+    }
+
+    static func delete(
+        defaults: UserDefaults = .standard,
+        fileURL: URL? = snapshotFileURL
+    ) {
+        defaults.removeObject(forKey: healthDashboardSnapshotKey)
+
+        guard let fileURL, FileManager.default.fileExists(atPath: fileURL.path) else {
+            return
+        }
+
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+        } catch {
+            logger.error("Health dashboard snapshot file delete failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     private static func loadFromFile(fileURL: URL?) -> HealthDashboardSnapshot? {
         guard let fileURL else {
             return nil

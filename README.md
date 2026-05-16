@@ -6,7 +6,7 @@
 
 Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
-Current app version: **0.3.9 (build 2)**
+Current app version: **0.4.1 (build 1)**
 
 ## Screenshots
 

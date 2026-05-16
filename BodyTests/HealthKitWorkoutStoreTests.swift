@@ -103,6 +103,65 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
     }
 
+    func testDashboardAndWorkoutSnapshotStoresCanDeleteCachedFiles() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let dashboardFileURL = temporaryHealthDashboardSnapshotFileURL()
+        let workoutFileURL = temporaryWorkoutSnapshotFileURL()
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: dashboardFileURL.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: workoutFileURL.deletingLastPathComponent())
+        }
+        let dashboardSnapshot = try cachedHealthDashboardSnapshot()
+        let workoutSnapshot = WorkoutMonthSnapshot.make(
+            month: 5,
+            year: 2026,
+            workouts: [workout(day: 11, type: .running, duration: 2_100)],
+            calendar: .bodyGregorian
+        )
+
+        HealthDashboardSnapshotStore.save(dashboardSnapshot, defaults: defaults, fileURL: dashboardFileURL)
+        WorkoutSnapshotStore.save(workoutSnapshot, fileURL: workoutFileURL)
+
+        XCTAssertTrue(HealthDashboardSnapshotStore.exists(fileURL: dashboardFileURL))
+        XCTAssertTrue(WorkoutSnapshotStore.exists(fileURL: workoutFileURL))
+
+        HealthDashboardSnapshotStore.delete(defaults: defaults, fileURL: dashboardFileURL)
+        WorkoutSnapshotStore.delete(fileURL: workoutFileURL)
+
+        XCTAssertFalse(HealthDashboardSnapshotStore.exists(fileURL: dashboardFileURL))
+        XCTAssertFalse(WorkoutSnapshotStore.exists(fileURL: workoutFileURL))
+    }
+
+    @MainActor
+    func testWorkoutStoreClearLocalCacheResetsInMemorySnapshotsAndStatus() throws {
+        let calendar = Calendar.bodyGregorian
+        let initialSnapshot = WorkoutMonthSnapshot.make(
+            month: 5,
+            year: 2026,
+            workouts: [workout(day: 11, type: .running, duration: 2_100)],
+            calendar: calendar
+        )
+        let store = HealthKitWorkoutStore(
+            initialSnapshot: initialSnapshot,
+            initialHealthDashboardSnapshot: try cachedHealthDashboardSnapshot()
+        )
+
+        XCTAssertFalse(store.cacheStatus.isEmpty)
+        XCTAssertEqual(store.cacheStatus.summaryText, "Cached")
+
+        store.clearLocalCache(date: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 16))))
+
+        XCTAssertEqual(store.snapshot.workoutCount, 0)
+        XCTAssertTrue(store.healthSummary.isEmpty)
+        XCTAssertTrue(store.healthTrends.isEmpty)
+        XCTAssertTrue(store.activityRingHistory.isEmpty)
+        XCTAssertTrue(store.cacheStatus.isEmpty)
+        XCTAssertEqual(store.cacheStatus.summaryText, "Empty")
+        XCTAssertEqual(store.healthSyncStatusSummaryText, "Not Synced")
+    }
+
     @MainActor
     func testWorkoutStoreRepairsCachedBoundaryTruncatedActivityRingHistory() throws {
         let calendar = Calendar.bodyGregorian
@@ -292,6 +351,24 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("BodyTests-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("lastHealthDashboardSnapshot.json")
+    }
+
+    private func temporaryWorkoutSnapshotFileURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("BodyTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("currentMonthWorkoutSnapshot.json")
+    }
+
+    private func workout(day: Int, type: BodyWorkoutType, duration: TimeInterval) -> WorkoutSummary {
+        WorkoutSummary(
+            id: UUID(uuidString: "00000000-0000-0000-0000-\(String(format: "%012d", day))") ?? UUID(),
+            type: type,
+            startDate: Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 5, day: day, hour: 8)) ?? Date(),
+            duration: duration,
+            activeEnergyKilocalories: 100,
+            distanceMeters: 1_000,
+            sourceName: "Tests"
+        )
     }
 
     private struct LegacyHealthDashboardSnapshot: Codable {

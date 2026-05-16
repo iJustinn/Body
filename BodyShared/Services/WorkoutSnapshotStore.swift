@@ -93,6 +93,26 @@ enum WorkoutSnapshotStore {
         load() ?? .placeholder
     }
 
+    static func exists(fileURL: URL? = snapshotFileURL) -> Bool {
+        guard let fileURL else {
+            return false
+        }
+
+        return FileManager.default.fileExists(atPath: fileURL.path)
+    }
+
+    static func delete(fileURL: URL? = snapshotFileURL) {
+        guard let fileURL, FileManager.default.fileExists(atPath: fileURL.path) else {
+            return
+        }
+
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+        } catch {
+            logger.error("Snapshot file delete failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     static func seedPreviewSnapshotIfNeeded() {
         guard load() == nil else { return }
         save(.placeholder)

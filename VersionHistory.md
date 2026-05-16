@@ -1,5 +1,9 @@
 # Version History
 
+## 0.4.1 (build 1)
+
+- Updated the app, widget, and test bundle version to 0.4.1 build 1.
+
 ## 0.3.9 (build 2)
 
 - Added Heart Rate, Wrist Temperature, and Training Load dashboard cards with dedicated detail charts.

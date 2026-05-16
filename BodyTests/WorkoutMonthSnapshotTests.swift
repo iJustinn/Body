@@ -183,6 +183,43 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
     }
 
+    func testBodyValueFormatSpecificUnitPreferencesConvertIndependently() {
+        let locale = Locale(identifier: "en_US")
+
+        XCTAssertEqual(
+            BodyValueFormat.massDisplay(
+                kilograms: 69.3,
+                locale: locale,
+                weightUnitPreference: .kilograms
+            ).unit,
+            "kg"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.distanceText(
+                meters: 1_609.344,
+                locale: locale,
+                distanceUnitPreference: .kilometers
+            ),
+            "1.6 km"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.energyText(
+                kilocalories: 100,
+                locale: locale,
+                energyUnitPreference: .kilojoules
+            ),
+            "418 kJ"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.temperatureDisplay(
+                celsius: 36.5,
+                locale: locale,
+                temperatureUnitPreference: .celsius
+            ).unit,
+            "C"
+        )
+    }
+
     func testWorkoutDetailPresentationFormatsWorkoutMetrics() throws {
         let calendar = Calendar.bodyGregorian
         let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
@@ -399,10 +436,13 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
     }
 
     func testHealthTrendRangeDefaultsToRecentWeek() {
+        XCTAssertEqual(BodyAppearancePreference.defaultTrendRangeKey, "defaultTrendRange")
         XCTAssertEqual(BodyHealthTrendRange.defaultValue, .recentWeek)
         XCTAssertEqual(BodyHealthTrendRange.storedValue(from: "unknown"), .recentWeek)
         XCTAssertEqual(BodyHealthTrendRange.allCases, [.recentWeek, .recentMonth, .recentSixMonths, .recentYear])
         XCTAssertEqual(BodyHealthTrendRange.allCases.map(\.displayName), ["Week", "Month", "6 Months", "Year"])
+        XCTAssertEqual(BodyHealthTrendRange.recentSixMonths.selectionSubtitle, "6 months")
+        XCTAssertEqual(BodyHealthTrendRange.recentYear.iconName, "calendar")
     }
 
     func testHealthTrendRangeShowsPointMarksOnLineRanges() {
@@ -1007,8 +1047,8 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         let averageLineSegments = presentation.averageLineSegments(in: 270)
         XCTAssertEqual(averageLineSegments.baseline.lowerBound, 0, accuracy: 0.001)
-        XCTAssertEqual(averageLineSegments.baseline.upperBound, 200, accuracy: 0.001)
-        XCTAssertEqual(averageLineSegments.recent.lowerBound, 210, accuracy: 0.001)
+        XCTAssertEqual(averageLineSegments.baseline.upperBound, 203, accuracy: 0.001)
+        XCTAssertEqual(averageLineSegments.recent.lowerBound, 207, accuracy: 0.001)
         XCTAssertEqual(averageLineSegments.recent.upperBound, 270, accuracy: 0.001)
     }
 
@@ -1041,8 +1081,8 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         let averageLineSegments = presentation.averageLineSegments(in: 270)
         XCTAssertEqual(averageLineSegments.baseline.lowerBound, 0, accuracy: 0.001)
-        XCTAssertEqual(averageLineSegments.baseline.upperBound, 40, accuracy: 0.001)
-        XCTAssertEqual(averageLineSegments.recent.lowerBound, 50, accuracy: 0.001)
+        XCTAssertEqual(averageLineSegments.baseline.upperBound, 43, accuracy: 0.001)
+        XCTAssertEqual(averageLineSegments.recent.lowerBound, 47, accuracy: 0.001)
         XCTAssertEqual(averageLineSegments.recent.upperBound, 270, accuracy: 0.001)
     }
 
@@ -1071,6 +1111,12 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(presentation.messageText, "On average, your HRV increased over the last 3 days.")
         XCTAssertEqual(presentation.baselinePeriodText, "25-day avg")
         XCTAssertEqual(presentation.recentPeriodText, "3-day avg")
+
+        let averageLineSegments = presentation.averageLineSegments(in: 270)
+        XCTAssertEqual(averageLineSegments.baseline.lowerBound, 0, accuracy: 0.001)
+        XCTAssertEqual(averageLineSegments.baseline.upperBound, 243, accuracy: 0.001)
+        XCTAssertEqual(averageLineSegments.recent.lowerBound, 247, accuracy: 0.001)
+        XCTAssertEqual(averageLineSegments.recent.upperBound, 270, accuracy: 0.001)
     }
 
     func testHomeTrendCardPresentationRequiresBaselineAndRecentHistory() throws {
@@ -1308,6 +1354,100 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(reorderedRows[0].slotCount, 1)
         XCTAssertEqual(reorderedRows[1].cards, [.activityRings])
         XCTAssertEqual(reorderedRows[1].slotCount, 2)
+    }
+
+    func testSummaryCardSelectionStoresVisibleCardsWithoutChangingOrder() {
+        let selection = BodySummaryCardSelection(selectedCards: [.activityRings, .sleep, .heartRate])
+
+        XCTAssertEqual(selection.rawValue, "activityRings,sleep,heartRate")
+        XCTAssertEqual(selection.enabledCount, 3)
+        XCTAssertTrue(selection.includes(.activityRings))
+        XCTAssertTrue(selection.includes(.sleep))
+        XCTAssertFalse(selection.includes(.steps))
+        XCTAssertEqual(
+            selection.setting(.steps, isEnabled: true).rawValue,
+            "activityRings,steps,sleep,heartRate"
+        )
+        XCTAssertEqual(
+            selection.setting(.sleep, isEnabled: false).rawValue,
+            "activityRings,heartRate"
+        )
+
+        XCTAssertEqual(
+            BodySummaryCardSelection.storedValue(from: "activityRings,unknown,steps").rawValue,
+            "activityRings,steps"
+        )
+        XCTAssertEqual(
+            BodySummaryCardSelection.storedValue(from: "").rawValue,
+            BodySummaryCardSelection.defaultRawValue
+        )
+        XCTAssertEqual(
+            BodySummaryCardSelection.storedValue(from: "none").enabledCount,
+            0
+        )
+    }
+
+    func testHomeCardLayoutRowsCanHideSummaryCards() {
+        let selection = BodySummaryCardSelection(selectedCards: [.activityRings, .sleep, .heartRate, .steps])
+        let rows = BodyHomeCardKind.layoutRows(
+            from: [.sleep, .activityRings, .steps, .heartRate],
+            visibleIn: selection
+        )
+
+        XCTAssertEqual(rows.map(\.cards), [
+            [.sleep],
+            [.activityRings],
+            [.steps, .heartRate]
+        ])
+    }
+
+    func testHomeTrendCardSelectionStoresVisibleTrendsInDefaultOrder() {
+        let selection = BodyHomeTrendCardSelection(selectedCards: [.steps, .heartRate, .sleep])
+
+        XCTAssertEqual(BodyAppearancePreference.homeTrendCardSelectionKey, "homeTrendCardSelection")
+        XCTAssertEqual(
+            BodyHomeTrendCardKind.defaultOrder.map(\.metricKind),
+            [
+                .heartRate,
+                .restingHeartRate,
+                .heartRateVariability,
+                .respiratoryRate,
+                .oxygenSaturation,
+                .sleep,
+                .wristTemperature,
+                .steps,
+                .activeEnergy,
+                .restingEnergy,
+                .exerciseMinutes,
+                .trainingLoad,
+                .timeInDaylight
+            ]
+        )
+        XCTAssertEqual(selection.rawValue, "heartRate,sleep,steps")
+        XCTAssertEqual(selection.enabledCount, 3)
+        XCTAssertTrue(selection.includes(BodyHomeTrendCardKind.heartRate))
+        XCTAssertTrue(selection.includes(BodyHomeTrendCardKind.steps))
+        XCTAssertFalse(selection.includes(BodyHomeTrendCardKind.restingEnergy))
+        XCTAssertEqual(
+            selection.setting(BodyHomeTrendCardKind.restingEnergy, isEnabled: true).rawValue,
+            "heartRate,sleep,steps,restingEnergy"
+        )
+        XCTAssertEqual(
+            selection.setting(.sleep, isEnabled: false).rawValue,
+            "heartRate,steps"
+        )
+        XCTAssertEqual(
+            BodyHomeTrendCardSelection.storedValue(from: "heartRate,unknown,steps").rawValue,
+            "heartRate,steps"
+        )
+        XCTAssertEqual(
+            BodyHomeTrendCardSelection.storedValue(from: "").rawValue,
+            BodyHomeTrendCardSelection.defaultRawValue
+        )
+        XCTAssertEqual(
+            BodyHomeTrendCardSelection.storedValue(from: "none").enabledCount,
+            0
+        )
     }
 
     func testHealthTrendSeriesLimitsToAvailableRanges() throws {

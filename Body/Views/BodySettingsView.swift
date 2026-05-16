@@ -10,7 +10,14 @@ struct BodySettingsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @AppStorage(BodyAppearancePreference.selectedThemeKey) private var selectedThemeRawValue = BodyAppTheme.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedAccentKey) private var selectedAccentRawValue = BodyAppAccent.defaultValue.rawValue
-    @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
+    @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @AppStorage(BodyAppearancePreference.creatorSurpriseIconsUnlockedKey) private var creatorSurpriseIconsUnlocked = false
     @State private var activeSheet: BodySettingsSheet?
@@ -28,11 +35,11 @@ struct BodySettingsView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 22) {
-                        bodyProEntryCard
                         appearanceSection
-                        unitSection
+                        metricsSection
                         dataSection
                         aboutSection
+                        bodyProEntryCard
                     }
                     .padding(.horizontal)
                     .padding(.top, 10)
@@ -160,13 +167,17 @@ struct BodySettingsView: View {
                 } label: {
                     BodySettingsRowLabel(
                         title: tab.title,
-                        value: permissionSummaryText,
+                        value: dataValue(for: tab),
                         iconName: tab.iconName,
                         tintColor: tab.tintColor,
                         accessory: .chevron
                     )
                 }
                 .buttonStyle(.plain)
+
+                if tab != BodySettingsDataTab.allCases.last {
+                    settingsDivider
+                }
             }
         }
     }
@@ -213,16 +224,61 @@ struct BodySettingsView: View {
         }
     }
 
-    private var unitSection: some View {
-        BodySettingsCardSection("Units") {
+    private var metricsSection: some View {
+        BodySettingsCardSection("Metrics") {
             Button {
                 activeSheet = .units
             } label: {
                 BodySettingsRowLabel(
-                    title: "Measurement",
-                    value: currentUnitPreference.displayName,
+                    title: "Units",
+                    value: unitsSummaryText,
                     iconName: "ruler.fill",
                     tintColor: .teal,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
+                activeSheet = .defaultTrendRange
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Charts Range",
+                    value: currentDefaultTrendRange.displayName,
+                    iconName: currentDefaultTrendRange.iconName,
+                    tintColor: currentDefaultTrendRange.tintColor,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
+                activeSheet = .summaryCards
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Summary Cards",
+                    value: summaryCardsSummaryText,
+                    iconName: "rectangle.grid.2x2.fill",
+                    tintColor: .pink,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
+                activeSheet = .homeTrendCards
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Trend Cards",
+                    value: homeTrendCardsSummaryText,
+                    iconName: "chart.line.uptrend.xyaxis",
+                    tintColor: .orange,
                     accessory: .chevron
                 )
             }
@@ -245,6 +301,25 @@ struct BodySettingsView: View {
         "\(workoutStore.permissionSelection.enabledCount)/\(BodyHealthPermission.allCases.count)"
     }
 
+    private var summaryCardsSummaryText: String {
+        "\(currentSummaryCardSelection.enabledCount)/\(BodyHomeCardKind.defaultOrder.count)"
+    }
+
+    private var homeTrendCardsSummaryText: String {
+        "\(currentHomeTrendCardSelection.enabledCount)/\(BodyHomeTrendCardKind.defaultOrder.count)"
+    }
+
+    private func dataValue(for tab: BodySettingsDataTab) -> String {
+        switch tab {
+        case .permissions:
+            return permissionSummaryText
+        case .syncStatus:
+            return workoutStore.healthSyncStatusSummaryText
+        case .cache:
+            return workoutStore.cacheStatus.summaryText
+        }
+    }
+
     private var currentAppIconOption: BodyAppIconOption {
         BodyAppIconOption.option(named: selectedAppIconName)
     }
@@ -257,8 +332,45 @@ struct BodySettingsView: View {
         BodyAppAccent.storedValue(from: selectedAccentRawValue)
     }
 
-    private var currentUnitPreference: BodyValueFormat.UnitPreference {
-        BodyValueFormat.UnitPreference.storedValue(from: selectedUnitPreferenceRawValue)
+    private var currentWeightUnit: BodyValueFormat.WeightUnitPreference {
+        BodyValueFormat.WeightUnitPreference.storedValue(from: selectedWeightUnitRawValue)
+    }
+
+    private var currentDistanceUnit: BodyValueFormat.DistanceUnitPreference {
+        BodyValueFormat.DistanceUnitPreference.storedValue(from: selectedDistanceUnitRawValue)
+    }
+
+    private var currentEnergyUnit: BodyValueFormat.EnergyUnitPreference {
+        BodyValueFormat.EnergyUnitPreference.storedValue(from: selectedEnergyUnitRawValue)
+    }
+
+    private var currentTemperatureUnit: BodyValueFormat.TemperatureUnitPreference {
+        BodyValueFormat.TemperatureUnitPreference.storedValue(from: selectedTemperatureUnitRawValue)
+    }
+
+    private var unitsSummaryText: String {
+        if followsSystemUnits {
+            return "System"
+        }
+
+        return [
+            currentWeightUnit.unitLabel,
+            currentDistanceUnit.unitLabel,
+            currentEnergyUnit.unitLabel,
+            currentTemperatureUnit.unitLabel
+        ].joined(separator: ", ")
+    }
+
+    private var currentSummaryCardSelection: BodySummaryCardSelection {
+        BodySummaryCardSelection.storedValue(from: summaryCardSelectionRawValue)
+    }
+
+    private var currentDefaultTrendRange: BodyHealthTrendRange {
+        BodyHealthTrendRange.storedValue(from: defaultTrendRangeRawValue)
+    }
+
+    private var currentHomeTrendCardSelection: BodyHomeTrendCardSelection {
+        BodyHomeTrendCardSelection.storedValue(from: homeTrendCardSelectionRawValue)
     }
 
     private var selectedTheme: Binding<BodyAppTheme> {
@@ -277,11 +389,67 @@ struct BodySettingsView: View {
         }
     }
 
-    private var selectedUnitPreference: Binding<BodyValueFormat.UnitPreference> {
+    private var followsSystemUnitsBinding: Binding<Bool> {
         Binding {
-            currentUnitPreference
-        } set: { unitPreference in
-            selectedUnitPreferenceRawValue = unitPreference.rawValue
+            followsSystemUnits
+        } set: { followsSystem in
+            followsSystemUnits = followsSystem
+        }
+    }
+
+    private var selectedWeightUnit: Binding<BodyValueFormat.WeightUnitPreference> {
+        Binding {
+            currentWeightUnit
+        } set: { unit in
+            selectedWeightUnitRawValue = unit.rawValue
+        }
+    }
+
+    private var selectedDistanceUnit: Binding<BodyValueFormat.DistanceUnitPreference> {
+        Binding {
+            currentDistanceUnit
+        } set: { unit in
+            selectedDistanceUnitRawValue = unit.rawValue
+        }
+    }
+
+    private var selectedEnergyUnit: Binding<BodyValueFormat.EnergyUnitPreference> {
+        Binding {
+            currentEnergyUnit
+        } set: { unit in
+            selectedEnergyUnitRawValue = unit.rawValue
+        }
+    }
+
+    private var selectedTemperatureUnit: Binding<BodyValueFormat.TemperatureUnitPreference> {
+        Binding {
+            currentTemperatureUnit
+        } set: { unit in
+            selectedTemperatureUnitRawValue = unit.rawValue
+        }
+    }
+
+    private var summaryCardSelection: Binding<BodySummaryCardSelection> {
+        Binding {
+            currentSummaryCardSelection
+        } set: { selection in
+            summaryCardSelectionRawValue = selection.rawValue
+        }
+    }
+
+    private var defaultTrendRange: Binding<BodyHealthTrendRange> {
+        Binding {
+            currentDefaultTrendRange
+        } set: { range in
+            defaultTrendRangeRawValue = range.rawValue
+        }
+    }
+
+    private var homeTrendCardSelection: Binding<BodyHomeTrendCardSelection> {
+        Binding {
+            currentHomeTrendCardSelection
+        } set: { selection in
+            homeTrendCardSelectionRawValue = selection.rawValue
         }
     }
 
@@ -298,10 +466,26 @@ struct BodySettingsView: View {
                 showsCreatorSurprises: creatorSurpriseIconsUnlocked,
                 onSelect: changeAppIcon
             )
+        case .summaryCards:
+            BodySummaryCardsSettingsSheet(selection: summaryCardSelection)
+        case .defaultTrendRange:
+            BodyDefaultTrendRangePickerSheet(selectedRange: defaultTrendRange)
+        case .homeTrendCards:
+            BodyHomeTrendCardsSettingsSheet(selection: homeTrendCardSelection)
         case .units:
-            BodyUnitPreferencePickerSheet(selectedUnitPreference: selectedUnitPreference)
+            BodyUnitPreferencePickerSheet(
+                followsSystemUnits: followsSystemUnitsBinding,
+                selectedWeightUnit: selectedWeightUnit,
+                selectedDistanceUnit: selectedDistanceUnit,
+                selectedEnergyUnit: selectedEnergyUnit,
+                selectedTemperatureUnit: selectedTemperatureUnit
+            )
         case .permissions:
             BodyHealthPermissionsSettingsSheet(workoutStore: workoutStore)
+        case .syncStatus:
+            BodyHealthSyncStatusSettingsSheet(workoutStore: workoutStore)
+        case .cache:
+            BodyCacheSettingsSheet(workoutStore: workoutStore)
         case .howToUse:
             BodyHowToUseSettingsSheet()
         case .feedback:
@@ -381,8 +565,13 @@ enum BodySettingsSheet: String, Identifiable {
     case theme
     case appAccent
     case appIcon
+    case summaryCards
+    case defaultTrendRange
+    case homeTrendCards
     case units
     case permissions
+    case syncStatus
+    case cache
     case howToUse
     case feedback
     case privacy
@@ -396,6 +585,8 @@ enum BodySettingsSheet: String, Identifiable {
 
 enum BodySettingsDataTab: String, CaseIterable, Identifiable {
     case permissions
+    case syncStatus
+    case cache
 
     var id: String {
         rawValue
@@ -405,6 +596,10 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
         switch self {
         case .permissions:
             return "Permissions"
+        case .syncStatus:
+            return "Health Data Sync"
+        case .cache:
+            return "Cache"
         }
     }
 
@@ -412,6 +607,10 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
         switch self {
         case .permissions:
             return "checkmark.shield.fill"
+        case .syncStatus:
+            return "arrow.triangle.2.circlepath"
+        case .cache:
+            return "internaldrive.fill"
         }
     }
 
@@ -419,6 +618,10 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
         switch self {
         case .permissions:
             return .green
+        case .syncStatus:
+            return .blue
+        case .cache:
+            return .orange
         }
     }
 
@@ -426,6 +629,10 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
         switch self {
         case .permissions:
             return .permissions
+        case .syncStatus:
+            return .syncStatus
+        case .cache:
+            return .cache
         }
     }
 }
@@ -613,12 +820,204 @@ private struct BodyAccentPickerSheet: View {
     }
 }
 
+private protocol BodyUnitPreferenceOption: CaseIterable, Equatable, Identifiable {
+    var displayName: String { get }
+    var unitLabel: String { get }
+}
+
+extension BodyValueFormat.WeightUnitPreference: BodyUnitPreferenceOption { }
+extension BodyValueFormat.DistanceUnitPreference: BodyUnitPreferenceOption { }
+extension BodyValueFormat.EnergyUnitPreference: BodyUnitPreferenceOption { }
+extension BodyValueFormat.TemperatureUnitPreference: BodyUnitPreferenceOption { }
+
 private struct BodyUnitPreferencePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Binding var selectedUnitPreference: BodyValueFormat.UnitPreference
+    @Binding var followsSystemUnits: Bool
+    @Binding var selectedWeightUnit: BodyValueFormat.WeightUnitPreference
+    @Binding var selectedDistanceUnit: BodyValueFormat.DistanceUnitPreference
+    @Binding var selectedEnergyUnit: BodyValueFormat.EnergyUnitPreference
+    @Binding var selectedTemperatureUnit: BodyValueFormat.TemperatureUnitPreference
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        BodySettingsCardSection("System") {
+                            Toggle("Follow System", isOn: $followsSystemUnits)
+                                .font(.system(.headline, design: .rounded))
+                                .fontWeight(.semibold)
+                                .tint(.teal)
+                                .padding(.horizontal, 18)
+                                .padding(.vertical, 16)
+                                .frame(minHeight: 70)
+                        }
+
+                        BodySettingsCardSection("Units") {
+                            BodyUnitPreferenceControlRow(
+                                title: "Weight",
+                                iconName: "scalemass.fill",
+                                tintColor: .purple,
+                                options: BodyValueFormat.WeightUnitPreference.allCases,
+                                selection: $selectedWeightUnit,
+                                isEnabled: !followsSystemUnits
+                            )
+                            .disabled(followsSystemUnits)
+
+                            Divider()
+                                .padding(.leading, 18)
+
+                            BodyUnitPreferenceControlRow(
+                                title: "Distance",
+                                iconName: "ruler.fill",
+                                tintColor: .teal,
+                                options: BodyValueFormat.DistanceUnitPreference.allCases,
+                                selection: $selectedDistanceUnit,
+                                isEnabled: !followsSystemUnits
+                            )
+                            .disabled(followsSystemUnits)
+
+                            Divider()
+                                .padding(.leading, 18)
+
+                            BodyUnitPreferenceControlRow(
+                                title: "Energy",
+                                iconName: "bolt.fill",
+                                tintColor: .orange,
+                                options: BodyValueFormat.EnergyUnitPreference.allCases,
+                                selection: $selectedEnergyUnit,
+                                isEnabled: !followsSystemUnits
+                            )
+                            .disabled(followsSystemUnits)
+
+                            Divider()
+                                .padding(.leading, 18)
+
+                            BodyUnitPreferenceControlRow(
+                                title: "Temperature",
+                                iconName: "thermometer.medium",
+                                tintColor: Color(red: 0.00, green: 0.75, blue: 0.85),
+                                options: BodyValueFormat.TemperatureUnitPreference.allCases,
+                                selection: $selectedTemperatureUnit,
+                                isEnabled: !followsSystemUnits
+                            )
+                            .disabled(followsSystemUnits)
+                        }
+                    }
+                    .padding()
+                    .padding(.bottom, 24)
+                }
+            }
+            .navigationTitle("Units")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct BodyUnitPreferenceControlRow<Option: BodyUnitPreferenceOption>: View
+where Option.AllCases: RandomAccessCollection {
+    let title: String
+    let iconName: String
+    let tintColor: Color
+    let options: Option.AllCases
+    @Binding var selection: Option
+    let isEnabled: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                BodySettingsIconTile(
+                    iconName: iconName,
+                    color: isEnabled ? tintColor : .gray
+                )
+
+                Text(title)
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(isEnabled ? .primary : .secondary)
+
+                Spacer(minLength: 12)
+            }
+
+            HStack(spacing: 10) {
+                ForEach(options) { option in
+                    Button {
+                        selection = option
+                    } label: {
+                        BodyUnitChoiceButton(
+                            title: option.unitLabel,
+                            subtitle: option.displayName,
+                            tintColor: tintColor,
+                            isSelected: selection == option,
+                            isEnabled: isEnabled
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isEnabled)
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct BodyUnitChoiceButton: View {
+    let title: String
+    let subtitle: String
+    let tintColor: Color
+    let isSelected: Bool
+    let isEnabled: Bool
+
+    private var effectiveTintColor: Color {
+        isEnabled ? tintColor : .gray
+    }
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Text(title)
+                .font(.system(.headline, design: .rounded))
+                .fontWeight(.bold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+
+            Text(subtitle)
+                .font(.system(.caption, design: .rounded))
+                .fontWeight(.semibold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .foregroundColor(isSelected && isEnabled ? .white : effectiveTintColor)
+        .frame(maxWidth: .infinity, minHeight: 58)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(isSelected && isEnabled ? effectiveTintColor : effectiveTintColor.opacity(0.13))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(effectiveTintColor.opacity(isSelected ? 0.9 : 0.24), lineWidth: 1.5)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+private struct BodyDefaultTrendRangePickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var selectedRange: BodyHealthTrendRange
 
     private let columns = [
-        GridItem(.flexible()),
         GridItem(.flexible()),
         GridItem(.flexible())
     ]
@@ -631,17 +1030,17 @@ private struct BodyUnitPreferencePickerSheet: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(BodyValueFormat.UnitPreference.allCases) { unitPreference in
+                        ForEach(BodyHealthTrendRange.allCases) { range in
                             Button {
-                                selectedUnitPreference = unitPreference
+                                selectedRange = range
                                 dismiss()
                             } label: {
                                 BodySymbolSelectionTile(
-                                    title: unitPreference.displayName,
-                                    subtitle: unitPreference.selectionSubtitle,
-                                    iconName: iconName(for: unitPreference),
-                                    tintColor: tintColor(for: unitPreference),
-                                    isSelected: selectedUnitPreference == unitPreference
+                                    title: range.displayName,
+                                    subtitle: range.selectionSubtitle,
+                                    iconName: range.iconName,
+                                    tintColor: range.tintColor,
+                                    isSelected: selectedRange == range
                                 )
                             }
                             .buttonStyle(.plain)
@@ -658,29 +1057,139 @@ private struct BodyUnitPreferencePickerSheet: View {
                     }
                 }
             }
+            .navigationTitle("Charts Range")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
+}
 
-    private func iconName(for unitPreference: BodyValueFormat.UnitPreference) -> String {
-        switch unitPreference {
-        case .system:
-            return "iphone"
-        case .metric:
-            return "scalemass.fill"
-        case .imperial:
-            return "ruler.fill"
+private struct BodySummaryCardsSettingsSheet: View {
+    @Binding var selection: BodySummaryCardSelection
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Summary Cards") {
+            VStack(spacing: 0) {
+                ForEach(BodyHomeCardKind.defaultOrder) { card in
+                    BodySummaryCardToggleRow(
+                        card: card,
+                        isEnabled: Binding {
+                            selection.includes(card)
+                        } set: { isEnabled in
+                            selection = selection.setting(card, isEnabled: isEnabled)
+                        }
+                    )
+
+                    if card.id != BodyHomeCardKind.defaultOrder.last?.id {
+                        Divider()
+                            .padding(.leading, 76)
+                    }
+                }
+            }
+            .bodyCardBackground()
         }
     }
+}
 
-    private func tintColor(for unitPreference: BodyValueFormat.UnitPreference) -> Color {
-        switch unitPreference {
-        case .system:
-            return .blue
-        case .metric:
-            return .green
-        case .imperial:
-            return .orange
+private struct BodySummaryCardToggleRow: View {
+    let card: BodyHomeCardKind
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: card.iconName, color: card.tintColor)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(card.title)
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text(card.subtitle)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle(card.title, isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
         }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct BodyHomeTrendCardsSettingsSheet: View {
+    @Binding var selection: BodyHomeTrendCardSelection
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Trend Cards") {
+            VStack(spacing: 0) {
+                ForEach(BodyHomeTrendCardKind.defaultOrder) { card in
+                    BodyHomeTrendCardToggleRow(
+                        card: card,
+                        isEnabled: Binding {
+                            selection.includes(card)
+                        } set: { isEnabled in
+                            selection = selection.setting(card, isEnabled: isEnabled)
+                        }
+                    )
+
+                    if card.id != BodyHomeTrendCardKind.defaultOrder.last?.id {
+                        Divider()
+                            .padding(.leading, 76)
+                    }
+                }
+            }
+            .bodyCardBackground()
+        }
+    }
+}
+
+private struct BodyHomeTrendCardToggleRow: View {
+    let card: BodyHomeTrendCardKind
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: card.iconName, color: card.tintColor)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(card.title)
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text(card.subtitle)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle(card.title, isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 
@@ -748,6 +1257,116 @@ private struct BodyHealthPermissionToggleRow: View {
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
         .contentShape(Rectangle())
+    }
+}
+
+private struct BodyHealthSyncStatusSettingsSheet: View {
+    @ObservedObject var workoutStore: HealthKitWorkoutStore
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Health Data Sync") {
+            VStack(spacing: 14) {
+                BodySettingsInfoCard(section: syncStatusSection)
+
+                VStack(spacing: 0) {
+                    Button {
+                        Task {
+                            await workoutStore.requestAuthorizationAndRefresh()
+                        }
+                    } label: {
+                        BodySettingsRowLabel(
+                            title: "Refresh Now",
+                            value: workoutStore.isRefreshing ? "Refreshing" : nil,
+                            iconName: "arrow.clockwise",
+                            tintColor: .blue,
+                            accessory: .chevron
+                        )
+                    }
+                    .disabled(workoutStore.isRefreshing)
+                    .buttonStyle(.plain)
+                    .opacity(workoutStore.isRefreshing ? 0.65 : 1)
+                }
+                .bodyCardBackground()
+            }
+        }
+    }
+
+    private var syncStatusSection: BodySettingsInfoSection {
+        BodySettingsInfoSection(
+            title: "Status",
+            iconName: "arrow.triangle.2.circlepath",
+            tintColor: .blue,
+            details: [
+                workoutStore.healthSyncStatusDetailText,
+                "Last successful refresh: \(lastSuccessfulRefreshText)",
+                workoutStore.healthDataNotice ?? "No health data notice is currently shown."
+            ]
+        )
+    }
+
+    private var lastSuccessfulRefreshText: String {
+        guard let date = workoutStore.lastSuccessfulRefreshDate else {
+            return "Not yet refreshed"
+        }
+
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
+}
+
+private struct BodyCacheSettingsSheet: View {
+    @ObservedObject var workoutStore: HealthKitWorkoutStore
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Cache") {
+            VStack(spacing: 14) {
+                BodySettingsInfoCard(section: cacheStatusSection)
+
+                VStack(spacing: 0) {
+                    Button {
+                        Task {
+                            await workoutStore.requestAuthorizationAndRefresh()
+                        }
+                    } label: {
+                        BodySettingsRowLabel(
+                            title: "Rebuild Cache",
+                            value: workoutStore.isRefreshing ? "Refreshing" : nil,
+                            iconName: "arrow.clockwise.circle.fill",
+                            tintColor: .blue,
+                            accessory: .chevron
+                        )
+                    }
+                    .disabled(workoutStore.isRefreshing)
+                    .buttonStyle(.plain)
+                    .opacity(workoutStore.isRefreshing ? 0.65 : 1)
+
+                    Divider()
+                        .padding(.leading, 76)
+
+                    Button(role: .destructive) {
+                        workoutStore.clearLocalCache()
+                    } label: {
+                        BodySettingsRowLabel(
+                            title: "Clear Cache",
+                            value: nil,
+                            iconName: "trash.fill",
+                            tintColor: .red,
+                            accessory: .chevron
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+                .bodyCardBackground()
+            }
+        }
+    }
+
+    private var cacheStatusSection: BodySettingsInfoSection {
+        BodySettingsInfoSection(
+            title: "Local Cache",
+            iconName: "internaldrive.fill",
+            tintColor: .orange,
+            details: workoutStore.cacheStatus.detailLines
+        )
     }
 }
 

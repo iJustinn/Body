@@ -81,6 +81,8 @@ enum BodyWorkoutListSelection: Identifiable {
 
 struct BodyWorkoutListSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
+    @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     let selection: BodyWorkoutListSelection
 
     var body: some View {
@@ -145,7 +147,10 @@ struct BodyWorkoutListSheet: View {
 
             Spacer(minLength: 12)
 
-            Text(BodyValueFormat.energyText(kilocalories: selection.totalEnergyKilocalories))
+            Text(BodyValueFormat.energyText(
+                kilocalories: selection.totalEnergyKilocalories,
+                energyUnitPreference: selectedEnergyUnitPreference
+            ))
                 .font(.system(size: 24, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
                 .lineLimit(1)
@@ -166,10 +171,20 @@ struct BodyWorkoutListSheet: View {
             .padding(.vertical, 28)
             .bodyCardBackground()
     }
+
+    private var selectedEnergyUnitPreference: BodyValueFormat.EnergyUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.EnergyUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.EnergyUnitPreference.storedValue(from: selectedEnergyUnitRawValue)
+    }
 }
 
 private struct BodyWorkoutRecordRow: View {
-    @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
+    @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     let workout: WorkoutSummary
 
     var body: some View {
@@ -208,7 +223,10 @@ private struct BodyWorkoutRecordRow: View {
                     .minimumScaleFactor(0.65)
 
                 if let energy = workout.activeEnergyKilocalories {
-                    Text(BodyValueFormat.energyText(kilocalories: energy))
+                    Text(BodyValueFormat.energyText(
+                        kilocalories: energy,
+                        energyUnitPreference: selectedEnergyUnitPreference
+                    ))
                         .font(.system(.caption, design: .rounded))
                         .fontWeight(.bold)
                         .foregroundColor(.secondary)
@@ -230,7 +248,7 @@ private struct BodyWorkoutRecordRow: View {
             details.append(
                 BodyValueFormat.distanceText(
                     meters: distanceMeters,
-                    unitPreference: selectedUnitPreference
+                    distanceUnitPreference: selectedDistanceUnitPreference
                 )
             )
         }
@@ -239,8 +257,20 @@ private struct BodyWorkoutRecordRow: View {
         return details.joined(separator: " · ")
     }
 
-    private var selectedUnitPreference: BodyValueFormat.UnitPreference {
-        BodyValueFormat.UnitPreference.storedValue(from: selectedUnitPreferenceRawValue)
+    private var selectedDistanceUnitPreference: BodyValueFormat.DistanceUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.DistanceUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.DistanceUnitPreference.storedValue(from: selectedDistanceUnitRawValue)
+    }
+
+    private var selectedEnergyUnitPreference: BodyValueFormat.EnergyUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.EnergyUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.EnergyUnitPreference.storedValue(from: selectedEnergyUnitRawValue)
     }
 }
 

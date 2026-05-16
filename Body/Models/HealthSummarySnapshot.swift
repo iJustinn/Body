@@ -1270,6 +1270,10 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         activityRingHistory: .empty
     )
 
+    var isEmpty: Bool {
+        summary.isEmpty && trends.isEmpty && activityRingHistory.isEmpty
+    }
+
     private enum CodingKeys: String, CodingKey {
         case summary
         case trends
@@ -1351,6 +1355,35 @@ struct HealthTrendSnapshot: Codable, Equatable {
         respiratoryRateDaySamples: .empty,
         oxygenSaturationDaySamples: .empty
     )
+
+    var isEmpty: Bool {
+        sleep.isEmpty &&
+            heartRate.isEmpty &&
+            heartRateRanges.isEmpty &&
+            restingHeartRate.isEmpty &&
+            bodyMass.isEmpty &&
+            bodyFatPercentage.isEmpty &&
+            heartRateVariability.isEmpty &&
+            heartRateVariabilityRanges.isEmpty &&
+            respiratoryRate.isEmpty &&
+            respiratoryRateRanges.isEmpty &&
+            oxygenSaturation.isEmpty &&
+            oxygenSaturationRanges.isEmpty &&
+            bodyMassIndex.isEmpty &&
+            activeEnergy.isEmpty &&
+            restingEnergy.isEmpty &&
+            exerciseMinutes.isEmpty &&
+            trainingLoad.isEmpty &&
+            wristTemperature.isEmpty &&
+            timeInDaylight.isEmpty &&
+            steps.isEmpty &&
+            sleepHistory.isEmpty &&
+            heartRateDaySamples.isEmpty &&
+            restingHeartRateDaySamples.isEmpty &&
+            heartRateVariabilityDaySamples.isEmpty &&
+            respiratoryRateDaySamples.isEmpty &&
+            oxygenSaturationDaySamples.isEmpty
+    }
 
     init(
         sleep: HealthTrendSeries,

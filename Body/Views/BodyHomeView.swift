@@ -161,8 +161,14 @@ private extension Array where Element == HealthTrendCalendarPoint {
 struct BodyHomeView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @AppStorage(BodyAppearancePreference.selectedAccentKey) private var selectedAccentRawValue = BodyAppAccent.defaultValue.rawValue
-    @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
+    @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeCardOrderKey) private var homeCardOrderRawValue = BodyHomeCardKind.defaultRawValue
+    @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @State private var draggedHomeCard: BodyHomeCardKind?
     @State private var showsAllHomeTrends = false
 
@@ -209,7 +215,10 @@ struct BodyHomeView: View {
                 }
             }
             .navigationDestination(for: HealthMetricKind.self) { kind in
-                BodyHealthMetricDetailView(model: detailModel(for: kind))
+                BodyHealthMetricDetailView(
+                    model: detailModel(for: kind),
+                    initialTrendRange: defaultTrendRange
+                )
             }
         }
     }
@@ -219,7 +228,19 @@ struct BodyHomeView: View {
     }
 
     private var homeCardRows: [BodyHomeCardLayoutRow] {
-        BodyHomeCardKind.layoutRows(from: homeCardOrder)
+        BodyHomeCardKind.layoutRows(from: homeCardOrder, visibleIn: summaryCardSelection)
+    }
+
+    private var summaryCardSelection: BodySummaryCardSelection {
+        BodySummaryCardSelection.storedValue(from: summaryCardSelectionRawValue)
+    }
+
+    private var defaultTrendRange: BodyHealthTrendRange {
+        BodyHealthTrendRange.storedValue(from: defaultTrendRangeRawValue)
+    }
+
+    private var homeTrendCardSelection: BodyHomeTrendCardSelection {
+        BodyHomeTrendCardSelection.storedValue(from: homeTrendCardSelectionRawValue)
     }
 
     @ViewBuilder
@@ -354,26 +375,20 @@ struct BodyHomeView: View {
                 chartPreviewStyle: .range,
                 chartRangePreview: trends.rangeSeries(for: .respiratoryRate)
             ),
-            metric(
+            energyMetric(
                 kind: .activeEnergy,
                 title: "Active Energy",
                 summary: summary.activeEnergy,
-                unit: "kcal",
-                decimals: 0,
                 symbolName: "flame.fill",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                chartStyle: .bar,
                 chartPreview: trends.series(for: .activeEnergy)
             ),
-            metric(
+            energyMetric(
                 kind: .restingEnergy,
                 title: "Resting Energy",
                 summary: summary.restingEnergy,
-                unit: "kcal",
-                decimals: 0,
                 symbolName: "leaf.fill",
                 symbolColor: Color(red: 0.14, green: 0.72, blue: 0.42),
-                chartStyle: .bar,
                 chartPreview: trends.series(for: .restingEnergy)
             )
         ]
@@ -403,8 +418,9 @@ struct BodyHomeView: View {
         let trends = workoutStore.healthTrends
         let temperatureUnit = BodyValueFormat.temperatureDisplay(
             celsius: 0,
-            unitPreference: selectedUnitPreference
+            temperatureUnitPreference: selectedTemperatureUnitPreference
         ).unit
+        let energyUnit = selectedEnergyUnitPreference.unitLabel
         let cards = [
             homeTrendCard(
                 kind: .heartRate,
@@ -478,7 +494,7 @@ struct BodyHomeView: View {
                 series: trends.series(for: .wristTemperature).mapValues {
                     BodyValueFormat.temperatureValue(
                         celsius: $0,
-                        unitPreference: selectedUnitPreference
+                        temperatureUnitPreference: selectedTemperatureUnitPreference
                     ).value
                 },
                 chartStyle: .line,
@@ -502,22 +518,32 @@ struct BodyHomeView: View {
             homeTrendCard(
                 kind: .activeEnergy,
                 title: "Active Energy",
-                series: trends.series(for: .activeEnergy),
+                series: trends.series(for: .activeEnergy).mapValues {
+                    BodyValueFormat.energyValue(
+                        kilocalories: $0,
+                        energyUnitPreference: selectedEnergyUnitPreference
+                    ).value
+                },
                 chartStyle: .bar,
                 symbolName: "flame.fill",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " kcal" },
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " " + energyUnit },
                 messageStyle: .quantity(subject: "Your active energy"),
                 includesStable: includesStable
             ),
             homeTrendCard(
                 kind: .restingEnergy,
                 title: "Resting Energy",
-                series: trends.series(for: .restingEnergy),
+                series: trends.series(for: .restingEnergy).mapValues {
+                    BodyValueFormat.energyValue(
+                        kilocalories: $0,
+                        energyUnitPreference: selectedEnergyUnitPreference
+                    ).value
+                },
                 chartStyle: .bar,
                 symbolName: "leaf.fill",
                 symbolColor: Color(red: 0.14, green: 0.72, blue: 0.42),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " kcal" },
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " " + energyUnit },
                 messageStyle: .quantity(subject: "Your resting energy"),
                 includesStable: includesStable
             ),
@@ -556,6 +582,7 @@ struct BodyHomeView: View {
             )
         ]
         .compactMap { $0 }
+        .filter { homeTrendCardSelection.includes($0.presentation.kind) }
 
         return cards
     }
@@ -564,8 +591,28 @@ struct BodyHomeView: View {
         BodyAppAccent.storedValue(from: selectedAccentRawValue)
     }
 
-    private var selectedUnitPreference: BodyValueFormat.UnitPreference {
-        BodyValueFormat.UnitPreference.storedValue(from: selectedUnitPreferenceRawValue)
+    private var selectedWeightUnitPreference: BodyValueFormat.WeightUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.WeightUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.WeightUnitPreference.storedValue(from: selectedWeightUnitRawValue)
+    }
+
+    private var selectedEnergyUnitPreference: BodyValueFormat.EnergyUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.EnergyUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.EnergyUnitPreference.storedValue(from: selectedEnergyUnitRawValue)
+    }
+
+    private var selectedTemperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.TemperatureUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.TemperatureUnitPreference.storedValue(from: selectedTemperatureUnitRawValue)
     }
 
     private func metric(
@@ -594,16 +641,48 @@ struct BodyHomeView: View {
         )
     }
 
+    private func energyMetric(
+        kind: HealthMetricKind,
+        title: String,
+        summary: HealthMetricSummary,
+        symbolName: String,
+        symbolColor: Color,
+        chartPreview: HealthTrendSeries
+    ) -> BodyHealthMetricCard.Model {
+        let display = summary.value.map {
+            BodyValueFormat.energyValue(kilocalories: $0, energyUnitPreference: selectedEnergyUnitPreference)
+        }
+
+        return BodyHealthMetricCard.Model(
+            kind: kind,
+            title: title,
+            value: display.map { BodyValueFormat.numberText($0.value, decimals: 0) } ?? "--",
+            unit: selectedEnergyUnitPreference.unitLabel,
+            symbolName: symbolName,
+            symbolColor: symbolColor,
+            chartPreviewStyle: .bar,
+            chartPreview: chartPreview.mapValues {
+                BodyValueFormat.energyValue(
+                    kilocalories: $0,
+                    energyUnitPreference: selectedEnergyUnitPreference
+                ).value
+            }
+        )
+    }
+
     private func wristTemperatureMetric(
         summary: HealthSummarySnapshot,
         chartPreview: HealthTrendSeries
     ) -> BodyHealthMetricCard.Model {
         let display = summary.wristTemperature.value.map {
-            BodyValueFormat.temperatureDisplay(celsius: $0, unitPreference: selectedUnitPreference)
+            BodyValueFormat.temperatureDisplay(
+                celsius: $0,
+                temperatureUnitPreference: selectedTemperatureUnitPreference
+            )
         }
         let temperatureUnit = BodyValueFormat.temperatureDisplay(
             celsius: 0,
-            unitPreference: selectedUnitPreference
+            temperatureUnitPreference: selectedTemperatureUnitPreference
         ).unit
         let actualDisplay = BodyMetricDisplayValue(
             title: "Wrist Temperature",
@@ -660,7 +739,11 @@ struct BodyHomeView: View {
         chartPreview: HealthTrendSeries
     ) -> BodyHealthMetricCard.Model {
         let weightDisplay = summary.bodyMass.value.map {
-            BodyValueFormat.massDisplay(kilograms: $0, unitPreference: selectedUnitPreference, decimals: 2)
+            BodyValueFormat.massDisplay(
+                kilograms: $0,
+                weightUnitPreference: selectedWeightUnitPreference,
+                decimals: 2
+            )
         }
         let bodyFatDisplay = summary.bodyFatPercentage.value.map {
             BodyMetricDisplayValue(
@@ -676,7 +759,7 @@ struct BodyHomeView: View {
             value: weightDisplay?.value ?? "--",
             unit: weightDisplay?.unit ?? BodyValueFormat.massValue(
                 kilograms: 0,
-                unitPreference: selectedUnitPreference
+                weightUnitPreference: selectedWeightUnitPreference
             ).unit,
             symbolName: "person.crop.circle.fill",
             symbolColor: Color(red: 0.50, green: 0.34, blue: 1.00),
@@ -687,7 +770,7 @@ struct BodyHomeView: View {
                     value: weightDisplay?.value ?? "--",
                     unit: weightDisplay?.unit ?? BodyValueFormat.massValue(
                         kilograms: 0,
-                        unitPreference: selectedUnitPreference
+                        weightUnitPreference: selectedWeightUnitPreference
                     ).unit
                 )
             ],
@@ -860,11 +943,14 @@ struct BodyHomeView: View {
             )
         case .wristTemperature:
             let display = summary.wristTemperature.value.map {
-                BodyValueFormat.temperatureDisplay(celsius: $0, unitPreference: selectedUnitPreference)
+                BodyValueFormat.temperatureDisplay(
+                    celsius: $0,
+                    temperatureUnitPreference: selectedTemperatureUnitPreference
+                )
             }
             let temperatureUnit = BodyValueFormat.temperatureDisplay(
                 celsius: 0,
-                unitPreference: selectedUnitPreference
+                temperatureUnitPreference: selectedTemperatureUnitPreference
             ).unit
             let actualDisplay = BodyMetricDisplayValue(
                 title: "Wrist Temperature",
@@ -885,7 +971,7 @@ struct BodyHomeView: View {
                 series: trends.wristTemperature.mapValues {
                     BodyValueFormat.temperatureValue(
                         celsius: $0,
-                        unitPreference: selectedUnitPreference
+                        temperatureUnitPreference: selectedTemperatureUnitPreference
                     ).value
                 },
                 daySeries: .empty,
@@ -947,11 +1033,15 @@ struct BodyHomeView: View {
             )
         case .basics:
             let display = summary.bodyMass.value.map {
-                BodyValueFormat.massDisplay(kilograms: $0, unitPreference: selectedUnitPreference, decimals: 2)
+                BodyValueFormat.massDisplay(
+                    kilograms: $0,
+                    weightUnitPreference: selectedWeightUnitPreference,
+                    decimals: 2
+                )
             }
             let massUnit = BodyValueFormat.massValue(
                 kilograms: 0,
-                unitPreference: selectedUnitPreference
+                weightUnitPreference: selectedWeightUnitPreference
             ).unit
             let bodyFatDisplay = summary.bodyFatPercentage.value.map {
                 BodyMetricDisplayValue(
@@ -971,7 +1061,10 @@ struct BodyHomeView: View {
                 daySeries: .empty,
                 basicsTrend: BasicsTrendSummary(
                     weight: trends.bodyMass.mapValues {
-                        BodyValueFormat.massValue(kilograms: $0, unitPreference: selectedUnitPreference).value
+                        BodyValueFormat.massValue(
+                            kilograms: $0,
+                            weightUnitPreference: selectedWeightUnitPreference
+                        ).value
                     },
                     bodyFat: trends.bodyFatPercentage,
                     bodyMassIndex: trends.bodyMassIndex
@@ -1005,11 +1098,14 @@ struct BodyHomeView: View {
             )
         case .bodyMass:
             let display = summary.bodyMass.value.map {
-                BodyValueFormat.massDisplay(kilograms: $0, unitPreference: selectedUnitPreference)
+                BodyValueFormat.massDisplay(
+                    kilograms: $0,
+                    weightUnitPreference: selectedWeightUnitPreference
+                )
             }
             let massUnit = BodyValueFormat.massValue(
                 kilograms: 0,
-                unitPreference: selectedUnitPreference
+                weightUnitPreference: selectedWeightUnitPreference
             ).unit
             return BodyHealthMetricDetailModel(
                 kind: kind,
@@ -1019,7 +1115,10 @@ struct BodyHomeView: View {
                 symbolName: "scalemass.fill",
                 symbolColor: Color(red: 0.50, green: 0.34, blue: 1.00),
                 series: trends.bodyMass.mapValues {
-                    BodyValueFormat.massValue(kilograms: $0, unitPreference: selectedUnitPreference).value
+                    BodyValueFormat.massValue(
+                        kilograms: $0,
+                        weightUnitPreference: selectedWeightUnitPreference
+                    ).value
                 },
                 daySeries: .empty,
                 basicsTrend: nil,
@@ -1087,22 +1186,34 @@ struct BodyHomeView: View {
                 kind: kind,
                 title: "Active Energy",
                 summary: summary.activeEnergy,
-                unit: "kcal",
+                unit: selectedEnergyUnitPreference.unitLabel,
                 decimals: 0,
                 symbolName: "flame.fill",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                chartStyle: .bar
+                chartStyle: .bar,
+                valueTransform: {
+                    BodyValueFormat.energyValue(
+                        kilocalories: $0,
+                        energyUnitPreference: selectedEnergyUnitPreference
+                    ).value
+                }
             )
         case .restingEnergy:
             return metricDetail(
                 kind: kind,
                 title: "Resting Energy",
                 summary: summary.restingEnergy,
-                unit: "kcal",
+                unit: selectedEnergyUnitPreference.unitLabel,
                 decimals: 0,
                 symbolName: "leaf.fill",
                 symbolColor: Color(red: 0.14, green: 0.72, blue: 0.42),
-                chartStyle: .bar
+                chartStyle: .bar,
+                valueTransform: {
+                    BodyValueFormat.energyValue(
+                        kilocalories: $0,
+                        energyUnitPreference: selectedEnergyUnitPreference
+                    ).value
+                }
             )
         }
     }
@@ -1118,18 +1229,20 @@ struct BodyHomeView: View {
         chartStyle: BodyHealthMetricChartStyle = .line,
         highlightedRange: BodyHealthMetricTrendHighlightedRange? = nil,
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
-        sleepHistory: SleepHistorySnapshot = .empty
+        sleepHistory: SleepHistorySnapshot = .empty,
+        valueTransform: @escaping (Double) -> Double = { $0 }
     ) -> BodyHealthMetricDetailModel {
         let suffix = unit.isEmpty ? "" : " " + unit
+        let transformedValue = summary.value.map(valueTransform)
         return BodyHealthMetricDetailModel(
             kind: kind,
             title: title,
-            value: summary.value.map { BodyValueFormat.numberText($0, decimals: decimals) } ?? "--",
+            value: transformedValue.map { BodyValueFormat.numberText($0, decimals: decimals) } ?? "--",
             unit: unit,
             symbolName: symbolName,
             symbolColor: symbolColor,
-            series: workoutStore.healthTrends.series(for: kind),
-            daySeries: workoutStore.healthTrends.daySeries(for: kind),
+            series: workoutStore.healthTrends.series(for: kind).mapValues(valueTransform),
+            daySeries: workoutStore.healthTrends.daySeries(for: kind).mapValues(valueTransform),
             rangeSeries: workoutStore.healthTrends.rangeSeries(for: kind),
             basicsTrend: nil,
             sleepStageSnapshot: nil,
@@ -1366,6 +1479,7 @@ struct BodyHomeTrendCardPresentation: Identifiable {
     static let minimumTrendSegmentDayCount = 3
     static let minimumRelativeChange = 0.01
     static let minimumAbsoluteChange = 0.01
+    static let averageLineStrokeWidth: CGFloat = 4
 
     let kind: HealthMetricKind
     let title: String
@@ -1433,14 +1547,16 @@ struct BodyHomeTrendCardPresentation: Identifiable {
         let baselineEndIndex = min(max(baselineDayCount - 1, 0), lastPointIndex)
         let recentStartIndex = min(max(baselineDayCount, 0), lastPointIndex)
         let denominator = max(CGFloat(lastPointIndex), 1)
+        let halfBucketWidth = width / denominator / 2
+        let segmentExtension = max(halfBucketWidth - Self.averageLineStrokeWidth / 2, 0)
 
         func xPosition(for index: Int) -> CGFloat {
             width * CGFloat(index) / denominator
         }
 
         return (
-            baseline: xPosition(for: 0)...xPosition(for: baselineEndIndex),
-            recent: xPosition(for: recentStartIndex)...xPosition(for: lastPointIndex)
+            baseline: xPosition(for: 0)...min(width, xPosition(for: baselineEndIndex) + segmentExtension),
+            recent: max(0, xPosition(for: recentStartIndex) - segmentExtension)...xPosition(for: lastPointIndex)
         )
     }
 
@@ -1991,11 +2107,20 @@ private struct BodyHealthMetricDetailView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let model: BodyHealthMetricDetailModel
-    @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
-    @State private var selectedTrendRange = BodyHealthTrendRange.defaultValue
+    @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
+    @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
+    @State private var selectedTrendRange: BodyHealthTrendRange
     @State private var selectedSleepDate: Date?
     @State private var selectedMetricDate: Date?
     @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
+
+    init(
+        model: BodyHealthMetricDetailModel,
+        initialTrendRange: BodyHealthTrendRange = BodyHealthTrendRange.defaultValue
+    ) {
+        self.model = model
+        _selectedTrendRange = State(initialValue: initialTrendRange)
+    }
 
     private var dayChartTransition: AnyTransition {
         .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -2047,8 +2172,12 @@ private struct BodyHealthMetricDetailView: View {
         }
     }
 
-    private var selectedUnitPreference: BodyValueFormat.UnitPreference {
-        BodyValueFormat.UnitPreference.storedValue(from: selectedUnitPreferenceRawValue)
+    private var selectedTemperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.TemperatureUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.TemperatureUnitPreference.storedValue(from: selectedTemperatureUnitRawValue)
     }
 
     private var isSleepDetail: Bool {
@@ -2880,7 +3009,7 @@ private struct BodyHealthMetricDetailView: View {
         if let wristTemperatureCelsius = vitals.wristTemperatureCelsius {
             let display = BodyValueFormat.temperatureDisplay(
                 celsius: wristTemperatureCelsius,
-                unitPreference: selectedUnitPreference
+                temperatureUnitPreference: selectedTemperatureUnitPreference
             )
             rows.append(SleepVitalDisplayRow(
                 title: "Wrist Temperature",
@@ -3440,7 +3569,13 @@ private struct BodyHomeTrendComparisonChart: View {
             path.move(to: CGPoint(x: xRange.lowerBound, y: y))
             path.addLine(to: CGPoint(x: xRange.upperBound, y: y))
         }
-        .stroke(color, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+        .stroke(
+            color,
+            style: StrokeStyle(
+                lineWidth: BodyHomeTrendCardPresentation.averageLineStrokeWidth,
+                lineCap: .round
+            )
+        )
     }
 
     private func plotEntries(in size: CGSize) -> [PlotEntry] {
