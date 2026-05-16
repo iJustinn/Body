@@ -20,12 +20,21 @@ enum BodyAppearancePreference {
     static let homeTrendCardSelectionKey = "homeTrendCardSelection"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
     static let healthDataSourceSelectionKey = "healthDataSourceSelection"
+    static let secondaryHealthDataSourceSelectionKey = "secondaryHealthDataSourceSelection"
     static let bodyProIconShowsBackKey = "bodyProIconShowsBack"
     static let creatorSurpriseIconsUnlockedKey = "creatorSurpriseIconsUnlocked"
 
     static func bodyProIconAssetName(showsBack: Bool) -> String {
         showsBack ? "BodyProIconBack" : "BodyProIcon"
     }
+}
+
+enum SourceComparisonChartKind: Hashable, CaseIterable {
+    case bar
+    case range
+    case rangeBandLine
+    case line
+    case dayLine
 }
 
 extension HealthMetricKind {
@@ -43,6 +52,42 @@ extension HealthMetricKind {
 
     var supportsHealthDataSourceSelection: Bool {
         Self.sourceSelectableKinds.contains(self)
+    }
+
+    var supportedComparisonCharts: Set<SourceComparisonChartKind> {
+        switch self {
+        case .sleep:
+            return [.line]
+        case .heartRate:
+            return [.range, .rangeBandLine, .dayLine]
+        case .restingHeartRate:
+            return [.line, .dayLine]
+        case .heartRateVariability:
+            return [.range, .rangeBandLine, .dayLine]
+        case .oxygenSaturation:
+            return [.range, .dayLine]
+        case .activeEnergy, .restingEnergy, .exerciseMinutes, .steps:
+            return [.bar]
+        case .basics,
+             .bodyMass,
+             .bodyFatPercentage,
+             .respiratoryRate,
+             .bodyMassIndex,
+             .trainingLoad,
+             .wristTemperature,
+             .timeInDaylight:
+            return []
+        }
+    }
+
+    var usesSourceComparisonBarChart: Bool { supportedComparisonCharts.contains(.bar) }
+    var usesSourceComparisonRangeChart: Bool { supportedComparisonCharts.contains(.range) }
+    var usesSourceComparisonRangeBandLineChart: Bool { supportedComparisonCharts.contains(.rangeBandLine) }
+    var usesSourceComparisonLineChart: Bool { supportedComparisonCharts.contains(.line) }
+    var usesSourceComparisonDayLineChart: Bool { supportedComparisonCharts.contains(.dayLine) }
+
+    var supportsSecondaryHealthDataSourceSelection: Bool {
+        !supportedComparisonCharts.isDisjoint(with: [.bar, .range, .line, .dayLine])
     }
 
     var sourcePickerTitle: String {
@@ -278,12 +323,17 @@ struct BodyHealthPermissionSelection: Equatable {
 
 struct BodyHealthDataSourceOption: Codable, Equatable, Identifiable {
     static let allSources = BodyHealthDataSourceOption(id: "all", name: "Apple Health")
+    static let noComparison = BodyHealthDataSourceOption(id: "none", name: "No Comparison")
 
     let id: String
     let name: String
 
     var isAllSources: Bool {
         id == Self.allSources.id
+    }
+
+    var isNoComparison: Bool {
+        id == Self.noComparison.id
     }
 }
 
@@ -365,6 +415,94 @@ struct BodyHealthDataSourceSelection: Equatable {
 
     func save(defaults: UserDefaults = .standard) {
         defaults.set(rawValue, forKey: BodyAppearancePreference.healthDataSourceSelectionKey)
+    }
+}
+
+struct BodyHealthSecondaryDataSourceSelection: Equatable {
+    static let defaultValue = BodyHealthSecondaryDataSourceSelection(selectedOptions: [:])
+    static var defaultRawValue: String {
+        defaultValue.rawValue
+    }
+
+    var selectedOptions: [HealthMetricKind: BodyHealthDataSourceOption]
+
+    var rawValue: String {
+        let storage = Dictionary(uniqueKeysWithValues: selectedOptions.map { kind, option in
+            (kind.rawValue, option)
+        })
+
+        guard let data = try? JSONEncoder().encode(storage),
+              let value = String(data: data, encoding: .utf8)
+        else {
+            return "{}"
+        }
+
+        return value
+    }
+
+    func option(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
+        guard kind.supportsSecondaryHealthDataSourceSelection else {
+            return .noComparison
+        }
+
+        return selectedOptions[kind] ?? .noComparison
+    }
+
+    func setting(_ kind: HealthMetricKind, option: BodyHealthDataSourceOption) -> BodyHealthSecondaryDataSourceSelection {
+        guard kind.supportsSecondaryHealthDataSourceSelection else {
+            return self
+        }
+
+        var nextOptions = selectedOptions
+        if option.isNoComparison {
+            nextOptions.removeValue(forKey: kind)
+        } else {
+            nextOptions[kind] = option
+        }
+
+        return BodyHealthSecondaryDataSourceSelection(selectedOptions: nextOptions)
+    }
+
+    var signature: String {
+        selectedOptions
+            .sorted { $0.key.rawValue < $1.key.rawValue }
+            .map { "\($0.key.rawValue)=\($0.value.id)" }
+            .joined(separator: "|")
+    }
+
+    static func storedValue(from rawValue: String) -> BodyHealthSecondaryDataSourceSelection {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty, let data = trimmedValue.data(using: .utf8) else {
+            return defaultValue
+        }
+
+        guard let storage = try? JSONDecoder().decode([String: BodyHealthDataSourceOption].self, from: data) else {
+            return defaultValue
+        }
+
+        let selectedOptionPairs: [(HealthMetricKind, BodyHealthDataSourceOption)] = storage.compactMap { rawKind, option in
+            guard let kind = HealthMetricKind(rawValue: rawKind),
+                  kind.supportsSecondaryHealthDataSourceSelection,
+                  !option.isNoComparison else {
+                return nil
+            }
+
+            return (kind, option)
+        }
+        let selectedOptions = Dictionary(uniqueKeysWithValues: selectedOptionPairs)
+
+        return BodyHealthSecondaryDataSourceSelection(selectedOptions: selectedOptions)
+    }
+
+    static func load(defaults: UserDefaults = .standard) -> BodyHealthSecondaryDataSourceSelection {
+        storedValue(
+            from: defaults.string(forKey: BodyAppearancePreference.secondaryHealthDataSourceSelectionKey)
+                ?? defaultRawValue
+        )
+    }
+
+    func save(defaults: UserDefaults = .standard) {
+        defaults.set(rawValue, forKey: BodyAppearancePreference.secondaryHealthDataSourceSelectionKey)
     }
 }
 
@@ -1098,6 +1236,26 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
         }
     }
 
+    var chartCalendarPointCount: Int {
+        let fullBucketCount = dayCount / chartAggregationDayCount
+        return max(fullBucketCount, 1)
+    }
+
+    static let sourceComparisonBucketDoublingFactor = 2
+    static let sourceComparisonBarWidthScale: CGFloat = 1.12
+    static let sourceComparisonBucketOffsetFraction: Double = 0.16
+
+    var sourceComparisonChartAggregationDayCount: Int {
+        switch self {
+        case .recentWeek:
+            return chartAggregationDayCount
+        case .recentMonth,
+             .recentSixMonths,
+             .recentYear:
+            return chartAggregationDayCount * Self.sourceComparisonBucketDoublingFactor
+        }
+    }
+
     var lineChartMaximumPointCount: Int? {
         switch self {
         case .recentWeek:
@@ -1129,6 +1287,35 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
         case .recentWeek,
              .recentMonth:
             return chartBarWidth
+        }
+    }
+
+    func sourceComparisonChartBarWidth(forAvailableWidth availableWidth: CGFloat) -> CGFloat {
+        let widenedBarWidth = chartBarWidth(forAvailableWidth: availableWidth) * Self.sourceComparisonBarWidthScale
+        switch self {
+        case .recentWeek:
+            return widenedBarWidth / 2
+        case .recentMonth,
+             .recentSixMonths,
+             .recentYear:
+            return widenedBarWidth
+        }
+    }
+
+    var sourceComparisonChartDateOffset: TimeInterval {
+        let secondsPerDay: Double = 24 * 60 * 60
+        return Double(sourceComparisonChartAggregationDayCount) * secondsPerDay * Self.sourceComparisonBucketOffsetFraction
+    }
+
+    func sourceComparisonRangeChartBarWidth(forAvailableWidth availableWidth: CGFloat) -> CGFloat {
+        let widenedBarWidth = heartRateRangeChartBarWidth(forAvailableWidth: availableWidth) * Self.sourceComparisonBarWidthScale
+        switch self {
+        case .recentWeek:
+            return widenedBarWidth / 2
+        case .recentMonth,
+             .recentSixMonths,
+             .recentYear:
+            return widenedBarWidth
         }
     }
 

@@ -1346,187 +1346,278 @@ struct HealthDashboardSnapshot: Codable, Equatable {
 
 struct HealthTrendSnapshot: Codable, Equatable {
     var sleep: HealthTrendSeries
+    var sleepSecondary: HealthTrendSeries
     var heartRate: HealthTrendSeries
     var heartRateRanges: HealthTrendRangeSeries
+    var heartRateRangesSecondary: HealthTrendRangeSeries
     var restingHeartRate: HealthTrendSeries
+    var restingHeartRateSecondary: HealthTrendSeries
     var bodyMass: HealthTrendSeries
     var bodyFatPercentage: HealthTrendSeries
     var heartRateVariability: HealthTrendSeries
     var heartRateVariabilityRanges: HealthTrendRangeSeries
+    var heartRateVariabilityRangesSecondary: HealthTrendRangeSeries
     var respiratoryRate: HealthTrendSeries
     var respiratoryRateRanges: HealthTrendRangeSeries
     var oxygenSaturation: HealthTrendSeries
     var oxygenSaturationRanges: HealthTrendRangeSeries
+    var oxygenSaturationRangesSecondary: HealthTrendRangeSeries
     var bodyMassIndex: HealthTrendSeries
     var activeEnergy: HealthTrendSeries
+    var activeEnergySecondary: HealthTrendSeries
     var restingEnergy: HealthTrendSeries
+    var restingEnergySecondary: HealthTrendSeries
     var exerciseMinutes: HealthTrendSeries
+    var exerciseMinutesSecondary: HealthTrendSeries
     var trainingLoad: HealthTrendSeries
     var wristTemperature: HealthTrendSeries
     var timeInDaylight: HealthTrendSeries
     var steps: HealthTrendSeries
+    var stepsSecondary: HealthTrendSeries
     var sleepHistory: SleepHistorySnapshot
     var heartRateDaySamples: HealthTrendSeries
+    var heartRateDaySamplesSecondary: HealthTrendSeries
     var restingHeartRateDaySamples: HealthTrendSeries
+    var restingHeartRateDaySamplesSecondary: HealthTrendSeries
     var heartRateVariabilityDaySamples: HealthTrendSeries
+    var heartRateVariabilityDaySamplesSecondary: HealthTrendSeries
     var respiratoryRateDaySamples: HealthTrendSeries
     var oxygenSaturationDaySamples: HealthTrendSeries
+    var oxygenSaturationDaySamplesSecondary: HealthTrendSeries
 
     static let empty = HealthTrendSnapshot(
         sleep: .empty,
+        sleepSecondary: .empty,
         heartRate: .empty,
         heartRateRanges: .empty,
+        heartRateRangesSecondary: .empty,
         restingHeartRate: .empty,
+        restingHeartRateSecondary: .empty,
         bodyMass: .empty,
         bodyFatPercentage: .empty,
         heartRateVariability: .empty,
         heartRateVariabilityRanges: .empty,
+        heartRateVariabilityRangesSecondary: .empty,
         respiratoryRate: .empty,
         respiratoryRateRanges: .empty,
         oxygenSaturation: .empty,
         oxygenSaturationRanges: .empty,
+        oxygenSaturationRangesSecondary: .empty,
         bodyMassIndex: .empty,
         activeEnergy: .empty,
+        activeEnergySecondary: .empty,
         restingEnergy: .empty,
+        restingEnergySecondary: .empty,
         exerciseMinutes: .empty,
+        exerciseMinutesSecondary: .empty,
         trainingLoad: .empty,
         wristTemperature: .empty,
         timeInDaylight: .empty,
         steps: .empty,
+        stepsSecondary: .empty,
         sleepHistory: .empty,
         heartRateDaySamples: .empty,
+        heartRateDaySamplesSecondary: .empty,
         restingHeartRateDaySamples: .empty,
+        restingHeartRateDaySamplesSecondary: .empty,
         heartRateVariabilityDaySamples: .empty,
+        heartRateVariabilityDaySamplesSecondary: .empty,
         respiratoryRateDaySamples: .empty,
-        oxygenSaturationDaySamples: .empty
+        oxygenSaturationDaySamples: .empty,
+        oxygenSaturationDaySamplesSecondary: .empty
     )
 
     var isEmpty: Bool {
         sleep.isEmpty &&
+            sleepSecondary.isEmpty &&
             heartRate.isEmpty &&
             heartRateRanges.isEmpty &&
+            heartRateRangesSecondary.isEmpty &&
             restingHeartRate.isEmpty &&
+            restingHeartRateSecondary.isEmpty &&
             bodyMass.isEmpty &&
             bodyFatPercentage.isEmpty &&
             heartRateVariability.isEmpty &&
             heartRateVariabilityRanges.isEmpty &&
+            heartRateVariabilityRangesSecondary.isEmpty &&
             respiratoryRate.isEmpty &&
             respiratoryRateRanges.isEmpty &&
             oxygenSaturation.isEmpty &&
             oxygenSaturationRanges.isEmpty &&
+            oxygenSaturationRangesSecondary.isEmpty &&
             bodyMassIndex.isEmpty &&
             activeEnergy.isEmpty &&
+            activeEnergySecondary.isEmpty &&
             restingEnergy.isEmpty &&
+            restingEnergySecondary.isEmpty &&
             exerciseMinutes.isEmpty &&
+            exerciseMinutesSecondary.isEmpty &&
             trainingLoad.isEmpty &&
             wristTemperature.isEmpty &&
             timeInDaylight.isEmpty &&
             steps.isEmpty &&
+            stepsSecondary.isEmpty &&
             sleepHistory.isEmpty &&
             heartRateDaySamples.isEmpty &&
+            heartRateDaySamplesSecondary.isEmpty &&
             restingHeartRateDaySamples.isEmpty &&
+            restingHeartRateDaySamplesSecondary.isEmpty &&
             heartRateVariabilityDaySamples.isEmpty &&
+            heartRateVariabilityDaySamplesSecondary.isEmpty &&
             respiratoryRateDaySamples.isEmpty &&
-            oxygenSaturationDaySamples.isEmpty
+            oxygenSaturationDaySamples.isEmpty &&
+            oxygenSaturationDaySamplesSecondary.isEmpty
     }
 
     init(
         sleep: HealthTrendSeries,
+        sleepSecondary: HealthTrendSeries = .empty,
         heartRate: HealthTrendSeries = .empty,
         heartRateRanges: HealthTrendRangeSeries = .empty,
+        heartRateRangesSecondary: HealthTrendRangeSeries = .empty,
         restingHeartRate: HealthTrendSeries,
+        restingHeartRateSecondary: HealthTrendSeries = .empty,
         bodyMass: HealthTrendSeries,
         bodyFatPercentage: HealthTrendSeries,
         heartRateVariability: HealthTrendSeries,
         heartRateVariabilityRanges: HealthTrendRangeSeries = .empty,
+        heartRateVariabilityRangesSecondary: HealthTrendRangeSeries = .empty,
         respiratoryRate: HealthTrendSeries,
         respiratoryRateRanges: HealthTrendRangeSeries = .empty,
         oxygenSaturation: HealthTrendSeries,
         oxygenSaturationRanges: HealthTrendRangeSeries = .empty,
+        oxygenSaturationRangesSecondary: HealthTrendRangeSeries = .empty,
         bodyMassIndex: HealthTrendSeries,
         activeEnergy: HealthTrendSeries,
+        activeEnergySecondary: HealthTrendSeries = .empty,
         restingEnergy: HealthTrendSeries,
+        restingEnergySecondary: HealthTrendSeries = .empty,
         exerciseMinutes: HealthTrendSeries = .empty,
+        exerciseMinutesSecondary: HealthTrendSeries = .empty,
         trainingLoad: HealthTrendSeries = .empty,
         wristTemperature: HealthTrendSeries = .empty,
         timeInDaylight: HealthTrendSeries = .empty,
         steps: HealthTrendSeries = .empty,
+        stepsSecondary: HealthTrendSeries = .empty,
         sleepHistory: SleepHistorySnapshot = .empty,
         heartRateDaySamples: HealthTrendSeries = .empty,
+        heartRateDaySamplesSecondary: HealthTrendSeries = .empty,
         restingHeartRateDaySamples: HealthTrendSeries = .empty,
+        restingHeartRateDaySamplesSecondary: HealthTrendSeries = .empty,
         heartRateVariabilityDaySamples: HealthTrendSeries = .empty,
+        heartRateVariabilityDaySamplesSecondary: HealthTrendSeries = .empty,
         respiratoryRateDaySamples: HealthTrendSeries = .empty,
-        oxygenSaturationDaySamples: HealthTrendSeries = .empty
+        oxygenSaturationDaySamples: HealthTrendSeries = .empty,
+        oxygenSaturationDaySamplesSecondary: HealthTrendSeries = .empty
     ) {
         self.sleep = sleep
+        self.sleepSecondary = sleepSecondary
         self.heartRate = heartRate
         self.heartRateRanges = heartRateRanges
+        self.heartRateRangesSecondary = heartRateRangesSecondary
         self.restingHeartRate = restingHeartRate
+        self.restingHeartRateSecondary = restingHeartRateSecondary
         self.bodyMass = bodyMass
         self.bodyFatPercentage = bodyFatPercentage
         self.heartRateVariability = heartRateVariability
         self.heartRateVariabilityRanges = heartRateVariabilityRanges
+        self.heartRateVariabilityRangesSecondary = heartRateVariabilityRangesSecondary
         self.respiratoryRate = respiratoryRate
         self.respiratoryRateRanges = respiratoryRateRanges
         self.oxygenSaturation = oxygenSaturation
         self.oxygenSaturationRanges = oxygenSaturationRanges
+        self.oxygenSaturationRangesSecondary = oxygenSaturationRangesSecondary
         self.bodyMassIndex = bodyMassIndex
         self.activeEnergy = activeEnergy
+        self.activeEnergySecondary = activeEnergySecondary
         self.restingEnergy = restingEnergy
+        self.restingEnergySecondary = restingEnergySecondary
         self.exerciseMinutes = exerciseMinutes
+        self.exerciseMinutesSecondary = exerciseMinutesSecondary
         self.trainingLoad = trainingLoad
         self.wristTemperature = wristTemperature
         self.timeInDaylight = timeInDaylight
         self.steps = steps
+        self.stepsSecondary = stepsSecondary
         self.sleepHistory = sleepHistory
         self.heartRateDaySamples = heartRateDaySamples
+        self.heartRateDaySamplesSecondary = heartRateDaySamplesSecondary
         self.restingHeartRateDaySamples = restingHeartRateDaySamples
+        self.restingHeartRateDaySamplesSecondary = restingHeartRateDaySamplesSecondary
         self.heartRateVariabilityDaySamples = heartRateVariabilityDaySamples
+        self.heartRateVariabilityDaySamplesSecondary = heartRateVariabilityDaySamplesSecondary
         self.respiratoryRateDaySamples = respiratoryRateDaySamples
         self.oxygenSaturationDaySamples = oxygenSaturationDaySamples
+        self.oxygenSaturationDaySamplesSecondary = oxygenSaturationDaySamplesSecondary
     }
 
     private enum CodingKeys: String, CodingKey {
         case sleep
+        case sleepSecondary
         case heartRate
         case heartRateRanges
+        case heartRateRangesSecondary
         case restingHeartRate
+        case restingHeartRateSecondary
         case bodyMass
         case bodyFatPercentage
         case heartRateVariability
         case heartRateVariabilityRanges
+        case heartRateVariabilityRangesSecondary
         case respiratoryRate
         case respiratoryRateRanges
         case oxygenSaturation
         case oxygenSaturationRanges
+        case oxygenSaturationRangesSecondary
         case bodyMassIndex
         case activeEnergy
+        case activeEnergySecondary
         case restingEnergy
+        case restingEnergySecondary
         case exerciseMinutes
+        case exerciseMinutesSecondary
         case trainingLoad
         case wristTemperature
         case timeInDaylight
         case steps
+        case stepsSecondary
         case sleepHistory
         case heartRateDaySamples
+        case heartRateDaySamplesSecondary
         case restingHeartRateDaySamples
+        case restingHeartRateDaySamplesSecondary
         case heartRateVariabilityDaySamples
+        case heartRateVariabilityDaySamplesSecondary
         case respiratoryRateDaySamples
         case oxygenSaturationDaySamples
+        case oxygenSaturationDaySamplesSecondary
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         sleep = try container.decode(HealthTrendSeries.self, forKey: .sleep)
+        sleepSecondary = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .sleepSecondary) ?? .empty
         heartRate = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .heartRate) ?? .empty
         heartRateRanges = try container.decodeIfPresent(HealthTrendRangeSeries.self, forKey: .heartRateRanges) ?? .empty
+        heartRateRangesSecondary = try container.decodeIfPresent(
+            HealthTrendRangeSeries.self,
+            forKey: .heartRateRangesSecondary
+        ) ?? .empty
         restingHeartRate = try container.decode(HealthTrendSeries.self, forKey: .restingHeartRate)
+        restingHeartRateSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .restingHeartRateSecondary
+        ) ?? .empty
         bodyMass = try container.decode(HealthTrendSeries.self, forKey: .bodyMass)
         bodyFatPercentage = try container.decode(HealthTrendSeries.self, forKey: .bodyFatPercentage)
         heartRateVariability = try container.decode(HealthTrendSeries.self, forKey: .heartRateVariability)
         heartRateVariabilityRanges = try container.decodeIfPresent(
             HealthTrendRangeSeries.self,
             forKey: .heartRateVariabilityRanges
+        ) ?? .empty
+        heartRateVariabilityRangesSecondary = try container.decodeIfPresent(
+            HealthTrendRangeSeries.self,
+            forKey: .heartRateVariabilityRangesSecondary
         ) ?? .empty
         respiratoryRate = try container.decode(HealthTrendSeries.self, forKey: .respiratoryRate)
         respiratoryRateRanges = try container.decodeIfPresent(
@@ -1538,26 +1629,55 @@ struct HealthTrendSnapshot: Codable, Equatable {
             HealthTrendRangeSeries.self,
             forKey: .oxygenSaturationRanges
         ) ?? .empty
+        oxygenSaturationRangesSecondary = try container.decodeIfPresent(
+            HealthTrendRangeSeries.self,
+            forKey: .oxygenSaturationRangesSecondary
+        ) ?? .empty
         bodyMassIndex = try container.decode(HealthTrendSeries.self, forKey: .bodyMassIndex)
         activeEnergy = try container.decode(HealthTrendSeries.self, forKey: .activeEnergy)
+        activeEnergySecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .activeEnergySecondary
+        ) ?? .empty
         restingEnergy = try container.decode(HealthTrendSeries.self, forKey: .restingEnergy)
+        restingEnergySecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .restingEnergySecondary
+        ) ?? .empty
         exerciseMinutes = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .exerciseMinutes) ?? .empty
+        exerciseMinutesSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .exerciseMinutesSecondary
+        ) ?? .empty
         trainingLoad = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .trainingLoad) ?? .empty
         wristTemperature = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .wristTemperature) ?? .empty
         timeInDaylight = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .timeInDaylight) ?? .empty
         steps = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .steps) ?? .empty
+        stepsSecondary = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .stepsSecondary) ?? .empty
         sleepHistory = try container.decodeIfPresent(SleepHistorySnapshot.self, forKey: .sleepHistory) ?? .empty
         heartRateDaySamples = try container.decodeIfPresent(
             HealthTrendSeries.self,
             forKey: .heartRateDaySamples
         ) ?? .empty
+        heartRateDaySamplesSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .heartRateDaySamplesSecondary
+        ) ?? .empty
         restingHeartRateDaySamples = try container.decodeIfPresent(
             HealthTrendSeries.self,
             forKey: .restingHeartRateDaySamples
         ) ?? .empty
+        restingHeartRateDaySamplesSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .restingHeartRateDaySamplesSecondary
+        ) ?? .empty
         heartRateVariabilityDaySamples = try container.decodeIfPresent(
             HealthTrendSeries.self,
             forKey: .heartRateVariabilityDaySamples
+        ) ?? .empty
+        heartRateVariabilityDaySamplesSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .heartRateVariabilityDaySamplesSecondary
         ) ?? .empty
         respiratoryRateDaySamples = try container.decodeIfPresent(
             HealthTrendSeries.self,
@@ -1566,6 +1686,10 @@ struct HealthTrendSnapshot: Codable, Equatable {
         oxygenSaturationDaySamples = try container.decodeIfPresent(
             HealthTrendSeries.self,
             forKey: .oxygenSaturationDaySamples
+        ) ?? .empty
+        oxygenSaturationDaySamplesSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .oxygenSaturationDaySamplesSecondary
         ) ?? .empty
     }
 
@@ -1608,6 +1732,35 @@ struct HealthTrendSnapshot: Codable, Equatable {
         }
     }
 
+    func secondarySeries(for kind: HealthMetricKind) -> HealthTrendSeries {
+        switch kind {
+        case .sleep:
+            return sleepSecondary
+        case .restingHeartRate:
+            return restingHeartRateSecondary
+        case .activeEnergy:
+            return activeEnergySecondary
+        case .restingEnergy:
+            return restingEnergySecondary
+        case .exerciseMinutes:
+            return exerciseMinutesSecondary
+        case .steps:
+            return stepsSecondary
+        case .basics,
+             .heartRate,
+             .bodyMass,
+             .bodyFatPercentage,
+             .heartRateVariability,
+             .respiratoryRate,
+             .oxygenSaturation,
+             .bodyMassIndex,
+             .trainingLoad,
+             .wristTemperature,
+             .timeInDaylight:
+            return .empty
+        }
+    }
+
     func rangeSeries(for kind: HealthMetricKind) -> HealthTrendRangeSeries {
         switch kind {
         case .heartRate:
@@ -1623,6 +1776,32 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .restingHeartRate,
              .bodyMass,
              .bodyFatPercentage,
+             .bodyMassIndex,
+             .activeEnergy,
+             .restingEnergy,
+             .exerciseMinutes,
+             .trainingLoad,
+             .wristTemperature,
+             .timeInDaylight,
+             .steps:
+            return .empty
+        }
+    }
+
+    func secondaryRangeSeries(for kind: HealthMetricKind) -> HealthTrendRangeSeries {
+        switch kind {
+        case .heartRate:
+            return heartRateRangesSecondary
+        case .heartRateVariability:
+            return heartRateVariabilityRangesSecondary
+        case .oxygenSaturation:
+            return oxygenSaturationRangesSecondary
+        case .sleep,
+             .basics,
+             .restingHeartRate,
+             .bodyMass,
+             .bodyFatPercentage,
+             .respiratoryRate,
              .bodyMassIndex,
              .activeEnergy,
              .restingEnergy,
@@ -1663,12 +1842,40 @@ struct HealthTrendSnapshot: Codable, Equatable {
         }
     }
 
+    func secondaryDaySeries(for kind: HealthMetricKind) -> HealthTrendSeries {
+        switch kind {
+        case .heartRate:
+            return heartRateDaySamplesSecondary
+        case .restingHeartRate:
+            return restingHeartRateDaySamplesSecondary
+        case .heartRateVariability:
+            return heartRateVariabilityDaySamplesSecondary
+        case .oxygenSaturation:
+            return oxygenSaturationDaySamplesSecondary
+        case .sleep,
+             .basics,
+             .bodyMass,
+             .bodyFatPercentage,
+             .respiratoryRate,
+             .bodyMassIndex,
+             .activeEnergy,
+             .restingEnergy,
+             .exerciseMinutes,
+             .trainingLoad,
+             .wristTemperature,
+             .timeInDaylight,
+             .steps:
+            return .empty
+        }
+    }
+
     func replacingMetric(_ kind: HealthMetricKind, with refreshed: HealthTrendSnapshot) -> HealthTrendSnapshot {
         var next = self
 
         switch kind {
         case .sleep:
             next.sleep = refreshed.sleep
+            next.sleepSecondary = refreshed.sleepSecondary
             next.sleepHistory = refreshed.sleepHistory
         case .basics:
             next.bodyMass = refreshed.bodyMass
@@ -1677,10 +1884,14 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case .heartRate:
             next.heartRate = refreshed.heartRate
             next.heartRateRanges = refreshed.heartRateRanges
+            next.heartRateRangesSecondary = refreshed.heartRateRangesSecondary
             next.heartRateDaySamples = refreshed.heartRateDaySamples
+            next.heartRateDaySamplesSecondary = refreshed.heartRateDaySamplesSecondary
         case .restingHeartRate:
             next.restingHeartRate = refreshed.restingHeartRate
+            next.restingHeartRateSecondary = refreshed.restingHeartRateSecondary
             next.restingHeartRateDaySamples = refreshed.restingHeartRateDaySamples
+            next.restingHeartRateDaySamplesSecondary = refreshed.restingHeartRateDaySamplesSecondary
         case .bodyMass:
             next.bodyMass = refreshed.bodyMass
         case .bodyFatPercentage:
@@ -1688,7 +1899,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case .heartRateVariability:
             next.heartRateVariability = refreshed.heartRateVariability
             next.heartRateVariabilityRanges = refreshed.heartRateVariabilityRanges
+            next.heartRateVariabilityRangesSecondary = refreshed.heartRateVariabilityRangesSecondary
             next.heartRateVariabilityDaySamples = refreshed.heartRateVariabilityDaySamples
+            next.heartRateVariabilityDaySamplesSecondary = refreshed.heartRateVariabilityDaySamplesSecondary
         case .respiratoryRate:
             next.respiratoryRate = refreshed.respiratoryRate
             next.respiratoryRateRanges = refreshed.respiratoryRateRanges
@@ -1696,15 +1909,20 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case .oxygenSaturation:
             next.oxygenSaturation = refreshed.oxygenSaturation
             next.oxygenSaturationRanges = refreshed.oxygenSaturationRanges
+            next.oxygenSaturationRangesSecondary = refreshed.oxygenSaturationRangesSecondary
             next.oxygenSaturationDaySamples = refreshed.oxygenSaturationDaySamples
+            next.oxygenSaturationDaySamplesSecondary = refreshed.oxygenSaturationDaySamplesSecondary
         case .bodyMassIndex:
             next.bodyMassIndex = refreshed.bodyMassIndex
         case .activeEnergy:
             next.activeEnergy = refreshed.activeEnergy
+            next.activeEnergySecondary = refreshed.activeEnergySecondary
         case .restingEnergy:
             next.restingEnergy = refreshed.restingEnergy
+            next.restingEnergySecondary = refreshed.restingEnergySecondary
         case .exerciseMinutes:
             next.exerciseMinutes = refreshed.exerciseMinutes
+            next.exerciseMinutesSecondary = refreshed.exerciseMinutesSecondary
         case .trainingLoad:
             next.trainingLoad = refreshed.trainingLoad
         case .wristTemperature:
@@ -1713,6 +1931,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             next.timeInDaylight = refreshed.timeInDaylight
         case .steps:
             next.steps = refreshed.steps
+            next.stepsSecondary = refreshed.stepsSecondary
         }
 
         return next
@@ -1723,17 +1942,24 @@ struct HealthTrendSnapshot: Codable, Equatable {
 
         if !selection.includes(.sleep) {
             filtered.sleep = .empty
+            filtered.sleepSecondary = .empty
             filtered.sleepHistory = .empty
         }
         if !selection.includes(.heart) {
             filtered.heartRate = .empty
             filtered.heartRateRanges = .empty
+            filtered.heartRateRangesSecondary = .empty
             filtered.restingHeartRate = .empty
+            filtered.restingHeartRateSecondary = .empty
             filtered.heartRateVariability = .empty
             filtered.heartRateVariabilityRanges = .empty
+            filtered.heartRateVariabilityRangesSecondary = .empty
             filtered.heartRateDaySamples = .empty
+            filtered.heartRateDaySamplesSecondary = .empty
             filtered.restingHeartRateDaySamples = .empty
+            filtered.restingHeartRateDaySamplesSecondary = .empty
             filtered.heartRateVariabilityDaySamples = .empty
+            filtered.heartRateVariabilityDaySamplesSecondary = .empty
         }
         if !selection.includes(.basics) {
             filtered.bodyMass = .empty
@@ -1743,7 +1969,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         if !selection.includes(.bloodOxygen) {
             filtered.oxygenSaturation = .empty
             filtered.oxygenSaturationRanges = .empty
+            filtered.oxygenSaturationRangesSecondary = .empty
             filtered.oxygenSaturationDaySamples = .empty
+            filtered.oxygenSaturationDaySamplesSecondary = .empty
         }
         if !selection.includes(.respiratory) {
             filtered.respiratoryRate = .empty
@@ -1752,10 +1980,13 @@ struct HealthTrendSnapshot: Codable, Equatable {
         }
         if !selection.includes(.energy) {
             filtered.activeEnergy = .empty
+            filtered.activeEnergySecondary = .empty
             filtered.restingEnergy = .empty
+            filtered.restingEnergySecondary = .empty
         }
         if !selection.includes(.exerciseMinutes) {
             filtered.exerciseMinutes = .empty
+            filtered.exerciseMinutesSecondary = .empty
         }
         if !selection.includes(.workouts) {
             filtered.trainingLoad = .empty
@@ -1768,9 +1999,28 @@ struct HealthTrendSnapshot: Codable, Equatable {
         }
         if !selection.includes(.steps) {
             filtered.steps = .empty
+            filtered.stepsSecondary = .empty
         }
 
         return filtered
+    }
+
+    func clearingSecondarySeries() -> HealthTrendSnapshot {
+        var cleared = self
+        cleared.sleepSecondary = .empty
+        cleared.heartRateRangesSecondary = .empty
+        cleared.heartRateDaySamplesSecondary = .empty
+        cleared.restingHeartRateSecondary = .empty
+        cleared.restingHeartRateDaySamplesSecondary = .empty
+        cleared.heartRateVariabilityRangesSecondary = .empty
+        cleared.heartRateVariabilityDaySamplesSecondary = .empty
+        cleared.oxygenSaturationRangesSecondary = .empty
+        cleared.oxygenSaturationDaySamplesSecondary = .empty
+        cleared.activeEnergySecondary = .empty
+        cleared.restingEnergySecondary = .empty
+        cleared.exerciseMinutesSecondary = .empty
+        cleared.stepsSecondary = .empty
+        return cleared
     }
 }
 
@@ -1938,8 +2188,34 @@ struct HealthTrendRangeSeries: Codable, Equatable {
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> [HealthTrendRangeCalendarPoint] {
+        aggregatedChartCalendarPoints(
+            to: range,
+            aggregationDayCount: range.chartAggregationDayCount,
+            calendar: calendar,
+            date: date
+        )
+    }
+
+    func sourceComparisonChartCalendarPoints(
+        to range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> [HealthTrendRangeCalendarPoint] {
+        aggregatedChartCalendarPoints(
+            to: range,
+            aggregationDayCount: range.sourceComparisonChartAggregationDayCount,
+            calendar: calendar,
+            date: date
+        )
+    }
+
+    private func aggregatedChartCalendarPoints(
+        to range: BodyHealthTrendRange,
+        aggregationDayCount: Int,
+        calendar: Calendar,
+        date: Date
+    ) -> [HealthTrendRangeCalendarPoint] {
         let dailyPoints = calendarPoints(to: range, calendar: calendar, date: date)
-        let aggregationDayCount = range.chartAggregationDayCount
         guard aggregationDayCount > 1 else {
             return dailyPoints
         }
@@ -2093,8 +2369,34 @@ struct HealthTrendSeries: Codable, Equatable {
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> [HealthTrendCalendarPoint] {
+        aggregatedChartCalendarPoints(
+            to: range,
+            aggregationDayCount: range.chartAggregationDayCount,
+            calendar: calendar,
+            date: date
+        )
+    }
+
+    func sourceComparisonChartCalendarPoints(
+        to range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> [HealthTrendCalendarPoint] {
+        aggregatedChartCalendarPoints(
+            to: range,
+            aggregationDayCount: range.sourceComparisonChartAggregationDayCount,
+            calendar: calendar,
+            date: date
+        )
+    }
+
+    private func aggregatedChartCalendarPoints(
+        to range: BodyHealthTrendRange,
+        aggregationDayCount: Int,
+        calendar: Calendar,
+        date: Date
+    ) -> [HealthTrendCalendarPoint] {
         let dailyPoints = calendarPoints(to: range, calendar: calendar, date: date)
-        let aggregationDayCount = range.chartAggregationDayCount
         guard aggregationDayCount > 1 else {
             return dailyPoints
         }
@@ -2375,6 +2677,96 @@ struct HealthTrendDataPoint: Codable, Equatable, Identifiable {
 
     var id: Date {
         date
+    }
+}
+
+enum BodyHealthSourceRole: String, Hashable, CaseIterable {
+    case primary
+    case secondary
+}
+
+struct BodyHealthSourceTrend: Equatable, Identifiable {
+    var role: BodyHealthSourceRole
+    var sourceName: String
+    var series: HealthTrendSeries
+
+    var id: String {
+        "\(role.rawValue)-\(sourceName)"
+    }
+
+    func averageValue(
+        in range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> Double? {
+        let values = series
+            .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: date)
+            .compactMap(\.value)
+            .filter(\.isFinite)
+        guard !values.isEmpty else {
+            return nil
+        }
+
+        return values.reduce(0, +) / Double(values.count)
+    }
+}
+
+struct BodyHealthSourceComparisonTrend: Equatable {
+    var primary: BodyHealthSourceTrend
+    var secondary: BodyHealthSourceTrend
+
+    var isEmpty: Bool {
+        primary.series.isEmpty && secondary.series.isEmpty
+    }
+
+    func mapValues(_ transform: (Double) -> Double) -> BodyHealthSourceComparisonTrend {
+        BodyHealthSourceComparisonTrend(
+            primary: BodyHealthSourceTrend(
+                role: primary.role,
+                sourceName: primary.sourceName,
+                series: primary.series.mapValues(transform)
+            ),
+            secondary: BodyHealthSourceTrend(
+                role: secondary.role,
+                sourceName: secondary.sourceName,
+                series: secondary.series.mapValues(transform)
+            )
+        )
+    }
+}
+
+struct BodyHealthSourceRangeTrend: Equatable, Identifiable {
+    var role: BodyHealthSourceRole
+    var sourceName: String
+    var series: HealthTrendRangeSeries
+
+    var id: String {
+        "\(role.rawValue)-\(sourceName)"
+    }
+
+    func averageValue(
+        in range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> Double? {
+        let values = series
+            .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: date)
+            .compactMap(\.averageValue)
+            .filter(\.isFinite)
+        guard !values.isEmpty else {
+            return nil
+        }
+
+        return values.reduce(0, +) / Double(values.count)
+    }
+}
+
+struct BodyHealthSourceRangeComparisonTrend: Equatable {
+    var primary: BodyHealthSourceRangeTrend
+    var secondary: BodyHealthSourceRangeTrend
+
+    var isEmpty: Bool {
+        primary.series.isEmpty && secondary.series.isEmpty
     }
 }
 

@@ -9,7 +9,16 @@ import os
 enum HealthDashboardSnapshotStore {
     static let healthDashboardSnapshotKey = "lastHealthDashboardSnapshot"
     static let healthDashboardSnapshotFileName = "lastHealthDashboardSnapshot.json"
+    static let secondarySelectionSignatureKey = "lastHealthDashboardSecondarySelectionSignature"
     private static let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "HealthDashboardSnapshotStore")
+
+    static func saveSecondarySelectionSignature(_ signature: String, defaults: UserDefaults = .standard) {
+        defaults.set(signature, forKey: secondarySelectionSignatureKey)
+    }
+
+    static func loadSecondarySelectionSignature(defaults: UserDefaults = .standard) -> String? {
+        defaults.string(forKey: secondarySelectionSignatureKey)
+    }
 
     static var snapshotFileURL: URL? {
         guard let applicationSupportURL = FileManager.default.urls(
