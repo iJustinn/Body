@@ -112,12 +112,20 @@ final class ProjectConfigurationTests: XCTestCase {
         )
         let detailBlock = String(source[detailStart...].prefix(900))
         let contextStart = try XCTUnwrap(source.range(of: "private var selectedMetricDayContextIntervals")?.lowerBound)
-        let contextBlock = String(source[contextStart...].prefix(1_800))
+        let contextBlock = String(source[contextStart...].prefix(2_400))
+        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyHealthMetricDayChart")?.lowerBound)
+        let chartBlock = String(source[chartStart...].prefix(5_000))
 
         XCTAssertTrue(detailBlock.contains("sleepHistory: trends.sleepHistory"))
         XCTAssertTrue(contextBlock.contains("model.kind == .heartRate || model.kind == .heartRateVariability"))
         XCTAssertTrue(contextBlock.contains("sleepSummary(for: selectedMetricDay)?.stageSnapshot.dateInterval"))
+        XCTAssertTrue(contextBlock.contains(#"symbolName: "bed.double.fill""#))
+        XCTAssertFalse(contextBlock.contains(#"symbolName: "moon.fill""#))
         XCTAssertTrue(contextBlock.contains("workouts(on: dayInterval)"))
+        XCTAssertTrue(contextBlock.contains("color: workout.type.color"))
+        XCTAssertFalse(contextBlock.contains("color: Color(red: 1.00, green: 0.38, blue: 0.12)"))
+        XCTAssertTrue(chartBlock.contains(".foregroundStyle(interval.color)"))
+        XCTAssertFalse(chartBlock.contains("interval.kind == .sleep ? Color.white : interval.color"))
     }
 
     func testMetricCardPreviewStylesMatchRequestedChartKinds() throws {
@@ -503,10 +511,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(homeSource.contains("private var recentDatePickerDates: [Date]"))
         XCTAssertTrue(homeSource.contains("private func datePicker("))
         XCTAssertTrue(homeSource.contains("private func dateTile("))
+        XCTAssertTrue(homeSource.contains("BodyDateSliderTileLabel.primaryText(for: dayStart, today: today, calendar: calendar)"))
         XCTAssertFalse(homeSource.contains("private var sleepDatePickerDates"))
         XCTAssertFalse(homeSource.contains("private var metricDatePickerDates"))
         XCTAssertFalse(homeSource.contains("private func sleepDateTile"))
         XCTAssertFalse(homeSource.contains("private func metricDateTile"))
+        XCTAssertFalse(homeSource.contains("Text(dayStart.formatted(.dateTime.weekday(.abbreviated)))"))
     }
 
     func testProjectDateMathUsesBodyGregorianForSleepAxisAndWidgetTimeline() throws {

@@ -1595,6 +1595,20 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(dates[dates.count - 2], calendar.startOfDay(for: today))
     }
 
+    func testDateSliderTilePrimaryLabelUsesWeekdaysOnlyForMostRecentWeek() throws {
+        let calendar = Calendar.bodyGregorian
+        let today = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 16, hour: 20)))
+        let currentDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 16)))
+        let oldestRecentDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 10)))
+        let olderCurrentMonthDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 9)))
+        let olderPriorMonthDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 30)))
+
+        XCTAssertEqual(BodyDateSliderTileLabel.primaryText(for: currentDay, today: today, calendar: calendar), "Sat")
+        XCTAssertEqual(BodyDateSliderTileLabel.primaryText(for: oldestRecentDay, today: today, calendar: calendar), "Sun")
+        XCTAssertEqual(BodyDateSliderTileLabel.primaryText(for: olderCurrentMonthDay, today: today, calendar: calendar), "May")
+        XCTAssertEqual(BodyDateSliderTileLabel.primaryText(for: olderPriorMonthDay, today: today, calendar: calendar), "Apr")
+    }
+
     func testSleepHistoryFindsSummaryByCalendarDay() throws {
         let calendar = Calendar.bodyGregorian
         let dayStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11)))

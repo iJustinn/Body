@@ -167,7 +167,9 @@ struct BodyHomeView: View {
     @State private var showsAllHomeTrends = false
 
     var body: some View {
-        NavigationStack {
+        let metricCardLookup = metricCardsByKind
+
+        return NavigationStack {
             ZStack {
                 Color(.systemGroupedBackground)
                     .ignoresSafeArea()
@@ -182,7 +184,7 @@ struct BodyHomeView: View {
                             ForEach(homeCardRows) { row in
                                 HStack(spacing: 14) {
                                     ForEach(row.cards) { card in
-                                        reorderableHomeCard(for: card)
+                                        reorderableHomeCard(for: card, lookup: metricCardLookup)
                                             .frame(maxWidth: .infinity)
                                     }
 
@@ -222,7 +224,10 @@ struct BodyHomeView: View {
 
     @ViewBuilder
     private var homeTrendsSection: some View {
-        let visibleTrendCards = visibleHomeTrendCards
+        let allCards = allHomeTrendCards
+        let significantCards = showsAllHomeTrends ? allCards : significantHomeTrendCards
+        let visibleTrendCards = showsAllHomeTrends ? allCards : Array(significantCards.prefix(4))
+        let canToggleAll = showsAllHomeTrends || allCards.count > visibleTrendCards.count
 
         if !visibleTrendCards.isEmpty {
             BodyHomeSectionDivider()
@@ -230,12 +235,16 @@ struct BodyHomeView: View {
 
             BodyHomeTrendsSection(
                 cards: visibleTrendCards,
-                canToggleAll: canToggleAllHomeTrends,
+                canToggleAll: canToggleAll,
                 showsAllTrends: showsAllHomeTrends,
                 toggleAll: toggleAllHomeTrends
             )
             .padding(.top, 8)
         }
+    }
+
+    private var metricCardsByKind: [HealthMetricKind: BodyHealthMetricCard.Model] {
+        Dictionary(uniqueKeysWithValues: metricCards.map { ($0.kind, $0) })
     }
 
     private var metricCards: [BodyHealthMetricCard.Model] {
@@ -726,8 +735,11 @@ struct BodyHomeView: View {
         duration.map { BodyValueFormat.sleepDurationText(for: $0) } ?? "--"
     }
 
-    private func reorderableHomeCard(for card: BodyHomeCardKind) -> some View {
-        homeCardView(for: card)
+    private func reorderableHomeCard(
+        for card: BodyHomeCardKind,
+        lookup: [HealthMetricKind: BodyHealthMetricCard.Model]
+    ) -> some View {
+        homeCardView(for: card, lookup: lookup)
             .onDrag {
                 draggedHomeCard = card
                 return NSItemProvider(object: card.rawValue as NSString)
@@ -750,7 +762,10 @@ struct BodyHomeView: View {
     }
 
     @ViewBuilder
-    private func homeCardView(for card: BodyHomeCardKind) -> some View {
+    private func homeCardView(
+        for card: BodyHomeCardKind,
+        lookup: [HealthMetricKind: BodyHealthMetricCard.Model]
+    ) -> some View {
         switch card {
         case .activityRings:
             NavigationLink {
@@ -761,7 +776,7 @@ struct BodyHomeView: View {
             .buttonStyle(.plain)
         default:
             if let metricKind = card.healthMetricKind,
-               let metric = metricCards.first(where: { $0.kind == metricKind }) {
+               let metric = lookup[metricKind] {
                 NavigationLink(value: metric.kind) {
                     BodyHealthMetricCard(metric: metric)
                 }
@@ -1942,6 +1957,30 @@ private struct BodyHealthMetricDetailModel {
     }
 }
 
+enum BodyDateSliderTileLabel {
+    private static let recentWeekDayCount = 7
+
+    static func primaryText(
+        for date: Date,
+        today: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> String {
+        let dayStart = calendar.startOfDay(for: date)
+        let todayStart = calendar.startOfDay(for: today)
+        let oldestRecentDay = calendar.date(
+            byAdding: .day,
+            value: -(recentWeekDayCount - 1),
+            to: todayStart
+        ) ?? todayStart
+
+        if dayStart >= oldestRecentDay {
+            return dayStart.formatted(.dateTime.weekday(.abbreviated))
+        }
+
+        return dayStart.formatted(.dateTime.month(.abbreviated))
+    }
+}
+
 private enum BodyMetricDetailDatePicker {
     case sleep
     case metric
@@ -2487,7 +2526,7 @@ private struct BodyHealthMetricDetailView: View {
                     startDate: clippedSleepInterval.start,
                     endDate: clippedSleepInterval.end,
                     title: "Sleep",
-                    symbolName: "moon.fill",
+                    symbolName: "bed.double.fill",
                     color: Color(red: 0.20, green: 0.72, blue: 1.00)
                 )
             )
@@ -2504,7 +2543,7 @@ private struct BodyHealthMetricDetailView: View {
                     endDate: $0.end,
                     title: workout.type.displayName,
                     symbolName: workout.type.symbolName,
-                    color: Color(red: 1.00, green: 0.38, blue: 0.12)
+                    color: workout.type.color
                 )
             }
         }.compactMap { $0 })
@@ -2533,6 +2572,7 @@ private struct BodyHealthMetricDetailView: View {
         let today = calendar.startOfDay(for: Date())
         let isSelected = calendar.isDate(dayStart, inSameDayAs: selectedDay(for: picker))
         let isFuture = dayStart > today
+        let primaryText = BodyDateSliderTileLabel.primaryText(for: dayStart, today: today, calendar: calendar)
 
         return Button {
             guard !isFuture else {
@@ -2542,7 +2582,7 @@ private struct BodyHealthMetricDetailView: View {
             selectDate(dayStart, for: picker)
         } label: {
             VStack(spacing: 6) {
-                Text(dayStart.formatted(.dateTime.weekday(.abbreviated)))
+                Text(primaryText)
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                     .lineLimit(1)
                     .minimumScaleFactor(0.74)
@@ -3695,7 +3735,7 @@ private struct BodyHealthMetricDayChart: View {
                 .annotation(position: .top, spacing: 3, overflowResolution: bodyChartSelectionOverflowResolution) {
                     Image(systemName: interval.symbolName)
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(interval.kind == .sleep ? Color.white : interval.color)
+                        .foregroundStyle(interval.color)
                         .accessibilityHidden(true)
                 }
             }
@@ -4685,7 +4725,7 @@ private struct BodyWristTemperatureBaselineChart: View {
         let halfRange = max(2.0, ceil(observedExtreme + 0.2))
         self.chartYDomain = -halfRange ... halfRange
 
-        let domainDates = series.calendarPoints(to: selectedRange).map(\.date)
+        let domainDates = visiblePoints.map(\.date)
         self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
     }
 
