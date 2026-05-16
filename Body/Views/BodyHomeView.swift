@@ -158,13 +158,76 @@ private extension Array where Element == HealthTrendCalendarPoint {
     }
 }
 
+struct BodyDataLoadingOverlay: View {
+    var message: String = "Loading data..."
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .controlSize(.regular)
+                    .tint(.white)
+
+                Text(message)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 22)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(white: 0.18))
+            )
+            .shadow(color: Color.black.opacity(0.28), radius: 18, x: 0, y: 8)
+        }
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(message))
+        .accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
+private struct BodyPullToRefreshLoadingOverlayModifier: ViewModifier {
+    let isPresented: Bool
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if isPresented {
+                BodyDataLoadingOverlay()
+                    .allowsHitTesting(true)
+                    .zIndex(100)
+            }
+        }
+        .animation(.easeInOut(duration: 0.18), value: isPresented)
+    }
+}
+
+extension View {
+    func bodyPullToRefreshLoadingOverlay(isPresented: Bool) -> some View {
+        modifier(BodyPullToRefreshLoadingOverlayModifier(isPresented: isPresented))
+    }
+}
+
 struct BodyHomeView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @AppStorage(BodyAppearancePreference.selectedAccentKey) private var selectedAccentRawValue = BodyAppAccent.defaultValue.rawValue
-    @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
+    @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeCardOrderKey) private var homeCardOrderRawValue = BodyHomeCardKind.defaultRawValue
+    @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @State private var draggedHomeCard: BodyHomeCardKind?
     @State private var showsAllHomeTrends = false
+    @State private var isPullRefreshing = false
 
     var body: some View {
         let metricCardLookup = metricCardsByKind
@@ -205,11 +268,19 @@ struct BodyHomeView: View {
                     .padding(.bottom, 110)
                 }
                 .refreshable {
+                    let started = Date()
+                    isPullRefreshing = true
                     await workoutStore.requestAuthorizationAndRefresh()
+                    await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
+                    isPullRefreshing = false
                 }
             }
+            .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
             .navigationDestination(for: HealthMetricKind.self) { kind in
-                BodyHealthMetricDetailView(model: detailModel(for: kind))
+                BodyHealthMetricDetailView(
+                    model: detailModel(for: kind),
+                    initialTrendRange: defaultTrendRange
+                )
             }
         }
     }
@@ -219,7 +290,19 @@ struct BodyHomeView: View {
     }
 
     private var homeCardRows: [BodyHomeCardLayoutRow] {
-        BodyHomeCardKind.layoutRows(from: homeCardOrder)
+        BodyHomeCardKind.layoutRows(from: homeCardOrder, visibleIn: summaryCardSelection)
+    }
+
+    private var summaryCardSelection: BodySummaryCardSelection {
+        BodySummaryCardSelection.storedValue(from: summaryCardSelectionRawValue)
+    }
+
+    private var defaultTrendRange: BodyHealthTrendRange {
+        BodyHealthTrendRange.storedValue(from: defaultTrendRangeRawValue)
+    }
+
+    private var homeTrendCardSelection: BodyHomeTrendCardSelection {
+        BodyHomeTrendCardSelection.storedValue(from: homeTrendCardSelectionRawValue)
     }
 
     @ViewBuilder
@@ -354,26 +437,20 @@ struct BodyHomeView: View {
                 chartPreviewStyle: .range,
                 chartRangePreview: trends.rangeSeries(for: .respiratoryRate)
             ),
-            metric(
+            energyMetric(
                 kind: .activeEnergy,
                 title: "Active Energy",
                 summary: summary.activeEnergy,
-                unit: "kcal",
-                decimals: 0,
                 symbolName: "flame.fill",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                chartStyle: .bar,
                 chartPreview: trends.series(for: .activeEnergy)
             ),
-            metric(
+            energyMetric(
                 kind: .restingEnergy,
                 title: "Resting Energy",
                 summary: summary.restingEnergy,
-                unit: "kcal",
-                decimals: 0,
                 symbolName: "leaf.fill",
                 symbolColor: Color(red: 0.14, green: 0.72, blue: 0.42),
-                chartStyle: .bar,
                 chartPreview: trends.series(for: .restingEnergy)
             )
         ]
@@ -403,8 +480,9 @@ struct BodyHomeView: View {
         let trends = workoutStore.healthTrends
         let temperatureUnit = BodyValueFormat.temperatureDisplay(
             celsius: 0,
-            unitPreference: selectedUnitPreference
+            temperatureUnitPreference: selectedTemperatureUnitPreference
         ).unit
+        let energyUnit = selectedEnergyUnitPreference.unitLabel
         let cards = [
             homeTrendCard(
                 kind: .heartRate,
@@ -478,7 +556,7 @@ struct BodyHomeView: View {
                 series: trends.series(for: .wristTemperature).mapValues {
                     BodyValueFormat.temperatureValue(
                         celsius: $0,
-                        unitPreference: selectedUnitPreference
+                        temperatureUnitPreference: selectedTemperatureUnitPreference
                     ).value
                 },
                 chartStyle: .line,
@@ -502,22 +580,32 @@ struct BodyHomeView: View {
             homeTrendCard(
                 kind: .activeEnergy,
                 title: "Active Energy",
-                series: trends.series(for: .activeEnergy),
+                series: trends.series(for: .activeEnergy).mapValues {
+                    BodyValueFormat.energyValue(
+                        kilocalories: $0,
+                        energyUnitPreference: selectedEnergyUnitPreference
+                    ).value
+                },
                 chartStyle: .bar,
                 symbolName: "flame.fill",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " kcal" },
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " " + energyUnit },
                 messageStyle: .quantity(subject: "Your active energy"),
                 includesStable: includesStable
             ),
             homeTrendCard(
                 kind: .restingEnergy,
                 title: "Resting Energy",
-                series: trends.series(for: .restingEnergy),
+                series: trends.series(for: .restingEnergy).mapValues {
+                    BodyValueFormat.energyValue(
+                        kilocalories: $0,
+                        energyUnitPreference: selectedEnergyUnitPreference
+                    ).value
+                },
                 chartStyle: .bar,
                 symbolName: "leaf.fill",
                 symbolColor: Color(red: 0.14, green: 0.72, blue: 0.42),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " kcal" },
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " " + energyUnit },
                 messageStyle: .quantity(subject: "Your resting energy"),
                 includesStable: includesStable
             ),
@@ -556,6 +644,7 @@ struct BodyHomeView: View {
             )
         ]
         .compactMap { $0 }
+        .filter { homeTrendCardSelection.includes($0.presentation.kind) }
 
         return cards
     }
@@ -564,8 +653,28 @@ struct BodyHomeView: View {
         BodyAppAccent.storedValue(from: selectedAccentRawValue)
     }
 
-    private var selectedUnitPreference: BodyValueFormat.UnitPreference {
-        BodyValueFormat.UnitPreference.storedValue(from: selectedUnitPreferenceRawValue)
+    private var selectedWeightUnitPreference: BodyValueFormat.WeightUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.WeightUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.WeightUnitPreference.storedValue(from: selectedWeightUnitRawValue)
+    }
+
+    private var selectedEnergyUnitPreference: BodyValueFormat.EnergyUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.EnergyUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.EnergyUnitPreference.storedValue(from: selectedEnergyUnitRawValue)
+    }
+
+    private var selectedTemperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.TemperatureUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.TemperatureUnitPreference.storedValue(from: selectedTemperatureUnitRawValue)
     }
 
     private func metric(
@@ -594,16 +703,48 @@ struct BodyHomeView: View {
         )
     }
 
+    private func energyMetric(
+        kind: HealthMetricKind,
+        title: String,
+        summary: HealthMetricSummary,
+        symbolName: String,
+        symbolColor: Color,
+        chartPreview: HealthTrendSeries
+    ) -> BodyHealthMetricCard.Model {
+        let display = summary.value.map {
+            BodyValueFormat.energyValue(kilocalories: $0, energyUnitPreference: selectedEnergyUnitPreference)
+        }
+
+        return BodyHealthMetricCard.Model(
+            kind: kind,
+            title: title,
+            value: display.map { BodyValueFormat.numberText($0.value, decimals: 0) } ?? "--",
+            unit: selectedEnergyUnitPreference.unitLabel,
+            symbolName: symbolName,
+            symbolColor: symbolColor,
+            chartPreviewStyle: .bar,
+            chartPreview: chartPreview.mapValues {
+                BodyValueFormat.energyValue(
+                    kilocalories: $0,
+                    energyUnitPreference: selectedEnergyUnitPreference
+                ).value
+            }
+        )
+    }
+
     private func wristTemperatureMetric(
         summary: HealthSummarySnapshot,
         chartPreview: HealthTrendSeries
     ) -> BodyHealthMetricCard.Model {
         let display = summary.wristTemperature.value.map {
-            BodyValueFormat.temperatureDisplay(celsius: $0, unitPreference: selectedUnitPreference)
+            BodyValueFormat.temperatureDisplay(
+                celsius: $0,
+                temperatureUnitPreference: selectedTemperatureUnitPreference
+            )
         }
         let temperatureUnit = BodyValueFormat.temperatureDisplay(
             celsius: 0,
-            unitPreference: selectedUnitPreference
+            temperatureUnitPreference: selectedTemperatureUnitPreference
         ).unit
         let actualDisplay = BodyMetricDisplayValue(
             title: "Wrist Temperature",
@@ -660,7 +801,11 @@ struct BodyHomeView: View {
         chartPreview: HealthTrendSeries
     ) -> BodyHealthMetricCard.Model {
         let weightDisplay = summary.bodyMass.value.map {
-            BodyValueFormat.massDisplay(kilograms: $0, unitPreference: selectedUnitPreference, decimals: 2)
+            BodyValueFormat.massDisplay(
+                kilograms: $0,
+                weightUnitPreference: selectedWeightUnitPreference,
+                decimals: 2
+            )
         }
         let bodyFatDisplay = summary.bodyFatPercentage.value.map {
             BodyMetricDisplayValue(
@@ -676,7 +821,7 @@ struct BodyHomeView: View {
             value: weightDisplay?.value ?? "--",
             unit: weightDisplay?.unit ?? BodyValueFormat.massValue(
                 kilograms: 0,
-                unitPreference: selectedUnitPreference
+                weightUnitPreference: selectedWeightUnitPreference
             ).unit,
             symbolName: "person.crop.circle.fill",
             symbolColor: Color(red: 0.50, green: 0.34, blue: 1.00),
@@ -687,7 +832,7 @@ struct BodyHomeView: View {
                     value: weightDisplay?.value ?? "--",
                     unit: weightDisplay?.unit ?? BodyValueFormat.massValue(
                         kilograms: 0,
-                        unitPreference: selectedUnitPreference
+                        weightUnitPreference: selectedWeightUnitPreference
                     ).unit
                 )
             ],
@@ -820,6 +965,7 @@ struct BodyHomeView: View {
                 symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
                 series: trends.heartRate,
                 daySeries: trends.heartRateDaySamples,
+                secondaryDaySeries: trends.secondaryDaySeries(for: kind),
                 rangeSeries: trends.heartRateRanges,
                 basicsTrend: nil,
                 sleepStageSnapshot: nil,
@@ -830,6 +976,7 @@ struct BodyHomeView: View {
                 chartStyle: .line,
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " bpm" },
                 secondaryValueFormatter: nil,
+                sourceRangeComparisonTrend: workoutStore.sourceRangeComparisonTrend(for: kind),
                 helpText: kind.detailHelpText,
                 dataSourceText: kind.detailDataSourceText
             )
@@ -860,11 +1007,14 @@ struct BodyHomeView: View {
             )
         case .wristTemperature:
             let display = summary.wristTemperature.value.map {
-                BodyValueFormat.temperatureDisplay(celsius: $0, unitPreference: selectedUnitPreference)
+                BodyValueFormat.temperatureDisplay(
+                    celsius: $0,
+                    temperatureUnitPreference: selectedTemperatureUnitPreference
+                )
             }
             let temperatureUnit = BodyValueFormat.temperatureDisplay(
                 celsius: 0,
-                unitPreference: selectedUnitPreference
+                temperatureUnitPreference: selectedTemperatureUnitPreference
             ).unit
             let actualDisplay = BodyMetricDisplayValue(
                 title: "Wrist Temperature",
@@ -885,7 +1035,7 @@ struct BodyHomeView: View {
                 series: trends.wristTemperature.mapValues {
                     BodyValueFormat.temperatureValue(
                         celsius: $0,
-                        unitPreference: selectedUnitPreference
+                        temperatureUnitPreference: selectedTemperatureUnitPreference
                     ).value
                 },
                 daySeries: .empty,
@@ -934,6 +1084,7 @@ struct BodyHomeView: View {
                 symbolName: "bed.double.fill",
                 symbolColor: Color(red: 0.20, green: 0.72, blue: 1.00),
                 series: trends.sleep,
+                secondaryDaySeries: .empty,
                 basicsTrend: nil,
                 sleepStageSnapshot: summary.sleep.stageSnapshot,
                 sleepScore: summary.sleep.score,
@@ -943,15 +1094,20 @@ struct BodyHomeView: View {
                 chartStyle: .line,
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + "h" },
                 secondaryValueFormatter: nil,
+                sourceLineComparisonTrend: workoutStore.sourceLineComparisonTrend(for: kind),
                 dataSourceText: kind.detailDataSourceText
             )
         case .basics:
             let display = summary.bodyMass.value.map {
-                BodyValueFormat.massDisplay(kilograms: $0, unitPreference: selectedUnitPreference, decimals: 2)
+                BodyValueFormat.massDisplay(
+                    kilograms: $0,
+                    weightUnitPreference: selectedWeightUnitPreference,
+                    decimals: 2
+                )
             }
             let massUnit = BodyValueFormat.massValue(
                 kilograms: 0,
-                unitPreference: selectedUnitPreference
+                weightUnitPreference: selectedWeightUnitPreference
             ).unit
             let bodyFatDisplay = summary.bodyFatPercentage.value.map {
                 BodyMetricDisplayValue(
@@ -971,7 +1127,10 @@ struct BodyHomeView: View {
                 daySeries: .empty,
                 basicsTrend: BasicsTrendSummary(
                     weight: trends.bodyMass.mapValues {
-                        BodyValueFormat.massValue(kilograms: $0, unitPreference: selectedUnitPreference).value
+                        BodyValueFormat.massValue(
+                            kilograms: $0,
+                            weightUnitPreference: selectedWeightUnitPreference
+                        ).value
                     },
                     bodyFat: trends.bodyFatPercentage,
                     bodyMassIndex: trends.bodyMassIndex
@@ -1005,11 +1164,14 @@ struct BodyHomeView: View {
             )
         case .bodyMass:
             let display = summary.bodyMass.value.map {
-                BodyValueFormat.massDisplay(kilograms: $0, unitPreference: selectedUnitPreference)
+                BodyValueFormat.massDisplay(
+                    kilograms: $0,
+                    weightUnitPreference: selectedWeightUnitPreference
+                )
             }
             let massUnit = BodyValueFormat.massValue(
                 kilograms: 0,
-                unitPreference: selectedUnitPreference
+                weightUnitPreference: selectedWeightUnitPreference
             ).unit
             return BodyHealthMetricDetailModel(
                 kind: kind,
@@ -1019,7 +1181,10 @@ struct BodyHomeView: View {
                 symbolName: "scalemass.fill",
                 symbolColor: Color(red: 0.50, green: 0.34, blue: 1.00),
                 series: trends.bodyMass.mapValues {
-                    BodyValueFormat.massValue(kilograms: $0, unitPreference: selectedUnitPreference).value
+                    BodyValueFormat.massValue(
+                        kilograms: $0,
+                        weightUnitPreference: selectedWeightUnitPreference
+                    ).value
                 },
                 daySeries: .empty,
                 basicsTrend: nil,
@@ -1087,22 +1252,34 @@ struct BodyHomeView: View {
                 kind: kind,
                 title: "Active Energy",
                 summary: summary.activeEnergy,
-                unit: "kcal",
+                unit: selectedEnergyUnitPreference.unitLabel,
                 decimals: 0,
                 symbolName: "flame.fill",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                chartStyle: .bar
+                chartStyle: .bar,
+                valueTransform: {
+                    BodyValueFormat.energyValue(
+                        kilocalories: $0,
+                        energyUnitPreference: selectedEnergyUnitPreference
+                    ).value
+                }
             )
         case .restingEnergy:
             return metricDetail(
                 kind: kind,
                 title: "Resting Energy",
                 summary: summary.restingEnergy,
-                unit: "kcal",
+                unit: selectedEnergyUnitPreference.unitLabel,
                 decimals: 0,
                 symbolName: "leaf.fill",
                 symbolColor: Color(red: 0.14, green: 0.72, blue: 0.42),
-                chartStyle: .bar
+                chartStyle: .bar,
+                valueTransform: {
+                    BodyValueFormat.energyValue(
+                        kilocalories: $0,
+                        energyUnitPreference: selectedEnergyUnitPreference
+                    ).value
+                }
             )
         }
     }
@@ -1118,18 +1295,21 @@ struct BodyHomeView: View {
         chartStyle: BodyHealthMetricChartStyle = .line,
         highlightedRange: BodyHealthMetricTrendHighlightedRange? = nil,
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
-        sleepHistory: SleepHistorySnapshot = .empty
+        sleepHistory: SleepHistorySnapshot = .empty,
+        valueTransform: @escaping (Double) -> Double = { $0 }
     ) -> BodyHealthMetricDetailModel {
         let suffix = unit.isEmpty ? "" : " " + unit
+        let transformedValue = summary.value.map(valueTransform)
         return BodyHealthMetricDetailModel(
             kind: kind,
             title: title,
-            value: summary.value.map { BodyValueFormat.numberText($0, decimals: decimals) } ?? "--",
+            value: transformedValue.map { BodyValueFormat.numberText($0, decimals: decimals) } ?? "--",
             unit: unit,
             symbolName: symbolName,
             symbolColor: symbolColor,
-            series: workoutStore.healthTrends.series(for: kind),
-            daySeries: workoutStore.healthTrends.daySeries(for: kind),
+            series: workoutStore.healthTrends.series(for: kind).mapValues(valueTransform),
+            daySeries: workoutStore.healthTrends.daySeries(for: kind).mapValues(valueTransform),
+            secondaryDaySeries: workoutStore.healthTrends.secondaryDaySeries(for: kind).mapValues(valueTransform),
             rangeSeries: workoutStore.healthTrends.rangeSeries(for: kind),
             basicsTrend: nil,
             sleepStageSnapshot: nil,
@@ -1142,6 +1322,15 @@ struct BodyHomeView: View {
             highlightedRangeResolver: highlightedRangeResolver,
             valueFormatter: { BodyValueFormat.numberText($0, decimals: decimals) + suffix },
             secondaryValueFormatter: nil,
+            sourceComparisonTrend: kind.usesSourceComparisonBarChart
+                ? workoutStore.sourceComparisonTrend(for: kind)?.mapValues(valueTransform)
+                : nil,
+            sourceRangeComparisonTrend: kind.usesSourceComparisonRangeChart
+                ? workoutStore.sourceRangeComparisonTrend(for: kind)
+                : nil,
+            sourceLineComparisonTrend: kind.usesSourceComparisonLineChart
+                ? workoutStore.sourceLineComparisonTrend(for: kind)?.mapValues(valueTransform)
+                : nil,
             helpText: kind.detailHelpText,
             dataSourceText: kind.detailDataSourceText
         )
@@ -1366,6 +1555,7 @@ struct BodyHomeTrendCardPresentation: Identifiable {
     static let minimumTrendSegmentDayCount = 3
     static let minimumRelativeChange = 0.01
     static let minimumAbsoluteChange = 0.01
+    static let averageLineStrokeWidth: CGFloat = 4
 
     let kind: HealthMetricKind
     let title: String
@@ -1433,14 +1623,16 @@ struct BodyHomeTrendCardPresentation: Identifiable {
         let baselineEndIndex = min(max(baselineDayCount - 1, 0), lastPointIndex)
         let recentStartIndex = min(max(baselineDayCount, 0), lastPointIndex)
         let denominator = max(CGFloat(lastPointIndex), 1)
+        let halfBucketWidth = width / denominator / 2
+        let segmentExtension = max(halfBucketWidth - Self.averageLineStrokeWidth / 2, 0)
 
         func xPosition(for index: Int) -> CGFloat {
             width * CGFloat(index) / denominator
         }
 
         return (
-            baseline: xPosition(for: 0)...xPosition(for: baselineEndIndex),
-            recent: xPosition(for: recentStartIndex)...xPosition(for: lastPointIndex)
+            baseline: xPosition(for: 0)...min(width, xPosition(for: baselineEndIndex) + segmentExtension),
+            recent: max(0, xPosition(for: recentStartIndex) - segmentExtension)...xPosition(for: lastPointIndex)
         )
     }
 
@@ -1615,6 +1807,7 @@ enum BodyHealthMetricChartStyle {
 
 private enum BodyHealthDetailChartLayout {
     static let standardHeight: CGFloat = 220
+    static let dayChartHeight: CGFloat = 252
     static let sleepVitalsHeight: CGFloat = 248
     static let sleepVitalsPlotHeight: CGFloat = 188
     static let sleepVitalsIconAxisHeight: CGFloat = 28
@@ -1887,6 +2080,7 @@ private struct BodyHealthMetricDetailModel {
     let symbolColor: Color
     let series: HealthTrendSeries
     let daySeries: HealthTrendSeries
+    let secondaryDaySeries: HealthTrendSeries
     let rangeSeries: HealthTrendRangeSeries?
     let basicsTrend: BasicsTrendSummary?
     let sleepStageSnapshot: SleepStageSnapshot?
@@ -1899,6 +2093,9 @@ private struct BodyHealthMetricDetailModel {
     let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?
     let valueFormatter: (Double) -> String
     let secondaryValueFormatter: ((Double) -> String)?
+    let sourceComparisonTrend: BodyHealthSourceComparisonTrend?
+    let sourceRangeComparisonTrend: BodyHealthSourceRangeComparisonTrend?
+    let sourceLineComparisonTrend: BodyHealthSourceComparisonTrend?
     let headerMetrics: [BodyMetricDisplayValue]
     let headerSecondaryText: String?
     let helpText: HealthMetricDetailHelpText?
@@ -1913,6 +2110,7 @@ private struct BodyHealthMetricDetailModel {
         symbolColor: Color,
         series: HealthTrendSeries,
         daySeries: HealthTrendSeries = .empty,
+        secondaryDaySeries: HealthTrendSeries = .empty,
         rangeSeries: HealthTrendRangeSeries? = nil,
         basicsTrend: BasicsTrendSummary?,
         sleepStageSnapshot: SleepStageSnapshot?,
@@ -1925,6 +2123,9 @@ private struct BodyHealthMetricDetailModel {
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
         valueFormatter: @escaping (Double) -> String,
         secondaryValueFormatter: ((Double) -> String)?,
+        sourceComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
+        sourceRangeComparisonTrend: BodyHealthSourceRangeComparisonTrend? = nil,
+        sourceLineComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
         headerMetrics: [BodyMetricDisplayValue] = [],
         headerSecondaryText: String? = nil,
         helpText: HealthMetricDetailHelpText? = nil,
@@ -1938,6 +2139,7 @@ private struct BodyHealthMetricDetailModel {
         self.symbolColor = symbolColor
         self.series = series
         self.daySeries = daySeries
+        self.secondaryDaySeries = secondaryDaySeries
         self.rangeSeries = rangeSeries
         self.basicsTrend = basicsTrend
         self.sleepStageSnapshot = sleepStageSnapshot
@@ -1950,6 +2152,9 @@ private struct BodyHealthMetricDetailModel {
         self.highlightedRangeResolver = highlightedRangeResolver
         self.valueFormatter = valueFormatter
         self.secondaryValueFormatter = secondaryValueFormatter
+        self.sourceComparisonTrend = sourceComparisonTrend
+        self.sourceRangeComparisonTrend = sourceRangeComparisonTrend
+        self.sourceLineComparisonTrend = sourceLineComparisonTrend
         self.headerMetrics = headerMetrics
         self.headerSecondaryText = headerSecondaryText
         self.helpText = helpText ?? kind.detailHelpText
@@ -1991,11 +2196,22 @@ private struct BodyHealthMetricDetailView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let model: BodyHealthMetricDetailModel
-    @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
-    @State private var selectedTrendRange = BodyHealthTrendRange.defaultValue
+    @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
+    @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
+    @State private var selectedTrendRange: BodyHealthTrendRange
     @State private var selectedSleepDate: Date?
     @State private var selectedMetricDate: Date?
     @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
+    @State private var showsDataSourcePicker = false
+    @State private var isPullRefreshing = false
+
+    init(
+        model: BodyHealthMetricDetailModel,
+        initialTrendRange: BodyHealthTrendRange = BodyHealthTrendRange.defaultValue
+    ) {
+        self.model = model
+        _selectedTrendRange = State(initialValue: initialTrendRange)
+    }
 
     private var dayChartTransition: AnyTransition {
         .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -2036,6 +2252,14 @@ private struct BodyHealthMetricDetailView: View {
             .padding(.top, 16)
             .padding(.bottom, 32)
         }
+        .refreshable {
+            let started = Date()
+            isPullRefreshing = true
+            await workoutStore.refreshHealthMetric(model.kind)
+            await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
+            isPullRefreshing = false
+        }
+        .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .navigationTitle(model.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -2045,10 +2269,21 @@ private struct BodyHealthMetricDetailView: View {
                 .presentationDragIndicator(.visible)
                 .presentationBackground(Color(.systemBackground))
         }
+        .sheet(isPresented: $showsDataSourcePicker) {
+            BodyHealthDataSourcePickerSheet(kind: model.kind, accentColor: model.symbolColor)
+                .environmentObject(workoutStore)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Color(.systemGroupedBackground))
+        }
     }
 
-    private var selectedUnitPreference: BodyValueFormat.UnitPreference {
-        BodyValueFormat.UnitPreference.storedValue(from: selectedUnitPreferenceRawValue)
+    private var selectedTemperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.TemperatureUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.TemperatureUnitPreference.storedValue(from: selectedTemperatureUnitRawValue)
     }
 
     private var isSleepDetail: Bool {
@@ -2103,6 +2338,14 @@ private struct BodyHealthMetricDetailView: View {
 
     private var selectedMetricDaySeries: HealthTrendSeries {
         model.daySeries.points(on: selectedMetricDay)
+    }
+
+    private var selectedMetricSecondaryDaySeries: HealthTrendSeries {
+        guard model.kind.usesSourceComparisonDayLineChart else {
+            return .empty
+        }
+
+        return model.secondaryDaySeries.points(on: selectedMetricDay)
     }
 
     private var selectedSleepSummary: SleepSummary? {
@@ -2172,21 +2415,53 @@ private struct BodyHealthMetricDetailView: View {
     @ViewBuilder
     private var dataSourceFooter: some View {
         if let dataSourceText = model.dataSourceText {
-            HStack(spacing: 7) {
-                Image(systemName: "heart.text.square.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(model.symbolColor)
+            Button {
+                if model.kind.supportsHealthDataSourceSelection {
+                    showsDataSourcePicker = true
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "heart.text.square.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(model.symbolColor)
 
-                Text(dataSourceText.sourceText)
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                    Text(dataSourceFooterText(defaultText: dataSourceText.sourceText))
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+
+                    if model.kind.supportsHealthDataSourceSelection {
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.secondary.opacity(0.7))
+                    }
+                }
             }
+            .buttonStyle(.plain)
+            .disabled(!model.kind.supportsHealthDataSourceSelection)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.top, 2)
             .padding(.bottom, 4)
         }
+    }
+
+    private func dataSourceFooterText(defaultText: String) -> String {
+        guard model.kind.supportsHealthDataSourceSelection else {
+            return defaultText
+        }
+
+        let primaryName = workoutStore.selectedHealthDataSourceOption(for: model.kind).name
+        guard model.kind.supportsSecondaryHealthDataSourceSelection else {
+            return primaryName
+        }
+
+        let secondaryOption = workoutStore.selectedSecondaryHealthDataSourceOption(for: model.kind)
+        guard !secondaryOption.isNoComparison else {
+            return primaryName
+        }
+
+        return "\(primaryName) vs \(secondaryOption.name)"
     }
 
     private var headerCard: some View {
@@ -2280,6 +2555,21 @@ private struct BodyHealthMetricDetailView: View {
                         weightAverageText: basicsWeightAverageText,
                         bodyFatAverageText: basicsBodyFatAverageText
                     )
+                } else if let sourceComparisonTrend = model.sourceComparisonTrend {
+                    BodyHealthSourceLegend(
+                        items: comparisonLegendItems(for: sourceComparisonTrend),
+                        valueFormatter: model.valueFormatter
+                    )
+                } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend {
+                    BodyHealthSourceLegend(
+                        items: rangeComparisonLegendItems(for: sourceRangeComparisonTrend),
+                        valueFormatter: model.valueFormatter
+                    )
+                } else if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
+                    BodyHealthSourceLegend(
+                        items: comparisonLegendItems(for: sourceLineComparisonTrend),
+                        valueFormatter: model.valueFormatter
+                    )
                 } else if usesRangeTrendChart, let metricRangeHeaderText {
                     averageHeaderText(metricRangeHeaderText, prefix: "Range")
                 } else if let averageTrendText {
@@ -2299,6 +2589,34 @@ private struct BodyHealthMetricDetailView: View {
                     }
                 )
                 .frame(height: BodyHealthDetailChartLayout.standardHeight)
+            } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend,
+                      model.kind.usesSourceComparisonRangeBandLineChart {
+                BodyHeartRateRangeTrendChart(
+                    title: model.title,
+                    selectedRange: selectedTrendRange,
+                    rangeSeries: sourceRangeComparisonTrend.primary.series,
+                    secondaryRangeSeries: sourceRangeComparisonTrend.secondary.series,
+                    primarySourceName: sourceRangeComparisonTrend.primary.sourceName,
+                    secondarySourceName: sourceRangeComparisonTrend.secondary.sourceName,
+                    symbolColor: model.symbolColor,
+                    secondaryColor: sourceComparisonSecondaryColor,
+                    valueFormatter: model.valueFormatter,
+                    showsAverageLineOverlay: true,
+                    yDomain: metricRangeYDomain
+                )
+                .frame(height: BodyHealthDetailChartLayout.standardHeight)
+            } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend {
+                BodyHealthSourceComparisonRangeChart(
+                    title: model.title,
+                    comparison: sourceRangeComparisonTrend,
+                    selectedRange: selectedTrendRange,
+                    primaryColor: model.symbolColor,
+                    secondaryColor: sourceComparisonSecondaryColor,
+                    valueFormatter: model.valueFormatter,
+                    yDomain: metricRangeYDomain,
+                    chartIdentity: "\(model.kind.rawValue)-source-range-comparison-\(selectedTrendRange.rawValue)"
+                )
+                .frame(height: BodyHealthDetailChartLayout.standardHeight)
             } else if usesRangeTrendChart, let visibleMetricRangeSeries {
                 BodyHeartRateRangeTrendChart(
                     title: model.title,
@@ -2308,6 +2626,29 @@ private struct BodyHealthMetricDetailView: View {
                     valueFormatter: model.valueFormatter,
                     showsAverageLineOverlay: model.kind == .heartRate || model.kind == .heartRateVariability,
                     yDomain: metricRangeYDomain
+                )
+                .frame(height: BodyHealthDetailChartLayout.standardHeight)
+            } else if let sourceComparisonTrend = model.sourceComparisonTrend {
+                BodyHealthSourceComparisonBarChart(
+                    title: model.title,
+                    comparison: sourceComparisonTrend,
+                    selectedRange: selectedTrendRange,
+                    primaryColor: model.symbolColor,
+                    secondaryColor: sourceComparisonSecondaryColor,
+                    valueFormatter: model.valueFormatter,
+                    chartIdentity: "\(model.kind.rawValue)-source-comparison-\(selectedTrendRange.rawValue)"
+                )
+                .frame(height: BodyHealthDetailChartLayout.standardHeight)
+            } else if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
+                BodyHealthSourceComparisonLineChart(
+                    title: model.title,
+                    comparison: sourceLineComparisonTrend,
+                    selectedRange: selectedTrendRange,
+                    primaryColor: model.symbolColor,
+                    secondaryColor: sourceComparisonSecondaryColor,
+                    valueFormatter: model.valueFormatter,
+                    isSleepDetail: isSleepDetail,
+                    chartIdentity: "\(model.kind.rawValue)-source-line-comparison-\(selectedTrendRange.rawValue)"
                 )
                 .frame(height: BodyHealthDetailChartLayout.standardHeight)
             } else {
@@ -2473,27 +2814,42 @@ private struct BodyHealthMetricDetailView: View {
     }
 
     private var metricDayChartCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Day View")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
+        VStack(alignment: .leading, spacing: 32) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Day View")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
 
-            if selectedMetricDaySeries.isEmpty {
+                Spacer(minLength: 12)
+
+                if !dayComparisonLegendItems.isEmpty {
+                    BodyHealthSourceLegend(
+                        items: dayComparisonLegendItems,
+                        valueFormatter: model.valueFormatter
+                    )
+                }
+            }
+
+            if selectedMetricDaySeries.isEmpty && selectedMetricSecondaryDaySeries.isEmpty {
                 Text("No data for this day")
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 220)
+                    .frame(maxWidth: .infinity, minHeight: BodyHealthDetailChartLayout.dayChartHeight)
             } else {
                 BodyHealthMetricDayChart(
                     series: selectedMetricDaySeries,
+                    secondarySeries: selectedMetricSecondaryDaySeries,
                     day: selectedMetricDay,
                     title: model.title,
                     color: model.symbolColor,
+                    secondaryColor: sourceComparisonSecondaryColor,
+                    primarySourceName: workoutStore.selectedHealthDataSourceOption(for: model.kind).name,
+                    secondarySourceName: workoutStore.selectedSecondaryHealthDataSourceOption(for: model.kind).name,
                     valueFormatter: model.valueFormatter,
                     contextIntervals: selectedMetricDayContextIntervals
                 )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
+                .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
                 .id(selectedMetricDay)
                 .transition(dayChartTransition)
                 .transaction { transaction in
@@ -2880,7 +3236,7 @@ private struct BodyHealthMetricDetailView: View {
         if let wristTemperatureCelsius = vitals.wristTemperatureCelsius {
             let display = BodyValueFormat.temperatureDisplay(
                 celsius: wristTemperatureCelsius,
-                unitPreference: selectedUnitPreference
+                temperatureUnitPreference: selectedTemperatureUnitPreference
             )
             rows.append(SleepVitalDisplayRow(
                 title: "Wrist Temperature",
@@ -2989,6 +3345,73 @@ private struct BodyHealthMetricDetailView: View {
 
     private var basicsBodyMassIndexColor: Color {
         Color(red: 0.00, green: 0.62, blue: 0.70)
+    }
+
+    private var sourceComparisonSecondaryColor: Color {
+        Color(red: 0.58, green: 0.36, blue: 0.98)
+    }
+
+    private func comparisonLegendItems(
+        for comparison: BodyHealthSourceComparisonTrend
+    ) -> [BodyHealthSourceLegendItem] {
+        [
+            BodyHealthSourceLegendItem(
+                role: .primary,
+                sourceName: comparison.primary.sourceName,
+                averageValue: comparison.primary.averageValue(in: selectedTrendRange),
+                color: model.symbolColor
+            ),
+            BodyHealthSourceLegendItem(
+                role: .secondary,
+                sourceName: comparison.secondary.sourceName,
+                averageValue: comparison.secondary.averageValue(in: selectedTrendRange),
+                color: sourceComparisonSecondaryColor
+            )
+        ]
+    }
+
+    private func rangeComparisonLegendItems(
+        for comparison: BodyHealthSourceRangeComparisonTrend
+    ) -> [BodyHealthSourceLegendItem] {
+        [
+            BodyHealthSourceLegendItem(
+                role: .primary,
+                sourceName: comparison.primary.sourceName,
+                averageValue: comparison.primary.averageValue(in: selectedTrendRange),
+                color: model.symbolColor
+            ),
+            BodyHealthSourceLegendItem(
+                role: .secondary,
+                sourceName: comparison.secondary.sourceName,
+                averageValue: comparison.secondary.averageValue(in: selectedTrendRange),
+                color: sourceComparisonSecondaryColor
+            )
+        ]
+    }
+
+    private var dayComparisonLegendItems: [BodyHealthSourceLegendItem] {
+        var items: [BodyHealthSourceLegendItem] = []
+        if !selectedMetricDaySeries.isEmpty {
+            items.append(
+                BodyHealthSourceLegendItem(
+                    role: .primary,
+                    sourceName: workoutStore.selectedHealthDataSourceOption(for: model.kind).name,
+                    averageValue: selectedMetricDaySeries.hourlyAverage(on: selectedMetricDay),
+                    color: model.symbolColor
+                )
+            )
+        }
+        if !selectedMetricSecondaryDaySeries.isEmpty {
+            items.append(
+                BodyHealthSourceLegendItem(
+                    role: .secondary,
+                    sourceName: workoutStore.selectedSecondaryHealthDataSourceOption(for: model.kind).name,
+                    averageValue: selectedMetricSecondaryDaySeries.hourlyAverage(on: selectedMetricDay),
+                    color: sourceComparisonSecondaryColor
+                )
+            )
+        }
+        return items
     }
 
     private var averageTrendText: String? {
@@ -3440,7 +3863,13 @@ private struct BodyHomeTrendComparisonChart: View {
             path.move(to: CGPoint(x: xRange.lowerBound, y: y))
             path.addLine(to: CGPoint(x: xRange.upperBound, y: y))
         }
-        .stroke(color, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+        .stroke(
+            color,
+            style: StrokeStyle(
+                lineWidth: BodyHomeTrendCardPresentation.averageLineStrokeWidth,
+                lineCap: .round
+            )
+        )
     }
 
     private func plotEntries(in size: CGSize) -> [PlotEntry] {
@@ -3500,6 +3929,934 @@ private struct BodyHomeTrendComparisonChart: View {
         let minimum = chartValues.min() ?? maximum
         let padding = max((maximum - minimum) * 0.16, 1)
         return maximum + padding
+    }
+}
+
+private struct BodyHealthDataSourcePickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+
+    let kind: HealthMetricKind
+    let accentColor: Color
+
+    @State private var updatingSelectionID: String?
+
+    private var selectedOption: BodyHealthDataSourceOption {
+        workoutStore.selectedHealthDataSourceOption(for: kind)
+    }
+
+    private var selectedSecondaryOption: BodyHealthDataSourceOption {
+        workoutStore.selectedSecondaryHealthDataSourceOption(for: kind)
+    }
+
+    private var options: [BodyHealthDataSourceOption] {
+        workoutStore.healthDataSourceOptions(for: kind)
+    }
+
+    private var secondaryOptions: [BodyHealthDataSourceOption] {
+        workoutStore.secondaryHealthDataSourceOptions(for: kind)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    sourceSection(
+                        title: "Primary Source",
+                        detail: "Used for the summary value and primary chart bars.",
+                        options: options,
+                        selectedOption: selectedOption,
+                        role: "primary"
+                    )
+
+                    if kind.supportsSecondaryHealthDataSourceSelection {
+                        sourceSection(
+                            title: "Secondary Source",
+                            detail: "Used for the comparison bars on this chart.",
+                            options: secondaryOptions,
+                            selectedOption: selectedSecondaryOption,
+                            role: "secondary"
+                        )
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 18)
+                .padding(.bottom, 30)
+            }
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .navigationTitle("\(kind.sourcePickerTitle) Source")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .font(.system(.body, design: .rounded))
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+
+    private func sourceSection(
+        title: String,
+        detail: String,
+        options: [BodyHealthDataSourceOption],
+        selectedOption: BodyHealthDataSourceOption,
+        role: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.bold)
+                    .foregroundColor(.primary)
+
+                Text(detail)
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 2)
+
+            VStack(spacing: 10) {
+                ForEach(options) { option in
+                    sourceOptionButton(option, selectedOption: selectedOption, role: role)
+                }
+            }
+        }
+    }
+
+    private func sourceOptionButton(
+        _ option: BodyHealthDataSourceOption,
+        selectedOption: BodyHealthDataSourceOption,
+        role: String
+    ) -> some View {
+        let isSelected = selectedOption.id == option.id
+        let updatingID = "\(role)-\(option.id)"
+        return Button {
+            updateSelection(option, role: role)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "heart.text.square.fill")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundColor(accentColor)
+                    .frame(width: 34, height: 34)
+                    .background(accentColor.opacity(0.13))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(option.name)
+                        .font(.system(.body, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                }
+
+                Spacer(minLength: 8)
+
+                if updatingSelectionID == updatingID {
+                    ProgressView()
+                        .controlSize(.small)
+                } else if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundColor(accentColor)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(updatingSelectionID != nil || isSelected)
+    }
+
+    private func updateSelection(_ option: BodyHealthDataSourceOption, role: String) {
+        updatingSelectionID = "\(role)-\(option.id)"
+        Task {
+            if role == "secondary" {
+                await workoutStore.updateSecondaryHealthDataSource(for: kind, option: option)
+            } else {
+                await workoutStore.updateHealthDataSource(for: kind, option: option)
+            }
+            updatingSelectionID = nil
+            dismiss()
+        }
+    }
+}
+
+private struct BodyHealthSourceLegendItem: Identifiable {
+    let role: BodyHealthSourceRole
+    let sourceName: String
+    let averageValue: Double?
+    let color: Color
+
+    var id: BodyHealthSourceRole { role }
+}
+
+private struct BodyHealthSourceLegend: View {
+    let items: [BodyHealthSourceLegendItem]
+    let valueFormatter: (Double) -> String
+
+    private var isMultiSource: Bool {
+        items.count > 1
+    }
+
+    var body: some View {
+        if isMultiSource {
+            VStack(alignment: .leading, spacing: 7) {
+                ForEach(items) { item in
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(item.color)
+                            .frame(width: 9, height: 9)
+
+                        Text("\(item.sourceName) Avg \(averageText(for: item.averageValue))")
+                            .font(.system(.subheadline, design: .rounded))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.68)
+                    }
+                }
+            }
+            .frame(maxWidth: 180, alignment: .leading)
+        } else if let item = items.first {
+            Text("Avg \(averageText(for: item.averageValue))")
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+    }
+
+    private func averageText(for value: Double?) -> String {
+        guard let value else {
+            return "--"
+        }
+
+        return valueFormatter(value)
+    }
+}
+
+private struct BodyHealthSourceComparisonLineChart: View {
+    let title: String
+    let comparison: BodyHealthSourceComparisonTrend
+    let selectedRange: BodyHealthTrendRange
+    let primaryColor: Color
+    let secondaryColor: Color
+    let valueFormatter: (Double) -> String
+    let isSleepDetail: Bool
+    let chartIdentity: String
+
+    private let entries: [BodyHealthSourceComparisonLineEntry]
+    private let finiteEntries: [BodyHealthSourceComparisonLineEntry]
+    private let primaryPointsByDate: [Date: BodyHealthSourceComparisonLineEntry]
+    private let secondaryPointsByDate: [Date: BodyHealthSourceComparisonLineEntry]
+    private let latestPrimaryDate: Date?
+    private let latestSecondaryDate: Date?
+    private let chartXDomain: ClosedRange<Date>
+    private let chartYDomain: ClosedRange<Double>
+
+    @State private var selectedDate: Date?
+    @GestureState private var isSelecting = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(
+        title: String,
+        comparison: BodyHealthSourceComparisonTrend,
+        selectedRange: BodyHealthTrendRange,
+        primaryColor: Color,
+        secondaryColor: Color,
+        valueFormatter: @escaping (Double) -> String,
+        isSleepDetail: Bool,
+        chartIdentity: String
+    ) {
+        self.title = title
+        self.comparison = comparison
+        self.selectedRange = selectedRange
+        self.primaryColor = primaryColor
+        self.secondaryColor = secondaryColor
+        self.valueFormatter = valueFormatter
+        self.isSleepDetail = isSleepDetail
+        self.chartIdentity = chartIdentity
+
+        let primaryPoints = comparison.primary.series.lineChartCalendarPoints(to: selectedRange)
+        let secondaryPoints = comparison.secondary.series.lineChartCalendarPoints(to: selectedRange)
+        let primaryEntries = primaryPoints.map {
+            BodyHealthSourceComparisonLineEntry(
+                sourceName: comparison.primary.sourceName,
+                sourceRole: .primary,
+                point: $0
+            )
+        }
+        let secondaryEntries = secondaryPoints.map {
+            BodyHealthSourceComparisonLineEntry(
+                sourceName: comparison.secondary.sourceName,
+                sourceRole: .secondary,
+                point: $0
+            )
+        }
+        let allEntries = primaryEntries + secondaryEntries
+        self.entries = allEntries
+        self.finiteEntries = allEntries.filter { $0.value?.isFinite == true }
+        self.primaryPointsByDate = Dictionary(uniqueKeysWithValues: primaryEntries.compactMap { entry in
+            entry.value?.isFinite == true ? (entry.date, entry) : nil
+        })
+        self.secondaryPointsByDate = Dictionary(uniqueKeysWithValues: secondaryEntries.compactMap { entry in
+            entry.value?.isFinite == true ? (entry.date, entry) : nil
+        })
+        self.latestPrimaryDate = primaryEntries.last { $0.value?.isFinite == true }?.date
+        self.latestSecondaryDate = secondaryEntries.last { $0.value?.isFinite == true }?.date
+        let domainDates = primaryEntries.map(\.date) + secondaryEntries.map(\.date)
+        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
+        self.chartYDomain = BodyHealthMetricTrendChart.computeYDomain(
+            from: allEntries.compactMap(\.value).filter(\.isFinite),
+            chartStyle: .line
+        )
+    }
+
+    var body: some View {
+        Chart {
+            ForEach(entries) { entry in
+                if let value = entry.value {
+                    LineMark(
+                        x: .value("Date", entry.date, unit: .day),
+                        y: .value(title, value),
+                        series: .value("Source", entry.sourceRole.rawValue)
+                    )
+                    .interpolationMethod(.linear)
+                    .foregroundStyle(lineStrokeColor(for: entry))
+                    .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
+
+                    if selectedRange.showsPointMarks {
+                        if selectedRange.usesPreviewLineChartStyle {
+                            PointMark(
+                                x: .value("Date", entry.date, unit: .day),
+                                y: .value(title, value)
+                            )
+                            .symbol {
+                                BodyLineChartPreviewPointSymbol(
+                                    tintColor: color(for: entry),
+                                    isCurrent: isLatestPoint(entry),
+                                    pointDiameter: selectedRange.linePointDiameter,
+                                    currentPointDiameter: selectedRange.lineCurrentPointDiameter
+                                )
+                            }
+                        } else {
+                            PointMark(
+                                x: .value("Date", entry.date, unit: .day),
+                                y: .value(title, value)
+                            )
+                            .foregroundStyle(color(for: entry))
+                            .symbolSize(28)
+                        }
+                    }
+                }
+            }
+
+            if let selectedPoint {
+                RuleMark(x: .value("Selected Date", selectedPoint.date, unit: .day))
+                    .foregroundStyle(Color.secondary.opacity(0.48))
+                    .lineStyle(StrokeStyle(lineWidth: 1.4))
+                    .annotation(
+                        position: .top,
+                        spacing: 8,
+                        overflowResolution: bodyChartSelectionOverflowResolution
+                    ) {
+                        BodyChartSelectionAnnotation(
+                            eyebrow: nil,
+                            values: selectedValues(for: selectedPoint.date),
+                            date: selectedPoint.date,
+                            dateText: bodyChartSelectionDateText(for: selectedPoint.point)
+                        )
+                    }
+
+                ForEach(selectedValuesEntries(for: selectedPoint.date)) { entry in
+                    if let value = entry.value {
+                        PointMark(
+                            x: .value("Selected Date", entry.date, unit: .day),
+                            y: .value(title, value)
+                        )
+                        .foregroundStyle(color(for: entry))
+                        .symbolSize(82)
+                    }
+                }
+            }
+        }
+        .chartXScale(domain: chartXDomain)
+        .chartYScale(domain: chartYDomain)
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .day, count: selectedRange.axisStrideDayCount)) { value in
+                AxisGridLine()
+                    .foregroundStyle(Color.secondary.opacity(0.18))
+                AxisTick()
+                    .foregroundStyle(Color.secondary.opacity(0.28))
+                AxisValueLabel {
+                    if let date = value.as(Date.self) {
+                        Text(selectedRange.axisLabel(for: date))
+                            .font(.system(.caption2, design: .rounded))
+                            .foregroundStyle(Color.secondary)
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
+                AxisGridLine()
+                    .foregroundStyle(Color.secondary.opacity(0.18))
+                AxisTick()
+                    .foregroundStyle(Color.secondary.opacity(0.28))
+                AxisValueLabel {
+                    if let yValue = value.as(Double.self) {
+                        Text(valueFormatter(yValue))
+                            .font(.system(.caption2, design: .rounded))
+                            .foregroundStyle(Color.secondary)
+                    }
+                }
+            }
+        }
+        .chartXSelection(value: $selectedDate)
+        .simultaneousGesture(chartPressGesture)
+        .id(chartIdentity)
+        .transition(
+            .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
+        )
+        .transaction { transaction in
+            transaction.animation = nil
+        }
+    }
+
+    private var selectedPoint: BodyHealthSourceComparisonLineEntry? {
+        guard isSelecting, let selectedDate else {
+            return nil
+        }
+
+        return finiteEntries.min { first, second in
+            abs(first.date.timeIntervalSince(selectedDate)) < abs(second.date.timeIntervalSince(selectedDate))
+        }
+    }
+
+    private func selectedValuesEntries(for date: Date) -> [BodyHealthSourceComparisonLineEntry] {
+        [primaryPointsByDate[date], secondaryPointsByDate[date]].compactMap { $0 }
+    }
+
+    private func selectedValues(for date: Date) -> [BodyChartSelectionValue] {
+        selectedValuesEntries(for: date).compactMap { entry in
+            guard let value = entry.value else {
+                return nil
+            }
+
+            return BodyChartSelectionValue(
+                title: entry.sourceName,
+                value: chartSelectionText(for: value),
+                color: color(for: entry)
+            )
+        }
+    }
+
+    private func chartSelectionText(for value: Double) -> String {
+        if isSleepDetail {
+            return BodyValueFormat.sleepDurationText(for: value * 60 * 60)
+        }
+
+        return valueFormatter(value)
+    }
+
+    private func isLatestPoint(_ entry: BodyHealthSourceComparisonLineEntry) -> Bool {
+        entry.sourceRole == .primary
+            ? entry.date == latestPrimaryDate
+            : entry.date == latestSecondaryDate
+    }
+
+    private func color(for entry: BodyHealthSourceComparisonLineEntry) -> Color {
+        entry.sourceRole == .primary ? primaryColor : secondaryColor
+    }
+
+    private func lineStrokeColor(for entry: BodyHealthSourceComparisonLineEntry) -> Color {
+        selectedRange.usesMetricColorLineStroke ? color(for: entry) : color(for: entry).opacity(0.72)
+    }
+
+    private var lineStrokeWidth: CGFloat {
+        selectedRange.usesPreviewLineChartStyle ? BodyLineChartPreviewStyle.lineWidth : selectedRange.trendLineWidth
+    }
+
+    private var chartPressGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .updating($isSelecting) { _, isSelecting, _ in
+                isSelecting = true
+            }
+            .onEnded { _ in
+                selectedDate = nil
+            }
+    }
+}
+
+private struct BodyHealthSourceComparisonLineEntry: Identifiable {
+    let sourceName: String
+    let sourceRole: BodyHealthSourceRole
+    let point: HealthTrendCalendarPoint
+
+    var id: String {
+        "\(sourceRole.rawValue)-\(point.date.timeIntervalSinceReferenceDate)"
+    }
+
+    var date: Date {
+        point.date
+    }
+
+    var value: Double? {
+        point.value
+    }
+}
+
+private struct BodyHealthSourceComparisonBarChart: View {
+    let title: String
+    let comparison: BodyHealthSourceComparisonTrend
+    let selectedRange: BodyHealthTrendRange
+    let primaryColor: Color
+    let secondaryColor: Color
+    let valueFormatter: (Double) -> String
+    let chartIdentity: String
+
+    private let entries: [BodyHealthSourceComparisonBarEntry]
+    private let finiteEntries: [BodyHealthSourceComparisonBarEntry]
+    private let chartXDomain: ClosedRange<Date>
+    private let chartYDomain: ClosedRange<Double>
+
+    @State private var selectedDate: Date?
+    @GestureState private var isSelecting = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(
+        title: String,
+        comparison: BodyHealthSourceComparisonTrend,
+        selectedRange: BodyHealthTrendRange,
+        primaryColor: Color,
+        secondaryColor: Color,
+        valueFormatter: @escaping (Double) -> String,
+        chartIdentity: String
+    ) {
+        self.title = title
+        self.comparison = comparison
+        self.selectedRange = selectedRange
+        self.primaryColor = primaryColor
+        self.secondaryColor = secondaryColor
+        self.valueFormatter = valueFormatter
+        self.chartIdentity = chartIdentity
+
+        let primaryPoints = comparison.primary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
+        let secondaryPoints = comparison.secondary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
+        let dateOffset = selectedRange.sourceComparisonChartDateOffset
+        let primaryEntries = primaryPoints.map { point in
+            BodyHealthSourceComparisonBarEntry(
+                sourceName: comparison.primary.sourceName,
+                sourceRole: .primary,
+                point: point,
+                chartDate: point.date.addingTimeInterval(-dateOffset)
+            )
+        }
+        let secondaryEntries = secondaryPoints.map { point in
+            BodyHealthSourceComparisonBarEntry(
+                sourceName: comparison.secondary.sourceName,
+                sourceRole: .secondary,
+                point: point,
+                chartDate: point.date.addingTimeInterval(dateOffset)
+            )
+        }
+        let allEntries = primaryEntries + secondaryEntries
+        self.entries = allEntries
+        self.finiteEntries = allEntries.filter { $0.value?.isFinite == true }
+
+        let domainDates = allEntries.map(\.chartDate)
+        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
+        self.chartYDomain = BodyHealthMetricTrendChart.computeYDomain(
+            from: finiteEntries.compactMap(\.value),
+            chartStyle: .bar
+        )
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let chartBarWidth = selectedRange.sourceComparisonChartBarWidth(forAvailableWidth: proxy.size.width)
+
+            Chart {
+                if let selectedPoint {
+                    RuleMark(x: .value("Selected Date", selectedPoint.chartDate))
+                        .foregroundStyle(Color.secondary.opacity(0.48))
+                        .lineStyle(StrokeStyle(lineWidth: 1.4))
+                }
+
+                ForEach(entries) { entry in
+                    if let value = entry.value {
+                        BarMark(
+                            x: .value("Date", entry.chartDate),
+                            y: .value(title, value),
+                            width: .fixed(chartBarWidth)
+                        )
+                        .foregroundStyle(color(for: entry).gradient)
+                        .cornerRadius(4)
+                    }
+                }
+
+                if let selectedPoint {
+                    RuleMark(x: .value("Selected Date", selectedPoint.chartDate))
+                        .foregroundStyle(Color.clear)
+                        .annotation(
+                            position: .top,
+                            spacing: 8,
+                            overflowResolution: bodyChartSelectionOverflowResolution
+                        ) {
+                            BodyChartSelectionAnnotation(
+                                eyebrow: selectedRange.sourceComparisonChartAggregationDayCount > 1 ? "AVG" : "TOTAL",
+                                values: selectedValues(for: selectedPoint),
+                                date: selectedPoint.date,
+                                dateText: bodyChartSelectionDateText(for: selectedPoint.point)
+                            )
+                        }
+                }
+            }
+            .chartXScale(domain: chartXDomain)
+            .chartYScale(domain: chartYDomain)
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .day, count: selectedRange.axisStrideDayCount)) { value in
+                    AxisGridLine()
+                        .foregroundStyle(Color.secondary.opacity(0.18))
+                    AxisTick()
+                        .foregroundStyle(Color.secondary.opacity(0.28))
+                    AxisValueLabel {
+                        if let date = value.as(Date.self) {
+                            Text(selectedRange.axisLabel(for: date))
+                                .font(.system(.caption2, design: .rounded))
+                                .foregroundStyle(Color.secondary)
+                        }
+                    }
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
+                    AxisGridLine()
+                        .foregroundStyle(Color.secondary.opacity(0.18))
+                    AxisTick()
+                        .foregroundStyle(Color.secondary.opacity(0.28))
+                    AxisValueLabel {
+                        if let yValue = value.as(Double.self) {
+                            Text(valueFormatter(yValue))
+                                .font(.system(.caption2, design: .rounded))
+                                .foregroundStyle(Color.secondary)
+                        }
+                    }
+                }
+            }
+            .chartXSelection(value: $selectedDate)
+            .simultaneousGesture(chartPressGesture)
+            .id(chartIdentity)
+            .transition(
+                .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
+            )
+            .transaction { transaction in
+                transaction.animation = nil
+            }
+        }
+    }
+
+    private var selectedPoint: BodyHealthSourceComparisonBarEntry? {
+        guard isSelecting, let selectedDate else {
+            return nil
+        }
+
+        return finiteEntries.min { first, second in
+            abs(first.chartDate.timeIntervalSince(selectedDate)) < abs(second.chartDate.timeIntervalSince(selectedDate))
+        }
+    }
+
+    private func selectedValues(for selectedPoint: BodyHealthSourceComparisonBarEntry) -> [BodyChartSelectionValue] {
+        entries
+            .filter { $0.date == selectedPoint.date && $0.value?.isFinite == true }
+            .sorted { $0.sourceRole.rawValue < $1.sourceRole.rawValue }
+            .compactMap { entry -> BodyChartSelectionValue? in
+                guard let value = entry.value else {
+                    return nil
+                }
+
+                return BodyChartSelectionValue(
+                    title: entry.sourceName,
+                    value: valueFormatter(value),
+                    color: color(for: entry)
+                )
+            }
+    }
+
+    private func color(for entry: BodyHealthSourceComparisonBarEntry) -> Color {
+        entry.sourceRole == .primary ? primaryColor : secondaryColor
+    }
+
+    private var chartPressGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .updating($isSelecting) { _, isSelecting, _ in
+                isSelecting = true
+            }
+            .onEnded { _ in
+                selectedDate = nil
+            }
+    }
+}
+
+private struct BodyHealthSourceComparisonBarEntry: Identifiable {
+    let sourceName: String
+    let sourceRole: BodyHealthSourceRole
+    let point: HealthTrendCalendarPoint
+    let chartDate: Date
+
+    var id: String {
+        "\(sourceRole.rawValue)-\(point.date.timeIntervalSinceReferenceDate)"
+    }
+
+    var date: Date {
+        point.date
+    }
+
+    var value: Double? {
+        point.value
+    }
+}
+
+private struct BodyHealthSourceComparisonRangeChart: View {
+    let title: String
+    let comparison: BodyHealthSourceRangeComparisonTrend
+    let selectedRange: BodyHealthTrendRange
+    let primaryColor: Color
+    let secondaryColor: Color
+    let valueFormatter: (Double) -> String
+    let chartIdentity: String
+
+    private let entries: [BodyHealthSourceComparisonRangeEntry]
+    private let finiteEntries: [BodyHealthSourceComparisonRangeEntry]
+    private let chartXDomain: ClosedRange<Date>
+    private let chartYDomain: ClosedRange<Double>
+
+    @State private var selectedDate: Date?
+    @GestureState private var isSelecting = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(
+        title: String,
+        comparison: BodyHealthSourceRangeComparisonTrend,
+        selectedRange: BodyHealthTrendRange,
+        primaryColor: Color,
+        secondaryColor: Color,
+        valueFormatter: @escaping (Double) -> String,
+        yDomain: (([Double]) -> ClosedRange<Double>)? = nil,
+        chartIdentity: String
+    ) {
+        self.title = title
+        self.comparison = comparison
+        self.selectedRange = selectedRange
+        self.primaryColor = primaryColor
+        self.secondaryColor = secondaryColor
+        self.valueFormatter = valueFormatter
+        self.chartIdentity = chartIdentity
+
+        let primaryPoints = comparison.primary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
+        let secondaryPoints = comparison.secondary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
+        let dateOffset = selectedRange.sourceComparisonChartDateOffset
+        let primaryEntries = primaryPoints.map { point in
+            BodyHealthSourceComparisonRangeEntry(
+                sourceName: comparison.primary.sourceName,
+                sourceRole: .primary,
+                point: point,
+                chartDate: point.date.addingTimeInterval(-dateOffset)
+            )
+        }
+        let secondaryEntries = secondaryPoints.map { point in
+            BodyHealthSourceComparisonRangeEntry(
+                sourceName: comparison.secondary.sourceName,
+                sourceRole: .secondary,
+                point: point,
+                chartDate: point.date.addingTimeInterval(dateOffset)
+            )
+        }
+        let allEntries = primaryEntries + secondaryEntries
+        self.entries = allEntries
+        self.finiteEntries = allEntries.filter(\.hasValue)
+
+        let domainDates = allEntries.map(\.chartDate)
+        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
+        let domainValues = allEntries.flatMap { entry -> [Double] in
+            guard let low = entry.lowValue, let high = entry.highValue else {
+                return []
+            }
+
+            return [low, high]
+        }
+        self.chartYDomain = yDomain?(domainValues) ?? Self.computeYDomain(from: domainValues)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let chartBarWidth = selectedRange.sourceComparisonRangeChartBarWidth(forAvailableWidth: proxy.size.width)
+
+            Chart {
+                if let selectedPoint {
+                    RuleMark(x: .value("Selected Date", selectedPoint.chartDate))
+                        .foregroundStyle(Color.secondary.opacity(0.48))
+                        .lineStyle(StrokeStyle(lineWidth: 1.4))
+                }
+
+                ForEach(entries) { entry in
+                    if let lowValue = entry.lowValue, let highValue = entry.highValue {
+                        BarMark(
+                            x: .value("Date", entry.chartDate),
+                            yStart: .value("Low \(title)", lowValue),
+                            yEnd: .value("High \(title)", highValue),
+                            width: .fixed(chartBarWidth)
+                        )
+                        .foregroundStyle(color(for: entry).gradient)
+                        .cornerRadius(chartBarWidth / 2)
+                    }
+                }
+
+                if let selectedPoint {
+                    RuleMark(x: .value("Selected Date", selectedPoint.chartDate))
+                        .foregroundStyle(Color.clear)
+                        .annotation(
+                            position: .top,
+                            spacing: 8,
+                            overflowResolution: bodyChartSelectionOverflowResolution
+                        ) {
+                            BodyChartSelectionAnnotation(
+                                eyebrow: "RANGE",
+                                values: selectedValues(for: selectedPoint),
+                                date: selectedPoint.date,
+                                dateText: bodyChartSelectionDateText(for: selectedPoint.point)
+                            )
+                        }
+                }
+            }
+            .chartXScale(domain: chartXDomain)
+            .chartYScale(domain: chartYDomain)
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .day, count: selectedRange.axisStrideDayCount)) { value in
+                    AxisGridLine()
+                        .foregroundStyle(Color.secondary.opacity(0.18))
+                    AxisTick()
+                        .foregroundStyle(Color.secondary.opacity(0.28))
+                    AxisValueLabel {
+                        if let date = value.as(Date.self) {
+                            Text(selectedRange.axisLabel(for: date))
+                                .font(.system(.caption2, design: .rounded))
+                                .foregroundStyle(Color.secondary)
+                        }
+                    }
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
+                    AxisGridLine()
+                        .foregroundStyle(Color.secondary.opacity(0.18))
+                    AxisTick()
+                        .foregroundStyle(Color.secondary.opacity(0.28))
+                    AxisValueLabel {
+                        if let yValue = value.as(Double.self) {
+                            Text(valueFormatter(yValue))
+                                .font(.system(.caption2, design: .rounded))
+                                .foregroundStyle(Color.secondary)
+                        }
+                    }
+                }
+            }
+            .chartXSelection(value: $selectedDate)
+            .simultaneousGesture(chartPressGesture)
+            .id(chartIdentity)
+            .transition(
+                .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
+            )
+            .transaction { transaction in
+                transaction.animation = nil
+            }
+        }
+    }
+
+    private var selectedPoint: BodyHealthSourceComparisonRangeEntry? {
+        guard isSelecting, let selectedDate else {
+            return nil
+        }
+
+        return finiteEntries.min { first, second in
+            abs(first.chartDate.timeIntervalSince(selectedDate)) < abs(second.chartDate.timeIntervalSince(selectedDate))
+        }
+    }
+
+    private func selectedValues(for selectedPoint: BodyHealthSourceComparisonRangeEntry) -> [BodyChartSelectionValue] {
+        entries
+            .filter { $0.date == selectedPoint.date && $0.hasValue }
+            .sorted { $0.sourceRole.rawValue < $1.sourceRole.rawValue }
+            .compactMap { entry -> BodyChartSelectionValue? in
+                guard let lowValue = entry.lowValue,
+                      let highValue = entry.highValue else {
+                    return nil
+                }
+
+                return BodyChartSelectionValue(
+                    title: entry.sourceName,
+                    value: "\(valueFormatter(lowValue))-\(valueFormatter(highValue))",
+                    color: color(for: entry)
+                )
+            }
+    }
+
+    private func color(for entry: BodyHealthSourceComparisonRangeEntry) -> Color {
+        entry.sourceRole == .primary ? primaryColor : secondaryColor
+    }
+
+    private var chartPressGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .updating($isSelecting) { _, isSelecting, _ in
+                isSelecting = true
+            }
+            .onEnded { _ in
+                selectedDate = nil
+            }
+    }
+
+    private static func computeYDomain(from values: [Double]) -> ClosedRange<Double> {
+        let finiteValues = values.filter(\.isFinite)
+        guard let maximum = finiteValues.max() else {
+            return 0...200
+        }
+
+        let upper = max(ceil((maximum + max(maximum * 0.12, 10)) / 10) * 10, 120)
+        return 0...upper
+    }
+}
+
+private struct BodyHealthSourceComparisonRangeEntry: Identifiable {
+    let sourceName: String
+    let sourceRole: BodyHealthSourceRole
+    let point: HealthTrendRangeCalendarPoint
+    let chartDate: Date
+
+    var id: String {
+        "\(sourceRole.rawValue)-\(point.date.timeIntervalSinceReferenceDate)"
+    }
+
+    var date: Date {
+        point.date
+    }
+
+    var lowValue: Double? {
+        point.lowValue
+    }
+
+    var highValue: Double? {
+        point.highValue
+    }
+
+    var hasValue: Bool {
+        point.hasValue
     }
 }
 
@@ -3664,17 +5021,36 @@ private struct BodyHealthMetricDayContextInterval: Identifiable {
     }
 }
 
+private extension HealthTrendSeries {
+    func hourlyAverage(on day: Date) -> Double? {
+        let values = hourlyAverageBuckets(on: day).map(\.averageValue).filter(\.isFinite)
+        guard !values.isEmpty else {
+            return nil
+        }
+        return values.reduce(0, +) / Double(values.count)
+    }
+}
+
 private struct BodyHealthMetricDayChart: View {
     let day: Date
     let title: String
     let color: Color
+    let secondaryColor: Color
+    let primarySourceName: String
+    let secondarySourceName: String
     let valueFormatter: (Double) -> String
     let contextIntervals: [BodyHealthMetricDayContextInterval]
 
     private let hourlyBuckets: [HealthTrendHourlyBucket]
+    private let secondaryHourlyBuckets: [HealthTrendHourlyBucket]
+    private let entries: [BodyHealthMetricDayChartEntry]
+    private let finiteEntries: [BodyHealthMetricDayChartEntry]
+    private let primaryEntriesByDate: [Date: BodyHealthMetricDayChartEntry]
+    private let secondaryEntriesByDate: [Date: BodyHealthMetricDayChartEntry]
     private let chartXDomain: ClosedRange<Date>
     private let chartYDomain: ClosedRange<Double>
     private let latestBucketDate: Date?
+    private let latestSecondaryBucketDate: Date?
 
     private static let pointDiameter: CGFloat = 8
     private static let currentPointDiameter: CGFloat = 10
@@ -3684,22 +5060,43 @@ private struct BodyHealthMetricDayChart: View {
 
     init(
         series: HealthTrendSeries,
+        secondarySeries: HealthTrendSeries = .empty,
         day: Date,
         title: String,
         color: Color,
+        secondaryColor: Color = Color(red: 0.58, green: 0.36, blue: 0.98),
+        primarySourceName: String = "Primary",
+        secondarySourceName: String = "Secondary",
         valueFormatter: @escaping (Double) -> String,
         contextIntervals: [BodyHealthMetricDayContextInterval] = []
     ) {
         self.day = day
         self.title = title
         self.color = color
+        self.secondaryColor = secondaryColor
+        self.primarySourceName = primarySourceName
+        self.secondarySourceName = secondarySourceName
         self.valueFormatter = valueFormatter
         self.contextIntervals = contextIntervals
 
         let buckets = series.hourlyAverageBuckets(on: day)
+        let secondaryBuckets = secondarySeries.hourlyAverageBuckets(on: day)
         self.hourlyBuckets = buckets
+        self.secondaryHourlyBuckets = secondaryBuckets
         self.latestBucketDate = buckets.last?.plotDate
-        self.chartYDomain = Self.computeYDomain(from: buckets)
+        self.latestSecondaryBucketDate = secondaryBuckets.last?.plotDate
+        let primaryEntries = buckets.map {
+            BodyHealthMetricDayChartEntry(sourceName: primarySourceName, sourceRole: .primary, bucket: $0)
+        }
+        let secondaryEntries = secondaryBuckets.map {
+            BodyHealthMetricDayChartEntry(sourceName: secondarySourceName, sourceRole: .secondary, bucket: $0)
+        }
+        let allEntries = primaryEntries + secondaryEntries
+        self.entries = allEntries
+        self.finiteEntries = allEntries.filter { $0.averageValue.isFinite }
+        self.primaryEntriesByDate = Dictionary(uniqueKeysWithValues: primaryEntries.map { ($0.plotDate, $0) })
+        self.secondaryEntriesByDate = Dictionary(uniqueKeysWithValues: secondaryEntries.map { ($0.plotDate, $0) })
+        self.chartYDomain = Self.computeYDomain(from: buckets + secondaryBuckets)
 
         let calendar = Calendar.bodyGregorian
         let dayStart = calendar.startOfDay(for: day)
@@ -3740,23 +5137,24 @@ private struct BodyHealthMetricDayChart: View {
                 }
             }
 
-            ForEach(hourlyBuckets) { bucket in
+            ForEach(entries) { entry in
                 LineMark(
-                    x: .value("Time", bucket.plotDate),
-                    y: .value(title, bucket.averageValue)
+                    x: .value("Time", entry.plotDate),
+                    y: .value(title, entry.averageValue),
+                    series: .value("Source", entry.sourceRole.rawValue)
                 )
                 .interpolationMethod(.linear)
-                .foregroundStyle(color)
+                .foregroundStyle(color(for: entry))
                 .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
 
                 PointMark(
-                    x: .value("Time", bucket.plotDate),
-                    y: .value(title, bucket.averageValue)
+                    x: .value("Time", entry.plotDate),
+                    y: .value(title, entry.averageValue)
                 )
                 .symbol {
                     BodyLineChartPreviewPointSymbol(
-                        tintColor: color,
-                        isCurrent: isLatestBucket(bucket),
+                        tintColor: color(for: entry),
+                        isCurrent: isLatestEntry(entry),
                         pointDiameter: Self.pointDiameter,
                         currentPointDiameter: Self.currentPointDiameter
                     )
@@ -3773,18 +5171,20 @@ private struct BodyHealthMetricDayChart: View {
                         overflowResolution: bodyChartSelectionOverflowResolution
                     ) {
                         BodyHealthMetricDayAnnotation(
-                            bucket: selectedBucket,
-                            color: color,
+                            bucket: selectedBucket.bucket,
+                            values: selectedValues(for: selectedBucket.plotDate),
                             valueFormatter: valueFormatter
                         )
                     }
 
-                PointMark(
-                    x: .value("Selected Time", selectedBucket.plotDate),
-                    y: .value(title, selectedBucket.averageValue)
-                )
-                .foregroundStyle(color)
-                .symbolSize(82)
+                ForEach(selectedEntries(for: selectedBucket.plotDate)) { entry in
+                    PointMark(
+                        x: .value("Selected Time", entry.plotDate),
+                        y: .value(title, entry.averageValue)
+                    )
+                    .foregroundStyle(color(for: entry))
+                    .symbolSize(82)
+                }
             }
         }
         .chartXScale(domain: chartXDomain)
@@ -3823,18 +5223,38 @@ private struct BodyHealthMetricDayChart: View {
         .simultaneousGesture(chartPressGesture)
     }
 
-    private var selectedBucket: HealthTrendHourlyBucket? {
+    private var selectedBucket: BodyHealthMetricDayChartEntry? {
         guard isSelecting, let selectedDate else {
             return nil
         }
 
-        return hourlyBuckets.min { first, second in
+        return finiteEntries.min { first, second in
             abs(first.plotDate.timeIntervalSince(selectedDate)) < abs(second.plotDate.timeIntervalSince(selectedDate))
         }
     }
 
-    private func isLatestBucket(_ bucket: HealthTrendHourlyBucket) -> Bool {
-        bucket.plotDate == latestBucketDate
+    private func selectedEntries(for date: Date) -> [BodyHealthMetricDayChartEntry] {
+        [primaryEntriesByDate[date], secondaryEntriesByDate[date]].compactMap { $0 }
+    }
+
+    private func selectedValues(for date: Date) -> [BodyChartSelectionValue] {
+        selectedEntries(for: date).map { entry in
+            BodyChartSelectionValue(
+                title: entry.sourceName,
+                value: valueFormatter(entry.averageValue),
+                color: color(for: entry)
+            )
+        }
+    }
+
+    private func isLatestEntry(_ entry: BodyHealthMetricDayChartEntry) -> Bool {
+        entry.sourceRole == .primary
+            ? entry.plotDate == latestBucketDate
+            : entry.plotDate == latestSecondaryBucketDate
+    }
+
+    private func color(for entry: BodyHealthMetricDayChartEntry) -> Color {
+        entry.sourceRole == .primary ? color : secondaryColor
     }
 
     private var contextTopLineLowerBound: Double {
@@ -3868,26 +5288,51 @@ private struct BodyHealthMetricDayChart: View {
     }
 }
 
+private struct BodyHealthMetricDayChartEntry: Identifiable {
+    let sourceName: String
+    let sourceRole: BodyHealthSourceRole
+    let bucket: HealthTrendHourlyBucket
+
+    var id: String {
+        "\(sourceRole.rawValue)-\(bucket.id)"
+    }
+
+    var plotDate: Date {
+        bucket.plotDate
+    }
+
+    var averageValue: Double {
+        bucket.averageValue
+    }
+}
+
 private struct BodyHealthMetricDayAnnotation: View {
     let bucket: HealthTrendHourlyBucket
-    let color: Color
+    let values: [BodyChartSelectionValue]
     let valueFormatter: (Double) -> String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(color)
-                    .frame(width: 7, height: 7)
+            Text("HOURLY AVG")
+                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                .foregroundColor(.secondary)
 
-                Text("HOURLY AVG")
-                    .font(.system(size: 10, weight: .heavy, design: .rounded))
-                    .foregroundColor(.secondary)
+            ForEach(values) { value in
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(value.color)
+                        .frame(width: 8, height: 8)
+
+                    if let title = value.title {
+                        Text(title)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Text(value.value)
+                        .foregroundColor(.primary)
+                }
+                .font(.system(size: values.count == 1 ? 20 : 16, weight: .bold, design: .rounded))
             }
-
-            Text(valueFormatter(bucket.averageValue))
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
 
             Text(hourRangeText)
                 .font(.system(.caption2, design: .rounded))
@@ -4137,14 +5582,20 @@ private struct BodyHeartRateRangeTrendChart: View {
     let title: String
     let selectedRange: BodyHealthTrendRange
     let symbolColor: Color
+    let secondaryColor: Color
     let valueFormatter: (Double) -> String
     let showsAverageLineOverlay: Bool
 
     private let rangePoints: [HealthTrendRangeCalendarPoint]
+    private let secondaryRangePoints: [HealthTrendRangeCalendarPoint]
+    private let averageEntries: [BodyHeartRateRangeAverageEntry]
     private let finiteRangePoints: [HealthTrendRangeCalendarPoint]
-    private let latestAveragePointDate: Date?
+    private let latestPrimaryAveragePointDate: Date?
+    private let latestSecondaryAveragePointDate: Date?
     private let chartXDomain: ClosedRange<Date>
     private let chartYDomain: ClosedRange<Double>
+    private let primarySourceName: String
+    private let secondarySourceName: String?
 
     @State private var selectedDate: Date?
     @GestureState private var isSelecting = false
@@ -4154,7 +5605,11 @@ private struct BodyHeartRateRangeTrendChart: View {
         title: String,
         selectedRange: BodyHealthTrendRange,
         rangeSeries: HealthTrendRangeSeries,
+        secondaryRangeSeries: HealthTrendRangeSeries? = nil,
+        primarySourceName: String = "Primary",
+        secondarySourceName: String? = nil,
         symbolColor: Color,
+        secondaryColor: Color = Color(red: 0.58, green: 0.36, blue: 0.98),
         valueFormatter: @escaping (Double) -> String,
         showsAverageLineOverlay: Bool = false,
         yDomain: (([Double]) -> ClosedRange<Double>)? = nil
@@ -4162,16 +5617,30 @@ private struct BodyHeartRateRangeTrendChart: View {
         self.title = title
         self.selectedRange = selectedRange
         self.symbolColor = symbolColor
+        self.secondaryColor = secondaryColor
         self.valueFormatter = valueFormatter
         self.showsAverageLineOverlay = showsAverageLineOverlay
+        self.primarySourceName = primarySourceName
+        self.secondarySourceName = secondarySourceName
 
         let points = rangeSeries.chartCalendarPoints(to: selectedRange)
+        let secondaryPoints = secondaryRangeSeries?.chartCalendarPoints(to: selectedRange) ?? []
         self.rangePoints = points
+        self.secondaryRangePoints = secondaryPoints
         self.finiteRangePoints = points.filter(\.hasValue)
-        self.latestAveragePointDate = points.last { point in
+        self.latestPrimaryAveragePointDate = points.last { point in
             point.averageValue?.isFinite == true
         }?.date
-        let domainValues = points.flatMap { point -> [Double] in
+        self.latestSecondaryAveragePointDate = secondaryPoints.last { point in
+            point.averageValue?.isFinite == true
+        }?.date
+        self.averageEntries = Self.averageEntries(
+            primaryPoints: points,
+            secondaryPoints: secondaryPoints,
+            primarySourceName: primarySourceName,
+            secondarySourceName: secondarySourceName
+        )
+        let domainValues = (points + secondaryPoints).flatMap { point -> [Double] in
             guard let low = point.lowValue, let high = point.highValue else {
                 return []
             }
@@ -4180,6 +5649,7 @@ private struct BodyHeartRateRangeTrendChart: View {
         }
         self.chartYDomain = yDomain?(domainValues) ?? Self.computeYDomain(from: domainValues)
         let domainDates = rangeSeries.calendarPoints(to: selectedRange).map(\.date)
+            + (secondaryRangeSeries?.calendarPoints(to: selectedRange).map(\.date) ?? [])
         self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
     }
 
@@ -4221,13 +5691,7 @@ private struct BodyHeartRateRangeTrendChart: View {
                         ) {
                             BodyChartSelectionAnnotation(
                                 eyebrow: "RANGE",
-                                values: [
-                                    BodyChartSelectionValue(
-                                        title: nil,
-                                        value: "\(valueFormatter(lowValue))-\(valueFormatter(highValue))",
-                                        color: symbolColor
-                                    )
-                                ],
+                                values: selectedValues(for: selectedRangePoint, lowValue: lowValue, highValue: highValue),
                                 date: selectedRangePoint.date,
                                 dateText: bodyChartSelectionDateText(for: selectedRangePoint)
                             )
@@ -4282,38 +5746,37 @@ private struct BodyHeartRateRangeTrendChart: View {
     @ChartContentBuilder
     private var averageLineOverlay: some ChartContent {
         if showsAverageLineOverlay {
-            ForEach(rangePoints) { point in
-                if let averageValue = point.averageValue, averageValue.isFinite {
-                    LineMark(
-                        x: .value("Date", point.date, unit: .day),
-                        y: .value("Average \(title)", averageValue)
-                    )
-                    .interpolationMethod(.linear)
-                    .foregroundStyle(symbolColor)
-                    .lineStyle(StrokeStyle(lineWidth: BodyLineChartPreviewStyle.lineWidth, lineCap: .round, lineJoin: .round))
+            ForEach(averageEntries) { entry in
+                LineMark(
+                    x: .value("Date", entry.date, unit: .day),
+                    y: .value("Average \(title)", entry.value),
+                    series: .value("Source", entry.sourceRole.rawValue)
+                )
+                .interpolationMethod(.linear)
+                .foregroundStyle(color(for: entry))
+                .lineStyle(StrokeStyle(lineWidth: BodyLineChartPreviewStyle.lineWidth, lineCap: .round, lineJoin: .round))
 
-                    if selectedRange.showsPointMarks {
-                        if selectedRange.usesPreviewLineChartStyle {
-                            PointMark(
-                                x: .value("Date", point.date, unit: .day),
-                                y: .value("Average \(title)", averageValue)
+                if selectedRange.showsPointMarks {
+                    if selectedRange.usesPreviewLineChartStyle {
+                        PointMark(
+                            x: .value("Date", entry.date, unit: .day),
+                            y: .value("Average \(title)", entry.value)
+                        )
+                        .symbol {
+                            BodyLineChartPreviewPointSymbol(
+                                tintColor: color(for: entry),
+                                isCurrent: isLatestAverageEntry(entry),
+                                pointDiameter: selectedRange.linePointDiameter,
+                                currentPointDiameter: selectedRange.lineCurrentPointDiameter
                             )
-                            .symbol {
-                                BodyLineChartPreviewPointSymbol(
-                                    tintColor: symbolColor,
-                                    isCurrent: isLatestAveragePoint(point),
-                                    pointDiameter: selectedRange.linePointDiameter,
-                                    currentPointDiameter: selectedRange.lineCurrentPointDiameter
-                                )
-                            }
-                        } else {
-                            PointMark(
-                                x: .value("Date", point.date, unit: .day),
-                                y: .value("Average \(title)", averageValue)
-                            )
-                            .foregroundStyle(symbolColor)
-                            .symbolSize(28)
                         }
+                    } else {
+                        PointMark(
+                            x: .value("Date", entry.date, unit: .day),
+                            y: .value("Average \(title)", entry.value)
+                        )
+                        .foregroundStyle(color(for: entry))
+                        .symbolSize(28)
                     }
                 }
             }
@@ -4334,8 +5797,51 @@ private struct BodyHeartRateRangeTrendChart: View {
         showsAverageLineOverlay ? Color.secondary.opacity(0.24) : symbolColor
     }
 
-    private func isLatestAveragePoint(_ point: HealthTrendRangeCalendarPoint) -> Bool {
-        point.date == latestAveragePointDate
+    private func selectedValues(
+        for point: HealthTrendRangeCalendarPoint,
+        lowValue: Double,
+        highValue: Double
+    ) -> [BodyChartSelectionValue] {
+        guard !secondaryRangePoints.isEmpty else {
+            return [
+                BodyChartSelectionValue(
+                    title: nil,
+                    value: "\(valueFormatter(lowValue))-\(valueFormatter(highValue))",
+                    color: symbolColor
+                )
+            ]
+        }
+
+        var values = [
+            BodyChartSelectionValue(
+                title: "Range",
+                value: "\(valueFormatter(lowValue))-\(valueFormatter(highValue))",
+                color: Color.secondary
+            )
+        ]
+
+        values.append(contentsOf: averageEntries
+            .filter { $0.date == point.date }
+            .sorted { $0.sourceRole.rawValue < $1.sourceRole.rawValue }
+            .map { entry in
+                BodyChartSelectionValue(
+                    title: entry.sourceName,
+                    value: valueFormatter(entry.value),
+                    color: color(for: entry)
+                )
+            })
+
+        return values
+    }
+
+    private func isLatestAverageEntry(_ entry: BodyHeartRateRangeAverageEntry) -> Bool {
+        entry.sourceRole == .primary
+            ? entry.date == latestPrimaryAveragePointDate
+            : entry.date == latestSecondaryAveragePointDate
+    }
+
+    private func color(for entry: BodyHeartRateRangeAverageEntry) -> Color {
+        entry.sourceRole == .primary ? symbolColor : secondaryColor
     }
 
     private var chartPressGesture: some Gesture {
@@ -4356,6 +5862,51 @@ private struct BodyHeartRateRangeTrendChart: View {
 
         let upper = max(ceil((maximum + max(maximum * 0.12, 10)) / 10) * 10, 120)
         return 0...upper
+    }
+
+    private static func averageEntries(
+        primaryPoints: [HealthTrendRangeCalendarPoint],
+        secondaryPoints: [HealthTrendRangeCalendarPoint],
+        primarySourceName: String,
+        secondarySourceName: String?
+    ) -> [BodyHeartRateRangeAverageEntry] {
+        let primaryEntries = primaryPoints.compactMap { point -> BodyHeartRateRangeAverageEntry? in
+            guard let value = point.averageValue, value.isFinite else {
+                return nil
+            }
+
+            return BodyHeartRateRangeAverageEntry(
+                sourceName: primarySourceName,
+                sourceRole: .primary,
+                date: point.date,
+                value: value
+            )
+        }
+        let secondaryEntries = secondaryPoints.compactMap { point -> BodyHeartRateRangeAverageEntry? in
+            guard let value = point.averageValue, value.isFinite else {
+                return nil
+            }
+
+            return BodyHeartRateRangeAverageEntry(
+                sourceName: secondarySourceName ?? "Secondary",
+                sourceRole: .secondary,
+                date: point.date,
+                value: value
+            )
+        }
+
+        return primaryEntries + secondaryEntries
+    }
+}
+
+private struct BodyHeartRateRangeAverageEntry: Identifiable {
+    let sourceName: String
+    let sourceRole: BodyHealthSourceRole
+    let date: Date
+    let value: Double
+
+    var id: String {
+        "\(sourceRole.rawValue)-\(date.timeIntervalSinceReferenceDate)"
     }
 }
 
@@ -4662,7 +6213,7 @@ private struct BodyHealthMetricTrendChart: View {
             }
     }
 
-    private static func computeYDomain(
+    static func computeYDomain(
         from values: [Double],
         chartStyle: BodyHealthMetricChartStyle
     ) -> ClosedRange<Double> {

@@ -9,13 +9,110 @@ enum BodyAppearancePreference {
     static let selectedThemeKey = "selectedTheme"
     static let selectedAccentKey = "selectedAppAccent"
     static let selectedUnitPreferenceKey = "selectedUnitPreference"
+    static let followsSystemUnitsKey = "followsSystemUnits"
+    static let selectedWeightUnitKey = "selectedWeightUnit"
+    static let selectedDistanceUnitKey = "selectedDistanceUnit"
+    static let selectedEnergyUnitKey = "selectedEnergyUnit"
+    static let selectedTemperatureUnitKey = "selectedTemperatureUnit"
     static let homeCardOrderKey = "homeCardOrder"
+    static let summaryCardSelectionKey = "summaryCardSelection"
+    static let defaultTrendRangeKey = "defaultTrendRange"
+    static let homeTrendCardSelectionKey = "homeTrendCardSelection"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
+    static let healthDataSourceSelectionKey = "healthDataSourceSelection"
+    static let secondaryHealthDataSourceSelectionKey = "secondaryHealthDataSourceSelection"
     static let bodyProIconShowsBackKey = "bodyProIconShowsBack"
     static let creatorSurpriseIconsUnlockedKey = "creatorSurpriseIconsUnlocked"
 
     static func bodyProIconAssetName(showsBack: Bool) -> String {
         showsBack ? "BodyProIconBack" : "BodyProIcon"
+    }
+}
+
+enum SourceComparisonChartKind: Hashable, CaseIterable {
+    case bar
+    case range
+    case rangeBandLine
+    case line
+    case dayLine
+}
+
+extension HealthMetricKind {
+    static let sourceSelectableKinds: [HealthMetricKind] = [
+        .heartRate,
+        .sleep,
+        .heartRateVariability,
+        .restingHeartRate,
+        .steps,
+        .oxygenSaturation,
+        .activeEnergy,
+        .restingEnergy,
+        .exerciseMinutes
+    ]
+
+    var supportsHealthDataSourceSelection: Bool {
+        Self.sourceSelectableKinds.contains(self)
+    }
+
+    var supportedComparisonCharts: Set<SourceComparisonChartKind> {
+        switch self {
+        case .sleep:
+            return [.line]
+        case .heartRate:
+            return [.range, .rangeBandLine, .dayLine]
+        case .restingHeartRate:
+            return [.line, .dayLine]
+        case .heartRateVariability:
+            return [.range, .rangeBandLine, .dayLine]
+        case .oxygenSaturation:
+            return [.range, .dayLine]
+        case .activeEnergy, .restingEnergy, .exerciseMinutes, .steps:
+            return [.bar]
+        case .basics,
+             .bodyMass,
+             .bodyFatPercentage,
+             .respiratoryRate,
+             .bodyMassIndex,
+             .trainingLoad,
+             .wristTemperature,
+             .timeInDaylight:
+            return []
+        }
+    }
+
+    var usesSourceComparisonBarChart: Bool { supportedComparisonCharts.contains(.bar) }
+    var usesSourceComparisonRangeChart: Bool { supportedComparisonCharts.contains(.range) }
+    var usesSourceComparisonRangeBandLineChart: Bool { supportedComparisonCharts.contains(.rangeBandLine) }
+    var usesSourceComparisonLineChart: Bool { supportedComparisonCharts.contains(.line) }
+    var usesSourceComparisonDayLineChart: Bool { supportedComparisonCharts.contains(.dayLine) }
+
+    var supportsSecondaryHealthDataSourceSelection: Bool {
+        !supportedComparisonCharts.isDisjoint(with: [.bar, .range, .line, .dayLine])
+    }
+
+    var sourcePickerTitle: String {
+        switch self {
+        case .heartRate:
+            return "Heart Rate"
+        case .sleep:
+            return "Sleep"
+        case .heartRateVariability:
+            return "HRV"
+        case .restingHeartRate:
+            return "Resting Heart Rate"
+        case .steps:
+            return "Steps"
+        case .oxygenSaturation:
+            return "Blood Oxygen"
+        case .activeEnergy:
+            return "Active Energy"
+        case .restingEnergy:
+            return "Resting Energy"
+        case .exerciseMinutes:
+            return "Exercise Minutes"
+        default:
+            return "Data"
+        }
     }
 }
 
@@ -224,6 +321,479 @@ struct BodyHealthPermissionSelection: Equatable {
     }
 }
 
+struct BodyHealthDataSourceOption: Codable, Equatable, Identifiable {
+    static let allSources = BodyHealthDataSourceOption(id: "all", name: "Apple Health")
+    static let noComparison = BodyHealthDataSourceOption(id: "none", name: "No Comparison")
+
+    let id: String
+    let name: String
+
+    var isAllSources: Bool {
+        id == Self.allSources.id
+    }
+
+    var isNoComparison: Bool {
+        id == Self.noComparison.id
+    }
+}
+
+struct BodyHealthDataSourceSelection: Equatable {
+    static let defaultValue = BodyHealthDataSourceSelection(selectedOptions: [:])
+    static var defaultRawValue: String {
+        defaultValue.rawValue
+    }
+
+    var selectedOptions: [HealthMetricKind: BodyHealthDataSourceOption]
+
+    var rawValue: String {
+        let storage = Dictionary(uniqueKeysWithValues: selectedOptions.map { kind, option in
+            (kind.rawValue, option)
+        })
+
+        guard let data = try? JSONEncoder().encode(storage),
+              let value = String(data: data, encoding: .utf8)
+        else {
+            return "{}"
+        }
+
+        return value
+    }
+
+    func option(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
+        guard kind.supportsHealthDataSourceSelection else {
+            return .allSources
+        }
+
+        return selectedOptions[kind] ?? .allSources
+    }
+
+    func setting(_ kind: HealthMetricKind, option: BodyHealthDataSourceOption) -> BodyHealthDataSourceSelection {
+        guard kind.supportsHealthDataSourceSelection else {
+            return self
+        }
+
+        var nextOptions = selectedOptions
+        if option.isAllSources {
+            nextOptions.removeValue(forKey: kind)
+        } else {
+            nextOptions[kind] = option
+        }
+
+        return BodyHealthDataSourceSelection(selectedOptions: nextOptions)
+    }
+
+    static func storedValue(from rawValue: String) -> BodyHealthDataSourceSelection {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty, let data = trimmedValue.data(using: .utf8) else {
+            return defaultValue
+        }
+
+        guard let storage = try? JSONDecoder().decode([String: BodyHealthDataSourceOption].self, from: data) else {
+            return defaultValue
+        }
+
+        let selectedOptionPairs: [(HealthMetricKind, BodyHealthDataSourceOption)] = storage.compactMap { rawKind, option in
+            guard let kind = HealthMetricKind(rawValue: rawKind),
+                  kind.supportsHealthDataSourceSelection,
+                  !option.isAllSources else {
+                return nil
+            }
+
+            return (kind, option)
+        }
+        let selectedOptions = Dictionary(uniqueKeysWithValues: selectedOptionPairs)
+
+        return BodyHealthDataSourceSelection(selectedOptions: selectedOptions)
+    }
+
+    static func load(defaults: UserDefaults = .standard) -> BodyHealthDataSourceSelection {
+        storedValue(
+            from: defaults.string(forKey: BodyAppearancePreference.healthDataSourceSelectionKey)
+                ?? defaultRawValue
+        )
+    }
+
+    func save(defaults: UserDefaults = .standard) {
+        defaults.set(rawValue, forKey: BodyAppearancePreference.healthDataSourceSelectionKey)
+    }
+}
+
+struct BodyHealthSecondaryDataSourceSelection: Equatable {
+    static let defaultValue = BodyHealthSecondaryDataSourceSelection(selectedOptions: [:])
+    static var defaultRawValue: String {
+        defaultValue.rawValue
+    }
+
+    var selectedOptions: [HealthMetricKind: BodyHealthDataSourceOption]
+
+    var rawValue: String {
+        let storage = Dictionary(uniqueKeysWithValues: selectedOptions.map { kind, option in
+            (kind.rawValue, option)
+        })
+
+        guard let data = try? JSONEncoder().encode(storage),
+              let value = String(data: data, encoding: .utf8)
+        else {
+            return "{}"
+        }
+
+        return value
+    }
+
+    func option(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
+        guard kind.supportsSecondaryHealthDataSourceSelection else {
+            return .noComparison
+        }
+
+        return selectedOptions[kind] ?? .noComparison
+    }
+
+    func setting(_ kind: HealthMetricKind, option: BodyHealthDataSourceOption) -> BodyHealthSecondaryDataSourceSelection {
+        guard kind.supportsSecondaryHealthDataSourceSelection else {
+            return self
+        }
+
+        var nextOptions = selectedOptions
+        if option.isNoComparison {
+            nextOptions.removeValue(forKey: kind)
+        } else {
+            nextOptions[kind] = option
+        }
+
+        return BodyHealthSecondaryDataSourceSelection(selectedOptions: nextOptions)
+    }
+
+    var signature: String {
+        selectedOptions
+            .sorted { $0.key.rawValue < $1.key.rawValue }
+            .map { "\($0.key.rawValue)=\($0.value.id)" }
+            .joined(separator: "|")
+    }
+
+    static func storedValue(from rawValue: String) -> BodyHealthSecondaryDataSourceSelection {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty, let data = trimmedValue.data(using: .utf8) else {
+            return defaultValue
+        }
+
+        guard let storage = try? JSONDecoder().decode([String: BodyHealthDataSourceOption].self, from: data) else {
+            return defaultValue
+        }
+
+        let selectedOptionPairs: [(HealthMetricKind, BodyHealthDataSourceOption)] = storage.compactMap { rawKind, option in
+            guard let kind = HealthMetricKind(rawValue: rawKind),
+                  kind.supportsSecondaryHealthDataSourceSelection,
+                  !option.isNoComparison else {
+                return nil
+            }
+
+            return (kind, option)
+        }
+        let selectedOptions = Dictionary(uniqueKeysWithValues: selectedOptionPairs)
+
+        return BodyHealthSecondaryDataSourceSelection(selectedOptions: selectedOptions)
+    }
+
+    static func load(defaults: UserDefaults = .standard) -> BodyHealthSecondaryDataSourceSelection {
+        storedValue(
+            from: defaults.string(forKey: BodyAppearancePreference.secondaryHealthDataSourceSelectionKey)
+                ?? defaultRawValue
+        )
+    }
+
+    func save(defaults: UserDefaults = .standard) {
+        defaults.set(rawValue, forKey: BodyAppearancePreference.secondaryHealthDataSourceSelectionKey)
+    }
+}
+
+struct BodySummaryCardSelection: Equatable {
+    static let defaultValue = BodySummaryCardSelection(selectedCards: Set(BodyHomeCardKind.defaultOrder))
+    static var defaultRawValue: String {
+        defaultValue.rawValue
+    }
+
+    var selectedCards: Set<BodyHomeCardKind>
+
+    var rawValue: String {
+        guard !selectedCards.isEmpty else {
+            return "none"
+        }
+
+        return BodyHomeCardKind.defaultOrder
+            .filter { selectedCards.contains($0) }
+            .map(\.rawValue)
+            .joined(separator: ",")
+    }
+
+    var enabledCount: Int {
+        selectedCards.count
+    }
+
+    func includes(_ card: BodyHomeCardKind) -> Bool {
+        selectedCards.contains(card)
+    }
+
+    func setting(_ card: BodyHomeCardKind, isEnabled: Bool) -> BodySummaryCardSelection {
+        var nextCards = selectedCards
+        if isEnabled {
+            nextCards.insert(card)
+        } else {
+            nextCards.remove(card)
+        }
+
+        return BodySummaryCardSelection(selectedCards: nextCards)
+    }
+
+    static func storedValue(from rawValue: String) -> BodySummaryCardSelection {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty else {
+            return defaultValue
+        }
+
+        guard trimmedValue != "none" else {
+            return BodySummaryCardSelection(selectedCards: [])
+        }
+
+        let cards = Set(trimmedValue.split(separator: ",").compactMap {
+            BodyHomeCardKind(rawValue: String($0))
+        })
+
+        guard !cards.isEmpty else {
+            return defaultValue
+        }
+
+        return BodySummaryCardSelection(selectedCards: cards)
+    }
+}
+
+struct BodyHomeTrendCardSelection: Equatable {
+    static let defaultValue = BodyHomeTrendCardSelection(selectedCards: Set(BodyHomeTrendCardKind.defaultOrder))
+    static var defaultRawValue: String {
+        defaultValue.rawValue
+    }
+
+    var selectedCards: Set<BodyHomeTrendCardKind>
+
+    var rawValue: String {
+        guard !selectedCards.isEmpty else {
+            return "none"
+        }
+
+        return BodyHomeTrendCardKind.defaultOrder
+            .filter { selectedCards.contains($0) }
+            .map(\.rawValue)
+            .joined(separator: ",")
+    }
+
+    var enabledCount: Int {
+        selectedCards.count
+    }
+
+    func includes(_ card: BodyHomeTrendCardKind) -> Bool {
+        selectedCards.contains(card)
+    }
+
+    func includes(_ kind: HealthMetricKind) -> Bool {
+        guard let card = BodyHomeTrendCardKind(metricKind: kind) else {
+            return false
+        }
+
+        return includes(card)
+    }
+
+    func setting(_ card: BodyHomeTrendCardKind, isEnabled: Bool) -> BodyHomeTrendCardSelection {
+        var nextCards = selectedCards
+        if isEnabled {
+            nextCards.insert(card)
+        } else {
+            nextCards.remove(card)
+        }
+
+        return BodyHomeTrendCardSelection(selectedCards: nextCards)
+    }
+
+    static func storedValue(from rawValue: String) -> BodyHomeTrendCardSelection {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty else {
+            return defaultValue
+        }
+
+        guard trimmedValue != "none" else {
+            return BodyHomeTrendCardSelection(selectedCards: [])
+        }
+
+        let cards = Set(trimmedValue.split(separator: ",").compactMap {
+            BodyHomeTrendCardKind(rawValue: String($0))
+        })
+
+        guard !cards.isEmpty else {
+            return defaultValue
+        }
+
+        return BodyHomeTrendCardSelection(selectedCards: cards)
+    }
+}
+
+enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
+    case heartRate
+    case restingHeartRate
+    case heartRateVariability
+    case respiratoryRate
+    case oxygenSaturation
+    case sleep
+    case wristTemperature
+    case steps
+    case activeEnergy
+    case restingEnergy
+    case exerciseMinutes
+    case trainingLoad
+    case timeInDaylight
+
+    static let defaultOrder: [BodyHomeTrendCardKind] = [
+        .heartRate,
+        .restingHeartRate,
+        .heartRateVariability,
+        .respiratoryRate,
+        .oxygenSaturation,
+        .sleep,
+        .wristTemperature,
+        .steps,
+        .activeEnergy,
+        .restingEnergy,
+        .exerciseMinutes,
+        .trainingLoad,
+        .timeInDaylight
+    ]
+
+    init?(metricKind: HealthMetricKind) {
+        self.init(rawValue: metricKind.rawValue)
+    }
+
+    var id: String {
+        rawValue
+    }
+
+    var metricKind: HealthMetricKind {
+        HealthMetricKind(rawValue: rawValue) ?? .heartRate
+    }
+
+    var title: String {
+        switch self {
+        case .heartRate:
+            return "Heart Rate"
+        case .restingHeartRate:
+            return "Resting Heart Rate"
+        case .heartRateVariability:
+            return "HRV"
+        case .respiratoryRate:
+            return "Respiratory Rate"
+        case .oxygenSaturation:
+            return "Blood Oxygen"
+        case .sleep:
+            return "Sleep"
+        case .wristTemperature:
+            return "Wrist Temperature"
+        case .steps:
+            return "Steps"
+        case .activeEnergy:
+            return "Active Energy"
+        case .restingEnergy:
+            return "Resting Energy"
+        case .exerciseMinutes:
+            return "Exercise Minutes"
+        case .trainingLoad:
+            return "Training Load"
+        case .timeInDaylight:
+            return "Time In Daylight"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .heartRate:
+            return "Average heart rate trend"
+        case .restingHeartRate:
+            return "Resting heart trend"
+        case .heartRateVariability:
+            return "Recovery signal trend"
+        case .respiratoryRate:
+            return "Breathing rate trend"
+        case .oxygenSaturation:
+            return "Blood oxygen trend"
+        case .sleep:
+            return "Sleep duration trend"
+        case .wristTemperature:
+            return "Sleeping wrist temperature trend"
+        case .steps:
+            return "Daily step trend"
+        case .activeEnergy:
+            return "Active calorie trend"
+        case .restingEnergy:
+            return "Resting calorie trend"
+        case .exerciseMinutes:
+            return "Exercise minute trend"
+        case .trainingLoad:
+            return "Workout strain trend"
+        case .timeInDaylight:
+            return "Outdoor daylight trend"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .heartRate,
+             .restingHeartRate:
+            return "heart.fill"
+        case .heartRateVariability:
+            return "waveform.path.ecg"
+        case .respiratoryRate:
+            return "lungs.fill"
+        case .oxygenSaturation:
+            return "drop.fill"
+        case .sleep:
+            return "bed.double.fill"
+        case .wristTemperature:
+            return "thermometer.medium"
+        case .steps:
+            return "figure.walk"
+        case .activeEnergy:
+            return "flame.fill"
+        case .restingEnergy:
+            return "leaf.fill"
+        case .exerciseMinutes:
+            return "figure.run"
+        case .trainingLoad:
+            return "figure.strengthtraining.traditional"
+        case .timeInDaylight:
+            return "sun.max.fill"
+        }
+    }
+
+    var tintColor: Color {
+        switch self {
+        case .heartRate,
+             .restingHeartRate,
+             .heartRateVariability:
+            return Color(red: 1.00, green: 0.25, blue: 0.45)
+        case .respiratoryRate,
+             .oxygenSaturation,
+             .wristTemperature:
+            return Color(red: 0.00, green: 0.75, blue: 0.85)
+        case .sleep:
+            return Color(red: 0.20, green: 0.72, blue: 1.00)
+        case .steps,
+             .activeEnergy,
+             .exerciseMinutes,
+             .trainingLoad:
+            return Color(red: 1.00, green: 0.38, blue: 0.12)
+        case .restingEnergy:
+            return Color(red: 0.14, green: 0.72, blue: 0.42)
+        case .timeInDaylight:
+            return Color(red: 0.10, green: 0.58, blue: 1.00)
+        }
+    }
+}
+
 enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     case activityRings
     case exerciseMinutes
@@ -311,6 +881,138 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         }
     }
 
+    var title: String {
+        switch self {
+        case .activityRings:
+            return "Activity Rings"
+        case .exerciseMinutes:
+            return "Exercise Minutes"
+        case .trainingLoad:
+            return "Training Load"
+        case .wristTemperature:
+            return "Wrist Temperature"
+        case .timeInDaylight:
+            return "Time In Daylight"
+        case .steps:
+            return "Steps"
+        case .sleep:
+            return "Sleep"
+        case .basics:
+            return "Basics"
+        case .heartRate:
+            return "Heart Rate"
+        case .restingHeartRate:
+            return "Resting Heart Rate"
+        case .heartRateVariability:
+            return "HRV"
+        case .oxygenSaturation:
+            return "Blood Oxygen"
+        case .respiratoryRate:
+            return "Respiratory Rate"
+        case .activeEnergy:
+            return "Active Energy"
+        case .restingEnergy:
+            return "Resting Energy"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .activityRings:
+            return "Move, Exercise, and Stand progress"
+        case .exerciseMinutes:
+            return "Daily exercise minute total"
+        case .trainingLoad:
+            return "Workout strain ratio"
+        case .wristTemperature:
+            return "Sleeping wrist temperature"
+        case .timeInDaylight:
+            return "Outdoor daylight exposure"
+        case .steps:
+            return "Step count total"
+        case .sleep:
+            return "Sleep score and duration"
+        case .basics:
+            return "Weight, body fat, and BMI"
+        case .heartRate:
+            return "Daily heart rate"
+        case .restingHeartRate:
+            return "Resting beats per minute"
+        case .heartRateVariability:
+            return "Recovery and stress signal"
+        case .oxygenSaturation:
+            return "Blood oxygen range"
+        case .respiratoryRate:
+            return "Breathing rate range"
+        case .activeEnergy:
+            return "Active calories"
+        case .restingEnergy:
+            return "Resting calories"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .activityRings:
+            return "circle.circle.fill"
+        case .exerciseMinutes:
+            return "figure.run"
+        case .trainingLoad:
+            return "figure.strengthtraining.traditional"
+        case .wristTemperature:
+            return "thermometer.medium"
+        case .timeInDaylight:
+            return "sun.max.fill"
+        case .steps:
+            return "figure.walk"
+        case .sleep:
+            return "bed.double.fill"
+        case .basics:
+            return "person.crop.circle.fill"
+        case .heartRate,
+             .restingHeartRate:
+            return "heart.fill"
+        case .heartRateVariability:
+            return "waveform.path.ecg"
+        case .oxygenSaturation:
+            return "drop.fill"
+        case .respiratoryRate:
+            return "lungs.fill"
+        case .activeEnergy:
+            return "flame.fill"
+        case .restingEnergy:
+            return "leaf.fill"
+        }
+    }
+
+    var tintColor: Color {
+        switch self {
+        case .activityRings:
+            return .pink
+        case .exerciseMinutes,
+             .trainingLoad,
+             .steps,
+             .activeEnergy:
+            return Color(red: 1.00, green: 0.38, blue: 0.12)
+        case .wristTemperature,
+             .oxygenSaturation,
+             .respiratoryRate:
+            return Color(red: 0.00, green: 0.75, blue: 0.85)
+        case .timeInDaylight:
+            return Color(red: 0.10, green: 0.58, blue: 1.00)
+        case .sleep:
+            return Color(red: 0.20, green: 0.72, blue: 1.00)
+        case .basics:
+            return Color(red: 0.50, green: 0.34, blue: 1.00)
+        case .heartRate,
+             .restingHeartRate,
+             .heartRateVariability:
+            return Color(red: 1.00, green: 0.25, blue: 0.45)
+        case .restingEnergy:
+            return Color(red: 0.14, green: 0.72, blue: 0.42)
+        }
+    }
+
     static func storedOrder(from rawValue: String) -> [BodyHomeCardKind] {
         let parsedOrder = rawValue.split(separator: ",").compactMap { rawCard -> BodyHomeCardKind? in
             if rawCard == "workoutDuration" {
@@ -347,12 +1049,15 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         return repairedOrder(result)
     }
 
-    static func layoutRows(from order: [BodyHomeCardKind]) -> [BodyHomeCardLayoutRow] {
+    static func layoutRows(
+        from order: [BodyHomeCardKind],
+        visibleIn selection: BodySummaryCardSelection = .defaultValue
+    ) -> [BodyHomeCardLayoutRow] {
         var rows: [BodyHomeCardLayoutRow] = []
         var currentCards: [BodyHomeCardKind] = []
         var currentSlots = 0
 
-        for card in repairedOrder(order) {
+        for card in repairedOrder(order) where selection.includes(card) {
             if card.slotCount >= 2 {
                 if !currentCards.isEmpty {
                     rows.append(BodyHomeCardLayoutRow(cards: currentCards))
@@ -454,6 +1159,32 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
         }
     }
 
+    var iconName: String {
+        switch self {
+        case .recentWeek:
+            return "calendar.day.timeline.leading"
+        case .recentMonth:
+            return "calendar.badge.clock"
+        case .recentSixMonths:
+            return "calendar.badge.plus"
+        case .recentYear:
+            return "calendar"
+        }
+    }
+
+    var tintColor: Color {
+        switch self {
+        case .recentWeek:
+            return .blue
+        case .recentMonth:
+            return .green
+        case .recentSixMonths:
+            return .orange
+        case .recentYear:
+            return .purple
+        }
+    }
+
     var chartTitle: String {
         switch self {
         case .recentWeek:
@@ -505,6 +1236,26 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
         }
     }
 
+    var chartCalendarPointCount: Int {
+        let fullBucketCount = dayCount / chartAggregationDayCount
+        return max(fullBucketCount, 1)
+    }
+
+    static let sourceComparisonBucketDoublingFactor = 2
+    static let sourceComparisonBarWidthScale: CGFloat = 1.12
+    static let sourceComparisonBucketOffsetFraction: Double = 0.16
+
+    var sourceComparisonChartAggregationDayCount: Int {
+        switch self {
+        case .recentWeek:
+            return chartAggregationDayCount
+        case .recentMonth,
+             .recentSixMonths,
+             .recentYear:
+            return chartAggregationDayCount * Self.sourceComparisonBucketDoublingFactor
+        }
+    }
+
     var lineChartMaximumPointCount: Int? {
         switch self {
         case .recentWeek:
@@ -536,6 +1287,35 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
         case .recentWeek,
              .recentMonth:
             return chartBarWidth
+        }
+    }
+
+    func sourceComparisonChartBarWidth(forAvailableWidth availableWidth: CGFloat) -> CGFloat {
+        let widenedBarWidth = chartBarWidth(forAvailableWidth: availableWidth) * Self.sourceComparisonBarWidthScale
+        switch self {
+        case .recentWeek:
+            return widenedBarWidth / 2
+        case .recentMonth,
+             .recentSixMonths,
+             .recentYear:
+            return widenedBarWidth
+        }
+    }
+
+    var sourceComparisonChartDateOffset: TimeInterval {
+        let secondsPerDay: Double = 24 * 60 * 60
+        return Double(sourceComparisonChartAggregationDayCount) * secondsPerDay * Self.sourceComparisonBucketOffsetFraction
+    }
+
+    func sourceComparisonRangeChartBarWidth(forAvailableWidth availableWidth: CGFloat) -> CGFloat {
+        let widenedBarWidth = heartRateRangeChartBarWidth(forAvailableWidth: availableWidth) * Self.sourceComparisonBarWidthScale
+        switch self {
+        case .recentWeek:
+            return widenedBarWidth / 2
+        case .recentMonth,
+             .recentSixMonths,
+             .recentYear:
+            return widenedBarWidth
         }
     }
 

@@ -132,7 +132,9 @@ struct WorkoutDetailPresentation: Equatable {
         calendar: Calendar = .bodyGregorian,
         locale: Locale = .current,
         timeZone: TimeZone = .current,
-        unitPreference: BodyValueFormat.UnitPreference = .system
+        unitPreference: BodyValueFormat.UnitPreference = .system,
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference? = nil,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories
     ) {
         let endDate = workout.startDate.addingTimeInterval(max(0, workout.duration))
 
@@ -163,10 +165,18 @@ struct WorkoutDetailPresentation: Equatable {
         durationClockText = BodyValueFormat.stopwatchDurationText(for: workout.duration)
         compactDurationText = BodyValueFormat.durationText(for: workout.duration)
         activeEnergyText = workout.activeEnergyKilocalories.map {
-            BodyValueFormat.energyText(kilocalories: $0, locale: locale)
+            BodyValueFormat.energyText(
+                kilocalories: $0,
+                locale: locale,
+                energyUnitPreference: energyUnitPreference
+            )
         }
         totalEnergyText = workout.totalEnergyKilocalories.map {
-            BodyValueFormat.energyText(kilocalories: $0, locale: locale)
+            BodyValueFormat.energyText(
+                kilocalories: $0,
+                locale: locale,
+                energyUnitPreference: energyUnitPreference
+            )
         }
         let storedHeartRate = workout.averageHeartRateBeatsPerMinute
         let sortedHeartRateSamples = (workout.heartRateSamples ?? [])
@@ -180,11 +190,15 @@ struct WorkoutDetailPresentation: Equatable {
                 return nil
             }
 
-            return BodyValueFormat.distanceText(
-                meters: distanceMeters,
-                locale: locale,
-                unitPreference: unitPreference
-            )
+            if let distanceUnitPreference {
+                return BodyValueFormat.distanceText(
+                    meters: distanceMeters,
+                    locale: locale,
+                    distanceUnitPreference: distanceUnitPreference
+                )
+            }
+
+            return BodyValueFormat.distanceText(meters: distanceMeters, locale: locale, unitPreference: unitPreference)
         }
         sourceText = workout.sourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "Apple Health"
@@ -196,8 +210,8 @@ struct WorkoutDetailPresentation: Equatable {
         heartRateSamples = sortedHeartRateSamples
 
         var metrics = [
-            WorkoutDetailMetric(title: "Active Kcal", value: activeEnergyText ?? "No Data"),
-            WorkoutDetailMetric(title: "Total Kcal", value: totalEnergyText ?? "No Data"),
+            WorkoutDetailMetric(title: "Active \(energyUnitPreference.detailTitleUnit)", value: activeEnergyText ?? "No Data"),
+            WorkoutDetailMetric(title: "Total \(energyUnitPreference.detailTitleUnit)", value: totalEnergyText ?? "No Data"),
             WorkoutDetailMetric(title: "Avg Heart Rate", value: averageHeartRateText ?? "No Data")
         ]
         if let distanceText {
@@ -271,6 +285,163 @@ enum BodyValueFormat {
         }
     }
 
+    enum WeightUnitPreference: String, CaseIterable, Identifiable {
+        case kilograms
+        case pounds
+
+        var id: String {
+            rawValue
+        }
+
+        var displayName: String {
+            switch self {
+            case .kilograms:
+                return "Kilograms"
+            case .pounds:
+                return "Pounds"
+            }
+        }
+
+        var unitLabel: String {
+            switch self {
+            case .kilograms:
+                return "kg"
+            case .pounds:
+                return "lb"
+            }
+        }
+
+        static let defaultValue: WeightUnitPreference = .kilograms
+
+        static func storedValue(from rawValue: String) -> WeightUnitPreference {
+            WeightUnitPreference(rawValue: rawValue) ?? defaultValue
+        }
+
+        static func systemValue(locale: Locale) -> WeightUnitPreference {
+            BodyValueFormat.usesImperialMeasurementSystem(locale: locale) ? .pounds : .kilograms
+        }
+    }
+
+    enum DistanceUnitPreference: String, CaseIterable, Identifiable {
+        case kilometers
+        case miles
+
+        var id: String {
+            rawValue
+        }
+
+        var displayName: String {
+            switch self {
+            case .kilometers:
+                return "Kilometers"
+            case .miles:
+                return "Miles"
+            }
+        }
+
+        var unitLabel: String {
+            switch self {
+            case .kilometers:
+                return "km"
+            case .miles:
+                return "mi"
+            }
+        }
+
+        static let defaultValue: DistanceUnitPreference = .kilometers
+
+        static func storedValue(from rawValue: String) -> DistanceUnitPreference {
+            DistanceUnitPreference(rawValue: rawValue) ?? defaultValue
+        }
+
+        static func systemValue(locale: Locale) -> DistanceUnitPreference {
+            BodyValueFormat.usesImperialMeasurementSystem(locale: locale) ? .miles : .kilometers
+        }
+    }
+
+    enum EnergyUnitPreference: String, CaseIterable, Identifiable {
+        case kilocalories
+        case kilojoules
+
+        var id: String {
+            rawValue
+        }
+
+        var displayName: String {
+            switch self {
+            case .kilocalories:
+                return "Kilocalories"
+            case .kilojoules:
+                return "Kilojoules"
+            }
+        }
+
+        var unitLabel: String {
+            switch self {
+            case .kilocalories:
+                return "kcal"
+            case .kilojoules:
+                return "kJ"
+            }
+        }
+
+        var detailTitleUnit: String {
+            switch self {
+            case .kilocalories:
+                return "Kcal"
+            case .kilojoules:
+                return "kJ"
+            }
+        }
+
+        static let defaultValue: EnergyUnitPreference = .kilocalories
+
+        static func storedValue(from rawValue: String) -> EnergyUnitPreference {
+            EnergyUnitPreference(rawValue: rawValue) ?? defaultValue
+        }
+
+        static func systemValue(locale: Locale) -> EnergyUnitPreference {
+            .kilocalories
+        }
+    }
+
+    enum TemperatureUnitPreference: String, CaseIterable, Identifiable {
+        case celsius
+        case fahrenheit
+
+        var id: String {
+            rawValue
+        }
+
+        var displayName: String {
+            switch self {
+            case .celsius:
+                return "Celsius"
+            case .fahrenheit:
+                return "Fahrenheit"
+            }
+        }
+
+        var unitLabel: String {
+            switch self {
+            case .celsius:
+                return "C"
+            case .fahrenheit:
+                return "F"
+            }
+        }
+
+        static let defaultValue: TemperatureUnitPreference = .celsius
+
+        static func storedValue(from rawValue: String) -> TemperatureUnitPreference {
+            TemperatureUnitPreference(rawValue: rawValue) ?? defaultValue
+        }
+
+        static func systemValue(locale: Locale) -> TemperatureUnitPreference {
+            BodyValueFormat.usesImperialMeasurementSystem(locale: locale) ? .fahrenheit : .celsius
+        }
+    }
+
     static func durationText(for duration: TimeInterval) -> String {
         let minutes = max(0, Int((duration / 60).rounded()))
         return durationText(minutes: minutes)
@@ -322,12 +493,34 @@ enum BodyValueFormat {
         return (numberText(display.value, decimals: decimals, locale: locale), display.unit)
     }
 
+    static func massDisplay(
+        kilograms: Double,
+        locale: Locale = .current,
+        weightUnitPreference: WeightUnitPreference,
+        decimals: Int = 1
+    ) -> (value: String, unit: String) {
+        let display = massValue(kilograms: kilograms, locale: locale, weightUnitPreference: weightUnitPreference)
+        return (numberText(display.value, decimals: decimals, locale: locale), display.unit)
+    }
+
     static func massValue(
         kilograms: Double,
         locale: Locale = .current,
         unitPreference: UnitPreference = .system
     ) -> (value: Double, unit: String) {
-        if usesImperialMeasurements(locale: locale, unitPreference: unitPreference) {
+        massValue(
+            kilograms: kilograms,
+            locale: locale,
+            weightUnitPreference: weightUnitPreference(from: unitPreference, locale: locale)
+        )
+    }
+
+    static func massValue(
+        kilograms: Double,
+        locale: Locale = .current,
+        weightUnitPreference: WeightUnitPreference
+    ) -> (value: Double, unit: String) {
+        if weightUnitPreference == .pounds {
             let pounds = Measurement(value: kilograms, unit: UnitMass.kilograms)
                 .converted(to: .pounds)
                 .value
@@ -342,7 +535,19 @@ enum BodyValueFormat {
         locale: Locale = .current,
         unitPreference: UnitPreference = .system
     ) -> String {
-        if usesImperialMeasurements(locale: locale, unitPreference: unitPreference) {
+        distanceText(
+            meters: meters,
+            locale: locale,
+            distanceUnitPreference: distanceUnitPreference(from: unitPreference, locale: locale)
+        )
+    }
+
+    static func distanceText(
+        meters: Double,
+        locale: Locale = .current,
+        distanceUnitPreference: DistanceUnitPreference
+    ) -> String {
+        if distanceUnitPreference == .miles {
             let miles = Measurement(value: meters, unit: UnitLength.meters)
                 .converted(to: .miles)
                 .value
@@ -355,8 +560,28 @@ enum BodyValueFormat {
         return numberText(kilometers, decimals: 1, locale: locale) + " km"
     }
 
-    static func energyText(kilocalories: Double, locale: Locale = .current) -> String {
-        numberText(kilocalories.rounded(), decimals: 0, locale: locale) + " kcal"
+    static func energyText(
+        kilocalories: Double,
+        locale: Locale = .current,
+        energyUnitPreference: EnergyUnitPreference = .kilocalories
+    ) -> String {
+        let display = energyValue(kilocalories: kilocalories, energyUnitPreference: energyUnitPreference)
+        return numberText(display.value, decimals: 0, locale: locale) + " " + display.unit
+    }
+
+    static func energyValue(
+        kilocalories: Double,
+        energyUnitPreference: EnergyUnitPreference = .kilocalories
+    ) -> (value: Double, unit: String) {
+        switch energyUnitPreference {
+        case .kilocalories:
+            return (kilocalories, "kcal")
+        case .kilojoules:
+            let kilojoules = Measurement(value: kilocalories, unit: UnitEnergy.kilocalories)
+                .converted(to: .kilojoules)
+                .value
+            return (kilojoules, "kJ")
+        }
     }
 
     static func heartRateText(beatsPerMinute: Double, locale: Locale = .current) -> String {
@@ -376,12 +601,37 @@ enum BodyValueFormat {
         return (numberText(display.value, decimals: 1, locale: locale), display.unit)
     }
 
+    static func temperatureDisplay(
+        celsius: Double,
+        locale: Locale = .current,
+        temperatureUnitPreference: TemperatureUnitPreference
+    ) -> (value: String, unit: String) {
+        let display = temperatureValue(
+            celsius: celsius,
+            locale: locale,
+            temperatureUnitPreference: temperatureUnitPreference
+        )
+        return (numberText(display.value, decimals: 1, locale: locale), display.unit)
+    }
+
     static func temperatureValue(
         celsius: Double,
         locale: Locale = .current,
         unitPreference: UnitPreference = .system
     ) -> (value: Double, unit: String) {
-        if usesImperialMeasurements(locale: locale, unitPreference: unitPreference) {
+        temperatureValue(
+            celsius: celsius,
+            locale: locale,
+            temperatureUnitPreference: temperatureUnitPreference(from: unitPreference, locale: locale)
+        )
+    }
+
+    static func temperatureValue(
+        celsius: Double,
+        locale: Locale = .current,
+        temperatureUnitPreference: TemperatureUnitPreference
+    ) -> (value: Double, unit: String) {
+        if temperatureUnitPreference == .fahrenheit {
             let fahrenheit = Measurement(value: celsius, unit: UnitTemperature.celsius)
                 .converted(to: .fahrenheit)
                 .value
@@ -399,14 +649,40 @@ enum BodyValueFormat {
         )
     }
 
-    private static func usesImperialMeasurements(locale: Locale, unitPreference: UnitPreference) -> Bool {
+    private static func weightUnitPreference(from unitPreference: UnitPreference, locale: Locale) -> WeightUnitPreference {
         switch unitPreference {
         case .imperial:
-            return true
+            return .pounds
         case .metric:
-            return false
+            return .kilograms
         case .system:
-            return locale.measurementSystem == .us
+            return WeightUnitPreference.systemValue(locale: locale)
         }
+    }
+
+    private static func distanceUnitPreference(from unitPreference: UnitPreference, locale: Locale) -> DistanceUnitPreference {
+        switch unitPreference {
+        case .imperial:
+            return .miles
+        case .metric:
+            return .kilometers
+        case .system:
+            return DistanceUnitPreference.systemValue(locale: locale)
+        }
+    }
+
+    private static func temperatureUnitPreference(from unitPreference: UnitPreference, locale: Locale) -> TemperatureUnitPreference {
+        switch unitPreference {
+        case .imperial:
+            return .fahrenheit
+        case .metric:
+            return .celsius
+        case .system:
+            return TemperatureUnitPreference.systemValue(locale: locale)
+        }
+    }
+
+    private static func usesImperialMeasurementSystem(locale: Locale) -> Bool {
+        locale.measurementSystem == .us
     }
 }

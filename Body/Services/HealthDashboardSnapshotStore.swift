@@ -9,7 +9,16 @@ import os
 enum HealthDashboardSnapshotStore {
     static let healthDashboardSnapshotKey = "lastHealthDashboardSnapshot"
     static let healthDashboardSnapshotFileName = "lastHealthDashboardSnapshot.json"
+    static let secondarySelectionSignatureKey = "lastHealthDashboardSecondarySelectionSignature"
     private static let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "HealthDashboardSnapshotStore")
+
+    static func saveSecondarySelectionSignature(_ signature: String, defaults: UserDefaults = .standard) {
+        defaults.set(signature, forKey: secondarySelectionSignatureKey)
+    }
+
+    static func loadSecondarySelectionSignature(defaults: UserDefaults = .standard) -> String? {
+        defaults.string(forKey: secondarySelectionSignatureKey)
+    }
 
     static var snapshotFileURL: URL? {
         guard let applicationSupportURL = FileManager.default.urls(
@@ -81,6 +90,31 @@ enum HealthDashboardSnapshotStore {
         fileURL: URL? = snapshotFileURL
     ) -> HealthDashboardSnapshot {
         load(defaults: defaults, fileURL: fileURL) ?? .empty
+    }
+
+    static func exists(fileURL: URL? = snapshotFileURL) -> Bool {
+        guard let fileURL else {
+            return false
+        }
+
+        return FileManager.default.fileExists(atPath: fileURL.path)
+    }
+
+    static func delete(
+        defaults: UserDefaults = .standard,
+        fileURL: URL? = snapshotFileURL
+    ) {
+        defaults.removeObject(forKey: healthDashboardSnapshotKey)
+
+        guard let fileURL, FileManager.default.fileExists(atPath: fileURL.path) else {
+            return
+        }
+
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+        } catch {
+            logger.error("Health dashboard snapshot file delete failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private static func loadFromFile(fileURL: URL?) -> HealthDashboardSnapshot? {

@@ -20,6 +20,7 @@ struct BodyWorkoutsView: View {
     @State private var selectedWorkoutForDetails: WorkoutSummary?
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
+    @State private var isPullRefreshing = false
 
     private var monthSwitchTransition: AnyTransition {
         .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -98,7 +99,11 @@ struct BodyWorkoutsView: View {
                         .padding(.bottom, 110)
                     }
                     .refreshable {
-                        await workoutStore.requestAuthorizationAndRefresh()
+                        let started = Date()
+                        isPullRefreshing = true
+                        await workoutStore.refreshWorkoutMonth(month: selectedMonth, year: selectedYear)
+                        await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
+                        isPullRefreshing = false
                     }
                     .opacity(isListLoaded ? 1 : 0)
                     .animation(.easeIn(duration: 0.3), value: isListLoaded)
@@ -117,6 +122,7 @@ struct BodyWorkoutsView: View {
                     }
                 }
             }
+            .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
             .sheet(isPresented: $showingSortSheet) {
                 BodyWorkoutSortView(selectedSortOption: $selectedSortOption)
                     .presentationDetents([.medium])
@@ -549,19 +555,33 @@ struct BodyWorkoutRowPresentation {
     init(
         workout: WorkoutSummary,
         locale: Locale = .current,
-        unitPreference: BodyValueFormat.UnitPreference = .system
+        unitPreference: BodyValueFormat.UnitPreference = .system,
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference? = nil,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories
     ) {
         let energyText = workout.activeEnergyKilocalories.map {
-            BodyValueFormat.energyText(kilocalories: $0, locale: locale)
+            BodyValueFormat.energyText(
+                kilocalories: $0,
+                locale: locale,
+                energyUnitPreference: energyUnitPreference
+            )
         }
 
         if let distanceMeters = workout.distanceMeters, distanceMeters > 0 {
             detailIconName = "map.fill"
-            detailText = BodyValueFormat.distanceText(
-                meters: distanceMeters,
-                locale: locale,
-                unitPreference: unitPreference
-            )
+            if let distanceUnitPreference {
+                detailText = BodyValueFormat.distanceText(
+                    meters: distanceMeters,
+                    locale: locale,
+                    distanceUnitPreference: distanceUnitPreference
+                )
+            } else {
+                detailText = BodyValueFormat.distanceText(
+                    meters: distanceMeters,
+                    locale: locale,
+                    unitPreference: unitPreference
+                )
+            }
             trailingEnergyText = energyText
         } else if let energyText {
             detailIconName = "flame.fill"
@@ -576,7 +596,9 @@ struct BodyWorkoutRowPresentation {
 }
 
 private struct BodyWorkoutExpenseStyleRow: View {
-    @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
+    @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     let workout: WorkoutSummary
     let titleFontSize: CGFloat
     let metadataFontSize: CGFloat
@@ -662,17 +684,32 @@ private struct BodyWorkoutExpenseStyleRow: View {
     private var presentation: BodyWorkoutRowPresentation {
         BodyWorkoutRowPresentation(
             workout: workout,
-            unitPreference: selectedUnitPreference
+            distanceUnitPreference: selectedDistanceUnitPreference,
+            energyUnitPreference: selectedEnergyUnitPreference
         )
     }
 
-    private var selectedUnitPreference: BodyValueFormat.UnitPreference {
-        BodyValueFormat.UnitPreference.storedValue(from: selectedUnitPreferenceRawValue)
+    private var selectedDistanceUnitPreference: BodyValueFormat.DistanceUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.DistanceUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.DistanceUnitPreference.storedValue(from: selectedDistanceUnitRawValue)
+    }
+
+    private var selectedEnergyUnitPreference: BodyValueFormat.EnergyUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.EnergyUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.EnergyUnitPreference.storedValue(from: selectedEnergyUnitRawValue)
     }
 }
 
 private struct BodyWorkoutDetailSheet: View {
-    @AppStorage(BodyAppearancePreference.selectedUnitPreferenceKey) private var selectedUnitPreferenceRawValue = BodyValueFormat.UnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
+    @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     let workout: WorkoutSummary
 
     private let sheetHeight: CGFloat = 730
@@ -851,9 +888,11 @@ private struct BodyWorkoutDetailSheet: View {
     }
 
     private func metricValueColor(for title: String) -> Color {
-        switch title {
-        case "Active Kcal", "Total Kcal":
+        if title.hasPrefix("Active ") || title.hasPrefix("Total ") {
             return .pink
+        }
+
+        switch title {
         case "Avg Heart Rate":
             return .red
         case "Distance":
@@ -866,12 +905,25 @@ private struct BodyWorkoutDetailSheet: View {
     private var presentation: WorkoutDetailPresentation {
         WorkoutDetailPresentation(
             workout: workout,
-            unitPreference: selectedUnitPreference
+            distanceUnitPreference: selectedDistanceUnitPreference,
+            energyUnitPreference: selectedEnergyUnitPreference
         )
     }
 
-    private var selectedUnitPreference: BodyValueFormat.UnitPreference {
-        BodyValueFormat.UnitPreference.storedValue(from: selectedUnitPreferenceRawValue)
+    private var selectedDistanceUnitPreference: BodyValueFormat.DistanceUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.DistanceUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.DistanceUnitPreference.storedValue(from: selectedDistanceUnitRawValue)
+    }
+
+    private var selectedEnergyUnitPreference: BodyValueFormat.EnergyUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.EnergyUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.EnergyUnitPreference.storedValue(from: selectedEnergyUnitRawValue)
     }
 }
 
