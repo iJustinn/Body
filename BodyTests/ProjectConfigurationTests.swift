@@ -185,11 +185,11 @@ final class ProjectConfigurationTests: XCTestCase {
     func testWristTemperatureCardUsesLineChartDetailWithoutDayView() throws {
         let source = try text(at: "Body/Views/BodyHomeView.swift")
         let cardStart = try XCTUnwrap(source.range(of: "private func wristTemperatureMetric")?.lowerBound)
-        let cardBlock = String(source[cardStart...].prefix(1_100))
+        let cardBlock = String(source[cardStart...].prefix(1_500))
         let trendCardStart = try XCTUnwrap(source.range(of: "homeTrendCard(\n                kind: .wristTemperature")?.lowerBound)
         let trendCardBlock = String(source[trendCardStart...].prefix(1_100))
         let detailStart = try XCTUnwrap(source.range(of: "case .wristTemperature:")?.lowerBound)
-        let detailBlock = String(source[detailStart...].prefix(2_300))
+        let detailBlock = String(source[detailStart...].prefix(3_000))
         let dayViewStart = try XCTUnwrap(source.range(of: "private var supportsMetricDayView")?.lowerBound)
         let dayViewBlock = String(source[dayViewStart...].prefix(700))
 

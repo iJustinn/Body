@@ -69,6 +69,45 @@ private func bodyChartSelectionDateText(for point: HealthTrendRangeCalendarPoint
     bodyChartSelectionDateText(startDate: point.startDate, endDate: point.endDate)
 }
 
+private func wristTemperatureBaseline(from series: HealthTrendSeries) -> Double {
+    let points = series.lineChartCalendarPoints(to: .recentYear)
+    let finiteValues = points.compactMap(\.value).filter(\.isFinite)
+    guard !finiteValues.isEmpty else {
+        return 0
+    }
+
+    return finiteValues.reduce(0, +) / Double(finiteValues.count)
+}
+
+private func wristTemperatureBaselineDeviationDisplay(
+    currentCelsius: Double?,
+    series: HealthTrendSeries
+) -> BodyMetricDisplayValue {
+    let points = series.lineChartCalendarPoints(to: .recentYear)
+    let finiteValues = points.compactMap(\.value).filter(\.isFinite)
+    guard
+        !finiteValues.isEmpty,
+        let current = currentCelsius,
+        current.isFinite
+    else {
+        return BodyMetricDisplayValue(title: "Baseline", value: "--", unit: "")
+    }
+
+    let baseline = finiteValues.reduce(0, +) / Double(finiteValues.count)
+    let diff = current - baseline
+    let magnitude = BodyValueFormat.numberText(abs(diff), decimals: 1)
+    let formattedValue: String
+    if diff > 0.05 {
+        formattedValue = "+\(magnitude)"
+    } else if diff < -0.05 {
+        formattedValue = "−\(magnitude)"
+    } else {
+        formattedValue = magnitude
+    }
+
+    return BodyMetricDisplayValue(title: "Baseline", value: formattedValue, unit: "C")
+}
+
 private func bodyChartSelectionDateText(startDate: Date, endDate: Date) -> String? {
     let calendar = Calendar.bodyGregorian
     guard startDate != endDate else {
@@ -553,17 +592,28 @@ struct BodyHomeView: View {
         let display = summary.wristTemperature.value.map {
             BodyValueFormat.temperatureDisplay(celsius: $0, unitPreference: selectedUnitPreference)
         }
+        let temperatureUnit = BodyValueFormat.temperatureDisplay(
+            celsius: 0,
+            unitPreference: selectedUnitPreference
+        ).unit
+        let actualDisplay = BodyMetricDisplayValue(
+            title: "Wrist Temperature",
+            value: display?.value ?? "--",
+            unit: display?.unit ?? temperatureUnit
+        )
+        let deviationDisplay = wristTemperatureBaselineDeviationDisplay(
+            currentCelsius: summary.wristTemperature.value,
+            series: chartPreview
+        )
 
         return BodyHealthMetricCard.Model(
             kind: .wristTemperature,
             title: "Wrist Temp",
             value: display?.value ?? "--",
-            unit: display?.unit ?? BodyValueFormat.temperatureDisplay(
-                celsius: 0,
-                unitPreference: selectedUnitPreference
-            ).unit,
+            unit: display?.unit ?? temperatureUnit,
             symbolName: "thermometer.medium",
             symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
+            prominentMetrics: [deviationDisplay, actualDisplay],
             chartPreviewStyle: .line,
             chartPreview: chartPreview
         )
@@ -801,6 +851,15 @@ struct BodyHomeView: View {
                 celsius: 0,
                 unitPreference: selectedUnitPreference
             ).unit
+            let actualDisplay = BodyMetricDisplayValue(
+                title: "Wrist Temperature",
+                value: display?.value ?? "--",
+                unit: display?.unit ?? temperatureUnit
+            )
+            let deviationDisplay = wristTemperatureBaselineDeviationDisplay(
+                currentCelsius: summary.wristTemperature.value,
+                series: trends.wristTemperature
+            )
             return BodyHealthMetricDetailModel(
                 kind: kind,
                 title: "Wrist Temperature",
@@ -823,6 +882,10 @@ struct BodyHomeView: View {
                 chartStyle: .line,
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + " " + temperatureUnit },
                 secondaryValueFormatter: nil,
+                headerMetrics: [
+                    deviationDisplay,
+                    actualDisplay
+                ],
                 dataSourceText: kind.detailDataSourceText
             )
         case .timeInDaylight:
@@ -4600,15 +4663,11 @@ private struct BodyWristTemperatureBaselineChart: View {
     init(series: HealthTrendSeries, selectedRange: BodyHealthTrendRange, symbolColor: Color) {
         self.selectedRange = selectedRange
         self.symbolColor = symbolColor
-
-        let points = series.lineChartCalendarPoints(to: selectedRange)
-        let finiteValues = points.compactMap(\.value).filter(\.isFinite)
-        let baselineValue = finiteValues.isEmpty
-            ? 0
-            : finiteValues.reduce(0, +) / Double(finiteValues.count)
+        let baselineValue = wristTemperatureBaseline(from: series)
         self.baseline = baselineValue
 
-        let deviations = points.map { point in
+        let visiblePoints = series.lineChartCalendarPoints(to: selectedRange)
+        let deviations = visiblePoints.map { point in
             HealthTrendCalendarPoint(
                 date: point.date,
                 value: point.value.map { $0 - baselineValue },

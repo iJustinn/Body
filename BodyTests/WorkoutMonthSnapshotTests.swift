@@ -462,6 +462,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             BodyHealthTrendRange.recentSixMonths.chartBarWidth,
             BodyHealthTrendRange.recentMonth.chartBarWidth
         )
+        XCTAssertEqual(BodyHealthTrendRange.recentSixMonths.chartBarWidth, 8, accuracy: 0.001)
         XCTAssertEqual(
             BodyHealthTrendRange.recentYear.chartBarWidth,
             BodyHealthTrendRange.recentSixMonths.chartBarWidth,
@@ -500,12 +501,22 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         XCTAssertEqual(
             BodyHealthTrendRange.recentSixMonths.chartBarWidth(forAvailableWidth: smallChartWidth),
-            6,
+            5,
             accuracy: 0.001
         )
         XCTAssertEqual(
             BodyHealthTrendRange.recentYear.chartBarWidth(forAvailableWidth: smallChartWidth),
-            6,
+            5,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            BodyHealthTrendRange.recentSixMonths.heartRateRangeChartBarWidth(forAvailableWidth: smallChartWidth),
+            5,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            BodyHealthTrendRange.recentYear.heartRateRangeChartBarWidth(forAvailableWidth: smallChartWidth),
+            5,
             accuracy: 0.001
         )
         XCTAssertEqual(

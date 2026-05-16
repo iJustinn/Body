@@ -524,7 +524,7 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
             return 7
         case .recentSixMonths,
              .recentYear:
-            return 9
+            return 8
         }
     }
 
@@ -532,7 +532,7 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
         switch self {
         case .recentSixMonths,
              .recentYear:
-            return availableWidth <= 330 ? 6 : chartBarWidth
+            return availableWidth <= 330 ? 5 : chartBarWidth
         case .recentWeek,
              .recentMonth:
             return chartBarWidth
