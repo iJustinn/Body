@@ -1990,6 +1990,111 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertNil(HealthMetricKind.bodyMassIndex.detailDataSourceText)
     }
 
+    func testHealthMetricSourceSelectionSupportsRequestedCardsOnly() {
+        XCTAssertEqual(
+            HealthMetricKind.sourceSelectableKinds,
+            [
+                .heartRate,
+                .sleep,
+                .heartRateVariability,
+                .restingHeartRate,
+                .steps,
+                .oxygenSaturation,
+                .activeEnergy,
+                .restingEnergy,
+                .exerciseMinutes
+            ]
+        )
+        XCTAssertTrue(HealthMetricKind.heartRate.supportsHealthDataSourceSelection)
+        XCTAssertTrue(HealthMetricKind.sleep.supportsHealthDataSourceSelection)
+        XCTAssertTrue(HealthMetricKind.heartRateVariability.supportsHealthDataSourceSelection)
+        XCTAssertTrue(HealthMetricKind.restingHeartRate.supportsHealthDataSourceSelection)
+        XCTAssertTrue(HealthMetricKind.steps.supportsHealthDataSourceSelection)
+        XCTAssertTrue(HealthMetricKind.oxygenSaturation.supportsHealthDataSourceSelection)
+        XCTAssertTrue(HealthMetricKind.activeEnergy.supportsHealthDataSourceSelection)
+        XCTAssertTrue(HealthMetricKind.restingEnergy.supportsHealthDataSourceSelection)
+        XCTAssertTrue(HealthMetricKind.exerciseMinutes.supportsHealthDataSourceSelection)
+        XCTAssertFalse(HealthMetricKind.trainingLoad.supportsHealthDataSourceSelection)
+    }
+
+    func testHealthDataSourceSelectionPersistsPerMetricSourceOptions() throws {
+        let appleWatch = BodyHealthDataSourceOption(id: "com.apple.Health", name: "Apple Watch")
+        let oura = BodyHealthDataSourceOption(id: "com.ouraring.oura", name: "Oura")
+
+        let selection = BodyHealthDataSourceSelection.defaultValue
+            .setting(.heartRate, option: appleWatch)
+            .setting(.sleep, option: oura)
+
+        XCTAssertEqual(selection.option(for: .heartRate), appleWatch)
+        XCTAssertEqual(selection.option(for: .sleep), oura)
+        XCTAssertEqual(selection.option(for: .steps), .allSources)
+        XCTAssertFalse(selection.rawValue.isEmpty)
+
+        let restoredSelection = BodyHealthDataSourceSelection.storedValue(from: selection.rawValue)
+        XCTAssertEqual(restoredSelection.option(for: .heartRate), appleWatch)
+        XCTAssertEqual(restoredSelection.option(for: .sleep), oura)
+        XCTAssertEqual(restoredSelection.option(for: .steps), .allSources)
+    }
+
+    func testHealthSummaryReplacingMetricOnlyChangesRequestedFields() {
+        var current = HealthSummarySnapshot.empty
+        current.heartRate = HealthMetricSummary(value: 70)
+        current.steps = HealthMetricSummary(value: 4_000)
+        current.bodyMass = HealthMetricSummary(value: 80)
+        current.bodyFatPercentage = HealthMetricSummary(value: 0.2)
+        current.bodyMassIndex = HealthMetricSummary(value: 24)
+
+        var refreshed = current
+        refreshed.heartRate = HealthMetricSummary(value: 88)
+        refreshed.steps = HealthMetricSummary(value: 9_000)
+        refreshed.bodyMass = HealthMetricSummary(value: 78)
+        refreshed.bodyFatPercentage = HealthMetricSummary(value: 0.18)
+        refreshed.bodyMassIndex = HealthMetricSummary(value: 23)
+
+        let heartOnly = current.replacingMetric(.heartRate, with: refreshed)
+        XCTAssertEqual(heartOnly.heartRate.value, 88)
+        XCTAssertEqual(heartOnly.steps.value, 4_000)
+        XCTAssertEqual(heartOnly.bodyMass.value, 80)
+
+        let basicsOnly = current.replacingMetric(.basics, with: refreshed)
+        XCTAssertEqual(basicsOnly.heartRate.value, 70)
+        XCTAssertEqual(basicsOnly.steps.value, 4_000)
+        XCTAssertEqual(basicsOnly.bodyMass.value, 78)
+        XCTAssertEqual(basicsOnly.bodyFatPercentage.value, 0.18)
+        XCTAssertEqual(basicsOnly.bodyMassIndex.value, 23)
+    }
+
+    func testHealthTrendReplacingMetricOnlyChangesRequestedSeries() throws {
+        let day = try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 5, day: 16)))
+        var current = HealthTrendSnapshot.empty
+        current.heartRate = HealthTrendSeries(points: [HealthTrendDataPoint(date: day, value: 70)])
+        current.heartRateRanges = HealthTrendRangeSeries(points: [
+            HealthTrendRangeDataPoint(date: day, lowValue: 60, highValue: 90, averageValue: 70)
+        ])
+        current.heartRateDaySamples = HealthTrendSeries(points: [HealthTrendDataPoint(date: day, value: 72)])
+        current.steps = HealthTrendSeries(points: [HealthTrendDataPoint(date: day, value: 4_000)])
+
+        var refreshed = current
+        refreshed.heartRate = HealthTrendSeries(points: [HealthTrendDataPoint(date: day, value: 88)])
+        refreshed.heartRateRanges = HealthTrendRangeSeries(points: [
+            HealthTrendRangeDataPoint(date: day, lowValue: 65, highValue: 110, averageValue: 88)
+        ])
+        refreshed.heartRateDaySamples = HealthTrendSeries(points: [HealthTrendDataPoint(date: day, value: 91)])
+        refreshed.steps = HealthTrendSeries(points: [HealthTrendDataPoint(date: day, value: 9_000)])
+
+        let heartOnly = current.replacingMetric(.heartRate, with: refreshed)
+        XCTAssertEqual(heartOnly.heartRate.points.map(\.value), [88])
+        XCTAssertEqual(heartOnly.heartRateRanges.points.map(\.averageValue), [88])
+        XCTAssertEqual(heartOnly.heartRateDaySamples.points.map(\.value), [91])
+        XCTAssertEqual(heartOnly.steps.points.map(\.value), [4_000])
+
+        let stepsOnly = current.replacingMetric(.steps, with: refreshed)
+        XCTAssertEqual(stepsOnly.heartRate.points.map(\.value), [70])
+        XCTAssertEqual(stepsOnly.heartRateRanges.points.map(\.averageValue), [70])
+        XCTAssertEqual(stepsOnly.heartRateDaySamples.points.map(\.value), [72])
+        XCTAssertEqual(stepsOnly.steps.points.map(\.value), [9_000])
+    }
+
     func testSleepScoreUsesStagePercentagesPressureAndVitals() throws {
         let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
             from: DateComponents(year: 2026, month: 5, day: 11, hour: 2)

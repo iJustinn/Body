@@ -32,7 +32,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testSettingsDataTabsExposePermissions() {
-        XCTAssertEqual(BodySettingsDataTab.allCases.map(\.title), ["Permissions", "Health Data Sync", "Cache"])
+        XCTAssertEqual(BodySettingsDataTab.allCases.map(\.title), ["Permissions", "Data Refresh", "Cache"])
         XCTAssertEqual(BodySettingsDataTab.permissions.sheet, .permissions)
         XCTAssertEqual(BodySettingsDataTab.syncStatus.sheet, .syncStatus)
         XCTAssertEqual(BodySettingsDataTab.cache.sheet, .cache)
@@ -305,16 +305,103 @@ final class ProjectConfigurationTests: XCTestCase {
         let graphicStart = try XCTUnwrap(source.range(of: "private struct BodyActivityRingGraphic")?.lowerBound)
         let graphicBlock = String(source[graphicStart...].prefix(2_400))
         let arcStart = try XCTUnwrap(source.range(of: "private struct BodyActivityRingArc")?.lowerBound)
-        let arcBlock = String(source[arcStart...].prefix(2_800))
+        let arcBlock = String(source[arcStart...].prefix(4_200))
 
         XCTAssertTrue(graphicBlock.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
         XCTAssertTrue(graphicBlock.contains("private func sweepAnimation(ringIndex: Int) -> Animation?"))
-        XCTAssertEqual(graphicBlock.occurrenceCount(of: ".animation(sweepAnimation(ringIndex:"), 3)
+        XCTAssertEqual(graphicBlock.occurrenceCount(of: "animation: sweepAnimation(ringIndex:"), 3)
         XCTAssertTrue(graphicBlock.contains(".smooth(duration: 0.75, extraBounce: 0)"))
         XCTAssertTrue(graphicBlock.contains(".delay(Double(ringIndex) * 0.05)"))
         XCTAssertTrue(source.contains("private struct BodyActivityRingHeadPosition: GeometryEffect"))
         XCTAssertTrue(source.contains("var animatableData: Double"))
         XCTAssertTrue(arcBlock.contains(".modifier(BodyActivityRingHeadPosition(progress: animatedHeadProgress, radius: radius))"))
+        XCTAssertTrue(arcBlock.contains("BodyActivityRingAnimationProgress.rollbackStartProgress("))
+        XCTAssertTrue(arcBlock.contains("setAnimatedProgress(rollbackStart, animation: nil)"))
+    }
+
+    func testActivityRingRollbackStartsOverGoalHeadsFromCompletedCircle() {
+        XCTAssertEqual(
+            BodyActivityRingAnimationProgress.rollbackStartProgress(from: 1.34, to: 0),
+            1
+        )
+        XCTAssertEqual(
+            BodyActivityRingAnimationProgress.rollbackStartProgress(from: 2.1, to: -0.2),
+            1
+        )
+        XCTAssertNil(BodyActivityRingAnimationProgress.rollbackStartProgress(from: 0.8, to: 0))
+        XCTAssertNil(BodyActivityRingAnimationProgress.rollbackStartProgress(from: 0, to: 1.34))
+        XCTAssertNil(BodyActivityRingAnimationProgress.rollbackStartProgress(from: 1.34, to: 0.2))
+    }
+
+    func testSupportedMetricDetailScreensExposeSwitchableDataSources() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let detailViewStart = try XCTUnwrap(source.range(of: "private struct BodyHealthMetricDetailView")?.lowerBound)
+        let detailViewBlock = String(source[detailViewStart...].prefix(11_000))
+        let pickerStart = try XCTUnwrap(source.range(of: "private struct BodyHealthDataSourcePickerSheet")?.lowerBound)
+        let pickerBlock = String(source[pickerStart...].prefix(6_000))
+
+        XCTAssertTrue(detailViewBlock.contains("model.kind.supportsHealthDataSourceSelection"))
+        XCTAssertTrue(detailViewBlock.contains("workoutStore.selectedHealthDataSourceOption(for: model.kind)"))
+        XCTAssertTrue(detailViewBlock.contains("BodyHealthDataSourcePickerSheet("))
+        XCTAssertTrue(pickerBlock.contains("workoutStore.healthDataSourceOptions(for: kind)"))
+        XCTAssertTrue(pickerBlock.contains("workoutStore.updateHealthDataSource(for: kind, option: option)"))
+    }
+
+    func testHealthKitFetchesApplySourcePreferencesToRequestedMetrics() throws {
+        let source = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+
+        XCTAssertTrue(source.contains("fetchHealthDataSourceOptions(calendar: calendar)"))
+        XCTAssertTrue(source.contains("sourcePredicate(for: sourceKind)"))
+        XCTAssertTrue(source.contains("combinedPredicate(startDate:"))
+        XCTAssertTrue(source.contains("sourceKind: .heartRate"))
+        XCTAssertTrue(source.contains("sourceKind: .sleep"))
+        XCTAssertTrue(source.contains("sourceKind: .heartRateVariability"))
+        XCTAssertTrue(source.contains("sourceKind: .restingHeartRate"))
+        XCTAssertTrue(source.contains("sourceKind: .steps"))
+        XCTAssertTrue(source.contains("sourceKind: .oxygenSaturation"))
+        XCTAssertTrue(source.contains("sourceKind: .activeEnergy"))
+        XCTAssertTrue(source.contains("sourceKind: .restingEnergy"))
+        XCTAssertTrue(source.contains("sourceKind: .exerciseMinutes"))
+        XCTAssertTrue(source.contains("case .oxygenSaturation:"))
+        XCTAssertTrue(source.contains("return HKObjectType.quantityType(forIdentifier: .oxygenSaturation)"))
+        XCTAssertTrue(source.contains("return HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)"))
+        XCTAssertTrue(source.contains("return HKObjectType.quantityType(forIdentifier: .basalEnergyBurned)"))
+        XCTAssertTrue(source.contains("return HKObjectType.quantityType(forIdentifier: .appleExerciseTime)"))
+        XCTAssertTrue(source.contains("HKSourceQuery("))
+        XCTAssertTrue(source.contains("HKQuery.predicateForObjects(from: Set([source]))"))
+    }
+
+    func testMetricDetailScreensPullToRefreshOnlyCurrentMetric() throws {
+        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let detailViewStart = try XCTUnwrap(homeSource.range(of: "private struct BodyHealthMetricDetailView")?.lowerBound)
+        let detailViewBlock = String(homeSource[detailViewStart...].prefix(3_500))
+        let refreshStart = try XCTUnwrap(storeSource.range(of: "func refreshHealthMetric(_ kind: HealthMetricKind")?.lowerBound)
+        let refreshBlock = String(storeSource[refreshStart...].prefix(8_000))
+
+        XCTAssertTrue(detailViewBlock.contains(".refreshable {"))
+        XCTAssertTrue(detailViewBlock.contains("await workoutStore.refreshHealthMetric(model.kind)"))
+        XCTAssertTrue(refreshBlock.contains("let metricSnapshot = await fetchHealthDashboardSnapshot(for: kind, calendar: calendar)"))
+        XCTAssertTrue(refreshBlock.contains("replacingMetric(kind, with: metricSnapshot.summary)"))
+        XCTAssertTrue(refreshBlock.contains("replacingMetric(kind, with: metricSnapshot.trends)"))
+        XCTAssertFalse(refreshBlock.contains("fetchHealthSummary(calendar: calendar)"))
+        XCTAssertFalse(refreshBlock.contains("fetchHealthTrends(calendar: calendar)"))
+    }
+
+    func testWorkoutsPullToRefreshOnlyRefreshesSelectedWorkoutMonth() throws {
+        let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let refreshableStart = try XCTUnwrap(workoutsSource.range(of: ".refreshable {")?.lowerBound)
+        let refreshableBlock = String(workoutsSource[refreshableStart...].prefix(500))
+        let methodStart = try XCTUnwrap(storeSource.range(of: "func refreshWorkoutMonth(month: Int, year: Int")?.lowerBound)
+        let methodBlock = String(storeSource[methodStart...].prefix(2_000))
+
+        XCTAssertTrue(refreshableBlock.contains("await workoutStore.refreshWorkoutMonth(month: selectedMonth, year: selectedYear)"))
+        XCTAssertFalse(refreshableBlock.contains("requestAuthorizationAndRefresh()"))
+        XCTAssertTrue(methodBlock.contains("await refresh(month: month, year: year, calendar: calendar, updatesHealthSummary: false)"))
+        XCTAssertFalse(methodBlock.contains("fetchHealthSummary(calendar: calendar)"))
+        XCTAssertFalse(methodBlock.contains("fetchHealthTrends(calendar: calendar)"))
+        XCTAssertFalse(methodBlock.contains("fetchActivityRingHistory(calendar: calendar)"))
     }
 
     func testAggregatedHealthChartsWireRangeLabelsAndBarWidths() throws {
@@ -436,7 +523,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.4.1;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -445,11 +532,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.4.1 (build 1)**"))
-        XCTAssertTrue(versionHistory.contains("## 0.4.1 (build 1)"))
-        XCTAssertTrue(versionHistory.contains("Added Heart Rate, Wrist Temperature, and Training Load dashboard cards with dedicated detail charts."))
-        XCTAssertTrue(versionHistory.contains("Moved the dashboard cache out of UserDefaults into file-backed storage to avoid oversized preferences writes."))
-        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.4.1 build 1."))
+        XCTAssertTrue(readme.contains("Current app version: **0.4.1 (build 2)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.4.1 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the in-app How to Use guide for Metrics settings, Data Refresh, Cache, and current Summary controls."))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.4.1 build 2."))
+        XCTAssertFalse(readme.contains("Current app version: **0.4.1 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.3.5"))
         XCTAssertFalse(readme.contains("Current app version: **0.3.9 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.3.4 (build 1)**"))
@@ -470,7 +557,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-v0.4.1`"))
-        XCTAssertTrue(testPlan.contains("app version 0.4.1 build 1"))
+        XCTAssertTrue(testPlan.contains("app version 0.4.1 build 2"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.0`"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.4`"))
         XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))
@@ -698,15 +785,55 @@ final class ProjectConfigurationTests: XCTestCase {
         let dataStart = try XCTUnwrap(settingsSource.range(of: "private var dataSection: some View")?.lowerBound)
         let dataBlock = String(settingsSource[dataStart...].prefix(3_000))
         XCTAssertTrue(dataBlock.contains("BodySettingsDataTab.allCases"))
+        XCTAssertTrue(dataBlock.contains("activeSheet = tab.sheet"))
         XCTAssertTrue(dataBlock.contains("dataValue(for: tab)"))
-        XCTAssertTrue(settingsSource.contains(#"return "Health Data Sync""#))
+        XCTAssertTrue(settingsSource.contains("return permissionSummaryText"))
+        XCTAssertFalse(settingsSource.contains(#""Grant Access""#))
+        XCTAssertTrue(settingsSource.contains(#"return "Data Refresh""#))
+        XCTAssertFalse(settingsSource.contains(#"return "Health Data Sync""#))
         XCTAssertTrue(settingsSource.contains(#"return "Cache""#))
         XCTAssertTrue(settingsSource.contains("case .syncStatus:"))
         XCTAssertTrue(settingsSource.contains("case .cache:"))
-        XCTAssertTrue(settingsSource.contains("BodyHealthSyncStatusSettingsSheet(workoutStore: workoutStore)"))
+        XCTAssertTrue(settingsSource.contains("case .permissions:"))
+        XCTAssertTrue(settingsSource.contains("BodyHealthPermissionsSettingsSheet(workoutStore: workoutStore)"))
         XCTAssertTrue(settingsSource.contains("BodyCacheSettingsSheet(workoutStore: workoutStore)"))
         XCTAssertTrue(settingsSource.contains("workoutStore.healthSyncStatusSummaryText"))
         XCTAssertTrue(settingsSource.contains("workoutStore.cacheStatus.summaryText"))
+    }
+
+    func testDataRefreshStatusSheetShowsLastRefreshWithoutDetailBullet() throws {
+        let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let sheetStart = try XCTUnwrap(settingsSource.range(of: "private struct BodyHealthSyncStatusSettingsSheet")?.lowerBound)
+        let sheetBlock = String(settingsSource[sheetStart...].prefix(2_500))
+        let statusTextStart = try XCTUnwrap(storeSource.range(of: "var healthSyncStatusLastRefreshText")?.lowerBound)
+        let statusTextBlock = String(storeSource[statusTextStart...].prefix(500))
+
+        XCTAssertTrue(sheetBlock.contains(#"BodySettingsAboutSheetScaffold(title: "Data Refresh")"#))
+        XCTAssertTrue(sheetBlock.contains(#""Last refreshed: \(lastSuccessfulRefreshText)""#))
+        XCTAssertFalse(sheetBlock.contains("workoutStore.healthSyncStatusDetailText"))
+        XCTAssertFalse(sheetBlock.contains(#""Last successful refresh: \(lastSuccessfulRefreshText)""#))
+        XCTAssertTrue(storeSource.contains("healthSyncStatusLastRefreshText"))
+        XCTAssertFalse(storeSource.contains(#"return "Updated""#))
+        XCTAssertTrue(statusTextBlock.contains("date.formatted(.dateTime.month(.abbreviated).day().hour().minute())"))
+        XCTAssertFalse(statusTextBlock.contains("date.formatted(date: .abbreviated, time: .shortened)"))
+    }
+
+    func testHowToUseGuideCoversCurrentSettingsAndDataFeatures() throws {
+        let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
+        let howToUseStart = try XCTUnwrap(settingsSource.range(of: "private struct BodyHowToUseSettingsSheet")?.lowerBound)
+        let howToUseBlock = String(settingsSource[howToUseStart...].prefix(5_500))
+
+        XCTAssertTrue(howToUseBlock.contains(#"title: "Connect Apple Health""#))
+        XCTAssertTrue(howToUseBlock.contains("Open Data > Permissions to choose which Apple Health categories Body uses inside the app."))
+        XCTAssertTrue(howToUseBlock.contains("Open Data > Data Refresh to see the last refresh time or run Refresh Now."))
+        XCTAssertTrue(howToUseBlock.contains(#"title: "Customize Metrics""#))
+        XCTAssertTrue(howToUseBlock.contains("Use Metrics > Units to follow the system or choose weight, distance, energy, and temperature units manually."))
+        XCTAssertTrue(howToUseBlock.contains("Use Metrics > Summary Cards, Charts Range, and Trend Cards to decide what appears on Summary and which default range charts open with."))
+        XCTAssertTrue(howToUseBlock.contains(#"title: "Manage Cache""#))
+        XCTAssertTrue(howToUseBlock.contains("Use Data > Cache to review cached dashboard, workout, and Activity Ring data."))
+        XCTAssertTrue(howToUseBlock.contains("Clear Cache removes local snapshots; Rebuild Cache refreshes Apple Health and rebuilds the local files."))
+        XCTAssertFalse(howToUseBlock.contains("Use Settings to change appearance, app accent, icon, and measurement units."))
     }
 
     func testBodyProPageUsesCoinStyleSettingsEntryAndIconAssets() throws {

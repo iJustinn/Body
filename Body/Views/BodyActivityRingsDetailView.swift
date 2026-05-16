@@ -40,6 +40,27 @@ enum BodyActivityRingGraphicGeometry {
     }
 }
 
+enum BodyActivityRingAnimationProgress {
+    static func normalized(_ progress: Double) -> Double {
+        guard progress.isFinite else {
+            return 0
+        }
+
+        return max(progress, 0)
+    }
+
+    static func rollbackStartProgress(from currentProgress: Double, to nextProgress: Double) -> Double? {
+        let currentProgress = normalized(currentProgress)
+        let nextProgress = normalized(nextProgress)
+
+        guard nextProgress <= 0, currentProgress > 1 else {
+            return nil
+        }
+
+        return 1
+    }
+}
+
 enum BodyActivityRingCompletionStarGeometry {
     static let referenceRingSize: CGFloat = 34
     static let referenceFontSize: CGFloat = 9
@@ -445,26 +466,26 @@ private struct BodyActivityRingGraphic: View {
                 progress: summary.move.completionProgress,
                 showsFullStartMarker: summary.move.showsFullStartMarker,
                 color: moveColor,
-                lineWidth: geometry.ringLineWidth
+                lineWidth: geometry.ringLineWidth,
+                animation: sweepAnimation(ringIndex: 0)
             )
                 .frame(width: geometry.moveDiameter, height: geometry.moveDiameter)
-                .animation(sweepAnimation(ringIndex: 0), value: summary.move.completionProgress)
             BodyActivityRingArc(
                 progress: summary.exercise.completionProgress,
                 showsFullStartMarker: summary.exercise.showsFullStartMarker,
                 color: exerciseColor,
-                lineWidth: geometry.ringLineWidth
+                lineWidth: geometry.ringLineWidth,
+                animation: sweepAnimation(ringIndex: 1)
             )
                 .frame(width: geometry.exerciseDiameter, height: geometry.exerciseDiameter)
-                .animation(sweepAnimation(ringIndex: 1), value: summary.exercise.completionProgress)
             BodyActivityRingArc(
                 progress: summary.stand.completionProgress,
                 showsFullStartMarker: summary.stand.showsFullStartMarker,
                 color: standColor,
-                lineWidth: geometry.ringLineWidth
+                lineWidth: geometry.ringLineWidth,
+                animation: sweepAnimation(ringIndex: 2)
             )
                 .frame(width: geometry.standDiameter, height: geometry.standDiameter)
-                .animation(sweepAnimation(ringIndex: 2), value: summary.stand.completionProgress)
 
             BodyActivityRingFence(diameter: geometry.outerFenceDiameter, color: fenceColor)
             BodyActivityRingFence(diameter: geometry.innerFenceDiameter, color: fenceColor)
@@ -490,10 +511,13 @@ private struct BodyActivityRingFence: View {
 }
 
 private struct BodyActivityRingArc: View {
+    @State private var displayedProgress: Double?
+
     let progress: Double
     let showsFullStartMarker: Bool
     let color: Color
     let lineWidth: CGFloat
+    let animation: Animation?
 
     var body: some View {
         GeometryReader { proxy in
@@ -532,26 +556,59 @@ private struct BodyActivityRingArc: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
+        .onAppear {
+            setAnimatedProgress(normalizedProgress, animation: nil)
+        }
+        .onChange(of: normalizedProgress) { oldProgress, nextProgress in
+            updateDisplayedProgress(from: oldProgress, to: nextProgress)
+        }
     }
 
     private var clampedProgress: Double {
-        min(normalizedProgress, 1)
+        min(animatedHeadProgress, 1)
     }
 
     private var normalizedProgress: Double {
-        guard progress.isFinite else {
-            return 0
-        }
-
-        return max(progress, 0)
+        BodyActivityRingAnimationProgress.normalized(progress)
     }
 
     private var animatedHeadProgress: Double {
-        normalizedProgress
+        displayedProgress ?? normalizedProgress
     }
 
     private var normalizedHeadProgress: Double {
         animatedHeadProgress.truncatingRemainder(dividingBy: 1)
+    }
+
+    private func updateDisplayedProgress(from oldProgress: Double, to nextProgress: Double) {
+        let currentProgress = displayedProgress ?? oldProgress
+
+        if let rollbackStart = BodyActivityRingAnimationProgress.rollbackStartProgress(
+            from: currentProgress,
+            to: nextProgress
+        ) {
+            setAnimatedProgress(rollbackStart, animation: nil)
+            DispatchQueue.main.async {
+                setAnimatedProgress(nextProgress, animation: animation)
+            }
+            return
+        }
+
+        setAnimatedProgress(nextProgress, animation: animation)
+    }
+
+    private func setAnimatedProgress(_ nextProgress: Double, animation: Animation?) {
+        if let animation {
+            withAnimation(animation) {
+                displayedProgress = nextProgress
+            }
+        } else {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                displayedProgress = nextProgress
+            }
+        }
     }
 
     private func headOffsetX(progress: Double, radius: CGFloat) -> CGFloat {

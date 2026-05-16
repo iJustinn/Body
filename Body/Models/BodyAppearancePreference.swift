@@ -19,11 +19,55 @@ enum BodyAppearancePreference {
     static let defaultTrendRangeKey = "defaultTrendRange"
     static let homeTrendCardSelectionKey = "homeTrendCardSelection"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
+    static let healthDataSourceSelectionKey = "healthDataSourceSelection"
     static let bodyProIconShowsBackKey = "bodyProIconShowsBack"
     static let creatorSurpriseIconsUnlockedKey = "creatorSurpriseIconsUnlocked"
 
     static func bodyProIconAssetName(showsBack: Bool) -> String {
         showsBack ? "BodyProIconBack" : "BodyProIcon"
+    }
+}
+
+extension HealthMetricKind {
+    static let sourceSelectableKinds: [HealthMetricKind] = [
+        .heartRate,
+        .sleep,
+        .heartRateVariability,
+        .restingHeartRate,
+        .steps,
+        .oxygenSaturation,
+        .activeEnergy,
+        .restingEnergy,
+        .exerciseMinutes
+    ]
+
+    var supportsHealthDataSourceSelection: Bool {
+        Self.sourceSelectableKinds.contains(self)
+    }
+
+    var sourcePickerTitle: String {
+        switch self {
+        case .heartRate:
+            return "Heart Rate"
+        case .sleep:
+            return "Sleep"
+        case .heartRateVariability:
+            return "HRV"
+        case .restingHeartRate:
+            return "Resting Heart Rate"
+        case .steps:
+            return "Steps"
+        case .oxygenSaturation:
+            return "Blood Oxygen"
+        case .activeEnergy:
+            return "Active Energy"
+        case .restingEnergy:
+            return "Resting Energy"
+        case .exerciseMinutes:
+            return "Exercise Minutes"
+        default:
+            return "Data"
+        }
     }
 }
 
@@ -229,6 +273,98 @@ struct BodyHealthPermissionSelection: Equatable {
 
     func save(defaults: UserDefaults = .standard) {
         defaults.set(rawValue, forKey: BodyAppearancePreference.healthPermissionSelectionKey)
+    }
+}
+
+struct BodyHealthDataSourceOption: Codable, Equatable, Identifiable {
+    static let allSources = BodyHealthDataSourceOption(id: "all", name: "Apple Health")
+
+    let id: String
+    let name: String
+
+    var isAllSources: Bool {
+        id == Self.allSources.id
+    }
+}
+
+struct BodyHealthDataSourceSelection: Equatable {
+    static let defaultValue = BodyHealthDataSourceSelection(selectedOptions: [:])
+    static var defaultRawValue: String {
+        defaultValue.rawValue
+    }
+
+    var selectedOptions: [HealthMetricKind: BodyHealthDataSourceOption]
+
+    var rawValue: String {
+        let storage = Dictionary(uniqueKeysWithValues: selectedOptions.map { kind, option in
+            (kind.rawValue, option)
+        })
+
+        guard let data = try? JSONEncoder().encode(storage),
+              let value = String(data: data, encoding: .utf8)
+        else {
+            return "{}"
+        }
+
+        return value
+    }
+
+    func option(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
+        guard kind.supportsHealthDataSourceSelection else {
+            return .allSources
+        }
+
+        return selectedOptions[kind] ?? .allSources
+    }
+
+    func setting(_ kind: HealthMetricKind, option: BodyHealthDataSourceOption) -> BodyHealthDataSourceSelection {
+        guard kind.supportsHealthDataSourceSelection else {
+            return self
+        }
+
+        var nextOptions = selectedOptions
+        if option.isAllSources {
+            nextOptions.removeValue(forKey: kind)
+        } else {
+            nextOptions[kind] = option
+        }
+
+        return BodyHealthDataSourceSelection(selectedOptions: nextOptions)
+    }
+
+    static func storedValue(from rawValue: String) -> BodyHealthDataSourceSelection {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty, let data = trimmedValue.data(using: .utf8) else {
+            return defaultValue
+        }
+
+        guard let storage = try? JSONDecoder().decode([String: BodyHealthDataSourceOption].self, from: data) else {
+            return defaultValue
+        }
+
+        let selectedOptionPairs: [(HealthMetricKind, BodyHealthDataSourceOption)] = storage.compactMap { rawKind, option in
+            guard let kind = HealthMetricKind(rawValue: rawKind),
+                  kind.supportsHealthDataSourceSelection,
+                  !option.isAllSources else {
+                return nil
+            }
+
+            return (kind, option)
+        }
+        let selectedOptions = Dictionary(uniqueKeysWithValues: selectedOptionPairs)
+
+        return BodyHealthDataSourceSelection(selectedOptions: selectedOptions)
+    }
+
+    static func load(defaults: UserDefaults = .standard) -> BodyHealthDataSourceSelection {
+        storedValue(
+            from: defaults.string(forKey: BodyAppearancePreference.healthDataSourceSelectionKey)
+                ?? defaultRawValue
+        )
+    }
+
+    func save(defaults: UserDefaults = .standard) {
+        defaults.set(rawValue, forKey: BodyAppearancePreference.healthDataSourceSelectionKey)
     }
 }
 

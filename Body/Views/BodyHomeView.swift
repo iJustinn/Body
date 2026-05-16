@@ -2113,6 +2113,7 @@ private struct BodyHealthMetricDetailView: View {
     @State private var selectedSleepDate: Date?
     @State private var selectedMetricDate: Date?
     @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
+    @State private var showsDataSourcePicker = false
 
     init(
         model: BodyHealthMetricDetailModel,
@@ -2161,6 +2162,9 @@ private struct BodyHealthMetricDetailView: View {
             .padding(.top, 16)
             .padding(.bottom, 32)
         }
+        .refreshable {
+            await workoutStore.refreshHealthMetric(model.kind)
+        }
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .navigationTitle(model.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -2169,6 +2173,13 @@ private struct BodyHealthMetricDetailView: View {
                 .presentationDetents([.height(BodySleepScoreDetailsSheetLayout.sheetHeight), .large])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(Color(.systemBackground))
+        }
+        .sheet(isPresented: $showsDataSourcePicker) {
+            BodyHealthDataSourcePickerSheet(kind: model.kind, accentColor: model.symbolColor)
+                .environmentObject(workoutStore)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Color(.systemGroupedBackground))
         }
     }
 
@@ -2301,21 +2312,43 @@ private struct BodyHealthMetricDetailView: View {
     @ViewBuilder
     private var dataSourceFooter: some View {
         if let dataSourceText = model.dataSourceText {
-            HStack(spacing: 7) {
-                Image(systemName: "heart.text.square.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(model.symbolColor)
+            Button {
+                if model.kind.supportsHealthDataSourceSelection {
+                    showsDataSourcePicker = true
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "heart.text.square.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(model.symbolColor)
 
-                Text(dataSourceText.sourceText)
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                    Text(dataSourceFooterText(defaultText: dataSourceText.sourceText))
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+
+                    if model.kind.supportsHealthDataSourceSelection {
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.secondary.opacity(0.7))
+                    }
+                }
             }
+            .buttonStyle(.plain)
+            .disabled(!model.kind.supportsHealthDataSourceSelection)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.top, 2)
             .padding(.bottom, 4)
         }
+    }
+
+    private func dataSourceFooterText(defaultText: String) -> String {
+        guard model.kind.supportsHealthDataSourceSelection else {
+            return defaultText
+        }
+
+        return workoutStore.selectedHealthDataSourceOption(for: model.kind).name
     }
 
     private var headerCard: some View {
@@ -3635,6 +3668,106 @@ private struct BodyHomeTrendComparisonChart: View {
         let minimum = chartValues.min() ?? maximum
         let padding = max((maximum - minimum) * 0.16, 1)
         return maximum + padding
+    }
+}
+
+private struct BodyHealthDataSourcePickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+
+    let kind: HealthMetricKind
+    let accentColor: Color
+
+    @State private var updatingOptionID: String?
+
+    private var selectedOption: BodyHealthDataSourceOption {
+        workoutStore.selectedHealthDataSourceOption(for: kind)
+    }
+
+    private var options: [BodyHealthDataSourceOption] {
+        workoutStore.healthDataSourceOptions(for: kind)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(options) { option in
+                        sourceOptionButton(option)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 18)
+                .padding(.bottom, 30)
+            }
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .navigationTitle("\(kind.sourcePickerTitle) Source")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .font(.system(.body, design: .rounded))
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+
+    private func sourceOptionButton(_ option: BodyHealthDataSourceOption) -> some View {
+        let isSelected = selectedOption.id == option.id
+        return Button {
+            updateSelection(option)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "heart.text.square.fill")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundColor(accentColor)
+                    .frame(width: 34, height: 34)
+                    .background(accentColor.opacity(0.13))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(option.name)
+                        .font(.system(.body, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+
+                    Text(option.isAllSources ? "All available Apple Health sources" : "Only this source")
+                        .font(.system(.footnote, design: .rounded))
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                if updatingOptionID == option.id {
+                    ProgressView()
+                        .controlSize(.small)
+                } else if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundColor(accentColor)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(updatingOptionID != nil || isSelected)
+    }
+
+    private func updateSelection(_ option: BodyHealthDataSourceOption) {
+        updatingOptionID = option.id
+        Task {
+            await workoutStore.updateHealthDataSource(for: kind, option: option)
+            updatingOptionID = nil
+            dismiss()
+        }
     }
 }
 

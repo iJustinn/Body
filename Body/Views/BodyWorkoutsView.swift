@@ -98,7 +98,7 @@ struct BodyWorkoutsView: View {
                         .padding(.bottom, 110)
                     }
                     .refreshable {
-                        await workoutStore.requestAuthorizationAndRefresh()
+                        await workoutStore.refreshWorkoutMonth(month: selectedMonth, year: selectedYear)
                     }
                     .opacity(isListLoaded ? 1 : 0)
                     .animation(.easeIn(duration: 0.3), value: isListLoaded)

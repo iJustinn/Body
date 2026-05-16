@@ -1,5 +1,10 @@
 # Version History
 
+## 0.4.1 (build 2)
+
+- Updated the in-app How to Use guide for Metrics settings, Data Refresh, Cache, and current Summary controls.
+- Updated the app, widget, and test bundle version to 0.4.1 build 2.
+
 ## 0.4.1 (build 1)
 
 - Updated the app, widget, and test bundle version to 0.4.1 build 1.

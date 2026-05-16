@@ -377,6 +377,51 @@ struct HealthSummarySnapshot: Codable, Equatable {
 
         return filtered
     }
+
+    func replacingMetric(_ kind: HealthMetricKind, with refreshed: HealthSummarySnapshot) -> HealthSummarySnapshot {
+        var next = self
+
+        switch kind {
+        case .sleep:
+            next.sleep = refreshed.sleep
+        case .basics:
+            next.bodyMass = refreshed.bodyMass
+            next.bodyFatPercentage = refreshed.bodyFatPercentage
+            next.bodyMassIndex = refreshed.bodyMassIndex
+        case .heartRate:
+            next.heartRate = refreshed.heartRate
+        case .restingHeartRate:
+            next.restingHeartRate = refreshed.restingHeartRate
+        case .bodyMass:
+            next.bodyMass = refreshed.bodyMass
+        case .bodyFatPercentage:
+            next.bodyFatPercentage = refreshed.bodyFatPercentage
+        case .heartRateVariability:
+            next.heartRateVariability = refreshed.heartRateVariability
+        case .respiratoryRate:
+            next.respiratoryRate = refreshed.respiratoryRate
+        case .oxygenSaturation:
+            next.oxygenSaturation = refreshed.oxygenSaturation
+        case .bodyMassIndex:
+            next.bodyMassIndex = refreshed.bodyMassIndex
+        case .activeEnergy:
+            next.activeEnergy = refreshed.activeEnergy
+        case .restingEnergy:
+            next.restingEnergy = refreshed.restingEnergy
+        case .exerciseMinutes:
+            next.exerciseMinutes = refreshed.exerciseMinutes
+        case .trainingLoad:
+            next.trainingLoad = refreshed.trainingLoad
+        case .wristTemperature:
+            next.wristTemperature = refreshed.wristTemperature
+        case .timeInDaylight:
+            next.timeInDaylight = refreshed.timeInDaylight
+        case .steps:
+            next.steps = refreshed.steps
+        }
+
+        return next
+    }
 }
 
 struct ActivityRingSummary: Codable, Equatable {
@@ -1616,6 +1661,61 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .steps:
             return .empty
         }
+    }
+
+    func replacingMetric(_ kind: HealthMetricKind, with refreshed: HealthTrendSnapshot) -> HealthTrendSnapshot {
+        var next = self
+
+        switch kind {
+        case .sleep:
+            next.sleep = refreshed.sleep
+            next.sleepHistory = refreshed.sleepHistory
+        case .basics:
+            next.bodyMass = refreshed.bodyMass
+            next.bodyFatPercentage = refreshed.bodyFatPercentage
+            next.bodyMassIndex = refreshed.bodyMassIndex
+        case .heartRate:
+            next.heartRate = refreshed.heartRate
+            next.heartRateRanges = refreshed.heartRateRanges
+            next.heartRateDaySamples = refreshed.heartRateDaySamples
+        case .restingHeartRate:
+            next.restingHeartRate = refreshed.restingHeartRate
+            next.restingHeartRateDaySamples = refreshed.restingHeartRateDaySamples
+        case .bodyMass:
+            next.bodyMass = refreshed.bodyMass
+        case .bodyFatPercentage:
+            next.bodyFatPercentage = refreshed.bodyFatPercentage
+        case .heartRateVariability:
+            next.heartRateVariability = refreshed.heartRateVariability
+            next.heartRateVariabilityRanges = refreshed.heartRateVariabilityRanges
+            next.heartRateVariabilityDaySamples = refreshed.heartRateVariabilityDaySamples
+        case .respiratoryRate:
+            next.respiratoryRate = refreshed.respiratoryRate
+            next.respiratoryRateRanges = refreshed.respiratoryRateRanges
+            next.respiratoryRateDaySamples = refreshed.respiratoryRateDaySamples
+        case .oxygenSaturation:
+            next.oxygenSaturation = refreshed.oxygenSaturation
+            next.oxygenSaturationRanges = refreshed.oxygenSaturationRanges
+            next.oxygenSaturationDaySamples = refreshed.oxygenSaturationDaySamples
+        case .bodyMassIndex:
+            next.bodyMassIndex = refreshed.bodyMassIndex
+        case .activeEnergy:
+            next.activeEnergy = refreshed.activeEnergy
+        case .restingEnergy:
+            next.restingEnergy = refreshed.restingEnergy
+        case .exerciseMinutes:
+            next.exerciseMinutes = refreshed.exerciseMinutes
+        case .trainingLoad:
+            next.trainingLoad = refreshed.trainingLoad
+        case .wristTemperature:
+            next.wristTemperature = refreshed.wristTemperature
+        case .timeInDaylight:
+            next.timeInDaylight = refreshed.timeInDaylight
+        case .steps:
+            next.steps = refreshed.steps
+        }
+
+        return next
     }
 
     func filtered(by selection: BodyHealthPermissionSelection) -> HealthTrendSnapshot {

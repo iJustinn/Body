@@ -597,7 +597,7 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
         case .permissions:
             return "Permissions"
         case .syncStatus:
-            return "Health Data Sync"
+            return "Data Refresh"
         case .cache:
             return "Cache"
         }
@@ -625,7 +625,7 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
         }
     }
 
-    var sheet: BodySettingsSheet {
+    var sheet: BodySettingsSheet? {
         switch self {
         case .permissions:
             return .permissions
@@ -1264,7 +1264,7 @@ private struct BodyHealthSyncStatusSettingsSheet: View {
     @ObservedObject var workoutStore: HealthKitWorkoutStore
 
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Health Data Sync") {
+        BodySettingsAboutSheetScaffold(title: "Data Refresh") {
             VStack(spacing: 14) {
                 BodySettingsInfoCard(section: syncStatusSection)
 
@@ -1297,19 +1297,14 @@ private struct BodyHealthSyncStatusSettingsSheet: View {
             iconName: "arrow.triangle.2.circlepath",
             tintColor: .blue,
             details: [
-                workoutStore.healthSyncStatusDetailText,
-                "Last successful refresh: \(lastSuccessfulRefreshText)",
+                "Last refreshed: \(lastSuccessfulRefreshText)",
                 workoutStore.healthDataNotice ?? "No health data notice is currently shown."
             ]
         )
     }
 
     private var lastSuccessfulRefreshText: String {
-        guard let date = workoutStore.lastSuccessfulRefreshDate else {
-            return "Not yet refreshed"
-        }
-
-        return date.formatted(date: .abbreviated, time: .shortened)
+        workoutStore.healthSyncStatusLastRefreshText
     }
 }
 
@@ -1940,9 +1935,9 @@ private struct BodyHowToUseSettingsSheet: View {
             iconName: "heart.text.square.fill",
             tintColor: .red,
             steps: [
-                "Grant read permission when Body asks for Apple Health access.",
-                "Use a real device for complete Health data. Some HealthKit data is limited or empty in Simulator.",
-                "Pull down on Summary to refresh the dashboard after new workouts, sleep, or vitals are recorded."
+                "Grant read permission when Body asks for Apple Health access. Use a real device for complete Health data.",
+                "Open Data > Permissions to choose which Apple Health categories Body uses inside the app.",
+                "Open Data > Data Refresh to see the last refresh time or run Refresh Now."
             ]
         ),
         BodyHowToUseGuideSection(
@@ -1950,9 +1945,19 @@ private struct BodyHowToUseSettingsSheet: View {
             iconName: "rectangle.grid.2x2.fill",
             tintColor: .blue,
             steps: [
-                "Summary shows Activity Rings, Sleep, Basics, training load, heart rate, resting heart rate, HRV, blood oxygen, respiratory rate, active energy, and resting energy.",
-                "Tap a card to open its secondary screen with recent Week, Month, 6 Months, and Year trends.",
-                "Use Settings to change appearance, app accent, icon, and measurement units."
+                "Summary shows Activity Rings, Sleep, Basics, Training Load, heart, respiratory, energy, daylight, steps, and body metric cards.",
+                "Tap a card to open details with trend ranges, day views when available, and metric-specific context.",
+                "Pull down on Summary after new Health data is recorded to refresh the dashboard."
+            ]
+        ),
+        BodyHowToUseGuideSection(
+            title: "Customize Metrics",
+            iconName: "slider.horizontal.3",
+            tintColor: .teal,
+            steps: [
+                "Use Metrics > Units to follow the system or choose weight, distance, energy, and temperature units manually.",
+                "Use Metrics > Summary Cards, Charts Range, and Trend Cards to decide what appears on Summary and which default range charts open with.",
+                "Use Appearance to change theme, app accent, and icon separately from metric behavior."
             ]
         ),
         BodyHowToUseGuideSection(
@@ -1986,11 +1991,12 @@ private struct BodyHowToUseSettingsSheet: View {
             ]
         ),
         BodyHowToUseGuideSection(
-            title: "Workouts & Widgets",
-            iconName: "square.grid.2x2.fill",
+            title: "Manage Cache",
+            iconName: "internaldrive.fill",
             tintColor: .purple,
             steps: [
-                "Workouts shows monthly workout calendars and workout-type breakdowns.",
+                "Use Data > Cache to review cached dashboard, workout, and Activity Ring data.",
+                "Clear Cache removes local snapshots; Rebuild Cache refreshes Apple Health and rebuilds the local files.",
                 "Workout widgets read Body's shared cached snapshot, so open the app and refresh when widget data looks stale.",
                 "Widget backgrounds can use System, Black, or White styling."
             ]
