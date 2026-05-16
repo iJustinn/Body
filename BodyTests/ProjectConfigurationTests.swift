@@ -53,7 +53,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("AnnotationOverflowResolution("))
         XCTAssertTrue(source.contains("x: .fit(to: .chart)"))
         XCTAssertTrue(source.contains("y: .disabled"))
-        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 5)
+        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 8)
         XCTAssertFalse(source.contains(".annotation(position: .top, spacing: 8) {"))
     }
 
@@ -61,9 +61,16 @@ final class ProjectConfigurationTests: XCTestCase {
         let source = try text(at: "Body/Views/BodyHomeView.swift")
 
         XCTAssertTrue(source.contains("bodyHealthDetailChartLeadingDatePadding: TimeInterval = 2 * 60 * 60"))
-        XCTAssertTrue(source.contains("bodyHealthDetailChartTrailingDatePadding: TimeInterval = 36 * 60 * 60"))
-        XCTAssertTrue(source.contains("private func bodyHealthDetailChartXDomain(for dates: [Date]) -> ClosedRange<Date>"))
-        XCTAssertEqual(source.occurrenceCount(of: "self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates)"), 3)
+        XCTAssertTrue(source.contains("bodyHealthDetailChartMinimumTrailingDatePadding: TimeInterval = 36 * 60 * 60"))
+        XCTAssertTrue(source.contains("private func bodyHealthDetailChartTrailingDatePadding(for selectedRange: BodyHealthTrendRange) -> TimeInterval"))
+        XCTAssertTrue(source.contains("let rangeScaledPadding = Double(selectedRange.axisStrideDayCount) * 24 * 60 * 60 * 0.55"))
+        XCTAssertTrue(source.contains("return max(bodyHealthDetailChartMinimumTrailingDatePadding, rangeScaledPadding)"))
+        XCTAssertTrue(source.contains("private func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange) -> ClosedRange<Date>"))
+        XCTAssertEqual(
+            source.occurrenceCount(of: "self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)"),
+            5
+        )
+        XCTAssertFalse(source.contains("bodyHealthDetailChartTrailingDatePadding: TimeInterval = 36 * 60 * 60"))
         XCTAssertFalse(source.contains("let leadingPadding: TimeInterval = 6 * 60 * 60"))
         XCTAssertFalse(source.contains("let trailingPadding: TimeInterval = 18 * 60 * 60"))
     }
@@ -74,6 +81,16 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(source.contains("BodyLineChartPlaceholderSymbol"))
         XCTAssertFalse(source.contains("placeholderSymbolSize"))
         XCTAssertTrue(source.contains("placeholderBarYValue"))
+    }
+
+    func testLineHealthChartsUseStraightInterpolation() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertFalse(source.contains(".interpolationMethod(.catmullRom)"))
+        XCTAssertEqual(
+            source.occurrenceCount(of: ".interpolationMethod("),
+            source.occurrenceCount(of: ".interpolationMethod(.linear)")
+        )
     }
 
     func testMetricDayLineChartUsesPreviewDotSymbols() throws {
@@ -88,10 +105,192 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(chartBlock.contains(".symbolSize(24)"))
     }
 
+    func testHeartRateVariabilityDayChartUsesSleepAndWorkoutContextOverlay() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let detailStart = try XCTUnwrap(
+            source.range(of: "case .heartRateVariability:\n            return metricDetail(")?.lowerBound
+        )
+        let detailBlock = String(source[detailStart...].prefix(900))
+        let contextStart = try XCTUnwrap(source.range(of: "private var selectedMetricDayContextIntervals")?.lowerBound)
+        let contextBlock = String(source[contextStart...].prefix(2_400))
+        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyHealthMetricDayChart")?.lowerBound)
+        let chartBlock = String(source[chartStart...].prefix(5_000))
+
+        XCTAssertTrue(detailBlock.contains("sleepHistory: trends.sleepHistory"))
+        XCTAssertTrue(contextBlock.contains("model.kind == .heartRate || model.kind == .heartRateVariability"))
+        XCTAssertTrue(contextBlock.contains("sleepSummary(for: selectedMetricDay)?.stageSnapshot.dateInterval"))
+        XCTAssertTrue(contextBlock.contains(#"symbolName: "bed.double.fill""#))
+        XCTAssertFalse(contextBlock.contains(#"symbolName: "moon.fill""#))
+        XCTAssertTrue(contextBlock.contains("workouts(on: dayInterval)"))
+        XCTAssertTrue(contextBlock.contains("color: workout.type.color"))
+        XCTAssertFalse(contextBlock.contains("color: Color(red: 1.00, green: 0.38, blue: 0.12)"))
+        XCTAssertTrue(chartBlock.contains(".foregroundStyle(interval.color)"))
+        XCTAssertFalse(chartBlock.contains("interval.kind == .sleep ? Color.white : interval.color"))
+    }
+
+    func testMetricCardPreviewStylesMatchRequestedChartKinds() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let previewBlock = String(source[
+            try XCTUnwrap(source.range(of: "private struct BodyHealthMetricCardTrendPreview")?.lowerBound)...
+        ].prefix(8_000))
+        let heartRateCardStart = try XCTUnwrap(
+            source.range(of: "kind: .heartRate,\n                title: \"Heart Rate\"")?.lowerBound
+        )
+        let restingHeartRateCardStart = try XCTUnwrap(source.range(of: "kind: .restingHeartRate,")?.lowerBound)
+        let heartRateCardBlock = String(source[heartRateCardStart..<restingHeartRateCardStart])
+        let heartRateVariabilityCardStart = try XCTUnwrap(source.range(of: "kind: .heartRateVariability,")?.lowerBound)
+        let oxygenCardStart = try XCTUnwrap(source.range(of: "kind: .oxygenSaturation,")?.lowerBound)
+        let heartRateVariabilityCardBlock = String(source[heartRateVariabilityCardStart..<oxygenCardStart])
+
+        XCTAssertTrue(heartRateCardBlock.contains("chartPreview: trends.series(for: .heartRate)"))
+        XCTAssertFalse(heartRateCardBlock.contains("chartRangePreview: trends.rangeSeries(for: .heartRate)"))
+        XCTAssertFalse(heartRateCardBlock.contains("chartPreviewStyle: .range"))
+        XCTAssertTrue(heartRateVariabilityCardBlock.contains("chartPreview: trends.series(for: .heartRateVariability)"))
+        XCTAssertFalse(heartRateVariabilityCardBlock.contains("chartRangePreview: trends.rangeSeries(for: .heartRateVariability)"))
+        XCTAssertFalse(heartRateVariabilityCardBlock.contains("chartPreviewStyle: .range"))
+        XCTAssertTrue(source.contains("chartRangePreview: trends.rangeSeries(for: .oxygenSaturation)"))
+        XCTAssertTrue(source.contains("chartRangePreview: trends.rangeSeries(for: .respiratoryRate)"))
+        XCTAssertTrue(source.contains("chartPreviewStyle: .range"))
+        XCTAssertTrue(previewBlock.contains("case .range:"))
+        XCTAssertTrue(previewBlock.contains("rangePreview"))
+        XCTAssertTrue(previewBlock.contains("BodyHomeMetricCardPreview.rangeCalendarPoints(from: rangeSeries)"))
+        XCTAssertTrue(previewBlock.contains("RoundedRectangle(cornerRadius: 2, style: .continuous)"))
+        XCTAssertTrue(previewBlock.contains("Capsule(style: .continuous)"))
+    }
+
+    func testHeartRateRangeChartUsesStandardBarSelectionRule() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyHeartRateRangeTrendChart")?.lowerBound)
+        let chartBlock = String(source[chartStart...].prefix(12_000))
+
+        XCTAssertTrue(source.contains("private var usesRangeTrendChart: Bool"))
+        XCTAssertTrue(source.contains("model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .oxygenSaturation || model.kind == .respiratoryRate"))
+        XCTAssertTrue(source.contains("rangeSeries: workoutStore.healthTrends.rangeSeries(for: kind)"))
+        XCTAssertTrue(source.contains("yDomain: metricRangeYDomain"))
+        XCTAssertTrue(source.contains("return BodyHealthMetricRangeYDomain.bloodOxygen"))
+        XCTAssertTrue(source.contains("return BodyHealthMetricRangeYDomain.respiratoryRate"))
+        XCTAssertTrue(source.contains("ceil(minimum / 5) * 5 - 5"))
+        XCTAssertTrue(source.contains("ceil(maximum / 5) * 5"))
+        XCTAssertFalse(source.contains("floor((minimum - 5) / 5) * 5"))
+        XCTAssertTrue(source.contains("showsAverageLineOverlay: model.kind == .heartRate || model.kind == .heartRateVariability"))
+        XCTAssertTrue(chartBlock.contains("let showsAverageLineOverlay: Bool"))
+        XCTAssertTrue(chartBlock.contains("private var rangeBarColor: Color"))
+        XCTAssertTrue(chartBlock.contains("showsAverageLineOverlay ? Color.secondary.opacity(0.24) : symbolColor"))
+        XCTAssertTrue(chartBlock.contains("private var averageLineOverlay: some ChartContent"))
+        XCTAssertTrue(chartBlock.contains("LineMark("))
+        XCTAssertTrue(chartBlock.contains(#"y: .value("Average \(title)", averageValue)"#))
+        XCTAssertTrue(chartBlock.contains("BodyLineChartPreviewPointSymbol("))
+        XCTAssertTrue(source.contains("} else if usesRangeTrendChart, let visibleMetricRangeSeries {"))
+        XCTAssertTrue(chartBlock.contains("if let selectedRangePoint {\n                    RuleMark(x: .value(\"Selected Date\", selectedRangePoint.date, unit: .day))"))
+        XCTAssertTrue(chartBlock.contains(".foregroundStyle(Color.secondary.opacity(0.48))"))
+        XCTAssertTrue(chartBlock.contains(".lineStyle(StrokeStyle(lineWidth: 1.4))"))
+        XCTAssertTrue(chartBlock.contains(".foregroundStyle(rangeBarColor)"))
+        XCTAssertFalse(chartBlock.contains(".foregroundStyle(symbolColor.opacity(0.68))"))
+        XCTAssertFalse(chartBlock.contains("width: .fixed(chartBarWidth + 5)"))
+        XCTAssertFalse(chartBlock.contains(".foregroundStyle(Color.secondary.opacity(0.30))"))
+    }
+
+    func testWristTemperatureCardUsesLineChartDetailWithoutDayView() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let cardStart = try XCTUnwrap(source.range(of: "private func wristTemperatureMetric")?.lowerBound)
+        let cardBlock = String(source[cardStart...].prefix(1_500))
+        let trendCardStart = try XCTUnwrap(source.range(of: "homeTrendCard(\n                kind: .wristTemperature")?.lowerBound)
+        let trendCardBlock = String(source[trendCardStart...].prefix(1_100))
+        let detailStart = try XCTUnwrap(source.range(of: "case .wristTemperature:")?.lowerBound)
+        let detailBlock = String(source[detailStart...].prefix(3_000))
+        let dayViewStart = try XCTUnwrap(source.range(of: "private var supportsMetricDayView")?.lowerBound)
+        let dayViewBlock = String(source[dayViewStart...].prefix(700))
+
+        XCTAssertTrue(cardBlock.contains(#"title: "Wrist Temp""#))
+        XCTAssertEqual(source.components(separatedBy: #"title: "Wrist Temp""#).count - 1, 1)
+        XCTAssertTrue(cardBlock.contains("chartPreviewStyle: .line"))
+        XCTAssertTrue(trendCardBlock.contains(#"title: "Wrist Temperature""#))
+        XCTAssertTrue(detailBlock.contains(#"title: "Wrist Temperature""#))
+        XCTAssertTrue(detailBlock.contains("series: trends.wristTemperature.mapValues"))
+        XCTAssertTrue(detailBlock.contains("daySeries: .empty"))
+        XCTAssertTrue(detailBlock.contains("chartStyle: .line"))
+        XCTAssertTrue(dayViewBlock.contains(".wristTemperature"))
+    }
+
+    func testTrainingLoadCardUsesLineChartWithCurrentIntervalWithoutUnitsOrDayView() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let cardStart = try XCTUnwrap(source.range(of: "metric(\n                kind: .trainingLoad")?.lowerBound)
+        let cardBlock = String(source[cardStart...].prefix(1_100))
+        let trendCardStart = try XCTUnwrap(source.range(of: "homeTrendCard(\n                kind: .trainingLoad")?.lowerBound)
+        let trendCardBlock = String(source[trendCardStart...].prefix(1_100))
+        let detailStart = try XCTUnwrap(source.range(of: "case .trainingLoad:")?.lowerBound)
+        let detailBlock = String(source[detailStart...].prefix(900))
+        let dayViewStart = try XCTUnwrap(source.range(of: "private var supportsMetricDayView")?.lowerBound)
+        let dayViewBlock = String(source[dayViewStart...].prefix(800))
+
+        XCTAssertTrue(cardBlock.contains(#"title: "Training Load""#))
+        XCTAssertTrue(cardBlock.contains(#"unit: """#))
+        XCTAssertTrue(cardBlock.contains("decimals: 2"))
+        XCTAssertFalse(cardBlock.contains(#"unit: "load""#))
+        XCTAssertTrue(cardBlock.contains("chartStyle: .line"))
+        XCTAssertTrue(cardBlock.contains("chartPreview: trends.series(for: .trainingLoad)"))
+        XCTAssertTrue(trendCardBlock.contains(#"title: "Training Load""#))
+        XCTAssertTrue(trendCardBlock.contains("chartStyle: .line"))
+        XCTAssertTrue(trendCardBlock.contains("series: trends.series(for: .trainingLoad)"))
+        XCTAssertTrue(trendCardBlock.contains("valueFormatter: { BodyValueFormat.numberText($0, decimals: 2) }"))
+        XCTAssertFalse(trendCardBlock.contains(#"+ " load""#))
+        XCTAssertTrue(detailBlock.contains(#"title: "Training Load""#))
+        XCTAssertTrue(detailBlock.contains("summary: summary.trainingLoad"))
+        XCTAssertTrue(detailBlock.contains(#"unit: """#))
+        XCTAssertTrue(detailBlock.contains("decimals: 2"))
+        XCTAssertFalse(detailBlock.contains(#"unit: "load""#))
+        XCTAssertTrue(detailBlock.contains("chartStyle: .line"))
+        XCTAssertTrue(detailBlock.contains("let trainingLoadInterval = BodyTrainingLoadIntervalPresentation.make(for: summary.trainingLoad.value)"))
+        XCTAssertTrue(detailBlock.contains("highlightedRange: trainingLoadInterval"))
+        XCTAssertTrue(detailBlock.contains("highlightedRangeResolver: BodyTrainingLoadIntervalPresentation.make(for:)"))
+        XCTAssertTrue(dayViewBlock.contains(".trainingLoad"))
+    }
+
+    func testTrainingLoadTrendChartDrawsDynamicHorizontalCurrentIntervalBandWithoutInlineLabel() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyHealthMetricTrendChart")?.lowerBound)
+        let chartBlock = String(source[chartStart...].prefix(12_000))
+
+        XCTAssertTrue(chartBlock.contains("let highlightedRange: BodyHealthMetricTrendHighlightedRange?"))
+        XCTAssertTrue(chartBlock.contains("let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?"))
+        XCTAssertTrue(chartBlock.contains("let displayedHighlightedRange = activeHighlightedRange"))
+        XCTAssertTrue(chartBlock.contains("if let highlightedRange = displayedHighlightedRange,"))
+        XCTAssertTrue(chartBlock.contains("private var activeHighlightedRange: BodyHealthMetricTrendHighlightedRange?"))
+        XCTAssertTrue(chartBlock.contains("guard let highlightedRangeResolver, let selectedTrendPoint else {"))
+        XCTAssertTrue(chartBlock.contains("return highlightedRangeResolver(selectedTrendPoint.value) ?? highlightedRange"))
+        XCTAssertTrue(chartBlock.contains(".chartBackground { chartProxy in"))
+        XCTAssertTrue(chartBlock.contains("highlightedRange.lowerPlotBound(in: chartYDomain)"))
+        XCTAssertTrue(chartBlock.contains("highlightedRange.upperPlotBound(in: chartYDomain)"))
+        XCTAssertTrue(chartBlock.contains(".fill(highlightedRange.color.opacity(0.12))"))
+        XCTAssertTrue(chartBlock.contains(".fill(highlightedRange.color.opacity(0.72))"))
+        XCTAssertTrue(chartBlock.contains("highlightedRangeValues"))
+        XCTAssertFalse(chartBlock.contains("Text(highlightedRange.title)"))
+        XCTAssertFalse(chartBlock.contains("Highlighted Range Label"))
+    }
+
+    func testTrainingLoadDetailShowsIntervalDayBreakdownBelowLineChart() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let trendCardStart = try XCTUnwrap(source.range(of: "private var trendCard")?.lowerBound)
+        let trendCardBlock = String(source[trendCardStart...].prefix(5_500))
+        let breakdownStart = try XCTUnwrap(source.range(of: "private struct BodyTrainingLoadIntervalBreakdownChart")?.lowerBound)
+        let breakdownBlock = String(source[breakdownStart...].prefix(4_500))
+
+        XCTAssertTrue(trendCardBlock.contains("if model.kind == .trainingLoad {"))
+        XCTAssertTrue(trendCardBlock.contains("BodyTrainingLoadIntervalBreakdownChart("))
+        XCTAssertTrue(trendCardBlock.contains("series: model.series"))
+        XCTAssertTrue(trendCardBlock.contains("selectedRange: selectedTrendRange"))
+        XCTAssertTrue(breakdownBlock.contains("TrainingLoadIntervalBreakdown.entries("))
+        XCTAssertTrue(breakdownBlock.contains("GeometryReader { geometry in"))
+        XCTAssertTrue(breakdownBlock.contains("RoundedRectangle(cornerRadius: barCornerRadius"))
+        XCTAssertTrue(breakdownBlock.contains("dayCountText(for: entry.dayCount)"))
+        XCTAssertTrue(breakdownBlock.contains("entry.interval.title"))
+        XCTAssertTrue(breakdownBlock.contains("entry.interval.symbolName"))
+    }
+
     func testSummaryMetricValuesUseClockStyleNumericTransitions() throws {
         let source = try text(at: "Body/Views/BodyHomeView.swift")
 
-        XCTAssertTrue(source.contains("private struct BodyAnimatedMetricValueText: View"))
+        XCTAssertTrue(source.contains("struct BodyAnimatedMetricValueText: View"))
         XCTAssertTrue(source.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
         XCTAssertTrue(source.contains(".contentTransition(reduceMotion ? .identity : .numericText())"))
         XCTAssertTrue(source.contains(".monospacedDigit()"))
@@ -100,7 +299,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testActivityRingGraphicAnimatesProgressWithCircularSweep() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try text(at: "Body/Views/BodyActivityRingsDetailView.swift")
         let graphicStart = try XCTUnwrap(source.range(of: "private struct BodyActivityRingGraphic")?.lowerBound)
         let graphicBlock = String(source[graphicStart...].prefix(2_400))
         let arcStart = try XCTUnwrap(source.range(of: "private struct BodyActivityRingArc")?.lowerBound)
@@ -120,14 +319,20 @@ final class ProjectConfigurationTests: XCTestCase {
         let source = try text(at: "Body/Views/BodyHomeView.swift")
 
         XCTAssertTrue(source.contains("private func bodyChartSelectionDateText(for point: HealthTrendCalendarPoint) -> String?"))
+        XCTAssertTrue(source.contains("private func bodyChartSelectionDateText(for point: HealthTrendRangeCalendarPoint) -> String?"))
         XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedTrendPoint)"), 1)
         XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedPoint)"), 1)
+        XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedRangePoint)"), 1)
         XCTAssertTrue(source.contains("dateText: selectedTrendDateText"))
         XCTAssertEqual(
             source.occurrenceCount(of: "let chartBarWidth = selectedRange.chartBarWidth(forAvailableWidth: proxy.size.width)"),
             1
         )
-        XCTAssertEqual(source.occurrenceCount(of: "width: .fixed(chartBarWidth)"), 2)
+        XCTAssertEqual(
+            source.occurrenceCount(of: "let chartBarWidth = selectedRange.heartRateRangeChartBarWidth(forAvailableWidth: proxy.size.width)"),
+            1
+        )
+        XCTAssertEqual(source.occurrenceCount(of: "width: .fixed(chartBarWidth)"), 3)
     }
 
     func testBasicsWeightBodyFatMonthChartKeepsStandardPointMarks() throws {
@@ -136,7 +341,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(source.contains("private var showsWeightBodyFatPointMarks: Bool"))
         XCTAssertFalse(source.contains("selectedRange.showsPointMarks && selectedRange != .recentMonth"))
         XCTAssertFalse(source.contains("if showsWeightBodyFatPointMarks"))
-        XCTAssertEqual(source.occurrenceCount(of: "if selectedRange.showsPointMarks"), 4)
+        XCTAssertEqual(source.occurrenceCount(of: "if selectedRange.showsPointMarks"), 6)
 
         let chartStart = try XCTUnwrap(source.range(of: "private struct BodyBasicsTrendChart")?.lowerBound)
         let chartBlock = String(source[chartStart...].prefix(7_000))
@@ -228,7 +433,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = 1;"))
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.3.4;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.3.9;"))
         XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
@@ -238,10 +443,12 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.3.4 (build 2)**"))
-        XCTAssertTrue(versionHistory.contains("## 0.3.4 (build 2)"))
-        XCTAssertTrue(versionHistory.contains("Added animated Summary metric number transitions and Activity Rings sweep updates."))
-        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.3.4 build 2."))
+        XCTAssertTrue(readme.contains("Current app version: **0.3.9 (build 2)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.3.9 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Added Heart Rate, Wrist Temperature, and Training Load dashboard cards with dedicated detail charts."))
+        XCTAssertTrue(versionHistory.contains("Moved the dashboard cache out of UserDefaults into file-backed storage to avoid oversized preferences writes."))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.3.9 build 2."))
+        XCTAssertFalse(readme.contains("Current app version: **0.3.5"))
         XCTAssertFalse(readme.contains("Current app version: **0.3.4 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.3.3 (build 2)**"))
         XCTAssertFalse(settingsSource.contains(#"?? "1""#))
@@ -259,8 +466,9 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `codex/body-v0.3.4`"))
+        XCTAssertTrue(testPlan.contains("branch `body-v0.3.5`"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.0`"))
+        XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.4`"))
         XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))
         XCTAssertTrue(testPlan.contains("Body Pro entry navigation"))
         XCTAssertTrue(testPlan.contains("Body Pro icon flip"))
@@ -275,9 +483,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(workoutsSource.contains("if let pendingMonthSelection {"))
         XCTAssertTrue(workoutsSource.contains("BodyWorkoutMonthLoadingBanner(monthYear: pendingMonthSelection)"))
         XCTAssertTrue(workoutsSource.contains("pendingMonthSelection = monthYear"))
-        XCTAssertTrue(workoutsSource.contains("let didLoad = await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)"))
+        XCTAssertTrue(workoutsSource.contains("await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)"))
         XCTAssertTrue(workoutsSource.contains("guard pendingMonthSelection == monthYear else"))
-        XCTAssertTrue(workoutsSource.contains("if didLoad {"))
+        XCTAssertTrue(workoutsSource.contains("if didLoad == true {"))
         XCTAssertTrue(workoutsSource.contains("applyMonthSelection(monthYear)"))
         XCTAssertTrue(workoutsSource.contains("return false"))
     }
@@ -303,10 +511,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(homeSource.contains("private var recentDatePickerDates: [Date]"))
         XCTAssertTrue(homeSource.contains("private func datePicker("))
         XCTAssertTrue(homeSource.contains("private func dateTile("))
+        XCTAssertTrue(homeSource.contains("BodyDateSliderTileLabel.primaryText(for: dayStart, today: today, calendar: calendar)"))
         XCTAssertFalse(homeSource.contains("private var sleepDatePickerDates"))
         XCTAssertFalse(homeSource.contains("private var metricDatePickerDates"))
         XCTAssertFalse(homeSource.contains("private func sleepDateTile"))
         XCTAssertFalse(homeSource.contains("private func metricDateTile"))
+        XCTAssertFalse(homeSource.contains("Text(dayStart.formatted(.dateTime.weekday(.abbreviated)))"))
     }
 
     func testProjectDateMathUsesBodyGregorianForSleepAxisAndWidgetTimeline() throws {

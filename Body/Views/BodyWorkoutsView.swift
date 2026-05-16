@@ -8,6 +8,7 @@ import SwiftUI
 struct BodyWorkoutsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedMonth = Calendar.bodyGregorian.component(.month, from: Date())
     @State private var selectedYear = Calendar.bodyGregorian.component(.year, from: Date())
     @State private var pendingMonthSelection: BodyMonthYear?
@@ -19,6 +20,14 @@ struct BodyWorkoutsView: View {
     @State private var selectedWorkoutForDetails: WorkoutSummary?
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
+
+    private var monthSwitchTransition: AnyTransition {
+        .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
+    }
+
+    private var monthIdentity: String {
+        "\(selectedYear)-\(selectedMonth)"
+    }
 
     var body: some View {
         let visibleWorkouts = filteredWorkouts
@@ -50,31 +59,39 @@ struct BodyWorkoutsView: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: 16) {
                             workoutCalendarCard
+                                .id("calendar-\(monthIdentity)")
+                                .transition(monthSwitchTransition)
 
-                            if visibleWorkouts.isEmpty {
-                                emptyStateView
-                                    .transition(.opacity)
-                                    .animation(.easeInOut, value: visibleWorkouts.isEmpty)
-                            } else {
-                                LazyVStack(spacing: 12) {
-                                    ForEach(visibleWorkouts) { workout in
-                                        Button {
-                                            selectedWorkoutForDetails = workout
-                                        } label: {
-                                            BodyWorkoutExpenseStyleRow(
-                                                workout: workout,
-                                                titleFontSize: 23,
-                                                metadataFontSize: 15,
-                                                amountFontSize: 26
-                                            )
+                            Group {
+                                if visibleWorkouts.isEmpty {
+                                    emptyStateView
+                                        .transition(.opacity)
+                                        .animation(.easeInOut, value: visibleWorkouts.isEmpty)
+                                } else {
+                                    LazyVStack(spacing: 12) {
+                                        ForEach(visibleWorkouts) { workout in
+                                            Button {
+                                                selectedWorkoutForDetails = workout
+                                            } label: {
+                                                BodyWorkoutExpenseStyleRow(
+                                                    workout: workout,
+                                                    titleFontSize: 23,
+                                                    metadataFontSize: 15,
+                                                    amountFontSize: 26
+                                                )
+                                            }
+                                            .buttonStyle(.plain)
+                                            .accessibilityHint("Shows workout details")
                                         }
-                                        .buttonStyle(.plain)
-                                        .accessibilityHint("Shows workout details")
                                     }
                                 }
                             }
+                            .id("list-\(monthIdentity)")
+                            .transition(monthSwitchTransition)
 
                             workoutTypeSummaryCard(workouts: allWorkouts)
+                                .id("summary-\(monthIdentity)")
+                                .transition(monthSwitchTransition)
                         }
                         .padding(.horizontal)
                         .padding(.top, 32)
@@ -369,13 +386,24 @@ struct BodyWorkoutsView: View {
 
         pendingMonthSelection = monthYear
         Task {
-            let didLoad = await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)
+            let didLoad = await withTaskGroup(of: Bool?.self) { group in
+                group.addTask {
+                    await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
+                    return nil
+                }
+                let result = await group.next() ?? nil
+                group.cancelAll()
+                return result
+            }
             await MainActor.run {
                 guard pendingMonthSelection == monthYear else {
                     return
                 }
 
-                if didLoad {
+                if didLoad == true {
                     applyMonthSelection(monthYear)
                 }
 
@@ -387,8 +415,10 @@ struct BodyWorkoutsView: View {
     }
 
     private func applyMonthSelection(_ monthYear: BodyMonthYear) {
-        selectedMonth = monthYear.month
-        selectedYear = monthYear.year
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) {
+            selectedMonth = monthYear.month
+            selectedYear = monthYear.year
+        }
     }
 
     private func sorted(workouts: [WorkoutSummary]) -> [WorkoutSummary] {

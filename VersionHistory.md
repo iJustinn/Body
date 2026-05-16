@@ -1,5 +1,13 @@
 # Version History
 
+## 0.3.9 (build 2)
+
+- Added Heart Rate, Wrist Temperature, and Training Load dashboard cards with dedicated detail charts.
+- Added Training Load interval highlighting, selected-point interval updates, and interval distribution counts.
+- Fixed long-range chart right-edge padding for month, six-month, and year views.
+- Moved the dashboard cache out of UserDefaults into file-backed storage to avoid oversized preferences writes.
+- Updated the app, widget, and test bundle version to 0.3.9 build 2.
+
 ## 0.3.4 (build 2)
 
 - Added animated Summary metric number transitions and Activity Rings sweep updates.

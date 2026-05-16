@@ -6,7 +6,7 @@
 
 Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
-Current app version: **0.3.4 (build 2)**
+Current app version: **0.3.9 (build 2)**
 
 ## Screenshots
 
@@ -24,11 +24,11 @@ Current app version: **0.3.4 (build 2)**
 
 ## Features
 
-- **Summary tab** - Activity Rings card plus health cards for Exercise Minutes, Wrist Temperature, Daylight, Steps, Sleep, Basics (body fat/weight/BMI), heart rate, HRV, blood oxygen, respiratory rate, and energy. Each card includes a four-day preview chart and an About explainer. Detail screens support Week/Month/6 Months/Year ranges.
+- **Summary tab** - Activity Rings card plus health cards for Exercise Minutes, Wrist Temperature, Daylight, Steps, Sleep, Basics (body fat/weight/BMI), heart rate, Training Load, HRV, blood oxygen, respiratory rate, and energy. Each card includes a four-day preview chart and an About explainer. Detail screens support Week/Month/6 Months/Year ranges.
 - **Workouts tab** - Searchable workout history with month browsing, sort, type filters, summary totals, an in-app workout calendar, and a workout type breakdown with monthly totals.
 - **Sleep detail** - Today's sleep score, stage timeline, Apple-style Sleep Vitals chart, and range trend chart.
 - **Widgets** - Large workout calendar widget (monthly tiles using SF workout icons, with star/moon/sun count markers) and large workout types widget (percentage-bar breakdown by type). System, Black, and White background choices.
-- **Apple Health sync** - Read-only access to workouts, activity rings, sleep, heart, body measurements, energy, daylight, steps, exercise minutes, and wrist temperature. Workout summaries are written to an App Group for widgets.
+- **Apple Health sync** - Read-only access to workouts, activity rings, sleep, heart, body measurements, energy, daylight, steps, exercise minutes, and wrist temperature. Workout summaries and dashboard snapshots are written to App Group storage for widgets.
 - **Settings** - Appearance, Units, app icon selection, Data > Permissions to hide categories from the dashboard, and About rows.
 - **Local-first** - Widgets read a cached JSON snapshot from the app group; they do not query HealthKit directly. A May 2026 seed snapshot keeps the UI useful before authorization.
 

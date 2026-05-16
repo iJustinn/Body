@@ -638,7 +638,19 @@ final class HealthKitWorkoutStore: ObservableObject {
     private func fetchWorkouts(month: Int, year: Int, calendar: Calendar) async throws -> [WorkoutSummary] {
         let start = calendar.date(from: DateComponents(year: year, month: month, day: 1)) ?? Date()
         let end = calendar.date(byAdding: DateComponents(month: 1), to: start) ?? start
-        let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: [.strictStartDate])
+        return try await fetchWorkoutSummaries(
+            startDate: start,
+            endDate: end,
+            includesHeartRateSamples: true
+        )
+    }
+
+    private func fetchWorkoutSummaries(
+        startDate: Date,
+        endDate: Date,
+        includesHeartRateSamples: Bool
+    ) async throws -> [WorkoutSummary] {
+        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: [.strictStartDate])
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
 
         let workouts: [HKWorkout] = try await withCheckedThrowingContinuation { continuation in
@@ -663,8 +675,13 @@ final class HealthKitWorkoutStore: ObservableObject {
         summaries.reserveCapacity(workouts.count)
 
         for workout in workouts {
-            async let heartRateSamples = fetchIfPermitted(.heart, default: []) {
-                await fetchHeartRateSamples(for: workout)
+            let heartRateSamples: [WorkoutHeartRateSample]
+            if includesHeartRateSamples {
+                heartRateSamples = await fetchIfPermitted(.heart, default: []) {
+                    await fetchHeartRateSamples(for: workout)
+                }
+            } else {
+                heartRateSamples = []
             }
             async let effortLevel = fetchSavedEffortLevel(for: workout)
             summaries.append(
@@ -752,6 +769,12 @@ final class HealthKitWorkoutStore: ObservableObject {
         async let sleep: SleepSummary? = fetchIfPermitted(.sleep, default: nil) {
             await fetchSleepSummary(calendar: calendar)
         }
+        async let heartRate: HealthMetricSummary? = fetchIfPermitted(.heart, default: nil) {
+            await latestQuantity(
+                for: .heartRate,
+                unit: HKUnit.count().unitDivided(by: .minute())
+            )
+        }
         async let restingHeartRate: HealthMetricSummary? = fetchIfPermitted(.heart, default: nil) {
             await latestQuantity(
                 for: .restingHeartRate,
@@ -811,6 +834,9 @@ final class HealthKitWorkoutStore: ObservableObject {
                 calendar: calendar
             )
         }
+        async let trainingLoad: HealthMetricSummary? = fetchIfPermitted(.workouts, default: nil) {
+            await fetchTrainingLoadSummary(calendar: calendar)
+        }
         async let wristTemperature: HealthMetricSummary? = fetchIfPermitted(.wristTemperature, default: nil) {
             await dailyQuantitySummary(
                 for: .appleSleepingWristTemperature,
@@ -837,6 +863,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         return await HealthSummarySnapshot(
             activityRings: activityRings,
             sleep: sleep ?? HealthSummarySnapshot.empty.sleep,
+            heartRate: heartRate ?? HealthSummarySnapshot.empty.heartRate,
             restingHeartRate: restingHeartRate ?? HealthSummarySnapshot.empty.restingHeartRate,
             bodyMass: bodyMass ?? HealthSummarySnapshot.empty.bodyMass,
             bodyFatPercentage: bodyFatPercentage ?? HealthSummarySnapshot.empty.bodyFatPercentage,
@@ -847,10 +874,35 @@ final class HealthKitWorkoutStore: ObservableObject {
             activeEnergy: activeEnergy ?? HealthSummarySnapshot.empty.activeEnergy,
             restingEnergy: restingEnergy ?? HealthSummarySnapshot.empty.restingEnergy,
             exerciseMinutes: exerciseMinutes ?? HealthSummarySnapshot.empty.exerciseMinutes,
+            trainingLoad: trainingLoad ?? HealthSummarySnapshot.empty.trainingLoad,
             wristTemperature: wristTemperature ?? HealthSummarySnapshot.empty.wristTemperature,
             timeInDaylight: timeInDaylight ?? HealthSummarySnapshot.empty.timeInDaylight,
             steps: steps ?? HealthSummarySnapshot.empty.steps
         )
+    }
+
+    private func fetchTrainingLoadSummary(calendar: Calendar) async -> HealthMetricSummary? {
+        let date = Date()
+        let dayStart = calendar.startOfDay(for: date)
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)
+            ?? dayStart.addingTimeInterval(86_400)
+        let interval = recentHealthTrendInterval(calendar: calendar, date: date)
+
+        do {
+            let workouts = try await fetchWorkoutSummaries(
+                startDate: interval.start,
+                endDate: dayEnd,
+                includesHeartRateSamples: false
+            )
+            return TrainingLoadCalculator.summary(
+                on: date,
+                from: workouts,
+                startDate: interval.start,
+                calendar: calendar
+            )
+        } catch {
+            return nil
+        }
     }
 
     private func fetchActivityRingSummary(calendar: Calendar, date: Date = Date()) async -> ActivityRingSummary {
@@ -966,6 +1018,21 @@ final class HealthKitWorkoutStore: ObservableObject {
                 calendar: calendar
             )
         }
+        async let heartRate = fetchIfPermitted(.heart, default: HealthTrendSeries.empty) {
+            await fetchDailyQuantitySeries(
+                for: .heartRate,
+                unit: HKUnit.count().unitDivided(by: .minute()),
+                aggregation: .average,
+                calendar: calendar
+            )
+        }
+        async let heartRateRanges = fetchIfPermitted(.heart, default: HealthTrendRangeSeries.empty) {
+            await fetchDailyQuantityRangeSeries(
+                for: .heartRate,
+                unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar
+            )
+        }
         async let bodyMass = fetchIfPermitted(.basics, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .bodyMass,
@@ -991,11 +1058,25 @@ final class HealthKitWorkoutStore: ObservableObject {
                 calendar: calendar
             )
         }
+        async let heartRateVariabilityRanges = fetchIfPermitted(.heart, default: HealthTrendRangeSeries.empty) {
+            await fetchDailyQuantityRangeSeries(
+                for: .heartRateVariabilitySDNN,
+                unit: .secondUnit(with: .milli),
+                calendar: calendar
+            )
+        }
         async let respiratoryRate = fetchIfPermitted(.respiratory, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .respiratoryRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 aggregation: .average,
+                calendar: calendar
+            )
+        }
+        async let respiratoryRateRanges = fetchIfPermitted(.respiratory, default: HealthTrendRangeSeries.empty) {
+            await fetchDailyQuantityRangeSeries(
+                for: .respiratoryRate,
+                unit: HKUnit.count().unitDivided(by: .minute()),
                 calendar: calendar
             )
         }
@@ -1008,9 +1089,24 @@ final class HealthKitWorkoutStore: ObservableObject {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         }
+        async let oxygenSaturationRanges = fetchIfPermitted(.bloodOxygen, default: HealthTrendRangeSeries.empty) {
+            await fetchDailyQuantityRangeSeries(
+                for: .oxygenSaturation,
+                unit: .percent(),
+                calendar: calendar,
+                valueTransform: Self.normalizedPercentDisplayValue
+            )
+        }
         async let restingHeartRateDaySamples = fetchIfPermitted(.heart, default: HealthTrendSeries.empty) {
             await fetchQuantitySampleSeries(
                 for: .restingHeartRate,
+                unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar
+            )
+        }
+        async let heartRateDaySamples = fetchIfPermitted(.heart, default: HealthTrendSeries.empty) {
+            await fetchQuantitySampleSeries(
+                for: .heartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 calendar: calendar
             )
@@ -1066,6 +1162,9 @@ final class HealthKitWorkoutStore: ObservableObject {
                 calendar: calendar
             )
         }
+        async let trainingLoad = fetchIfPermitted(.workouts, default: HealthTrendSeries.empty) {
+            await fetchTrainingLoadSeries(calendar: calendar)
+        }
         async let wristTemperature = fetchIfPermitted(.wristTemperature, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .appleSleepingWristTemperature,
@@ -1092,25 +1191,52 @@ final class HealthKitWorkoutStore: ObservableObject {
         let fetchedSleepHistory = await sleepHistory
         return await HealthTrendSnapshot(
             sleep: fetchedSleepHistory.durationSeries,
+            heartRate: heartRate,
+            heartRateRanges: heartRateRanges,
             restingHeartRate: restingHeartRate,
             bodyMass: bodyMass,
             bodyFatPercentage: bodyFatPercentage,
             heartRateVariability: heartRateVariability,
+            heartRateVariabilityRanges: heartRateVariabilityRanges,
             respiratoryRate: respiratoryRate,
+            respiratoryRateRanges: respiratoryRateRanges,
             oxygenSaturation: oxygenSaturation,
+            oxygenSaturationRanges: oxygenSaturationRanges,
             bodyMassIndex: bodyMassIndex,
             activeEnergy: activeEnergy,
             restingEnergy: restingEnergy,
             exerciseMinutes: exerciseMinutes,
+            trainingLoad: trainingLoad,
             wristTemperature: wristTemperature,
             timeInDaylight: timeInDaylight,
             steps: steps,
             sleepHistory: fetchedSleepHistory,
+            heartRateDaySamples: heartRateDaySamples,
             restingHeartRateDaySamples: restingHeartRateDaySamples,
             heartRateVariabilityDaySamples: heartRateVariabilityDaySamples,
             respiratoryRateDaySamples: respiratoryRateDaySamples,
             oxygenSaturationDaySamples: oxygenSaturationDaySamples
         )
+    }
+
+    private func fetchTrainingLoadSeries(calendar: Calendar) async -> HealthTrendSeries {
+        let interval = recentHealthTrendInterval(calendar: calendar)
+
+        do {
+            let workouts = try await fetchWorkoutSummaries(
+                startDate: interval.start,
+                endDate: interval.end,
+                includesHeartRateSamples: false
+            )
+            return TrainingLoadCalculator.dailySeries(
+                from: workouts,
+                startDate: interval.start,
+                endDate: interval.end,
+                calendar: calendar
+            )
+        } catch {
+            return .empty
+        }
     }
 
     private enum DailyQuantityAggregation {
@@ -1172,6 +1298,57 @@ final class HealthKitWorkoutStore: ObservableObject {
                 .sorted { $0.date < $1.date }
 
                 continuation.resume(returning: HealthTrendSeries(points: points))
+            }
+
+            healthStore.execute(query)
+        }
+    }
+
+    private func fetchDailyQuantityRangeSeries(
+        for identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        calendar: Calendar,
+        valueTransform: @escaping (Double) -> Double = { $0 }
+    ) async -> HealthTrendRangeSeries {
+        guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
+            return .empty
+        }
+
+        let interval = recentHealthTrendInterval(calendar: calendar)
+        let predicate = HKQuery.predicateForSamples(withStart: interval.start, end: interval.end)
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+
+        return await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: quantityType,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sort]
+            ) { _, samples, _ in
+                let quantitySamples = samples as? [HKQuantitySample] ?? []
+                let samplesByDay = Dictionary(grouping: quantitySamples) {
+                    calendar.startOfDay(for: $0.endDate)
+                }
+
+                let points = samplesByDay.compactMap { day, daySamples -> HealthTrendRangeDataPoint? in
+                    guard let range = Self.dailyQuantityRangeValue(
+                        from: daySamples,
+                        unit: unit,
+                        valueTransform: valueTransform
+                    ) else {
+                        return nil
+                    }
+
+                    return HealthTrendRangeDataPoint(
+                        date: day,
+                        lowValue: range.low,
+                        highValue: range.high,
+                        averageValue: range.average
+                    )
+                }
+                .sorted { $0.date < $1.date }
+
+                continuation.resume(returning: HealthTrendRangeSeries(points: points))
             }
 
             healthStore.execute(query)
@@ -1627,6 +1804,23 @@ final class HealthKitWorkoutStore: ObservableObject {
             let value = valueTransform(sample.quantity.doubleValue(for: unit))
             return value.isFinite ? value : nil
         }
+    }
+
+    nonisolated private static func dailyQuantityRangeValue(
+        from samples: [HKQuantitySample],
+        unit: HKUnit,
+        valueTransform: (Double) -> Double
+    ) -> (low: Double, high: Double, average: Double)? {
+        let values = samples
+            .map { valueTransform($0.quantity.doubleValue(for: unit)) }
+            .filter(\.isFinite)
+
+        guard let low = values.min(), let high = values.max() else {
+            return nil
+        }
+
+        let average = values.reduce(0, +) / Double(values.count)
+        return (low, high, average)
     }
 
     nonisolated static func mergedSleepDuration(intervals: [(start: Date, end: Date)]) -> TimeInterval {

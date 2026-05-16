@@ -61,24 +61,30 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertFalse(readTypes.contains(try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))))
     }
 
-    func testHealthDashboardSnapshotStoreRoundTripsCachedHomeData() throws {
+    func testHealthDashboardSnapshotStoreWritesCachedHomeDataToFileNotUserDefaults() throws {
         let suiteName = "BodyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let fileURL = temporaryHealthDashboardSnapshotFileURL()
         defer {
             defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
         }
         let cachedSnapshot = try cachedHealthDashboardSnapshot()
 
-        HealthDashboardSnapshotStore.save(cachedSnapshot, defaults: defaults)
+        HealthDashboardSnapshotStore.save(cachedSnapshot, defaults: defaults, fileURL: fileURL)
 
-        XCTAssertEqual(HealthDashboardSnapshotStore.load(defaults: defaults), cachedSnapshot)
+        XCTAssertNil(defaults.data(forKey: HealthDashboardSnapshotStore.healthDashboardSnapshotKey))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertEqual(HealthDashboardSnapshotStore.load(defaults: defaults, fileURL: fileURL), cachedSnapshot)
     }
 
-    func testHealthDashboardSnapshotStoreLoadsOlderCacheWithoutActivityRingHistory() throws {
+    func testHealthDashboardSnapshotStoreMigratesOlderUserDefaultsCacheToFile() throws {
         let suiteName = "BodyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let fileURL = temporaryHealthDashboardSnapshotFileURL()
         defer {
             defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
         }
         let cachedSnapshot = try cachedHealthDashboardSnapshot()
         let legacySnapshot = LegacyHealthDashboardSnapshot(
@@ -89,10 +95,12 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
 
         defaults.set(data, forKey: HealthDashboardSnapshotStore.healthDashboardSnapshotKey)
 
-        let loadedSnapshot = try XCTUnwrap(HealthDashboardSnapshotStore.load(defaults: defaults))
+        let loadedSnapshot = try XCTUnwrap(HealthDashboardSnapshotStore.load(defaults: defaults, fileURL: fileURL))
         XCTAssertEqual(loadedSnapshot.summary, legacySnapshot.summary)
         XCTAssertEqual(loadedSnapshot.trends, legacySnapshot.trends)
         XCTAssertEqual(loadedSnapshot.activityRingHistory, .empty)
+        XCTAssertNil(defaults.data(forKey: HealthDashboardSnapshotStore.healthDashboardSnapshotKey))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
     }
 
     @MainActor
@@ -278,6 +286,12 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
             trends: trends,
             activityRingHistory: activityRingHistory
         )
+    }
+
+    private func temporaryHealthDashboardSnapshotFileURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("BodyTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("lastHealthDashboardSnapshot.json")
     }
 
     private struct LegacyHealthDashboardSnapshot: Codable {

@@ -227,11 +227,13 @@ struct BodyHealthPermissionSelection: Equatable {
 enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     case activityRings
     case exerciseMinutes
+    case trainingLoad
     case wristTemperature
     case timeInDaylight
     case steps
     case sleep
     case basics
+    case heartRate
     case restingHeartRate
     case heartRateVariability
     case oxygenSaturation
@@ -242,11 +244,13 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     static let defaultOrder: [BodyHomeCardKind] = [
         .activityRings,
         .exerciseMinutes,
+        .trainingLoad,
         .wristTemperature,
         .timeInDaylight,
         .steps,
         .sleep,
         .basics,
+        .heartRate,
         .restingHeartRate,
         .heartRateVariability,
         .oxygenSaturation,
@@ -278,6 +282,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return nil
         case .exerciseMinutes:
             return .exerciseMinutes
+        case .trainingLoad:
+            return .trainingLoad
         case .wristTemperature:
             return .wristTemperature
         case .timeInDaylight:
@@ -288,6 +294,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return .sleep
         case .basics:
             return .basics
+        case .heartRate:
+            return .heartRate
         case .restingHeartRate:
             return .restingHeartRate
         case .heartRateVariability:
@@ -516,7 +524,7 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
             return 7
         case .recentSixMonths,
              .recentYear:
-            return 9
+            return 8
         }
     }
 
@@ -524,10 +532,21 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
         switch self {
         case .recentSixMonths,
              .recentYear:
-            return availableWidth <= 330 ? 6 : chartBarWidth
+            return availableWidth <= 330 ? 5 : chartBarWidth
         case .recentWeek,
              .recentMonth:
             return chartBarWidth
+        }
+    }
+
+    func heartRateRangeChartBarWidth(forAvailableWidth availableWidth: CGFloat) -> CGFloat {
+        switch self {
+        case .recentWeek:
+            return 24
+        case .recentMonth,
+             .recentSixMonths,
+             .recentYear:
+            return chartBarWidth(forAvailableWidth: availableWidth)
         }
     }
 
