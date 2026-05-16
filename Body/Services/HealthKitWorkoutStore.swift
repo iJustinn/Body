@@ -418,6 +418,23 @@ final class HealthKitWorkoutStore: ObservableObject {
         )
     }
 
+    func awaitRefreshCompletion(minimumDurationFrom start: Date? = nil) async {
+        while isRefreshing, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        guard let start, !Task.isCancelled else {
+            return
+        }
+
+        let minimumSeconds: TimeInterval = 0.6
+        let elapsed = Date().timeIntervalSince(start)
+        if elapsed < minimumSeconds {
+            let remaining = UInt64((minimumSeconds - elapsed) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: remaining)
+        }
+    }
+
     func syncWhenAppBecomesActive(date: Date = Date()) async {
         guard !isRefreshing else {
             return

@@ -347,6 +347,18 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(pickerBlock.contains("workoutStore.updateHealthDataSource(for: kind, option: option)"))
     }
 
+    func testHealthDataSourcePickerRowsShowSourceNamesOnly() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let pickerStart = try XCTUnwrap(source.range(of: "private struct BodyHealthDataSourcePickerSheet")?.lowerBound)
+        let pickerBlock = String(source[pickerStart...].prefix(8_000))
+
+        XCTAssertTrue(pickerBlock.contains("Text(option.name)"))
+        XCTAssertFalse(pickerBlock.contains("Only this source"))
+        XCTAssertFalse(pickerBlock.contains("All available Apple Health sources"))
+        XCTAssertFalse(pickerBlock.contains("Hide secondary comparison"))
+        XCTAssertFalse(pickerBlock.contains("optionDetailText"))
+    }
+
     func testHealthKitFetchesApplySourcePreferencesToRequestedMetrics() throws {
         let source = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
 
@@ -633,7 +645,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = 1;"))
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.4.1;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.5.0;"))
         XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
@@ -643,11 +655,12 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.4.1 (build 2)**"))
-        XCTAssertTrue(versionHistory.contains("## 0.4.1 (build 2)"))
-        XCTAssertTrue(versionHistory.contains("Updated the in-app How to Use guide for Metrics settings, Data Refresh, Cache, and current Summary controls."))
-        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.4.1 build 2."))
-        XCTAssertFalse(readme.contains("Current app version: **0.4.1 (build 1)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.5.0 (build 2)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.5.0 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Removed helper subtitles from the data source picker rows so source choices show only the source name."))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.5.0 build 2."))
+        XCTAssertFalse(readme.contains("Current app version: **0.5.0 (build 1)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.4.1"))
         XCTAssertFalse(readme.contains("Current app version: **0.3.5"))
         XCTAssertFalse(readme.contains("Current app version: **0.3.9 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.3.4 (build 1)**"))
@@ -667,8 +680,8 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-v0.4.1`"))
-        XCTAssertTrue(testPlan.contains("app version 0.4.1 build 2"))
+        XCTAssertTrue(testPlan.contains("branch `body-v0.5.0`"))
+        XCTAssertTrue(testPlan.contains("app version 0.5.0 build 2"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.0`"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.4`"))
         XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))

@@ -1947,7 +1947,7 @@ private struct BodyHowToUseSettingsSheet: View {
             steps: [
                 "Summary shows Activity Rings, Sleep, Basics, Training Load, heart, respiratory, energy, daylight, steps, and body metric cards.",
                 "Tap a card to open details with trend ranges, day views when available, and metric-specific context.",
-                "Pull down on Summary after new Health data is recorded to refresh the dashboard."
+                "Pull down on Summary after new Health data is recorded to refresh the dashboard. A Loading data overlay stays on screen until the refresh finishes so you know work is in progress."
             ]
         ),
         BodyHowToUseGuideSection(
@@ -1977,7 +1977,19 @@ private struct BodyHowToUseSettingsSheet: View {
             steps: [
                 "Heart Rate, Resting Heart Rate, HRV, Respiratory Rate, and Blood Oxygen include a Day View below the range trend.",
                 "Choose a day with the date slider.",
-                "Heart Rate also overlays sleep and workout windows; press the chart to reveal the raw readings behind each hourly point."
+                "Heart Rate also overlays sleep and workout windows; press the chart to reveal the raw readings behind each hourly point.",
+                "The legend shows just the average when a single source is active and switches to a per-source breakdown when a secondary source is selected."
+            ]
+        ),
+        BodyHowToUseGuideSection(
+            title: "Compare Two Sources",
+            iconName: "rectangle.split.2x1.fill",
+            tintColor: .pink,
+            steps: [
+                "Open a supported metric detail (Sleep, Heart Rate, Resting Heart Rate, HRV, Blood Oxygen, Steps, Active Energy, Resting Energy, Exercise Minutes).",
+                "Tap the source picker to set a Primary Source, then choose a Secondary Source to overlay alongside it. Pick No Comparison to hide the overlay.",
+                "Primary and secondary share the same x-axis buckets so bars and lines line up. The legend lists each source with its average across the selected range.",
+                "Changing the secondary source triggers a focused refresh of that metric; the Loading data overlay stays until the new comparison data is ready."
             ]
         ),
         BodyHowToUseGuideSection(
@@ -1987,7 +1999,8 @@ private struct BodyHowToUseSettingsSheet: View {
             steps: [
                 "Open Workouts to browse, search, sort, and filter your Apple Health workout history.",
                 "Tap a workout to view duration, calories, heart rate, distance when available, effort, and source.",
-                "Use the month controls to inspect older workout history."
+                "Use the month controls to inspect older workout history.",
+                "Pull down to refresh the selected month; the Loading data overlay stays until the refresh finishes."
             ]
         ),
         BodyHowToUseGuideSection(

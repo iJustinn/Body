@@ -1,5 +1,31 @@
 # Version History
 
+## 0.5.0 (build 2)
+
+- Added a "Loading data" overlay to every pull-to-refresh (Summary, metric detail, Workouts) that stays on screen until the underlying refresh finishes; the overlay also rides out any background refresh already in flight, and has a 600 ms minimum display so fast refreshes still register visually.
+- Updated the Day View chart legend so it shows only "Avg N" without a source name when a single source is active, and falls back to the dot + per-source layout only when a secondary source is selected. The single-source style matches the existing range/trend chart legend.
+- Increased Day View chart spacing for charts that overlay sleep/workout context icons (Heart Rate, HRV) so the icons no longer crowd the title row; the day chart now uses a dedicated taller layout constant.
+- Updated the in-app How to Use guide with a new "Compare Two Sources" section, mentions of the loading overlay in Summary/Day Views/Workouts, and a note on the single-source vs. comparison legend behavior.
+- Updated the README features section to reflect the two-source comparison flow, the loading overlay, and the secondary-cache invalidation on launch.
+- Removed helper subtitles from the data source picker rows so source choices show only the source name.
+- Updated the app, widget, and test bundle version to 0.5.0 build 2.
+
+## 0.5.0 (build 1)
+
+- Added two-source comparison for Sleep, Heart Rate, Resting Heart Rate, HRV, Blood Oxygen, Steps, Active Energy, Resting Energy, and Exercise Minutes: supported metric detail screens can overlay a secondary Apple Health source alongside the primary with shared x-axis buckets and per-source averages in the legend.
+- Added a deterministic secondary-selection signature persisted alongside the dashboard snapshot so cached `*Secondary` series are zeroed out on launch when the comparison source has changed since the snapshot was written.
+- Fixed the secondary source picker including whichever source was already chosen as the primary, which let users render two identical overlapping series; the secondary picker now filters out the active primary option.
+- Fixed `updateSecondaryHealthDataSource` swallowing requests while another refresh was in flight; the call now waits for the in-flight refresh and then runs a focused per-metric refresh.
+- Fixed a `ForEach` identity collision in comparison charts when two sources reported the same display name by introducing a `BodyHealthSourceRole` discriminator threaded through every chart entry id.
+- Fixed `averageValue` accepting (and ignoring) a source argument; the API now lives on `BodyHealthSourceTrend`/`BodyHealthSourceRangeTrend` and accepts an explicit calendar/date for testability.
+- Fixed the day-view chart legend showing a misleading "--" for an empty side; the legend now omits sides that have no data.
+- Fixed bucket drift between primary and secondary series near midnight by anchoring each refresh's interval to a single `Date()` plumbed through `recentHealthTrendInterval` via a new `healthTrendAnchorDate` field.
+- Fixed a race where rapid secondary-source changes could leak the new selection into still-running HealthKit queries; each secondary fetch helper now pins the option at entry instead of re-reading it inside every case.
+- Performance: comparison chart inits no longer call `calendarPoints` three times for the x-domain; pre-computed entries are reused. Legend averages are computed once per render via stored `BodyHealthSourceLegendItem` rows instead of being re-walked inside the view body.
+- Performance: secondary HealthKit fetches in `fetchHealthTrends` are now gated on the per-metric "No Comparison" state through a new `fetchSecondaryIfEnabled` helper, so default installs no longer spawn ~12 trivial `async let` tasks per refresh.
+- Refactors: collapsed five near-identical `usesSourceComparison*` predicates into a single `supportedComparisonCharts: Set<SourceComparisonChartKind>` table; merged two `sourceComparisonChartCalendarPoints` copies into a shared private aggregator; unified three legend views into one `BodyHealthSourceLegend` driven by `[BodyHealthSourceLegendItem]`; replaced "primary"/"secondary" string literals with the `BodyHealthSourceRole` enum across all chart entries; hoisted unexplained magic numbers (`1.12`, `0.16`, the `*2` aggregation doubling) into named constants on `BodyHealthTrendRange`.
+- Tests: added value-level coverage for `supportedComparisonCharts`, `BodyHealthSourceTrend.id` role discrimination, `BodyHealthSourceTrend.averageValue(in:calendar:date:)`, secondary-selection signature determinism, `HealthTrendSnapshot.clearingSecondarySeries()`, and `sourceComparisonChartDateOffset` for the six-month and year ranges; updated string-grep configuration tests to match the unified legend and pinned-option structure.
+
 ## 0.4.1 (build 2)
 
 - Updated the in-app How to Use guide for Metrics settings, Data Refresh, Cache, and current Summary controls.

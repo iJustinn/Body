@@ -20,6 +20,7 @@ struct BodyWorkoutsView: View {
     @State private var selectedWorkoutForDetails: WorkoutSummary?
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
+    @State private var isPullRefreshing = false
 
     private var monthSwitchTransition: AnyTransition {
         .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -98,7 +99,11 @@ struct BodyWorkoutsView: View {
                         .padding(.bottom, 110)
                     }
                     .refreshable {
+                        let started = Date()
+                        isPullRefreshing = true
                         await workoutStore.refreshWorkoutMonth(month: selectedMonth, year: selectedYear)
+                        await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
+                        isPullRefreshing = false
                     }
                     .opacity(isListLoaded ? 1 : 0)
                     .animation(.easeIn(duration: 0.3), value: isListLoaded)
@@ -117,6 +122,7 @@ struct BodyWorkoutsView: View {
                     }
                 }
             }
+            .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
             .sheet(isPresented: $showingSortSheet) {
                 BodyWorkoutSortView(selectedSortOption: $selectedSortOption)
                     .presentationDetents([.medium])

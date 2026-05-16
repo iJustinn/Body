@@ -158,6 +158,62 @@ private extension Array where Element == HealthTrendCalendarPoint {
     }
 }
 
+struct BodyDataLoadingOverlay: View {
+    var message: String = "Loading data..."
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .controlSize(.regular)
+                    .tint(.white)
+
+                Text(message)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 22)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(white: 0.18))
+            )
+            .shadow(color: Color.black.opacity(0.28), radius: 18, x: 0, y: 8)
+        }
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(message))
+        .accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
+private struct BodyPullToRefreshLoadingOverlayModifier: ViewModifier {
+    let isPresented: Bool
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if isPresented {
+                BodyDataLoadingOverlay()
+                    .allowsHitTesting(true)
+                    .zIndex(100)
+            }
+        }
+        .animation(.easeInOut(duration: 0.18), value: isPresented)
+    }
+}
+
+extension View {
+    func bodyPullToRefreshLoadingOverlay(isPresented: Bool) -> some View {
+        modifier(BodyPullToRefreshLoadingOverlayModifier(isPresented: isPresented))
+    }
+}
+
 struct BodyHomeView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @AppStorage(BodyAppearancePreference.selectedAccentKey) private var selectedAccentRawValue = BodyAppAccent.defaultValue.rawValue
@@ -171,6 +227,7 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @State private var draggedHomeCard: BodyHomeCardKind?
     @State private var showsAllHomeTrends = false
+    @State private var isPullRefreshing = false
 
     var body: some View {
         let metricCardLookup = metricCardsByKind
@@ -211,9 +268,14 @@ struct BodyHomeView: View {
                     .padding(.bottom, 110)
                 }
                 .refreshable {
+                    let started = Date()
+                    isPullRefreshing = true
                     await workoutStore.requestAuthorizationAndRefresh()
+                    await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
+                    isPullRefreshing = false
                 }
             }
+            .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
             .navigationDestination(for: HealthMetricKind.self) { kind in
                 BodyHealthMetricDetailView(
                     model: detailModel(for: kind),
@@ -1745,6 +1807,7 @@ enum BodyHealthMetricChartStyle {
 
 private enum BodyHealthDetailChartLayout {
     static let standardHeight: CGFloat = 220
+    static let dayChartHeight: CGFloat = 252
     static let sleepVitalsHeight: CGFloat = 248
     static let sleepVitalsPlotHeight: CGFloat = 188
     static let sleepVitalsIconAxisHeight: CGFloat = 28
@@ -2140,6 +2203,7 @@ private struct BodyHealthMetricDetailView: View {
     @State private var selectedMetricDate: Date?
     @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
     @State private var showsDataSourcePicker = false
+    @State private var isPullRefreshing = false
 
     init(
         model: BodyHealthMetricDetailModel,
@@ -2189,8 +2253,13 @@ private struct BodyHealthMetricDetailView: View {
             .padding(.bottom, 32)
         }
         .refreshable {
+            let started = Date()
+            isPullRefreshing = true
             await workoutStore.refreshHealthMetric(model.kind)
+            await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
+            isPullRefreshing = false
         }
+        .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .navigationTitle(model.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -2745,7 +2814,7 @@ private struct BodyHealthMetricDetailView: View {
     }
 
     private var metricDayChartCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 32) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Day View")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
@@ -2766,7 +2835,7 @@ private struct BodyHealthMetricDetailView: View {
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 220)
+                    .frame(maxWidth: .infinity, minHeight: BodyHealthDetailChartLayout.dayChartHeight)
             } else {
                 BodyHealthMetricDayChart(
                     series: selectedMetricDaySeries,
@@ -2780,7 +2849,7 @@ private struct BodyHealthMetricDetailView: View {
                     valueFormatter: model.valueFormatter,
                     contextIntervals: selectedMetricDayContextIntervals
                 )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
+                .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
                 .id(selectedMetricDay)
                 .transition(dayChartTransition)
                 .transaction { transaction in
@@ -3981,11 +4050,6 @@ private struct BodyHealthDataSourcePickerSheet: View {
                         .font(.system(.body, design: .rounded))
                         .fontWeight(.semibold)
                         .foregroundColor(.primary)
-
-                    Text(optionDetailText(option))
-                        .font(.system(.footnote, design: .rounded))
-                        .fontWeight(.medium)
-                        .foregroundColor(.secondary)
                 }
 
                 Spacer(minLength: 8)
@@ -4007,14 +4071,6 @@ private struct BodyHealthDataSourcePickerSheet: View {
         }
         .buttonStyle(.plain)
         .disabled(updatingSelectionID != nil || isSelected)
-    }
-
-    private func optionDetailText(_ option: BodyHealthDataSourceOption) -> String {
-        if option.isNoComparison {
-            return "Hide secondary comparison"
-        }
-
-        return option.isAllSources ? "All available Apple Health sources" : "Only this source"
     }
 
     private func updateSelection(_ option: BodyHealthDataSourceOption, role: String) {
@@ -4044,24 +4100,37 @@ private struct BodyHealthSourceLegend: View {
     let items: [BodyHealthSourceLegendItem]
     let valueFormatter: (Double) -> String
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            ForEach(items) { item in
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(item.color)
-                        .frame(width: 9, height: 9)
+    private var isMultiSource: Bool {
+        items.count > 1
+    }
 
-                    Text("\(item.sourceName) Avg \(averageText(for: item.averageValue))")
-                        .font(.system(.subheadline, design: .rounded))
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.68)
+    var body: some View {
+        if isMultiSource {
+            VStack(alignment: .leading, spacing: 7) {
+                ForEach(items) { item in
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(item.color)
+                            .frame(width: 9, height: 9)
+
+                        Text("\(item.sourceName) Avg \(averageText(for: item.averageValue))")
+                            .font(.system(.subheadline, design: .rounded))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.68)
+                    }
                 }
             }
+            .frame(maxWidth: 180, alignment: .leading)
+        } else if let item = items.first {
+            Text("Avg \(averageText(for: item.averageValue))")
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
-        .frame(maxWidth: 180, alignment: .leading)
     }
 
     private func averageText(for value: Double?) -> String {
