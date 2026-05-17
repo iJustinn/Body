@@ -445,6 +445,369 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(BodyHealthTrendRange.recentYear.iconName, "calendar")
     }
 
+    func testSleepDurationGoalDefaultsToEightHoursAndClampsStoredMinutes() {
+        XCTAssertEqual(BodyAppearancePreference.sleepDurationGoalMinutesKey, "sleepDurationGoalMinutes")
+        XCTAssertEqual(BodySleepDurationGoal.defaultMinutes, 8 * 60)
+        XCTAssertEqual(BodySleepDurationGoal.storedMinutes(from: nil), 8 * 60)
+        XCTAssertEqual(BodySleepDurationGoal.storedMinutes(from: 3 * 60), BodySleepDurationGoal.minimumMinutes)
+        XCTAssertEqual(BodySleepDurationGoal.storedMinutes(from: 13 * 60), BodySleepDurationGoal.maximumMinutes)
+        XCTAssertEqual(BodySleepDurationGoal.duration(from: 7 * 60), 7 * 60 * 60)
+        XCTAssertEqual(BodySleepDurationGoal.displayText(for: 8 * 60), "8h")
+    }
+
+    func testRecoveryStatusMapsScoresToBands() {
+        XCTAssertEqual(RecoveryStatus.status(for: nil), .unavailable)
+        XCTAssertEqual(RecoveryStatus.status(for: 100), .prime)
+        XCTAssertEqual(RecoveryStatus.status(for: 96), .prime)
+        XCTAssertEqual(RecoveryStatus.status(for: 95), .high)
+        XCTAssertEqual(RecoveryStatus.status(for: 75), .high)
+        XCTAssertEqual(RecoveryStatus.status(for: 74), .moderate)
+        XCTAssertEqual(RecoveryStatus.status(for: 50), .moderate)
+        XCTAssertEqual(RecoveryStatus.status(for: 49), .low)
+        XCTAssertEqual(RecoveryStatus.status(for: 25), .low)
+        XCTAssertEqual(RecoveryStatus.status(for: 24), .poor)
+        XCTAssertEqual(RecoveryStatus.status(for: 0), .poor)
+    }
+
+    func testRecoverySummaryUnavailableIsCodable() throws {
+        let summary = RecoverySummary.unavailable
+        let encoded = try JSONEncoder().encode(summary)
+        let decoded = try JSONDecoder().decode(RecoverySummary.self, from: encoded)
+
+        XCTAssertEqual(decoded, summary)
+        XCTAssertNil(decoded.score)
+        XCTAssertEqual(decoded.status, .unavailable)
+        XCTAssertEqual(decoded.confidence, .unavailable)
+        XCTAssertTrue(decoded.components.isEmpty)
+        XCTAssertTrue(decoded.drivers.isEmpty)
+    }
+
+    func testRecoveryStatusExposesBoundsForChartBands() {
+        XCTAssertNil(RecoveryStatus.poor.lowerBound)
+        XCTAssertEqual(RecoveryStatus.poor.upperBound, 25)
+        XCTAssertEqual(RecoveryStatus.low.lowerBound, 25)
+        XCTAssertEqual(RecoveryStatus.low.upperBound, 50)
+        XCTAssertEqual(RecoveryStatus.moderate.lowerBound, 50)
+        XCTAssertEqual(RecoveryStatus.moderate.upperBound, 75)
+        XCTAssertEqual(RecoveryStatus.high.lowerBound, 75)
+        XCTAssertEqual(RecoveryStatus.high.upperBound, 95)
+        XCTAssertEqual(RecoveryStatus.prime.lowerBound, 95)
+        XCTAssertNil(RecoveryStatus.prime.upperBound)
+    }
+
+    func testRecoveryStatusExposesExactRangeTextAndExplanation() {
+        XCTAssertEqual(
+            RecoveryStatus.displayOrder.map(\.scoreRangeText),
+            ["96-100%", "75-95%", "50-74%", "25-49%", "0-24%"]
+        )
+        XCTAssertTrue(RecoveryStatus.prime.explanation.contains("Strong recovery"))
+        XCTAssertTrue(RecoveryStatus.high.explanation.contains("Well recovered"))
+        XCTAssertTrue(RecoveryStatus.moderate.explanation.contains("controlled"))
+        XCTAssertTrue(RecoveryStatus.low.explanation.contains("easy"))
+        XCTAssertTrue(RecoveryStatus.poor.explanation.contains("Rest"))
+    }
+
+    func testRecoveryRobustBaselineUsesMedianAndMad() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let values = (1...20).compactMap { offset -> RecoveryScoreCalculator.DailyValue? in
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: scoreDay) else {
+                return nil
+            }
+
+            return RecoveryScoreCalculator.DailyValue(date: date, value: offset == 1 ? 1_000 : 50)
+        }
+
+        let baseline = try XCTUnwrap(RecoveryScoreCalculator.robustBaseline(
+            for: scoreDay,
+            values: values,
+            floor: 1,
+            calendar: calendar
+        ))
+
+        XCTAssertEqual(baseline.validDayCount, 20)
+        XCTAssertEqual(baseline.median, 50, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(baseline.spread, 1)
+    }
+
+    func testRecoveryRobustBaselineReturnsNilWithTooFewDays() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let values = (1...13).compactMap { offset -> RecoveryScoreCalculator.DailyValue? in
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: scoreDay) else {
+                return nil
+            }
+
+            return RecoveryScoreCalculator.DailyValue(date: date, value: 50)
+        }
+
+        XCTAssertNil(RecoveryScoreCalculator.robustBaseline(
+            for: scoreDay,
+            values: values,
+            floor: 1,
+            calendar: calendar
+        ))
+    }
+
+    func testRecoveryCalculatorScoresSevereAutonomicStressAsPoor() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let trends = recoveryTrendSnapshot(
+            scoreDay: scoreDay,
+            hrvBaseline: 55,
+            hrvToday: 30,
+            restingHeartRateBaseline: 58,
+            restingHeartRateToday: 72,
+            trainingLoadToday: 1.0,
+            calendar: calendar
+        )
+
+        let summary = RecoveryScoreCalculator.summary(
+            on: scoreDay,
+            healthSummary: .empty,
+            trends: trends,
+            calendar: calendar
+        )
+
+        XCTAssertNotNil(summary.score)
+        XCTAssertLessThan(try XCTUnwrap(summary.score), 25)
+        XCTAssertEqual(summary.status, .poor)
+        XCTAssertTrue(summary.drivers.contains { $0.kind == .hrvBelowBaseline })
+        XCTAssertTrue(summary.drivers.contains { $0.kind == .heartRateAboveBaseline })
+    }
+
+    func testRecoveryCalculatorCanReachPrimeWithStrongSignals() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let trends = recoveryTrendSnapshot(
+            scoreDay: scoreDay,
+            hrvBaseline: 55,
+            hrvToday: 70,
+            restingHeartRateBaseline: 58,
+            restingHeartRateToday: 50,
+            trainingLoadToday: 0.65,
+            calendar: calendar
+        )
+
+        let summary = RecoveryScoreCalculator.summary(
+            on: scoreDay,
+            healthSummary: .empty,
+            trends: trends,
+            calendar: calendar
+        )
+
+        XCTAssertNotNil(summary.score)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(summary.score), 96)
+        XCTAssertEqual(summary.status, .prime)
+    }
+
+    func testRecoveryCalculatorDoesNotInflateBaselineDaysIntoPrime() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let trends = recoveryTrendSnapshot(
+            scoreDay: scoreDay,
+            hrvBaseline: 55,
+            hrvToday: 55,
+            restingHeartRateBaseline: 58,
+            restingHeartRateToday: 58,
+            trainingLoadToday: 1.0,
+            calendar: calendar
+        )
+
+        let summary = RecoveryScoreCalculator.summary(
+            on: scoreDay,
+            healthSummary: .empty,
+            trends: trends,
+            calendar: calendar
+        )
+
+        XCTAssertNotNil(summary.score)
+        XCTAssertLessThan(try XCTUnwrap(summary.score), 85)
+        XCTAssertNotEqual(summary.status, .prime)
+    }
+
+    func testRecoveryCalculatorDoesNotTreatMissingMetricsAsZero() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let trends = recoveryTrendSnapshot(
+            scoreDay: scoreDay,
+            hrvBaseline: nil,
+            hrvToday: nil,
+            restingHeartRateBaseline: nil,
+            restingHeartRateToday: nil,
+            trainingLoadToday: 1.0,
+            calendar: calendar
+        )
+
+        let summary = RecoveryScoreCalculator.summary(
+            on: scoreDay,
+            healthSummary: .empty,
+            trends: trends,
+            calendar: calendar
+        )
+
+        XCTAssertNotNil(summary.score)
+        XCTAssertFalse(summary.components.contains { $0.kind == .autonomic })
+        XCTAssertNotEqual(summary.score, 0)
+    }
+
+    func testHealthDashboardSnapshotRecalculatesRecoveryFromTrends() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let trends = recoveryTrendSnapshot(
+            scoreDay: scoreDay,
+            hrvBaseline: 55,
+            hrvToday: 56,
+            restingHeartRateBaseline: 58,
+            restingHeartRateToday: 58,
+            trainingLoadToday: 1.0,
+            calendar: calendar
+        )
+
+        let dashboard = HealthDashboardSnapshot(
+            summary: .empty,
+            trends: trends
+        ).recalculatingRecovery(on: scoreDay, calendar: calendar)
+
+        XCTAssertNotNil(dashboard.summary.recovery.score)
+        XCTAssertEqual(
+            dashboard.trends.recovery.point(on: scoreDay)?.value,
+            Double(try XCTUnwrap(dashboard.summary.recovery.score))
+        )
+    }
+
+    func testHealthSummarySnapshotDecodesOldCacheWithoutRecovery() throws {
+        let data = Data("""
+        {
+          "activityRings": {},
+          "sleep": { "duration": null },
+          "restingHeartRate": { "value": null },
+          "bodyMass": { "value": null },
+          "bodyFatPercentage": { "value": null },
+          "heartRateVariability": { "value": null },
+          "respiratoryRate": { "value": null },
+          "oxygenSaturation": { "value": null },
+          "bodyMassIndex": { "value": null },
+          "activeEnergy": { "value": null },
+          "restingEnergy": { "value": null }
+        }
+        """.utf8)
+
+        let decoded = try JSONDecoder().decode(HealthSummarySnapshot.self, from: data)
+
+        XCTAssertEqual(decoded.recovery, .unavailable)
+    }
+
+    func testRecoveryDailySeriesScoresEachScorableDay() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let startDate = try XCTUnwrap(calendar.date(byAdding: .day, value: -2, to: scoreDay))
+        let trends = recoveryTrendSnapshot(
+            scoreDay: scoreDay,
+            hrvBaseline: 55,
+            hrvToday: 56,
+            restingHeartRateBaseline: 58,
+            restingHeartRateToday: 58,
+            trainingLoadToday: 1.0,
+            calendar: calendar
+        )
+
+        let series = RecoveryScoreCalculator.dailySeries(
+            healthSummary: .empty,
+            trends: trends,
+            startDate: startDate,
+            endDate: scoreDay,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(series.points.count, 3)
+        XCTAssertEqual(series.points.map(\.date), [startDate, try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: scoreDay)), scoreDay])
+        XCTAssertTrue(series.points.allSatisfy { (0...100).contains($0.value) })
+    }
+
+    func testBodyHomeCardKindIncludesRecoveryAfterActivityRings() throws {
+        XCTAssertEqual(BodyHomeCardKind.recovery.healthMetricKind, .recovery)
+        XCTAssertTrue(BodyHomeCardKind.defaultOrder.contains(.recovery))
+        XCTAssertLessThan(
+            try XCTUnwrap(BodyHomeCardKind.defaultOrder.firstIndex(of: .recovery)),
+            try XCTUnwrap(BodyHomeCardKind.defaultOrder.firstIndex(of: .exerciseMinutes))
+        )
+        XCTAssertEqual(BodyHomeCardKind.recovery.title, "Recovery")
+        XCTAssertTrue(BodyHomeCardKind.recovery.isBeta)
+        XCTAssertEqual(BodyHomeCardKind.recovery.iconName, "bolt.heart.fill")
+    }
+
+    func testBodyHomeTrendCardKindIncludesRecovery() {
+        XCTAssertEqual(BodyHomeTrendCardKind.recovery.metricKind, .recovery)
+        XCTAssertTrue(BodyHomeTrendCardKind.defaultOrder.contains(.recovery))
+        XCTAssertEqual(BodyHomeTrendCardKind.recovery.title, "Recovery")
+    }
+
+    func testRecoveryCalculatorPenalizesHighTrainingLoad() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let trends = recoveryTrendSnapshot(
+            scoreDay: scoreDay,
+            hrvBaseline: 55,
+            hrvToday: 55,
+            restingHeartRateBaseline: 58,
+            restingHeartRateToday: 58,
+            trainingLoadToday: 1.62,
+            calendar: calendar
+        )
+
+        let summary = RecoveryScoreCalculator.summary(
+            on: scoreDay,
+            healthSummary: .empty,
+            trends: trends,
+            calendar: calendar
+        )
+
+        XCTAssertTrue(summary.drivers.contains { $0.kind == .trainingLoadElevated })
+        XCTAssertLessThan(try XCTUnwrap(summary.components.first { $0.kind == .training }?.score), 70)
+    }
+
+    func testRecoveryCalculatorCreatesLowConfidenceForThinHistory() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        let summary = RecoveryScoreCalculator.summary(
+            on: scoreDay,
+            healthSummary: .empty,
+            trends: .empty,
+            calendar: calendar
+        )
+
+        XCTAssertNil(summary.score)
+        XCTAssertEqual(summary.confidence, .unavailable)
+    }
+
+    func testRecoveryIsNotSourceSelectable() {
+        XCTAssertFalse(HealthMetricKind.recovery.supportsHealthDataSourceSelection)
+        XCTAssertFalse(HealthMetricKind.recovery.supportsSecondaryHealthDataSourceSelection)
+    }
+
+    func testFilteringHeartPermissionLowersRecoveryConfidenceInsteadOfRemovingRecoveryCard() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let dashboard = HealthDashboardSnapshot(
+            summary: .empty,
+            trends: recoveryTrendSnapshot(
+                scoreDay: scoreDay,
+                hrvBaseline: 55,
+                hrvToday: 30,
+                restingHeartRateBaseline: 58,
+                restingHeartRateToday: 72,
+                trainingLoadToday: 1.0,
+                calendar: calendar
+            )
+        )
+        .filtered(by: BodyHealthPermissionSelection(enabledPermissions: [.workouts]))
+        .recalculatingRecovery(on: scoreDay, calendar: calendar)
+
+        XCTAssertNotEqual(dashboard.summary.recovery.confidence, RecoveryConfidence.high)
+    }
+
     func testHealthTrendRangeShowsPointMarksOnLineRanges() {
         XCTAssertTrue(BodyHealthTrendRange.recentWeek.showsPointMarks)
         XCTAssertTrue(BodyHealthTrendRange.recentMonth.showsPointMarks)
@@ -1301,7 +1664,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             .exerciseMinutes,
             .wristTemperature,
             .timeInDaylight,
-            .trainingLoad
+            .recovery
         ])
         XCTAssertEqual(Set(order), Set(BodyHomeCardKind.defaultOrder))
         XCTAssertEqual(order.count, BodyHomeCardKind.defaultOrder.count)
@@ -1314,7 +1677,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(order.contains(.heartRate))
         XCTAssertEqual(
             Array(BodyHomeCardKind.defaultOrder.prefix(6)),
-            [.activityRings, .exerciseMinutes, .trainingLoad, .wristTemperature, .timeInDaylight, .steps]
+            [.activityRings, .recovery, .exerciseMinutes, .trainingLoad, .wristTemperature, .timeInDaylight]
         )
         XCTAssertLessThan(
             BodyHomeCardKind.defaultOrder.firstIndex(of: .heartRate) ?? .max,
@@ -1327,16 +1690,16 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         let movedDown = BodyHomeCardKind.reordered(order, moving: .sleep, to: .basics)
         XCTAssertEqual(
-            Array(movedDown.prefix(8)),
-            [.activityRings, .exerciseMinutes, .trainingLoad, .wristTemperature, .timeInDaylight, .steps, .basics, .sleep]
+            Array(movedDown.prefix(9)),
+            [.activityRings, .recovery, .exerciseMinutes, .trainingLoad, .wristTemperature, .timeInDaylight, .steps, .basics, .sleep]
         )
         XCTAssertEqual(Set(movedDown), Set(order))
         XCTAssertEqual(movedDown.count, order.count)
 
         let movedUp = BodyHomeCardKind.reordered(order, moving: .activeEnergy, to: .sleep)
         XCTAssertEqual(
-            Array(movedUp.prefix(8)),
-            [.activityRings, .exerciseMinutes, .trainingLoad, .wristTemperature, .timeInDaylight, .steps, .activeEnergy, .sleep]
+            Array(movedUp.prefix(9)),
+            [.activityRings, .recovery, .exerciseMinutes, .trainingLoad, .wristTemperature, .timeInDaylight, .steps, .activeEnergy, .sleep]
         )
         XCTAssertEqual(Set(movedUp), Set(order))
         XCTAssertEqual(movedUp.count, order.count)
@@ -1408,6 +1771,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(
             BodyHomeTrendCardKind.defaultOrder.map(\.metricKind),
             [
+                .recovery,
                 .heartRate,
                 .restingHeartRate,
                 .heartRateVariability,
@@ -1962,6 +2326,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(
             sourcedKinds,
             [
+                .recovery,
                 .sleep,
                 .basics,
                 .heartRate,
@@ -1978,6 +2343,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 .steps
             ]
         )
+        XCTAssertEqual(HealthMetricKind.recovery.detailDataSourceText?.sourceText, "Apple Health")
         XCTAssertEqual(HealthMetricKind.sleep.detailDataSourceText?.sourceText, "Apple Health")
         XCTAssertEqual(HealthMetricKind.basics.detailDataSourceText?.sourceText, "Apple Health")
         XCTAssertEqual(HealthMetricKind.heartRate.detailDataSourceText?.sourceText, "Apple Health")
@@ -2297,6 +2663,81 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(score.total, 93)
         XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .deep, .rem])
         XCTAssertEqual(score.categories.map(\.points), [25, 20, 11, 9])
+    }
+
+    func testSleepScoreAmountUsesIdealSleepDurationGoal() throws {
+        let sevenHourSummary = SleepSummary(duration: 7 * 60 * 60)
+        let defaultGoalScore = try XCTUnwrap(SleepScoreSummary(sleep: sevenHourSummary))
+        let customGoalScore = try XCTUnwrap(SleepScoreSummary(
+            sleep: sevenHourSummary,
+            idealSleepDuration: 7 * 60 * 60
+        ))
+
+        XCTAssertEqual(defaultGoalScore.category(for: .duration)?.points, 17)
+        XCTAssertEqual(customGoalScore.category(for: .duration)?.points, 25)
+        XCTAssertEqual(customGoalScore.category(for: .duration)?.valueDescription, "7h")
+        XCTAssertEqual(customGoalScore.total, 100)
+    }
+
+    func testSleepScorePenalizesStartTimeDeviationFromRecentBaseline() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDay = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15)
+        ))
+        let currentStart = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15, hour: 2)
+        ))
+        let currentSummary = SleepSummary(
+            duration: 8 * 60 * 60,
+            stageSnapshot: SleepStageSnapshot(
+                date: currentDay,
+                segments: [
+                    SleepStageSegment(
+                        stage: .core,
+                        startDate: currentStart,
+                        endDate: currentStart.addingTimeInterval(8 * 60 * 60)
+                    )
+                ]
+            )
+        )
+        let history = SleepHistorySnapshot(days: try (1...14).map { day -> SleepDaySummary in
+            let sleepDay = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 5, day: day)
+            ))
+            let sleepStart = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 5, day: day, hour: 23)
+            ))
+
+            return SleepDaySummary(
+                date: sleepDay,
+                summary: SleepSummary(
+                    duration: 8 * 60 * 60,
+                    stageSnapshot: SleepStageSnapshot(
+                        date: sleepDay,
+                        segments: [
+                            SleepStageSegment(
+                                stage: .core,
+                                startDate: sleepStart,
+                                endDate: sleepStart.addingTimeInterval(8 * 60 * 60)
+                            )
+                        ]
+                    )
+                )
+            )
+        })
+
+        let score = try XCTUnwrap(SleepScoreSummary(
+            sleep: currentSummary,
+            recentSleepHistory: history,
+            on: currentDay,
+            calendar: calendar
+        ))
+
+        XCTAssertEqual(score.total, 82)
+        XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .startTime])
+        XCTAssertEqual(score.category(for: .startTime)?.points, 0)
+        XCTAssertEqual(score.category(for: .startTime)?.maximumPoints, 10)
+        XCTAssertEqual(score.category(for: .startTime)?.valueDescription, "3h off")
     }
 
     func testSleepScoreCommentSummarizesScoreBand() {
@@ -3032,6 +3473,68 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             97.7,
             accuracy: 0.01
         )
+    }
+
+    private func recoveryTrendSnapshot(
+        scoreDay: Date,
+        hrvBaseline: Double?,
+        hrvToday: Double?,
+        restingHeartRateBaseline: Double?,
+        restingHeartRateToday: Double?,
+        trainingLoadToday: Double?,
+        calendar: Calendar
+    ) -> HealthTrendSnapshot {
+        HealthTrendSnapshot(
+            sleep: .empty,
+            heartRate: .empty,
+            restingHeartRate: recoverySeries(
+                scoreDay: scoreDay,
+                baseline: restingHeartRateBaseline,
+                today: restingHeartRateToday,
+                calendar: calendar
+            ),
+            bodyMass: .empty,
+            bodyFatPercentage: .empty,
+            heartRateVariability: recoverySeries(
+                scoreDay: scoreDay,
+                baseline: hrvBaseline,
+                today: hrvToday,
+                calendar: calendar
+            ),
+            respiratoryRate: .empty,
+            oxygenSaturation: .empty,
+            bodyMassIndex: .empty,
+            activeEnergy: .empty,
+            restingEnergy: .empty,
+            trainingLoad: recoverySeries(
+                scoreDay: scoreDay,
+                baseline: trainingLoadToday,
+                today: trainingLoadToday,
+                calendar: calendar
+            )
+        )
+    }
+
+    private func recoverySeries(
+        scoreDay: Date,
+        baseline: Double?,
+        today: Double?,
+        calendar: Calendar
+    ) -> HealthTrendSeries {
+        var points: [HealthTrendDataPoint] = []
+        if let baseline {
+            for offset in 1...28 {
+                guard let date = calendar.date(byAdding: .day, value: -offset, to: scoreDay) else {
+                    continue
+                }
+
+                points.append(HealthTrendDataPoint(date: date, value: baseline))
+            }
+        }
+        if let today {
+            points.append(HealthTrendDataPoint(date: scoreDay, value: today))
+        }
+        return HealthTrendSeries(points: points)
     }
 
     private func workout(day: Int, type: BodyWorkoutType, duration: TimeInterval) -> WorkoutSummary {

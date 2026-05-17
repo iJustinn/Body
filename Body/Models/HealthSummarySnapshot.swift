@@ -6,6 +6,7 @@
 import Foundation
 
 enum HealthMetricKind: String, CaseIterable, Identifiable {
+    case recovery
     case sleep
     case basics
     case heartRate
@@ -30,6 +31,11 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
 
     var detailHelpText: HealthMetricDetailHelpText? {
         switch self {
+        case .recovery:
+            return HealthMetricDetailHelpText(
+                title: "About Recovery",
+                body: "Recovery combines your recent heart, sleep, training, and overnight vital signs against your own baseline. It is a readiness estimate, not a diagnosis. The strongest signal comes from sustained patterns across HRV, resting heart rate, sleep quality, and recent load rather than one isolated reading."
+            )
         case .sleep:
             return HealthMetricDetailHelpText(
                 title: "About Sleep",
@@ -120,7 +126,8 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
 
     var detailDataSourceText: HealthMetricDetailDataSourceText? {
         switch self {
-        case .sleep,
+        case .recovery,
+             .sleep,
              .basics,
              .heartRate,
              .restingHeartRate,
@@ -154,6 +161,7 @@ struct HealthMetricDetailDataSourceText: Equatable {
 
 struct HealthSummarySnapshot: Codable, Equatable {
     var activityRings: ActivityRingSummary
+    var recovery: RecoverySummary
     var sleep: SleepSummary
     var heartRate: HealthMetricSummary
     var restingHeartRate: HealthMetricSummary
@@ -173,6 +181,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
 
     init(
         activityRings: ActivityRingSummary,
+        recovery: RecoverySummary = .unavailable,
         sleep: SleepSummary,
         heartRate: HealthMetricSummary = HealthMetricSummary(value: nil),
         restingHeartRate: HealthMetricSummary,
@@ -191,6 +200,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         steps: HealthMetricSummary = HealthMetricSummary(value: nil)
     ) {
         self.activityRings = activityRings
+        self.recovery = recovery
         self.sleep = sleep
         self.heartRate = heartRate
         self.restingHeartRate = restingHeartRate
@@ -211,6 +221,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
 
     var isEmpty: Bool {
         activityRings.isEmpty &&
+            recovery.score == nil &&
             sleep.duration == nil &&
             sleep.stageSnapshot.isEmpty &&
             sleep.vitals.isEmpty &&
@@ -233,6 +244,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
 
     static let empty = HealthSummarySnapshot(
         activityRings: .empty,
+        recovery: .unavailable,
         sleep: SleepSummary(duration: nil),
         heartRate: HealthMetricSummary(value: nil),
         restingHeartRate: HealthMetricSummary(value: nil),
@@ -256,6 +268,38 @@ struct HealthSummarySnapshot: Codable, Equatable {
             move: ActivityRingMetric(value: 670, goal: 500),
             exercise: ActivityRingMetric(value: 76, goal: 40),
             stand: ActivityRingMetric(value: 8, goal: 10)
+        ),
+        recovery: RecoverySummary(
+            score: 82,
+            status: .high,
+            confidence: .medium,
+            components: [
+                RecoveryComponent(
+                    kind: .autonomic,
+                    score: 88,
+                    weight: 30,
+                    message: "Heart signals compared with your baseline."
+                ),
+                RecoveryComponent(
+                    kind: .sleep,
+                    score: 78,
+                    weight: 30,
+                    message: "Sleep amount and continuity."
+                ),
+                RecoveryComponent(
+                    kind: .training,
+                    score: 86,
+                    weight: 25,
+                    message: "Recent load relative to your longer baseline."
+                )
+            ],
+            drivers: [
+                RecoveryDriver(
+                    kind: .mostlyTypical,
+                    message: "Recovery signals are mostly typical.",
+                    impact: 0
+                )
+            ]
         ),
         sleep: SleepSummary(
             duration: 28_740,
@@ -286,6 +330,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case activityRings
+        case recovery
         case sleep
         case heartRate
         case restingHeartRate
@@ -306,8 +351,9 @@ struct HealthSummarySnapshot: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        activityRings = try container.decodeIfPresent(ActivityRingSummary.self, forKey: .activityRings) ?? .empty
-        sleep = try container.decodeIfPresent(SleepSummary.self, forKey: .sleep) ?? SleepSummary(duration: nil)
+        activityRings = (try? container.decodeIfPresent(ActivityRingSummary.self, forKey: .activityRings)) ?? .empty
+        recovery = try container.decodeIfPresent(RecoverySummary.self, forKey: .recovery) ?? .unavailable
+        sleep = (try? container.decodeIfPresent(SleepSummary.self, forKey: .sleep)) ?? SleepSummary(duration: nil)
         heartRate = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .heartRate) ?? HealthMetricSummary(value: nil)
         restingHeartRate = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .restingHeartRate) ?? HealthMetricSummary(value: nil)
         bodyMass = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .bodyMass) ?? HealthMetricSummary(value: nil)
@@ -382,6 +428,8 @@ struct HealthSummarySnapshot: Codable, Equatable {
         var next = self
 
         switch kind {
+        case .recovery:
+            next.recovery = refreshed.recovery
         case .sleep:
             next.sleep = refreshed.sleep
         case .basics:
@@ -957,6 +1005,13 @@ struct SleepStageSnapshot: Codable, Equatable {
         }
     }
 
+    var sleepStartDate: Date? {
+        segments
+            .filter { SleepStage.sleepStages.contains($0.stage) }
+            .map(\.startDate)
+            .min()
+    }
+
     var hasDetailedStages: Bool {
         segments.contains { $0.stage == .rem || $0.stage == .deep }
     }
@@ -968,7 +1023,13 @@ struct SleepScoreSummary: Equatable {
     let total: Int
     let categories: [SleepScoreCategory]
 
-    init?(sleep: SleepSummary) {
+    init?(
+        sleep: SleepSummary,
+        idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
+        recentSleepHistory: SleepHistorySnapshot = .empty,
+        on date: Date? = nil,
+        calendar: Calendar = .bodyGregorian
+    ) {
         guard let duration = sleep.duration, duration > 0 else {
             return nil
         }
@@ -976,7 +1037,7 @@ struct SleepScoreSummary: Equatable {
         var categoryScores = [
             Self.category(
                 kind: .duration,
-                progress: Self.durationProgress(duration),
+                progress: Self.durationProgress(duration, idealDuration: idealSleepDuration),
                 maximumPoints: 25,
                 valueDescription: BodyValueFormat.sleepDurationText(for: duration)
             )
@@ -984,6 +1045,15 @@ struct SleepScoreSummary: Equatable {
 
         if let continuityCategory = Self.continuityCategory(sleep: sleep) {
             categoryScores.append(continuityCategory)
+        }
+
+        if let startTimeCategory = Self.startTimeCategory(
+            sleep: sleep,
+            recentSleepHistory: recentSleepHistory,
+            on: date,
+            calendar: calendar
+        ) {
+            categoryScores.append(startTimeCategory)
         }
 
         if sleep.stageSnapshot.hasDetailedStages {
@@ -1105,6 +1175,47 @@ struct SleepScoreSummary: Equatable {
         )
     }
 
+    private static func startTimeCategory(
+        sleep: SleepSummary,
+        recentSleepHistory: SleepHistorySnapshot,
+        on date: Date?,
+        calendar: Calendar
+    ) -> SleepScoreCategory? {
+        guard let sleepStartDate = sleep.stageSnapshot.sleepStartDate else {
+            return nil
+        }
+
+        let scoringDate = date ?? sleep.stageSnapshot.date ?? sleepStartDate
+        let scoringDay = calendar.startOfDay(for: scoringDate)
+        let oldestBaselineDay = calendar.date(
+            byAdding: .day,
+            value: -Self.startTimeBaselineDayCount,
+            to: scoringDay
+        ) ?? scoringDay.addingTimeInterval(-TimeInterval(Self.startTimeBaselineDayCount) * Self.secondsPerDay)
+        let baselineStartDates = recentSleepHistory.days.compactMap { day -> Date? in
+            let dayDate = calendar.startOfDay(for: day.date)
+            guard dayDate < scoringDay, dayDate >= oldestBaselineDay else {
+                return nil
+            }
+
+            return day.summary.stageSnapshot.sleepStartDate
+        }
+
+        guard baselineStartDates.count >= Self.minimumStartTimeBaselineCount,
+              let baselineSeconds = circularAverageSeconds(for: baselineStartDates, calendar: calendar) else {
+            return nil
+        }
+
+        let sleepStartSeconds = secondsSinceStartOfDay(sleepStartDate, calendar: calendar)
+        let deviation = circularDeviationSeconds(from: sleepStartSeconds, to: baselineSeconds)
+        return category(
+            kind: .startTime,
+            progress: startTimeProgress(forDeviation: deviation),
+            maximumPoints: 10,
+            valueDescription: "\(BodyValueFormat.durationText(for: deviation)) off"
+        )
+    }
+
     private static func vitalsCategory(vitals: SleepVitalsSummary) -> SleepScoreCategory? {
         var progressValues: [Double] = []
 
@@ -1144,18 +1255,71 @@ struct SleepScoreSummary: Equatable {
         )
     }
 
-    private static func durationProgress(_ duration: TimeInterval) -> Double {
+    private static func durationProgress(_ duration: TimeInterval, idealDuration: TimeInterval) -> Double {
         let hours = duration / 3_600
+        let idealHours = max(idealDuration / 3_600, 1)
 
-        if hours <= 8 {
-            return min(max((hours - 5) / 3, 0), 1)
+        if hours <= idealHours {
+            return min(max((hours - (idealHours - 3)) / 3, 0), 1)
         }
 
-        if hours <= 9 {
-            return min(max(1 - ((hours - 8) * 0.1), 0), 1)
+        if hours <= idealHours + 1 {
+            return min(max(1 - ((hours - idealHours) * 0.1), 0), 1)
         }
 
-        return min(max(0.9 - ((hours - 9) / 3 * 0.5), 0.4), 1)
+        return min(max(0.9 - ((hours - (idealHours + 1)) / 3 * 0.5), 0.4), 1)
+    }
+
+    private static func startTimeProgress(forDeviation deviation: TimeInterval) -> Double {
+        if deviation <= Self.startTimeFullCreditDeviation {
+            return 1
+        }
+
+        if deviation >= Self.startTimeNoCreditDeviation {
+            return 0
+        }
+
+        return min(
+            max(
+                1 - ((deviation - Self.startTimeFullCreditDeviation) /
+                    (Self.startTimeNoCreditDeviation - Self.startTimeFullCreditDeviation)),
+                0
+            ),
+            1
+        )
+    }
+
+    private static func circularAverageSeconds(for dates: [Date], calendar: Calendar) -> TimeInterval? {
+        guard !dates.isEmpty else {
+            return nil
+        }
+
+        let angles = dates.map {
+            secondsSinceStartOfDay($0, calendar: calendar) / Self.secondsPerDay * 2 * Double.pi
+        }
+        let averageX = angles.reduce(0) { $0 + cos($1) } / Double(angles.count)
+        let averageY = angles.reduce(0) { $0 + sin($1) } / Double(angles.count)
+        guard averageX.isFinite, averageY.isFinite, abs(averageX) + abs(averageY) > 0.000001 else {
+            return nil
+        }
+
+        let angle = atan2(averageY, averageX)
+        let normalizedAngle = angle >= 0 ? angle : angle + 2 * Double.pi
+        return normalizedAngle / (2 * Double.pi) * Self.secondsPerDay
+    }
+
+    private static func circularDeviationSeconds(from lhs: TimeInterval, to rhs: TimeInterval) -> TimeInterval {
+        let absoluteDifference = abs(lhs - rhs)
+        return min(absoluteDifference, Self.secondsPerDay - absoluteDifference)
+    }
+
+    private static func secondsSinceStartOfDay(_ date: Date, calendar: Calendar) -> TimeInterval {
+        let components = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: date)
+        let hourSeconds = TimeInterval(components.hour ?? 0) * 3_600
+        let minuteSeconds = TimeInterval(components.minute ?? 0) * 60
+        let secondValue = TimeInterval(components.second ?? 0)
+        let nanosecondValue = TimeInterval(components.nanosecond ?? 0) / 1_000_000_000
+        return min(max(hourSeconds + minuteSeconds + secondValue + nanosecondValue, 0), Self.secondsPerDay)
     }
 
     private static func targetProgress(value: Double, target: Double) -> Double {
@@ -1194,12 +1358,19 @@ struct SleepScoreSummary: Equatable {
 
         return min(max(1 - ((value - upperBound) / tolerance), 0), 1)
     }
+
+    private static let startTimeBaselineDayCount = 14
+    private static let minimumStartTimeBaselineCount = 3
+    private static let startTimeFullCreditDeviation: TimeInterval = 60 * 60
+    private static let startTimeNoCreditDeviation: TimeInterval = 3 * 60 * 60
+    private static let secondsPerDay: TimeInterval = 24 * 60 * 60
 }
 
 struct SleepScoreCategory: Equatable, Identifiable {
     enum Kind: String, Equatable {
         case duration
         case continuity
+        case startTime
         case rem
         case deep
         case pressure
@@ -1212,6 +1383,8 @@ struct SleepScoreCategory: Equatable, Identifiable {
                 return "Amount"
             case .continuity:
                 return "Continuity"
+            case .startTime:
+                return "Start Time"
             case .rem:
                 return "REM"
             case .deep:
@@ -1340,13 +1513,43 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             summary: summary.filtered(by: selection),
             trends: trends.filtered(by: selection),
             activityRingHistory: selection.includes(.activityRings) ? activityRingHistory : .empty
+        ).recalculatingRecovery(calendar: .bodyGregorian)
+    }
+
+    func recalculatingRecovery(
+        on date: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> HealthDashboardSnapshot {
+        var next = self
+        next.summary.recovery = RecoveryScoreCalculator.summary(
+            on: date,
+            healthSummary: next.summary,
+            trends: next.trends,
+            calendar: calendar
         )
+
+        let scoreDay = calendar.startOfDay(for: date)
+        let oldestTrendDate = next.trends.recoverySourceSeries.compactMap { series in
+            series.points.map { calendar.startOfDay(for: $0.date) }.min()
+        }.min()
+        let startDate = oldestTrendDate ?? scoreDay
+
+        next.trends.recovery = RecoveryScoreCalculator.dailySeries(
+            healthSummary: next.summary,
+            trends: next.trends,
+            startDate: startDate,
+            endDate: scoreDay,
+            calendar: calendar
+        )
+
+        return next
     }
 }
 
 struct HealthTrendSnapshot: Codable, Equatable {
     var sleep: HealthTrendSeries
     var sleepSecondary: HealthTrendSeries
+    var recovery: HealthTrendSeries
     var heartRate: HealthTrendSeries
     var heartRateRanges: HealthTrendRangeSeries
     var heartRateRangesSecondary: HealthTrendRangeSeries
@@ -1388,6 +1591,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
     static let empty = HealthTrendSnapshot(
         sleep: .empty,
         sleepSecondary: .empty,
+        recovery: .empty,
         heartRate: .empty,
         heartRateRanges: .empty,
         heartRateRangesSecondary: .empty,
@@ -1430,6 +1634,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
     var isEmpty: Bool {
         sleep.isEmpty &&
             sleepSecondary.isEmpty &&
+            recovery.isEmpty &&
             heartRate.isEmpty &&
             heartRateRanges.isEmpty &&
             heartRateRangesSecondary.isEmpty &&
@@ -1472,6 +1677,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
     init(
         sleep: HealthTrendSeries,
         sleepSecondary: HealthTrendSeries = .empty,
+        recovery: HealthTrendSeries = .empty,
         heartRate: HealthTrendSeries = .empty,
         heartRateRanges: HealthTrendRangeSeries = .empty,
         heartRateRangesSecondary: HealthTrendRangeSeries = .empty,
@@ -1512,6 +1718,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
     ) {
         self.sleep = sleep
         self.sleepSecondary = sleepSecondary
+        self.recovery = recovery
         self.heartRate = heartRate
         self.heartRateRanges = heartRateRanges
         self.heartRateRangesSecondary = heartRateRangesSecondary
@@ -1554,6 +1761,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case sleep
         case sleepSecondary
+        case recovery
         case heartRate
         case heartRateRanges
         case heartRateRangesSecondary
@@ -1597,6 +1805,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         sleep = try container.decode(HealthTrendSeries.self, forKey: .sleep)
         sleepSecondary = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .sleepSecondary) ?? .empty
+        recovery = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .recovery) ?? .empty
         heartRate = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .heartRate) ?? .empty
         heartRateRanges = try container.decodeIfPresent(HealthTrendRangeSeries.self, forKey: .heartRateRanges) ?? .empty
         heartRateRangesSecondary = try container.decodeIfPresent(
@@ -1695,6 +1904,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
 
     func series(for kind: HealthMetricKind) -> HealthTrendSeries {
         switch kind {
+        case .recovery:
+            return recovery
         case .sleep:
             return sleep
         case .basics:
@@ -1747,6 +1958,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case .steps:
             return stepsSecondary
         case .basics,
+             .recovery,
              .heartRate,
              .bodyMass,
              .bodyFatPercentage,
@@ -1772,6 +1984,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case .oxygenSaturation:
             return oxygenSaturationRanges
         case .sleep,
+             .recovery,
              .basics,
              .restingHeartRate,
              .bodyMass,
@@ -1797,6 +2010,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case .oxygenSaturation:
             return oxygenSaturationRangesSecondary
         case .sleep,
+             .recovery,
              .basics,
              .restingHeartRate,
              .bodyMass,
@@ -1827,6 +2041,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case .oxygenSaturation:
             return oxygenSaturationDaySamples
         case .sleep,
+             .recovery,
              .basics,
              .bodyMass,
              .bodyFatPercentage,
@@ -1853,6 +2068,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case .oxygenSaturation:
             return oxygenSaturationDaySamplesSecondary
         case .sleep,
+             .recovery,
              .basics,
              .bodyMass,
              .bodyFatPercentage,
@@ -1873,6 +2089,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         var next = self
 
         switch kind {
+        case .recovery:
+            next.recovery = refreshed.recovery
         case .sleep:
             next.sleep = refreshed.sleep
             next.sleepSecondary = refreshed.sleepSecondary
@@ -1935,6 +2153,18 @@ struct HealthTrendSnapshot: Codable, Equatable {
         }
 
         return next
+    }
+
+    var recoverySourceSeries: [HealthTrendSeries] {
+        [
+            heartRateVariability,
+            restingHeartRate,
+            sleep,
+            trainingLoad,
+            respiratoryRate,
+            oxygenSaturation,
+            wristTemperature
+        ]
     }
 
     func filtered(by selection: BodyHealthPermissionSelection) -> HealthTrendSnapshot {

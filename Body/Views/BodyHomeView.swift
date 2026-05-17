@@ -221,6 +221,7 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.homeCardOrderKey) private var homeCardOrderRawValue = BodyHomeCardKind.defaultRawValue
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
@@ -301,6 +302,10 @@ struct BodyHomeView: View {
         BodyHealthTrendRange.storedValue(from: defaultTrendRangeRawValue)
     }
 
+    private var sleepDurationGoal: TimeInterval {
+        BodySleepDurationGoal.duration(from: sleepDurationGoalMinutes)
+    }
+
     private var homeTrendCardSelection: BodyHomeTrendCardSelection {
         BodyHomeTrendCardSelection.storedValue(from: homeTrendCardSelectionRawValue)
     }
@@ -335,6 +340,10 @@ struct BodyHomeView: View {
         let trends = workoutStore.healthTrends
 
         return [
+            recoveryMetric(
+                summary: summary.recovery,
+                chartPreview: trends.series(for: .recovery)
+            ),
             metric(
                 kind: .exerciseMinutes,
                 title: "Exercise Minutes",
@@ -383,7 +392,11 @@ struct BodyHomeView: View {
                 chartStyle: .bar,
                 chartPreview: trends.series(for: .steps)
             ),
-            sleepMetric(summary: summary, chartPreview: trends.series(for: .sleep)),
+            sleepMetric(
+                summary: summary,
+                sleepHistory: trends.sleepHistory,
+                chartPreview: trends.series(for: .sleep)
+            ),
             basicsMetric(summary: summary, chartPreview: trends.series(for: .bodyMass)),
             metric(
                 kind: .heartRate,
@@ -484,6 +497,17 @@ struct BodyHomeView: View {
         ).unit
         let energyUnit = selectedEnergyUnitPreference.unitLabel
         let cards = [
+            homeTrendCard(
+                kind: .recovery,
+                title: "Recovery",
+                series: trends.series(for: .recovery),
+                chartStyle: .line,
+                symbolName: "bolt.heart.fill",
+                symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + "%" },
+                messageStyle: .average(subject: "your recovery score"),
+                includesStable: includesStable
+            ),
             homeTrendCard(
                 kind: .heartRate,
                 title: "Heart Rate",
@@ -703,6 +727,24 @@ struct BodyHomeView: View {
         )
     }
 
+    private func recoveryMetric(
+        summary: RecoverySummary,
+        chartPreview: HealthTrendSeries
+    ) -> BodyHealthMetricCard.Model {
+        let scoreText = summary.score.map { "\($0)" } ?? "--"
+
+        return BodyHealthMetricCard.Model(
+            kind: .recovery,
+            title: "Recovery",
+            value: scoreText,
+            unit: summary.score == nil ? "" : "%",
+            symbolName: "bolt.heart.fill",
+            symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
+            chartPreviewStyle: .line,
+            chartPreview: chartPreview
+        )
+    }
+
     private func energyMetric(
         kind: HealthMetricKind,
         title: String,
@@ -771,9 +813,15 @@ struct BodyHomeView: View {
 
     private func sleepMetric(
         summary: HealthSummarySnapshot,
+        sleepHistory: SleepHistorySnapshot,
         chartPreview: HealthTrendSeries
     ) -> BodyHealthMetricCard.Model {
-        let sleepScoreDisplay = summary.sleep.score.map {
+        let sleepScoreDisplay = SleepScoreSummary(
+            sleep: summary.sleep,
+            idealSleepDuration: sleepDurationGoal,
+            recentSleepHistory: sleepHistory,
+            on: summary.sleep.stageSnapshot.date
+        ).map {
             BodyMetricDisplayValue(title: "Score", value: "\($0.total)", unit: "PTS")
         } ?? BodyMetricDisplayValue(title: "Score", value: "--", unit: "")
 
@@ -955,6 +1003,37 @@ struct BodyHomeView: View {
         let trends = workoutStore.healthTrends
 
         switch kind {
+        case .recovery:
+            return BodyHealthMetricDetailModel(
+                kind: kind,
+                title: "Recovery",
+                value: summary.recovery.score.map { "\($0)" } ?? "--",
+                unit: summary.recovery.score == nil ? "" : "%",
+                symbolName: "bolt.heart.fill",
+                symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
+                series: trends.recovery,
+                basicsTrend: nil,
+                sleepStageSnapshot: nil,
+                sleepScore: nil,
+                sleepVitals: nil,
+                sleepDuration: nil,
+                sleepHistory: trends.sleepHistory,
+                chartStyle: .line,
+                highlightedRange: BodyRecoveryStatusPresentation.make(
+                    for: summary.recovery.score.map(Double.init)
+                ),
+                highlightedRangeResolver: BodyRecoveryStatusPresentation.make(for:),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + "%" },
+                secondaryValueFormatter: nil,
+                recovery: summary.recovery,
+                headerMetrics: [
+                    BodyMetricDisplayValue(title: "Status", value: summary.recovery.status.title, unit: ""),
+                    BodyMetricDisplayValue(title: "Confidence", value: summary.recovery.confidence.title, unit: "")
+                ],
+                headerSecondaryText: summary.recovery.drivers.first?.message,
+                helpText: kind.detailHelpText,
+                dataSourceText: kind.detailDataSourceText
+            )
         case .heartRate:
             return BodyHealthMetricDetailModel(
                 kind: kind,
@@ -1087,7 +1166,12 @@ struct BodyHomeView: View {
                 secondaryDaySeries: .empty,
                 basicsTrend: nil,
                 sleepStageSnapshot: summary.sleep.stageSnapshot,
-                sleepScore: summary.sleep.score,
+                sleepScore: SleepScoreSummary(
+                    sleep: summary.sleep,
+                    idealSleepDuration: sleepDurationGoal,
+                    recentSleepHistory: trends.sleepHistory,
+                    on: summary.sleep.stageSnapshot.date
+                ),
                 sleepVitals: summary.sleep.vitals,
                 sleepDuration: summary.sleep.duration,
                 sleepHistory: trends.sleepHistory,
@@ -1815,7 +1899,7 @@ private enum BodyHealthDetailChartLayout {
 }
 
 private enum BodySleepScoreDetailsSheetLayout {
-    static let sheetHeight: CGFloat = 640
+    static let sheetHeight: CGFloat = 720
 }
 
 private struct BodyMetricDisplayValue: Identifiable {
@@ -2071,6 +2155,223 @@ private struct BodyTrainingLoadIntervalBreakdownChart: View {
     }
 }
 
+private enum BodyRecoveryStatusPresentation {
+    static func make(for value: Double?) -> BodyHealthMetricTrendHighlightedRange? {
+        guard let value, value.isFinite else {
+            return nil
+        }
+
+        let status = RecoveryStatus.status(for: Int(value.rounded()))
+        guard status != .unavailable else {
+            return nil
+        }
+
+        return BodyHealthMetricTrendHighlightedRange(
+            title: status.title,
+            lowerBound: status.lowerBound,
+            upperBound: status.upperBound,
+            color: color(for: status)
+        )
+    }
+
+    static func color(for status: RecoveryStatus) -> Color {
+        switch status {
+        case .prime:
+            return Color(red: 0.84, green: 0.08, blue: 0.92)
+        case .high:
+            return Color(red: 0.20, green: 0.74, blue: 1.00)
+        case .moderate:
+            return Color(red: 0.10, green: 0.82, blue: 0.20)
+        case .low:
+            return Color(red: 1.00, green: 0.75, blue: 0.15)
+        case .poor:
+            return Color(red: 1.00, green: 0.25, blue: 0.12)
+        case .unavailable:
+            return Color.secondary
+        }
+    }
+}
+
+private extension RecoveryStatus {
+    var symbolName: String {
+        switch self {
+        case .prime:
+            return "sparkles"
+        case .high:
+            return "checkmark.circle.fill"
+        case .moderate:
+            return "circle.fill"
+        case .low:
+            return "exclamationmark.circle.fill"
+        case .poor:
+            return "exclamationmark.triangle.fill"
+        case .unavailable:
+            return "questionmark.circle.fill"
+        }
+    }
+}
+
+private struct BodyRecoveryStatusBreakdownChart: View {
+    let series: HealthTrendSeries
+    let selectedRange: BodyHealthTrendRange
+    var calendar: Calendar = .bodyGregorian
+    var date: Date = Date()
+
+    private var entries: [RecoveryStatusBreakdownEntry] {
+        RecoveryStatusBreakdown.entries(
+            for: series,
+            range: selectedRange,
+            calendar: calendar,
+            date: date
+        )
+    }
+
+    private var totalDayCount: Int {
+        entries.first?.totalDayCount ?? 0
+    }
+
+    private var maxDayCount: Int {
+        entries.map(\.dayCount).max() ?? 0
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Days by Status")
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
+            if totalDayCount == 0 {
+                emptyState
+            } else {
+                VStack(alignment: .leading, spacing: rowSpacing) {
+                    ForEach(entries) { entry in
+                        statusDistributionRow(entry)
+                    }
+                }
+            }
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "chart.line.uptrend.xyaxis")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(Color.secondary.opacity(0.45))
+
+            Text("No Recovery yet")
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 120)
+    }
+
+    private func statusDistributionRow(_ entry: RecoveryStatusBreakdownEntry) -> some View {
+        GeometryReader { geometry in
+            let maxBarWidth = maximumBarWidth(for: geometry.size.width)
+            let minBarWidth = min(minimumBarWidth, maxBarWidth)
+            let relativeAmount = maxDayCount > 0 ? Double(entry.dayCount) / Double(maxDayCount) : 0
+            let barWidth = minBarWidth + ((maxBarWidth - minBarWidth) * CGFloat(relativeAmount))
+
+            HStack(spacing: rowHorizontalSpacing) {
+                dayCountBar(entry)
+                    .frame(width: barWidth, height: rowHeight)
+
+                statusDetails(entry)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(width: geometry.size.width, height: rowHeight, alignment: .leading)
+        }
+        .frame(height: rowHeight)
+    }
+
+    private func dayCountBar(_ entry: RecoveryStatusBreakdownEntry) -> some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: barCornerRadius, style: .continuous)
+                .fill(
+                    BodyRecoveryStatusPresentation
+                        .color(for: entry.status)
+                        .opacity(entry.dayCount == 0 ? 0.18 : 1)
+                )
+
+            Text(dayCountText(for: entry.dayCount))
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(.black.opacity(entry.dayCount == 0 ? 0.42 : 0.82))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .padding(.horizontal, 16)
+        }
+    }
+
+    private func statusDetails(_ entry: RecoveryStatusBreakdownEntry) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: entry.status.symbolName)
+                .font(.system(size: 22, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(BodyRecoveryStatusPresentation.color(for: entry.status))
+                .frame(width: 30, height: 30)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.status.title)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.68)
+
+                Text("\(dayText(for: entry.dayCount)) • \(percentageText(for: entry))")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.70)
+            }
+        }
+    }
+
+    private func dayCountText(for dayCount: Int) -> String {
+        "\(dayCount)d"
+    }
+
+    private func dayText(for dayCount: Int) -> String {
+        dayCount == 1 ? "1 day" : "\(dayCount) days"
+    }
+
+    private func percentageText(for entry: RecoveryStatusBreakdownEntry) -> String {
+        guard entry.totalDayCount > 0 else { return "0%" }
+
+        let percentage = Int((entry.fractionOfTotal * 100).rounded())
+        return "\(percentage)%"
+    }
+
+    private func maximumBarWidth(for availableWidth: CGFloat) -> CGFloat {
+        max(92, availableWidth - detailReserveWidth(for: availableWidth))
+    }
+
+    private func detailReserveWidth(for availableWidth: CGFloat) -> CGFloat {
+        min(max(availableWidth * 0.42, 130), 172)
+    }
+
+    private var minimumBarWidth: CGFloat {
+        92
+    }
+
+    private var rowHeight: CGFloat {
+        50
+    }
+
+    private var rowSpacing: CGFloat {
+        12
+    }
+
+    private var rowHorizontalSpacing: CGFloat {
+        12
+    }
+
+    private var barCornerRadius: CGFloat {
+        16
+    }
+}
+
 private struct BodyHealthMetricDetailModel {
     let kind: HealthMetricKind
     let title: String
@@ -2088,6 +2389,7 @@ private struct BodyHealthMetricDetailModel {
     let sleepVitals: SleepVitalsSummary?
     let sleepDuration: TimeInterval?
     let sleepHistory: SleepHistorySnapshot
+    let recovery: RecoverySummary?
     let chartStyle: BodyHealthMetricChartStyle
     let highlightedRange: BodyHealthMetricTrendHighlightedRange?
     let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?
@@ -2123,6 +2425,7 @@ private struct BodyHealthMetricDetailModel {
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
         valueFormatter: @escaping (Double) -> String,
         secondaryValueFormatter: ((Double) -> String)?,
+        recovery: RecoverySummary? = nil,
         sourceComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
         sourceRangeComparisonTrend: BodyHealthSourceRangeComparisonTrend? = nil,
         sourceLineComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
@@ -2147,6 +2450,7 @@ private struct BodyHealthMetricDetailModel {
         self.sleepVitals = sleepVitals
         self.sleepDuration = sleepDuration
         self.sleepHistory = sleepHistory
+        self.recovery = recovery
         self.chartStyle = chartStyle
         self.highlightedRange = highlightedRange
         self.highlightedRangeResolver = highlightedRangeResolver
@@ -2198,12 +2502,14 @@ private struct BodyHealthMetricDetailView: View {
     let model: BodyHealthMetricDetailModel
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @State private var selectedTrendRange: BodyHealthTrendRange
     @State private var selectedSleepDate: Date?
     @State private var selectedMetricDate: Date?
     @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
     @State private var showsDataSourcePicker = false
     @State private var isPullRefreshing = false
+    @State private var activeRecoveryTrendValue: Double?
 
     init(
         model: BodyHealthMetricDetailModel,
@@ -2234,6 +2540,9 @@ private struct BodyHealthMetricDetailView: View {
                         basicsRangeCard
                     }
                     trendCard
+                    if model.kind == .recovery, let recovery = model.recovery {
+                        recoveryWhyCard(for: recovery, activeStatus: activeRecoveryStatus)
+                    }
                     if isBasicsDetail {
                         bodyMassIndexTrendCard
                     }
@@ -2306,7 +2615,8 @@ private struct BodyHealthMetricDetailView: View {
              .respiratoryRate,
              .oxygenSaturation:
             return true
-        case .sleep,
+        case .recovery,
+             .sleep,
              .basics,
              .bodyMass,
              .bodyFatPercentage,
@@ -2332,6 +2642,18 @@ private struct BodyHealthMetricDetailView: View {
         return calendar.startOfDay(for: selectedMetricDate ?? Date())
     }
 
+    private var activeRecoveryStatus: RecoveryStatus? {
+        guard model.kind == .recovery else {
+            return nil
+        }
+
+        if let activeRecoveryTrendValue, activeRecoveryTrendValue.isFinite {
+            return RecoveryStatus.status(for: Int(activeRecoveryTrendValue.rounded()))
+        }
+
+        return model.recovery?.status
+    }
+
     private var recentDatePickerDates: [Date] {
         SleepHistorySnapshot.datePickerDates(dayCount: BodyHealthTrendRange.recentMonth.dayCount, futureDayCount: 1)
     }
@@ -2350,6 +2672,19 @@ private struct BodyHealthMetricDetailView: View {
 
     private var selectedSleepSummary: SleepSummary? {
         sleepSummary(for: selectedSleepDay)
+    }
+
+    private var selectedSleepScore: SleepScoreSummary? {
+        guard let summary = selectedSleepSummary else {
+            return nil
+        }
+
+        return SleepScoreSummary(
+            sleep: summary,
+            idealSleepDuration: BodySleepDurationGoal.duration(from: sleepDurationGoalMinutes),
+            recentSleepHistory: model.sleepHistory,
+            on: selectedSleepDay
+        )
     }
 
     private var currentSleepSummary: SleepSummary? {
@@ -2383,7 +2718,7 @@ private struct BodyHealthMetricDetailView: View {
 
     @ViewBuilder
     private var selectedSleepCards: some View {
-        if let sleepScore = selectedSleepSummary?.score {
+        if let sleepScore = selectedSleepScore {
             sleepScoreCard(sleepScore)
         } else {
             unavailableSleepScoreCard
@@ -2409,6 +2744,69 @@ private struct BodyHealthMetricDetailView: View {
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .bodyCardBackground()
+        }
+    }
+
+    private func recoveryWhyCard(for recovery: RecoverySummary, activeStatus: RecoveryStatus?) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("About your score")
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(RecoveryStatus.displayOrder, id: \.self) { status in
+                    recoveryStatusExplanationRow(
+                        status: status,
+                        isCurrent: activeStatus == status
+                    )
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground()
+    }
+
+    private func recoveryStatusExplanationRow(status: RecoveryStatus, isCurrent: Bool) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(BodyRecoveryStatusPresentation.color(for: status))
+                .frame(width: 4)
+                .padding(.vertical, 3)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(status.title)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+
+                    Text(status.scoreRangeText)
+                        .font(.system(.subheadline, design: .monospaced))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(BodyRecoveryStatusPresentation.color(for: status))
+
+                    if isCurrent {
+                        Text("Current")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(BodyRecoveryStatusPresentation.color(for: status))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                BodyRecoveryStatusPresentation.color(for: status)
+                                    .opacity(0.14),
+                                in: Capsule()
+                            )
+                    }
+                }
+
+                Text(status.explanation)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -2661,6 +3059,7 @@ private struct BodyHealthMetricDetailView: View {
                     valueFormatter: model.valueFormatter,
                     highlightedRange: model.highlightedRange,
                     highlightedRangeResolver: model.highlightedRangeResolver,
+                    activeHighlightedValue: model.kind == .recovery ? $activeRecoveryTrendValue : nil,
                     isSleepDetail: isSleepDetail,
                     chartIdentity: "\(model.kind.rawValue)-\(selectedTrendRange.rawValue)"
                 )
@@ -2668,6 +3067,14 @@ private struct BodyHealthMetricDetailView: View {
 
                 if model.kind == .trainingLoad {
                     BodyTrainingLoadIntervalBreakdownChart(
+                        series: model.series,
+                        selectedRange: selectedTrendRange
+                    )
+                    .padding(.top, 4)
+                }
+
+                if model.kind == .recovery {
+                    BodyRecoveryStatusBreakdownChart(
                         series: model.series,
                         selectedRange: selectedTrendRange
                     )
@@ -3144,7 +3551,7 @@ private struct BodyHealthMetricDetailView: View {
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 
-            Text("Body scores each night from the data available for that sleep window: amount, continuity, deep and REM share, pressure from sleep HRV, sleep vitals, and wrist temperature. Missing sensors are skipped instead of counted as zero.")
+            Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and wrist temperature. Missing sensors are skipped instead of counted as zero.")
                 .font(.system(.body, design: .rounded))
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
@@ -3612,6 +4019,8 @@ private func bodySleepScoreColor(for kind: SleepScoreCategory.Kind, accentColor:
         return accentColor
     case .continuity:
         return Color(red: 0.14, green: 0.72, blue: 0.42)
+    case .startTime:
+        return Color(red: 0.10, green: 0.58, blue: 1.00)
     case .rem:
         return Color(red: 0.42, green: 0.80, blue: 1.00)
     case .deep:
@@ -5918,6 +6327,7 @@ private struct BodyHealthMetricTrendChart: View {
     let valueFormatter: (Double) -> String
     let highlightedRange: BodyHealthMetricTrendHighlightedRange?
     let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?
+    let activeHighlightedValue: Binding<Double?>?
     let isSleepDetail: Bool
     let chartIdentity: String
 
@@ -5941,6 +6351,7 @@ private struct BodyHealthMetricTrendChart: View {
         valueFormatter: @escaping (Double) -> String,
         highlightedRange: BodyHealthMetricTrendHighlightedRange? = nil,
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
+        activeHighlightedValue: Binding<Double?>? = nil,
         isSleepDetail: Bool,
         chartIdentity: String
     ) {
@@ -5951,6 +6362,7 @@ private struct BodyHealthMetricTrendChart: View {
         self.valueFormatter = valueFormatter
         self.highlightedRange = highlightedRange
         self.highlightedRangeResolver = highlightedRangeResolver
+        self.activeHighlightedValue = activeHighlightedValue
         self.isSleepDetail = isSleepDetail
         self.chartIdentity = chartIdentity
 
@@ -5981,11 +6393,23 @@ private struct BodyHealthMetricTrendChart: View {
     }
 
     private var activeHighlightedRange: BodyHealthMetricTrendHighlightedRange? {
-        guard let highlightedRangeResolver, let selectedTrendPoint else {
+        guard let highlightedRangeResolver, let activeHighlightSourcePoint else {
             return highlightedRange
         }
 
-        return highlightedRangeResolver(selectedTrendPoint.value) ?? highlightedRange
+        return highlightedRangeResolver(activeHighlightSourcePoint.value) ?? highlightedRange
+    }
+
+    private var activeHighlightSourcePoint: HealthTrendCalendarPoint? {
+        selectedTrendPoint ?? latestVisibleTrendPoint
+    }
+
+    private var activeHighlightSourceValue: Double? {
+        activeHighlightSourcePoint?.value
+    }
+
+    private var latestVisibleTrendPoint: HealthTrendCalendarPoint? {
+        visibleFinitePoints.last
     }
 
     var body: some View {
@@ -6159,6 +6583,12 @@ private struct BodyHealthMetricTrendChart: View {
             .transaction { transaction in
                 transaction.animation = nil
             }
+            .onAppear {
+                syncActiveHighlightedValue()
+            }
+            .onChange(of: activeHighlightSourceValue) { _, _ in
+                syncActiveHighlightedValue()
+            }
         }
     }
 
@@ -6201,6 +6631,10 @@ private struct BodyHealthMetricTrendChart: View {
         }
 
         return valueFormatter(value)
+    }
+
+    private func syncActiveHighlightedValue() {
+        activeHighlightedValue?.wrappedValue = activeHighlightSourceValue
     }
 
     private var chartPressGesture: some Gesture {

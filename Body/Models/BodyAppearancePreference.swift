@@ -14,6 +14,7 @@ enum BodyAppearancePreference {
     static let selectedDistanceUnitKey = "selectedDistanceUnit"
     static let selectedEnergyUnitKey = "selectedEnergyUnit"
     static let selectedTemperatureUnitKey = "selectedTemperatureUnit"
+    static let sleepDurationGoalMinutesKey = "sleepDurationGoalMinutes"
     static let homeCardOrderKey = "homeCardOrder"
     static let summaryCardSelectionKey = "summaryCardSelection"
     static let defaultTrendRangeKey = "defaultTrendRange"
@@ -26,6 +27,30 @@ enum BodyAppearancePreference {
 
     static func bodyProIconAssetName(showsBack: Bool) -> String {
         showsBack ? "BodyProIconBack" : "BodyProIcon"
+    }
+}
+
+enum BodySleepDurationGoal {
+    static let minimumMinutes = 4 * 60
+    static let maximumMinutes = 12 * 60
+    static let stepMinutes = 15
+    static let defaultMinutes = 8 * 60
+    static let defaultDuration: TimeInterval = 8 * 60 * 60
+
+    static func storedMinutes(from rawValue: Int?) -> Int {
+        guard let rawValue else {
+            return defaultMinutes
+        }
+
+        return min(max(rawValue, minimumMinutes), maximumMinutes)
+    }
+
+    static func duration(from minutes: Int) -> TimeInterval {
+        TimeInterval(storedMinutes(from: minutes) * 60)
+    }
+
+    static func displayText(for minutes: Int) -> String {
+        BodyValueFormat.durationText(for: duration(from: minutes))
     }
 }
 
@@ -56,6 +81,8 @@ extension HealthMetricKind {
 
     var supportedComparisonCharts: Set<SourceComparisonChartKind> {
         switch self {
+        case .recovery:
+            return []
         case .sleep:
             return [.line]
         case .heartRate:
@@ -635,6 +662,7 @@ struct BodyHomeTrendCardSelection: Equatable {
 }
 
 enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
+    case recovery
     case heartRate
     case restingHeartRate
     case heartRateVariability
@@ -650,6 +678,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
     case timeInDaylight
 
     static let defaultOrder: [BodyHomeTrendCardKind] = [
+        .recovery,
         .heartRate,
         .restingHeartRate,
         .heartRateVariability,
@@ -679,6 +708,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .recovery:
+            return "Recovery"
         case .heartRate:
             return "Heart Rate"
         case .restingHeartRate:
@@ -710,6 +741,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
 
     var subtitle: String {
         switch self {
+        case .recovery:
+            return "Readiness score trend"
         case .heartRate:
             return "Average heart rate trend"
         case .restingHeartRate:
@@ -741,6 +774,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
 
     var iconName: String {
         switch self {
+        case .recovery:
+            return "bolt.heart.fill"
         case .heartRate,
              .restingHeartRate:
             return "heart.fill"
@@ -771,6 +806,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
 
     var tintColor: Color {
         switch self {
+        case .recovery:
+            return Color(red: 0.12, green: 0.68, blue: 0.55)
         case .heartRate,
              .restingHeartRate,
              .heartRateVariability:
@@ -796,6 +833,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
 
 enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     case activityRings
+    case recovery
     case exerciseMinutes
     case trainingLoad
     case wristTemperature
@@ -813,6 +851,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
 
     static let defaultOrder: [BodyHomeCardKind] = [
         .activityRings,
+        .recovery,
         .exerciseMinutes,
         .trainingLoad,
         .wristTemperature,
@@ -850,6 +889,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         switch self {
         case .activityRings:
             return nil
+        case .recovery:
+            return .recovery
         case .exerciseMinutes:
             return .exerciseMinutes
         case .trainingLoad:
@@ -885,6 +926,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         switch self {
         case .activityRings:
             return "Activity Rings"
+        case .recovery:
+            return "Recovery"
         case .exerciseMinutes:
             return "Exercise Minutes"
         case .trainingLoad:
@@ -920,6 +963,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         switch self {
         case .activityRings:
             return "Move, Exercise, and Stand progress"
+        case .recovery:
+            return "Readiness from sleep, strain, and vitals"
         case .exerciseMinutes:
             return "Daily exercise minute total"
         case .trainingLoad:
@@ -951,10 +996,35 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         }
     }
 
+    var isBeta: Bool {
+        switch self {
+        case .recovery:
+            return true
+        case .activityRings,
+             .exerciseMinutes,
+             .trainingLoad,
+             .wristTemperature,
+             .timeInDaylight,
+             .steps,
+             .sleep,
+             .basics,
+             .heartRate,
+             .restingHeartRate,
+             .heartRateVariability,
+             .oxygenSaturation,
+             .respiratoryRate,
+             .activeEnergy,
+             .restingEnergy:
+            return false
+        }
+    }
+
     var iconName: String {
         switch self {
         case .activityRings:
             return "circle.circle.fill"
+        case .recovery:
+            return "bolt.heart.fill"
         case .exerciseMinutes:
             return "figure.run"
         case .trainingLoad:
@@ -989,6 +1059,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         switch self {
         case .activityRings:
             return .pink
+        case .recovery:
+            return Color(red: 0.12, green: 0.68, blue: 0.55)
         case .exerciseMinutes,
              .trainingLoad,
              .steps,

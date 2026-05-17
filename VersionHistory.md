@@ -1,5 +1,9 @@
 # Version History
 
+## 0.5.0 (build 3)
+
+- Added a Recovery Summary card that compares sleep, heart, training load, and sleep-window vitals against personal baselines, with confidence and driver explanations for missing or unusual signals.
+
 ## 0.5.0 (build 2)
 
 - Added a "Loading data" overlay to every pull-to-refresh (Summary, metric detail, Workouts) that stays on screen until the underlying refresh finishes; the overlay also rides out any background refresh already in flight, and has a 600 ms minimum display so fast refreshes still register visually.

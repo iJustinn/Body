@@ -79,6 +79,7 @@ Generated 2026-05-16 against branch `body-v0.5.0` (app version 0.5.0 build 2).
 | M34 | Medium | Day-view chart switch | On Heart Rate detail, change the selected date in the day picker | The hourly day chart cross-fades between days; sleep / workout context bars update with the day |
 | M35 | Medium | Activity Rings calendar opens on current month | Open Summary, tap the Activity Rings card | The calendar opens scrolled to the current month at the bottom of the screen; older months are visible above |
 | M36 | Medium | Workouts pending-month load | In Workouts, tap a month with no cached snapshot | A "Loading [Month]" banner appears below the picker; the calendar and list keep showing the previous month; when the snapshot loads, the new month renders; if HealthKit hangs, the banner clears after 15 seconds |
+| M37 | High | Recovery card and detail | Open Summary after refreshing Health data with sleep, heart, workout, respiratory, blood oxygen, and wrist temperature permissions enabled | Recovery appears near the top of Summary, shows a 0-100% score with Prime/High/Moderate/Low/Poor status, opens a detail screen with confidence, trend chart, days-by-status chart, and an About section listing exact status ranges with short explanations; scrubbing the trend moves the Current label to the selected interval; Settings > Metrics > Summary Cards labels Recovery as Beta; disabling individual permissions lowers confidence or removes related drivers without crashing |
 
 ## 4. Deferred Coverage
 

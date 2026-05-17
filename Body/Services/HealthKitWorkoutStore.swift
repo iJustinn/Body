@@ -767,6 +767,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             activityRingHistory: activityRingHistory
         )
         .filtered(by: permissionSelection)
+        .recalculatingRecovery(on: healthTrendAnchorDate ?? Date(), calendar: calendar)
         let nextActivityRingHistory = self.activityRingHistory.replacingLoadedMonths(
             with: filteredSnapshot.activityRingHistory,
             calendar: calendar
@@ -1139,11 +1140,22 @@ final class HealthKitWorkoutStore: ObservableObject {
         var summary = HealthSummarySnapshot.empty
         var trends = HealthTrendSnapshot.empty
 
+        if kind == .recovery {
+            return HealthDashboardSnapshot(
+                summary: healthSummary,
+                trends: healthTrends,
+                activityRingHistory: activityRingHistory
+            )
+            .recalculatingRecovery(on: healthTrendAnchorDate ?? Date(), calendar: calendar)
+        }
+
         guard permissionSelection.includes(healthPermission(forMetric: kind)) else {
             return HealthDashboardSnapshot(summary: summary, trends: trends)
         }
 
         switch kind {
+        case .recovery:
+            break
         case .sleep:
             async let sleepSummary = fetchSleepSummary(calendar: calendar)
             async let sleepHistory = fetchDailySleepHistory(calendar: calendar)
@@ -2103,6 +2115,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 sourceOption: secondaryOption
             )
         case .basics,
+             .recovery,
              .heartRate,
              .bodyMass,
              .bodyFatPercentage,
@@ -2158,6 +2171,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         case .sleep,
+             .recovery,
              .basics,
              .bodyMass,
              .bodyFatPercentage,
@@ -2207,6 +2221,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         case .sleep,
+             .recovery,
              .basics,
              .restingHeartRate,
              .bodyMass,
@@ -2325,6 +2340,8 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     private func healthPermission(forMetric kind: HealthMetricKind) -> BodyHealthPermission {
         switch kind {
+        case .recovery:
+            return .heart
         case .sleep:
             return .sleep
         case .basics,
