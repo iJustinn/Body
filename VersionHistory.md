@@ -1,10 +1,10 @@
 # Version History
 
-## 0.5.2 (build 1)
+## 0.5.2 (build 2)
 
 - Incrementally load intraday metric day-view samples after the cached tail so detail screens fetch only new HealthKit samples on subsequent opens.
 - Updated the Recovery detail header to show score and status directly.
-- Updated the app, widget, and test bundle version to 0.5.2 build 1.
+- Updated the app, widget, and test bundle version to 0.5.2 build 2.
 
 ## 0.5.1 (build 2)
 
