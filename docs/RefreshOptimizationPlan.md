@@ -2,7 +2,7 @@
 
 A targeted revision plan to reduce unnecessary HealthKit reloads, speed up app startup, and prefer incremental updates over full reloads.
 
-> **Status (2026-05-18):** Steps 2, 3, 4, 5, 6, 10 (audit-only), 11, 12, plus the follow-on A, B, C, D1, D2, E1 (off-main refresh hot paths), and E2 (extract `HealthKitFetchEngine` actor) work are **implemented**. Observed cold-launch refresh dropped from ~15–20 s to ~10 s after A/B/C; D1+D2 add HK-side daily aggregation and pair the daily-average + range queries for HR/HRV/RR/SpO2 into single queries; E1 moves the day-by-day Recovery recompute and the dashboard/widget JSON writes off the main actor; E2 relocates all HK queries and dashboard fetch orchestrators to a non-`@MainActor` actor so refresh-time Swift work stops queueing behind UI on `@MainActor`. Steps 1 (telemetry), 7 (anchored queries), 8 (UUID merge), 9 (observer + background delivery), and 14 (telemetry surface) remain unstarted. See the bottom of this file for the implementation log.
+> **Status (2026-05-18):** Steps 2, 3, 4, 5, 6, 10 (audit-only), 11, 12, plus the follow-on A, B, C, D1, D2, E1, E2, F (batched workout HR + parallel effort), G (parallel sleep vitals), H (shared training-load fetch), I (progressive 3-bucket publish + per-month workout streaming), J (persisted last-successful-refresh date for cold-start TTL), and K (`PrivacyInfo.xcprivacy`) are **implemented**. Observed cold-launch refresh: ~15–20 s → ~10 s after A/B/C → ~8 s after F/G/H. I/J change perceived wait (progressive UI updates instead of one big publish at the end; rapid relaunches now hit the 60 s–5 min tier instead of the full path). Steps 1 (telemetry), 7 (anchored queries), 8 (UUID merge), 9 (observer + background delivery), and 14 (telemetry surface) remain unstarted. See the bottom of this file for the implementation log.
 
 This document describes the *current* state, the *proposed* changes, and (at the end) the implementation log so future work can pick up where this pass left off.
 
@@ -495,6 +495,34 @@ Each step is independently shippable, gated by tests, and ordered to keep the us
 - API shape changes: `fetchHealthTrends` and `fetchHealthDashboardSnapshot` take `cachedTrends:` / `existing:` parameters so the engine can read previous trend state (preserving lazy-loaded intraday day samples, handling the single-metric Recovery early return) without touching the store's `@Published` directly. `fetchHealthDataSourceOptions` now *returns* the next `[HealthMetricKind: [BodyHealthDataSourceOption]]` (or `nil` for "no change because cache valid") and the store assigns it to its `@Published` property. `HealthKitWorkoutError` was hoisted to file-level visibility so the engine in a separate file can throw/match it.
 - Tests: four string-grep assertions in `BodyTests/ProjectConfigurationTests.swift` (`testHealthKitFetchesApplySourcePreferencesToRequestedMetrics`, `testSourceSelectableDayChartsUsePrimarySecondaryComparisonLines`, `testHealthKitFetchesBarAndRangeSecondarySourceComparisons`, `testMetricDetailScreensPullToRefreshOnlyCurrentMetric`) were redirected from `HealthKitWorkoutStore.swift` to `HealthKitFetchEngine.swift`. Semantic assertions unchanged. `BUILD SUCCEEDED` + `TEST SUCCEEDED` on iPhone 17 simulator after the refactor.
 
+### Step F — Batched workout HR samples + parallel effort levels
+- `fetchWorkoutSummaries` (in `HealthKitFetchEngine`) replaced its `for workout in workouts { await fetchHeartRateSamples(for: workout); async let effortLevel; ... }` serial loop with two parallel fan-outs.
+- HR samples: new `fetchHeartRateSamples(forWorkouts:)` issues one `HKSampleQuery` over `NSCompoundPredicate(orPredicateWithSubpredicates: workouts.map { predicateForSamples(withStart: $0.startDate, end: $0.endDate, options: [.strictStartDate]) })`. Returned samples are partitioned per workout by linear filter against `[startDate, endDate)` so overlapping workouts (rare HIIT splits) still receive their overlapping samples.
+- Effort levels: new `fetchEffortLevels(forWorkouts:)` runs `withTaskGroup`, one `addTask { await self.fetchSavedEffortLevel(for: workout) }` per workout. `HKWorkoutEffortScore`'s `predicateForWorkoutEffortSamplesRelated(workout:)` is per-workout so this can't be batched into one query, but the per-workout queries run concurrently.
+
+### Step G — Parallel per-day sleep vitals
+- `fetchDailySleepHistory` previously called `fetchSleepVitals` for each `SleepDaySummary` in a sequential `for` loop (~365 days × 5 sub-queries). Replaced with a static helper `hydrateSleepVitalsInParallel(days:maxConcurrentDays:hydrate:)` that pumps a `withTaskGroup` with bounded concurrency (16 days at a time → ≤80 in-flight HK queries) and returns days sorted by date to match prior ordering. Each day still computes vitals over its exact sleep interval (no semantic change).
+
+### Step H — Shared training-load workout fetch
+- `fetchHealthSummary` and `fetchHealthTrends` ran `fetchTrainingLoadSummary` and `fetchTrainingLoadSeries` independently — both fetching the same 180-day window of workouts (with `includesHeartRateSamples: false`). After Step F that meant two HK queries + two parallel effort fan-outs.
+- Engine now memoizes the fetch via `sharedTrainingLoadWorkoutsTask: Task<[WorkoutSummary], Error>?` keyed on `TrainingLoadWorkoutsWindow(start:end:)`. Both training-load methods compute the same window (anchored to `anchorDate ?? Date()`) and consume `sharedTrainingLoadWorkouts(window:)` — the second caller awaits the first's `Task.value`.
+- Cache invalidates in `setHealthTrendAnchorDate(_:)` (called at refresh start and end), so each refresh starts with a fresh fetch.
+
+### Step I — Progressive 3-bucket dashboard publish
+- Replaced `refreshRecentMonths`'s `async let nextHealthSummary / nextHealthTrends / nextActivityRingHistory; await all; updateHealthDashboardSnapshot(...)` pattern with a `fetchDashboardSnapshotProgressively(calendar:)` helper that runs the three engine fetches inside `withTaskGroup(of: DashboardFetchUnit.self)` and writes each bucket to `@Published` state as soon as it lands.
+- Recovery is preserved at its cached value during the progressive stream: `healthSummary = s.replacingMetric(.recovery, with: healthSummary)` so the cached recovery score stays visible (the fresh fetch's `.recovery` defaults to empty because recompute hasn't run). The final `updateHealthDashboardSnapshot` after the loop performs the filter + recompute + save.
+- Same helper is reused by `refresh(month:year:calendar:updatesHealthSummary: true)` (single-month refresh that also updates summary/trends).
+- `refresh(monthKeys:)` was also updated to publish per month: instead of collecting `(key, workouts)` into a dict and writing in a separate pass, the `for try await (key, workouts) in group` body writes `monthSnapshots[key]` and `loadedMonthKeys.insert(key)` directly so the Workouts tab fills in per-month.
+
+### Step J — Persisted last-successful-refresh timestamp
+- Closes the cold-start gap in Step 6 (tiered resume TTL). `lastSuccessfulRefreshDate` was in-memory only, so every cold start saw it as `nil` and routed to the full refresh path even when the on-disk snapshot was seconds old.
+- Added `saveLastSuccessfulRefreshDate / loadLastSuccessfulRefreshDate / clearLastSuccessfulRefreshDate` to `HealthDashboardSnapshotStore` (UserDefaults key `lastHealthDashboardSuccessfulRefreshDate`). `HealthKitWorkoutStore.init` restores; `markRefreshSucceeded(date:)` persists; `clearLocalCache` clears.
+- After this, cold start applies the same tiered TTL as warm resume.
+
+### Step K — PrivacyInfo.xcprivacy
+- Added `Body/PrivacyInfo.xcprivacy` declaring `NSPrivacyAccessedAPICategoryUserDefaults` (reason `CA92.1`) and `NSPrivacyAccessedAPICategoryFileTimestamp` (reason `C617.1`, for `FileManager.default.attributesOfItem(atPath:)` calls that drive the on-disk cache size shown in the Settings cache status). `NSPrivacyTracking = false`; no data is collected.
+- Project uses `PBXFileSystemSynchronizedRootGroup` for `Body/`, so the file ships automatically; the manifest also appears in the embedded `BodyWidgetExtension.appex` bundle output.
+
 ### Not implemented (still open in §9)
 - **Step 1** — `os.Logger` signposts for refresh phases. Cheap to add if future profiling is needed.
 - **Step 7** — `HKAnchoredObjectQuery` with persisted `HKQueryAnchor` for true delta fetches. Would let resume refreshes pull only samples added since last refresh.
@@ -504,4 +532,4 @@ Each step is independently shippable, gated by tests, and ordered to keep the us
 
 ### Verification
 - `xcodebuild -project body.xcodeproj -scheme Body -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test` passes after each step.
-- Cold-launch refresh time observed by the user: ~15–20 s → ~10 s after A/B/C. D1/D2 target the remaining 50k-sample HR-trend queries; expected to bring the figure closer to the ~5 s ideal but not yet measured on-device.
+- Cold-launch refresh time observed by the user: ~15–20 s → ~10 s after A/B/C, → ~8 s after F/G/H, with I/J expected to reduce *perceived* wait further (progressive publish makes the same wall-clock time feel shorter; persisted timestamp makes most rapid relaunches use the 60 s–5 min tier instead of the full path). On-device measurement after I/J/K pending.
