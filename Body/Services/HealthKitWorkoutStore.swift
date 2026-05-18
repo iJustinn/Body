@@ -129,7 +129,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         permissionSelection = initialPermissionSelection
         healthDataSourceSelection = initialHealthDataSourceSelection
         secondaryHealthDataSourceSelection = initialSecondaryHealthDataSourceSelection
-        let filteredHealthDashboardSnapshot = initialHealthDashboardSnapshot.filtered(by: initialPermissionSelection)
+        // Skip the recovery recompute at init — it's a per-day iteration over
+        // up to ~365 trend points that would block the first frame. The cached
+        // `summary.recovery` value was correct when written; the next refresh
+        // recomputes it off the main thread.
+        let filteredHealthDashboardSnapshot = initialHealthDashboardSnapshot.filteredWithoutRecoveryRecompute(by: initialPermissionSelection)
         let startingSnapshot = initialPermissionSelection.includes(.workouts)
             ? initialSnapshot
             : WorkoutMonthSnapshot.make(
@@ -266,7 +270,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             let metricSnapshot = await fetchHealthDashboardSnapshot(for: kind, calendar: calendar)
             let nextSummary = healthSummary.replacingMetric(kind, with: metricSnapshot.summary)
             let nextTrends = healthTrends.replacingMetric(kind, with: metricSnapshot.trends)
-            updateHealthDashboardSnapshot(
+            await updateHealthDashboardSnapshot(
                 summary: nextSummary,
                 trends: nextTrends,
                 activityRingHistory: activityRingHistory
@@ -426,7 +430,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         permissionSelection = nextSelection
         nextSelection.save()
-        applyPermissionSelectionToCachedData()
+        await applyPermissionSelectionToCachedData()
 
         if isEnabled {
             await requestAuthorizationAndRefresh()
@@ -803,7 +807,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             let fetchedHealthSummary = await nextHealthSummary
             let fetchedHealthTrends = await nextHealthTrends
             let fetchedActivityRingHistory = await nextActivityRingHistory
-            updateHealthDashboardSnapshot(
+            await updateHealthDashboardSnapshot(
                 summary: fetchedHealthSummary,
                 trends: fetchedHealthTrends,
                 activityRingHistory: fetchedActivityRingHistory
@@ -846,7 +850,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 let fetchedHealthSummary = await nextHealthSummary
                 let fetchedHealthTrends = await nextHealthTrends
                 let fetchedActivityRingHistory = await nextActivityRingHistory
-                updateHealthDashboardSnapshot(
+                await updateHealthDashboardSnapshot(
                     summary: fetchedHealthSummary,
                     trends: fetchedHealthTrends,
                     activityRingHistory: fetchedActivityRingHistory
@@ -938,15 +942,25 @@ final class HealthKitWorkoutStore: ObservableObject {
         summary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
         activityRingHistory: ActivityRingHistorySnapshot
-    ) {
+    ) async {
         let calendar = Calendar.bodyGregorian
-        let filteredSnapshot = HealthDashboardSnapshot(
+        let anchorDate = healthTrendAnchorDate ?? Date()
+        let permissionSelection = self.permissionSelection
+        let rawSnapshot = HealthDashboardSnapshot(
             summary: summary,
             trends: trends,
             activityRingHistory: activityRingHistory
         )
-        .filtered(by: permissionSelection)
-        .recalculatingRecovery(on: healthTrendAnchorDate ?? Date(), calendar: calendar)
+
+        // Filter + recovery recompute are the heaviest per-refresh CPU spike
+        // (the recovery `dailySeries` iterates up to ~365 days × multi-metric
+        // baselines). Run them off the main actor.
+        let filteredSnapshot = await Task.detached(priority: .userInitiated) {
+            rawSnapshot
+                .filtered(by: permissionSelection)
+                .recalculatingRecovery(on: anchorDate, calendar: calendar)
+        }.value
+
         let nextActivityRingHistory = self.activityRingHistory.replacingLoadedMonths(
             with: filteredSnapshot.activityRingHistory,
             calendar: calendar
@@ -955,27 +969,34 @@ final class HealthKitWorkoutStore: ObservableObject {
         healthTrends = filteredSnapshot.trends
         self.activityRingHistory = nextActivityRingHistory
         loadedActivityRingMonthKeys = Set(nextActivityRingHistory.loadedMonthKeySet(calendar: calendar))
-        HealthDashboardSnapshotStore.save(
-            HealthDashboardSnapshot(
-                summary: filteredSnapshot.summary,
-                trends: filteredSnapshot.trends,
-                activityRingHistory: nextActivityRingHistory
-            )
+
+        let snapshotToSave = HealthDashboardSnapshot(
+            summary: filteredSnapshot.summary,
+            trends: filteredSnapshot.trends,
+            activityRingHistory: nextActivityRingHistory
         )
-        HealthDashboardSnapshotStore.saveSecondarySelectionSignature(secondaryHealthDataSourceSelection.signature)
+        let secondarySignature = secondaryHealthDataSourceSelection.signature
+        Task.detached(priority: .utility) {
+            HealthDashboardSnapshotStore.save(snapshotToSave)
+            HealthDashboardSnapshotStore.saveSecondarySelectionSignature(secondarySignature)
+        }
     }
 
     private func markRefreshSucceeded(date: Date) {
         lastSuccessfulRefreshDate = date
     }
 
-    private func applyPermissionSelectionToCachedData() {
-        let filteredSnapshot = HealthDashboardSnapshot(
+    private func applyPermissionSelectionToCachedData() async {
+        let rawSnapshot = HealthDashboardSnapshot(
             summary: healthSummary,
             trends: healthTrends,
             activityRingHistory: activityRingHistory
         )
-        .filtered(by: permissionSelection)
+        let permissionSelection = self.permissionSelection
+
+        let filteredSnapshot = await Task.detached(priority: .userInitiated) {
+            rawSnapshot.filtered(by: permissionSelection)
+        }.value
 
         healthSummary = filteredSnapshot.summary
         healthTrends = filteredSnapshot.trends
@@ -986,7 +1007,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             clearWorkoutSnapshots()
         }
 
-        HealthDashboardSnapshotStore.save(filteredSnapshot)
+        Task.detached(priority: .utility) {
+            HealthDashboardSnapshotStore.save(filteredSnapshot)
+        }
     }
 
     private func clearWorkoutSnapshots(calendar: Calendar = .bodyGregorian) {
@@ -1017,18 +1040,24 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         snapshot = currentSnapshot
-        var widgetReloadNeeded = WorkoutSnapshotStore.save(currentSnapshot)
-
-        if let previousMonthStart = calendar.date(byAdding: .month, value: -1, to: date) {
+        let snapshotToSave = currentSnapshot
+        let previousSnapshotToSave: WorkoutMonthSnapshot? = {
+            guard let previousMonthStart = calendar.date(byAdding: .month, value: -1, to: date) else {
+                return nil
+            }
             let previousKey = BodyWorkoutMonthKey(date: previousMonthStart, calendar: calendar)
-            if let previousSnapshot = monthSnapshots[previousKey],
-               WorkoutSnapshotStore.savePrevious(previousSnapshot) {
+            return monthSnapshots[previousKey]
+        }()
+
+        Task.detached(priority: .utility) {
+            var widgetReloadNeeded = WorkoutSnapshotStore.save(snapshotToSave)
+            if let previousSnapshotToSave,
+               WorkoutSnapshotStore.savePrevious(previousSnapshotToSave) {
                 widgetReloadNeeded = true
             }
-        }
-
-        if widgetReloadNeeded {
-            WidgetCenter.shared.reloadAllTimelines()
+            if widgetReloadNeeded {
+                WidgetCenter.shared.reloadAllTimelines()
+            }
         }
     }
 
@@ -1331,12 +1360,15 @@ final class HealthKitWorkoutStore: ObservableObject {
         var trends = HealthTrendSnapshot.empty
 
         if kind == .recovery {
-            return HealthDashboardSnapshot(
+            let baseSnapshot = HealthDashboardSnapshot(
                 summary: healthSummary,
                 trends: healthTrends,
                 activityRingHistory: activityRingHistory
             )
-            .recalculatingRecovery(on: healthTrendAnchorDate ?? Date(), calendar: calendar)
+            let anchorDate = healthTrendAnchorDate ?? Date()
+            return await Task.detached(priority: .userInitiated) {
+                baseSnapshot.recalculatingRecovery(on: anchorDate, calendar: calendar)
+            }.value
         }
 
         guard permissionSelection.includes(healthPermission(forMetric: kind)) else {

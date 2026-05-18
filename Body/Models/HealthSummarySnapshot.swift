@@ -1509,11 +1509,16 @@ struct HealthDashboardSnapshot: Codable, Equatable {
     }
 
     func filtered(by selection: BodyHealthPermissionSelection) -> HealthDashboardSnapshot {
+        filteredWithoutRecoveryRecompute(by: selection)
+            .recalculatingRecovery(calendar: .bodyGregorian)
+    }
+
+    func filteredWithoutRecoveryRecompute(by selection: BodyHealthPermissionSelection) -> HealthDashboardSnapshot {
         HealthDashboardSnapshot(
             summary: summary.filtered(by: selection),
             trends: trends.filtered(by: selection),
             activityRingHistory: selection.includes(.activityRings) ? activityRingHistory : .empty
-        ).recalculatingRecovery(calendar: .bodyGregorian)
+        )
     }
 
     func recalculatingRecovery(
