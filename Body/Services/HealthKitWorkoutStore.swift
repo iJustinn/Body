@@ -286,8 +286,12 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// Lazy-loads the intraday day-sample series used by the metric detail view's
     /// hourly chart. These are not displayed on the Home dashboard and are skipped
     /// by `fetchHealthTrends`; we fetch them on demand when the user navigates into
-    /// a metric detail. Safe to call multiple times — returns immediately when the
-    /// requested samples are already loaded for this kind.
+    /// a metric detail. Safe to call multiple times.
+    ///
+    /// The fetch is incremental: we look at the most recent cached point and
+    /// only ask HealthKit for samples newer than that, then merge with the
+    /// existing cache (trimmed to the trailing trend window). On a first-ever
+    /// load the cache is empty and we fetch the full window.
     func loadIntradayMetricSamplesIfNeeded(_ kind: HealthMetricKind) async {
         switch kind {
         case .heartRate, .restingHeartRate, .heartRateVariability, .respiratoryRate, .oxygenSaturation:
@@ -296,16 +300,8 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
 
-        if !healthTrends.daySeries(for: kind).points.isEmpty {
-            return
-        }
-
         await awaitNextRefreshCompletion()
         guard !Task.isCancelled else {
-            return
-        }
-
-        if !healthTrends.daySeries(for: kind).points.isEmpty {
             return
         }
 
@@ -325,68 +321,143 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         let calendar = Calendar.bodyGregorian
-        async let primary = fetchIntradayDaySamples(for: kind, calendar: calendar)
+        let interval = recentHealthTrendInterval(calendar: calendar)
+        let cachedPrimary = healthTrends.daySeries(for: kind)
+        let cachedSecondary = healthTrends.secondaryDaySeries(for: kind)
+
+        let primaryFetchStart = Self.incrementalFetchStart(after: cachedPrimary, windowStart: interval.start)
+        let secondaryFetchStart = Self.incrementalFetchStart(after: cachedSecondary, windowStart: interval.start)
+
+        // Cache already extends to the window end — nothing to add.
+        if primaryFetchStart >= interval.end, secondaryFetchStart >= interval.end {
+            return
+        }
+
+        async let primary = fetchIntradayDaySamples(
+            for: kind,
+            calendar: calendar,
+            startDate: primaryFetchStart,
+            endDate: interval.end
+        )
         async let secondary = fetchSecondaryIfEnabled(
             for: kind,
             permission: permission,
             default: HealthTrendSeries.empty
         ) {
-            await fetchSecondaryDaySamples(for: kind, calendar: calendar)
+            await fetchSecondaryDaySamples(
+                for: kind,
+                calendar: calendar,
+                startDate: secondaryFetchStart,
+                endDate: interval.end
+            )
         }
 
         let primarySamples = await primary
         let secondarySamples = await secondary
 
+        let mergedPrimary = Self.mergeIntradaySamples(
+            existing: cachedPrimary,
+            incoming: primarySamples,
+            windowStart: interval.start
+        )
+        let mergedSecondary = Self.mergeIntradaySamples(
+            existing: cachedSecondary,
+            incoming: secondarySamples,
+            windowStart: interval.start
+        )
+
         var trends = healthTrends
         switch kind {
         case .heartRate:
-            trends.heartRateDaySamples = primarySamples
-            trends.heartRateDaySamplesSecondary = secondarySamples
+            trends.heartRateDaySamples = mergedPrimary
+            trends.heartRateDaySamplesSecondary = mergedSecondary
         case .restingHeartRate:
-            trends.restingHeartRateDaySamples = primarySamples
-            trends.restingHeartRateDaySamplesSecondary = secondarySamples
+            trends.restingHeartRateDaySamples = mergedPrimary
+            trends.restingHeartRateDaySamplesSecondary = mergedSecondary
         case .heartRateVariability:
-            trends.heartRateVariabilityDaySamples = primarySamples
-            trends.heartRateVariabilityDaySamplesSecondary = secondarySamples
+            trends.heartRateVariabilityDaySamples = mergedPrimary
+            trends.heartRateVariabilityDaySamplesSecondary = mergedSecondary
         case .respiratoryRate:
-            trends.respiratoryRateDaySamples = primarySamples
+            trends.respiratoryRateDaySamples = mergedPrimary
         case .oxygenSaturation:
-            trends.oxygenSaturationDaySamples = primarySamples
-            trends.oxygenSaturationDaySamplesSecondary = secondarySamples
+            trends.oxygenSaturationDaySamples = mergedPrimary
+            trends.oxygenSaturationDaySamplesSecondary = mergedSecondary
         default:
             return
         }
         healthTrends = trends
     }
 
-    private func fetchIntradayDaySamples(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendSeries {
+    /// Start date for an incremental sample fetch — the millisecond after the
+    /// latest cached point, clamped to the start of the trend window. Returns
+    /// `windowStart` when the cache is empty (first-ever load).
+    private static func incrementalFetchStart(after cached: HealthTrendSeries, windowStart: Date) -> Date {
+        guard let lastDate = cached.points.last?.date else {
+            return windowStart
+        }
+        let next = lastDate.addingTimeInterval(0.001)
+        return max(next, windowStart)
+    }
+
+    /// Merge an incremental sample fetch into the existing cache. Drops any
+    /// existing points older than the current trend window and appends the
+    /// newer points. Both inputs are assumed already sorted ascending by date
+    /// and non-overlapping (`incrementalFetchStart` enforces the boundary).
+    private static func mergeIntradaySamples(
+        existing: HealthTrendSeries,
+        incoming: HealthTrendSeries,
+        windowStart: Date
+    ) -> HealthTrendSeries {
+        let trimmed = existing.points.drop(while: { $0.date < windowStart })
+        if incoming.points.isEmpty {
+            return trimmed.count == existing.points.count
+                ? existing
+                : HealthTrendSeries(points: Array(trimmed))
+        }
+        return HealthTrendSeries(points: Array(trimmed) + incoming.points)
+    }
+
+    private func fetchIntradayDaySamples(
+        for kind: HealthMetricKind,
+        calendar: Calendar,
+        startDate: Date? = nil,
+        endDate: Date? = nil
+    ) async -> HealthTrendSeries {
         switch kind {
         case .heartRate:
             return await fetchQuantitySampleSeries(
                 for: .heartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 calendar: calendar,
-                sourceKind: .heartRate
+                sourceKind: .heartRate,
+                startDate: startDate,
+                endDate: endDate
             )
         case .restingHeartRate:
             return await fetchQuantitySampleSeries(
                 for: .restingHeartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 calendar: calendar,
-                sourceKind: .restingHeartRate
+                sourceKind: .restingHeartRate,
+                startDate: startDate,
+                endDate: endDate
             )
         case .heartRateVariability:
             return await fetchQuantitySampleSeries(
                 for: .heartRateVariabilitySDNN,
                 unit: .secondUnit(with: .milli),
                 calendar: calendar,
-                sourceKind: .heartRateVariability
+                sourceKind: .heartRateVariability,
+                startDate: startDate,
+                endDate: endDate
             )
         case .respiratoryRate:
             return await fetchQuantitySampleSeries(
                 for: .respiratoryRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
-                calendar: calendar
+                calendar: calendar,
+                startDate: startDate,
+                endDate: endDate
             )
         case .oxygenSaturation:
             return await fetchQuantitySampleSeries(
@@ -394,7 +465,9 @@ final class HealthKitWorkoutStore: ObservableObject {
                 unit: .percent(),
                 calendar: calendar,
                 sourceKind: .oxygenSaturation,
-                valueTransform: Self.normalizedPercentDisplayValue
+                valueTransform: Self.normalizedPercentDisplayValue,
+                startDate: startDate,
+                endDate: endDate
             )
         default:
             return .empty
@@ -2275,7 +2348,12 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
-    private func fetchSecondaryDaySamples(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendSeries {
+    private func fetchSecondaryDaySamples(
+        for kind: HealthMetricKind,
+        calendar: Calendar,
+        startDate: Date? = nil,
+        endDate: Date? = nil
+    ) async -> HealthTrendSeries {
         let secondaryOption = selectedSecondaryHealthDataSourceOption(for: kind)
         guard !secondaryOption.isNoComparison else {
             return .empty
@@ -2288,7 +2366,9 @@ final class HealthKitWorkoutStore: ObservableObject {
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 calendar: calendar,
                 sourceKind: .heartRate,
-                sourceOption: secondaryOption
+                sourceOption: secondaryOption,
+                startDate: startDate,
+                endDate: endDate
             )
         case .restingHeartRate:
             return await fetchQuantitySampleSeries(
@@ -2296,7 +2376,9 @@ final class HealthKitWorkoutStore: ObservableObject {
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 calendar: calendar,
                 sourceKind: .restingHeartRate,
-                sourceOption: secondaryOption
+                sourceOption: secondaryOption,
+                startDate: startDate,
+                endDate: endDate
             )
         case .heartRateVariability:
             return await fetchQuantitySampleSeries(
@@ -2304,7 +2386,9 @@ final class HealthKitWorkoutStore: ObservableObject {
                 unit: .secondUnit(with: .milli),
                 calendar: calendar,
                 sourceKind: .heartRateVariability,
-                sourceOption: secondaryOption
+                sourceOption: secondaryOption,
+                startDate: startDate,
+                endDate: endDate
             )
         case .oxygenSaturation:
             return await fetchQuantitySampleSeries(
@@ -2313,7 +2397,9 @@ final class HealthKitWorkoutStore: ObservableObject {
                 calendar: calendar,
                 sourceKind: .oxygenSaturation,
                 sourceOption: secondaryOption,
-                valueTransform: Self.normalizedPercentDisplayValue
+                valueTransform: Self.normalizedPercentDisplayValue,
+                startDate: startDate,
+                endDate: endDate
             )
         case .sleep,
              .recovery,
@@ -2954,7 +3040,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         calendar: Calendar,
         sourceKind: HealthMetricKind? = nil,
         sourceOption: BodyHealthDataSourceOption? = nil,
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping (Double) -> Double = { $0 },
+        startDate: Date? = nil,
+        endDate: Date? = nil
     ) async -> HealthTrendSeries {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .empty
@@ -2962,8 +3050,8 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         let interval = recentHealthTrendInterval(calendar: calendar)
         let predicate = combinedPredicate(
-            startDate: interval.start,
-            endDate: interval.end,
+            startDate: startDate ?? interval.start,
+            endDate: endDate ?? interval.end,
             sourceKind: sourceKind,
             sourceOption: sourceOption
         )

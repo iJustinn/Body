@@ -1041,10 +1041,17 @@ struct BodyHomeView: View {
                 secondaryValueFormatter: nil,
                 recovery: summary.recovery,
                 headerMetrics: [
-                    BodyMetricDisplayValue(title: "Status", value: summary.recovery.status.title, unit: ""),
-                    BodyMetricDisplayValue(title: "Confidence", value: summary.recovery.confidence.title, unit: "")
+                    BodyMetricDisplayValue(
+                        title: "Recovery",
+                        value: summary.recovery.score.map { "\($0)" } ?? "--",
+                        unit: summary.recovery.score == nil ? "" : "%"
+                    ),
+                    BodyMetricDisplayValue(
+                        title: "Status",
+                        value: summary.recovery.status.title,
+                        unit: ""
+                    )
                 ],
-                headerSecondaryText: summary.recovery.drivers.first?.message,
                 helpText: kind.detailHelpText,
                 dataSourceText: kind.detailDataSourceText
             )
