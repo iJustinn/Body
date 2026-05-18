@@ -1,5 +1,24 @@
 # Version History
 
+## 0.5.1 (build 2)
+
+- Expanded home Summary trend cards from a fixed 28-day comparison window to candidate windows up to one year (28/90/180/270/365 days), each with its own minimum segment size and preferred recent length; the card now picks the most meaningful window per metric and tiebreaks by data coverage so sparse metrics still default to the shortest fitting window.
+- Cached trend card window selection behind a lightweight series fingerprint so the home Summary no longer recomputes comparisons on every view rebuild - only when the underlying data, units, or current day changes.
+- Capped trend card preview charts at 60 visual points via per-segment bucketed averaging that preserves the baseline/recent boundary; longer windows render smoothed buckets while comparison math still uses full-resolution daily values.
+- Trend card period labels and message phrasing now scale with the chosen window length (days for under 28, weeks for 28-89, months for 90+).
+- Updated the app, widget, and test bundle version to 0.5.1 build 2.
+
+## 0.5.1 (build 1)
+
+- Improved HealthKit refresh performance by moving daily trend aggregation into `HKStatisticsCollectionQuery`, pairing average/range queries for vitals, and lazy-loading intraday day samples only when metric detail screens open.
+- Reduced background refresh churn with continuation-based refresh completion waits, tiered app-resume refreshes, source-option caching, save-if-changed dashboard/workout snapshots, and widget reloads only when cached bytes change.
+- Added a previous-month workout snapshot fallback for widgets so month rollovers can keep showing recent data until the app refreshes the new current month.
+- Updated the app, widget, and test bundle version to 0.5.1 build 1.
+
+## 0.5.0 (build 3)
+
+- Added a Recovery Summary card that compares sleep, heart, training load, and sleep-window vitals against personal baselines, with confidence and driver explanations for missing or unusual signals.
+
 ## 0.5.0 (build 2)
 
 - Added a "Loading data" overlay to every pull-to-refresh (Summary, metric detail, Workouts) that stays on screen until the underlying refresh finishes; the overlay also rides out any background refresh already in flight, and has a 600 ms minimum display so fast refreshes still register visually.

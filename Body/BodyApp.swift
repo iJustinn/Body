@@ -23,7 +23,7 @@ struct BodyApp: App {
                 .tint(selectedAccent.color)
                 .accentColor(selectedAccent.color)
                 .preferredColorScheme(selectedTheme.colorScheme)
-                .task {
+                .task(priority: .utility) {
                     await workoutStore.syncWhenAppBecomesActive()
                 }
                 .onChange(of: scenePhase) { _, newPhase in
@@ -31,7 +31,7 @@ struct BodyApp: App {
                         return
                     }
 
-                    Task {
+                    Task(priority: .utility) {
                         await workoutStore.syncWhenAppBecomesActive()
                     }
                 }

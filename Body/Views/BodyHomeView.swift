@@ -221,6 +221,8 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
+    @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.homeCardOrderKey) private var homeCardOrderRawValue = BodyHomeCardKind.defaultRawValue
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
@@ -228,6 +230,7 @@ struct BodyHomeView: View {
     @State private var draggedHomeCard: BodyHomeCardKind?
     @State private var showsAllHomeTrends = false
     @State private var isPullRefreshing = false
+    @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
 
     var body: some View {
         let metricCardLookup = metricCardsByKind
@@ -301,6 +304,10 @@ struct BodyHomeView: View {
         BodyHealthTrendRange.storedValue(from: defaultTrendRangeRawValue)
     }
 
+    private var sleepDurationGoal: TimeInterval {
+        BodySleepDurationGoal.duration(from: sleepDurationGoalMinutes)
+    }
+
     private var homeTrendCardSelection: BodyHomeTrendCardSelection {
         BodyHomeTrendCardSelection.storedValue(from: homeTrendCardSelectionRawValue)
     }
@@ -335,6 +342,10 @@ struct BodyHomeView: View {
         let trends = workoutStore.healthTrends
 
         return [
+            recoveryMetric(
+                summary: summary.recovery,
+                chartPreview: trends.series(for: .recovery)
+            ),
             metric(
                 kind: .exerciseMinutes,
                 title: "Exercise Minutes",
@@ -383,7 +394,11 @@ struct BodyHomeView: View {
                 chartStyle: .bar,
                 chartPreview: trends.series(for: .steps)
             ),
-            sleepMetric(summary: summary, chartPreview: trends.series(for: .sleep)),
+            sleepMetric(
+                summary: summary,
+                sleepHistory: trends.sleepHistory,
+                chartPreview: trends.series(for: .sleep)
+            ),
             basicsMetric(summary: summary, chartPreview: trends.series(for: .bodyMass)),
             metric(
                 kind: .heartRate,
@@ -484,6 +499,17 @@ struct BodyHomeView: View {
         ).unit
         let energyUnit = selectedEnergyUnitPreference.unitLabel
         let cards = [
+            homeTrendCard(
+                kind: .recovery,
+                title: "Recovery",
+                series: trends.series(for: .recovery),
+                chartStyle: .line,
+                symbolName: "bolt.heart.fill",
+                symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + "%" },
+                messageStyle: .average(subject: "your recovery score"),
+                includesStable: includesStable
+            ),
             homeTrendCard(
                 kind: .heartRate,
                 title: "Heart Rate",
@@ -703,6 +729,24 @@ struct BodyHomeView: View {
         )
     }
 
+    private func recoveryMetric(
+        summary: RecoverySummary,
+        chartPreview: HealthTrendSeries
+    ) -> BodyHealthMetricCard.Model {
+        let scoreText = summary.score.map { "\($0)" } ?? "--"
+
+        return BodyHealthMetricCard.Model(
+            kind: .recovery,
+            title: "Recovery",
+            value: scoreText,
+            unit: summary.score == nil ? "" : "%",
+            symbolName: "bolt.heart.fill",
+            symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
+            chartPreviewStyle: .line,
+            chartPreview: chartPreview
+        )
+    }
+
     private func energyMetric(
         kind: HealthMetricKind,
         title: String,
@@ -771,11 +815,31 @@ struct BodyHomeView: View {
 
     private func sleepMetric(
         summary: HealthSummarySnapshot,
+        sleepHistory: SleepHistorySnapshot,
         chartPreview: HealthTrendSeries
     ) -> BodyHealthMetricCard.Model {
-        let sleepScoreDisplay = summary.sleep.score.map {
-            BodyMetricDisplayValue(title: "Score", value: "\($0.total)", unit: "PTS")
-        } ?? BodyMetricDisplayValue(title: "Score", value: "--", unit: "")
+        let prominentMetrics: [BodyMetricDisplayValue]
+        if showSleepScore {
+            let sleepScoreDisplay = SleepScoreSummary(
+                sleep: summary.sleep,
+                idealSleepDuration: sleepDurationGoal,
+                recentSleepHistory: sleepHistory,
+                on: summary.sleep.stageSnapshot.date
+            ).map {
+                BodyMetricDisplayValue(title: "Score", value: "\($0.total)", unit: "PTS")
+            } ?? BodyMetricDisplayValue(title: "Score", value: "--", unit: "")
+
+            prominentMetrics = [
+                sleepScoreDisplay,
+                BodyMetricDisplayValue(
+                    title: "Duration",
+                    value: formattedSleepDuration(summary.sleep.duration),
+                    unit: ""
+                )
+            ]
+        } else {
+            prominentMetrics = []
+        }
 
         return BodyHealthMetricCard.Model(
             kind: .sleep,
@@ -784,14 +848,7 @@ struct BodyHomeView: View {
             unit: "",
             symbolName: "bed.double.fill",
             symbolColor: Color(red: 0.20, green: 0.72, blue: 1.00),
-            prominentMetrics: [
-                sleepScoreDisplay,
-                BodyMetricDisplayValue(
-                    title: "Duration",
-                    value: formattedSleepDuration(summary.sleep.duration),
-                    unit: ""
-                )
-            ],
+            prominentMetrics: prominentMetrics,
             chartPreview: chartPreview
         )
     }
@@ -851,17 +908,22 @@ struct BodyHomeView: View {
         messageStyle: BodyHomeTrendMessageStyle,
         includesStable: Bool
     ) -> BodyHomeTrendCard.Model? {
-        guard let presentation = BodyHomeTrendCardPresentation.make(
-            kind: kind,
-            title: title,
+        guard let result = trendComputationCache.result(
+            for: kind,
             series: series,
-            chartStyle: chartStyle,
-            valueFormatter: valueFormatter,
-            messageStyle: messageStyle,
             includesStable: includesStable
         ) else {
             return nil
         }
+
+        let presentation = BodyHomeTrendCardPresentation.make(
+            from: result,
+            kind: kind,
+            title: title,
+            chartStyle: chartStyle,
+            valueFormatter: valueFormatter,
+            messageStyle: messageStyle
+        )
 
         return BodyHomeTrendCard.Model(
             presentation: presentation,
@@ -955,6 +1017,37 @@ struct BodyHomeView: View {
         let trends = workoutStore.healthTrends
 
         switch kind {
+        case .recovery:
+            return BodyHealthMetricDetailModel(
+                kind: kind,
+                title: "Recovery",
+                value: summary.recovery.score.map { "\($0)" } ?? "--",
+                unit: summary.recovery.score == nil ? "" : "%",
+                symbolName: "bolt.heart.fill",
+                symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
+                series: trends.recovery,
+                basicsTrend: nil,
+                sleepStageSnapshot: nil,
+                sleepScore: nil,
+                sleepVitals: nil,
+                sleepDuration: nil,
+                sleepHistory: trends.sleepHistory,
+                chartStyle: .line,
+                highlightedRange: BodyRecoveryStatusPresentation.make(
+                    for: summary.recovery.score.map(Double.init)
+                ),
+                highlightedRangeResolver: BodyRecoveryStatusPresentation.make(for:),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + "%" },
+                secondaryValueFormatter: nil,
+                recovery: summary.recovery,
+                headerMetrics: [
+                    BodyMetricDisplayValue(title: "Status", value: summary.recovery.status.title, unit: ""),
+                    BodyMetricDisplayValue(title: "Confidence", value: summary.recovery.confidence.title, unit: "")
+                ],
+                headerSecondaryText: summary.recovery.drivers.first?.message,
+                helpText: kind.detailHelpText,
+                dataSourceText: kind.detailDataSourceText
+            )
         case .heartRate:
             return BodyHealthMetricDetailModel(
                 kind: kind,
@@ -1087,7 +1180,14 @@ struct BodyHomeView: View {
                 secondaryDaySeries: .empty,
                 basicsTrend: nil,
                 sleepStageSnapshot: summary.sleep.stageSnapshot,
-                sleepScore: summary.sleep.score,
+                sleepScore: showSleepScore
+                    ? SleepScoreSummary(
+                        sleep: summary.sleep,
+                        idealSleepDuration: sleepDurationGoal,
+                        recentSleepHistory: trends.sleepHistory,
+                        on: summary.sleep.stageSnapshot.date
+                    )
+                    : nil,
                 sleepVitals: summary.sleep.vitals,
                 sleepDuration: summary.sleep.duration,
                 sleepHistory: trends.sleepHistory,
@@ -1512,11 +1612,12 @@ enum BodyHomeTrendMessageStyle {
     case quantity(subject: String)
 
     func text(direction: BodyHomeTrendDirection, recentDayCount: Int) -> String {
+        let phrase = BodyHomeTrendCardPresentation.recentPeriodPhrase(days: recentDayCount)
         switch self {
         case .average(let subject):
-            return "On average, \(subject) \(direction.averagePhrase) over the last \(recentDayCount) days."
+            return "On average, \(subject) \(direction.averagePhrase) over the last \(phrase)."
         case .quantity(let subject):
-            return "\(subject) \(direction.quantityPhrase) over the last \(recentDayCount) days."
+            return "\(subject) \(direction.quantityPhrase) over the last \(phrase)."
         }
     }
 }
@@ -1550,12 +1651,42 @@ enum BodyHomeTrendDirection {
 }
 
 struct BodyHomeTrendCardPresentation: Identifiable {
-    static let comparisonDayCount = 28
-    static let preferredRecentDayCount = 7
     static let minimumTrendSegmentDayCount = 3
     static let minimumRelativeChange = 0.01
     static let minimumAbsoluteChange = 0.01
     static let averageLineStrokeWidth: CGFloat = 4
+    static let maximumDisplayPointCount = 60
+
+    struct WindowSpec: Equatable {
+        let totalDayCount: Int
+        let minimumSegmentDayCount: Int
+        let preferredRecentDayCount: Int
+    }
+
+    static let windowSpecs: [WindowSpec] = [
+        WindowSpec(totalDayCount: 28, minimumSegmentDayCount: 3, preferredRecentDayCount: 7),
+        WindowSpec(totalDayCount: 90, minimumSegmentDayCount: 7, preferredRecentDayCount: 14),
+        WindowSpec(totalDayCount: 180, minimumSegmentDayCount: 14, preferredRecentDayCount: 30),
+        WindowSpec(totalDayCount: 270, minimumSegmentDayCount: 21, preferredRecentDayCount: 45),
+        WindowSpec(totalDayCount: 365, minimumSegmentDayCount: 30, preferredRecentDayCount: 60)
+    ]
+
+    static var maximumWindowDayCount: Int {
+        windowSpecs.map(\.totalDayCount).max() ?? 28
+    }
+
+    struct WindowResult: Equatable {
+        let calendarPoints: [HealthTrendCalendarPoint]
+        let displayCalendarPoints: [HealthTrendCalendarPoint]
+        let displayBaselineEndIndex: Int
+        let totalDayCount: Int
+        let baselineDayCount: Int
+        let recentDayCount: Int
+        let baselineAverage: Double
+        let recentAverage: Double
+        let absoluteChange: Double
+        let isMeaningful: Bool
+    }
 
     let kind: HealthMetricKind
     let title: String
@@ -1568,6 +1699,9 @@ struct BodyHomeTrendCardPresentation: Identifiable {
     let recentPeriodText: String
     let chartStyle: BodyHealthMetricChartStyle
     let calendarPoints: [HealthTrendCalendarPoint]
+    let displayCalendarPoints: [HealthTrendCalendarPoint]
+    let displayBaselineEndIndex: Int
+    let totalDayCount: Int
     let baselineDayCount: Int
     let recentDayCount: Int
 
@@ -1577,6 +1711,10 @@ struct BodyHomeTrendCardPresentation: Identifiable {
 
     var recentStartIndex: Int {
         baselineDayCount
+    }
+
+    var displayRecentStartIndex: Int {
+        min(displayBaselineEndIndex + 1, max(displayCalendarPoints.count - 1, 0))
     }
 
     static func make(
@@ -1590,38 +1728,116 @@ struct BodyHomeTrendCardPresentation: Identifiable {
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> BodyHomeTrendCardPresentation? {
-        let calendarPoints = comparisonCalendarPoints(from: series, calendar: calendar, date: date)
-        guard let comparisonWindow = bestComparisonWindow(in: calendarPoints, includesStable: includesStable) else {
+        guard let result = bestWindowResult(
+            from: series,
+            includesStable: includesStable,
+            calendar: calendar,
+            date: date
+        ) else {
             return nil
         }
+        return make(
+            from: result,
+            kind: kind,
+            title: title,
+            chartStyle: chartStyle,
+            valueFormatter: valueFormatter,
+            messageStyle: messageStyle
+        )
+    }
 
+    static func make(
+        from result: WindowResult,
+        kind: HealthMetricKind,
+        title: String,
+        chartStyle: BodyHealthMetricChartStyle,
+        valueFormatter: (Double) -> String,
+        messageStyle: BodyHomeTrendMessageStyle
+    ) -> BodyHomeTrendCardPresentation {
         let direction: BodyHomeTrendDirection
-        if comparisonWindow.isMeaningful == false {
+        if result.isMeaningful == false {
             direction = .stable
         } else {
-            direction = comparisonWindow.absoluteChange > 0 ? .increased : .decreased
+            direction = result.absoluteChange > 0 ? .increased : .decreased
         }
         return BodyHomeTrendCardPresentation(
             kind: kind,
             title: title,
-            messageText: messageStyle.text(direction: direction, recentDayCount: comparisonWindow.recentDayCount),
-            baselineAverage: comparisonWindow.baselineAverage,
-            recentAverage: comparisonWindow.recentAverage,
-            baselineAverageText: valueFormatter(comparisonWindow.baselineAverage),
-            recentAverageText: valueFormatter(comparisonWindow.recentAverage),
-            baselinePeriodText: "\(comparisonWindow.baselineDayCount)-day avg",
-            recentPeriodText: "\(comparisonWindow.recentDayCount)-day avg",
+            messageText: messageStyle.text(direction: direction, recentDayCount: result.recentDayCount),
+            baselineAverage: result.baselineAverage,
+            recentAverage: result.recentAverage,
+            baselineAverageText: valueFormatter(result.baselineAverage),
+            recentAverageText: valueFormatter(result.recentAverage),
+            baselinePeriodText: averagePeriodText(days: result.baselineDayCount),
+            recentPeriodText: averagePeriodText(days: result.recentDayCount),
             chartStyle: chartStyle,
-            calendarPoints: calendarPoints,
-            baselineDayCount: comparisonWindow.baselineDayCount,
-            recentDayCount: comparisonWindow.recentDayCount
+            calendarPoints: result.calendarPoints,
+            displayCalendarPoints: result.displayCalendarPoints,
+            displayBaselineEndIndex: result.displayBaselineEndIndex,
+            totalDayCount: result.totalDayCount,
+            baselineDayCount: result.baselineDayCount,
+            recentDayCount: result.recentDayCount
+        )
+    }
+
+    static func bestWindowResult(
+        from series: HealthTrendSeries,
+        includesStable: Bool,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> WindowResult? {
+        let allPoints = comparisonCalendarPoints(
+            from: series,
+            dayCount: maximumWindowDayCount,
+            calendar: calendar,
+            date: date
+        )
+        var bestCandidate: ComparisonWindow?
+        for spec in windowSpecs {
+            let windowPoints = Array(allPoints.suffix(spec.totalDayCount))
+            guard windowPoints.count == spec.totalDayCount else { continue }
+            guard let candidate = bestComparisonWindow(
+                in: windowPoints,
+                spec: spec,
+                includesStable: includesStable
+            ) else { continue }
+            if let current = bestCandidate {
+                if isBetterComparisonWindow(candidate, than: current) {
+                    bestCandidate = candidate
+                }
+            } else {
+                bestCandidate = candidate
+            }
+        }
+        guard let chosen = bestCandidate else {
+            return nil
+        }
+
+        let (displayPoints, displayBaselineEndIndex) = downsampledDisplayPoints(
+            from: chosen.windowPoints,
+            baselineDayCount: chosen.baselineDayCount,
+            maximumCount: maximumDisplayPointCount
+        )
+
+        return WindowResult(
+            calendarPoints: chosen.windowPoints,
+            displayCalendarPoints: displayPoints,
+            displayBaselineEndIndex: displayBaselineEndIndex,
+            totalDayCount: chosen.totalDayCount,
+            baselineDayCount: chosen.baselineDayCount,
+            recentDayCount: chosen.recentDayCount,
+            baselineAverage: chosen.baselineAverage,
+            recentAverage: chosen.recentAverage,
+            absoluteChange: chosen.absoluteChange,
+            isMeaningful: chosen.isMeaningful
         )
     }
 
     func averageLineSegments(in width: CGFloat) -> (baseline: ClosedRange<CGFloat>, recent: ClosedRange<CGFloat>) {
-        let lastPointIndex = max(calendarPoints.count - 1, 0)
-        let baselineEndIndex = min(max(baselineDayCount - 1, 0), lastPointIndex)
-        let recentStartIndex = min(max(baselineDayCount, 0), lastPointIndex)
+        let pointCount = displayCalendarPoints.count
+        let lastPointIndex = max(pointCount - 1, 0)
+        let baselineEndIndex = min(max(displayBaselineEndIndex, 0), lastPointIndex)
+        let recentStartIndex = min(max(displayBaselineEndIndex + 1, 0), lastPointIndex)
         let denominator = max(CGFloat(lastPointIndex), 1)
         let halfBucketWidth = width / denominator / 2
         let segmentExtension = max(halfBucketWidth - Self.averageLineStrokeWidth / 2, 0)
@@ -1636,20 +1852,49 @@ struct BodyHomeTrendCardPresentation: Identifiable {
         )
     }
 
+    static func recentPeriodPhrase(days: Int) -> String {
+        if days < 28 {
+            return "\(days) days"
+        } else if days < 90 {
+            let weeks = max(1, Int((Double(days) / 7).rounded()))
+            return "\(weeks) weeks"
+        } else {
+            let months = max(1, Int((Double(days) / 30).rounded()))
+            return "\(months) months"
+        }
+    }
+
+    static func averagePeriodText(days: Int) -> String {
+        if days < 28 {
+            return "\(days)-day avg"
+        } else if days < 90 {
+            let weeks = max(1, Int((Double(days) / 7).rounded()))
+            return "\(weeks)-week avg"
+        } else {
+            let months = max(1, Int((Double(days) / 30).rounded()))
+            return "\(months)-month avg"
+        }
+    }
+
     private static func bestComparisonWindow(
         in calendarPoints: [HealthTrendCalendarPoint],
+        spec: WindowSpec,
         includesStable: Bool
     ) -> ComparisonWindow? {
-        let maximumBaselineDayCount = Self.comparisonDayCount - Self.minimumTrendSegmentDayCount
-        let candidates: [ComparisonWindow] = (Self.minimumTrendSegmentDayCount...maximumBaselineDayCount).compactMap { baselineDayCount -> ComparisonWindow? in
-            let recentDayCount = Self.comparisonDayCount - baselineDayCount
+        let totalDayCount = spec.totalDayCount
+        let minimumSegmentDayCount = spec.minimumSegmentDayCount
+        let maximumBaselineDayCount = totalDayCount - minimumSegmentDayCount
+        guard minimumSegmentDayCount <= maximumBaselineDayCount else { return nil }
+
+        let candidates: [ComparisonWindow] = (minimumSegmentDayCount...maximumBaselineDayCount).compactMap { baselineDayCount -> ComparisonWindow? in
+            let recentDayCount = totalDayCount - baselineDayCount
             let baselinePoints = Array(calendarPoints.prefix(baselineDayCount))
             let recentPoints = Array(calendarPoints.suffix(recentDayCount))
             let baselineValues = finiteValues(from: baselinePoints)
             let recentValues = finiteValues(from: recentPoints)
 
-            guard baselineValues.count >= Self.minimumTrendSegmentDayCount,
-                  recentValues.count >= Self.minimumTrendSegmentDayCount else {
+            guard baselineValues.count >= minimumSegmentDayCount,
+                  recentValues.count >= minimumSegmentDayCount else {
                 return nil
             }
 
@@ -1662,6 +1907,8 @@ struct BodyHomeTrendCardPresentation: Identifiable {
             )
 
             return ComparisonWindow(
+                spec: spec,
+                totalDayCount: totalDayCount,
                 baselineDayCount: baselineDayCount,
                 recentDayCount: recentDayCount,
                 baselineValueCount: baselineValues.count,
@@ -1669,7 +1916,8 @@ struct BodyHomeTrendCardPresentation: Identifiable {
                 baselineAverage: baselineAverage,
                 recentAverage: recentAverage,
                 absoluteChange: absoluteChange,
-                minimumMeaningfulChange: minimumMeaningfulChange
+                minimumMeaningfulChange: minimumMeaningfulChange,
+                windowPoints: calendarPoints
             )
         }
         let eligibleCandidates = includesStable
@@ -1691,8 +1939,14 @@ struct BodyHomeTrendCardPresentation: Identifiable {
             return scoreDelta > 0
         }
 
-        let lhsRecentDistance = abs(lhs.recentDayCount - Self.preferredRecentDayCount)
-        let rhsRecentDistance = abs(rhs.recentDayCount - Self.preferredRecentDayCount)
+        let lhsCoverage = lhs.coverageRatio
+        let rhsCoverage = rhs.coverageRatio
+        if abs(lhsCoverage - rhsCoverage) > 0.000001 {
+            return lhsCoverage > rhsCoverage
+        }
+
+        let lhsRecentDistance = abs(lhs.recentDayCount - lhs.spec.preferredRecentDayCount)
+        let rhsRecentDistance = abs(rhs.recentDayCount - rhs.spec.preferredRecentDayCount)
         if lhsRecentDistance != rhsRecentDistance {
             return lhsRecentDistance < rhsRecentDistance
         }
@@ -1701,17 +1955,21 @@ struct BodyHomeTrendCardPresentation: Identifiable {
             return lhs.valueCount > rhs.valueCount
         }
 
+        if lhs.totalDayCount != rhs.totalDayCount {
+            return lhs.totalDayCount > rhs.totalDayCount
+        }
+
         return lhs.recentDayCount < rhs.recentDayCount
     }
 
     private static func comparisonCalendarPoints(
         from series: HealthTrendSeries,
+        dayCount: Int,
         calendar: Calendar,
         date: Date
     ) -> [HealthTrendCalendarPoint] {
         let currentDayStart = calendar.startOfDay(for: date)
-        let totalDayCount = Self.comparisonDayCount
-        let startDate = calendar.date(byAdding: .day, value: -(totalDayCount - 1), to: currentDayStart)
+        let startDate = calendar.date(byAdding: .day, value: -(dayCount - 1), to: currentDayStart)
             ?? currentDayStart
         let endDate = calendar.date(byAdding: .day, value: 1, to: currentDayStart)
             ?? date
@@ -1721,7 +1979,7 @@ struct BodyHomeTrendCardPresentation: Identifiable {
             calendar.startOfDay(for: $0.date)
         }
 
-        return (0..<totalDayCount).compactMap { offset in
+        return (0..<dayCount).compactMap { offset in
             guard let day = calendar.date(byAdding: .day, value: offset, to: startDate) else {
                 return nil
             }
@@ -1737,6 +1995,49 @@ struct BodyHomeTrendCardPresentation: Identifiable {
         }
     }
 
+    private static func downsampledDisplayPoints(
+        from points: [HealthTrendCalendarPoint],
+        baselineDayCount: Int,
+        maximumCount: Int
+    ) -> (display: [HealthTrendCalendarPoint], baselineEndIndex: Int) {
+        guard points.count > maximumCount,
+              baselineDayCount > 0,
+              baselineDayCount < points.count else {
+            return (points, max(baselineDayCount - 1, 0))
+        }
+
+        let bucketSize = max(1, Int(ceil(Double(points.count) / Double(maximumCount))))
+        let baselineSlice = Array(points.prefix(baselineDayCount))
+        let recentSlice = Array(points.suffix(points.count - baselineDayCount))
+        let baselineBuckets = downsampleSegment(baselineSlice, bucketSize: bucketSize)
+        let recentBuckets = downsampleSegment(recentSlice, bucketSize: bucketSize)
+        let combined = baselineBuckets + recentBuckets
+        let baselineEndIndex = max(baselineBuckets.count - 1, 0)
+        return (combined, baselineEndIndex)
+    }
+
+    private static func downsampleSegment(
+        _ points: [HealthTrendCalendarPoint],
+        bucketSize: Int
+    ) -> [HealthTrendCalendarPoint] {
+        guard bucketSize > 1, points.count > bucketSize else {
+            return points
+        }
+        var buckets: [HealthTrendCalendarPoint] = []
+        var index = 0
+        while index < points.count {
+            let end = min(index + bucketSize, points.count)
+            let slice = points[index..<end]
+            let values = slice.compactMap(\.value).filter(\.isFinite)
+            let bucketAverage = values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+            let midIndex = index + (end - index) / 2
+            let date = points[min(midIndex, end - 1)].date
+            buckets.append(HealthTrendCalendarPoint(date: date, value: bucketAverage))
+            index = end
+        }
+        return buckets
+    }
+
     private static func finiteValues(from points: [HealthTrendCalendarPoint]) -> [Double] {
         points.compactMap(\.value).filter(\.isFinite)
     }
@@ -1746,6 +2047,8 @@ struct BodyHomeTrendCardPresentation: Identifiable {
     }
 
     private struct ComparisonWindow {
+        let spec: WindowSpec
+        let totalDayCount: Int
         let baselineDayCount: Int
         let recentDayCount: Int
         let baselineValueCount: Int
@@ -1754,6 +2057,7 @@ struct BodyHomeTrendCardPresentation: Identifiable {
         let recentAverage: Double
         let absoluteChange: Double
         let minimumMeaningfulChange: Double
+        let windowPoints: [HealthTrendCalendarPoint]
 
         var isMeaningful: Bool {
             abs(absoluteChange) >= minimumMeaningfulChange
@@ -1766,6 +2070,64 @@ struct BodyHomeTrendCardPresentation: Identifiable {
         var valueCount: Int {
             baselineValueCount + recentValueCount
         }
+
+        var coverageRatio: Double {
+            guard totalDayCount > 0 else { return 0 }
+            return Double(valueCount) / Double(totalDayCount)
+        }
+    }
+}
+
+@MainActor
+final class BodyHomeTrendComputationCache: ObservableObject {
+    private struct CacheKey: Hashable {
+        let kind: HealthMetricKind
+        let includesStable: Bool
+    }
+
+    private struct Fingerprint: Equatable {
+        let dayStart: Date
+        let pointCount: Int
+        let firstTimestamp: TimeInterval?
+        let lastTimestamp: TimeInterval?
+        let firstValue: Double?
+        let lastValue: Double?
+    }
+
+    private struct Entry {
+        let fingerprint: Fingerprint
+        let result: BodyHomeTrendCardPresentation.WindowResult?
+    }
+
+    private var entries: [CacheKey: Entry] = [:]
+
+    func result(
+        for kind: HealthMetricKind,
+        series: HealthTrendSeries,
+        includesStable: Bool,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> BodyHomeTrendCardPresentation.WindowResult? {
+        let fingerprint = Fingerprint(
+            dayStart: calendar.startOfDay(for: date),
+            pointCount: series.points.count,
+            firstTimestamp: series.points.first?.date.timeIntervalSinceReferenceDate,
+            lastTimestamp: series.points.last?.date.timeIntervalSinceReferenceDate,
+            firstValue: series.points.first?.value,
+            lastValue: series.points.last?.value
+        )
+        let key = CacheKey(kind: kind, includesStable: includesStable)
+        if let entry = entries[key], entry.fingerprint == fingerprint {
+            return entry.result
+        }
+        let result = BodyHomeTrendCardPresentation.bestWindowResult(
+            from: series,
+            includesStable: includesStable,
+            calendar: calendar,
+            date: date
+        )
+        entries[key] = Entry(fingerprint: fingerprint, result: result)
+        return result
     }
 }
 
@@ -1815,7 +2177,7 @@ private enum BodyHealthDetailChartLayout {
 }
 
 private enum BodySleepScoreDetailsSheetLayout {
-    static let sheetHeight: CGFloat = 640
+    static let sheetHeight: CGFloat = 720
 }
 
 private struct BodyMetricDisplayValue: Identifiable {
@@ -2071,6 +2433,223 @@ private struct BodyTrainingLoadIntervalBreakdownChart: View {
     }
 }
 
+private enum BodyRecoveryStatusPresentation {
+    static func make(for value: Double?) -> BodyHealthMetricTrendHighlightedRange? {
+        guard let value, value.isFinite else {
+            return nil
+        }
+
+        let status = RecoveryStatus.status(for: Int(value.rounded()))
+        guard status != .unavailable else {
+            return nil
+        }
+
+        return BodyHealthMetricTrendHighlightedRange(
+            title: status.title,
+            lowerBound: status.lowerBound,
+            upperBound: status.upperBound,
+            color: color(for: status)
+        )
+    }
+
+    static func color(for status: RecoveryStatus) -> Color {
+        switch status {
+        case .prime:
+            return Color(red: 0.84, green: 0.08, blue: 0.92)
+        case .high:
+            return Color(red: 0.20, green: 0.74, blue: 1.00)
+        case .moderate:
+            return Color(red: 0.10, green: 0.82, blue: 0.20)
+        case .low:
+            return Color(red: 1.00, green: 0.75, blue: 0.15)
+        case .poor:
+            return Color(red: 1.00, green: 0.25, blue: 0.12)
+        case .unavailable:
+            return Color.secondary
+        }
+    }
+}
+
+private extension RecoveryStatus {
+    var symbolName: String {
+        switch self {
+        case .prime:
+            return "sparkles"
+        case .high:
+            return "checkmark.circle.fill"
+        case .moderate:
+            return "circle.fill"
+        case .low:
+            return "exclamationmark.circle.fill"
+        case .poor:
+            return "exclamationmark.triangle.fill"
+        case .unavailable:
+            return "questionmark.circle.fill"
+        }
+    }
+}
+
+private struct BodyRecoveryStatusBreakdownChart: View {
+    let series: HealthTrendSeries
+    let selectedRange: BodyHealthTrendRange
+    var calendar: Calendar = .bodyGregorian
+    var date: Date = Date()
+
+    private var entries: [RecoveryStatusBreakdownEntry] {
+        RecoveryStatusBreakdown.entries(
+            for: series,
+            range: selectedRange,
+            calendar: calendar,
+            date: date
+        )
+    }
+
+    private var totalDayCount: Int {
+        entries.first?.totalDayCount ?? 0
+    }
+
+    private var maxDayCount: Int {
+        entries.map(\.dayCount).max() ?? 0
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Days by Status")
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
+            if totalDayCount == 0 {
+                emptyState
+            } else {
+                VStack(alignment: .leading, spacing: rowSpacing) {
+                    ForEach(entries) { entry in
+                        statusDistributionRow(entry)
+                    }
+                }
+            }
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "chart.line.uptrend.xyaxis")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(Color.secondary.opacity(0.45))
+
+            Text("No Recovery yet")
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 120)
+    }
+
+    private func statusDistributionRow(_ entry: RecoveryStatusBreakdownEntry) -> some View {
+        GeometryReader { geometry in
+            let maxBarWidth = maximumBarWidth(for: geometry.size.width)
+            let minBarWidth = min(minimumBarWidth, maxBarWidth)
+            let relativeAmount = maxDayCount > 0 ? Double(entry.dayCount) / Double(maxDayCount) : 0
+            let barWidth = minBarWidth + ((maxBarWidth - minBarWidth) * CGFloat(relativeAmount))
+
+            HStack(spacing: rowHorizontalSpacing) {
+                dayCountBar(entry)
+                    .frame(width: barWidth, height: rowHeight)
+
+                statusDetails(entry)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(width: geometry.size.width, height: rowHeight, alignment: .leading)
+        }
+        .frame(height: rowHeight)
+    }
+
+    private func dayCountBar(_ entry: RecoveryStatusBreakdownEntry) -> some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: barCornerRadius, style: .continuous)
+                .fill(
+                    BodyRecoveryStatusPresentation
+                        .color(for: entry.status)
+                        .opacity(entry.dayCount == 0 ? 0.18 : 1)
+                )
+
+            Text(dayCountText(for: entry.dayCount))
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(.black.opacity(entry.dayCount == 0 ? 0.42 : 0.82))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .padding(.horizontal, 16)
+        }
+    }
+
+    private func statusDetails(_ entry: RecoveryStatusBreakdownEntry) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: entry.status.symbolName)
+                .font(.system(size: 22, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(BodyRecoveryStatusPresentation.color(for: entry.status))
+                .frame(width: 30, height: 30)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.status.title)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.68)
+
+                Text("\(dayText(for: entry.dayCount)) • \(percentageText(for: entry))")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.70)
+            }
+        }
+    }
+
+    private func dayCountText(for dayCount: Int) -> String {
+        "\(dayCount)d"
+    }
+
+    private func dayText(for dayCount: Int) -> String {
+        dayCount == 1 ? "1 day" : "\(dayCount) days"
+    }
+
+    private func percentageText(for entry: RecoveryStatusBreakdownEntry) -> String {
+        guard entry.totalDayCount > 0 else { return "0%" }
+
+        let percentage = Int((entry.fractionOfTotal * 100).rounded())
+        return "\(percentage)%"
+    }
+
+    private func maximumBarWidth(for availableWidth: CGFloat) -> CGFloat {
+        max(92, availableWidth - detailReserveWidth(for: availableWidth))
+    }
+
+    private func detailReserveWidth(for availableWidth: CGFloat) -> CGFloat {
+        min(max(availableWidth * 0.42, 130), 172)
+    }
+
+    private var minimumBarWidth: CGFloat {
+        92
+    }
+
+    private var rowHeight: CGFloat {
+        50
+    }
+
+    private var rowSpacing: CGFloat {
+        12
+    }
+
+    private var rowHorizontalSpacing: CGFloat {
+        12
+    }
+
+    private var barCornerRadius: CGFloat {
+        16
+    }
+}
+
 private struct BodyHealthMetricDetailModel {
     let kind: HealthMetricKind
     let title: String
@@ -2088,6 +2667,7 @@ private struct BodyHealthMetricDetailModel {
     let sleepVitals: SleepVitalsSummary?
     let sleepDuration: TimeInterval?
     let sleepHistory: SleepHistorySnapshot
+    let recovery: RecoverySummary?
     let chartStyle: BodyHealthMetricChartStyle
     let highlightedRange: BodyHealthMetricTrendHighlightedRange?
     let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?
@@ -2123,6 +2703,7 @@ private struct BodyHealthMetricDetailModel {
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
         valueFormatter: @escaping (Double) -> String,
         secondaryValueFormatter: ((Double) -> String)?,
+        recovery: RecoverySummary? = nil,
         sourceComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
         sourceRangeComparisonTrend: BodyHealthSourceRangeComparisonTrend? = nil,
         sourceLineComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
@@ -2147,6 +2728,7 @@ private struct BodyHealthMetricDetailModel {
         self.sleepVitals = sleepVitals
         self.sleepDuration = sleepDuration
         self.sleepHistory = sleepHistory
+        self.recovery = recovery
         self.chartStyle = chartStyle
         self.highlightedRange = highlightedRange
         self.highlightedRangeResolver = highlightedRangeResolver
@@ -2198,12 +2780,15 @@ private struct BodyHealthMetricDetailView: View {
     let model: BodyHealthMetricDetailModel
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
+    @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @State private var selectedTrendRange: BodyHealthTrendRange
     @State private var selectedSleepDate: Date?
     @State private var selectedMetricDate: Date?
     @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
     @State private var showsDataSourcePicker = false
     @State private var isPullRefreshing = false
+    @State private var activeRecoveryTrendValue: Double?
 
     init(
         model: BodyHealthMetricDetailModel,
@@ -2226,7 +2811,9 @@ private struct BodyHealthMetricDetailView: View {
                     trendCard
                     sleepDatePicker
                     selectedSleepCards
-                    aboutSleepScoreCard
+                    if showSleepScore {
+                        aboutSleepScoreCard
+                    }
                     dataSourceFooter
                 } else {
                     BodyHealthTrendRangeSelector(selectedRange: $selectedTrendRange)
@@ -2234,6 +2821,9 @@ private struct BodyHealthMetricDetailView: View {
                         basicsRangeCard
                     }
                     trendCard
+                    if model.kind == .recovery, let recovery = model.recovery {
+                        recoveryWhyCard(for: recovery, activeStatus: activeRecoveryStatus)
+                    }
                     if isBasicsDetail {
                         bodyMassIndexTrendCard
                     }
@@ -2258,6 +2848,9 @@ private struct BodyHealthMetricDetailView: View {
             await workoutStore.refreshHealthMetric(model.kind)
             await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
             isPullRefreshing = false
+        }
+        .task {
+            await workoutStore.loadIntradayMetricSamplesIfNeeded(model.kind)
         }
         .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
@@ -2306,7 +2899,8 @@ private struct BodyHealthMetricDetailView: View {
              .respiratoryRate,
              .oxygenSaturation:
             return true
-        case .sleep,
+        case .recovery,
+             .sleep,
              .basics,
              .bodyMass,
              .bodyFatPercentage,
@@ -2332,12 +2926,24 @@ private struct BodyHealthMetricDetailView: View {
         return calendar.startOfDay(for: selectedMetricDate ?? Date())
     }
 
+    private var activeRecoveryStatus: RecoveryStatus? {
+        guard model.kind == .recovery else {
+            return nil
+        }
+
+        if let activeRecoveryTrendValue, activeRecoveryTrendValue.isFinite {
+            return RecoveryStatus.status(for: Int(activeRecoveryTrendValue.rounded()))
+        }
+
+        return model.recovery?.status
+    }
+
     private var recentDatePickerDates: [Date] {
         SleepHistorySnapshot.datePickerDates(dayCount: BodyHealthTrendRange.recentMonth.dayCount, futureDayCount: 1)
     }
 
     private var selectedMetricDaySeries: HealthTrendSeries {
-        model.daySeries.points(on: selectedMetricDay)
+        liveDaySeries.points(on: selectedMetricDay)
     }
 
     private var selectedMetricSecondaryDaySeries: HealthTrendSeries {
@@ -2345,11 +2951,34 @@ private struct BodyHealthMetricDetailView: View {
             return .empty
         }
 
-        return model.secondaryDaySeries.points(on: selectedMetricDay)
+        return liveSecondaryDaySeries.points(on: selectedMetricDay)
+    }
+
+    private var liveDaySeries: HealthTrendSeries {
+        let storeSeries = workoutStore.healthTrends.daySeries(for: model.kind)
+        return storeSeries.points.isEmpty ? model.daySeries : storeSeries
+    }
+
+    private var liveSecondaryDaySeries: HealthTrendSeries {
+        let storeSeries = workoutStore.healthTrends.secondaryDaySeries(for: model.kind)
+        return storeSeries.points.isEmpty ? model.secondaryDaySeries : storeSeries
     }
 
     private var selectedSleepSummary: SleepSummary? {
         sleepSummary(for: selectedSleepDay)
+    }
+
+    private var selectedSleepScore: SleepScoreSummary? {
+        guard showSleepScore, let summary = selectedSleepSummary else {
+            return nil
+        }
+
+        return SleepScoreSummary(
+            sleep: summary,
+            idealSleepDuration: BodySleepDurationGoal.duration(from: sleepDurationGoalMinutes),
+            recentSleepHistory: model.sleepHistory,
+            on: selectedSleepDay
+        )
     }
 
     private var currentSleepSummary: SleepSummary? {
@@ -2383,10 +3012,12 @@ private struct BodyHealthMetricDetailView: View {
 
     @ViewBuilder
     private var selectedSleepCards: some View {
-        if let sleepScore = selectedSleepSummary?.score {
-            sleepScoreCard(sleepScore)
-        } else {
-            unavailableSleepScoreCard
+        if showSleepScore {
+            if let sleepScore = selectedSleepScore {
+                sleepScoreCard(sleepScore)
+            } else {
+                unavailableSleepScoreCard
+            }
         }
 
         sleepStageCard(selectedSleepStageSnapshot)
@@ -2409,6 +3040,69 @@ private struct BodyHealthMetricDetailView: View {
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .bodyCardBackground()
+        }
+    }
+
+    private func recoveryWhyCard(for recovery: RecoverySummary, activeStatus: RecoveryStatus?) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("About your score")
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(RecoveryStatus.displayOrder, id: \.self) { status in
+                    recoveryStatusExplanationRow(
+                        status: status,
+                        isCurrent: activeStatus == status
+                    )
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground()
+    }
+
+    private func recoveryStatusExplanationRow(status: RecoveryStatus, isCurrent: Bool) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(BodyRecoveryStatusPresentation.color(for: status))
+                .frame(width: 4)
+                .padding(.vertical, 3)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(status.title)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+
+                    Text(status.scoreRangeText)
+                        .font(.system(.subheadline, design: .monospaced))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(BodyRecoveryStatusPresentation.color(for: status))
+
+                    if isCurrent {
+                        Text("Current")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(BodyRecoveryStatusPresentation.color(for: status))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                BodyRecoveryStatusPresentation.color(for: status)
+                                    .opacity(0.14),
+                                in: Capsule()
+                            )
+                    }
+                }
+
+                Text(status.explanation)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -2661,6 +3355,7 @@ private struct BodyHealthMetricDetailView: View {
                     valueFormatter: model.valueFormatter,
                     highlightedRange: model.highlightedRange,
                     highlightedRangeResolver: model.highlightedRangeResolver,
+                    activeHighlightedValue: model.kind == .recovery ? $activeRecoveryTrendValue : nil,
                     isSleepDetail: isSleepDetail,
                     chartIdentity: "\(model.kind.rawValue)-\(selectedTrendRange.rawValue)"
                 )
@@ -2668,6 +3363,14 @@ private struct BodyHealthMetricDetailView: View {
 
                 if model.kind == .trainingLoad {
                     BodyTrainingLoadIntervalBreakdownChart(
+                        series: model.series,
+                        selectedRange: selectedTrendRange
+                    )
+                    .padding(.top, 4)
+                }
+
+                if model.kind == .recovery {
+                    BodyRecoveryStatusBreakdownChart(
                         series: model.series,
                         selectedRange: selectedTrendRange
                     )
@@ -3144,7 +3847,7 @@ private struct BodyHealthMetricDetailView: View {
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 
-            Text("Body scores each night from the data available for that sleep window: amount, continuity, deep and REM share, pressure from sleep HRV, sleep vitals, and wrist temperature. Missing sensors are skipped instead of counted as zero.")
+            Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and wrist temperature. Missing sensors are skipped instead of counted as zero.")
                 .font(.system(.body, design: .rounded))
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
@@ -3612,6 +4315,8 @@ private func bodySleepScoreColor(for kind: SleepScoreCategory.Kind, accentColor:
         return accentColor
     case .continuity:
         return Color(red: 0.14, green: 0.72, blue: 0.42)
+    case .startTime:
+        return Color(red: 0.10, green: 0.58, blue: 1.00)
     case .rem:
         return Color(red: 0.42, green: 0.80, blue: 1.00)
     case .deep:
@@ -3873,7 +4578,7 @@ private struct BodyHomeTrendComparisonChart: View {
     }
 
     private func plotEntries(in size: CGSize) -> [PlotEntry] {
-        let points = presentation.calendarPoints
+        let points = presentation.displayCalendarPoints
         let denominator = max(CGFloat(points.count - 1), 1)
         return points.enumerated().map { index, point in
             let x = size.width * CGFloat(index) / denominator
@@ -3887,7 +4592,7 @@ private struct BodyHomeTrendComparisonChart: View {
             return Color.secondary.opacity(0.10)
         }
 
-        return entry.index >= presentation.recentStartIndex
+        return entry.index >= presentation.displayRecentStartIndex
             ? color.opacity(0.42)
             : Color.secondary.opacity(0.28)
     }
@@ -3909,7 +4614,7 @@ private struct BodyHomeTrendComparisonChart: View {
     }
 
     private var chartValues: [Double] {
-        presentation.calendarPoints.compactMap(\.value).filter(\.isFinite)
+        presentation.displayCalendarPoints.compactMap(\.value).filter(\.isFinite)
             + [presentation.baselineAverage, presentation.recentAverage]
     }
 
@@ -5918,6 +6623,7 @@ private struct BodyHealthMetricTrendChart: View {
     let valueFormatter: (Double) -> String
     let highlightedRange: BodyHealthMetricTrendHighlightedRange?
     let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?
+    let activeHighlightedValue: Binding<Double?>?
     let isSleepDetail: Bool
     let chartIdentity: String
 
@@ -5941,6 +6647,7 @@ private struct BodyHealthMetricTrendChart: View {
         valueFormatter: @escaping (Double) -> String,
         highlightedRange: BodyHealthMetricTrendHighlightedRange? = nil,
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
+        activeHighlightedValue: Binding<Double?>? = nil,
         isSleepDetail: Bool,
         chartIdentity: String
     ) {
@@ -5951,6 +6658,7 @@ private struct BodyHealthMetricTrendChart: View {
         self.valueFormatter = valueFormatter
         self.highlightedRange = highlightedRange
         self.highlightedRangeResolver = highlightedRangeResolver
+        self.activeHighlightedValue = activeHighlightedValue
         self.isSleepDetail = isSleepDetail
         self.chartIdentity = chartIdentity
 
@@ -5981,11 +6689,23 @@ private struct BodyHealthMetricTrendChart: View {
     }
 
     private var activeHighlightedRange: BodyHealthMetricTrendHighlightedRange? {
-        guard let highlightedRangeResolver, let selectedTrendPoint else {
+        guard let highlightedRangeResolver, let activeHighlightSourcePoint else {
             return highlightedRange
         }
 
-        return highlightedRangeResolver(selectedTrendPoint.value) ?? highlightedRange
+        return highlightedRangeResolver(activeHighlightSourcePoint.value) ?? highlightedRange
+    }
+
+    private var activeHighlightSourcePoint: HealthTrendCalendarPoint? {
+        selectedTrendPoint ?? latestVisibleTrendPoint
+    }
+
+    private var activeHighlightSourceValue: Double? {
+        activeHighlightSourcePoint?.value
+    }
+
+    private var latestVisibleTrendPoint: HealthTrendCalendarPoint? {
+        visibleFinitePoints.last
     }
 
     var body: some View {
@@ -6159,6 +6879,12 @@ private struct BodyHealthMetricTrendChart: View {
             .transaction { transaction in
                 transaction.animation = nil
             }
+            .onAppear {
+                syncActiveHighlightedValue()
+            }
+            .onChange(of: activeHighlightSourceValue) { _, _ in
+                syncActiveHighlightedValue()
+            }
         }
     }
 
@@ -6201,6 +6927,10 @@ private struct BodyHealthMetricTrendChart: View {
         }
 
         return valueFormatter(value)
+    }
+
+    private func syncActiveHighlightedValue() {
+        activeHighlightedValue?.wrappedValue = activeHighlightSourceValue
     }
 
     private var chartPressGesture: some Gesture {

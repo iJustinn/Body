@@ -15,6 +15,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
@@ -227,6 +228,21 @@ struct BodySettingsView: View {
     private var metricsSection: some View {
         BodySettingsCardSection("Metrics") {
             Button {
+                activeSheet = .sleepDurationGoal
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Sleep Goal",
+                    value: sleepDurationGoalText,
+                    iconName: "bed.double.fill",
+                    tintColor: Color(red: 0.20, green: 0.72, blue: 1.00),
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
                 activeSheet = .units
             } label: {
                 BodySettingsRowLabel(
@@ -361,6 +377,10 @@ struct BodySettingsView: View {
         ].joined(separator: ", ")
     }
 
+    private var sleepDurationGoalText: String {
+        BodySleepDurationGoal.displayText(for: sleepDurationGoalMinutes)
+    }
+
     private var currentSummaryCardSelection: BodySummaryCardSelection {
         BodySummaryCardSelection.storedValue(from: summaryCardSelectionRawValue)
     }
@@ -429,6 +449,14 @@ struct BodySettingsView: View {
         }
     }
 
+    private var sleepDurationGoal: Binding<Int> {
+        Binding {
+            BodySleepDurationGoal.storedMinutes(from: sleepDurationGoalMinutes)
+        } set: { minutes in
+            sleepDurationGoalMinutes = BodySleepDurationGoal.storedMinutes(from: minutes)
+        }
+    }
+
     private var summaryCardSelection: Binding<BodySummaryCardSelection> {
         Binding {
             currentSummaryCardSelection
@@ -472,6 +500,8 @@ struct BodySettingsView: View {
             BodyDefaultTrendRangePickerSheet(selectedRange: defaultTrendRange)
         case .homeTrendCards:
             BodyHomeTrendCardsSettingsSheet(selection: homeTrendCardSelection)
+        case .sleepDurationGoal:
+            BodySleepDurationGoalSettingsSheet(goalMinutes: sleepDurationGoal)
         case .units:
             BodyUnitPreferencePickerSheet(
                 followsSystemUnits: followsSystemUnitsBinding,
@@ -565,6 +595,7 @@ enum BodySettingsSheet: String, Identifiable {
     case theme
     case appAccent
     case appIcon
+    case sleepDurationGoal
     case summaryCards
     case defaultTrendRange
     case homeTrendCards
@@ -830,6 +861,30 @@ extension BodyValueFormat.DistanceUnitPreference: BodyUnitPreferenceOption { }
 extension BodyValueFormat.EnergyUnitPreference: BodyUnitPreferenceOption { }
 extension BodyValueFormat.TemperatureUnitPreference: BodyUnitPreferenceOption { }
 
+private struct BodySleepDurationGoalSettingsSheet: View {
+    @Binding var goalMinutes: Int
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Sleep Goal") {
+            BodySettingsCardSection("Goal") {
+                Stepper(
+                    value: $goalMinutes,
+                    in: BodySleepDurationGoal.minimumMinutes...BodySleepDurationGoal.maximumMinutes,
+                    step: BodySleepDurationGoal.stepMinutes
+                ) {
+                    BodySettingsRowLabel(
+                        title: "Amount",
+                        value: BodySleepDurationGoal.displayText(for: goalMinutes),
+                        iconName: "bed.double.fill",
+                        tintColor: Color(red: 0.20, green: 0.72, blue: 1.00)
+                    )
+                }
+                .padding(.trailing, 18)
+            }
+        }
+    }
+}
+
 private struct BodyUnitPreferencePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var followsSystemUnits: Bool
@@ -1065,6 +1120,7 @@ private struct BodyDefaultTrendRangePickerSheet: View {
 
 private struct BodySummaryCardsSettingsSheet: View {
     @Binding var selection: BodySummaryCardSelection
+    @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Summary Cards") {
@@ -1079,6 +1135,13 @@ private struct BodySummaryCardsSettingsSheet: View {
                         }
                     )
 
+                    if card == .sleep {
+                        Divider()
+                            .padding(.leading, 76)
+
+                        BodySleepScoreToggleRow(isEnabled: $showSleepScore)
+                    }
+
                     if card.id != BodyHomeCardKind.defaultOrder.last?.id {
                         Divider()
                             .padding(.leading, 76)
@@ -1087,6 +1150,55 @@ private struct BodySummaryCardsSettingsSheet: View {
             }
             .bodyCardBackground()
         }
+    }
+}
+
+private struct BodySleepScoreToggleRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(
+                iconName: "moon.stars.fill",
+                color: Color(red: 0.20, green: 0.72, blue: 1.00)
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text("Sleep Score")
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    Text("Beta")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(.blue)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(.blue.opacity(0.14), in: Capsule())
+                }
+
+                Text("Nightly score from sleep stages, vitals, and timing")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Sleep Score", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 
@@ -1099,12 +1211,23 @@ private struct BodySummaryCardToggleRow: View {
             BodySettingsIconTile(iconName: card.iconName, color: card.tintColor)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(card.title)
-                    .font(.system(.headline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                HStack(spacing: 8) {
+                    Text(card.title)
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    if card.isBeta {
+                        Text("Beta")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(.blue)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(.blue.opacity(0.14), in: Capsule())
+                    }
+                }
 
                 Text(card.subtitle)
                     .font(.system(.subheadline, design: .rounded))

@@ -47,12 +47,6 @@ struct BodyWorkoutsView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
 
-                    if let pendingMonthSelection {
-                        BodyWorkoutMonthLoadingBanner(monthYear: pendingMonthSelection)
-                            .padding(.horizontal)
-                            .padding(.top, 8)
-                    }
-
                     searchAndControlsRow
                         .padding(.horizontal)
                         .padding(.top, 8)
@@ -122,7 +116,7 @@ struct BodyWorkoutsView: View {
                     }
                 }
             }
-            .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
+            .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing || pendingMonthSelection != nil)
             .sheet(isPresented: $showingSortSheet) {
                 BodyWorkoutSortView(selectedSortOption: $selectedSortOption)
                     .presentationDetents([.medium])
@@ -481,28 +475,6 @@ struct BodyWorkoutsView: View {
                 }
             }
         }
-    }
-}
-
-private struct BodyWorkoutMonthLoadingBanner: View {
-    let monthYear: BodyMonthYear
-
-    var body: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-
-            Text("Loading \(monthYear.displayName)")
-                .font(.system(.subheadline, design: .rounded))
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
