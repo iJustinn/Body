@@ -160,6 +160,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             calendar: .bodyGregorian
         )
         loadedActivityRingMonthKeys = Set(activityRingHistory.loadedMonthKeySet(calendar: .bodyGregorian))
+        // Restore the persisted last-successful-refresh timestamp so the
+        // cold-start sync path applies the same tiered TTL as a warm resume.
+        lastSuccessfulRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
     }
 
     var healthSyncStatusSummaryText: String {
@@ -771,6 +774,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         WorkoutSnapshotStore.delete()
         WorkoutSnapshotStore.deletePrevious()
         HealthDashboardSnapshotStore.delete()
+        HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -1026,6 +1030,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     private func markRefreshSucceeded(date: Date) {
         lastSuccessfulRefreshDate = date
+        HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(date)
     }
 
     private func applyPermissionSelectionToCachedData() async {
