@@ -23,6 +23,19 @@ actor HealthKitFetchEngine {
 
     private var anchorDate: Date?
 
+    /// Shared workout fetch for the training-load summary AND the training-load
+    /// trend series. Both consume the same 180-day workout window; running them
+    /// as independent HK queries (one per orchestrator) duplicates the round-trip
+    /// and the per-workout effort fan-out. Memoized by window so simultaneous
+    /// callers within a refresh share a single in-flight fetch.
+    private var sharedTrainingLoadWorkoutsTask: Task<[WorkoutSummary], Error>?
+    private var sharedTrainingLoadWorkoutsWindow: TrainingLoadWorkoutsWindow?
+
+    private struct TrainingLoadWorkoutsWindow: Equatable {
+        let start: Date
+        let end: Date
+    }
+
     private static let trainingLoadSummaryDayCount = 180
 
     init(
@@ -51,6 +64,10 @@ actor HealthKitFetchEngine {
 
     func setHealthTrendAnchorDate(_ date: Date?) {
         anchorDate = date
+        // The shared training-load fetch is keyed by the anchor-derived window;
+        // crossing a refresh boundary should always re-fetch.
+        sharedTrainingLoadWorkoutsTask = nil
+        sharedTrainingLoadWorkoutsWindow = nil
     }
 
     var healthTrendAnchorDate: Date? {
@@ -843,24 +860,35 @@ actor HealthKitFetchEngine {
             healthStore.execute(query)
         }
 
+        guard !workouts.isEmpty else {
+            return []
+        }
+
+        // Fan-out per-workout HK work: HR samples in a single batched query,
+        // effort levels in parallel (HKWorkoutEffortScore is queried via a
+        // per-workout relationship predicate, so it cannot be batched the same
+        // way HR samples can).
+        async let heartRateSamplesByWorkoutID: [UUID: [WorkoutHeartRateSample]] = {
+            guard includesHeartRateSamples else {
+                return [:]
+            }
+            return await fetchIfPermitted(.heart, default: [:]) {
+                await fetchHeartRateSamples(forWorkouts: workouts)
+            }
+        }()
+        async let effortLevelsByWorkoutID = fetchEffortLevels(forWorkouts: workouts)
+
+        let resolvedHeartRateSamples = await heartRateSamplesByWorkoutID
+        let resolvedEffortLevels = await effortLevelsByWorkoutID
+
         var summaries: [WorkoutSummary] = []
         summaries.reserveCapacity(workouts.count)
-
         for workout in workouts {
-            let heartRateSamples: [WorkoutHeartRateSample]
-            if includesHeartRateSamples {
-                heartRateSamples = await fetchIfPermitted(.heart, default: []) {
-                    await fetchHeartRateSamples(for: workout)
-                }
-            } else {
-                heartRateSamples = []
-            }
-            async let effortLevel = fetchSavedEffortLevel(for: workout)
             summaries.append(
-                await Self.summary(
+                Self.summary(
                     for: workout,
-                    heartRateSamples: heartRateSamples,
-                    effortLevel: effortLevel
+                    heartRateSamples: resolvedHeartRateSamples[workout.uuid] ?? [],
+                    effortLevel: resolvedEffortLevels[workout.uuid]
                 )
             )
         }
@@ -868,42 +896,95 @@ actor HealthKitFetchEngine {
         return summaries
     }
 
-    private func fetchHeartRateSamples(for workout: HKWorkout) async -> [WorkoutHeartRateSample] {
-        guard let heartRateType = HKObjectType.quantityType(forIdentifier: .heartRate) else {
-            return []
+    /// Single HK query for the union of all workout time ranges; samples are
+    /// partitioned per workout in-memory afterward. Replaces the prior O(workouts)
+    /// sequential `HKSampleQuery` round-trips inside `fetchWorkoutSummaries`.
+    private func fetchHeartRateSamples(forWorkouts workouts: [HKWorkout]) async -> [UUID: [WorkoutHeartRateSample]] {
+        guard !workouts.isEmpty,
+              let heartRateType = HKObjectType.quantityType(forIdentifier: .heartRate) else {
+            return [:]
         }
 
-        let predicate = HKQuery.predicateForSamples(
-            withStart: workout.startDate,
-            end: workout.endDate,
-            options: [.strictStartDate]
-        )
+        let workoutPredicates = workouts.map { workout in
+            HKQuery.predicateForSamples(
+                withStart: workout.startDate,
+                end: workout.endDate,
+                options: [.strictStartDate]
+            )
+        }
+        let predicate: NSPredicate = workoutPredicates.count == 1
+            ? workoutPredicates[0]
+            : NSCompoundPredicate(orPredicateWithSubpredicates: workoutPredicates)
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
         let heartRateUnit = HKUnit.count().unitDivided(by: .minute())
 
-        return await withCheckedContinuation { continuation in
+        let samples: [HKQuantitySample] = await withCheckedContinuation { continuation in
             let query = HKSampleQuery(
                 sampleType: heartRateType,
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [sort]
             ) { _, samples, _ in
-                let heartRateSamples = (samples as? [HKQuantitySample] ?? []).compactMap { sample -> WorkoutHeartRateSample? in
-                    let beatsPerMinute = sample.quantity.doubleValue(for: heartRateUnit)
-                    guard beatsPerMinute.isFinite, beatsPerMinute > 0 else {
-                        return nil
-                    }
-
-                    return WorkoutHeartRateSample(
-                        date: sample.startDate,
-                        beatsPerMinute: beatsPerMinute
-                    )
-                }
-
-                continuation.resume(returning: heartRateSamples)
+                continuation.resume(returning: samples as? [HKQuantitySample] ?? [])
             }
 
             healthStore.execute(query)
+        }
+
+        var samplesByWorkoutID: [UUID: [WorkoutHeartRateSample]] = [:]
+        samplesByWorkoutID.reserveCapacity(workouts.count)
+        for workout in workouts {
+            let workoutStart = workout.startDate
+            let workoutEnd = workout.endDate
+            var workoutSamples: [WorkoutHeartRateSample] = []
+            for sample in samples {
+                let sampleDate = sample.startDate
+                if sampleDate < workoutStart {
+                    continue
+                }
+                if sampleDate >= workoutEnd {
+                    // Samples are sorted ascending; we're past this workout's window.
+                    break
+                }
+                let beatsPerMinute = sample.quantity.doubleValue(for: heartRateUnit)
+                guard beatsPerMinute.isFinite, beatsPerMinute > 0 else {
+                    continue
+                }
+                workoutSamples.append(
+                    WorkoutHeartRateSample(
+                        date: sampleDate,
+                        beatsPerMinute: beatsPerMinute
+                    )
+                )
+            }
+            samplesByWorkoutID[workout.uuid] = workoutSamples
+        }
+        return samplesByWorkoutID
+    }
+
+    private func fetchEffortLevels(forWorkouts workouts: [HKWorkout]) async -> [UUID: Double] {
+        guard !workouts.isEmpty else {
+            return [:]
+        }
+
+        return await withTaskGroup(
+            of: (UUID, Double?).self,
+            returning: [UUID: Double].self
+        ) { group in
+            for workout in workouts {
+                group.addTask {
+                    let effort = await self.fetchSavedEffortLevel(for: workout)
+                    return (workout.uuid, effort)
+                }
+            }
+
+            var results: [UUID: Double] = [:]
+            for await (id, effort) in group {
+                if let effort {
+                    results[id] = effort
+                }
+            }
+            return results
         }
     }
 
@@ -1037,16 +1118,21 @@ actor HealthKitFetchEngine {
             healthStore.execute(query)
         }
 
-        var hydratedDays: [SleepDaySummary] = []
-        for var day in days {
-            if let interval = day.summary.stageSnapshot.dateInterval {
-                day.summary.vitals = await fetchSleepVitals(
+        // Hydrate sleep vitals per-day in parallel. The previous serial loop
+        // could fire up to ~365 days × 5 sub-queries sequentially; with the
+        // sleep window now bounded by the trend interval, that's the largest
+        // single source of cold-launch latency. Bound concurrency so we don't
+        // flood HK with thousands of in-flight queries.
+        let hydratedDays = await Self.hydrateSleepVitalsInParallel(
+            days: days,
+            maxConcurrentDays: 16,
+            hydrate: { interval in
+                await self.fetchSleepVitals(
                     startDate: interval.start,
                     endDate: interval.end
                 )
             }
-            hydratedDays.append(day)
-        }
+        )
 
         return SleepHistorySnapshot(days: hydratedDays)
     }
@@ -1111,26 +1197,110 @@ actor HealthKitFetchEngine {
         )
     }
 
+    /// Run `hydrate` on every day with a sleep interval in parallel, with at most
+    /// `maxConcurrentDays` queries in flight. Each day internally fans out to 5
+    /// vitals queries, so the effective HK concurrency ceiling is roughly
+    /// `maxConcurrentDays × 5`. Returned days are sorted by date ascending to
+    /// match the prior serial-loop ordering.
+    private static func hydrateSleepVitalsInParallel(
+        days: [SleepDaySummary],
+        maxConcurrentDays: Int,
+        hydrate: @escaping @Sendable (DateInterval) async -> SleepVitalsSummary
+    ) async -> [SleepDaySummary] {
+        guard !days.isEmpty else {
+            return []
+        }
+
+        let limit = max(1, maxConcurrentDays)
+        return await withTaskGroup(
+            of: (Int, SleepDaySummary).self,
+            returning: [SleepDaySummary].self
+        ) { group in
+            var nextIndex = 0
+            let initialBatch = min(limit, days.count)
+            while nextIndex < initialBatch {
+                let index = nextIndex
+                let day = days[index]
+                group.addTask {
+                    var hydrated = day
+                    if let interval = hydrated.summary.stageSnapshot.dateInterval {
+                        hydrated.summary.vitals = await hydrate(interval)
+                    }
+                    return (index, hydrated)
+                }
+                nextIndex += 1
+            }
+
+            var results: [(Int, SleepDaySummary)] = []
+            results.reserveCapacity(days.count)
+            for await pair in group {
+                results.append(pair)
+                if nextIndex < days.count {
+                    let index = nextIndex
+                    let day = days[index]
+                    group.addTask {
+                        var hydrated = day
+                        if let interval = hydrated.summary.stageSnapshot.dateInterval {
+                            hydrated.summary.vitals = await hydrate(interval)
+                        }
+                        return (index, hydrated)
+                    }
+                    nextIndex += 1
+                }
+            }
+
+            return results
+                .sorted { $0.0 < $1.0 }
+                .map(\.1)
+        }
+    }
+
     // MARK: - Training load
 
-    private func fetchTrainingLoadSummary(calendar: Calendar) async -> HealthMetricSummary? {
-        let date = Date()
-        let dayStart = calendar.startOfDay(for: date)
+    private func trainingLoadWorkoutsWindow(calendar: Calendar) -> TrainingLoadWorkoutsWindow {
+        let anchor = anchorDate ?? Date()
+        let dayStart = calendar.startOfDay(for: anchor)
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)
             ?? dayStart.addingTimeInterval(86_400)
         let start = calendar.date(byAdding: .day, value: -Self.trainingLoadSummaryDayCount, to: dayStart)
             ?? dayStart.addingTimeInterval(-TimeInterval(Self.trainingLoadSummaryDayCount) * 86_400)
+        return TrainingLoadWorkoutsWindow(start: start, end: dayEnd)
+    }
 
-        do {
-            let workouts = try await fetchWorkoutSummaries(
-                startDate: start,
-                endDate: dayEnd,
+    /// Fetches (or reuses an in-flight fetch of) the 180-day training-load
+    /// workout window. Concurrent callers within the same refresh await the
+    /// same `Task`; the memo is invalidated whenever the trend anchor date is
+    /// (re)set on the engine.
+    private func sharedTrainingLoadWorkouts(
+        window: TrainingLoadWorkoutsWindow
+    ) async throws -> [WorkoutSummary] {
+        if let task = sharedTrainingLoadWorkoutsTask,
+           sharedTrainingLoadWorkoutsWindow == window {
+            return try await task.value
+        }
+
+        let task = Task<[WorkoutSummary], Error> { [self] in
+            try await fetchWorkoutSummaries(
+                startDate: window.start,
+                endDate: window.end,
                 includesHeartRateSamples: false
             )
+        }
+        sharedTrainingLoadWorkoutsTask = task
+        sharedTrainingLoadWorkoutsWindow = window
+        return try await task.value
+    }
+
+    private func fetchTrainingLoadSummary(calendar: Calendar) async -> HealthMetricSummary? {
+        let date = anchorDate ?? Date()
+        let window = trainingLoadWorkoutsWindow(calendar: calendar)
+
+        do {
+            let workouts = try await sharedTrainingLoadWorkouts(window: window)
             return TrainingLoadCalculator.summary(
                 on: date,
                 from: workouts,
-                startDate: start,
+                startDate: window.start,
                 calendar: calendar
             )
         } catch {
@@ -1140,19 +1310,13 @@ actor HealthKitFetchEngine {
 
     private func fetchTrainingLoadSeries(calendar: Calendar) async -> HealthTrendSeries {
         let end = anchorDate ?? Date()
-        let dayStart = calendar.startOfDay(for: end)
-        let start = calendar.date(byAdding: .day, value: -Self.trainingLoadSummaryDayCount, to: dayStart)
-            ?? dayStart.addingTimeInterval(-TimeInterval(Self.trainingLoadSummaryDayCount) * 86_400)
+        let window = trainingLoadWorkoutsWindow(calendar: calendar)
 
         do {
-            let workouts = try await fetchWorkoutSummaries(
-                startDate: start,
-                endDate: end,
-                includesHeartRateSamples: false
-            )
+            let workouts = try await sharedTrainingLoadWorkouts(window: window)
             return TrainingLoadCalculator.dailySeries(
                 from: workouts,
-                startDate: start,
+                startDate: window.start,
                 endDate: end,
                 calendar: calendar
             )
