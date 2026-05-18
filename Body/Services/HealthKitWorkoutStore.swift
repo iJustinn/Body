@@ -789,13 +789,10 @@ final class HealthKitWorkoutStore: ObservableObject {
                 clearWorkoutSnapshots(calendar: calendar)
             }
             await fetchHealthDataSourceOptions(calendar: calendar)
-            let cachedTrends = healthTrends
-            async let nextHealthSummary = engine.fetchHealthSummary(calendar: calendar)
-            async let nextHealthTrends = engine.fetchHealthTrends(calendar: calendar, cachedTrends: cachedTrends)
-            async let nextActivityRingHistory = engine.fetchActivityRingHistory(calendar: calendar)
-            let fetchedHealthSummary = await nextHealthSummary
-            let fetchedHealthTrends = await nextHealthTrends
-            let fetchedActivityRingHistory = await nextActivityRingHistory
+
+            let (fetchedHealthSummary, fetchedHealthTrends, fetchedActivityRingHistory) =
+                await fetchDashboardSnapshotProgressively(calendar: calendar)
+
             await updateHealthDashboardSnapshot(
                 summary: fetchedHealthSummary,
                 trends: fetchedHealthTrends,
@@ -829,13 +826,10 @@ final class HealthKitWorkoutStore: ObservableObject {
             }
             if updatesHealthSummary {
                 await fetchHealthDataSourceOptions(calendar: calendar)
-                let cachedTrends = healthTrends
-                async let nextHealthSummary = engine.fetchHealthSummary(calendar: calendar)
-                async let nextHealthTrends = engine.fetchHealthTrends(calendar: calendar, cachedTrends: cachedTrends)
-                async let nextActivityRingHistory = engine.fetchActivityRingHistory(calendar: calendar)
-                let fetchedHealthSummary = await nextHealthSummary
-                let fetchedHealthTrends = await nextHealthTrends
-                let fetchedActivityRingHistory = await nextActivityRingHistory
+
+                let (fetchedHealthSummary, fetchedHealthTrends, fetchedActivityRingHistory) =
+                    await fetchDashboardSnapshotProgressively(calendar: calendar)
+
                 await updateHealthDashboardSnapshot(
                     summary: fetchedHealthSummary,
                     trends: fetchedHealthTrends,
@@ -852,6 +846,69 @@ final class HealthKitWorkoutStore: ObservableObject {
         if updatesHealthSummary {
             await engine.setHealthTrendAnchorDate(nil)
         }
+    }
+
+    /// Fetch the dashboard summary, trend snapshot, and activity-ring history
+    /// concurrently and publish each bucket to `@Published` state as soon as it
+    /// completes. Users see metric values, ring values, then trend charts fill in
+    /// progressively instead of one large update at the very end of the refresh.
+    /// Recovery is preserved at its cached value during the stream — the final
+    /// `updateHealthDashboardSnapshot` recomputes it once everything has landed.
+    private func fetchDashboardSnapshotProgressively(
+        calendar: Calendar
+    ) async -> (
+        summary: HealthSummarySnapshot,
+        trends: HealthTrendSnapshot,
+        activityRingHistory: ActivityRingHistorySnapshot
+    ) {
+        let cachedTrendsAtStart = healthTrends
+        var fetchedSummary = healthSummary
+        var fetchedTrends = healthTrends
+        var fetchedActivityRingHistory = activityRingHistory
+
+        let engine = self.engine
+        await withTaskGroup(of: DashboardFetchUnit.self) { group in
+            group.addTask {
+                .summary(await engine.fetchHealthSummary(calendar: calendar))
+            }
+            group.addTask {
+                .trends(
+                    await engine.fetchHealthTrends(
+                        calendar: calendar,
+                        cachedTrends: cachedTrendsAtStart
+                    )
+                )
+            }
+            group.addTask {
+                .rings(await engine.fetchActivityRingHistory(calendar: calendar))
+            }
+
+            for await unit in group {
+                switch unit {
+                case .summary(let s):
+                    fetchedSummary = s
+                    // Keep the cached `recovery` visible during the progressive
+                    // publish — the final filtered+recomputed snapshot overrides
+                    // it in `updateHealthDashboardSnapshot`.
+                    healthSummary = s.replacingMetric(.recovery, with: healthSummary)
+                case .trends(let t):
+                    fetchedTrends = t
+                    healthTrends = t
+                case .rings(let r):
+                    fetchedActivityRingHistory = r
+                    activityRingHistory = r
+                    loadedActivityRingMonthKeys = Set(r.loadedMonthKeySet(calendar: calendar))
+                }
+            }
+        }
+
+        return (fetchedSummary, fetchedTrends, fetchedActivityRingHistory)
+    }
+
+    private enum DashboardFetchUnit {
+        case summary(HealthSummarySnapshot)
+        case trends(HealthTrendSnapshot)
+        case rings(ActivityRingHistorySnapshot)
     }
 
     private func loadMonthKeysIfNeeded(_ keys: Set<BodyWorkoutMonthKey>) async {
@@ -899,9 +956,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         let engine = self.engine
-        let results = try await withThrowingTaskGroup(
+        try await withThrowingTaskGroup(
             of: (BodyWorkoutMonthKey, [WorkoutSummary]).self
-        ) { group -> [BodyWorkoutMonthKey: [WorkoutSummary]] in
+        ) { group in
             for key in orderedKeys {
                 group.addTask {
                     let workouts = try await engine.fetchWorkouts(month: key.month, year: key.year, calendar: calendar)
@@ -909,22 +966,17 @@ final class HealthKitWorkoutStore: ObservableObject {
                 }
             }
 
-            var fetched: [BodyWorkoutMonthKey: [WorkoutSummary]] = [:]
+            // Publish each month's snapshot as it returns so the Workouts tab
+            // populates progressively instead of waiting for the slowest month.
             for try await (key, workouts) in group {
-                fetched[key] = workouts
+                monthSnapshots[key] = WorkoutMonthSnapshot.make(
+                    month: key.month,
+                    year: key.year,
+                    workouts: workouts,
+                    calendar: calendar
+                )
+                loadedMonthKeys.insert(key)
             }
-            return fetched
-        }
-
-        for key in orderedKeys {
-            let workouts = results[key] ?? []
-            monthSnapshots[key] = WorkoutMonthSnapshot.make(
-                month: key.month,
-                year: key.year,
-                workouts: workouts,
-                calendar: calendar
-            )
-            loadedMonthKeys.insert(key)
         }
     }
 
