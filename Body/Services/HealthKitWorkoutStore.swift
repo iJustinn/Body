@@ -301,9 +301,12 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// existing cache (trimmed to the trailing trend window). On a first-ever
     /// load the cache is empty and we fetch the full window.
     func loadIntradayMetricSamplesIfNeeded(_ kind: HealthMetricKind) async {
+        let usesHourlyBuckets: Bool
         switch kind {
         case .heartRate, .restingHeartRate, .heartRateVariability, .respiratoryRate, .oxygenSaturation:
-            break
+            usesHourlyBuckets = false
+        case .activeEnergy:
+            usesHourlyBuckets = true
         default:
             return
         }
@@ -333,12 +336,21 @@ final class HealthKitWorkoutStore: ObservableObject {
         let cachedPrimary = healthTrends.daySeries(for: kind)
         let cachedSecondary = healthTrends.secondaryDaySeries(for: kind)
 
-        let primaryFetchStart = HealthKitFetchEngine.incrementalFetchStart(after: cachedPrimary, windowStart: interval.start)
-        let secondaryFetchStart = HealthKitFetchEngine.incrementalFetchStart(after: cachedSecondary, windowStart: interval.start)
+        let primaryFetchStart: Date
+        let secondaryFetchStart: Date
+        if usesHourlyBuckets {
+            // Hourly cumulative buckets overlap on the current hour, so the
+            // incremental merge can't dedupe them — always refetch the full window.
+            primaryFetchStart = interval.start
+            secondaryFetchStart = interval.start
+        } else {
+            primaryFetchStart = HealthKitFetchEngine.incrementalFetchStart(after: cachedPrimary, windowStart: interval.start)
+            secondaryFetchStart = HealthKitFetchEngine.incrementalFetchStart(after: cachedSecondary, windowStart: interval.start)
 
-        // Cache already extends to the window end — nothing to add.
-        if primaryFetchStart >= interval.end, secondaryFetchStart >= interval.end {
-            return
+            // Cache already extends to the window end — nothing to add.
+            if primaryFetchStart >= interval.end, secondaryFetchStart >= interval.end {
+                return
+            }
         }
 
         let primarySamples = await engine.fetchIntradayDaySamples(
@@ -360,16 +372,23 @@ final class HealthKitWorkoutStore: ObservableObject {
             )
         }
 
-        let mergedPrimary = HealthKitFetchEngine.mergeIntradaySamples(
-            existing: cachedPrimary,
-            incoming: primarySamples,
-            windowStart: interval.start
-        )
-        let mergedSecondary = HealthKitFetchEngine.mergeIntradaySamples(
-            existing: cachedSecondary,
-            incoming: secondarySamples,
-            windowStart: interval.start
-        )
+        let mergedPrimary: HealthTrendSeries
+        let mergedSecondary: HealthTrendSeries
+        if usesHourlyBuckets {
+            mergedPrimary = primarySamples
+            mergedSecondary = secondarySamples
+        } else {
+            mergedPrimary = HealthKitFetchEngine.mergeIntradaySamples(
+                existing: cachedPrimary,
+                incoming: primarySamples,
+                windowStart: interval.start
+            )
+            mergedSecondary = HealthKitFetchEngine.mergeIntradaySamples(
+                existing: cachedSecondary,
+                incoming: secondarySamples,
+                windowStart: interval.start
+            )
+        }
 
         var trends = healthTrends
         switch kind {
@@ -387,6 +406,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         case .oxygenSaturation:
             trends.oxygenSaturationDaySamples = mergedPrimary
             trends.oxygenSaturationDaySamplesSecondary = mergedSecondary
+        case .activeEnergy:
+            trends.activeEnergyDaySamples = mergedPrimary
+            trends.activeEnergyDaySamplesSecondary = mergedSecondary
         default:
             return
         }

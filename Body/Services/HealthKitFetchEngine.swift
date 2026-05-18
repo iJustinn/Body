@@ -674,6 +674,74 @@ actor HealthKitFetchEngine {
         }
     }
 
+    private func fetchHourlyCumulativeQuantitySeries(
+        for identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        calendar: Calendar,
+        sourceKind: HealthMetricKind? = nil,
+        sourceOption: BodyHealthDataSourceOption? = nil,
+        valueTransform: @escaping (Double) -> Double = { $0 },
+        startDate: Date? = nil,
+        endDate: Date? = nil
+    ) async -> HealthTrendSeries {
+        guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
+            return .empty
+        }
+
+        let interval = recentHealthTrendInterval(calendar: calendar)
+        let effectiveStart = startDate ?? interval.start
+        let effectiveEnd = endDate ?? interval.end
+        let predicate = combinedPredicate(
+            startDate: effectiveStart,
+            endDate: effectiveEnd,
+            sourceKind: sourceKind,
+            sourceOption: sourceOption
+        )
+        var intervalComponents = DateComponents()
+        intervalComponents.hour = 1
+        let anchorDate = calendar.dateInterval(of: .hour, for: effectiveStart)?.start ?? effectiveStart
+
+        return await withCheckedContinuation { continuation in
+            let query = HKStatisticsCollectionQuery(
+                quantityType: quantityType,
+                quantitySamplePredicate: predicate,
+                options: .cumulativeSum,
+                anchorDate: anchorDate,
+                intervalComponents: intervalComponents
+            )
+
+            query.initialResultsHandler = { _, statisticsCollection, _ in
+                guard let statisticsCollection else {
+                    continuation.resume(returning: .empty)
+                    return
+                }
+
+                var points: [HealthTrendDataPoint] = []
+                statisticsCollection.enumerateStatistics(from: effectiveStart, to: effectiveEnd) { statistics, _ in
+                    guard let quantity = statistics.sumQuantity() else {
+                        return
+                    }
+
+                    let value = valueTransform(quantity.doubleValue(for: unit))
+                    guard value.isFinite, value > 0 else {
+                        return
+                    }
+
+                    points.append(
+                        HealthTrendDataPoint(
+                            date: statistics.startDate,
+                            value: value
+                        )
+                    )
+                }
+
+                continuation.resume(returning: HealthTrendSeries(points: points))
+            }
+
+            healthStore.execute(query)
+        }
+    }
+
     private func fetchDailyCumulativeQuantitySeries(
         for identifier: HKQuantityTypeIdentifier,
         unit: HKUnit,
@@ -1634,6 +1702,16 @@ actor HealthKitFetchEngine {
                 startDate: startDate,
                 endDate: endDate
             )
+        case .activeEnergy:
+            return await fetchHourlyCumulativeQuantitySeries(
+                for: .activeEnergyBurned,
+                unit: .kilocalorie(),
+                calendar: calendar,
+                sourceKind: .activeEnergy,
+                sourceOption: secondaryOption,
+                startDate: startDate,
+                endDate: endDate
+            )
         case .sleep,
              .recovery,
              .basics,
@@ -1641,7 +1719,6 @@ actor HealthKitFetchEngine {
              .bodyFatPercentage,
              .respiratoryRate,
              .bodyMassIndex,
-             .activeEnergy,
              .restingEnergy,
              .exerciseMinutes,
              .trainingLoad,
@@ -1754,6 +1831,15 @@ actor HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .oxygenSaturation,
                 valueTransform: Self.normalizedPercentDisplayValue,
+                startDate: startDate,
+                endDate: endDate
+            )
+        case .activeEnergy:
+            return await fetchHourlyCumulativeQuantitySeries(
+                for: .activeEnergyBurned,
+                unit: .kilocalorie(),
+                calendar: calendar,
+                sourceKind: .activeEnergy,
                 startDate: startDate,
                 endDate: endDate
             )
@@ -1933,6 +2019,8 @@ actor HealthKitFetchEngine {
         let cachedRespiratoryRateDaySamples = cachedTrends.respiratoryRateDaySamples
         let cachedOxygenSaturationDaySamples = cachedTrends.oxygenSaturationDaySamples
         let cachedOxygenSaturationDaySamplesSecondary = cachedTrends.oxygenSaturationDaySamplesSecondary
+        let cachedActiveEnergyDaySamples = cachedTrends.activeEnergyDaySamples
+        let cachedActiveEnergyDaySamplesSecondary = cachedTrends.activeEnergyDaySamplesSecondary
 
         async let sleepHistory = fetchIfPermitted(.sleep, default: SleepHistorySnapshot.empty) {
             await fetchDailySleepHistory(calendar: calendar)
@@ -2141,7 +2229,9 @@ actor HealthKitFetchEngine {
             heartRateVariabilityDaySamplesSecondary: cachedHeartRateVariabilityDaySamplesSecondary,
             respiratoryRateDaySamples: cachedRespiratoryRateDaySamples,
             oxygenSaturationDaySamples: cachedOxygenSaturationDaySamples,
-            oxygenSaturationDaySamplesSecondary: cachedOxygenSaturationDaySamplesSecondary
+            oxygenSaturationDaySamplesSecondary: cachedOxygenSaturationDaySamplesSecondary,
+            activeEnergyDaySamples: cachedActiveEnergyDaySamples,
+            activeEnergyDaySamplesSecondary: cachedActiveEnergyDaySamplesSecondary
         )
     }
 
@@ -2414,10 +2504,22 @@ actor HealthKitFetchEngine {
                 sourceKind: .activeEnergy
             )
             async let activeEnergySecondaryTrend = fetchSecondaryTrend(for: .activeEnergy, calendar: calendar)
+            async let activeEnergyDaySamples = fetchHourlyCumulativeQuantitySeries(
+                for: .activeEnergyBurned,
+                unit: .kilocalorie(),
+                calendar: calendar,
+                sourceKind: .activeEnergy
+            )
+            async let activeEnergyDaySamplesSecondary = fetchSecondaryDaySamples(
+                for: .activeEnergy,
+                calendar: calendar
+            )
 
             summary.activeEnergy = await activeEnergy ?? HealthSummarySnapshot.empty.activeEnergy
             trends.activeEnergy = await activeEnergyTrend
             trends.activeEnergySecondary = await activeEnergySecondaryTrend
+            trends.activeEnergyDaySamples = await activeEnergyDaySamples
+            trends.activeEnergyDaySamplesSecondary = await activeEnergyDaySamplesSecondary
         case .restingEnergy:
             async let restingEnergy = dailyCumulativeQuantitySummary(
                 for: .basalEnergyBurned,

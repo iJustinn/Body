@@ -1664,7 +1664,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             .exerciseMinutes,
             .wristTemperature,
             .timeInDaylight,
-            .recovery
+            .sleep
         ])
         XCTAssertEqual(Set(order), Set(BodyHomeCardKind.defaultOrder))
         XCTAssertEqual(order.count, BodyHomeCardKind.defaultOrder.count)
@@ -1677,7 +1677,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(order.contains(.heartRate))
         XCTAssertEqual(
             Array(BodyHomeCardKind.defaultOrder.prefix(6)),
-            [.activityRings, .recovery, .exerciseMinutes, .trainingLoad, .wristTemperature, .timeInDaylight]
+            [.activityRings, .sleep, .basics, .heartRate, .heartRateVariability, .trainingLoad]
         )
         XCTAssertLessThan(
             BodyHomeCardKind.defaultOrder.firstIndex(of: .heartRate) ?? .max,
@@ -1691,7 +1691,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let movedDown = BodyHomeCardKind.reordered(order, moving: .sleep, to: .basics)
         XCTAssertEqual(
             Array(movedDown.prefix(9)),
-            [.activityRings, .recovery, .exerciseMinutes, .trainingLoad, .wristTemperature, .timeInDaylight, .steps, .basics, .sleep]
+            [.activityRings, .basics, .sleep, .heartRate, .heartRateVariability, .trainingLoad, .recovery, .activeEnergy, .restingEnergy]
         )
         XCTAssertEqual(Set(movedDown), Set(order))
         XCTAssertEqual(movedDown.count, order.count)
@@ -1699,7 +1699,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let movedUp = BodyHomeCardKind.reordered(order, moving: .activeEnergy, to: .sleep)
         XCTAssertEqual(
             Array(movedUp.prefix(9)),
-            [.activityRings, .recovery, .exerciseMinutes, .trainingLoad, .wristTemperature, .timeInDaylight, .steps, .activeEnergy, .sleep]
+            [.activityRings, .activeEnergy, .sleep, .basics, .heartRate, .heartRateVariability, .trainingLoad, .recovery, .restingEnergy]
         )
         XCTAssertEqual(Set(movedUp), Set(order))
         XCTAssertEqual(movedUp.count, order.count)
@@ -1729,7 +1729,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertFalse(selection.includes(.steps))
         XCTAssertEqual(
             selection.setting(.steps, isEnabled: true).rawValue,
-            "activityRings,steps,sleep,heartRate"
+            "activityRings,sleep,heartRate,steps"
         )
         XCTAssertEqual(
             selection.setting(.sleep, isEnabled: false).rawValue,
@@ -3336,7 +3336,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(HealthMetricKind.heartRateVariability.supportedComparisonCharts, [.range, .rangeBandLine, .dayLine])
         XCTAssertEqual(HealthMetricKind.oxygenSaturation.supportedComparisonCharts, [.range, .dayLine])
         XCTAssertEqual(HealthMetricKind.steps.supportedComparisonCharts, [.bar])
-        XCTAssertEqual(HealthMetricKind.activeEnergy.supportedComparisonCharts, [.bar])
+        XCTAssertEqual(HealthMetricKind.activeEnergy.supportedComparisonCharts, [.bar, .dayLine])
         XCTAssertEqual(HealthMetricKind.exerciseMinutes.supportedComparisonCharts, [.bar])
         XCTAssertEqual(HealthMetricKind.respiratoryRate.supportedComparisonCharts, [])
         XCTAssertEqual(HealthMetricKind.bodyMassIndex.supportedComparisonCharts, [])

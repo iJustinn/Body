@@ -2904,7 +2904,8 @@ private struct BodyHealthMetricDetailView: View {
              .restingHeartRate,
              .heartRateVariability,
              .respiratoryRate,
-             .oxygenSaturation:
+             .oxygenSaturation,
+             .activeEnergy:
             return true
         case .recovery,
              .sleep,
@@ -2912,7 +2913,6 @@ private struct BodyHealthMetricDetailView: View {
              .bodyMass,
              .bodyFatPercentage,
              .bodyMassIndex,
-             .activeEnergy,
              .restingEnergy,
              .exerciseMinutes,
              .trainingLoad,
@@ -3557,7 +3557,9 @@ private struct BodyHealthMetricDetailView: View {
                     primarySourceName: workoutStore.selectedHealthDataSourceOption(for: model.kind).name,
                     secondarySourceName: workoutStore.selectedSecondaryHealthDataSourceOption(for: model.kind).name,
                     valueFormatter: model.valueFormatter,
-                    contextIntervals: selectedMetricDayContextIntervals
+                    contextIntervals: selectedMetricDayContextIntervals,
+                    aggregationLabel: selectedMetricDayAggregationLabel,
+                    includesSampleBreakdown: selectedMetricDayIncludesSampleBreakdown
                 )
                 .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
                 .id(selectedMetricDay)
@@ -3572,8 +3574,18 @@ private struct BodyHealthMetricDetailView: View {
         .bodyCardBackground()
     }
 
+    private var selectedMetricDayAggregationLabel: String {
+        model.kind == .activeEnergy ? "HOURLY TOTAL" : "HOURLY AVG"
+    }
+
+    private var selectedMetricDayIncludesSampleBreakdown: Bool {
+        // Hourly cumulative metrics already report one value per hour — there's no
+        // intra-hour sample window to break down.
+        model.kind != .activeEnergy
+    }
+
     private var selectedMetricDayContextIntervals: [BodyHealthMetricDayContextInterval] {
-        guard model.kind == .heartRate || model.kind == .heartRateVariability else {
+        guard model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy else {
             return []
         }
 
@@ -5752,6 +5764,8 @@ private struct BodyHealthMetricDayChart: View {
     let secondarySourceName: String
     let valueFormatter: (Double) -> String
     let contextIntervals: [BodyHealthMetricDayContextInterval]
+    let aggregationLabel: String
+    let includesSampleBreakdown: Bool
 
     private let hourlyBuckets: [HealthTrendHourlyBucket]
     private let secondaryHourlyBuckets: [HealthTrendHourlyBucket]
@@ -5780,7 +5794,9 @@ private struct BodyHealthMetricDayChart: View {
         primarySourceName: String = "Primary",
         secondarySourceName: String = "Secondary",
         valueFormatter: @escaping (Double) -> String,
-        contextIntervals: [BodyHealthMetricDayContextInterval] = []
+        contextIntervals: [BodyHealthMetricDayContextInterval] = [],
+        aggregationLabel: String = "HOURLY AVG",
+        includesSampleBreakdown: Bool = true
     ) {
         self.day = day
         self.title = title
@@ -5790,6 +5806,8 @@ private struct BodyHealthMetricDayChart: View {
         self.secondarySourceName = secondarySourceName
         self.valueFormatter = valueFormatter
         self.contextIntervals = contextIntervals
+        self.aggregationLabel = aggregationLabel
+        self.includesSampleBreakdown = includesSampleBreakdown
 
         let buckets = series.hourlyAverageBuckets(on: day)
         let secondaryBuckets = secondarySeries.hourlyAverageBuckets(on: day)
@@ -5885,7 +5903,9 @@ private struct BodyHealthMetricDayChart: View {
                         BodyHealthMetricDayAnnotation(
                             bucket: selectedBucket.bucket,
                             values: selectedValues(for: selectedBucket.plotDate),
-                            valueFormatter: valueFormatter
+                            valueFormatter: valueFormatter,
+                            aggregationLabel: aggregationLabel,
+                            includesSampleBreakdown: includesSampleBreakdown
                         )
                     }
 
@@ -5950,9 +5970,10 @@ private struct BodyHealthMetricDayChart: View {
     }
 
     private func selectedValues(for date: Date) -> [BodyChartSelectionValue] {
-        selectedEntries(for: date).map { entry in
+        let showsSourceName = !secondaryHourlyBuckets.isEmpty
+        return selectedEntries(for: date).map { entry in
             BodyChartSelectionValue(
-                title: entry.sourceName,
+                title: showsSourceName ? entry.sourceName : nil,
                 value: valueFormatter(entry.averageValue),
                 color: color(for: entry)
             )
@@ -6022,10 +6043,12 @@ private struct BodyHealthMetricDayAnnotation: View {
     let bucket: HealthTrendHourlyBucket
     let values: [BodyChartSelectionValue]
     let valueFormatter: (Double) -> String
+    let aggregationLabel: String
+    let includesSampleBreakdown: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("HOURLY AVG")
+            Text(aggregationLabel)
                 .font(.system(size: 10, weight: .heavy, design: .rounded))
                 .foregroundColor(.secondary)
 
@@ -6051,7 +6074,7 @@ private struct BodyHealthMetricDayAnnotation: View {
                 .fontWeight(.semibold)
                 .foregroundColor(.secondary)
 
-            if !sampleWindows.isEmpty {
+            if includesSampleBreakdown, !sampleWindows.isEmpty {
                 Divider()
                     .padding(.vertical, 1)
 
