@@ -1,9 +1,19 @@
 # Version History
 
+## 0.5.2 (build 3)
+
+- Extracted a new `HealthKitFetchEngine` actor (`Body/Services/HealthKitFetchEngine.swift`) that owns `HKHealthStore`, the cached source map, predicate construction, every HealthKit query, and the dashboard fetch orchestrators (`fetchHealthSummary`, `fetchHealthTrends`, `fetchHealthDashboardSnapshot`, `fetchHealthDataSourceOptions`). `HealthKitWorkoutStore` shrank from ~3,900 to ~1,450 lines and now keeps only the `@Published` view-model state, public refresh entry points, and snapshot publishing — it delegates fetching to the engine via `await`. The bulk of the fetch-time Swift work no longer runs on `@MainActor`.
+- Mirrored the three selections (`permissionSelection`, `healthDataSourceSelection`, `secondaryHealthDataSourceSelection`) onto the engine; the store syncs them via `setPermissionSelection` / `setHealthDataSourceSelection` / `setSecondaryHealthDataSourceSelection` whenever the user updates a permission or picks a different source.
+- Updated `BodyTests/ProjectConfigurationTests.swift` so the four string-grep assertions covering moved HealthKit internals point at `HealthKitFetchEngine.swift` instead of `HealthKitWorkoutStore.swift`; semantic assertions are unchanged.
+- Updated the app, widget, and test bundle version to 0.5.2 build 3.
+
 ## 0.5.2 (build 2)
 
 - Incrementally load intraday metric day-view samples after the cached tail so detail screens fetch only new HealthKit samples on subsequent opens.
 - Updated the Recovery detail header to show score and status directly.
+- Deferred the cached-dashboard recovery recompute out of `HealthKitWorkoutStore.init`. The first frame paints from the cached `summary.recovery` value (correct as of its last successful refresh); the next refresh recomputes Recovery off the main thread.
+- Moved the per-refresh `recalculatingRecovery` (day-by-day baseline iteration over ~365 trend points) into a `Task.detached(.userInitiated)` inside `updateHealthDashboardSnapshot` so it no longer blocks the main thread.
+- Moved `HealthDashboardSnapshotStore.save` and `WorkoutSnapshotStore.save` / `savePrevious` + `WidgetCenter.shared.reloadAllTimelines()` into `Task.detached(.utility)` so JSON encode + atomic write + widget XPC round-trip no longer run on the main actor during refresh.
 - Updated the app, widget, and test bundle version to 0.5.2 build 2.
 
 ## 0.5.1 (build 2)
