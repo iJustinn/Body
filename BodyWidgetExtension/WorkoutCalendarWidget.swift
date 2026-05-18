@@ -70,7 +70,7 @@ struct WorkoutCalendarProvider: AppIntentTimelineProvider {
         WorkoutCalendarEntry(
             date: Date(),
             background: configuration.background ?? .system,
-            snapshot: WorkoutSnapshotStore.loadOrPlaceholder()
+            snapshot: WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty()
         )
     }
 }

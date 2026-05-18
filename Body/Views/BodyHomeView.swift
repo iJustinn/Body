@@ -2568,6 +2568,9 @@ private struct BodyHealthMetricDetailView: View {
             await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
             isPullRefreshing = false
         }
+        .task {
+            await workoutStore.loadIntradayMetricSamplesIfNeeded(model.kind)
+        }
         .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .navigationTitle(model.title)
@@ -2659,7 +2662,7 @@ private struct BodyHealthMetricDetailView: View {
     }
 
     private var selectedMetricDaySeries: HealthTrendSeries {
-        model.daySeries.points(on: selectedMetricDay)
+        liveDaySeries.points(on: selectedMetricDay)
     }
 
     private var selectedMetricSecondaryDaySeries: HealthTrendSeries {
@@ -2667,7 +2670,17 @@ private struct BodyHealthMetricDetailView: View {
             return .empty
         }
 
-        return model.secondaryDaySeries.points(on: selectedMetricDay)
+        return liveSecondaryDaySeries.points(on: selectedMetricDay)
+    }
+
+    private var liveDaySeries: HealthTrendSeries {
+        let storeSeries = workoutStore.healthTrends.daySeries(for: model.kind)
+        return storeSeries.points.isEmpty ? model.daySeries : storeSeries
+    }
+
+    private var liveSecondaryDaySeries: HealthTrendSeries {
+        let storeSeries = workoutStore.healthTrends.secondaryDaySeries(for: model.kind)
+        return storeSeries.points.isEmpty ? model.secondaryDaySeries : storeSeries
     }
 
     private var selectedSleepSummary: SleepSummary? {

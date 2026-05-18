@@ -34,22 +34,28 @@ enum HealthDashboardSnapshotStore {
             .appendingPathComponent(healthDashboardSnapshotFileName)
     }
 
+    @discardableResult
     static func save(
         _ snapshot: HealthDashboardSnapshot,
         defaults: UserDefaults = .standard,
         fileURL: URL? = snapshotFileURL
-    ) {
+    ) -> Bool {
         let data: Data
         do {
             data = try JSONEncoder().encode(snapshot)
         } catch {
             logger.error("Health dashboard snapshot encode failed: \(error.localizedDescription, privacy: .public)")
-            return
+            return false
         }
 
         guard let fileURL else {
             logger.error("Health dashboard snapshot file save skipped because file URL is unavailable.")
-            return
+            return false
+        }
+
+        if let existing = try? Data(contentsOf: fileURL), existing == data {
+            defaults.removeObject(forKey: healthDashboardSnapshotKey)
+            return false
         }
 
         do {
@@ -59,8 +65,10 @@ enum HealthDashboardSnapshotStore {
             )
             try data.write(to: fileURL, options: [.atomic])
             defaults.removeObject(forKey: healthDashboardSnapshotKey)
+            return true
         } catch {
             logger.error("Health dashboard snapshot file write failed: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 
@@ -98,6 +106,20 @@ enum HealthDashboardSnapshotStore {
         }
 
         return FileManager.default.fileExists(atPath: fileURL.path)
+    }
+
+    static func fileSize(at fileURL: URL?) -> Int64 {
+        guard let fileURL,
+              FileManager.default.fileExists(atPath: fileURL.path),
+              let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+              let size = attributes[.size] as? NSNumber else {
+            return 0
+        }
+        return size.int64Value
+    }
+
+    static var totalDiskSizeBytes: Int64 {
+        fileSize(at: snapshotFileURL)
     }
 
     static func delete(

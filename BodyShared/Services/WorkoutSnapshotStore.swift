@@ -9,6 +9,7 @@ import os
 enum WorkoutSnapshotStore {
     static let appGroupIdentifier = "group.com.zihengthedeveloper.Body"
     static let currentMonthSnapshotFileName = "currentMonthWorkoutSnapshot.json"
+    static let previousMonthSnapshotFileName = "previousMonthWorkoutSnapshot.json"
     private static let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "WorkoutSnapshotStore")
 
     static var sharedContainerURL: URL? {
@@ -32,14 +33,20 @@ enum WorkoutSnapshotStore {
         sharedContainerURL?.appendingPathComponent(currentMonthSnapshotFileName)
     }
 
-    static func save(_ snapshot: WorkoutMonthSnapshot) {
+    static var previousSnapshotFileURL: URL? {
+        sharedContainerURL?.appendingPathComponent(previousMonthSnapshotFileName)
+    }
+
+    @discardableResult
+    static func save(_ snapshot: WorkoutMonthSnapshot) -> Bool {
         save(snapshot, fileURL: snapshotFileURL)
     }
 
-    static func save(_ snapshot: WorkoutMonthSnapshot, fileURL: URL?) {
+    @discardableResult
+    static func save(_ snapshot: WorkoutMonthSnapshot, fileURL: URL?) -> Bool {
         guard let fileURL else {
             logger.error("Snapshot save skipped because shared snapshot file URL is unavailable.")
-            return
+            return false
         }
 
         let data: Data
@@ -47,7 +54,11 @@ enum WorkoutSnapshotStore {
             data = try JSONEncoder().encode(snapshot)
         } catch {
             logger.error("Snapshot encode failed: \(error.localizedDescription, privacy: .public)")
-            return
+            return false
+        }
+
+        if let existing = try? Data(contentsOf: fileURL), existing == data {
+            return false
         }
 
         do {
@@ -56,8 +67,10 @@ enum WorkoutSnapshotStore {
                 withIntermediateDirectories: true
             )
             try data.write(to: fileURL, options: [.atomic])
+            return true
         } catch {
             logger.error("Snapshot file write failed: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 
@@ -93,12 +106,46 @@ enum WorkoutSnapshotStore {
         load() ?? .placeholder
     }
 
+    @discardableResult
+    static func savePrevious(_ snapshot: WorkoutMonthSnapshot) -> Bool {
+        save(snapshot, fileURL: previousSnapshotFileURL)
+    }
+
+    static func loadPrevious() -> WorkoutMonthSnapshot? {
+        load(fileURL: previousSnapshotFileURL)
+    }
+
+    static func loadCurrentOrPreviousIfEmpty() -> WorkoutMonthSnapshot {
+        let current = load()
+        if let current, current.workoutCount > 0 {
+            return current
+        }
+        if let previous = loadPrevious(), previous.workoutCount > 0 {
+            return previous
+        }
+        return current ?? .placeholder
+    }
+
     static func exists(fileURL: URL? = snapshotFileURL) -> Bool {
         guard let fileURL else {
             return false
         }
 
         return FileManager.default.fileExists(atPath: fileURL.path)
+    }
+
+    static func fileSize(at fileURL: URL?) -> Int64 {
+        guard let fileURL,
+              FileManager.default.fileExists(atPath: fileURL.path),
+              let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+              let size = attributes[.size] as? NSNumber else {
+            return 0
+        }
+        return size.int64Value
+    }
+
+    static var totalDiskSizeBytes: Int64 {
+        fileSize(at: snapshotFileURL) + fileSize(at: previousSnapshotFileURL)
     }
 
     static func delete(fileURL: URL? = snapshotFileURL) {
@@ -111,6 +158,10 @@ enum WorkoutSnapshotStore {
         } catch {
             logger.error("Snapshot file delete failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    static func deletePrevious() {
+        delete(fileURL: previousSnapshotFileURL)
     }
 
     static func seedPreviewSnapshotIfNeeded() {

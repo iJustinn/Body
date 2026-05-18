@@ -691,8 +691,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = 1;"))
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.5.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.5.1;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -701,10 +701,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.5.0 (build 2)**"))
-        XCTAssertTrue(versionHistory.contains("## 0.5.0 (build 2)"))
-        XCTAssertTrue(versionHistory.contains("Removed helper subtitles from the data source picker rows so source choices show only the source name."))
-        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.5.0 build 2."))
+        XCTAssertTrue(readme.contains("Current app version: **0.5.1 (build 1)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.5.1 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Improved HealthKit refresh performance by moving daily trend aggregation into `HKStatisticsCollectionQuery`"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.5.1 build 1."))
+        XCTAssertFalse(readme.contains("Current app version: **0.5.0 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.0 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.4.1"))
         XCTAssertFalse(readme.contains("Current app version: **0.3.5"))
@@ -726,8 +727,8 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-v0.5.0`"))
-        XCTAssertTrue(testPlan.contains("app version 0.5.0 build 2"))
+        XCTAssertTrue(testPlan.contains("branch `body-v0.5.1`"))
+        XCTAssertTrue(testPlan.contains("app version 0.5.1 build 1"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.0`"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.4`"))
         XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))
@@ -737,12 +738,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(testPlan.contains("creator-surprise icon sheet"))
     }
 
-    func testWorkoutsMonthLoadUsesPendingBannerInsteadOfEmptyPlaceholder() throws {
+    func testWorkoutsMonthLoadUsesPullToRefreshOverlay() throws {
         let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
 
         XCTAssertTrue(workoutsSource.contains("@State private var pendingMonthSelection: BodyMonthYear?"))
-        XCTAssertTrue(workoutsSource.contains("if let pendingMonthSelection {"))
-        XCTAssertTrue(workoutsSource.contains("BodyWorkoutMonthLoadingBanner(monthYear: pendingMonthSelection)"))
+        XCTAssertTrue(workoutsSource.contains(".bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing || pendingMonthSelection != nil)"))
+        XCTAssertFalse(workoutsSource.contains("BodyWorkoutMonthLoadingBanner"))
         XCTAssertTrue(workoutsSource.contains("pendingMonthSelection = monthYear"))
         XCTAssertTrue(workoutsSource.contains("await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)"))
         XCTAssertTrue(workoutsSource.contains("guard pendingMonthSelection == monthYear else"))

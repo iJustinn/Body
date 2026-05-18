@@ -1,5 +1,12 @@
 # Version History
 
+## 0.5.1 (build 1)
+
+- Improved HealthKit refresh performance by moving daily trend aggregation into `HKStatisticsCollectionQuery`, pairing average/range queries for vitals, and lazy-loading intraday day samples only when metric detail screens open.
+- Reduced background refresh churn with continuation-based refresh completion waits, tiered app-resume refreshes, source-option caching, save-if-changed dashboard/workout snapshots, and widget reloads only when cached bytes change.
+- Added a previous-month workout snapshot fallback for widgets so month rollovers can keep showing recent data until the app refreshes the new current month.
+- Updated the app, widget, and test bundle version to 0.5.1 build 1.
+
 ## 0.5.0 (build 3)
 
 - Added a Recovery Summary card that compares sleep, heart, training load, and sleep-window vitals against personal baselines, with confidence and driver explanations for missing or unusual signals.

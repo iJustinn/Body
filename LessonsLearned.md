@@ -4,6 +4,42 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 
 ## Entries
 
+### 2026-05-18 - Prefer HKStatisticsCollectionQuery over HKSampleQuery for daily-aggregated trends
+- Context: Dashboard refresh ran ~30 daily trend queries in parallel and took 15–20 s. `fetchDailyQuantitySeries` and `fetchDailyQuantityRangeSeries` issued `HKSampleQuery(limit: HKObjectQueryNoLimit)` over a 365-day window and grouped results in-app.
+- Symptom: For heart rate alone, ~50,000 raw samples per refresh crossed the HK IPC boundary just to compute 365 daily averages.
+- Cause: HK only aggregates server-side via `HKStatisticsCollectionQuery`; raw `HKSampleQuery` ships every sample to the app.
+- Fix: Replace daily-series and range-series fetches with `HKStatisticsCollectionQuery` using `.discreteAverage` / `.mostRecent` (single-stat) or `[.discreteAverage, .discreteMin, .discreteMax]` (paired). Source filtering still works via the same predicate.
+- Reuse: When a HealthKit trend aggregates one or a few stats per day (mean, min, max, sum, latest), use `HKStatisticsCollectionQuery` with daily `intervalComponents` and skip the raw-samples-into-app round-trip. Note that `valueTransform` is now applied to the aggregate, not per-sample — only safe for linear transforms. Non-linear transforms must stay on the sample-based path.
+
+### 2026-05-18 - Lazy-load intraday HK day samples only when the detail view appears
+- Context: Dashboard refresh fetched intraday `heart rate / RHR / HRV / respiratory rate / SpO2` sample series (`fetchQuantitySampleSeries` with `HKObjectQueryNoLimit` over 365 days) even though Home never renders them — they only feed the metric detail view's hourly chart.
+- Symptom: Apple Watch users paid ~50k HR sample reads per launch refresh for data the Home view never displays.
+- Cause: `fetchHealthTrends` unconditionally populated `*DaySamples*` fields on every dashboard refresh.
+- Fix: Strip the `*DaySamples` fetches from `fetchHealthTrends`. Add `HealthKitWorkoutStore.loadIntradayMetricSamplesIfNeeded(_:)` and call it from `BodyHealthMetricDetailView.task`. The detail view reads `daySeries` directly from the live `workoutStore.healthTrends` (with the captured `model.daySeries` as a fallback for the first frame) so the `@Published` change re-renders when the lazy load finishes.
+- Preserve across refreshes: `fetchHealthTrends` now captures the existing `*DaySamples` fields at the top and threads them through the new `HealthTrendSnapshot`. A later background refresh won't blank a chart that was just lazy-loaded.
+- Reuse: For any HK data that is large *and* gated behind a navigation step (detail view, sheet), keep it out of the dashboard refresh path and load it from the consuming view's `.task`. Preserve previously-loaded values across refreshes by reading the live store value when assembling the new snapshot.
+
+### 2026-05-18 - Save-if-changed for snapshot caches, gate widget reloads on the bytes diff
+- Context: Every successful refresh re-wrote `WorkoutSnapshotStore` and `HealthDashboardSnapshotStore` and called `WidgetCenter.shared.reloadAllTimelines()` regardless of whether the encoded snapshot had changed.
+- Symptom: Wasted ~100 KB atomic disk writes plus widget reloads on every resume.
+- Cause: `save(_:)` unconditionally wrote the encoded bytes.
+- Fix: `save(_:)` now encodes once, compares against the existing on-disk bytes, and returns `Bool` indicating whether the write actually happened. `updateCurrentMonthSnapshot` gates `WidgetCenter.shared.reloadAllTimelines()` on the returned flag.
+- Reuse: For JSON-on-disk caches that are rewritten by background sync paths, compare encoded bytes before `write(to:options:[.atomic])` and propagate a `Bool` to callers that drive expensive downstream side effects (widget reloads, push registrations).
+
+### 2026-05-18 - Tier the scenePhase resume refresh by elapsed time
+- Context: `syncWhenAppBecomesActive` debounced by 60 s, but every active transition past 60 s ran the full dashboard refresh (workouts + all metrics + ring history).
+- Symptom: Resuming the app 90 s after backgrounding re-fetched a year of trend data the user almost certainly hadn't changed.
+- Cause: One-tier debounce — under 60 s skip, over 60 s full refresh.
+- Fix: Tier the path: <60 s skip, 60 s–5 min run `refreshWorkoutMonth(currentMonth, currentYear)` only (workouts are user-visible and cheap), ≥5 min run the full path. Tunable via `Self.shortResumeDebounceInterval` (60) and `Self.dashboardFreshnessInterval` (300).
+- Reuse: For HK-backed apps where the user's resume cadence is irregular, prefer a tiered debounce over a single threshold — short resumes can refresh only the cheapest user-visible surface.
+
+### 2026-05-18 - Replace `while isRefreshing { sleep(100ms) }` with continuation-based completion
+- Context: Several call sites (`awaitRefreshCompletion`, `loadMonthIfNeeded`, `loadPreviousActivityRingMonthIfNeeded`, `updateSecondaryHealthDataSource`) busy-waited on `isRefreshing` by sleeping 100 ms in a loop. Issues.md N10 flagged a theoretical hang if `isRefreshing` never flipped false.
+- Symptom: Polling latency on every cross-task wait; risk of an indefinite loop on a stuck HealthKit query.
+- Cause: No completion signal — only the `@Published` flag.
+- Fix: `HealthKitWorkoutStore` keeps a `refreshCompletionContinuations: [CheckedContinuation<Void, Never>]`. Refresh `defer` blocks call `finishRefresh()` which flips `isRefreshing = false` *and* resumes all waiters. Waiters use `awaitNextRefreshCompletion()` instead of the polling loop.
+- Reuse: When code awaits a state change on a `@MainActor` observable, accumulate `CheckedContinuation`s in a list and resume them all in the producer's `defer` — cleaner and avoids the busy-wait/stall trade-off.
+
 ### 2026-05-15 - Use temporary DerivedData for renamed XCTest cases
 - Context: Renaming focused `WorkoutMonthSnapshotTests` while validating aggregate chart bucket behavior.
 - Symptom: `xcodebuild -only-testing` against the default DerivedData path reported success but ran stale old test method names.
