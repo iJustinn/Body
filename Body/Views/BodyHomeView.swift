@@ -222,6 +222,7 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
+    @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.homeCardOrderKey) private var homeCardOrderRawValue = BodyHomeCardKind.defaultRawValue
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
@@ -229,6 +230,7 @@ struct BodyHomeView: View {
     @State private var draggedHomeCard: BodyHomeCardKind?
     @State private var showsAllHomeTrends = false
     @State private var isPullRefreshing = false
+    @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
 
     var body: some View {
         let metricCardLookup = metricCardsByKind
@@ -816,14 +818,28 @@ struct BodyHomeView: View {
         sleepHistory: SleepHistorySnapshot,
         chartPreview: HealthTrendSeries
     ) -> BodyHealthMetricCard.Model {
-        let sleepScoreDisplay = SleepScoreSummary(
-            sleep: summary.sleep,
-            idealSleepDuration: sleepDurationGoal,
-            recentSleepHistory: sleepHistory,
-            on: summary.sleep.stageSnapshot.date
-        ).map {
-            BodyMetricDisplayValue(title: "Score", value: "\($0.total)", unit: "PTS")
-        } ?? BodyMetricDisplayValue(title: "Score", value: "--", unit: "")
+        let prominentMetrics: [BodyMetricDisplayValue]
+        if showSleepScore {
+            let sleepScoreDisplay = SleepScoreSummary(
+                sleep: summary.sleep,
+                idealSleepDuration: sleepDurationGoal,
+                recentSleepHistory: sleepHistory,
+                on: summary.sleep.stageSnapshot.date
+            ).map {
+                BodyMetricDisplayValue(title: "Score", value: "\($0.total)", unit: "PTS")
+            } ?? BodyMetricDisplayValue(title: "Score", value: "--", unit: "")
+
+            prominentMetrics = [
+                sleepScoreDisplay,
+                BodyMetricDisplayValue(
+                    title: "Duration",
+                    value: formattedSleepDuration(summary.sleep.duration),
+                    unit: ""
+                )
+            ]
+        } else {
+            prominentMetrics = []
+        }
 
         return BodyHealthMetricCard.Model(
             kind: .sleep,
@@ -832,14 +848,7 @@ struct BodyHomeView: View {
             unit: "",
             symbolName: "bed.double.fill",
             symbolColor: Color(red: 0.20, green: 0.72, blue: 1.00),
-            prominentMetrics: [
-                sleepScoreDisplay,
-                BodyMetricDisplayValue(
-                    title: "Duration",
-                    value: formattedSleepDuration(summary.sleep.duration),
-                    unit: ""
-                )
-            ],
+            prominentMetrics: prominentMetrics,
             chartPreview: chartPreview
         )
     }
@@ -899,17 +908,22 @@ struct BodyHomeView: View {
         messageStyle: BodyHomeTrendMessageStyle,
         includesStable: Bool
     ) -> BodyHomeTrendCard.Model? {
-        guard let presentation = BodyHomeTrendCardPresentation.make(
-            kind: kind,
-            title: title,
+        guard let result = trendComputationCache.result(
+            for: kind,
             series: series,
-            chartStyle: chartStyle,
-            valueFormatter: valueFormatter,
-            messageStyle: messageStyle,
             includesStable: includesStable
         ) else {
             return nil
         }
+
+        let presentation = BodyHomeTrendCardPresentation.make(
+            from: result,
+            kind: kind,
+            title: title,
+            chartStyle: chartStyle,
+            valueFormatter: valueFormatter,
+            messageStyle: messageStyle
+        )
 
         return BodyHomeTrendCard.Model(
             presentation: presentation,
@@ -1166,12 +1180,14 @@ struct BodyHomeView: View {
                 secondaryDaySeries: .empty,
                 basicsTrend: nil,
                 sleepStageSnapshot: summary.sleep.stageSnapshot,
-                sleepScore: SleepScoreSummary(
-                    sleep: summary.sleep,
-                    idealSleepDuration: sleepDurationGoal,
-                    recentSleepHistory: trends.sleepHistory,
-                    on: summary.sleep.stageSnapshot.date
-                ),
+                sleepScore: showSleepScore
+                    ? SleepScoreSummary(
+                        sleep: summary.sleep,
+                        idealSleepDuration: sleepDurationGoal,
+                        recentSleepHistory: trends.sleepHistory,
+                        on: summary.sleep.stageSnapshot.date
+                    )
+                    : nil,
                 sleepVitals: summary.sleep.vitals,
                 sleepDuration: summary.sleep.duration,
                 sleepHistory: trends.sleepHistory,
@@ -1596,11 +1612,12 @@ enum BodyHomeTrendMessageStyle {
     case quantity(subject: String)
 
     func text(direction: BodyHomeTrendDirection, recentDayCount: Int) -> String {
+        let phrase = BodyHomeTrendCardPresentation.recentPeriodPhrase(days: recentDayCount)
         switch self {
         case .average(let subject):
-            return "On average, \(subject) \(direction.averagePhrase) over the last \(recentDayCount) days."
+            return "On average, \(subject) \(direction.averagePhrase) over the last \(phrase)."
         case .quantity(let subject):
-            return "\(subject) \(direction.quantityPhrase) over the last \(recentDayCount) days."
+            return "\(subject) \(direction.quantityPhrase) over the last \(phrase)."
         }
     }
 }
@@ -1634,12 +1651,42 @@ enum BodyHomeTrendDirection {
 }
 
 struct BodyHomeTrendCardPresentation: Identifiable {
-    static let comparisonDayCount = 28
-    static let preferredRecentDayCount = 7
     static let minimumTrendSegmentDayCount = 3
     static let minimumRelativeChange = 0.01
     static let minimumAbsoluteChange = 0.01
     static let averageLineStrokeWidth: CGFloat = 4
+    static let maximumDisplayPointCount = 60
+
+    struct WindowSpec: Equatable {
+        let totalDayCount: Int
+        let minimumSegmentDayCount: Int
+        let preferredRecentDayCount: Int
+    }
+
+    static let windowSpecs: [WindowSpec] = [
+        WindowSpec(totalDayCount: 28, minimumSegmentDayCount: 3, preferredRecentDayCount: 7),
+        WindowSpec(totalDayCount: 90, minimumSegmentDayCount: 7, preferredRecentDayCount: 14),
+        WindowSpec(totalDayCount: 180, minimumSegmentDayCount: 14, preferredRecentDayCount: 30),
+        WindowSpec(totalDayCount: 270, minimumSegmentDayCount: 21, preferredRecentDayCount: 45),
+        WindowSpec(totalDayCount: 365, minimumSegmentDayCount: 30, preferredRecentDayCount: 60)
+    ]
+
+    static var maximumWindowDayCount: Int {
+        windowSpecs.map(\.totalDayCount).max() ?? 28
+    }
+
+    struct WindowResult: Equatable {
+        let calendarPoints: [HealthTrendCalendarPoint]
+        let displayCalendarPoints: [HealthTrendCalendarPoint]
+        let displayBaselineEndIndex: Int
+        let totalDayCount: Int
+        let baselineDayCount: Int
+        let recentDayCount: Int
+        let baselineAverage: Double
+        let recentAverage: Double
+        let absoluteChange: Double
+        let isMeaningful: Bool
+    }
 
     let kind: HealthMetricKind
     let title: String
@@ -1652,6 +1699,9 @@ struct BodyHomeTrendCardPresentation: Identifiable {
     let recentPeriodText: String
     let chartStyle: BodyHealthMetricChartStyle
     let calendarPoints: [HealthTrendCalendarPoint]
+    let displayCalendarPoints: [HealthTrendCalendarPoint]
+    let displayBaselineEndIndex: Int
+    let totalDayCount: Int
     let baselineDayCount: Int
     let recentDayCount: Int
 
@@ -1661,6 +1711,10 @@ struct BodyHomeTrendCardPresentation: Identifiable {
 
     var recentStartIndex: Int {
         baselineDayCount
+    }
+
+    var displayRecentStartIndex: Int {
+        min(displayBaselineEndIndex + 1, max(displayCalendarPoints.count - 1, 0))
     }
 
     static func make(
@@ -1674,38 +1728,116 @@ struct BodyHomeTrendCardPresentation: Identifiable {
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> BodyHomeTrendCardPresentation? {
-        let calendarPoints = comparisonCalendarPoints(from: series, calendar: calendar, date: date)
-        guard let comparisonWindow = bestComparisonWindow(in: calendarPoints, includesStable: includesStable) else {
+        guard let result = bestWindowResult(
+            from: series,
+            includesStable: includesStable,
+            calendar: calendar,
+            date: date
+        ) else {
             return nil
         }
+        return make(
+            from: result,
+            kind: kind,
+            title: title,
+            chartStyle: chartStyle,
+            valueFormatter: valueFormatter,
+            messageStyle: messageStyle
+        )
+    }
 
+    static func make(
+        from result: WindowResult,
+        kind: HealthMetricKind,
+        title: String,
+        chartStyle: BodyHealthMetricChartStyle,
+        valueFormatter: (Double) -> String,
+        messageStyle: BodyHomeTrendMessageStyle
+    ) -> BodyHomeTrendCardPresentation {
         let direction: BodyHomeTrendDirection
-        if comparisonWindow.isMeaningful == false {
+        if result.isMeaningful == false {
             direction = .stable
         } else {
-            direction = comparisonWindow.absoluteChange > 0 ? .increased : .decreased
+            direction = result.absoluteChange > 0 ? .increased : .decreased
         }
         return BodyHomeTrendCardPresentation(
             kind: kind,
             title: title,
-            messageText: messageStyle.text(direction: direction, recentDayCount: comparisonWindow.recentDayCount),
-            baselineAverage: comparisonWindow.baselineAverage,
-            recentAverage: comparisonWindow.recentAverage,
-            baselineAverageText: valueFormatter(comparisonWindow.baselineAverage),
-            recentAverageText: valueFormatter(comparisonWindow.recentAverage),
-            baselinePeriodText: "\(comparisonWindow.baselineDayCount)-day avg",
-            recentPeriodText: "\(comparisonWindow.recentDayCount)-day avg",
+            messageText: messageStyle.text(direction: direction, recentDayCount: result.recentDayCount),
+            baselineAverage: result.baselineAverage,
+            recentAverage: result.recentAverage,
+            baselineAverageText: valueFormatter(result.baselineAverage),
+            recentAverageText: valueFormatter(result.recentAverage),
+            baselinePeriodText: averagePeriodText(days: result.baselineDayCount),
+            recentPeriodText: averagePeriodText(days: result.recentDayCount),
             chartStyle: chartStyle,
-            calendarPoints: calendarPoints,
-            baselineDayCount: comparisonWindow.baselineDayCount,
-            recentDayCount: comparisonWindow.recentDayCount
+            calendarPoints: result.calendarPoints,
+            displayCalendarPoints: result.displayCalendarPoints,
+            displayBaselineEndIndex: result.displayBaselineEndIndex,
+            totalDayCount: result.totalDayCount,
+            baselineDayCount: result.baselineDayCount,
+            recentDayCount: result.recentDayCount
+        )
+    }
+
+    static func bestWindowResult(
+        from series: HealthTrendSeries,
+        includesStable: Bool,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> WindowResult? {
+        let allPoints = comparisonCalendarPoints(
+            from: series,
+            dayCount: maximumWindowDayCount,
+            calendar: calendar,
+            date: date
+        )
+        var bestCandidate: ComparisonWindow?
+        for spec in windowSpecs {
+            let windowPoints = Array(allPoints.suffix(spec.totalDayCount))
+            guard windowPoints.count == spec.totalDayCount else { continue }
+            guard let candidate = bestComparisonWindow(
+                in: windowPoints,
+                spec: spec,
+                includesStable: includesStable
+            ) else { continue }
+            if let current = bestCandidate {
+                if isBetterComparisonWindow(candidate, than: current) {
+                    bestCandidate = candidate
+                }
+            } else {
+                bestCandidate = candidate
+            }
+        }
+        guard let chosen = bestCandidate else {
+            return nil
+        }
+
+        let (displayPoints, displayBaselineEndIndex) = downsampledDisplayPoints(
+            from: chosen.windowPoints,
+            baselineDayCount: chosen.baselineDayCount,
+            maximumCount: maximumDisplayPointCount
+        )
+
+        return WindowResult(
+            calendarPoints: chosen.windowPoints,
+            displayCalendarPoints: displayPoints,
+            displayBaselineEndIndex: displayBaselineEndIndex,
+            totalDayCount: chosen.totalDayCount,
+            baselineDayCount: chosen.baselineDayCount,
+            recentDayCount: chosen.recentDayCount,
+            baselineAverage: chosen.baselineAverage,
+            recentAverage: chosen.recentAverage,
+            absoluteChange: chosen.absoluteChange,
+            isMeaningful: chosen.isMeaningful
         )
     }
 
     func averageLineSegments(in width: CGFloat) -> (baseline: ClosedRange<CGFloat>, recent: ClosedRange<CGFloat>) {
-        let lastPointIndex = max(calendarPoints.count - 1, 0)
-        let baselineEndIndex = min(max(baselineDayCount - 1, 0), lastPointIndex)
-        let recentStartIndex = min(max(baselineDayCount, 0), lastPointIndex)
+        let pointCount = displayCalendarPoints.count
+        let lastPointIndex = max(pointCount - 1, 0)
+        let baselineEndIndex = min(max(displayBaselineEndIndex, 0), lastPointIndex)
+        let recentStartIndex = min(max(displayBaselineEndIndex + 1, 0), lastPointIndex)
         let denominator = max(CGFloat(lastPointIndex), 1)
         let halfBucketWidth = width / denominator / 2
         let segmentExtension = max(halfBucketWidth - Self.averageLineStrokeWidth / 2, 0)
@@ -1720,20 +1852,49 @@ struct BodyHomeTrendCardPresentation: Identifiable {
         )
     }
 
+    static func recentPeriodPhrase(days: Int) -> String {
+        if days < 28 {
+            return "\(days) days"
+        } else if days < 90 {
+            let weeks = max(1, Int((Double(days) / 7).rounded()))
+            return "\(weeks) weeks"
+        } else {
+            let months = max(1, Int((Double(days) / 30).rounded()))
+            return "\(months) months"
+        }
+    }
+
+    static func averagePeriodText(days: Int) -> String {
+        if days < 28 {
+            return "\(days)-day avg"
+        } else if days < 90 {
+            let weeks = max(1, Int((Double(days) / 7).rounded()))
+            return "\(weeks)-week avg"
+        } else {
+            let months = max(1, Int((Double(days) / 30).rounded()))
+            return "\(months)-month avg"
+        }
+    }
+
     private static func bestComparisonWindow(
         in calendarPoints: [HealthTrendCalendarPoint],
+        spec: WindowSpec,
         includesStable: Bool
     ) -> ComparisonWindow? {
-        let maximumBaselineDayCount = Self.comparisonDayCount - Self.minimumTrendSegmentDayCount
-        let candidates: [ComparisonWindow] = (Self.minimumTrendSegmentDayCount...maximumBaselineDayCount).compactMap { baselineDayCount -> ComparisonWindow? in
-            let recentDayCount = Self.comparisonDayCount - baselineDayCount
+        let totalDayCount = spec.totalDayCount
+        let minimumSegmentDayCount = spec.minimumSegmentDayCount
+        let maximumBaselineDayCount = totalDayCount - minimumSegmentDayCount
+        guard minimumSegmentDayCount <= maximumBaselineDayCount else { return nil }
+
+        let candidates: [ComparisonWindow] = (minimumSegmentDayCount...maximumBaselineDayCount).compactMap { baselineDayCount -> ComparisonWindow? in
+            let recentDayCount = totalDayCount - baselineDayCount
             let baselinePoints = Array(calendarPoints.prefix(baselineDayCount))
             let recentPoints = Array(calendarPoints.suffix(recentDayCount))
             let baselineValues = finiteValues(from: baselinePoints)
             let recentValues = finiteValues(from: recentPoints)
 
-            guard baselineValues.count >= Self.minimumTrendSegmentDayCount,
-                  recentValues.count >= Self.minimumTrendSegmentDayCount else {
+            guard baselineValues.count >= minimumSegmentDayCount,
+                  recentValues.count >= minimumSegmentDayCount else {
                 return nil
             }
 
@@ -1746,6 +1907,8 @@ struct BodyHomeTrendCardPresentation: Identifiable {
             )
 
             return ComparisonWindow(
+                spec: spec,
+                totalDayCount: totalDayCount,
                 baselineDayCount: baselineDayCount,
                 recentDayCount: recentDayCount,
                 baselineValueCount: baselineValues.count,
@@ -1753,7 +1916,8 @@ struct BodyHomeTrendCardPresentation: Identifiable {
                 baselineAverage: baselineAverage,
                 recentAverage: recentAverage,
                 absoluteChange: absoluteChange,
-                minimumMeaningfulChange: minimumMeaningfulChange
+                minimumMeaningfulChange: minimumMeaningfulChange,
+                windowPoints: calendarPoints
             )
         }
         let eligibleCandidates = includesStable
@@ -1775,8 +1939,14 @@ struct BodyHomeTrendCardPresentation: Identifiable {
             return scoreDelta > 0
         }
 
-        let lhsRecentDistance = abs(lhs.recentDayCount - Self.preferredRecentDayCount)
-        let rhsRecentDistance = abs(rhs.recentDayCount - Self.preferredRecentDayCount)
+        let lhsCoverage = lhs.coverageRatio
+        let rhsCoverage = rhs.coverageRatio
+        if abs(lhsCoverage - rhsCoverage) > 0.000001 {
+            return lhsCoverage > rhsCoverage
+        }
+
+        let lhsRecentDistance = abs(lhs.recentDayCount - lhs.spec.preferredRecentDayCount)
+        let rhsRecentDistance = abs(rhs.recentDayCount - rhs.spec.preferredRecentDayCount)
         if lhsRecentDistance != rhsRecentDistance {
             return lhsRecentDistance < rhsRecentDistance
         }
@@ -1785,17 +1955,21 @@ struct BodyHomeTrendCardPresentation: Identifiable {
             return lhs.valueCount > rhs.valueCount
         }
 
+        if lhs.totalDayCount != rhs.totalDayCount {
+            return lhs.totalDayCount > rhs.totalDayCount
+        }
+
         return lhs.recentDayCount < rhs.recentDayCount
     }
 
     private static func comparisonCalendarPoints(
         from series: HealthTrendSeries,
+        dayCount: Int,
         calendar: Calendar,
         date: Date
     ) -> [HealthTrendCalendarPoint] {
         let currentDayStart = calendar.startOfDay(for: date)
-        let totalDayCount = Self.comparisonDayCount
-        let startDate = calendar.date(byAdding: .day, value: -(totalDayCount - 1), to: currentDayStart)
+        let startDate = calendar.date(byAdding: .day, value: -(dayCount - 1), to: currentDayStart)
             ?? currentDayStart
         let endDate = calendar.date(byAdding: .day, value: 1, to: currentDayStart)
             ?? date
@@ -1805,7 +1979,7 @@ struct BodyHomeTrendCardPresentation: Identifiable {
             calendar.startOfDay(for: $0.date)
         }
 
-        return (0..<totalDayCount).compactMap { offset in
+        return (0..<dayCount).compactMap { offset in
             guard let day = calendar.date(byAdding: .day, value: offset, to: startDate) else {
                 return nil
             }
@@ -1821,6 +1995,49 @@ struct BodyHomeTrendCardPresentation: Identifiable {
         }
     }
 
+    private static func downsampledDisplayPoints(
+        from points: [HealthTrendCalendarPoint],
+        baselineDayCount: Int,
+        maximumCount: Int
+    ) -> (display: [HealthTrendCalendarPoint], baselineEndIndex: Int) {
+        guard points.count > maximumCount,
+              baselineDayCount > 0,
+              baselineDayCount < points.count else {
+            return (points, max(baselineDayCount - 1, 0))
+        }
+
+        let bucketSize = max(1, Int(ceil(Double(points.count) / Double(maximumCount))))
+        let baselineSlice = Array(points.prefix(baselineDayCount))
+        let recentSlice = Array(points.suffix(points.count - baselineDayCount))
+        let baselineBuckets = downsampleSegment(baselineSlice, bucketSize: bucketSize)
+        let recentBuckets = downsampleSegment(recentSlice, bucketSize: bucketSize)
+        let combined = baselineBuckets + recentBuckets
+        let baselineEndIndex = max(baselineBuckets.count - 1, 0)
+        return (combined, baselineEndIndex)
+    }
+
+    private static func downsampleSegment(
+        _ points: [HealthTrendCalendarPoint],
+        bucketSize: Int
+    ) -> [HealthTrendCalendarPoint] {
+        guard bucketSize > 1, points.count > bucketSize else {
+            return points
+        }
+        var buckets: [HealthTrendCalendarPoint] = []
+        var index = 0
+        while index < points.count {
+            let end = min(index + bucketSize, points.count)
+            let slice = points[index..<end]
+            let values = slice.compactMap(\.value).filter(\.isFinite)
+            let bucketAverage = values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+            let midIndex = index + (end - index) / 2
+            let date = points[min(midIndex, end - 1)].date
+            buckets.append(HealthTrendCalendarPoint(date: date, value: bucketAverage))
+            index = end
+        }
+        return buckets
+    }
+
     private static func finiteValues(from points: [HealthTrendCalendarPoint]) -> [Double] {
         points.compactMap(\.value).filter(\.isFinite)
     }
@@ -1830,6 +2047,8 @@ struct BodyHomeTrendCardPresentation: Identifiable {
     }
 
     private struct ComparisonWindow {
+        let spec: WindowSpec
+        let totalDayCount: Int
         let baselineDayCount: Int
         let recentDayCount: Int
         let baselineValueCount: Int
@@ -1838,6 +2057,7 @@ struct BodyHomeTrendCardPresentation: Identifiable {
         let recentAverage: Double
         let absoluteChange: Double
         let minimumMeaningfulChange: Double
+        let windowPoints: [HealthTrendCalendarPoint]
 
         var isMeaningful: Bool {
             abs(absoluteChange) >= minimumMeaningfulChange
@@ -1850,6 +2070,64 @@ struct BodyHomeTrendCardPresentation: Identifiable {
         var valueCount: Int {
             baselineValueCount + recentValueCount
         }
+
+        var coverageRatio: Double {
+            guard totalDayCount > 0 else { return 0 }
+            return Double(valueCount) / Double(totalDayCount)
+        }
+    }
+}
+
+@MainActor
+final class BodyHomeTrendComputationCache: ObservableObject {
+    private struct CacheKey: Hashable {
+        let kind: HealthMetricKind
+        let includesStable: Bool
+    }
+
+    private struct Fingerprint: Equatable {
+        let dayStart: Date
+        let pointCount: Int
+        let firstTimestamp: TimeInterval?
+        let lastTimestamp: TimeInterval?
+        let firstValue: Double?
+        let lastValue: Double?
+    }
+
+    private struct Entry {
+        let fingerprint: Fingerprint
+        let result: BodyHomeTrendCardPresentation.WindowResult?
+    }
+
+    private var entries: [CacheKey: Entry] = [:]
+
+    func result(
+        for kind: HealthMetricKind,
+        series: HealthTrendSeries,
+        includesStable: Bool,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> BodyHomeTrendCardPresentation.WindowResult? {
+        let fingerprint = Fingerprint(
+            dayStart: calendar.startOfDay(for: date),
+            pointCount: series.points.count,
+            firstTimestamp: series.points.first?.date.timeIntervalSinceReferenceDate,
+            lastTimestamp: series.points.last?.date.timeIntervalSinceReferenceDate,
+            firstValue: series.points.first?.value,
+            lastValue: series.points.last?.value
+        )
+        let key = CacheKey(kind: kind, includesStable: includesStable)
+        if let entry = entries[key], entry.fingerprint == fingerprint {
+            return entry.result
+        }
+        let result = BodyHomeTrendCardPresentation.bestWindowResult(
+            from: series,
+            includesStable: includesStable,
+            calendar: calendar,
+            date: date
+        )
+        entries[key] = Entry(fingerprint: fingerprint, result: result)
+        return result
     }
 }
 
@@ -2503,6 +2781,7 @@ private struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
+    @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @State private var selectedTrendRange: BodyHealthTrendRange
     @State private var selectedSleepDate: Date?
     @State private var selectedMetricDate: Date?
@@ -2532,7 +2811,9 @@ private struct BodyHealthMetricDetailView: View {
                     trendCard
                     sleepDatePicker
                     selectedSleepCards
-                    aboutSleepScoreCard
+                    if showSleepScore {
+                        aboutSleepScoreCard
+                    }
                     dataSourceFooter
                 } else {
                     BodyHealthTrendRangeSelector(selectedRange: $selectedTrendRange)
@@ -2688,7 +2969,7 @@ private struct BodyHealthMetricDetailView: View {
     }
 
     private var selectedSleepScore: SleepScoreSummary? {
-        guard let summary = selectedSleepSummary else {
+        guard showSleepScore, let summary = selectedSleepSummary else {
             return nil
         }
 
@@ -2731,10 +3012,12 @@ private struct BodyHealthMetricDetailView: View {
 
     @ViewBuilder
     private var selectedSleepCards: some View {
-        if let sleepScore = selectedSleepScore {
-            sleepScoreCard(sleepScore)
-        } else {
-            unavailableSleepScoreCard
+        if showSleepScore {
+            if let sleepScore = selectedSleepScore {
+                sleepScoreCard(sleepScore)
+            } else {
+                unavailableSleepScoreCard
+            }
         }
 
         sleepStageCard(selectedSleepStageSnapshot)
@@ -4295,7 +4578,7 @@ private struct BodyHomeTrendComparisonChart: View {
     }
 
     private func plotEntries(in size: CGSize) -> [PlotEntry] {
-        let points = presentation.calendarPoints
+        let points = presentation.displayCalendarPoints
         let denominator = max(CGFloat(points.count - 1), 1)
         return points.enumerated().map { index, point in
             let x = size.width * CGFloat(index) / denominator
@@ -4309,7 +4592,7 @@ private struct BodyHomeTrendComparisonChart: View {
             return Color.secondary.opacity(0.10)
         }
 
-        return entry.index >= presentation.recentStartIndex
+        return entry.index >= presentation.displayRecentStartIndex
             ? color.opacity(0.42)
             : Color.secondary.opacity(0.28)
     }
@@ -4331,7 +4614,7 @@ private struct BodyHomeTrendComparisonChart: View {
     }
 
     private var chartValues: [Double] {
-        presentation.calendarPoints.compactMap(\.value).filter(\.isFinite)
+        presentation.displayCalendarPoints.compactMap(\.value).filter(\.isFinite)
             + [presentation.baselineAverage, presentation.recentAverage]
     }
 

@@ -15,6 +15,7 @@ enum BodyAppearancePreference {
     static let selectedEnergyUnitKey = "selectedEnergyUnit"
     static let selectedTemperatureUnitKey = "selectedTemperatureUnit"
     static let sleepDurationGoalMinutesKey = "sleepDurationGoalMinutes"
+    static let showSleepScoreKey = "showSleepScore"
     static let homeCardOrderKey = "homeCardOrder"
     static let summaryCardSelectionKey = "summaryCardSelection"
     static let defaultTrendRangeKey = "defaultTrendRange"

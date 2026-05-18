@@ -1,5 +1,9 @@
 # Version History
 
+## 0.5.1 (build 2)
+
+- Updated the app, widget, and test bundle version to 0.5.1 build 2.
+
 ## 0.5.1 (build 1)
 
 - Improved HealthKit refresh performance by moving daily trend aggregation into `HKStatisticsCollectionQuery`, pairing average/range queries for vitals, and lazy-loading intraday day samples only when metric detail screens open.
