@@ -1,5 +1,11 @@
 # Version History
 
+## 0.5.2 (build 1)
+
+- Incrementally load intraday metric day-view samples after the cached tail so detail screens fetch only new HealthKit samples on subsequent opens.
+- Updated the Recovery detail header to show score and status directly.
+- Updated the app, widget, and test bundle version to 0.5.2 build 1.
+
 ## 0.5.1 (build 2)
 
 - Expanded home Summary trend cards from a fixed 28-day comparison window to candidate windows up to one year (28/90/180/270/365 days), each with its own minimum segment size and preferred recent length; the card now picks the most meaningful window per metric and tiebreaks by data coverage so sparse metrics still default to the shortest fitting window.
