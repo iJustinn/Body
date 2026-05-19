@@ -11,15 +11,15 @@ Current app version: **0.5.2 (build 4)**
 ## Screenshots
 
 <p align="center">
-  <img src="Screenshots/v0.3.3-01.PNG" alt="Body screenshot 1" width="30%"/>
-  <img src="Screenshots/v0.3.3-02.PNG" alt="Body screenshot 2" width="30%"/>
-  <img src="Screenshots/v0.3.3-03.PNG" alt="Body screenshot 3" width="30%"/>
+  <img src="Screenshots/01-v0.5.2.PNG" alt="Body screenshot 1" width="30%"/>
+  <img src="Screenshots/02-v0.3.3.PNG" alt="Body screenshot 2" width="30%"/>
+  <img src="Screenshots/03-v0.3.3.PNG" alt="Body screenshot 3" width="30%"/>
 </p>
 
 <p align="center">
-  <img src="Screenshots/v0.3.3-04.PNG" alt="Body screenshot 4" width="30%"/>
-  <img src="Screenshots/v0.3.3-05.PNG" alt="Body screenshot 5" width="30%"/>
-  <img src="Screenshots/v0.3.3-06.PNG" alt="Body screenshot 6" width="30%"/>
+  <img src="Screenshots/04-v0.5.2.PNG" alt="Body screenshot 4" width="30%"/>
+  <img src="Screenshots/05-v0.3.3.PNG" alt="Body screenshot 5" width="30%"/>
+  <img src="Screenshots/06-v0.3.3.PNG" alt="Body screenshot 6" width="30%"/>
 </p>
 
 ## Features

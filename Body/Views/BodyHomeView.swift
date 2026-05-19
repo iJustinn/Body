@@ -8259,10 +8259,16 @@ private struct BodyHealthMetricCard: View {
 }
 
 private struct BodyHealthMetricCardTrendPreview: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let series: HealthTrendSeries?
     let rangeSeries: HealthTrendRangeSeries?
     let tintColor: Color
     let style: BodyHomeMetricCardPreview.Style
+
+    private var refreshAnimation: Animation? {
+        reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0)
+    }
 
     private struct LinePlotEntry: Identifiable {
         let point: HealthTrendCalendarPoint
@@ -8354,51 +8360,63 @@ private struct BodyHealthMetricCardTrendPreview: View {
     }
 
     private var barPreview: some View {
-        let indexedPoints = Array(calendarPoints.enumerated())
+        let heights = calendarPoints.map { barHeight(for: $0.value) }
 
         return HStack(alignment: .bottom, spacing: 4) {
-            ForEach(indexedPoints, id: \.element.id) { index, point in
+            ForEach(Array(calendarPoints.enumerated()), id: \.offset) { index, point in
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
                     .fill(barColor(for: point, at: index))
-                    .frame(width: 5, height: barHeight(for: point.value))
+                    .frame(width: 5, height: heights[index])
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .animation(refreshAnimation, value: heights)
+        .animation(refreshAnimation, value: lastValueIndex ?? -1)
     }
 
     private var rangePreview: some View {
         GeometryReader { proxy in
-            let indexedPoints = Array(rangeCalendarPoints.enumerated())
-
             HStack(alignment: .bottom, spacing: 4) {
-                ForEach(indexedPoints, id: \.element.id) { index, point in
+                ForEach(Array(rangeCalendarPoints.enumerated()), id: \.offset) { index, point in
                     rangeBar(for: point, at: index, in: proxy.size)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .animation(refreshAnimation, value: rangeAnimationKey)
+            .animation(refreshAnimation, value: lastRangeValueIndex ?? -1)
         }
+    }
+
+    private var rangeAnimationKey: [RangePointKey] {
+        rangeCalendarPoints.map { point in
+            RangePointKey(
+                low: point.lowValue.flatMap { $0.isFinite ? $0 : nil },
+                high: point.highValue.flatMap { $0.isFinite ? $0 : nil }
+            )
+        }
+    }
+
+    private struct RangePointKey: Equatable {
+        let low: Double?
+        let high: Double?
     }
 
     private var linePreview: some View {
         GeometryReader { proxy in
             let plotEntries = linePlotEntries(in: proxy.size)
             let valueEntries = plotEntries.filter(\.hasValue)
+            let linePositions = valueEntries.map(\.position)
 
             ZStack {
-                if valueEntries.count > 1 {
-                    Path { path in
-                        path.move(to: valueEntries[0].position)
-                        for entry in valueEntries.dropFirst() {
-                            path.addLine(to: entry.position)
-                        }
-                    }
-                    .stroke(
-                        Color.secondary.opacity(0.28),
-                        style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
-                    )
+                if linePositions.count > 1 {
+                    AnimatablePolyline(points: linePositions)
+                        .stroke(
+                            Color.secondary.opacity(0.28),
+                            style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
+                        )
                 }
 
-                ForEach(plotEntries) { entry in
+                ForEach(Array(plotEntries.enumerated()), id: \.offset) { _, entry in
                     if entry.hasValue {
                         let isCurrent = entry.index == (lastValueIndex ?? -1)
                         let diameter = isCurrent
@@ -8425,6 +8443,8 @@ private struct BodyHealthMetricCardTrendPreview: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .animation(refreshAnimation, value: plotEntries.map(\.position))
+            .animation(refreshAnimation, value: lastValueIndex ?? -1)
         }
     }
 
@@ -8512,6 +8532,71 @@ private struct BodyHealthMetricCardTrendPreview: View {
                 index: index
             )
         }
+    }
+}
+
+private struct AnimatablePolyline: Shape {
+    var points: [CGPoint]
+
+    var animatableData: AnimatableVector {
+        get { AnimatableVector(points: points) }
+        set { points = newValue.points }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard let first = points.first else { return path }
+        path.move(to: first)
+        for point in points.dropFirst() {
+            path.addLine(to: point)
+        }
+        return path
+    }
+}
+
+private struct AnimatableVector: VectorArithmetic {
+    static var zero: AnimatableVector { AnimatableVector(values: []) }
+
+    var values: [Double]
+
+    init(values: [Double]) {
+        self.values = values
+    }
+
+    init(points: [CGPoint]) {
+        self.values = points.flatMap { [Double($0.x), Double($0.y)] }
+    }
+
+    var points: [CGPoint] {
+        let count = values.count / 2
+        return (0..<count).map { i in
+            CGPoint(x: values[i * 2], y: values[i * 2 + 1])
+        }
+    }
+
+    static func + (lhs: AnimatableVector, rhs: AnimatableVector) -> AnimatableVector {
+        AnimatableVector(values: zip(padded(lhs.values, to: rhs.values.count),
+                                     padded(rhs.values, to: lhs.values.count)).map(+))
+    }
+
+    static func - (lhs: AnimatableVector, rhs: AnimatableVector) -> AnimatableVector {
+        AnimatableVector(values: zip(padded(lhs.values, to: rhs.values.count),
+                                     padded(rhs.values, to: lhs.values.count)).map(-))
+    }
+
+    mutating func scale(by rhs: Double) {
+        for i in values.indices {
+            values[i] *= rhs
+        }
+    }
+
+    var magnitudeSquared: Double {
+        values.reduce(0) { $0 + $1 * $1 }
+    }
+
+    private static func padded(_ values: [Double], to count: Int) -> [Double] {
+        guard values.count < count else { return values }
+        return values + Array(repeating: 0, count: count - values.count)
     }
 }
 

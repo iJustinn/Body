@@ -919,7 +919,12 @@ final class HealthKitWorkoutStore: ObservableObject {
                     healthSummary = s.replacingMetric(.recovery, with: healthSummary)
                 case .trends(let t):
                     fetchedTrends = t
-                    healthTrends = t
+                    // `fetchHealthTrends` does not populate `.recovery` (it gets
+                    // recomputed in `updateHealthDashboardSnapshot`). Preserve
+                    // the cached series so the Recovery preview chart can
+                    // animate from old values to new instead of dropping to
+                    // empty and reappearing.
+                    healthTrends = t.replacingMetric(.recovery, with: healthTrends)
                 case .rings(let r):
                     fetchedActivityRingHistory = r
                     activityRingHistory = r
