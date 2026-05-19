@@ -2904,7 +2904,8 @@ private struct BodyHealthMetricDetailView: View {
              .restingHeartRate,
              .heartRateVariability,
              .respiratoryRate,
-             .oxygenSaturation:
+             .oxygenSaturation,
+             .activeEnergy:
             return true
         case .recovery,
              .sleep,
@@ -2912,7 +2913,6 @@ private struct BodyHealthMetricDetailView: View {
              .bodyMass,
              .bodyFatPercentage,
              .bodyMassIndex,
-             .activeEnergy,
              .restingEnergy,
              .exerciseMinutes,
              .trainingLoad,
@@ -3557,7 +3557,9 @@ private struct BodyHealthMetricDetailView: View {
                     primarySourceName: workoutStore.selectedHealthDataSourceOption(for: model.kind).name,
                     secondarySourceName: workoutStore.selectedSecondaryHealthDataSourceOption(for: model.kind).name,
                     valueFormatter: model.valueFormatter,
-                    contextIntervals: selectedMetricDayContextIntervals
+                    contextIntervals: selectedMetricDayContextIntervals,
+                    aggregationLabel: selectedMetricDayAggregationLabel,
+                    includesSampleBreakdown: selectedMetricDayIncludesSampleBreakdown
                 )
                 .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
                 .id(selectedMetricDay)
@@ -3572,8 +3574,18 @@ private struct BodyHealthMetricDetailView: View {
         .bodyCardBackground()
     }
 
+    private var selectedMetricDayAggregationLabel: String {
+        model.kind == .activeEnergy ? "HOURLY TOTAL" : "HOURLY AVG"
+    }
+
+    private var selectedMetricDayIncludesSampleBreakdown: Bool {
+        // Hourly cumulative metrics already report one value per hour — there's no
+        // intra-hour sample window to break down.
+        model.kind != .activeEnergy
+    }
+
     private var selectedMetricDayContextIntervals: [BodyHealthMetricDayContextInterval] {
-        guard model.kind == .heartRate || model.kind == .heartRateVariability else {
+        guard model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy else {
             return []
         }
 
@@ -5752,6 +5764,8 @@ private struct BodyHealthMetricDayChart: View {
     let secondarySourceName: String
     let valueFormatter: (Double) -> String
     let contextIntervals: [BodyHealthMetricDayContextInterval]
+    let aggregationLabel: String
+    let includesSampleBreakdown: Bool
 
     private let hourlyBuckets: [HealthTrendHourlyBucket]
     private let secondaryHourlyBuckets: [HealthTrendHourlyBucket]
@@ -5780,7 +5794,9 @@ private struct BodyHealthMetricDayChart: View {
         primarySourceName: String = "Primary",
         secondarySourceName: String = "Secondary",
         valueFormatter: @escaping (Double) -> String,
-        contextIntervals: [BodyHealthMetricDayContextInterval] = []
+        contextIntervals: [BodyHealthMetricDayContextInterval] = [],
+        aggregationLabel: String = "HOURLY AVG",
+        includesSampleBreakdown: Bool = true
     ) {
         self.day = day
         self.title = title
@@ -5790,6 +5806,8 @@ private struct BodyHealthMetricDayChart: View {
         self.secondarySourceName = secondarySourceName
         self.valueFormatter = valueFormatter
         self.contextIntervals = contextIntervals
+        self.aggregationLabel = aggregationLabel
+        self.includesSampleBreakdown = includesSampleBreakdown
 
         let buckets = series.hourlyAverageBuckets(on: day)
         let secondaryBuckets = secondarySeries.hourlyAverageBuckets(on: day)
@@ -5885,7 +5903,9 @@ private struct BodyHealthMetricDayChart: View {
                         BodyHealthMetricDayAnnotation(
                             bucket: selectedBucket.bucket,
                             values: selectedValues(for: selectedBucket.plotDate),
-                            valueFormatter: valueFormatter
+                            valueFormatter: valueFormatter,
+                            aggregationLabel: aggregationLabel,
+                            includesSampleBreakdown: includesSampleBreakdown
                         )
                     }
 
@@ -5950,9 +5970,10 @@ private struct BodyHealthMetricDayChart: View {
     }
 
     private func selectedValues(for date: Date) -> [BodyChartSelectionValue] {
-        selectedEntries(for: date).map { entry in
+        let showsSourceName = !secondaryHourlyBuckets.isEmpty
+        return selectedEntries(for: date).map { entry in
             BodyChartSelectionValue(
-                title: entry.sourceName,
+                title: showsSourceName ? entry.sourceName : nil,
                 value: valueFormatter(entry.averageValue),
                 color: color(for: entry)
             )
@@ -6022,10 +6043,12 @@ private struct BodyHealthMetricDayAnnotation: View {
     let bucket: HealthTrendHourlyBucket
     let values: [BodyChartSelectionValue]
     let valueFormatter: (Double) -> String
+    let aggregationLabel: String
+    let includesSampleBreakdown: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("HOURLY AVG")
+            Text(aggregationLabel)
                 .font(.system(size: 10, weight: .heavy, design: .rounded))
                 .foregroundColor(.secondary)
 
@@ -6051,7 +6074,7 @@ private struct BodyHealthMetricDayAnnotation: View {
                 .fontWeight(.semibold)
                 .foregroundColor(.secondary)
 
-            if !sampleWindows.isEmpty {
+            if includesSampleBreakdown, !sampleWindows.isEmpty {
                 Divider()
                     .padding(.vertical, 1)
 
@@ -8236,10 +8259,16 @@ private struct BodyHealthMetricCard: View {
 }
 
 private struct BodyHealthMetricCardTrendPreview: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let series: HealthTrendSeries?
     let rangeSeries: HealthTrendRangeSeries?
     let tintColor: Color
     let style: BodyHomeMetricCardPreview.Style
+
+    private var refreshAnimation: Animation? {
+        reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0)
+    }
 
     private struct LinePlotEntry: Identifiable {
         let point: HealthTrendCalendarPoint
@@ -8331,51 +8360,63 @@ private struct BodyHealthMetricCardTrendPreview: View {
     }
 
     private var barPreview: some View {
-        let indexedPoints = Array(calendarPoints.enumerated())
+        let heights = calendarPoints.map { barHeight(for: $0.value) }
 
         return HStack(alignment: .bottom, spacing: 4) {
-            ForEach(indexedPoints, id: \.element.id) { index, point in
+            ForEach(Array(calendarPoints.enumerated()), id: \.offset) { index, point in
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
                     .fill(barColor(for: point, at: index))
-                    .frame(width: 5, height: barHeight(for: point.value))
+                    .frame(width: 5, height: heights[index])
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .animation(refreshAnimation, value: heights)
+        .animation(refreshAnimation, value: lastValueIndex ?? -1)
     }
 
     private var rangePreview: some View {
         GeometryReader { proxy in
-            let indexedPoints = Array(rangeCalendarPoints.enumerated())
-
             HStack(alignment: .bottom, spacing: 4) {
-                ForEach(indexedPoints, id: \.element.id) { index, point in
+                ForEach(Array(rangeCalendarPoints.enumerated()), id: \.offset) { index, point in
                     rangeBar(for: point, at: index, in: proxy.size)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .animation(refreshAnimation, value: rangeAnimationKey)
+            .animation(refreshAnimation, value: lastRangeValueIndex ?? -1)
         }
+    }
+
+    private var rangeAnimationKey: [RangePointKey] {
+        rangeCalendarPoints.map { point in
+            RangePointKey(
+                low: point.lowValue.flatMap { $0.isFinite ? $0 : nil },
+                high: point.highValue.flatMap { $0.isFinite ? $0 : nil }
+            )
+        }
+    }
+
+    private struct RangePointKey: Equatable {
+        let low: Double?
+        let high: Double?
     }
 
     private var linePreview: some View {
         GeometryReader { proxy in
             let plotEntries = linePlotEntries(in: proxy.size)
             let valueEntries = plotEntries.filter(\.hasValue)
+            let linePositions = valueEntries.map(\.position)
 
             ZStack {
-                if valueEntries.count > 1 {
-                    Path { path in
-                        path.move(to: valueEntries[0].position)
-                        for entry in valueEntries.dropFirst() {
-                            path.addLine(to: entry.position)
-                        }
-                    }
-                    .stroke(
-                        Color.secondary.opacity(0.28),
-                        style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
-                    )
+                if linePositions.count > 1 {
+                    AnimatablePolyline(points: linePositions)
+                        .stroke(
+                            Color.secondary.opacity(0.28),
+                            style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
+                        )
                 }
 
-                ForEach(plotEntries) { entry in
+                ForEach(Array(plotEntries.enumerated()), id: \.offset) { _, entry in
                     if entry.hasValue {
                         let isCurrent = entry.index == (lastValueIndex ?? -1)
                         let diameter = isCurrent
@@ -8402,6 +8443,8 @@ private struct BodyHealthMetricCardTrendPreview: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .animation(refreshAnimation, value: plotEntries.map(\.position))
+            .animation(refreshAnimation, value: lastValueIndex ?? -1)
         }
     }
 
@@ -8489,6 +8532,71 @@ private struct BodyHealthMetricCardTrendPreview: View {
                 index: index
             )
         }
+    }
+}
+
+private struct AnimatablePolyline: Shape {
+    var points: [CGPoint]
+
+    var animatableData: AnimatableVector {
+        get { AnimatableVector(points: points) }
+        set { points = newValue.points }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard let first = points.first else { return path }
+        path.move(to: first)
+        for point in points.dropFirst() {
+            path.addLine(to: point)
+        }
+        return path
+    }
+}
+
+private struct AnimatableVector: VectorArithmetic {
+    static var zero: AnimatableVector { AnimatableVector(values: []) }
+
+    var values: [Double]
+
+    init(values: [Double]) {
+        self.values = values
+    }
+
+    init(points: [CGPoint]) {
+        self.values = points.flatMap { [Double($0.x), Double($0.y)] }
+    }
+
+    var points: [CGPoint] {
+        let count = values.count / 2
+        return (0..<count).map { i in
+            CGPoint(x: values[i * 2], y: values[i * 2 + 1])
+        }
+    }
+
+    static func + (lhs: AnimatableVector, rhs: AnimatableVector) -> AnimatableVector {
+        AnimatableVector(values: zip(padded(lhs.values, to: rhs.values.count),
+                                     padded(rhs.values, to: lhs.values.count)).map(+))
+    }
+
+    static func - (lhs: AnimatableVector, rhs: AnimatableVector) -> AnimatableVector {
+        AnimatableVector(values: zip(padded(lhs.values, to: rhs.values.count),
+                                     padded(rhs.values, to: lhs.values.count)).map(-))
+    }
+
+    mutating func scale(by rhs: Double) {
+        for i in values.indices {
+            values[i] *= rhs
+        }
+    }
+
+    var magnitudeSquared: Double {
+        values.reduce(0) { $0 + $1 * $1 }
+    }
+
+    private static func padded(_ values: [Double], to count: Int) -> [Double] {
+        guard values.count < count else { return values }
+        return values + Array(repeating: 0, count: count - values.count)
     }
 }
 

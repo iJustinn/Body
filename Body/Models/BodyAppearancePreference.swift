@@ -94,7 +94,9 @@ extension HealthMetricKind {
             return [.range, .rangeBandLine, .dayLine]
         case .oxygenSaturation:
             return [.range, .dayLine]
-        case .activeEnergy, .restingEnergy, .exerciseMinutes, .steps:
+        case .activeEnergy:
+            return [.bar, .dayLine]
+        case .restingEnergy, .exerciseMinutes, .steps:
             return [.bar]
         case .basics,
              .bodyMass,
@@ -852,21 +854,21 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
 
     static let defaultOrder: [BodyHomeCardKind] = [
         .activityRings,
-        .recovery,
-        .exerciseMinutes,
-        .trainingLoad,
-        .wristTemperature,
-        .timeInDaylight,
-        .steps,
         .sleep,
         .basics,
         .heartRate,
-        .restingHeartRate,
         .heartRateVariability,
+        .trainingLoad,
+        .recovery,
+        .activeEnergy,
+        .restingEnergy,
+        .wristTemperature,
+        .restingHeartRate,
         .oxygenSaturation,
         .respiratoryRate,
-        .activeEnergy,
-        .restingEnergy
+        .exerciseMinutes,
+        .steps,
+        .timeInDaylight
     ]
 
     static var defaultRawValue: String {

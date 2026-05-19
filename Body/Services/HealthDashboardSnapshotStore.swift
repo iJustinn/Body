@@ -10,6 +10,7 @@ enum HealthDashboardSnapshotStore {
     static let healthDashboardSnapshotKey = "lastHealthDashboardSnapshot"
     static let healthDashboardSnapshotFileName = "lastHealthDashboardSnapshot.json"
     static let secondarySelectionSignatureKey = "lastHealthDashboardSecondarySelectionSignature"
+    static let lastSuccessfulRefreshDateKey = "lastHealthDashboardSuccessfulRefreshDate"
     private static let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "HealthDashboardSnapshotStore")
 
     static func saveSecondarySelectionSignature(_ signature: String, defaults: UserDefaults = .standard) {
@@ -18,6 +19,24 @@ enum HealthDashboardSnapshotStore {
 
     static func loadSecondarySelectionSignature(defaults: UserDefaults = .standard) -> String? {
         defaults.string(forKey: secondarySelectionSignatureKey)
+    }
+
+    /// Persisted timestamp of the last successful HealthKit refresh. Loaded at
+    /// launch so the cold-start sync path can route through the same tiered
+    /// TTL as a warm scene-phase resume: < 60 s → skip, < 5 min → current-month
+    /// only, ≥ 5 min → full refresh. Without persistence, every cold start
+    /// looked like "never refreshed before" and always paid the full refresh
+    /// cost even when the on-disk snapshot was seconds old.
+    static func saveLastSuccessfulRefreshDate(_ date: Date, defaults: UserDefaults = .standard) {
+        defaults.set(date, forKey: lastSuccessfulRefreshDateKey)
+    }
+
+    static func loadLastSuccessfulRefreshDate(defaults: UserDefaults = .standard) -> Date? {
+        defaults.object(forKey: lastSuccessfulRefreshDateKey) as? Date
+    }
+
+    static func clearLastSuccessfulRefreshDate(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: lastSuccessfulRefreshDateKey)
     }
 
     static var snapshotFileURL: URL? {

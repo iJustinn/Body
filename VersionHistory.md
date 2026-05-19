@@ -1,10 +1,29 @@
 # Version History
 
-## 0.5.2 (build 1)
+## 0.5.2 (build 4)
+
+- Cut cold-launch dashboard refresh latency by eliminating N+1 HealthKit queries: workout heart-rate samples are now fetched per month via a single OR'd compound predicate and partitioned in memory, per-workout `HKWorkoutEffortScore` fetches run concurrently via `withTaskGroup`, and the per-sleep-day `fetchSleepVitals` loop runs through a bounded (16) `withTaskGroup` helper.
+- Memoized the shared 180-day training-load workout fetch so `fetchTrainingLoadSummary` and `fetchTrainingLoadSeries` no longer issue duplicate queries within the same refresh.
+- Refresh now publishes progressively: summary, trends, and Activity Ring history each write to `@Published` state as soon as their fetch completes (three publishes instead of one at the end). Per-month workouts also publish individually as each task-group result lands. Recovery is preserved at its cached value during the stream and recomputed once at the end.
+- Persisted `lastSuccessfulRefreshDate` in `UserDefaults` so cold-start applies the same tiered TTL as a warm resume (`<60 s` skip, `60 s–5 min` current-month workouts only, `≥5 min` full refresh). Previously, every cold-start fell through to a full refresh because the timestamp lived only in memory.
+- Added a `PrivacyInfo.xcprivacy` manifest declaring required-reason API usage (`NSPrivacyAccessedAPICategoryUserDefaults` with reason `CA92.1`, `NSPrivacyAccessedAPICategoryFileTimestamp` with reason `C617.1`). `NSPrivacyTracking` is `false`; no data is collected externally.
+- Updated the app, widget, and test bundle version to 0.5.2 build 4.
+
+## 0.5.2 (build 3)
+
+- Extracted a new `HealthKitFetchEngine` actor (`Body/Services/HealthKitFetchEngine.swift`) that owns `HKHealthStore`, the cached source map, predicate construction, every HealthKit query, and the dashboard fetch orchestrators (`fetchHealthSummary`, `fetchHealthTrends`, `fetchHealthDashboardSnapshot`, `fetchHealthDataSourceOptions`). `HealthKitWorkoutStore` shrank from ~3,900 to ~1,450 lines and now keeps only the `@Published` view-model state, public refresh entry points, and snapshot publishing — it delegates fetching to the engine via `await`. The bulk of the fetch-time Swift work no longer runs on `@MainActor`.
+- Mirrored the three selections (`permissionSelection`, `healthDataSourceSelection`, `secondaryHealthDataSourceSelection`) onto the engine; the store syncs them via `setPermissionSelection` / `setHealthDataSourceSelection` / `setSecondaryHealthDataSourceSelection` whenever the user updates a permission or picks a different source.
+- Updated `BodyTests/ProjectConfigurationTests.swift` so the four string-grep assertions covering moved HealthKit internals point at `HealthKitFetchEngine.swift` instead of `HealthKitWorkoutStore.swift`; semantic assertions are unchanged.
+- Updated the app, widget, and test bundle version to 0.5.2 build 3.
+
+## 0.5.2 (build 2)
 
 - Incrementally load intraday metric day-view samples after the cached tail so detail screens fetch only new HealthKit samples on subsequent opens.
 - Updated the Recovery detail header to show score and status directly.
-- Updated the app, widget, and test bundle version to 0.5.2 build 1.
+- Deferred the cached-dashboard recovery recompute out of `HealthKitWorkoutStore.init`. The first frame paints from the cached `summary.recovery` value (correct as of its last successful refresh); the next refresh recomputes Recovery off the main thread.
+- Moved the per-refresh `recalculatingRecovery` (day-by-day baseline iteration over ~365 trend points) into a `Task.detached(.userInitiated)` inside `updateHealthDashboardSnapshot` so it no longer blocks the main thread.
+- Moved `HealthDashboardSnapshotStore.save` and `WorkoutSnapshotStore.save` / `savePrevious` + `WidgetCenter.shared.reloadAllTimelines()` into `Task.detached(.utility)` so JSON encode + atomic write + widget XPC round-trip no longer run on the main actor during refresh.
+- Updated the app, widget, and test bundle version to 0.5.2 build 2.
 
 ## 0.5.1 (build 2)
 

@@ -1,13 +1,13 @@
 # Body Test Plan
 
-Generated 2026-05-18 against branch `body-v0.5.2` (app version 0.5.2 build 1).
+Generated 2026-05-18 against branch `body-v0.5.2` (app version 0.5.2 build 4).
 
 ## 1. Project Testing Overview
 
 ### What Was Reviewed
 
 - App entry and screens: `Body/BodyApp.swift`, `Body/Views/BodyHomeView.swift`, `Body/Views/BodyWorkoutsView.swift`, `Body/Views/BodyWorkoutListSheet.swift`, `Body/Views/BodyMonthYearPicker.swift`, `Body/Views/BodySettingsView.swift`, `Body/Views/BodyProView.swift`, `Body/Views/BodyActivityRingsDetailView.swift`
-- HealthKit ingestion: `Body/Services/HealthKitWorkoutStore.swift`, `Body/Services/HealthDashboardSnapshotStore.swift`
+- HealthKit ingestion: `Body/Services/HealthKitWorkoutStore.swift` (`@MainActor` view-model — `@Published` outputs, public refresh entry points, snapshot publishing, source comparison helpers), `Body/Services/HealthKitFetchEngine.swift` (non-`@MainActor` `actor` — `HKHealthStore` ownership, predicate construction, every HK leaf query, dashboard fetch orchestrators), `Body/Services/HealthDashboardSnapshotStore.swift`
 - Shared model/storage/UI: `BodyShared/Models/*`, `BodyShared/Services/WorkoutSnapshotStore.swift`, `BodyShared/Components/WorkoutCalendarView.swift`, `BodyShared/Components/WorkoutTypeBreakdownView.swift`
 - Widget extension: `BodyWidgetExtension/WorkoutCalendarWidget.swift`, `BodyWidgetExtension/BodyWidgetExtensionBundle.swift`
 - Configuration: `Body/Body.entitlements`, `BodyWidgetExtension.entitlements`, privacy manifests, `body.xcodeproj/project.pbxproj`

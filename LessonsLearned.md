@@ -4,6 +4,69 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 
 ## Entries
 
+### 2026-05-18 - Eliminate N+1 HK queries with OR'd predicates + bounded task groups
+- Context: After moving HK fetch orchestration off the main actor (engine refactor), per-workout and per-sleep-day fan-outs still serialized inside the engine. `fetchWorkoutSummaries` awaited `fetchHeartRateSamples(for: workout)` and `fetchSavedEffortLevel(for: workout)` once per workout in a `for` loop; `fetchDailySleepHistory` awaited `fetchSleepVitals(...)` once per sleep day in a `for` loop. With ~30 workouts/month × 3 months and up to ~365 sleep days, that's hundreds of sequential HK round-trips on every full refresh.
+- Symptom: ~8–10 s cold-launch dashboard refresh even after HK queries were already off-main.
+- Cause: Each per-element `await` released the actor but blocked the parent coroutine, so HK queries ran one-at-a-time within a category. The actor's reentrancy didn't help because there was only one waiter per category.
+- Fix:
+  - **Heart-rate samples** are now batched: build an OR-compound predicate of every workout's `predicateForSamples(withStart:end:)` and issue *one* `HKSampleQuery` for the month. Samples are partitioned per workout in memory afterward by linear scan (handles overlapping workouts correctly because we filter per-workout against `[startDate, endDate)`).
+  - **`HKWorkoutEffortScore`** can't be batched (the relationship predicate is per-workout) but can fan out via `withTaskGroup`; each `group.addTask { await self.fetchSavedEffortLevel(for: workout) }` re-enters the actor briefly to call `healthStore.execute(query)`, then releases at the continuation `await`, letting HK serve them in parallel.
+  - **Per-day sleep vitals** use a static helper `hydrateSleepVitalsInParallel(days:maxConcurrentDays:hydrate:)` that pumps a `withTaskGroup` with bounded concurrency (16). 16 days × 5 sub-queries = ≤80 concurrent HK queries — fast without flooding the framework.
+- Reuse: When a HK orchestrator has an `await` inside a `for` loop, ask: can the predicate be unioned (OR-compound)? If yes, fold into one query and partition client-side. If no (per-element relationship predicate), use a bounded `withTaskGroup` so HK can parallelize the round-trips. The actor pattern naturally supports this — actor reentrancy through `await` boundaries means concurrent `group.addTask`s don't deadlock.
+
+### 2026-05-18 - Memoize shared fetches inside the actor with a `Task<>` cache keyed by request window
+- Context: `fetchTrainingLoadSummary` (running inside `fetchHealthSummary`) and `fetchTrainingLoadSeries` (running inside `fetchHealthTrends`) both fetched the same 180-day `HKWorkout` window independently — once per orchestrator, run in parallel via `async let`. Same data, two HK round-trips, two per-workout effort fan-outs.
+- Symptom: Wasted ~1 s on every full refresh.
+- Cause: The two orchestrators had no way to share — each lived inside its own `async let` chain, and `async let` resolves to a `Task` that can't be reused across callers.
+- Fix: Engine holds `private var sharedTrainingLoadWorkoutsTask: Task<[WorkoutSummary], Error>?` plus a `TrainingLoadWorkoutsWindow` cache key. The first caller creates the task and stores it; subsequent callers inside the same refresh return `try await task.value` of the cached task. `setHealthTrendAnchorDate(_:)` (which is called at refresh start *and* end) clears the cache so each refresh starts fresh.
+- Reuse: When two concurrent actor methods need the same expensive fetch and the result is value-typed, cache the *Task* (not the value). Actor serialization guarantees exactly one task is created; both callers await the same `.value`. Key the cache by request parameters so wider-window fetches don't get reused for narrower windows. Clear on a refresh-boundary signal that's already wired (`setHealthTrendAnchorDate` here).
+
+### 2026-05-18 - Stream the dashboard refresh in buckets so users see progress instead of a 10 s wait
+- Context: `refreshRecentMonths` used `async let nextHealthSummary / nextHealthTrends / nextActivityRingHistory`, awaited all three, then called `updateHealthDashboardSnapshot` once. UI saw zero change during the whole refresh — then one big update at the end.
+- Symptom: User-reported "nothing is changing for 10 seconds." Even though disk-cached values were already visible from `init`, the dashboard refresh produced no visible motion until completion.
+- Cause: The collect-then-publish pattern. Even though sub-fetches finish at different times (summary ≪ trends), nothing landed until the slowest one returned.
+- Fix: New `fetchDashboardSnapshotProgressively(calendar:)` helper runs the three engine fetches inside `withTaskGroup(of: DashboardFetchUnit.self)` and the `for await unit in group` loop writes to `@Published` state immediately for each bucket. UI sees: cached data → fresh summary numbers (~1 s) → fresh rings (~1–2 s) → fresh trend charts (3–5 s) → final recovery recompute. The final `updateHealthDashboardSnapshot` still runs after the loop for filter + recovery recompute + disk save.
+- Recovery preservation: progressive summary publish uses `s.replacingMetric(.recovery, with: healthSummary)` so the cached recovery stays visible during the stream — the freshly fetched summary has empty/default recovery because recompute hasn't run yet. The final commit overwrites it with the recomputed value.
+- Per-month workouts: `refresh(monthKeys:)` previously collected `(key, workouts)` pairs into a dict, then wrote `monthSnapshots[key]` in a separate loop. Moved the write inside the `for try await` so each month publishes the moment it returns from the task group. Workouts tab fills in per-month rather than waiting for the slowest month.
+- Reuse: For multi-bucket parallel fetches whose results land in independent `@Published` fields, prefer `withTaskGroup` + `for await` over `async let` + sequential awaits. Even with the same total wall-clock time, the perceived latency drops significantly because each bucket commits as soon as it's ready.
+
+### 2026-05-18 - Persist refresh-debounce timestamps so cold start uses the same TTL as warm resume
+- Context: `syncWhenAppBecomesActive` had three tiers based on `lastSuccessfulRefreshDate`: under 60 s skip, 60 s–5 min current-month workouts only, ≥5 min full refresh. But `lastSuccessfulRefreshDate` was in-memory only, so every cold start saw it as `nil` and fell through to the full path — even when the on-disk snapshot was seconds old.
+- Symptom: Cold start = full refresh, always. Warm resume = tiered TTL, fast. Closing and reopening the app paid the same 8 s cost the user thought refresh deduplication should have avoided.
+- Cause: `markRefreshSucceeded(date:)` set the in-memory value but didn't persist; `init` defaulted it to `nil`.
+- Fix: Added `saveLastSuccessfulRefreshDate / loadLastSuccessfulRefreshDate / clearLastSuccessfulRefreshDate` to `HealthDashboardSnapshotStore` (UserDefaults under `lastHealthDashboardSuccessfulRefreshDate`). `init` restores it; `markRefreshSucceeded(date:)` persists; `clearLocalCache` clears. After this, cold start hits the same tiered TTL.
+- Reuse: Any debounce/TTL state used by a `.task`/scenePhase entry point must be persisted, otherwise it's only effective for warm resumes within a single process. The cached *payload* on disk isn't enough — the *meta* (when it was written) has to ride along, or the launch path has no way to honor the TTL.
+
+### 2026-05-18 - PrivacyInfo.xcprivacy required for required-reason API usage; Xcode 16 synced groups bundle it automatically
+- Context: Body uses `UserDefaults` extensively and calls `FileManager.default.attributesOfItem(atPath:)` on its own cache files (to display "On-disk size: X" in the Settings cache status). Both APIs fall under Apple's required-reason API list and need a `PrivacyInfo.xcprivacy` manifest at App Store submission time.
+- Cause: Missing privacy manifest produces App Store Connect warnings on submission of any iOS 17+ build.
+- Fix: Added `Body/PrivacyInfo.xcprivacy` declaring `NSPrivacyAccessedAPICategoryUserDefaults` with reason `CA92.1` (in-app interactive functionality) and `NSPrivacyAccessedAPICategoryFileTimestamp` with reason `C617.1` (inspect timestamps for files in the app container). `NSPrivacyTracking = false`, `NSPrivacyCollectedDataTypes` empty (no off-device data collection).
+- Xcode 16 specific: the project uses `PBXFileSystemSynchronizedRootGroup` for `Body/` (and `BodyShared/`, `BodyWidgetExtension/`, `BodyTests/`). Files placed in those directories are automatically included in the corresponding target's build — no `project.pbxproj` edit is needed. `PrivacyInfo.xcprivacy` placed at `Body/PrivacyInfo.xcprivacy` ships in `Body.app/PrivacyInfo.xcprivacy` and is also replicated into the embedded widget extension's appex bundle.
+- Reuse: Before submitting a new build with privacy-sensitive APIs, grep the codebase for the four required-reason categories (`UserDefaults`, `FileTimestamp` via `attributesOfItem`/`stat`-family, `SystemBootTime`, `DiskSpace`) and update the manifest. For Xcode 16 synced-folder projects, just edit the file in place — no project file changes.
+
+
+### 2026-05-18 - Extract HK fetch work into a non-`@MainActor` actor when the store grows
+- Context: `HealthKitWorkoutStore` was a 3,900-line `@MainActor final class: ObservableObject`. Every HK query, predicate construction, source-map mutation, and dashboard fetch orchestrator (`fetchHealthSummary` with ~17 `async let`s, `fetchHealthTrends` with ~25, `fetchHealthDashboardSnapshot`, `fetchHealthDataSourceOptions`) ran on the main actor. HK callbacks dispatched off-main, but every continuation resumed back on main, and Swift-level orchestration between awaits stayed on the main thread.
+- Symptom: After Phase 1 (off-main recovery recompute + off-main JSON saves) the worst CPU spikes were gone but refresh still caused noticeable main-thread pressure from continuation resumption flood + repeated `@Published` writes triggering SwiftUI redraws of ~14 metric cards.
+- Cause: `@MainActor` isolation on the orchestration layer means *every* `async let` resumption, every aggregate read, and every per-fetch helper call queues behind UI work.
+- Fix: New `actor HealthKitFetchEngine` (`Body/Services/HealthKitFetchEngine.swift`) owns `HKHealthStore`, `healthSourcesByKind`, `fetchedHealthDataSourcePermissionRawValue`, `healthTrendAnchorDate`, and mirrored copies of the three selections. All leaf HK queries, predicate helpers, and orchestrators moved into it. `HealthKitWorkoutStore` kept `@Published` outputs, public refresh entry points, snapshot publishing, and source comparison helpers — its refresh methods now look like: `let result = await engine.fetchX(...); publish on main`. Selection setters on the engine (`setPermissionSelection` etc.) are awaited from the store's `updateHealthPermission` / `updateHealthDataSource` / `updateSecondaryHealthDataSource`.
+- Special cases: `fetchHealthTrends` and `fetchHealthDashboardSnapshot` needed a `cachedTrends:` / `existing:` parameter because they previously read `self.healthTrends` / `self.healthSummary` directly to preserve lazy-loaded intraday day samples and to handle the single-metric Recovery early-return. `fetchHealthDataSourceOptions` changed from mutating the store's `@Published healthDataSourceOptionsByKind` to *returning* the next dict (or `nil` for "no change"), with the store assigning the result. `loadIntradayMetricSamplesIfNeeded` stayed on the store because it reads/writes the `@Published healthTrends` — it just delegates the actual HK fetches to `engine.fetchIntradayDaySamples` / `engine.fetchSecondaryDaySamples`.
+- Test impact: Five static helpers (`recentChartMonthCount`, `readObjectTypes`, `workoutType(for:)`, `mergedSleepDuration`, `sleepDuration`) stayed on the store because tests reference them via `HealthKitWorkoutStore.X`. `HealthKitWorkoutError` was hoisted to file-level visibility (was `private`) so the engine in a separate file could throw/match it. Four string-grep assertions in `BodyTests/ProjectConfigurationTests.swift` were redirected from the store's source file to the engine's; semantic assertions unchanged.
+- Reuse: For any `@MainActor ObservableObject` that grows past ~1,500 lines and starts to host non-UI orchestration, push the orchestration into a separate `actor` and have the view-model own only `@Published` state plus the public refresh entry points. Mirror selections instead of passing them per-call when many fetches need them — single source of truth on the view-model, engine holds a synced copy. Move `fetchedHealthDataSourcePermissionRawValue`-style caches with the data they guard, not with the publisher. Return new state from engine methods that previously wrote `@Published` directly so the view-model decides when to publish.
+
+### 2026-05-18 - Defer first-frame recovery recompute and offload JSON saves with `Task.detached`
+- Context: Cold launch ran `HealthDashboardSnapshot.filtered(by:)` inside `HealthKitWorkoutStore.init`, which transitively called `recalculatingRecovery(calendar:)` — a per-day iteration over up to ~365 trend points × multi-metric baselines, on the main thread, before the first frame could paint. Every successful refresh also re-ran the same recompute synchronously in `updateHealthDashboardSnapshot`, then JSON-encoded ~100 KB and atomic-wrote to disk (twice for dashboard + workouts) plus called `WidgetCenter.shared.reloadAllTimelines()` (XPC round-trip), all on the main actor.
+- Symptom: First frame stalled noticeably at cold launch; refresh felt frozen for ~10 s on Apple Watch users even though HK queries themselves dispatched off-main.
+- Cause: `recalculatingRecovery` and `JSONEncoder.encode` + `Data.write(to:options:[.atomic])` are CPU/disk-heavy and were tied to the main actor by virtue of being inline inside `@MainActor` methods.
+- Fix:
+  - Added `HealthDashboardSnapshot.filteredWithoutRecoveryRecompute(by:)` and used it in `HealthKitWorkoutStore.init` so the cached `summary.recovery` value from disk is preserved through filtering. The next refresh recomputes it on a background thread.
+  - Made `updateHealthDashboardSnapshot` `async`. Wrapped the filter+`recalculatingRecovery` chain in `Task.detached(priority: .userInitiated)` and awaited the result before publishing. Wrapped `HealthDashboardSnapshotStore.save(...)` + `saveSecondarySelectionSignature(...)` in `Task.detached(priority: .utility)` (fire-and-forget; in-memory state is already updated when the disk write starts).
+  - Made `updateCurrentMonthSnapshot` capture the snapshots and run `WorkoutSnapshotStore.save` / `savePrevious` + `WidgetCenter.shared.reloadAllTimelines()` inside `Task.detached(.utility)`.
+  - Made `applyPermissionSelectionToCachedData` `async` with the same pattern.
+  - Single-metric Recovery refresh in `fetchHealthDashboardSnapshot` wraps its `.recalculatingRecovery(...)` in `Task.detached(.userInitiated)`.
+- Tradeoff: Brief few-ms window during refresh where in-memory state is updated but the disk JSON hasn't been written yet. If the app is force-quit in that window, the next launch reads the slightly older cached snapshot — re-derived on the next refresh, no user-visible impact.
+- Reuse: For `@MainActor` view-models that have day-by-day baseline recomputes or JSON-on-disk caches firing inside refresh paths, lift them into `Task.detached` (`.userInitiated` for compute, `.utility` for I/O). Pass value-typed snapshots into the detached closure to avoid main-actor hops inside. Skip the recompute at init if the cached value was correct when written and the next refresh will refresh it anyway.
+
 ### 2026-05-18 - Prefer HKStatisticsCollectionQuery over HKSampleQuery for daily-aggregated trends
 - Context: Dashboard refresh ran ~30 daily trend queries in parallel and took 15–20 s. `fetchDailyQuantitySeries` and `fetchDailyQuantityRangeSeries` issued `HKSampleQuery(limit: HKObjectQueryNoLimit)` over a 365-day window and grouped results in-app.
 - Symptom: For heart rate alone, ~50,000 raw samples per refresh crossed the HK IPC boundary just to compute 365 daily averages.
@@ -40,268 +103,8 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 - Fix: `HealthKitWorkoutStore` keeps a `refreshCompletionContinuations: [CheckedContinuation<Void, Never>]`. Refresh `defer` blocks call `finishRefresh()` which flips `isRefreshing = false` *and* resumes all waiters. Waiters use `awaitNextRefreshCompletion()` instead of the polling loop.
 - Reuse: When code awaits a state change on a `@MainActor` observable, accumulate `CheckedContinuation`s in a list and resume them all in the producer's `defer` — cleaner and avoids the busy-wait/stall trade-off.
 
-### 2026-05-15 - Use temporary DerivedData for renamed XCTest cases
-- Context: Renaming focused `WorkoutMonthSnapshotTests` while validating aggregate chart bucket behavior.
-- Symptom: `xcodebuild -only-testing` against the default DerivedData path reported success but ran stale old test method names.
-- Cause: The default Xcode DerivedData test bundle had stale XCTest discovery after the rename.
-- Fix: Re-run with `-derivedDataPath /private/tmp/body-test-derived CODE_SIGNING_ALLOWED=NO` so the test bundle rebuilds from current sources.
-- Reuse: When renamed Swift tests do not appear in `xcodebuild` output, switch to the project temporary DerivedData path before trusting the result.
+## Archive
 
-### 2026-05-15 - Drop final partial chart buckets
-- Context: Fixing overlap between the final two bars in long-range metric charts.
-- Symptom: Six-month/year bar and range charts showed the final partial bucket almost on top of the previous fixed-width bar.
-- Cause: `HealthTrendSeries.chartCalendarPoints` and `HealthTrendRangeSeries.chartCalendarPoints` plotted aggregated buckets at `bucketEndDate`; the final partial bucket ends only a few days after the previous full bucket.
-- Fix: Drop the final short bucket, then plot each full aggregate at `bucketEndDate` while preserving `startDate`/`endDate` for selection labels.
-- Reuse: When long-range charts use aggregated buckets with fixed-width marks, avoid rendering a tiny final partial bucket as its own bar.
+Older entries (2026-05-10 through 2026-05-15) have been moved to [`docs/LessonsLearnedArchive.md`](docs/LessonsLearnedArchive.md) to keep this file scannable. Topics archived so far include: HealthKit cumulative-energy aggregation, `HKActivitySummary` calendar requirements, `HKWorkoutActivityType` test unwrapping, async authorization status API, Activity Rings pagination/synthesis rules, sleep-day bucketing and partial-minute formatting, Swift Charts axis/value gotchas, `LazyVGrid` span limitations, app-group `UserDefaults` guards, computed-property/`some View` return-statement rules, simulator/CoreSimulator/DerivedData build workarounds, and the chart-source-shape configuration tests.
 
-### 2026-05-13 - Anchor Swift Charts patches to the specific chart struct
-- Context: Disabling range-transition animation in `BodyHomeView.swift`.
-- Symptom: A generic patch for `.chartXSelection(...).simultaneousGesture(...)` landed on the day chart, causing `cannot find 'selectedRange' in scope`.
-- Cause: Several chart structs share identical modifier chains but only the range-based charts have `selectedRange`.
-- Fix: Re-read nearby line numbers and patch with anchors from the intended chart struct before rerunning `rtk xcodebuild`.
-- Reuse: When editing repeated Swift Charts modifier chains, anchor patches by the surrounding struct or helper names, not only the shared modifier sequence.
-
-### 2026-05-12 - Compile BodyTests with build-for-testing outside sandbox when CoreSimulator blocks tests
-- Context: Adding model tests for selected-day Health metric series while CoreSimulator was unavailable.
-- Symptom: `xcodebuild test` failed before compiling tests with no matching simulator, and sandboxed `build-for-testing` failed during asset catalog work with simulator-runtime errors.
-- Cause: The local simulator service was unavailable to sandboxed Xcode tooling, but generic iphoneos test-target compilation could still run outside the sandbox.
-- Fix: Use `xcodebuild build-for-testing -project body.xcodeproj -scheme Body -destination generic/platform=iOS -derivedDataPath /private/tmp/body-test-derived CODE_SIGNING_ALLOWED=NO` outside the sandbox to verify the app and test targets compile.
-- Reuse: When a model/UI change adds tests but simulator execution is blocked before Swift compilation, use outside-sandbox `build-for-testing` as the strongest available test compile gate.
-
-### 2026-05-12 - Use generic build when CoreSimulator runtimes are unavailable
-- Context: Verifying the v0.2.6 Issues.md fix pass with `xcodebuild test` and `build-for-testing`.
-- Symptom: Simulator test commands failed before running tests with CoreSimulator connection errors and no available simulator runtimes; sandboxed generic builds also failed Swift preview macros with `sandbox_apply: Operation not permitted`.
-- Cause: The local CoreSimulator service/runtime state was unavailable to xcodebuild, and Swift preview macro compilation needed to run outside the Codex sandbox.
-- Fix: Rerun `xcodebuild -project body.xcodeproj ... build` outside the sandbox on `generic/platform=iOS` for compile/product verification, and report that simulator tests were blocked by CoreSimulator.
-- Reuse: If simulator test or test-build commands fail before compiling source with CoreSimulator/runtime errors, use the generic iOS build gate for source verification and retry simulator tests only after the simulator service is repaired.
-
-### 2026-05-12 - Do not synthesize unloaded Activity Ring calendar months
-- Context: Fixing Activity Rings history where months just beyond the recent three rendered as empty rings before the user paged into them.
-- Symptom: The recent three months had data, but the calendar still showed empty template months between loaded history ranges.
-- Cause: `ActivityRingHistorySnapshot.calendarMonths` filled every month between the oldest loaded data and the current month instead of rendering only loaded month keys.
-- Fix: Build calendar months from loaded/data month starts only, add a newest-month display limit for the detail view, and reveal or fetch one older loaded month per user upward scroll.
-- Reuse: For lazy Activity Rings history, separate loaded data from visible history; never create intermediate calendar sections unless their month key has actually been loaded.
-
-### 2026-05-12 - Keep Activity Ring month loads inside requested months
-- Context: Fixing Activity Rings calendar months that kept only day 1 after loading older history.
-- Symptom: Loading January could leave February with only February 1, and later dates rendered as empty start rings.
-- Cause: HealthKit activity-summary ranges can include boundary days, and `replacingLoadedMonths` inferred replacement months from returned day dates instead of the explicit loaded month keys.
-- Fix: End one-month fetches on the last day of the month, filter fetched days to explicit `ActivityRingMonthKey`s, replace only explicit loaded months, and repair cached boundary-truncated months on store startup.
-- Reuse: When extending Activity Rings history loading, treat `loadedMonthKeys` as the source of truth and avoid inferring replacement scope from returned `HKActivitySummary` day dates.
-
-### 2026-05-12 - Gate Activity Rings calendar pagination on user scrolls
-- Context: The Activity Rings calendar loaded older months through `LazyVStack` section `onAppear`.
-- Symptom: The calendar could show many older months as empty rings even though the user had not intentionally paged to them.
-- Cause: `LazyVStack` may prefetch offscreen sections, so an oldest-month `onAppear` can run during initial layout or programmatic scroll-to-current-month.
-- Fix: Track a user-scroll token and allow only one previous-month load per scroll gesture; keep loaded empty months available for pagination but do not display leading empty placeholder months.
-- Reuse: For SwiftUI lazy scroll pagination, pair `onAppear` with an explicit user gesture/scroll gate before starting network or HealthKit loads.
-
-### 2026-05-12 - Keep build number tests in sync with project bumps
-- Context: Bumping Body's Xcode build number in `body.xcodeproj/project.pbxproj`.
-- Symptom: The full `xcodebuild test` run passed the app code tests but failed `ProjectConfigurationTests.testProjectBuildSettingsMatchInitialReleasePlan`.
-- Cause: The configuration test asserts the literal `CURRENT_PROJECT_VERSION` value.
-- Fix: Update `BodyTests/ProjectConfigurationTests.swift` in the same change when bumping `CURRENT_PROJECT_VERSION`.
-- Reuse: Any time the app or widget build number changes, update the project configuration expectation before rerunning the suite.
-
-### 2026-05-11 - Avoid persistent opacity state for drag styling
-- Context: Home card reordering left the last dragged card visibly darker after dropping.
-- Symptom: A card such as Resting Energy stayed dimmed after reorder completed.
-- Cause: `draggedHomeCard` could remain set when a drop finished on a gap or empty slot, so `.opacity(0.55)` kept applying to the last dragged card.
-- Fix: Remove custom opacity/scale styling from `reorderableHomeCard` and rely on the system drag preview for active drag feedback.
-- Reuse: For SwiftUI drag/drop reorder surfaces, avoid persistent state-driven opacity unless every cancel/drop path is guaranteed to clear the state.
-
-### 2026-05-11 - Do not rely on `gridCellColumns` in `LazyVGrid`
-- Context: Fixing Home card reordering after Activity Rings appeared as a narrow one-column card beside Sleep.
-- Symptom: `.gridCellColumns(2)` was applied to the Activity Rings card, but `LazyVGrid` still laid it out in a single metric-card slot.
-- Cause: The span modifier was not producing a real two-column item in this `LazyVGrid` layout.
-- Fix: Build explicit two-slot Home rows with `VStack`/`HStack`, and model Activity Rings as a two-slot card in `BodyHomeCardKind.layoutRows`.
-- Reuse: When a SwiftUI card must span Home's two metric columns, use explicit row composition or `Grid`, not `LazyVGrid` plus `gridCellColumns`.
-
-### 2026-05-11 - Avoid `value` helper names inside Swift Charts axis closures
-- Context: Building a dual-axis Swift Charts card for Basics.
-- Symptom: `xcodebuild test` failed with `Cannot call value of non-function type 'AxisValue'`.
-- Cause: The `AxisMarks` closure parameter named `value` shadowed a local helper function also named `value`.
-- Fix: Rename the helper to a specific name such as `denormalizedValue`.
-- Reuse: In Swift Charts axis closures, avoid generic helper names that can collide with `AxisValue`.
-
-### 2026-05-11 - Set a calendar on HealthKit activity summary date components
-- Context: Probing and implementing `HKActivitySummaryQuery` for Home Activity Rings.
-- Symptom: `HKQuery.predicateForActivitySummary(with:)` crashed in a Swift SDK probe with `Date components require a calendar.`
-- Cause: HealthKit activity summary predicates require `DateComponents.calendar` to be set, not just year/month/day values.
-- Fix: Build the components from the app calendar and assign `dateComponents.calendar = calendar` before creating the predicate.
-- Reuse: When querying `HKActivitySummary`, always include the calendar on the day components.
-
-### 2026-05-11 - Keep sleep duration display from rounding down partial minutes
-- Context: Matching Body's Sleep card to Apple Health's displayed sleep duration.
-- Symptom: Body could show `7h 20m` while Health showed `7h 21m` for the same sleep session.
-- Cause: The shared `BodyValueFormat.durationText(for:)` rounds seconds to the nearest minute, which can round a partial sleep minute down.
-- Fix: Use `BodyValueFormat.sleepDurationText(for:)` for Sleep card/detail display so partial HealthKit sleep minutes are counted instead of hidden.
-- Reuse: When formatting sleep durations, use the sleep-specific formatter; keep the generic duration formatter for workout durations.
-
-### 2026-05-11 - Give daily Swift Charts date marks an explicit unit
-- Context: Checking runtime console warnings after adding recent-month Health metric charts.
-- Symptom: Swift Charts logged `Falling back to a fixed dimension size for a mark`.
-- Cause: Date-based chart marks were plotted without declaring their daily time unit, which is especially noisy for bar marks.
-- Fix: Use `.value("Date", point.date, unit: .day)` for daily LineMark, PointMark, and BarMark x-values.
-- Reuse: When plotting daily HealthKit trend points in Swift Charts, include `unit: .day` on date x-values before tuning bar widths or chart domains.
-
-### 2026-05-11 - Use HealthKit statistics for cumulative energy charts
-- Context: Comparing Body's Resting Energy card against Apple Health's weekly Resting Energy chart.
-- Symptom: Body showed Resting Energy totals around 2-3x higher than Apple Health for the same days.
-- Cause: Body manually summed raw `HKQuantitySample` values from `HKSampleQuery` and grouped them by sample end date; cumulative HealthKit quantities should be bucketed through statistics queries for daily totals.
-- Fix: Use `HKStatisticsCollectionQuery` with `.cumulativeSum` for Active Energy and Resting Energy daily series and current-day summary values.
-- Reuse: For cumulative HealthKit quantities such as energy, steps, and distance, prefer daily `HKStatisticsCollectionQuery` buckets over manually summing raw samples.
-
-### 2026-05-11 - Align Sleep summary with Health's sleep-day bucket
-- Context: Comparing Body's Sleep detail with Apple Health's Day sleep screen.
-- Symptom: Body could show a slightly different Sleep headline and had no stage timeline to compare against Health's REM/Core/Deep/Awake chart.
-- Cause: Body built the Sleep summary from asleep-only samples in a latest-session window, while Apple Health's Day screen presents a sleep-day bucket with staged samples.
-- Fix: Group sleep-analysis samples by end-date day, compute Time Asleep from asleep stages only, and keep today's Awake/REM/Core/Deep segments for the Sleep detail timeline.
-- Reuse: When matching Apple Health Sleep Day views, use the same sleep-day bucket for the headline and stage visualization; exclude Awake from duration but keep it in the timeline.
-
-### 2026-05-10 - Treat RunningBoard process-state console spam as simulator noise
-- Context: Checking Xcode console logs showing `RBServiceErrorDomain Code=1 "Client not entitled"`, `com.apple.runningboard.process-state`, `elapsedCPUTimeForFrontBoard couldn't generate a task port`, and `com.apple.mobile.usermanagerd.xpc`.
-- Symptom: The console repeats entitlement/task-port errors even though Body has no code requesting RunningBoard process state.
-- Cause: These are Simulator/Xcode system-service diagnostics, not app-level HealthKit, WidgetKit, or SwiftUI failures.
-- Fix: Confirm there is no app call site for RunningBoard/process-state APIs and that build/tests still pass; do not change app code for this log alone.
-- Reuse: When the app behaves normally and these strings appear without a Body stack trace or crash, treat them as non-actionable simulator logs.
-
-### 2026-05-10 - Use async HealthKit authorization status API on current SDK
-- Context: Fixing Body's HealthKit authorization-state handling with `statusForAuthorizationRequest`.
-- Symptom: `xcodebuild build` failed with `extra trailing closure passed in call` when using the older callback-style API.
-- Cause: The current iOS SDK exposes `statusForAuthorizationRequest(toShare:read:)` as an async throwing call.
-- Fix: Call `try await healthStore.statusForAuthorizationRequest(toShare:read:)` directly instead of wrapping a completion handler.
-- Reuse: When bridging HealthKit authorization status in this project, prefer the native async API before adding continuations.
-
-### 2026-05-10 - Use build verification when simulator test launch is busy
-- Context: Verifying Body after adding medium Workout Types widget support.
-- Symptom: `xcodebuild test` compiled targets but failed to launch the test runner with `Application failed preflight checks` and `BSErrorCodeDescription = Busy`.
-- Cause: The selected simulator can be temporarily busy even after the Swift build succeeds.
-- Fix: Retry once; if it remains busy, run `xcodebuild build` on the same destination to verify compile/product integration and report the simulator-launch limitation separately.
-- Reuse: When repeated test runs fail only at simulator app launch with `Busy`, do not chase source changes; use build verification and rerun tests when Simulator is available.
-
-### 2026-05-10 - In-app charts may diverge from widget styling
-- Context: User asked to stop 100% matching widget and in-app chart styling, then requested Coin's solid dark gray in-app chart card background.
-- Symptom: Previous guidance pushed the Charts tab toward the widget gradient background even when the desired in-app look was Coin's solid card surface.
-- Cause: Widget and in-app charts share chart components but should not always share wrapper backgrounds.
-- Fix: Use Coin-style solid card backgrounds for in-app chart panels while leaving widget backgrounds untouched.
-- Reuse: When styling Body charts, confirm whether the request targets widget, in-app, or both before applying shared wrapper changes.
-
-### 2026-05-10 - Use installed simulator names for Body tests
-- Context: Verifying Body with `xcodebuild test` after adding chart month history.
-- Symptom: The command failed with `Unable to find a device matching the provided destination specifier` for `iPhone 16 Pro`.
-- Cause: This machine currently has iOS 26.4.1 simulators such as `iPhone 17 Pro`, not `iPhone 16 Pro`.
-- Fix: Rerun with `-destination 'platform=iOS Simulator,name=iPhone 17 Pro'`.
-- Reuse: If a simulator destination fails, read the available destinations in the `xcodebuild` error and retry with an installed iPhone simulator.
-
-### 2026-05-10 - Keep in-app charts and widgets visually aligned
-- Context: User clarified that the Workout Types widget now matches the intended Coin-style layout, but the in-app Charts version drifted.
-- Symptom: Fixes to the widget and in-app chart surfaces can diverge if they are edited independently.
-- Cause: The widget and Charts tab reuse related components but have separate wrappers, backgrounds, padding, and style arguments.
-- Fix: When editing `WorkoutCalendarView`, `WorkoutTypeBreakdownView`, `BodyChartsView`, or `WorkoutCalendarWidget`, compare both the widget and in-app chart presentations and update both wrappers/styles together.
-- Reuse: Before finalizing any visual change to Body's workout calendar or workout type breakdown, verify the paired widget and Charts tab remain intentionally aligned.
-
-### 2026-05-10 - Unwrap synthetic HealthKit activity raw values in tests
-- Context: Adding tests for unsupported `HKWorkoutActivityType` raw values while expanding Body workout recognition.
-- Symptom: `xcodebuild test` failed with `Value of optional type 'HKWorkoutActivityType?' must be unwrapped`.
-- Cause: Swift imports `HKWorkoutActivityType(rawValue:)` as a failable initializer even for numeric values that can represent unknown future HealthKit cases.
-- Fix: Use `XCTUnwrap(HKWorkoutActivityType(rawValue:))` before passing the activity type into the mapper.
-- Reuse: When testing unknown HealthKit enum raw values, unwrap the failable initializer explicitly.
-
-### 2026-05-10 - Type HealthKit void continuations explicitly
-- Context: Building the first Body HealthKit workout reader with `withCheckedThrowingContinuation`.
-- Symptom: `xcodebuild test` failed in `HealthKitWorkoutStore.swift` with `Generic parameter 'T' could not be inferred`.
-- Cause: The authorization bridge resumes with no return value, so Swift could not infer the continuation's `Void` success type.
-- Fix: Declare the closure parameter as `CheckedContinuation<Void, Error>`.
-- Reuse: Apply this whenever wrapping callback APIs that only report success/failure and do not return a value.
-
-### 2026-05-10 - Break up SwiftUI-adjacent collection chains
-- Context: Restyling the shared workout calendar and computing the dominant workout type for the widget header.
-- Symptom: `xcodebuild test` failed in `WorkoutCalendarView.swift` with `The compiler is unable to type-check this expression in reasonable time`.
-- Cause: A chained `map`/`filter`/`sorted` expression over enum cases created too much inference work inside a SwiftUI-heavy file.
-- Fix: Replace the chain with an explicit dictionary-count loop and `max` comparison.
-- Reuse: When SwiftUI files hit type-check timeouts, simplify helper expressions before changing view structure.
-
-### 2026-05-10 - Patch docs from the live file
-- Context: Updating README/TestPlan/VersionHistory after earlier implementation rounds.
-- Symptom: A combined `apply_patch` failed because the README text in the working tree no longer matched the summarized context.
-- Cause: Documentation had already been expanded from its original placeholder, so the stale patch anchor was wrong.
-- Fix: Re-read the current docs, then patch against exact live snippets.
-- Reuse: Before editing files that may have changed across turns, read the current file instead of relying on the conversation summary.
-
-### 2026-05-10 - Validate asset catalog JSON with a JSON parser
-- Context: Checking newly added `.xcassets` `Contents.json` files.
-- Symptom: `plutil -lint` reported `Unexpected character { at line 1` even though Xcode had already built the asset catalog successfully.
-- Cause: These asset catalog files are JSON, not XML property lists.
-- Fix: Use `rtk node -e` with `JSON.parse` for quick JSON validation.
-- Reuse: When validating `.xcassets/Contents.json`, prefer a JSON parser; rely on `xcodebuild` for asset catalog integration.
-
-### 2026-05-10 - Keep `rtk find` predicates simple
-- Context: Looking for a referenced sibling project under the local Code folder.
-- Symptom: `rtk find` rejected a command with grouped `-iname` predicates and `-o`.
-- Cause: The wrapped `find` implementation supports only simple predicates.
-- Fix: Use a simple `rtk find <path> -maxdepth <n> -type d` and filter the output separately.
-- Reuse: When searching project folders through `rtk`, avoid compound `find` expressions.
-
-### 2026-05-10 - Use stable indices for duplicate weekday glyphs
-- Context: Debugging SwiftUI warnings from the workout calendar header.
-- Symptom: Runtime logs said `ForEach<Array<String>, String...>: the ID T occurs multiple times` and the same for `S`.
-- Cause: Very-short weekday symbols contain duplicate letters (`S` and `T`), but the header used `id: \.self`.
-- Fix: Iterate over `symbols.indices` and use the index as the stable ID.
-- Reuse: Any SwiftUI `ForEach` over non-unique display strings should use a stable index or model ID, not `\.self`.
-
-### 2026-05-10 - Guard App Group defaults before opening the suite
-- Context: Debugging `CFPrefsPlistSource` warnings for `group.com.zihengthedeveloper.Body`.
-- Symptom: Runtime logs warned that `kCFPreferencesAnyUser` with a container is only allowed for system containers.
-- Cause: The app group container can be unavailable in previews or mis-signed debug runs, leaving CFPreferences with a null container.
-- Fix: Check `FileManager.default.containerURL(forSecurityApplicationGroupIdentifier:)` before creating `UserDefaults(suiteName:)`; previews return `nil` and use the placeholder snapshot path.
-- Reuse: Guard app group storage before opening shared defaults when code also runs in previews, tests, or extensions.
-
-### 2026-05-10 - Add explicit returns after computed-property guard statements
-- Context: Adding guard logic to `WorkoutSnapshotStore.sharedUserDefaults`.
-- Symptom: `xcodebuild test` failed with `Missing return in getter expected to return 'UserDefaults?'`.
-- Cause: Once a computed property body contains multiple statements, Swift needs an explicit `return` for the final value.
-- Fix: Change the final `UserDefaults(suiteName:)` expression to `return UserDefaults(suiteName:)`.
-- Reuse: When converting one-expression computed properties into guarded blocks, make the final return explicit.
-
-### 2026-05-10 - Add explicit returns in `some View` helpers with local bindings
-- Context: Capturing weekday symbols in a local `let` before returning an `HStack`.
-- Symptom: `xcodebuild test` failed with `Function declares an opaque return type, but has no return statements`.
-- Cause: A `some View` function with local statements needs an explicit `return` for the final view expression.
-- Fix: Use `return HStack(...)` after the local binding.
-- Reuse: When adding local constants to non-`@ViewBuilder` `some View` helpers, make the returned view explicit.
-
-### 2026-05-10 - Qualify nested static snapshots in typed initializers
-- Context: Building `HealthSummarySnapshot` from optional HealthKit query results.
-- Symptom: `xcodebuild test` failed with `Type 'SleepSummary' has no member 'empty'` and similar errors for `HealthMetricSummary`.
-- Cause: In a `HealthSummarySnapshot(...)` initializer argument, `.empty.sleep` was inferred from the argument type instead of the containing snapshot type.
-- Fix: Use `HealthSummarySnapshot.empty.sleep` and the fully qualified metric paths.
-- Reuse: When accessing a static aggregate fixture from inside a typed initializer, qualify the root type instead of relying on shorthand member lookup.
-
-### 2026-05-14 - Update chart source-shape tests when adding chart marks
-- Context: Adding the Heart Rate range chart and day-view sleep/workout overlays in `Body/Views/BodyHomeView.swift`.
-- Symptom: The full `rtk xcodebuild test` run passed compilation but failed `ProjectConfigurationTests.testAggregatedHealthChartsWireRangeLabelsAndBarWidths` and `testHealthMetricChartSelectionAnnotationsFitWithinChartEdges`.
-- Cause: Those tests count chart annotation overflow wiring, selected-date label wiring, and fixed bar-width occurrences in source text.
-- Fix: Update the source-shape assertions alongside intentional new chart annotations or fixed-width bar marks, then rerun the focused `ProjectConfigurationTests`.
-- Reuse: Before adding a new Swift Charts view or annotation in `BodyHomeView.swift`, check `ProjectConfigurationTests` for count-based chart wiring guards.
-
-### 2026-05-15 - Complete Notion MCP OAuth after 2FA
-- Context: Repairing Codex access to the hosted Notion MCP server.
-- Symptom: `codex mcp list` showed the Notion server enabled at `https://mcp.notion.com/mcp`, but no Notion/MCP entry appeared in `~/.codex/auth.json`.
-- Cause: The Notion OAuth flow needed a browser login and two-step verification before the local callback could finish.
-- Fix: Run `codex mcp login notion`, open the authorization URL in Chrome, complete Notion 2FA, then reopen the authorization URL if Chrome lands on a workspace page instead of the callback.
-- Reuse: When Notion MCP is configured but unauthenticated, prefer rerunning the hosted OAuth login before editing the MCP config.
-
-### 2026-05-14 - Resolve day-chart context by selected metric day
-- Context: Fixing Heart Rate Day View sleep overlays and selection labels.
-- Symptom: Sleep time frames appeared for today but disappeared on prior metric days, while selected heart-rate annotations listed too many raw samples.
-- Cause: The overlay read `selectedSleepSummary`, which is coupled to the sleep picker date, and the annotation rendered every raw sample in the selected hourly bucket.
-- Fix: Resolve sleep context with `sleepSummary(for: selectedMetricDay)` and summarize selected hourly heart-rate samples into fixed 10-minute windows before rendering details.
-- Reuse: When a detail chart mixes sleep/workout context with another metric, derive context from the chart's selected day and keep selection annotations scoped to the selected chart bucket.
-
-### 2026-05-15 - Avoid shadowing calculator helpers inside reducers
-- Context: Adding `TrainingLoadCalculator.summary(on:from:calendar:)` in `Body/Models/HealthSummarySnapshot.swift`.
-- Symptom: `xcodebuild test` failed with `Cannot call value of non-function type 'Int'` at `load(for: workout)`.
-- Cause: A local reducer accumulator named `load` shadowed the static `load(for:)` helper in the same type.
-- Fix: Rename the accumulated value to `totalLoad` before calling `load(for:)`.
-- Reuse: When static calculators use verb-like helper names, avoid reusing those names for local totals inside closures.
+**Before a large or risky edit** (refactoring `HealthKitWorkoutStore` / `HealthKitFetchEngine`, touching activity-ring pagination or sleep aggregation, restructuring SwiftUI chart code, changing HealthKit authorization or query plumbing, or bumping project build numbers), grep the archive for the area you're touching — those gotchas still apply to the current codebase even though they're not on this page.
