@@ -361,22 +361,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("private struct BodyActivityRingHeadPosition: GeometryEffect"))
         XCTAssertTrue(source.contains("var animatableData: Double"))
         XCTAssertTrue(arcBlock.contains(".modifier(BodyActivityRingHeadPosition(progress: animatedHeadProgress, radius: radius))"))
-        XCTAssertTrue(arcBlock.contains("BodyActivityRingAnimationProgress.rollbackStartProgress("))
-        XCTAssertTrue(arcBlock.contains("setAnimatedProgress(rollbackStart, animation: nil)"))
-    }
-
-    func testActivityRingRollbackStartsOverGoalHeadsFromCompletedCircle() {
-        XCTAssertEqual(
-            BodyActivityRingAnimationProgress.rollbackStartProgress(from: 1.34, to: 0),
-            1
-        )
-        XCTAssertEqual(
-            BodyActivityRingAnimationProgress.rollbackStartProgress(from: 2.1, to: -0.2),
-            1
-        )
-        XCTAssertNil(BodyActivityRingAnimationProgress.rollbackStartProgress(from: 0.8, to: 0))
-        XCTAssertNil(BodyActivityRingAnimationProgress.rollbackStartProgress(from: 0, to: 1.34))
-        XCTAssertNil(BodyActivityRingAnimationProgress.rollbackStartProgress(from: 1.34, to: 0.2))
+        XCTAssertTrue(arcBlock.contains("setAnimatedProgress(nextProgress, animation: animation)"))
     }
 
     func testSupportedMetricDetailScreensExposeSwitchableDataSources() throws {

@@ -6528,7 +6528,22 @@ private struct BodyHeartRateRangeTrendChart: View {
                     }
                 }
             }
+
+            if let selectedRangePoint {
+                ForEach(selectedAverageEntries(for: selectedRangePoint.date)) { entry in
+                    PointMark(
+                        x: .value("Selected Date", entry.date, unit: .day),
+                        y: .value("Average \(title)", entry.value)
+                    )
+                    .foregroundStyle(color(for: entry))
+                    .symbolSize(82)
+                }
+            }
         }
+    }
+
+    private func selectedAverageEntries(for date: Date) -> [BodyHeartRateRangeAverageEntry] {
+        averageEntries.filter { $0.date == date }
     }
 
     private var selectedRangePoint: HealthTrendRangeCalendarPoint? {
