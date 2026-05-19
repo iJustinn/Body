@@ -274,7 +274,12 @@ final class HealthKitWorkoutStore: ObservableObject {
                 trends: healthTrends,
                 activityRingHistory: activityRingHistory
             )
-            let metricSnapshot = await engine.fetchHealthDashboardSnapshot(for: kind, calendar: calendar, existing: existing)
+            let metricSnapshot = await engine.fetchHealthDashboardSnapshot(
+                for: kind,
+                calendar: calendar,
+                existing: existing,
+                idealSleepDuration: Self.storedIdealSleepDuration()
+            )
             let nextSummary = healthSummary.replacingMetric(kind, with: metricSnapshot.summary)
             let nextTrends = healthTrends.replacingMetric(kind, with: metricSnapshot.trends)
             await updateHealthDashboardSnapshot(
@@ -1019,6 +1024,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         let calendar = Calendar.bodyGregorian
         let anchorDate = await engine.healthTrendAnchorDate ?? Date()
         let permissionSelection = self.permissionSelection
+        let idealSleepDuration = Self.storedIdealSleepDuration()
         let rawSnapshot = HealthDashboardSnapshot(
             summary: summary,
             trends: trends,
@@ -1030,8 +1036,12 @@ final class HealthKitWorkoutStore: ObservableObject {
         // baselines). Run them off the main actor.
         let filteredSnapshot = await Task.detached(priority: .userInitiated) {
             rawSnapshot
-                .filtered(by: permissionSelection)
-                .recalculatingRecovery(on: anchorDate, calendar: calendar)
+                .filtered(by: permissionSelection, idealSleepDuration: idealSleepDuration)
+                .recalculatingRecovery(
+                    on: anchorDate,
+                    idealSleepDuration: idealSleepDuration,
+                    calendar: calendar
+                )
         }.value
 
         let nextActivityRingHistory = self.activityRingHistory.replacingLoadedMonths(
@@ -1067,9 +1077,10 @@ final class HealthKitWorkoutStore: ObservableObject {
             activityRingHistory: activityRingHistory
         )
         let permissionSelection = self.permissionSelection
+        let idealSleepDuration = Self.storedIdealSleepDuration()
 
         let filteredSnapshot = await Task.detached(priority: .userInitiated) {
-            rawSnapshot.filtered(by: permissionSelection)
+            rawSnapshot.filtered(by: permissionSelection, idealSleepDuration: idealSleepDuration)
         }.value
 
         healthSummary = filteredSnapshot.summary
@@ -1156,6 +1167,20 @@ final class HealthKitWorkoutStore: ObservableObject {
             authorizationState = .failed(error.localizedDescription)
         }
         healthDataNotice = error.localizedDescription
+    }
+
+    nonisolated static func storedIdealSleepDuration(
+        defaults: UserDefaults = .standard
+    ) -> TimeInterval {
+        // `@AppStorage` writes the raw `Int` (minutes) for this key, but
+        // `BodySettingsView` may never have been opened — in which case the
+        // value is absent and `integer(forKey:)` returns 0. Treat 0 as
+        // "unset" and fall back to the default goal.
+        let storedMinutes = defaults.integer(forKey: BodyAppearancePreference.sleepDurationGoalMinutesKey)
+        guard storedMinutes > 0 else {
+            return BodySleepDurationGoal.defaultDuration
+        }
+        return BodySleepDurationGoal.duration(from: storedMinutes)
     }
 
     private static func recentMonthKeys(

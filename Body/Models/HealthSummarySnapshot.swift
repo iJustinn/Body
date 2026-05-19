@@ -1508,9 +1508,12 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         ) ?? .empty
     }
 
-    func filtered(by selection: BodyHealthPermissionSelection) -> HealthDashboardSnapshot {
+    func filtered(
+        by selection: BodyHealthPermissionSelection,
+        idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration
+    ) -> HealthDashboardSnapshot {
         filteredWithoutRecoveryRecompute(by: selection)
-            .recalculatingRecovery(calendar: .bodyGregorian)
+            .recalculatingRecovery(idealSleepDuration: idealSleepDuration, calendar: .bodyGregorian)
     }
 
     func filteredWithoutRecoveryRecompute(by selection: BodyHealthPermissionSelection) -> HealthDashboardSnapshot {
@@ -1523,6 +1526,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
 
     func recalculatingRecovery(
         on date: Date = Date(),
+        idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
         calendar: Calendar = .bodyGregorian
     ) -> HealthDashboardSnapshot {
         var next = self
@@ -1530,6 +1534,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             on: date,
             healthSummary: next.summary,
             trends: next.trends,
+            idealSleepDuration: idealSleepDuration,
             calendar: calendar
         )
 
@@ -1544,6 +1549,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             trends: next.trends,
             startDate: startDate,
             endDate: scoreDay,
+            idealSleepDuration: idealSleepDuration,
             calendar: calendar
         )
 

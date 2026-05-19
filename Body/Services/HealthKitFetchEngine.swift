@@ -2238,7 +2238,8 @@ actor HealthKitFetchEngine {
     func fetchHealthDashboardSnapshot(
         for kind: HealthMetricKind,
         calendar: Calendar,
-        existing: HealthDashboardSnapshot
+        existing: HealthDashboardSnapshot,
+        idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration
     ) async -> HealthDashboardSnapshot {
         var summary = HealthSummarySnapshot.empty
         var trends = HealthTrendSnapshot.empty
@@ -2247,7 +2248,11 @@ actor HealthKitFetchEngine {
             let baseSnapshot = existing
             let anchor = anchorDate ?? Date()
             return await Task.detached(priority: .userInitiated) {
-                baseSnapshot.recalculatingRecovery(on: anchor, calendar: calendar)
+                baseSnapshot.recalculatingRecovery(
+                    on: anchor,
+                    idealSleepDuration: idealSleepDuration,
+                    calendar: calendar
+                )
             }.value
         }
 

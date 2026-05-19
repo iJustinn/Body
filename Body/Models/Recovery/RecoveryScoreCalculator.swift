@@ -31,11 +31,18 @@ enum RecoveryScoreCalculator {
         on date: Date,
         healthSummary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
+        idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
         calendar: Calendar = .bodyGregorian
     ) -> RecoverySummary {
         let componentResults = [
             autonomicComponent(on: date, trends: trends, calendar: calendar),
-            sleepComponent(on: date, healthSummary: healthSummary, trends: trends, calendar: calendar),
+            sleepComponent(
+                on: date,
+                healthSummary: healthSummary,
+                trends: trends,
+                idealSleepDuration: idealSleepDuration,
+                calendar: calendar
+            ),
             trainingComponent(on: date, trends: trends, calendar: calendar),
             vitalsComponent(on: date, trends: trends, calendar: calendar)
         ].compactMap { $0 }
@@ -124,6 +131,7 @@ enum RecoveryScoreCalculator {
         trends: HealthTrendSnapshot,
         startDate: Date,
         endDate: Date,
+        idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
         calendar: Calendar = .bodyGregorian
     ) -> HealthTrendSeries {
         var points: [HealthTrendDataPoint] = []
@@ -139,6 +147,7 @@ enum RecoveryScoreCalculator {
                 on: day,
                 healthSummary: healthSummary,
                 trends: trends,
+                idealSleepDuration: idealSleepDuration,
                 calendar: calendar
             )
             if let score = summary.score {
@@ -223,6 +232,7 @@ enum RecoveryScoreCalculator {
         on date: Date,
         healthSummary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
+        idealSleepDuration: TimeInterval,
         calendar: Calendar
     ) -> ComponentResult? {
         let sleepSummary = trends.sleepHistory.summary(
@@ -238,7 +248,8 @@ enum RecoveryScoreCalculator {
         var scores: [Int] = []
         var drivers: [RecoveryDriver] = []
 
-        let durationProgress = min(max(duration / BodySleepDurationGoal.defaultDuration, 0), 1.10)
+        let goalDuration = idealSleepDuration > 0 ? idealSleepDuration : BodySleepDurationGoal.defaultDuration
+        let durationProgress = min(max(duration / goalDuration, 0), 1.10)
         scores.append(scoreFromSleepProgress(durationProgress))
         if durationProgress < 0.85 {
             drivers.append(RecoveryDriver(

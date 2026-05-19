@@ -48,17 +48,6 @@ enum BodyActivityRingAnimationProgress {
 
         return max(progress, 0)
     }
-
-    static func rollbackStartProgress(from currentProgress: Double, to nextProgress: Double) -> Double? {
-        let currentProgress = normalized(currentProgress)
-        let nextProgress = normalized(nextProgress)
-
-        guard nextProgress <= 0, currentProgress > 1 else {
-            return nil
-        }
-
-        return 1
-    }
 }
 
 enum BodyActivityRingCompletionStarGeometry {
@@ -359,10 +348,12 @@ struct BodyActivityRingsCard: View {
 
                     if summary.isCompleted {
                         BodyActivityRingCompletionStar(ringSize: ringSize)
+                            .transition(.opacity)
                     }
                 }
                 .frame(width: ringSize, height: ringSize)
                 .padding(.leading, 12)
+                .animation(.easeInOut(duration: 0.35), value: summary.isCompleted)
                 .accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -531,8 +522,7 @@ private struct BodyActivityRingArc: View {
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
                     )
 
-                Circle()
-                    .trim(from: 0, to: clampedProgress)
+                BodyActivityRingTrimShape(progress: animatedHeadProgress)
                     .stroke(
                         color,
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
@@ -559,13 +549,9 @@ private struct BodyActivityRingArc: View {
         .onAppear {
             setAnimatedProgress(normalizedProgress, animation: nil)
         }
-        .onChange(of: normalizedProgress) { oldProgress, nextProgress in
-            updateDisplayedProgress(from: oldProgress, to: nextProgress)
+        .onChange(of: normalizedProgress) { _, nextProgress in
+            setAnimatedProgress(nextProgress, animation: animation)
         }
-    }
-
-    private var clampedProgress: Double {
-        min(animatedHeadProgress, 1)
     }
 
     private var normalizedProgress: Double {
@@ -578,23 +564,6 @@ private struct BodyActivityRingArc: View {
 
     private var normalizedHeadProgress: Double {
         animatedHeadProgress.truncatingRemainder(dividingBy: 1)
-    }
-
-    private func updateDisplayedProgress(from oldProgress: Double, to nextProgress: Double) {
-        let currentProgress = displayedProgress ?? oldProgress
-
-        if let rollbackStart = BodyActivityRingAnimationProgress.rollbackStartProgress(
-            from: currentProgress,
-            to: nextProgress
-        ) {
-            setAnimatedProgress(rollbackStart, animation: nil)
-            DispatchQueue.main.async {
-                setAnimatedProgress(nextProgress, animation: animation)
-            }
-            return
-        }
-
-        setAnimatedProgress(nextProgress, animation: animation)
     }
 
     private func setAnimatedProgress(_ nextProgress: Double, animation: Animation?) {
@@ -617,6 +586,22 @@ private struct BodyActivityRingArc: View {
 
     private func headOffsetY(progress: Double, radius: CGFloat) -> CGFloat {
         -CGFloat(cos(progress * 2 * .pi)) * radius
+    }
+}
+
+private struct BodyActivityRingTrimShape: Shape {
+    var progress: Double
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let clamped = min(max(progress, 0), 1)
+        var circle = Path()
+        circle.addEllipse(in: rect)
+        return circle.trimmedPath(from: 0, to: CGFloat(clamped))
     }
 }
 
