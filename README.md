@@ -6,20 +6,20 @@
 
 Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, Recovery, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
-Current app version: **0.5.2 (build 4)**
+Current app version: **0.5.6 (build 1)**
 
 ## Screenshots
 
 <p align="center">
-  <img src="Screenshots/01-v0.5.2.PNG" alt="Body screenshot 1" width="33%"/>
-  <img src="Screenshots/02-v0.3.3.PNG" alt="Body screenshot 2" width="33%"/>
-  <img src="Screenshots/03-v0.3.3.PNG" alt="Body screenshot 3" width="33%"/>
+  <img src="Screenshots/01-v0.5.2.PNG" alt="Body screenshot 1" width="32%"/>
+  <img src="Screenshots/02-v0.3.3.PNG" alt="Body screenshot 2" width="32%"/>
+  <img src="Screenshots/03-v0.3.3.PNG" alt="Body screenshot 3" width="32%"/>
 </p>
 
 <p align="center">
-  <img src="Screenshots/04-v0.5.2.PNG" alt="Body screenshot 4" width="33%"/>
-  <img src="Screenshots/05-v0.3.3.PNG" alt="Body screenshot 5" width="33%"/>
-  <img src="Screenshots/06-v0.3.3.PNG" alt="Body screenshot 6" width="33%"/>
+  <img src="Screenshots/04-v0.5.2.PNG" alt="Body screenshot 4" width="32%"/>
+  <img src="Screenshots/05-v0.3.3.PNG" alt="Body screenshot 5" width="32%"/>
+  <img src="Screenshots/06-v0.3.3.PNG" alt="Body screenshot 6" width="32%"/>
 </p>
 
 ## Features

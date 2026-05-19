@@ -69,6 +69,19 @@ private func bodyChartSelectionDateText(for point: HealthTrendRangeCalendarPoint
     bodyChartSelectionDateText(startDate: point.startDate, endDate: point.endDate)
 }
 
+// Median (not mean) so a single fever night cannot pull the displayed
+// baseline away from the robust median Recovery's vitals component uses.
+// Without this, the card can show "Baseline +0.3 °C" while Recovery shows
+// no wrist-temperature driver (or vice versa) for the same day.
+private func wristTemperatureBaselineValue(from finiteValues: [Double]) -> Double {
+    let sorted = finiteValues.sorted()
+    let middle = sorted.count / 2
+    if sorted.count.isMultiple(of: 2) {
+        return (sorted[middle - 1] + sorted[middle]) / 2
+    }
+    return sorted[middle]
+}
+
 private func wristTemperatureBaseline(from series: HealthTrendSeries) -> Double {
     let points = series.lineChartCalendarPoints(to: .recentYear)
     let finiteValues = points.compactMap(\.value).filter(\.isFinite)
@@ -76,7 +89,7 @@ private func wristTemperatureBaseline(from series: HealthTrendSeries) -> Double 
         return 0
     }
 
-    return finiteValues.reduce(0, +) / Double(finiteValues.count)
+    return wristTemperatureBaselineValue(from: finiteValues)
 }
 
 private func wristTemperatureBaselineDeviationDisplay(
@@ -93,7 +106,7 @@ private func wristTemperatureBaselineDeviationDisplay(
         return BodyMetricDisplayValue(title: "Baseline", value: "--", unit: "")
     }
 
-    let baseline = finiteValues.reduce(0, +) / Double(finiteValues.count)
+    let baseline = wristTemperatureBaselineValue(from: finiteValues)
     let diff = current - baseline
     let magnitude = BodyValueFormat.numberText(abs(diff), decimals: 1)
     let formattedValue: String

@@ -1,5 +1,12 @@
 # Version History
 
+## 0.5.6 (build 1)
+
+- Recovery scoring now honors the configured sleep goal when computing the current score and recovery trend series.
+- Wrist temperature baseline displays now use a median baseline so card copy stays aligned with Recovery's robust baseline behavior.
+- Added dedicated Recovery calculator coverage for sleep-goal forwarding, robust baselines, z-scores, and empty-signal behavior.
+- Updated the app, widget, and test bundle version to 0.5.6 build 1.
+
 ## 0.5.2 (build 4)
 
 - Cut cold-launch dashboard refresh latency by eliminating N+1 HealthKit queries: workout heart-rate samples are now fetched per month via a single OR'd compound predicate and partitioned in memory, per-workout `HKWorkoutEffortScore` fetches run concurrently via `withTaskGroup`, and the per-sleep-day `fetchSleepVitals` loop runs through a bounded (16) `withTaskGroup` helper.

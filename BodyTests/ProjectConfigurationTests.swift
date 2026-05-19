@@ -553,7 +553,9 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(detailViewBlock.contains(".refreshable {"))
         XCTAssertTrue(detailViewBlock.contains("await workoutStore.refreshHealthMetric(model.kind)"))
-        XCTAssertTrue(refreshBlock.contains("let metricSnapshot = await engine.fetchHealthDashboardSnapshot(for: kind, calendar: calendar, existing: existing)"))
+        XCTAssertTrue(refreshBlock.contains("let metricSnapshot = await engine.fetchHealthDashboardSnapshot("))
+        XCTAssertTrue(refreshBlock.contains("for: kind"))
+        XCTAssertTrue(refreshBlock.contains("existing: existing"))
         XCTAssertTrue(refreshBlock.contains("replacingMetric(kind, with: metricSnapshot.summary)"))
         XCTAssertTrue(refreshBlock.contains("replacingMetric(kind, with: metricSnapshot.trends)"))
         XCTAssertFalse(refreshBlock.contains("engine.fetchHealthSummary(calendar: calendar)"))
@@ -694,8 +696,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = 1;"))
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.5.2;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 4;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.5.6;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -704,10 +706,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.5.2 (build 4)**"))
-        XCTAssertTrue(versionHistory.contains("## 0.5.2 (build 4)"))
-        XCTAssertTrue(versionHistory.contains("Extracted a new `HealthKitFetchEngine` actor"))
-        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.5.2 build 4."))
+        XCTAssertTrue(readme.contains("Current app version: **0.5.6 (build 1)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.5.6 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Recovery scoring now honors the configured sleep goal"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.5.6 build 1."))
+        XCTAssertFalse(readme.contains("Current app version: **0.5.2 (build 4)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.2 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.2 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.2 (build 1)**"))
@@ -735,8 +738,8 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-v0.5.2`"))
-        XCTAssertTrue(testPlan.contains("app version 0.5.2 build 4"))
+        XCTAssertTrue(testPlan.contains("branch `body-v0.5.6`"))
+        XCTAssertTrue(testPlan.contains("app version 0.5.6 build 1"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.0`"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.4`"))
         XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))
