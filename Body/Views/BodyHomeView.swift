@@ -2797,6 +2797,7 @@ private enum BodyMetricDetailDatePicker {
 private struct BodyHealthMetricDetailView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     let model: BodyHealthMetricDetailModel
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
@@ -3718,7 +3719,7 @@ private struct BodyHealthMetricDetailView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
             }
-            .foregroundColor(isFuture ? Color.white.opacity(0.34) : .white)
+            .foregroundColor(dateTileForegroundColor(isFuture: isFuture))
             .frame(width: 58, height: 74)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -3727,7 +3728,7 @@ private struct BodyHealthMetricDetailView: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(
-                        isSelected ? dateSliderSelectionColor : Color.white.opacity(isFuture ? 0.08 : 0.16),
+                        isSelected ? dateSliderSelectionColor : dateTileStrokeColor(isFuture: isFuture),
                         lineWidth: isSelected ? 2.5 : 1
                     )
             )
@@ -3798,11 +3799,27 @@ private struct BodyHealthMetricDetailView: View {
     }
 
     private var sleepDateSliderBackground: Color {
-        Color(red: 0.02, green: 0.02, blue: 0.025)
+        colorScheme == .dark
+            ? Color(red: 0.02, green: 0.02, blue: 0.025)
+            : Color(red: 0.91, green: 0.91, blue: 0.93)
     }
 
     private var sleepDateTileBackground: Color {
-        Color(red: 0.07, green: 0.07, blue: 0.08)
+        colorScheme == .dark
+            ? Color(red: 0.07, green: 0.07, blue: 0.08)
+            : Color.white
+    }
+
+    private func dateTileForegroundColor(isFuture: Bool) -> Color {
+        if colorScheme == .dark {
+            return isFuture ? Color.white.opacity(0.34) : .white
+        }
+        return isFuture ? Color.black.opacity(0.32) : .black
+    }
+
+    private func dateTileStrokeColor(isFuture: Bool) -> Color {
+        let base: Color = colorScheme == .dark ? .white : .black
+        return base.opacity(isFuture ? 0.08 : 0.16)
     }
 
     private func sleepScoreCard(_ score: SleepScoreSummary) -> some View {
