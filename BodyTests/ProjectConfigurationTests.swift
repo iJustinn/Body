@@ -55,7 +55,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("AnnotationOverflowResolution("))
         XCTAssertTrue(source.contains("x: .fit(to: .chart)"))
         XCTAssertTrue(source.contains("y: .disabled"))
-        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 11)
+        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 10)
         XCTAssertFalse(source.contains(".annotation(position: .top, spacing: 8) {"))
     }
 
@@ -70,7 +70,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("private func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange) -> ClosedRange<Date>"))
         XCTAssertEqual(
             source.occurrenceCount(of: "self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)"),
-            8
+            7
         )
         XCTAssertFalse(source.contains("bodyHealthDetailChartTrailingDatePadding: TimeInterval = 36 * 60 * 60"))
         XCTAssertFalse(source.contains("let leadingPadding: TimeInterval = 6 * 60 * 60"))
@@ -589,7 +589,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(source.contains("private var showsWeightBodyFatPointMarks: Bool"))
         XCTAssertFalse(source.contains("selectedRange.showsPointMarks && selectedRange != .recentMonth"))
         XCTAssertFalse(source.contains("if showsWeightBodyFatPointMarks"))
-        XCTAssertEqual(source.occurrenceCount(of: "if selectedRange.showsPointMarks"), 7)
+        XCTAssertEqual(source.occurrenceCount(of: "if selectedRange.showsPointMarks"), 6)
 
         let chartStart = try XCTUnwrap(source.range(of: "private struct BodyBasicsTrendChart")?.lowerBound)
         let chartBlock = String(source[chartStart...].prefix(7_000))
@@ -682,7 +682,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.5.6;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -691,10 +691,12 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.5.6 (build 1)**"))
-        XCTAssertTrue(versionHistory.contains("## 0.5.6 (build 1)"))
+        XCTAssertTrue(readme.contains("Current app version: **0.5.6 (build 2)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.5.6 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Added step-count day-line support"))
         XCTAssertTrue(versionHistory.contains("Recovery scoring now honors the configured sleep goal"))
-        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.5.6 build 1."))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.5.6 build 2."))
+        XCTAssertFalse(readme.contains("Current app version: **0.5.6 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.2 (build 4)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.2 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.2 (build 2)**"))

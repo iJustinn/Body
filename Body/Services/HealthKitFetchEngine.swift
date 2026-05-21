@@ -1712,6 +1712,16 @@ actor HealthKitFetchEngine {
                 startDate: startDate,
                 endDate: endDate
             )
+        case .steps:
+            return await fetchHourlyCumulativeQuantitySeries(
+                for: .stepCount,
+                unit: .count(),
+                calendar: calendar,
+                sourceKind: .steps,
+                sourceOption: secondaryOption,
+                startDate: startDate,
+                endDate: endDate
+            )
         case .sleep,
              .recovery,
              .basics,
@@ -1723,8 +1733,7 @@ actor HealthKitFetchEngine {
              .exerciseMinutes,
              .trainingLoad,
              .wristTemperature,
-             .timeInDaylight,
-             .steps:
+             .timeInDaylight:
             return .empty
         }
     }
@@ -1840,6 +1849,15 @@ actor HealthKitFetchEngine {
                 unit: .kilocalorie(),
                 calendar: calendar,
                 sourceKind: .activeEnergy,
+                startDate: startDate,
+                endDate: endDate
+            )
+        case .steps:
+            return await fetchHourlyCumulativeQuantitySeries(
+                for: .stepCount,
+                unit: .count(),
+                calendar: calendar,
+                sourceKind: .steps,
                 startDate: startDate,
                 endDate: endDate
             )
@@ -2021,6 +2039,8 @@ actor HealthKitFetchEngine {
         let cachedOxygenSaturationDaySamplesSecondary = cachedTrends.oxygenSaturationDaySamplesSecondary
         let cachedActiveEnergyDaySamples = cachedTrends.activeEnergyDaySamples
         let cachedActiveEnergyDaySamplesSecondary = cachedTrends.activeEnergyDaySamplesSecondary
+        let cachedStepsDaySamples = cachedTrends.stepsDaySamples
+        let cachedStepsDaySamplesSecondary = cachedTrends.stepsDaySamplesSecondary
 
         async let sleepHistory = fetchIfPermitted(.sleep, default: SleepHistorySnapshot.empty) {
             await fetchDailySleepHistory(calendar: calendar)
@@ -2231,7 +2251,9 @@ actor HealthKitFetchEngine {
             oxygenSaturationDaySamples: cachedOxygenSaturationDaySamples,
             oxygenSaturationDaySamplesSecondary: cachedOxygenSaturationDaySamplesSecondary,
             activeEnergyDaySamples: cachedActiveEnergyDaySamples,
-            activeEnergyDaySamplesSecondary: cachedActiveEnergyDaySamplesSecondary
+            activeEnergyDaySamplesSecondary: cachedActiveEnergyDaySamplesSecondary,
+            stepsDaySamples: cachedStepsDaySamples,
+            stepsDaySamplesSecondary: cachedStepsDaySamplesSecondary
         )
     }
 
@@ -2611,10 +2633,22 @@ actor HealthKitFetchEngine {
                 sourceKind: .steps
             )
             async let stepsSecondaryTrend = fetchSecondaryTrend(for: .steps, calendar: calendar)
+            async let stepsDaySamples = fetchHourlyCumulativeQuantitySeries(
+                for: .stepCount,
+                unit: .count(),
+                calendar: calendar,
+                sourceKind: .steps
+            )
+            async let stepsDaySamplesSecondary = fetchSecondaryDaySamples(
+                for: .steps,
+                calendar: calendar
+            )
 
             summary.steps = await steps ?? HealthSummarySnapshot.empty.steps
             trends.steps = await stepsTrend
             trends.stepsSecondary = await stepsSecondaryTrend
+            trends.stepsDaySamples = await stepsDaySamples
+            trends.stepsDaySamplesSecondary = await stepsDaySamplesSecondary
         }
 
         return HealthDashboardSnapshot(summary: summary, trends: trends)

@@ -1186,7 +1186,8 @@ struct BodyHomeView: View {
                 decimals: 0,
                 symbolName: "figure.walk",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                chartStyle: .bar
+                chartStyle: .bar,
+                sleepHistory: trends.sleepHistory
             )
         case .sleep:
             return BodyHealthMetricDetailModel(
@@ -2847,9 +2848,6 @@ private struct BodyHealthMetricDetailView: View {
                     if isBasicsDetail {
                         bodyMassIndexTrendCard
                     }
-                    if model.kind == .wristTemperature {
-                        wristTemperatureBaselineCard
-                    }
                     if supportsMetricDayView {
                         metricDatePicker
                         metricDayChartCard
@@ -2918,7 +2916,8 @@ private struct BodyHealthMetricDetailView: View {
              .heartRateVariability,
              .respiratoryRate,
              .oxygenSaturation,
-             .activeEnergy:
+             .activeEnergy,
+             .steps:
             return true
         case .recovery,
              .sleep,
@@ -2930,8 +2929,7 @@ private struct BodyHealthMetricDetailView: View {
              .exerciseMinutes,
              .trainingLoad,
              .wristTemperature,
-             .timeInDaylight,
-             .steps:
+             .timeInDaylight:
             return false
         }
     }
@@ -3287,7 +3285,12 @@ private struct BodyHealthMetricDetailView: View {
                 } else if usesRangeTrendChart, let metricRangeHeaderText {
                     averageHeaderText(metricRangeHeaderText, prefix: "Range")
                 } else if let averageTrendText {
-                    averageHeaderText(averageTrendText)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        averageHeaderText(averageTrendText)
+                        if wristTemperatureTrendBaseline != nil {
+                            BodyChartBaselineLegend()
+                        }
+                    }
                 }
             }
 
@@ -3377,6 +3380,8 @@ private struct BodyHealthMetricDetailView: View {
                     highlightedRangeResolver: model.highlightedRangeResolver,
                     activeHighlightedValue: model.kind == .recovery ? $activeRecoveryTrendValue : nil,
                     isSleepDetail: isSleepDetail,
+                    baselineValue: wristTemperatureTrendBaseline,
+                    baselineDeviationFormatter: wristTemperatureTrendBaselineDeviationFormatter,
                     chartIdentity: "\(model.kind.rawValue)-\(selectedTrendRange.rawValue)"
                 )
                 .frame(height: BodyHealthDetailChartLayout.standardHeight)
@@ -3477,22 +3482,42 @@ private struct BodyHealthMetricDetailView: View {
         .bodyCardBackground()
     }
 
-    private var wristTemperatureBaselineCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Variation From Baseline")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
-
-            BodyWristTemperatureBaselineChart(
-                series: workoutStore.healthTrends.wristTemperature,
-                selectedRange: selectedTrendRange,
-                symbolColor: model.symbolColor
-            )
-            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+    private var wristTemperatureTrendBaseline: Double? {
+        guard model.kind == .wristTemperature else {
+            return nil
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+
+        let baselineCelsius = wristTemperatureBaseline(from: workoutStore.healthTrends.wristTemperature)
+        guard baselineCelsius.isFinite, baselineCelsius != 0 else {
+            return nil
+        }
+
+        return BodyValueFormat.temperatureValue(
+            celsius: baselineCelsius,
+            temperatureUnitPreference: selectedTemperatureUnitPreference
+        ).value
+    }
+
+    private var wristTemperatureTrendBaselineDeviationFormatter: ((Double) -> String)? {
+        guard model.kind == .wristTemperature else {
+            return nil
+        }
+
+        let unit = BodyValueFormat.temperatureValue(
+            celsius: 0,
+            temperatureUnitPreference: selectedTemperatureUnitPreference
+        ).unit
+
+        return { deviation in
+            let magnitude = BodyValueFormat.numberText(abs(deviation), decimals: 1)
+            if deviation > 0.05 {
+                return "+\(magnitude) \(unit)"
+            } else if deviation < -0.05 {
+                return "−\(magnitude) \(unit)"
+            } else {
+                return "\(magnitude) \(unit)"
+            }
+        }
     }
 
     private var sleepDatePicker: some View {
@@ -3588,17 +3613,27 @@ private struct BodyHealthMetricDetailView: View {
     }
 
     private var selectedMetricDayAggregationLabel: String {
-        model.kind == .activeEnergy ? "HOURLY TOTAL" : "HOURLY AVG"
+        switch model.kind {
+        case .activeEnergy, .steps:
+            return "HOURLY TOTAL"
+        default:
+            return "HOURLY AVG"
+        }
     }
 
     private var selectedMetricDayIncludesSampleBreakdown: Bool {
         // Hourly cumulative metrics already report one value per hour — there's no
         // intra-hour sample window to break down.
-        model.kind != .activeEnergy
+        switch model.kind {
+        case .activeEnergy, .steps:
+            return false
+        default:
+            return true
+        }
     }
 
     private var selectedMetricDayContextIntervals: [BodyHealthMetricDayContextInterval] {
-        guard model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy else {
+        guard model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy || model.kind == .steps else {
             return []
         }
 
@@ -5628,6 +5663,36 @@ private struct BodyHealthTrendRangeSelector: View {
     }
 }
 
+private struct BodyChartBaselineLegend: View {
+    var body: some View {
+        HStack(spacing: 5) {
+            DashedLegendLine()
+                .stroke(
+                    Color.secondary.opacity(0.55),
+                    style: StrokeStyle(lineWidth: 1.4, lineCap: .round, dash: [3, 3])
+                )
+                .frame(width: 16, height: 1)
+
+            Text("Baseline")
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+    }
+
+    private struct DashedLegendLine: Shape {
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            let midY = rect.midY
+            path.move(to: CGPoint(x: rect.minX, y: midY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: midY))
+            return path
+        }
+    }
+}
+
 private struct BodyBasicsTrendLegend: View {
     let weightColor: Color
     let bodyFatColor: Color
@@ -6683,6 +6748,8 @@ private struct BodyHealthMetricTrendChart: View {
     let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?
     let activeHighlightedValue: Binding<Double?>?
     let isSleepDetail: Bool
+    let baselineValue: Double?
+    let baselineDeviationFormatter: ((Double) -> String)?
     let chartIdentity: String
 
     private let visibleCalendarPoints: [HealthTrendCalendarPoint]
@@ -6707,6 +6774,8 @@ private struct BodyHealthMetricTrendChart: View {
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
         activeHighlightedValue: Binding<Double?>? = nil,
         isSleepDetail: Bool,
+        baselineValue: Double? = nil,
+        baselineDeviationFormatter: ((Double) -> String)? = nil,
         chartIdentity: String
     ) {
         self.title = title
@@ -6718,6 +6787,8 @@ private struct BodyHealthMetricTrendChart: View {
         self.highlightedRangeResolver = highlightedRangeResolver
         self.activeHighlightedValue = activeHighlightedValue
         self.isSleepDetail = isSleepDetail
+        self.baselineValue = baselineValue
+        self.baselineDeviationFormatter = baselineDeviationFormatter
         self.chartIdentity = chartIdentity
 
         let calendarPoints: [HealthTrendCalendarPoint]
@@ -6733,7 +6804,10 @@ private struct BodyHealthMetricTrendChart: View {
         let aggregatedValues = calendarPoints.compactMap(\.value).filter(\.isFinite)
         let fallbackValues = series.limited(to: selectedRange).points.map(\.value).filter(\.isFinite)
         let highlightedRangeValues = highlightedRange?.domainValues ?? []
-        let domainValues = (aggregatedValues.isEmpty ? fallbackValues : aggregatedValues) + highlightedRangeValues
+        let baselineDomainValues = baselineValue.map { [$0] } ?? []
+        let domainValues = (aggregatedValues.isEmpty ? fallbackValues : aggregatedValues)
+            + highlightedRangeValues
+            + baselineDomainValues
         let yDomain = Self.computeYDomain(from: domainValues, chartStyle: chartStyle)
         self.chartYDomain = yDomain
 
@@ -6776,6 +6850,12 @@ private struct BodyHealthMetricTrendChart: View {
                     RuleMark(x: .value("Selected Date", selectedTrendPoint.date, unit: .day))
                         .foregroundStyle(Color.secondary.opacity(0.48))
                         .lineStyle(StrokeStyle(lineWidth: 1.4))
+                }
+
+                if let baselineValue {
+                    RuleMark(y: .value("Baseline", baselineValue))
+                        .foregroundStyle(Color.secondary.opacity(0.55))
+                        .lineStyle(StrokeStyle(lineWidth: 1.1, dash: [4, 4]))
                 }
 
                 ForEach(visibleCalendarPoints) { point in
@@ -6844,13 +6924,7 @@ private struct BodyHealthMetricTrendChart: View {
                         ) {
                             BodyChartSelectionAnnotation(
                                 eyebrow: chartStyle == .bar ? barSelectionEyebrow : nil,
-                                values: [
-                                    BodyChartSelectionValue(
-                                        title: nil,
-                                        value: chartSelectionText(for: selectedTrendValue),
-                                        color: symbolColor
-                                    )
-                                ],
+                                values: selectionValues(for: selectedTrendValue),
                                 date: selectedTrendPoint.date,
                                 dateText: bodyChartSelectionDateText(for: selectedTrendPoint)
                             )
@@ -6987,6 +7061,28 @@ private struct BodyHealthMetricTrendChart: View {
         return valueFormatter(value)
     }
 
+    private func selectionValues(for value: Double) -> [BodyChartSelectionValue] {
+        let primary = BodyChartSelectionValue(
+            title: nil,
+            value: chartSelectionText(for: value),
+            color: symbolColor
+        )
+
+        guard let baselineValue, let baselineDeviationFormatter else {
+            return [primary]
+        }
+
+        let deviation = value - baselineValue
+        return [
+            primary,
+            BodyChartSelectionValue(
+                title: "Baseline",
+                value: baselineDeviationFormatter(deviation),
+                color: Color.secondary.opacity(0.55)
+            )
+        ]
+    }
+
     private func syncActiveHighlightedValue() {
         activeHighlightedValue?.wrappedValue = activeHighlightSourceValue
     }
@@ -7021,201 +7117,6 @@ private struct BodyHealthMetricTrendChart: View {
 
         let padding = max((maximum - minimum) * 0.12, 1)
         return max(0, minimum - padding)...(maximum + padding)
-    }
-}
-
-private struct BodyWristTemperatureBaselineChart: View {
-    let selectedRange: BodyHealthTrendRange
-    let symbolColor: Color
-
-    private let baseline: Double
-    private let deviationPoints: [HealthTrendCalendarPoint]
-    private let finiteDeviationPoints: [HealthTrendCalendarPoint]
-    private let latestPointDate: Date?
-    private let chartXDomain: ClosedRange<Date>
-    private let chartYDomain: ClosedRange<Double>
-
-    @State private var selectedDate: Date?
-    @GestureState private var isSelecting = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    init(series: HealthTrendSeries, selectedRange: BodyHealthTrendRange, symbolColor: Color) {
-        self.selectedRange = selectedRange
-        self.symbolColor = symbolColor
-        let baselineValue = wristTemperatureBaseline(from: series)
-        self.baseline = baselineValue
-
-        let visiblePoints = series.lineChartCalendarPoints(to: selectedRange)
-        let deviations = visiblePoints.map { point in
-            HealthTrendCalendarPoint(
-                date: point.date,
-                value: point.value.map { $0 - baselineValue },
-                startDate: point.startDate,
-                endDate: point.endDate
-            )
-        }
-        self.deviationPoints = deviations
-        let finiteDeviations = deviations.filter { $0.value?.isFinite == true }
-        self.finiteDeviationPoints = finiteDeviations
-        self.latestPointDate = finiteDeviations.last?.date
-
-        let deviationValues = finiteDeviations.compactMap(\.value)
-        let observedExtreme = deviationValues.map({ abs($0) }).max() ?? 0
-        let halfRange = max(2.0, ceil(observedExtreme + 0.2))
-        self.chartYDomain = -halfRange ... halfRange
-
-        let domainDates = visiblePoints.map(\.date)
-        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
-    }
-
-    var body: some View {
-        Chart {
-            RuleMark(y: .value("Baseline", 0.0))
-                .foregroundStyle(Color.secondary.opacity(0.55))
-                .lineStyle(StrokeStyle(lineWidth: 1.0))
-
-            ForEach(deviationPoints) { point in
-                if let value = point.value {
-                    LineMark(
-                        x: .value("Date", point.date, unit: .day),
-                        y: .value("Variation", value)
-                    )
-                    .interpolationMethod(.linear)
-                    .foregroundStyle(symbolColor)
-                    .lineStyle(StrokeStyle(lineWidth: BodyLineChartPreviewStyle.lineWidth, lineCap: .round, lineJoin: .round))
-
-                    if selectedRange.showsPointMarks {
-                        PointMark(
-                            x: .value("Date", point.date, unit: .day),
-                            y: .value("Variation", value)
-                        )
-                        .symbol {
-                            BodyLineChartPreviewPointSymbol(
-                                tintColor: symbolColor,
-                                isCurrent: point.date == latestPointDate,
-                                pointDiameter: selectedRange.linePointDiameter,
-                                currentPointDiameter: selectedRange.lineCurrentPointDiameter
-                            )
-                        }
-                    }
-                }
-            }
-
-            if let selectedDeviationPoint, let value = selectedDeviationPoint.value {
-                RuleMark(x: .value("Selected Date", selectedDeviationPoint.date, unit: .day))
-                    .foregroundStyle(Color.secondary.opacity(0.48))
-                    .lineStyle(StrokeStyle(lineWidth: 1.4))
-                    .annotation(
-                        position: .top,
-                        spacing: 8,
-                        overflowResolution: bodyChartSelectionOverflowResolution
-                    ) {
-                        BodyChartSelectionAnnotation(
-                            eyebrow: nil,
-                            values: [
-                                BodyChartSelectionValue(
-                                    title: nil,
-                                    value: selectionText(for: value),
-                                    color: symbolColor
-                                )
-                            ],
-                            date: selectedDeviationPoint.date,
-                            dateText: bodyChartSelectionDateText(for: selectedDeviationPoint)
-                        )
-                    }
-
-                PointMark(
-                    x: .value("Selected Date", selectedDeviationPoint.date, unit: .day),
-                    y: .value("Variation", value)
-                )
-                .foregroundStyle(symbolColor)
-                .symbolSize(82)
-            }
-        }
-        .chartXScale(domain: chartXDomain)
-        .chartYScale(domain: chartYDomain)
-        .chartXAxis {
-            AxisMarks(values: .stride(by: .day, count: selectedRange.axisStrideDayCount)) { value in
-                AxisGridLine()
-                    .foregroundStyle(Color.secondary.opacity(0.18))
-                AxisTick()
-                    .foregroundStyle(Color.secondary.opacity(0.28))
-                AxisValueLabel {
-                    if let date = value.as(Date.self) {
-                        Text(selectedRange.axisLabel(for: date))
-                            .font(.system(.caption2, design: .rounded))
-                            .foregroundStyle(Color.secondary)
-                    }
-                }
-            }
-        }
-        .chartYAxis {
-            AxisMarks(position: .leading, values: yAxisValues) { value in
-                AxisGridLine()
-                    .foregroundStyle(Color.secondary.opacity(0.18))
-                AxisTick()
-                    .foregroundStyle(Color.secondary.opacity(0.28))
-                AxisValueLabel {
-                    if let yValue = value.as(Double.self) {
-                        Text(yAxisLabel(for: yValue))
-                            .font(.system(.caption2, design: .rounded))
-                            .foregroundStyle(Color.secondary)
-                    }
-                }
-            }
-        }
-        .chartXSelection(value: $selectedDate)
-        .simultaneousGesture(chartPressGesture)
-        .id("wrist-temperature-baseline-\(selectedRange.rawValue)")
-        .transition(
-            .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
-        )
-        .transaction { transaction in
-            transaction.animation = nil
-        }
-    }
-
-    private var yAxisValues: [Double] {
-        let upper = chartYDomain.upperBound
-        return [-upper, 0, upper]
-    }
-
-    private func yAxisLabel(for value: Double) -> String {
-        if abs(value) < 0.05 {
-            return "Baseline"
-        }
-
-        let magnitude = BodyValueFormat.numberText(abs(value), decimals: 0)
-        return value > 0 ? "+\(magnitude)°C" : "−\(magnitude)°C"
-    }
-
-    private func selectionText(for deviation: Double) -> String {
-        if abs(deviation) < 0.05 {
-            return "Baseline"
-        }
-
-        let magnitude = BodyValueFormat.numberText(abs(deviation), decimals: 1)
-        return deviation > 0 ? "+\(magnitude)°C" : "−\(magnitude)°C"
-    }
-
-    private var selectedDeviationPoint: HealthTrendCalendarPoint? {
-        guard isSelecting, let selectedDate else {
-            return nil
-        }
-
-        return finiteDeviationPoints.min { first, second in
-            abs(first.date.timeIntervalSince(selectedDate)) < abs(second.date.timeIntervalSince(selectedDate))
-        }
-    }
-
-    private var chartPressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .updating($isSelecting) { _, isSelecting, _ in
-                isSelecting = true
-            }
-            .onEnded { _ in
-                selectedDate = nil
-            }
     }
 }
 

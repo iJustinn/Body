@@ -310,7 +310,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         switch kind {
         case .heartRate, .restingHeartRate, .heartRateVariability, .respiratoryRate, .oxygenSaturation:
             usesHourlyBuckets = false
-        case .activeEnergy:
+        case .activeEnergy, .steps:
             usesHourlyBuckets = true
         default:
             return
@@ -414,6 +414,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         case .activeEnergy:
             trends.activeEnergyDaySamples = mergedPrimary
             trends.activeEnergyDaySamplesSecondary = mergedSecondary
+        case .steps:
+            trends.stepsDaySamples = mergedPrimary
+            trends.stepsDaySamplesSecondary = mergedSecondary
         default:
             return
         }

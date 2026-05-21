@@ -1,5 +1,11 @@
 # Version History
 
+## 0.5.6 (build 2)
+
+- Added step-count day-line support with hourly totals and secondary-source comparison handling.
+- Moved wrist temperature baseline context into the primary trend chart with a dashed baseline and selection deviation annotation.
+- Updated the app, widget, and test bundle version to 0.5.6 build 2.
+
 ## 0.5.6 (build 1)
 
 - Recovery scoring now honors the configured sleep goal when computing the current score and recovery trend series.

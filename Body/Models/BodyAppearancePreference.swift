@@ -94,9 +94,9 @@ extension HealthMetricKind {
             return [.range, .rangeBandLine, .dayLine]
         case .oxygenSaturation:
             return [.range, .dayLine]
-        case .activeEnergy:
+        case .activeEnergy, .steps:
             return [.bar, .dayLine]
-        case .restingEnergy, .exerciseMinutes, .steps:
+        case .restingEnergy, .exerciseMinutes:
             return [.bar]
         case .basics,
              .bodyMass,

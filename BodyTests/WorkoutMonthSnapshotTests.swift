@@ -3335,7 +3335,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(HealthMetricKind.heartRate.supportedComparisonCharts, [.range, .rangeBandLine, .dayLine])
         XCTAssertEqual(HealthMetricKind.heartRateVariability.supportedComparisonCharts, [.range, .rangeBandLine, .dayLine])
         XCTAssertEqual(HealthMetricKind.oxygenSaturation.supportedComparisonCharts, [.range, .dayLine])
-        XCTAssertEqual(HealthMetricKind.steps.supportedComparisonCharts, [.bar])
+        XCTAssertEqual(HealthMetricKind.steps.supportedComparisonCharts, [.bar, .dayLine])
         XCTAssertEqual(HealthMetricKind.activeEnergy.supportedComparisonCharts, [.bar, .dayLine])
         XCTAssertEqual(HealthMetricKind.exerciseMinutes.supportedComparisonCharts, [.bar])
         XCTAssertEqual(HealthMetricKind.respiratoryRate.supportedComparisonCharts, [])

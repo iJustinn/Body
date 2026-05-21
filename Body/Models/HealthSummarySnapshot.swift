@@ -1600,6 +1600,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
     var oxygenSaturationDaySamplesSecondary: HealthTrendSeries
     var activeEnergyDaySamples: HealthTrendSeries
     var activeEnergyDaySamplesSecondary: HealthTrendSeries
+    var stepsDaySamples: HealthTrendSeries
+    var stepsDaySamplesSecondary: HealthTrendSeries
 
     static let empty = HealthTrendSnapshot(
         sleep: .empty,
@@ -1643,7 +1645,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         oxygenSaturationDaySamples: .empty,
         oxygenSaturationDaySamplesSecondary: .empty,
         activeEnergyDaySamples: .empty,
-        activeEnergyDaySamplesSecondary: .empty
+        activeEnergyDaySamplesSecondary: .empty,
+        stepsDaySamples: .empty,
+        stepsDaySamplesSecondary: .empty
     )
 
     var isEmpty: Bool {
@@ -1688,7 +1692,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             oxygenSaturationDaySamples.isEmpty &&
             oxygenSaturationDaySamplesSecondary.isEmpty &&
             activeEnergyDaySamples.isEmpty &&
-            activeEnergyDaySamplesSecondary.isEmpty
+            activeEnergyDaySamplesSecondary.isEmpty &&
+            stepsDaySamples.isEmpty &&
+            stepsDaySamplesSecondary.isEmpty
     }
 
     init(
@@ -1733,7 +1739,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         oxygenSaturationDaySamples: HealthTrendSeries = .empty,
         oxygenSaturationDaySamplesSecondary: HealthTrendSeries = .empty,
         activeEnergyDaySamples: HealthTrendSeries = .empty,
-        activeEnergyDaySamplesSecondary: HealthTrendSeries = .empty
+        activeEnergyDaySamplesSecondary: HealthTrendSeries = .empty,
+        stepsDaySamples: HealthTrendSeries = .empty,
+        stepsDaySamplesSecondary: HealthTrendSeries = .empty
     ) {
         self.sleep = sleep
         self.sleepSecondary = sleepSecondary
@@ -1777,6 +1785,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.oxygenSaturationDaySamplesSecondary = oxygenSaturationDaySamplesSecondary
         self.activeEnergyDaySamples = activeEnergyDaySamples
         self.activeEnergyDaySamplesSecondary = activeEnergyDaySamplesSecondary
+        self.stepsDaySamples = stepsDaySamples
+        self.stepsDaySamplesSecondary = stepsDaySamplesSecondary
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1822,6 +1832,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case oxygenSaturationDaySamplesSecondary
         case activeEnergyDaySamples
         case activeEnergyDaySamplesSecondary
+        case stepsDaySamples
+        case stepsDaySamplesSecondary
     }
 
     init(from decoder: Decoder) throws {
@@ -1930,6 +1942,14 @@ struct HealthTrendSnapshot: Codable, Equatable {
         activeEnergyDaySamplesSecondary = try container.decodeIfPresent(
             HealthTrendSeries.self,
             forKey: .activeEnergyDaySamplesSecondary
+        ) ?? .empty
+        stepsDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .stepsDaySamples
+        ) ?? .empty
+        stepsDaySamplesSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .stepsDaySamplesSecondary
         ) ?? .empty
     }
 
@@ -2073,6 +2093,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
             return oxygenSaturationDaySamples
         case .activeEnergy:
             return activeEnergyDaySamples
+        case .steps:
+            return stepsDaySamples
         case .sleep,
              .recovery,
              .basics,
@@ -2083,8 +2105,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .exerciseMinutes,
              .trainingLoad,
              .wristTemperature,
-             .timeInDaylight,
-             .steps:
+             .timeInDaylight:
             return .empty
         }
     }
@@ -2101,6 +2122,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
             return oxygenSaturationDaySamplesSecondary
         case .activeEnergy:
             return activeEnergyDaySamplesSecondary
+        case .steps:
+            return stepsDaySamplesSecondary
         case .sleep,
              .recovery,
              .basics,
@@ -2112,8 +2135,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .exerciseMinutes,
              .trainingLoad,
              .wristTemperature,
-             .timeInDaylight,
-             .steps:
+             .timeInDaylight:
             return .empty
         }
     }
@@ -2185,6 +2207,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case .steps:
             next.steps = refreshed.steps
             next.stepsSecondary = refreshed.stepsSecondary
+            next.stepsDaySamples = refreshed.stepsDaySamples
+            next.stepsDaySamplesSecondary = refreshed.stepsDaySamplesSecondary
         }
 
         return next
@@ -2267,6 +2291,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         if !selection.includes(.steps) {
             filtered.steps = .empty
             filtered.stepsSecondary = .empty
+            filtered.stepsDaySamples = .empty
+            filtered.stepsDaySamplesSecondary = .empty
         }
 
         return filtered
@@ -2288,6 +2314,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         cleared.restingEnergySecondary = .empty
         cleared.exerciseMinutesSecondary = .empty
         cleared.stepsSecondary = .empty
+        cleared.stepsDaySamplesSecondary = .empty
         return cleared
     }
 }
