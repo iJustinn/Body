@@ -684,7 +684,6 @@ private struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     let workout: WorkoutSummary
 
-    private let sheetHeight: CGFloat = 730
     private let metricColumns = [
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12)
@@ -700,7 +699,7 @@ private struct BodyWorkoutDetailSheet: View {
             }
             .scrollDismissesKeyboard(.interactively)
         }
-        .presentationDetents([.height(sheetHeight)])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
 
