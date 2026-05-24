@@ -33,7 +33,7 @@ This document describes the *current* state, the *proposed* changes, and (at the
 | Site | File:Line | Triggered by | Data loaded |
 | --- | --- | --- | --- |
 | `BodyApp` `.task` on `WindowGroup` | `BodyApp.swift:26-28` | App launch (cold or warm) | `workoutStore.syncWhenAppBecomesActive()` → full refresh of recent 3 months + health summary + trends + activity ring history |
-| `HealthKitWorkoutStore.init(...)` | `HealthKitWorkoutStore.swift:93-129` | `@StateObject` instantiation | Synchronously reads `WorkoutSnapshotStore.loadOrPlaceholder()`, `HealthDashboardSnapshotStore.loadOrEmpty()`, three `UserDefaults`‑backed selection objects, then **filters and recalculates Recovery** on the cached snapshot in memory |
+| `HealthKitWorkoutStore.init(...)` | `HealthKitWorkoutStore.swift:93-129` | `@StateObject` instantiation | Synchronously reads `WorkoutSnapshotStore.loadOrPlaceholder()`, `HealthDashboardSnapshotStore.loadOrEmpty()`, three `UserDefaults`‑backed selection objects, then **filters and recalculates Readiness** on the cached snapshot in memory |
 | `WorkoutSnapshotStore.seedPreviewSnapshotIfNeeded()` | `BodyApp.swift:16` (from `init`) | First launch only | Seeds placeholder workout snapshot if cache is empty |
 
 ### 1.2 Scene phase / app resume
@@ -112,7 +112,7 @@ Called from `requestAuthorizationAndRefresh()`. Performs:
    - `fetchHealthSummary(calendar:)`
    - `fetchHealthTrends(calendar:)`
    - `fetchActivityRingHistory(calendar:)`
-4. `updateHealthDashboardSnapshot(...)` (`:758-787`) — writes the merged dashboard to `HealthDashboardSnapshotStore`, recomputes Recovery, persists secondary-source signature.
+4. `updateHealthDashboardSnapshot(...)` (`:758-787`) — writes the merged dashboard to `HealthDashboardSnapshotStore`, recomputes Readiness, persists secondary-source signature.
 5. `updateCurrentMonthSnapshot(date:calendar:)` (`:834-843`) — writes `WorkoutSnapshotStore` and `WidgetCenter.shared.reloadAllTimelines()`.
 
 This is the heaviest path: **every** `scenePhase → active` fire that survives the 60 s debounce runs it.
@@ -170,9 +170,9 @@ Source lists almost never change. They are recomputed on every `refreshRecentMon
 
 `updateCurrentMonthSnapshot` (`:834-843`) unconditionally calls `WidgetCenter.shared.reloadAllTimelines()` after a refresh. iOS rate-limits widget reloads but each call is still a system round-trip and forces a re-render of all 4 widget kinds. We should only reload when the *encoded* snapshot bytes differ from what is already on disk.
 
-### 3.8 (P1) `HealthKitWorkoutStore.init` does a synchronous Recovery recalculation on a 100 KB JSON load
+### 3.8 (P1) `HealthKitWorkoutStore.init` does a synchronous Readiness recalculation on a 100 KB JSON load
 
-`init` (`:93-129`) reads two JSON files from disk, filters by permission, then `recalculatingRecovery(on:calendar:)` runs over the cached health summary on the main actor. This is part of `@StateObject` setup so it blocks the first frame. The cached snapshot is already correct as of its `lastSuccessfulRefreshDate` — the recompute can be deferred until *after* first paint.
+`init` (`:93-129`) reads two JSON files from disk, filters by permission, then `recalculatingReadiness(on:calendar:)` runs over the cached health summary on the main actor. This is part of `@StateObject` setup so it blocks the first frame. The cached snapshot is already correct as of its `lastSuccessfulRefreshDate` — the recompute can be deferred until *after* first paint.
 
 ### 3.9 (P2) Pull-to-refresh on the Summary tab uses the full-reload path
 
@@ -193,7 +193,7 @@ The guard inside the method correctly short-circuits when `missingKeys` is empty
 | Surface | Currently | Recommended |
 | --- | --- | --- |
 | First frame after launch | Cached values are present via `init`, but the in-flight refresh covers them immediately. | **Render cached values immediately** (already happens). Delay the network refresh until the first frame is committed (see §6). |
-| `scenePhase → active` after short backgrounding (e.g. 60 s – 5 min) | Either skipped (<60 s) or full reload (≥60 s). | Tier the staleness: workouts can use a longer TTL (e.g. 10 min) than Recovery; some metrics (height, body mass) almost never change and could have a 24 h TTL. |
+| `scenePhase → active` after short backgrounding (e.g. 60 s – 5 min) | Either skipped (<60 s) or full reload (≥60 s). | Tier the staleness: workouts can use a longer TTL (e.g. 10 min) than Readiness; some metrics (height, body mass) almost never change and could have a 24 h TTL. |
 | Settings entry / Settings → Permissions | No fetch; reads `cacheStatus` view-model fields. | Keep as-is. |
 | Workouts tab opening when months are loaded | Reads `monthSnapshots[key]`. | Keep as-is. |
 | Workouts tab opening to a not-yet-loaded month | `loadMonthIfNeeded` fetches. | Keep, but display the cached widget snapshot as a placeholder while loading (currently a spinner). |
@@ -249,13 +249,13 @@ Current chain at cold launch:
 
 ```
 App init
-  ↳ HealthKitWorkoutStore.init (sync disk read + Recovery recompute on main actor)
+  ↳ HealthKitWorkoutStore.init (sync disk read + Readiness recompute on main actor)
 First frame composes from cached values
   ↳ .task fires: syncWhenAppBecomesActive
        ↳ requestAuthorizationAndRefresh
             ↳ requestAuthorization (UI prompt on first launch)
             ↳ refreshRecentMonths (3 serial workout fetches + 3 concurrent dashboard fetches + source options)
-            ↳ updateHealthDashboardSnapshot (disk write + recovery recompute)
+            ↳ updateHealthDashboardSnapshot (disk write + readiness recompute)
             ↳ updateCurrentMonthSnapshot (disk write + WidgetCenter.reloadAllTimelines)
 ```
 
@@ -265,7 +265,7 @@ Proposed cold-launch chain:
 App init
   ↳ HealthKitWorkoutStore.init (sync disk read only)
 First frame composes from cached values            ◀── unchanged for the user
-  ↳ Defer Recovery recompute to .task with low priority
+  ↳ Defer Readiness recompute to .task with low priority
   ↳ .task fires shortly after first frame:
        ↳ resumeRefresh(staleness:)  (only stale kinds, anchored)
             ↳ async let workouts (parallel across months)
@@ -276,7 +276,7 @@ First frame composes from cached values            ◀── unchanged for the u
 
 Specific changes:
 
-1. **Move Recovery recalculation out of `init`** (`HealthKitWorkoutStore.swift:104-127`). Store the cached value as-is; recompute inside `.task` after first paint.
+1. **Move Readiness recalculation out of `init`** (`HealthKitWorkoutStore.swift:104-127`). Store the cached value as-is; recompute inside `.task` after first paint.
 2. **Lower `.task` priority and add a small launch-debounce.** `Task(priority: .utility) { try? await Task.sleep(...); await store.resumeRefresh() }` lets the first frame paint before we touch HealthKit.
 3. **Use the cached snapshot as a "seed".** Most UI in `BodyHomeView` already binds to `@Published` properties seeded from cache, so this works today — we just need to stop *immediately* overwriting them with placeholders during a refresh. Audit any `@Published` set to `.empty` inside the refresh path.
 4. **Don't request authorization on every launch.** `requestAuthorization()` runs even after auth has been granted; gate it behind "we have not seen a successful refresh ever".
@@ -294,7 +294,7 @@ Pull-to-refresh remains the explicit "force refresh" gesture, but its scope shou
 | --- | --- |
 | `BodyHomeView` (Summary) | Refresh **only the metrics that are visible / pinned to the home order**. Parallel anchored fetch. Skip Activity Ring history pagination (rings detail has its own refresh). Always update widget snapshot if current month workouts changed. |
 | `BodyHomeView` metric detail | Keep current behaviour: `refreshHealthMetric(model.kind)`. |
-| `BodyWorkoutsView` | Keep `refreshWorkoutMonth(selectedMonth, selectedYear)`. Add: if the selected month is the current month, *also* refresh the Recovery / activity-ring summary on the calendar header (currently silently stale). |
+| `BodyWorkoutsView` | Keep `refreshWorkoutMonth(selectedMonth, selectedYear)`. Add: if the selected month is the current month, *also* refresh the Readiness / activity-ring summary on the calendar header (currently silently stale). |
 | `BodyActivityRingsDetailView` | Add a `.refreshable` that refreshes the **visible** rings months (currently no pull-to-refresh here at all). |
 
 Pull-to-refresh should **never** be slower than the current 0.6 s floor, but the work it kicks off should be visibly scoped. The 0.6 s `awaitRefreshCompletion` floor stays — it only governs the spinner.
@@ -303,12 +303,12 @@ Pull-to-refresh should **never** be slower than the current 0.6 s floor, but the
 
 ## 8. Risks, edge cases, and what could go wrong
 
-1. **Stale Recovery after permission flip.** If a user enables a new permission (e.g. HRV) we must still do a full metric refresh for that kind, ignoring TTLs. `updateHealthPermission` already triggers a refresh — preserve that path.
+1. **Stale Readiness after permission flip.** If a user enables a new permission (e.g. HRV) we must still do a full metric refresh for that kind, ignoring TTLs. `updateHealthPermission` already triggers a refresh — preserve that path.
 2. **Anchor drift / missed samples.** If `HKQueryAnchor` is corrupted or HealthKit returns a stale anchor we could miss samples until the user pulls to refresh. Mitigation: fall back to a full window query if anchor decode fails; ship a "Reset HealthKit anchors" entry under the existing Clear Cache flow.
 3. **Background delivery and widget refresh interaction.** If we add `enableBackgroundDelivery`, the OS may wake the app extension while the foreground app is also refreshing. The store is `@MainActor`; any extension-side write would need a separate path that only writes `WorkoutSnapshotStore` (not the full dashboard).
 4. **Diff‑merging workouts by `UUID`.** HealthKit allows late-arriving samples (e.g. an Apple Watch syncing a workout 2 days later). The merge must accept inserts into prior months, not just the current month. The current full-month refresh accidentally handles this; the optimized path must too.
 5. **Widget showing stale data over a month rollover.** The widget reads `WorkoutSnapshotStore` which is only the **current** month. On the morning of the first day of a new month, before the user opens the app, the widget will show an empty calendar. The current code has this same issue — it's worth fixing as part of this work by snapshotting *both* the current and prior month (see §5).
-6. **Recovery recompute timing.** Deferring the `recalculatingRecovery` from `init` to a post-launch task means there is a sub-100 ms window where the on-screen Recovery score is the value persisted from the last session. If yesterday's score is shown for a fraction of a second before today's appears, that may flicker. Mitigation: store the *recovery anchor date* alongside the cache and only show the cached value if its anchor date is today.
+6. **Readiness recompute timing.** Deferring the `recalculatingReadiness` from `init` to a post-launch task means there is a sub-100 ms window where the on-screen Readiness score is the value persisted from the last session. If yesterday's score is shown for a fraction of a second before today's appears, that may flicker. Mitigation: store the *readiness anchor date* alongside the cache and only show the cached value if its anchor date is today.
 7. **`isRefreshing` busy-wait** (Issues.md N10). If we move to anchored / parallel queries we should also replace the polling loop in `awaitRefreshCompletion` and `loadMonthIfNeeded` (`:492-494, 500-502, 513-515`) with a proper async signal. Without that, a hung HealthKit query holds every pull-to-refresh and month-load indefinitely.
 8. **Permission selection persistence.** `applyPermissionSelectionToCachedData` (`:793-811`) currently saves the filtered snapshot to disk. After optimization we still need this on permission change — make sure the new save-only-if-changed gate doesn't skip permission-driven writes.
 9. **Test coverage.** `BodyTests/HealthKitWorkoutStoreTests` already round-trips the dashboard cache. Add anchor-based round-trip tests and a TTL-bypass test before shipping.
@@ -326,8 +326,8 @@ Each step is independently shippable, gated by tests, and ordered to keep the us
 
 ### Step 2 — Defer the post-launch refresh until after first frame
 - In `BodyApp.swift:26-28`, wrap the `.task` body with a short low-priority detached scheduling so the first frame paints from cache before HealthKit is touched.
-- Move `recalculatingRecovery(...)` out of `HealthKitWorkoutStore.init` (`:104-127`) into a `prepareCachedData()` method that is called from a `.task` after init.
-- Tests: add a unit test asserting `HealthKitWorkoutStore.init` does not call `recalculatingRecovery`.
+- Move `recalculatingReadiness(...)` out of `HealthKitWorkoutStore.init` (`:104-127`) into a `prepareCachedData()` method that is called from a `.task` after init.
+- Tests: add a unit test asserting `HealthKitWorkoutStore.init` does not call `recalculatingReadiness`.
 - Verify: cold launch first-frame time visibly drops; UI shows last-session values then transitions to current.
 
 ### Step 3 — Cache `fetchHealthDataSourceOptions` results
@@ -347,7 +347,7 @@ Each step is independently shippable, gated by tests, and ordered to keep the us
 
 ### Step 6 — Per-kind staleness gate (TTLs) for resume refresh
 - Persist `lastSuccessfulRefreshDate` *per `HealthMetricKind`*, not globally.
-- Implement `resumeRefresh()` that, for each kind, decides whether to refetch based on a TTL table (e.g. workouts 5 min, recovery 5 min, sleep 30 min, body mass 24 h, activity ring history 5 min).
+- Implement `resumeRefresh()` that, for each kind, decides whether to refetch based on a TTL table (e.g. workouts 5 min, readiness 5 min, sleep 30 min, body mass 24 h, activity ring history 5 min).
 - Replace the call from `syncWhenAppBecomesActive` (`:438-449`).
 - Keep the 60 s global `lastAppEntrySyncDate` as a hard floor below all TTLs.
 - Tests: a resume 7 min after launch with TTL(workouts)=5 min and TTL(body mass)=24 h should refetch workouts only.
@@ -384,11 +384,11 @@ Each step is independently shippable, gated by tests, and ordered to keep the us
 - Closes Issues.md N10's theoretical hang.
 
 ### Step 13 — Verification pass
-- Run `BodyTests` (cache round-trip, recovery calc).
+- Run `BodyTests` (cache round-trip, readiness calc).
 - Manual smoke test:
   - Cold launch → time to first frame.
   - Background 30 s → resume → no network spinner.
-  - Background 10 min → resume → only Recovery + workouts refresh.
+  - Background 10 min → resume → only Readiness + workouts refresh.
   - Pull-to-refresh on Summary → only visible cards refresh.
   - Toggle a permission → full refresh fires as before.
   - Clear Cache → cold-launch-equivalent state, both Summary and Workouts tabs repopulate.
@@ -480,19 +480,19 @@ Each step is independently shippable, gated by tests, and ordered to keep the us
 - `fetchHealthTrends` uses the paired fetch for HR, HRV, Respiratory Rate, SpO2 — eight separate queries (four daily-avg + four range) collapsed to four queries.
 - `fetchHealthDashboardSnapshot(for: kind)` (per-kind detail refresh) uses the paired fetch in the `.heartRate`, `.heartRateVariability`, `.respiratoryRate`, `.oxygenSaturation` branches.
 
-### Step E1 — Off-main recovery recompute and JSON saves
-- Added `HealthDashboardSnapshot.filteredWithoutRecoveryRecompute(by:)`. `HealthKitWorkoutStore.init` now uses the non-recomputing variant so the cached `summary.recovery` value from disk is preserved through filtering instead of triggering the day-by-day `RecoveryScoreCalculator.dailySeries` loop before the first frame paints.
-- `updateHealthDashboardSnapshot` is now `async`. The `.filtered(by:) .recalculatingRecovery(...)` chain runs inside `Task.detached(priority: .userInitiated)`; the result is awaited and then assigned to `@Published` state on the main actor. `HealthDashboardSnapshotStore.save(...)` and `saveSecondarySelectionSignature(...)` run inside `Task.detached(priority: .utility)` (fire-and-forget; in-memory state is published before the disk write completes).
+### Step E1 — Off-main readiness recompute and JSON saves
+- Added `HealthDashboardSnapshot.filteredWithoutReadinessRecompute(by:)`. `HealthKitWorkoutStore.init` now uses the non-recomputing variant so the cached `summary.readiness` value from disk is preserved through filtering instead of triggering the day-by-day `ReadinessScoreCalculator.dailySeries` loop before the first frame paints.
+- `updateHealthDashboardSnapshot` is now `async`. The `.filtered(by:) .recalculatingReadiness(...)` chain runs inside `Task.detached(priority: .userInitiated)`; the result is awaited and then assigned to `@Published` state on the main actor. `HealthDashboardSnapshotStore.save(...)` and `saveSecondarySelectionSignature(...)` run inside `Task.detached(priority: .utility)` (fire-and-forget; in-memory state is published before the disk write completes).
 - `updateCurrentMonthSnapshot` captures the snapshots and dispatches `WorkoutSnapshotStore.save` / `savePrevious` + `WidgetCenter.shared.reloadAllTimelines()` inside `Task.detached(.utility)`.
 - `applyPermissionSelectionToCachedData` is now `async` with the same off-main filter+recompute + disk-save pattern; `updateHealthPermission` awaits it.
-- Single-metric Recovery refresh in `fetchHealthDashboardSnapshot` wraps its `.recalculatingRecovery(...)` in `Task.detached(.userInitiated)`.
+- Single-metric Readiness refresh in `fetchHealthDashboardSnapshot` wraps its `.recalculatingReadiness(...)` in `Task.detached(.userInitiated)`.
 - Side effect: a brief few-ms window during refresh where in-memory state is updated but the disk JSON hasn't been written yet — recovers on the next refresh; no user-visible impact unless the app is force-quit mid-refresh.
 
 ### Step E2 — Extract `HealthKitFetchEngine` actor (off-main fetch orchestration)
 - New `Body/Services/HealthKitFetchEngine.swift` (~2,550 lines). `actor HealthKitFetchEngine` owns `HKHealthStore`, `healthSourcesByKind`, `fetchedHealthDataSourcePermissionRawValue`, `healthTrendAnchorDate`, and mirrored copies of `permissionSelection` / `healthDataSourceSelection` / `secondaryHealthDataSourceSelection`. Engine exposes `setPermissionSelection`, `setHealthDataSourceSelection`, `setSecondaryHealthDataSourceSelection`, `setHealthTrendAnchorDate`, `clearSourceCache`.
 - Moved into the engine: HK auth (`requestAuthorization`, `authorizationRequestStatus`), predicate helpers (`sourcePredicate`, `combinedPredicate`), permission/source mappers, `recentHealthTrendInterval` / `activityRingHistoryInterval`, `fetchIfPermitted` / `fetchSecondaryIfEnabled`, every leaf HK query (quantity helpers, series fetchers, workouts, sleep, activity rings, intraday, secondary trend/range/day samples, source list), and the dashboard fetch orchestrators (`fetchHealthSummary`, `fetchHealthTrends`, `fetchHealthDashboardSnapshot`, `fetchHealthDataSourceOptions`). The static helpers used inside fetches (`activityDateComponents`, `sleepSummary(from:date:)`, `summary(for:heartRateSamples:effortLevel:)`, `downsampleHeartRateSamples`, etc.) live on the engine.
 - `HealthKitWorkoutStore` shrank from ~3,900 to ~1,450 lines. It keeps all `@Published` outputs, public refresh entry points (`requestAuthorizationAndRefresh`, `refreshHealthMetric`, `refreshWorkoutMonth`, `syncWhenAppBecomesActive`, `refreshCurrentMonth`, `loadIntradayMetricSamplesIfNeeded`, `loadRecentWorkoutMonthsIfNeeded`, `loadMonthIfNeeded`, `loadPreviousActivityRingMonthIfNeeded`, `clearLocalCache`), selection updaters (which now also `await engine.setX(...)`), snapshot publishing (`updateHealthDashboardSnapshot`, `updateCurrentMonthSnapshot`, `applyPermissionSelectionToCachedData`, `clearWorkoutSnapshots`, `updateHealthDataNotice`), refresh internals (`refresh(monthKeys:calendar:)`, `refreshRecentMonths`, `loadMonthKeysIfNeeded`), and the source comparison helpers. Test-accessed statics (`recentChartMonthCount`, `readObjectTypes`, `workoutType(for:)`, `mergedSleepDuration`, `sleepDuration`) stay on the store.
-- API shape changes: `fetchHealthTrends` and `fetchHealthDashboardSnapshot` take `cachedTrends:` / `existing:` parameters so the engine can read previous trend state (preserving lazy-loaded intraday day samples, handling the single-metric Recovery early return) without touching the store's `@Published` directly. `fetchHealthDataSourceOptions` now *returns* the next `[HealthMetricKind: [BodyHealthDataSourceOption]]` (or `nil` for "no change because cache valid") and the store assigns it to its `@Published` property. `HealthKitWorkoutError` was hoisted to file-level visibility so the engine in a separate file can throw/match it.
+- API shape changes: `fetchHealthTrends` and `fetchHealthDashboardSnapshot` take `cachedTrends:` / `existing:` parameters so the engine can read previous trend state (preserving lazy-loaded intraday day samples, handling the single-metric Readiness early return) without touching the store's `@Published` directly. `fetchHealthDataSourceOptions` now *returns* the next `[HealthMetricKind: [BodyHealthDataSourceOption]]` (or `nil` for "no change because cache valid") and the store assigns it to its `@Published` property. `HealthKitWorkoutError` was hoisted to file-level visibility so the engine in a separate file can throw/match it.
 - Tests: four string-grep assertions in `BodyTests/ProjectConfigurationTests.swift` (`testHealthKitFetchesApplySourcePreferencesToRequestedMetrics`, `testSourceSelectableDayChartsUsePrimarySecondaryComparisonLines`, `testHealthKitFetchesBarAndRangeSecondarySourceComparisons`, `testMetricDetailScreensPullToRefreshOnlyCurrentMetric`) were redirected from `HealthKitWorkoutStore.swift` to `HealthKitFetchEngine.swift`. Semantic assertions unchanged. `BUILD SUCCEEDED` + `TEST SUCCEEDED` on iPhone 17 simulator after the refactor.
 
 ### Step F — Batched workout HR samples + parallel effort levels
@@ -510,7 +510,7 @@ Each step is independently shippable, gated by tests, and ordered to keep the us
 
 ### Step I — Progressive 3-bucket dashboard publish
 - Replaced `refreshRecentMonths`'s `async let nextHealthSummary / nextHealthTrends / nextActivityRingHistory; await all; updateHealthDashboardSnapshot(...)` pattern with a `fetchDashboardSnapshotProgressively(calendar:)` helper that runs the three engine fetches inside `withTaskGroup(of: DashboardFetchUnit.self)` and writes each bucket to `@Published` state as soon as it lands.
-- Recovery is preserved at its cached value during the progressive stream: `healthSummary = s.replacingMetric(.recovery, with: healthSummary)` so the cached recovery score stays visible (the fresh fetch's `.recovery` defaults to empty because recompute hasn't run). The final `updateHealthDashboardSnapshot` after the loop performs the filter + recompute + save.
+- Readiness is preserved at its cached value during the progressive stream: `healthSummary = s.replacingMetric(.readiness, with: healthSummary)` so the cached readiness score stays visible (the fresh fetch's `.readiness` defaults to empty because recompute hasn't run). The final `updateHealthDashboardSnapshot` after the loop performs the filter + recompute + save.
 - Same helper is reused by `refresh(month:year:calendar:updatesHealthSummary: true)` (single-month refresh that also updates summary/trends).
 - `refresh(monthKeys:)` was also updated to publish per month: instead of collecting `(key, workouts)` into a dict and writing in a separate pass, the `for try await (key, workouts) in group` body writes `monthSnapshots[key]` and `loadedMonthKeys.insert(key)` directly so the Workouts tab fills in per-month.
 

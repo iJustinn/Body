@@ -1,17 +1,35 @@
 # Version History
 
+## 0.5.6 (build 4)
+
+- Added Settings > Data > Source with global primary and secondary Apple Health source defaults, an option to combine duplicate source names, and per-metric overrides still available from detail pages.
+- Combined source names now treat `iWatch X` and `iWatchX` as the same `iWatchX` source and preserve both underlying HealthKit sources for combined queries without broadening matching for unrelated names.
+- Fixed combined sleep-source timelines so generic sleep intervals from another source are kept when they add time outside detailed sleep-stage samples.
+- Updated the app, widget, and test bundle version to 0.5.6 build 4.
+
+## 0.5.6 (build 3)
+
+- Redesigned the workout detail heart rate chart with a smoothed gradient line (cyan → red by BPM intensity), faded color-coded scatter dots per raw sample, a horizontal average reference line, and inline header (title + min-max range) plus right-side Y-axis tick labels matching the Apple Health style.
+- Updated the app, widget, and test bundle version to 0.5.6 build 3.
+
+## 0.5.6 (build 2)
+
+- Added step-count day-line support with hourly totals and secondary-source comparison handling.
+- Moved wrist temperature baseline context into the primary trend chart with a dashed baseline and selection deviation annotation.
+- Updated the app, widget, and test bundle version to 0.5.6 build 2.
+
 ## 0.5.6 (build 1)
 
-- Recovery scoring now honors the configured sleep goal when computing the current score and recovery trend series.
-- Wrist temperature baseline displays now use a median baseline so card copy stays aligned with Recovery's robust baseline behavior.
-- Added dedicated Recovery calculator coverage for sleep-goal forwarding, robust baselines, z-scores, and empty-signal behavior.
+- Readiness scoring now honors the configured sleep goal when computing the current score and readiness trend series.
+- Wrist temperature baseline displays now use a median baseline so card copy stays aligned with Readiness's robust baseline behavior.
+- Added dedicated Readiness calculator coverage for sleep-goal forwarding, robust baselines, z-scores, and empty-signal behavior.
 - Updated the app, widget, and test bundle version to 0.5.6 build 1.
 
 ## 0.5.2 (build 4)
 
 - Cut cold-launch dashboard refresh latency by eliminating N+1 HealthKit queries: workout heart-rate samples are now fetched per month via a single OR'd compound predicate and partitioned in memory, per-workout `HKWorkoutEffortScore` fetches run concurrently via `withTaskGroup`, and the per-sleep-day `fetchSleepVitals` loop runs through a bounded (16) `withTaskGroup` helper.
 - Memoized the shared 180-day training-load workout fetch so `fetchTrainingLoadSummary` and `fetchTrainingLoadSeries` no longer issue duplicate queries within the same refresh.
-- Refresh now publishes progressively: summary, trends, and Activity Ring history each write to `@Published` state as soon as their fetch completes (three publishes instead of one at the end). Per-month workouts also publish individually as each task-group result lands. Recovery is preserved at its cached value during the stream and recomputed once at the end.
+- Refresh now publishes progressively: summary, trends, and Activity Ring history each write to `@Published` state as soon as their fetch completes (three publishes instead of one at the end). Per-month workouts also publish individually as each task-group result lands. Readiness is preserved at its cached value during the stream and recomputed once at the end.
 - Persisted `lastSuccessfulRefreshDate` in `UserDefaults` so cold-start applies the same tiered TTL as a warm resume (`<60 s` skip, `60 s–5 min` current-month workouts only, `≥5 min` full refresh). Previously, every cold-start fell through to a full refresh because the timestamp lived only in memory.
 - Added a `PrivacyInfo.xcprivacy` manifest declaring required-reason API usage (`NSPrivacyAccessedAPICategoryUserDefaults` with reason `CA92.1`, `NSPrivacyAccessedAPICategoryFileTimestamp` with reason `C617.1`). `NSPrivacyTracking` is `false`; no data is collected externally.
 - Updated the app, widget, and test bundle version to 0.5.2 build 4.
@@ -26,9 +44,9 @@
 ## 0.5.2 (build 2)
 
 - Incrementally load intraday metric day-view samples after the cached tail so detail screens fetch only new HealthKit samples on subsequent opens.
-- Updated the Recovery detail header to show score and status directly.
-- Deferred the cached-dashboard recovery recompute out of `HealthKitWorkoutStore.init`. The first frame paints from the cached `summary.recovery` value (correct as of its last successful refresh); the next refresh recomputes Recovery off the main thread.
-- Moved the per-refresh `recalculatingRecovery` (day-by-day baseline iteration over ~365 trend points) into a `Task.detached(.userInitiated)` inside `updateHealthDashboardSnapshot` so it no longer blocks the main thread.
+- Updated the Readiness detail header to show score and status directly.
+- Deferred the cached-dashboard readiness recompute out of `HealthKitWorkoutStore.init`. The first frame paints from the cached `summary.readiness` value (correct as of its last successful refresh); the next refresh recomputes Readiness off the main thread.
+- Moved the per-refresh `recalculatingReadiness` (day-by-day baseline iteration over ~365 trend points) into a `Task.detached(.userInitiated)` inside `updateHealthDashboardSnapshot` so it no longer blocks the main thread.
 - Moved `HealthDashboardSnapshotStore.save` and `WorkoutSnapshotStore.save` / `savePrevious` + `WidgetCenter.shared.reloadAllTimelines()` into `Task.detached(.utility)` so JSON encode + atomic write + widget XPC round-trip no longer run on the main actor during refresh.
 - Updated the app, widget, and test bundle version to 0.5.2 build 2.
 
@@ -49,7 +67,7 @@
 
 ## 0.5.0 (build 3)
 
-- Added a Recovery Summary card that compares sleep, heart, training load, and sleep-window vitals against personal baselines, with confidence and driver explanations for missing or unusual signals.
+- Added a Readiness Summary card that compares sleep, heart, training load, and sleep-window vitals against personal baselines, with confidence and driver explanations for missing or unusual signals.
 
 ## 0.5.0 (build 2)
 

@@ -327,6 +327,8 @@ struct BodySettingsView: View {
 
     private func dataValue(for tab: BodySettingsDataTab) -> String {
         switch tab {
+        case .source:
+            return sourceSummaryText
         case .permissions:
             return permissionSummaryText
         case .syncStatus:
@@ -379,6 +381,16 @@ struct BodySettingsView: View {
 
     private var sleepDurationGoalText: String {
         BodySleepDurationGoal.displayText(for: sleepDurationGoalMinutes)
+    }
+
+    private var sourceSummaryText: String {
+        let primaryName = workoutStore.defaultHealthDataSourceOption.name
+        let secondaryOption = workoutStore.defaultSecondaryHealthDataSourceOption
+        guard !secondaryOption.isNoComparison else {
+            return primaryName
+        }
+
+        return "\(primaryName) / \(secondaryOption.name)"
     }
 
     private var currentSummaryCardSelection: BodySummaryCardSelection {
@@ -512,6 +524,8 @@ struct BodySettingsView: View {
             )
         case .permissions:
             BodyHealthPermissionsSettingsSheet(workoutStore: workoutStore)
+        case .source:
+            BodySourceSettingsSheet(workoutStore: workoutStore)
         case .syncStatus:
             BodyHealthSyncStatusSettingsSheet(workoutStore: workoutStore)
         case .cache:
@@ -600,6 +614,7 @@ enum BodySettingsSheet: String, Identifiable {
     case defaultTrendRange
     case homeTrendCards
     case units
+    case source
     case permissions
     case syncStatus
     case cache
@@ -615,6 +630,7 @@ enum BodySettingsSheet: String, Identifiable {
 }
 
 enum BodySettingsDataTab: String, CaseIterable, Identifiable {
+    case source
     case permissions
     case syncStatus
     case cache
@@ -625,6 +641,8 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .source:
+            return "Source"
         case .permissions:
             return "Permissions"
         case .syncStatus:
@@ -636,6 +654,8 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
 
     var iconName: String {
         switch self {
+        case .source:
+            return "heart.text.square.fill"
         case .permissions:
             return "checkmark.shield.fill"
         case .syncStatus:
@@ -647,6 +667,8 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
 
     var tintColor: Color {
         switch self {
+        case .source:
+            return .cyan
         case .permissions:
             return .green
         case .syncStatus:
@@ -658,6 +680,8 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
 
     var sheet: BodySettingsSheet? {
         switch self {
+        case .source:
+            return .source
         case .permissions:
             return .permissions
         case .syncStatus:
@@ -1313,6 +1337,179 @@ private struct BodyHomeTrendCardToggleRow: View {
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
         .contentShape(Rectangle())
+    }
+}
+
+private struct BodySourceSettingsSheet: View {
+    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    @State private var updatingSelection: PendingSelection?
+
+    fileprivate enum Role: String, Equatable {
+        case primary
+        case secondary
+    }
+
+    private struct PendingSelection: Equatable {
+        let role: Role
+        let optionID: String
+    }
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Source") {
+            VStack(spacing: 18) {
+                BodySettingsCardSection("Options") {
+                    combineSourcesToggle
+                }
+
+                sourceOptionSection(
+                    title: "Primary Data Source",
+                    options: workoutStore.healthDataSourceDefaultOptions(),
+                    selectedOption: workoutStore.defaultHealthDataSourceOption,
+                    role: .primary,
+                    tintColor: .cyan
+                )
+
+                sourceOptionSection(
+                    title: "Secondary Data Source",
+                    options: workoutStore.secondaryHealthDataSourceDefaultOptions(),
+                    selectedOption: workoutStore.defaultSecondaryHealthDataSourceOption,
+                    role: .secondary,
+                    tintColor: .purple
+                )
+            }
+        }
+    }
+
+    private var combineSourcesToggle: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: "rectangle.stack.fill", color: .cyan)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Combine Sources with Same Name")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("Group duplicate source names into one choice")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Combine Sources with Same Name", isOn: Binding {
+                workoutStore.combinesHealthDataSourcesByName
+            } set: { combines in
+                Task {
+                    await workoutStore.updateCombinesHealthDataSourcesByName(combines)
+                }
+            })
+            .labelsHidden()
+            .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+            .accessibilityValue(workoutStore.combinesHealthDataSourcesByName ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+    }
+
+    private func sourceOptionSection(
+        title: String,
+        options: [BodyHealthDataSourceOption],
+        selectedOption: BodyHealthDataSourceOption,
+        role: Role,
+        tintColor: Color
+    ) -> some View {
+        BodySettingsCardSection(title) {
+            ForEach(options) { option in
+                sourceOptionButton(
+                    option,
+                    selectedOption: selectedOption,
+                    role: role,
+                    tintColor: tintColor
+                )
+
+                if option.id != options.last?.id {
+                    Divider()
+                        .padding(.leading, 76)
+                }
+            }
+        }
+    }
+
+    private func sourceOptionButton(
+        _ option: BodyHealthDataSourceOption,
+        selectedOption: BodyHealthDataSourceOption,
+        role: Role,
+        tintColor: Color
+    ) -> some View {
+        let isSelected = selectedOption.id == option.id
+        let isThisRowUpdating = updatingSelection == PendingSelection(role: role, optionID: option.id)
+        // Lock only the rows in the same section while a selection in that
+        // section is in flight — the other role's rows stay tappable.
+        let isSectionLocked = updatingSelection?.role == role
+        return Button {
+            updateSelection(option, role: role)
+        } label: {
+            HStack(spacing: 14) {
+                BodySettingsIconTile(iconName: optionIconName(for: option, role: role), color: tintColor)
+
+                Text(option.name)
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+
+                Spacer(minLength: 12)
+
+                if isThisRowUpdating {
+                    ProgressView()
+                        .controlSize(.small)
+                } else if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundColor(tintColor)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isSelected || isSectionLocked)
+    }
+
+    private func optionIconName(for option: BodyHealthDataSourceOption, role: Role) -> String {
+        if option.isNoComparison {
+            return "minus.circle.fill"
+        }
+
+        switch role {
+        case .primary:
+            return "heart.text.square.fill"
+        case .secondary:
+            return "square.stack.3d.up.fill"
+        }
+    }
+
+    private func updateSelection(_ option: BodyHealthDataSourceOption, role: Role) {
+        updatingSelection = PendingSelection(role: role, optionID: option.id)
+        Task {
+            switch role {
+            case .primary:
+                await workoutStore.updateDefaultHealthDataSource(option: option)
+            case .secondary:
+                await workoutStore.updateDefaultSecondaryHealthDataSource(option: option)
+            }
+            updatingSelection = nil
+        }
     }
 }
 
@@ -2059,6 +2256,7 @@ private struct BodyHowToUseSettingsSheet: View {
             tintColor: .red,
             steps: [
                 "Grant read permission when Body asks for Apple Health access. Use a real device for complete Health data.",
+                "Open Data > Source to set default primary and secondary Apple Health sources or combine duplicate source names.",
                 "Open Data > Permissions to choose which Apple Health categories Body uses inside the app.",
                 "Open Data > Data Refresh to see the last refresh time or run Refresh Now."
             ]
@@ -2110,7 +2308,7 @@ private struct BodyHowToUseSettingsSheet: View {
             tintColor: .pink,
             steps: [
                 "Open a supported metric detail (Sleep, Heart Rate, Resting Heart Rate, HRV, Blood Oxygen, Steps, Active Energy, Resting Energy, Exercise Minutes).",
-                "Tap the source picker to set a Primary Source, then choose a Secondary Source to overlay alongside it. Pick No Comparison to hide the overlay.",
+                "Use Data > Source for app-wide primary and secondary defaults, or tap the source picker on a metric detail to override that metric.",
                 "Primary and secondary share the same x-axis buckets so bars and lines line up. The legend lists each source with its average across the selected range.",
                 "Changing the secondary source triggers a focused refresh of that metric; the Loading data overlay stays until the new comparison data is ready."
             ]

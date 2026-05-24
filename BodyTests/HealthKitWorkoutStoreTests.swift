@@ -286,6 +286,105 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(duration, 17_100)
     }
 
+    func testSleepStageSegmentsPreserveUnspecifiedSamplesThatAddCoverage() throws {
+        let calendar = Calendar.bodyGregorian
+        let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))
+        let coreStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 1)))
+        let coreEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 3)))
+        let unspecifiedStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 2)))
+        let unspecifiedEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 5)))
+
+        let segments = HealthKitFetchEngine.sleepStageSegments(
+            from: [
+                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.asleepCore.rawValue, start: coreStart, end: coreEnd),
+                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.asleep.rawValue, start: unspecifiedStart, end: unspecifiedEnd)
+            ]
+        )
+
+        XCTAssertEqual(segments.map(\.stage), [SleepStage.core, .core])
+        XCTAssertEqual(segments[0].startDate, coreStart)
+        XCTAssertEqual(segments[0].endDate, coreEnd)
+        XCTAssertEqual(segments[1].startDate, coreEnd)
+        XCTAssertEqual(segments[1].endDate, unspecifiedEnd)
+    }
+
+    func testIntradayFetchStartUsesWindowStartOrNextCachedSample() throws {
+        let calendar = Calendar.bodyGregorian
+        let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let cachedSampleDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 3, hour: 7)))
+        let staleSampleDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 28, hour: 7)))
+
+        XCTAssertEqual(
+            HealthKitFetchEngine.incrementalFetchStart(after: .empty, windowStart: windowStart),
+            windowStart
+        )
+        XCTAssertEqual(
+            HealthKitFetchEngine.incrementalFetchStart(
+                after: HealthTrendSeries(points: [HealthTrendDataPoint(date: cachedSampleDate, value: 61)]),
+                windowStart: windowStart
+            ),
+            cachedSampleDate.addingTimeInterval(0.001)
+        )
+        XCTAssertEqual(
+            HealthKitFetchEngine.incrementalFetchStart(
+                after: HealthTrendSeries(points: [HealthTrendDataPoint(date: staleSampleDate, value: 61)]),
+                windowStart: windowStart
+            ),
+            windowStart
+        )
+    }
+
+    func testMergeIntradaySamplesDropsExpiredCacheAndAppendsIncomingSamples() throws {
+        let calendar = Calendar.bodyGregorian
+        let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let expiredDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 30, hour: 23)))
+        let keptDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1, hour: 1)))
+        let incomingDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 2, hour: 1)))
+
+        let merged = HealthKitFetchEngine.mergeIntradaySamples(
+            existing: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: expiredDate, value: 59),
+                HealthTrendDataPoint(date: keptDate, value: 61)
+            ]),
+            incoming: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: incomingDate, value: 62)
+            ]),
+            windowStart: windowStart
+        )
+
+        XCTAssertEqual(merged.points.map(\.date), [keptDate, incomingDate])
+        XCTAssertEqual(merged.points.map(\.value), [61, 62])
+    }
+
+    func testHydrateSleepVitalsInParallelPreservesOrderAndConcurrencyLimit() async throws {
+        let calendar = Calendar.bodyGregorian
+        let firstDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 10)))
+        let secondDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11)))
+        let thirdDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 12)))
+        let probe = SleepHydrationProbe()
+
+        let hydratedDays = await HealthKitFetchEngine.hydrateSleepVitalsInParallel(
+            days: [
+                sleepDaySummary(on: firstDay, heartRateSeed: 51, calendar: calendar),
+                SleepDaySummary(date: secondDay, summary: SleepSummary(duration: nil)),
+                sleepDaySummary(on: thirdDay, heartRateSeed: 53, calendar: calendar)
+            ],
+            maxConcurrentDays: 1
+        ) { interval in
+            await probe.begin(interval)
+            try? await Task.sleep(nanoseconds: 1_000_000)
+            await probe.end()
+            return SleepVitalsSummary(heartRate: interval.duration / 60)
+        }
+
+        XCTAssertEqual(hydratedDays.map(\.date), [firstDay, secondDay, thirdDay])
+        XCTAssertEqual(hydratedDays[0].summary.vitals.heartRate, 51)
+        XCTAssertTrue(hydratedDays[1].summary.vitals.isEmpty)
+        XCTAssertEqual(hydratedDays[2].summary.vitals.heartRate, 53)
+        let maximumActiveCount = await probe.maximumActiveCount()
+        XCTAssertLessThanOrEqual(maximumActiveCount, 1)
+    }
+
     private func cachedHealthDashboardSnapshot() throws -> HealthDashboardSnapshot {
         let calendar = Calendar.bodyGregorian
         let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 10)))
@@ -359,6 +458,27 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
             .appendingPathComponent("currentMonthWorkoutSnapshot.json")
     }
 
+    private func sleepDaySummary(
+        on day: Date,
+        heartRateSeed: Double,
+        calendar: Calendar
+    ) -> SleepDaySummary {
+        let start = calendar.date(byAdding: .hour, value: 1, to: day) ?? day
+        let end = start.addingTimeInterval(heartRateSeed * 60)
+        return SleepDaySummary(
+            date: day,
+            summary: SleepSummary(
+                duration: end.timeIntervalSince(start),
+                stageSnapshot: SleepStageSnapshot(
+                    date: day,
+                    segments: [
+                        SleepStageSegment(stage: .core, startDate: start, endDate: end)
+                    ]
+                )
+            )
+        )
+    }
+
     private func workout(day: Int, type: BodyWorkoutType, duration: TimeInterval) -> WorkoutSummary {
         WorkoutSummary(
             id: UUID(uuidString: "00000000-0000-0000-0000-\(String(format: "%012d", day))") ?? UUID(),
@@ -374,5 +494,24 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
     private struct LegacyHealthDashboardSnapshot: Codable {
         var summary: HealthSummarySnapshot
         var trends: HealthTrendSnapshot
+    }
+}
+
+private actor SleepHydrationProbe {
+    private var activeCount = 0
+    private var maxActiveCount = 0
+
+    func begin(_ interval: DateInterval) {
+        _ = interval
+        activeCount += 1
+        maxActiveCount = max(maxActiveCount, activeCount)
+    }
+
+    func end() {
+        activeCount -= 1
+    }
+
+    func maximumActiveCount() -> Int {
+        maxActiveCount
     }
 }

@@ -1,14 +1,14 @@
 //
-//  RecoveryScoreCalculator.swift
+//  ReadinessScoreCalculator.swift
 //  Body
 //
 
 import Foundation
 
-enum RecoveryScoreCalculator {
+enum ReadinessScoreCalculator {
     private struct ComponentResult {
-        var component: RecoveryComponent
-        var drivers: [RecoveryDriver]
+        var component: ReadinessComponent
+        var drivers: [ReadinessDriver]
         var bestBaselineDayCount: Int
     }
 
@@ -23,6 +23,155 @@ enum RecoveryScoreCalculator {
         var validDayCount: Int
     }
 
+    private enum ReadinessMetric: Hashable {
+        case heartRateVariability
+        case restingHeartRate
+        case trainingLoad
+        case respiratoryRate
+        case oxygenSaturation
+        case wristTemperature
+    }
+
+    private struct ReadinessDailySeriesContext {
+        private let calendar: Calendar
+        private let currentValuesByMetric: [ReadinessMetric: [Date: Double]]
+        private let baselineCachesByMetric: [ReadinessMetric: ReadinessBaselineCache]
+
+        init(trends: HealthTrendSnapshot, calendar: Calendar) {
+            self.calendar = calendar
+            currentValuesByMetric = [
+                .heartRateVariability: Self.currentValuesByDay(from: trends.heartRateVariability, calendar: calendar),
+                .restingHeartRate: Self.currentValuesByDay(from: trends.restingHeartRate, calendar: calendar),
+                .trainingLoad: Self.currentValuesByDay(from: trends.trainingLoad, calendar: calendar),
+                .respiratoryRate: Self.currentValuesByDay(from: trends.respiratoryRate, calendar: calendar),
+                .oxygenSaturation: Self.currentValuesByDay(from: trends.oxygenSaturation, calendar: calendar),
+                .wristTemperature: Self.currentValuesByDay(from: trends.wristTemperature, calendar: calendar)
+            ]
+            baselineCachesByMetric = [
+                .heartRateVariability: ReadinessBaselineCache(series: trends.heartRateVariability, floor: MetricFloor.hrv, calendar: calendar),
+                .restingHeartRate: ReadinessBaselineCache(series: trends.restingHeartRate, floor: MetricFloor.heartRate, calendar: calendar),
+                .respiratoryRate: ReadinessBaselineCache(series: trends.respiratoryRate, floor: MetricFloor.respiratoryRate, calendar: calendar),
+                .oxygenSaturation: ReadinessBaselineCache(series: trends.oxygenSaturation, floor: MetricFloor.oxygenSaturation, calendar: calendar),
+                .wristTemperature: ReadinessBaselineCache(series: trends.wristTemperature, floor: MetricFloor.wristTemperature, calendar: calendar)
+            ]
+        }
+
+        func currentValue(on date: Date, metric: ReadinessMetric) -> Double? {
+            let day = calendar.startOfDay(for: date)
+            return currentValuesByMetric[metric]?[day]
+        }
+
+        func baseline(for date: Date, metric: ReadinessMetric) -> Baseline? {
+            baselineCachesByMetric[metric]?.baseline(for: date)
+        }
+
+        private static func currentValuesByDay(
+            from series: HealthTrendSeries,
+            calendar: Calendar
+        ) -> [Date: Double] {
+            var latestPointByDay: [Date: HealthTrendDataPoint] = [:]
+            for point in series.points where point.value.isFinite {
+                let day = calendar.startOfDay(for: point.date)
+                if let existing = latestPointByDay[day], existing.date > point.date {
+                    continue
+                }
+                latestPointByDay[day] = point
+            }
+
+            return latestPointByDay.mapValues(\.value)
+        }
+    }
+
+    private struct ReadinessBaselineCache {
+        private struct BaselinePoint {
+            var day: Date
+            var date: Date
+            var value: Double
+        }
+
+        private let points: [BaselinePoint]
+        private let floor: Double
+        private let calendar: Calendar
+
+        init(series: HealthTrendSeries, floor: Double, calendar: Calendar) {
+            self.floor = floor
+            self.calendar = calendar
+            points = series.points.compactMap { point in
+                guard point.value.isFinite else {
+                    return nil
+                }
+
+                return BaselinePoint(
+                    day: calendar.startOfDay(for: point.date),
+                    date: point.date,
+                    value: point.value
+                )
+            }
+            .sorted { first, second in
+                guard first.day == second.day else {
+                    return first.day < second.day
+                }
+
+                return first.date < second.date
+            }
+        }
+
+        func baseline(for date: Date) -> Baseline? {
+            let scoringDay = calendar.startOfDay(for: date)
+            let oldestDay = calendar.date(
+                byAdding: .day,
+                value: -ReadinessScoreCalculator.baselineDayCount,
+                to: scoringDay
+            ) ?? scoringDay.addingTimeInterval(-Double(ReadinessScoreCalculator.baselineDayCount) * 86_400)
+            let recentCutoff = calendar.date(
+                byAdding: .day,
+                value: -ReadinessScoreCalculator.recentExclusionDayCount,
+                to: scoringDay
+            ) ?? scoringDay
+
+            let startIndex = lowerBound(for: oldestDay)
+            let endIndex = lowerBound(for: scoringDay)
+            guard startIndex < endIndex else {
+                return nil
+            }
+
+            let priorPoints = Array(points[startIndex..<endIndex])
+            let olderPoints = priorPoints.filter { $0.day < recentCutoff }
+            let baselinePoints = olderPoints.count >= 28 ? olderPoints : priorPoints
+            let numericValues = baselinePoints.map(\.value).sorted()
+
+            guard numericValues.count >= ReadinessScoreCalculator.minimumBaselineDayCount else {
+                return nil
+            }
+
+            let medianValue = ReadinessScoreCalculator.median(numericValues)
+            let deviations = numericValues.map { abs($0 - medianValue) }.sorted()
+            let spread = max(1.4826 * ReadinessScoreCalculator.median(deviations), floor)
+
+            return Baseline(
+                median: medianValue,
+                spread: spread,
+                validDayCount: numericValues.count
+            )
+        }
+
+        private func lowerBound(for day: Date) -> Int {
+            var lower = 0
+            var upper = points.count
+
+            while lower < upper {
+                let middle = (lower + upper) / 2
+                if points[middle].day < day {
+                    lower = middle + 1
+                } else {
+                    upper = middle
+                }
+            }
+
+            return lower
+        }
+    }
+
     static let baselineDayCount = 56
     static let recentExclusionDayCount = 3
     static let minimumBaselineDayCount = 14
@@ -33,9 +182,27 @@ enum RecoveryScoreCalculator {
         trends: HealthTrendSnapshot,
         idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
         calendar: Calendar = .bodyGregorian
-    ) -> RecoverySummary {
+    ) -> ReadinessSummary {
+        readinessSummary(
+            on: date,
+            healthSummary: healthSummary,
+            trends: trends,
+            idealSleepDuration: idealSleepDuration,
+            calendar: calendar,
+            context: nil
+        )
+    }
+
+    private static func readinessSummary(
+        on date: Date,
+        healthSummary: HealthSummarySnapshot,
+        trends: HealthTrendSnapshot,
+        idealSleepDuration: TimeInterval,
+        calendar: Calendar,
+        context: ReadinessDailySeriesContext?
+    ) -> ReadinessSummary {
         let componentResults = [
-            autonomicComponent(on: date, trends: trends, calendar: calendar),
+            autonomicComponent(on: date, trends: trends, calendar: calendar, context: context),
             sleepComponent(
                 on: date,
                 healthSummary: healthSummary,
@@ -43,8 +210,8 @@ enum RecoveryScoreCalculator {
                 idealSleepDuration: idealSleepDuration,
                 calendar: calendar
             ),
-            trainingComponent(on: date, trends: trends, calendar: calendar),
-            vitalsComponent(on: date, trends: trends, calendar: calendar)
+            trainingComponent(on: date, trends: trends, calendar: calendar, context: context),
+            vitalsComponent(on: date, trends: trends, calendar: calendar, context: context)
         ].compactMap { $0 }
 
         guard !componentResults.isEmpty else {
@@ -63,13 +230,13 @@ enum RecoveryScoreCalculator {
         let score = adjustedSummaryScore(rawScore, componentResults: componentResults)
         let drivers = prioritizedDrivers(from: componentResults)
 
-        return RecoverySummary(
+        return ReadinessSummary(
             score: score,
-            status: RecoveryStatus.status(for: score),
+            status: ReadinessStatus.status(for: score),
             confidence: confidence(for: componentResults),
             components: componentResults.map(\.component),
             drivers: drivers.isEmpty
-                ? [RecoveryDriver(kind: .mostlyTypical, message: "Recovery signals are mostly typical.", impact: 0)]
+                ? [ReadinessDriver(kind: .mostlyTypical, message: "Readiness signals are mostly typical.", impact: 0)]
                 : drivers
         )
     }
@@ -142,15 +309,17 @@ enum RecoveryScoreCalculator {
             return .empty
         }
 
+        let context = ReadinessDailySeriesContext(trends: trends, calendar: calendar)
         while day <= endDay {
-            let summary = summary(
+            let readiness = readinessSummary(
                 on: day,
                 healthSummary: healthSummary,
                 trends: trends,
                 idealSleepDuration: idealSleepDuration,
-                calendar: calendar
+                calendar: calendar,
+                context: context
             )
-            if let score = summary.score {
+            if let score = readiness.score {
                 points.append(HealthTrendDataPoint(date: day, value: Double(score)))
             }
 
@@ -166,25 +335,34 @@ enum RecoveryScoreCalculator {
     private static func autonomicComponent(
         on date: Date,
         trends: HealthTrendSnapshot,
-        calendar: Calendar
+        calendar: Calendar,
+        context: ReadinessDailySeriesContext?
     ) -> ComponentResult? {
         var scores: [Int] = []
-        var drivers: [RecoveryDriver] = []
+        var drivers: [ReadinessDriver] = []
         var baselineCounts: [Int] = []
 
-        if let value = currentValue(on: date, in: trends.heartRateVariability, calendar: calendar),
-           let baseline = robustBaseline(
+        if let value = currentValue(
+            on: date,
+            metric: .heartRateVariability,
+            series: trends.heartRateVariability,
+            calendar: calendar,
+            context: context
+        ),
+           let baseline = baseline(
             for: date,
-            values: dailyValues(from: trends.heartRateVariability),
+            metric: .heartRateVariability,
+            series: trends.heartRateVariability,
             floor: MetricFloor.hrv,
-            calendar: calendar
+            calendar: calendar,
+            context: context
            ) {
             let favorableZScore = robustZScore(value: value, baseline: baseline)
             let progress = adverseProgress(-favorableZScore)
             scores.append(scoreFromBaselineZScore(favorableZScore))
             baselineCounts.append(baseline.validDayCount)
             if progress > 0 {
-                drivers.append(RecoveryDriver(
+                drivers.append(ReadinessDriver(
                     kind: .hrvBelowBaseline,
                     message: "HRV is below baseline.",
                     impact: progress
@@ -192,19 +370,27 @@ enum RecoveryScoreCalculator {
             }
         }
 
-        if let value = currentValue(on: date, in: trends.restingHeartRate, calendar: calendar),
-           let baseline = robustBaseline(
+        if let value = currentValue(
+            on: date,
+            metric: .restingHeartRate,
+            series: trends.restingHeartRate,
+            calendar: calendar,
+            context: context
+        ),
+           let baseline = baseline(
             for: date,
-            values: dailyValues(from: trends.restingHeartRate),
+            metric: .restingHeartRate,
+            series: trends.restingHeartRate,
             floor: MetricFloor.heartRate,
-            calendar: calendar
+            calendar: calendar,
+            context: context
            ) {
             let favorableZScore = -robustZScore(value: value, baseline: baseline)
             let progress = adverseProgress(-favorableZScore)
             scores.append(scoreFromBaselineZScore(favorableZScore))
             baselineCounts.append(baseline.validDayCount)
             if progress > 0 {
-                drivers.append(RecoveryDriver(
+                drivers.append(ReadinessDriver(
                     kind: .heartRateAboveBaseline,
                     message: "Resting heart rate is above baseline.",
                     impact: progress
@@ -217,7 +403,7 @@ enum RecoveryScoreCalculator {
         }
 
         return ComponentResult(
-            component: RecoveryComponent(
+            component: ReadinessComponent(
                 kind: .autonomic,
                 score: averageScore(scores),
                 weight: 30,
@@ -246,13 +432,13 @@ enum RecoveryScoreCalculator {
         }
 
         var scores: [Int] = []
-        var drivers: [RecoveryDriver] = []
+        var drivers: [ReadinessDriver] = []
 
         let goalDuration = idealSleepDuration > 0 ? idealSleepDuration : BodySleepDurationGoal.defaultDuration
         let durationProgress = min(max(duration / goalDuration, 0), 1.10)
         scores.append(scoreFromSleepProgress(durationProgress))
         if durationProgress < 0.85 {
-            drivers.append(RecoveryDriver(
+            drivers.append(ReadinessDriver(
                 kind: .sleepDurationBelowGoal,
                 message: "Sleep duration is below goal.",
                 impact: 1 - durationProgress
@@ -266,7 +452,7 @@ enum RecoveryScoreCalculator {
                 let continuityProgress = min(max((efficiency - 0.78) / 0.18, 0), 1)
                 scores.append(scoreFromSleepProgress(continuityProgress))
                 if continuityProgress < 0.65 {
-                    drivers.append(RecoveryDriver(
+                    drivers.append(ReadinessDriver(
                         kind: .sleepFragmented,
                         message: "Sleep was more fragmented than usual.",
                         impact: 1 - continuityProgress
@@ -280,7 +466,7 @@ enum RecoveryScoreCalculator {
         }
 
         return ComponentResult(
-            component: RecoveryComponent(
+            component: ReadinessComponent(
                 kind: .sleep,
                 score: averageScore(scores),
                 weight: 30,
@@ -310,15 +496,22 @@ enum RecoveryScoreCalculator {
     private static func trainingComponent(
         on date: Date,
         trends: HealthTrendSnapshot,
-        calendar: Calendar
+        calendar: Calendar,
+        context: ReadinessDailySeriesContext?
     ) -> ComponentResult? {
-        guard let value = currentValue(on: date, in: trends.trainingLoad, calendar: calendar), value.isFinite else {
+        guard let value = currentValue(
+            on: date,
+            metric: .trainingLoad,
+            series: trends.trainingLoad,
+            calendar: calendar,
+            context: context
+        ), value.isFinite else {
             return nil
         }
 
         let result = trainingLoadScore(value)
         return ComponentResult(
-            component: RecoveryComponent(
+            component: ReadinessComponent(
                 kind: .training,
                 score: result.score,
                 weight: 25,
@@ -332,19 +525,22 @@ enum RecoveryScoreCalculator {
     private static func vitalsComponent(
         on date: Date,
         trends: HealthTrendSnapshot,
-        calendar: Calendar
+        calendar: Calendar,
+        context: ReadinessDailySeriesContext?
     ) -> ComponentResult? {
         var anomalyProgressValues: [Double] = []
-        var drivers: [RecoveryDriver] = []
+        var drivers: [ReadinessDriver] = []
         var baselineCounts: [Int] = []
 
         appendHighSideAnomaly(
             kind: .respiratoryRateAboveBaseline,
             message: "Respiratory rate is above baseline.",
             date: date,
+            metric: .respiratoryRate,
             series: trends.respiratoryRate,
             floor: MetricFloor.respiratoryRate,
             calendar: calendar,
+            context: context,
             progressValues: &anomalyProgressValues,
             drivers: &drivers,
             baselineCounts: &baselineCounts
@@ -353,27 +549,37 @@ enum RecoveryScoreCalculator {
             kind: .wristTemperatureAboveBaseline,
             message: "Wrist temperature is above baseline.",
             date: date,
+            metric: .wristTemperature,
             series: trends.wristTemperature,
             floor: MetricFloor.wristTemperature,
             calendar: calendar,
+            context: context,
             progressValues: &anomalyProgressValues,
             drivers: &drivers,
             baselineCounts: &baselineCounts
         )
 
-        if let value = currentValue(on: date, in: trends.oxygenSaturation, calendar: calendar),
-           let baseline = robustBaseline(
+        if let value = currentValue(
+            on: date,
+            metric: .oxygenSaturation,
+            series: trends.oxygenSaturation,
+            calendar: calendar,
+            context: context
+        ),
+           let baseline = baseline(
             for: date,
-            values: dailyValues(from: trends.oxygenSaturation),
+            metric: .oxygenSaturation,
+            series: trends.oxygenSaturation,
             floor: MetricFloor.oxygenSaturation,
-            calendar: calendar
+            calendar: calendar,
+            context: context
            ) {
             let adverseZScore = -robustZScore(value: value, baseline: baseline)
             let progress = max(adverseProgress(adverseZScore, start: 1.0, full: 2.5), value < 95 ? 0.35 : 0)
             if progress > 0 {
                 anomalyProgressValues.append(progress)
                 baselineCounts.append(baseline.validDayCount)
-                drivers.append(RecoveryDriver(
+                drivers.append(ReadinessDriver(
                     kind: .oxygenSaturationLow,
                     message: "Blood oxygen is below its usual range.",
                     impact: progress
@@ -387,7 +593,7 @@ enum RecoveryScoreCalculator {
 
         let maxProgress = anomalyProgressValues.max() ?? 0
         return ComponentResult(
-            component: RecoveryComponent(
+            component: ReadinessComponent(
                 kind: .vitals,
                 score: scoreFromPenaltyProgress(maxProgress),
                 weight: 15,
@@ -399,22 +605,32 @@ enum RecoveryScoreCalculator {
     }
 
     private static func appendHighSideAnomaly(
-        kind: RecoveryDriverKind,
+        kind: ReadinessDriverKind,
         message: String,
         date: Date,
+        metric: ReadinessMetric,
         series: HealthTrendSeries,
         floor: Double,
         calendar: Calendar,
+        context: ReadinessDailySeriesContext?,
         progressValues: inout [Double],
-        drivers: inout [RecoveryDriver],
+        drivers: inout [ReadinessDriver],
         baselineCounts: inout [Int]
     ) {
-        guard let value = currentValue(on: date, in: series, calendar: calendar),
-              let baseline = robustBaseline(
+        guard let value = currentValue(
+            on: date,
+            metric: metric,
+            series: series,
+            calendar: calendar,
+            context: context
+        ),
+              let baseline = baseline(
                 for: date,
-                values: dailyValues(from: series),
+                metric: metric,
+                series: series,
                 floor: floor,
-                calendar: calendar
+                calendar: calendar,
+                context: context
               ) else {
             return
         }
@@ -426,10 +642,10 @@ enum RecoveryScoreCalculator {
 
         progressValues.append(progress)
         baselineCounts.append(baseline.validDayCount)
-        drivers.append(RecoveryDriver(kind: kind, message: message, impact: progress))
+        drivers.append(ReadinessDriver(kind: kind, message: message, impact: progress))
     }
 
-    private static func trainingLoadScore(_ value: Double) -> (score: Int, driver: RecoveryDriver?) {
+    private static func trainingLoadScore(_ value: Double) -> (score: Int, driver: ReadinessDriver?) {
         guard value.isFinite else {
             return (neutralScore, nil)
         }
@@ -441,7 +657,7 @@ enum RecoveryScoreCalculator {
         let progress = min(max((value - 1.30) / 0.25, 0), 1)
         return (
             scoreFromPenaltyProgress(progress, base: 70, minimum: 20),
-            RecoveryDriver(
+            ReadinessDriver(
                 kind: .trainingLoadElevated,
                 message: "Training load is elevated.",
                 impact: progress
@@ -449,7 +665,7 @@ enum RecoveryScoreCalculator {
         )
     }
 
-    private static func confidence(for componentResults: [ComponentResult]) -> RecoveryConfidence {
+    private static func confidence(for componentResults: [ComponentResult]) -> ReadinessConfidence {
         guard !componentResults.isEmpty else {
             return .unavailable
         }
@@ -468,7 +684,7 @@ enum RecoveryScoreCalculator {
         return .low
     }
 
-    private static func prioritizedDrivers(from componentResults: [ComponentResult]) -> [RecoveryDriver] {
+    private static func prioritizedDrivers(from componentResults: [ComponentResult]) -> [ReadinessDriver] {
         componentResults
             .flatMap(\.drivers)
             .filter { $0.impact > 0 }
@@ -481,6 +697,40 @@ enum RecoveryScoreCalculator {
             }
             .prefix(3)
             .map { $0 }
+    }
+
+    private static func currentValue(
+        on date: Date,
+        metric: ReadinessMetric,
+        series: HealthTrendSeries,
+        calendar: Calendar,
+        context: ReadinessDailySeriesContext?
+    ) -> Double? {
+        if let context {
+            return context.currentValue(on: date, metric: metric)
+        }
+
+        return currentValue(on: date, in: series, calendar: calendar)
+    }
+
+    private static func baseline(
+        for date: Date,
+        metric: ReadinessMetric,
+        series: HealthTrendSeries,
+        floor: Double,
+        calendar: Calendar,
+        context: ReadinessDailySeriesContext?
+    ) -> Baseline? {
+        if let context {
+            return context.baseline(for: date, metric: metric)
+        }
+
+        return robustBaseline(
+            for: date,
+            values: dailyValues(from: series),
+            floor: floor,
+            calendar: calendar
+        )
     }
 
     private static func currentValue(

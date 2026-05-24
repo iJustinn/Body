@@ -1,6 +1,6 @@
 ---
 name: project-issue-review
-description: Whole-project audit workflow for the Body iOS app. Use when the user asks for a "project review", "issue audit", "full project review", "find bugs and issues", asks to refresh `Issues.md`, or asks to archive the current `Issues.md`. Inspects the project read-only and produces a fresh `Issues.md` covering bugs, incomplete features, risky code, duplicated logic, unused files, inconsistent patterns, performance, UI/UX, and maintainability. Archives the prior `Issues.md` to `docs/IssuesArchive-XX.md` (zero-padded next number).
+description: Whole-project audit workflow for the Body iOS app. Use when the user asks for a "project review", "issue audit", "full project review", "find bugs and issues", asks to refresh `Issues-cc.md`, or asks to archive the current `Issues-cc.md`. Inspects the project read-only and produces a fresh `Issues-cc.md` covering bugs, incomplete features, risky code, duplicated logic, unused files, inconsistent patterns, performance, UI/UX, and maintainability. Archives the prior `Issues-cc.md` to `docs/Issues-cc-XX.md` (zero-padded next number).
 ---
 
 # Project Issue Review
@@ -8,13 +8,13 @@ description: Whole-project audit workflow for the Body iOS app. Use when the use
 ## When to use
 
 Invoke this skill when the user asks for a holistic, read-only audit of the
-Body repository that should produce or refresh `Issues.md`. Typical triggers:
+Body repository that should produce or refresh `Issues-cc.md`. Typical triggers:
 
-- "Review the project and update Issues.md."
+- "Review the project and update Issues-cc.md."
 - "Do a full project review."
 - "Find any bugs, incomplete features, or risky code."
 - "Audit the project end to end."
-- "Archive the current Issues.md and start a new one."
+- "Archive the current Issues-cc.md and start a new one."
 
 Do **not** invoke this skill for narrow code reviews (single PR / single
 file), build-failure triage, or feature design discussions — those are direct
@@ -26,11 +26,11 @@ These rules are absolute. Violating any of them is a failed run.
 
 1. **Inspect first, write last.** Do not write or modify anything until the
    project survey is complete. The only file edits this skill ever makes are
-   the archive rename and the new `Issues.md`.
+   the archive rename and the new `Issues-cc.md`.
 2. **No code changes.** Do not edit Swift, plist, entitlements, project files,
    docs, or any other source. Read-only on everything except the two files
    above.
-3. **No file moves or deletions** beyond renaming the existing `Issues.md` to
+3. **No file moves or deletions** beyond renaming the existing `Issues-cc.md` to
    its archive name.
 4. **No assumptions.** Every claim must be backed by a file path and (where
    feasible) a line range or short excerpt. If something is uncertain, mark
@@ -43,19 +43,19 @@ These rules are absolute. Violating any of them is a failed run.
 
 A successful run produces exactly two filesystem changes:
 
-1. The previous `Issues.md` is renamed (with `git mv`) to
-   `docs/IssuesArchive-XX.md`, where `XX` is the next zero-padded integer
-   after the highest existing `docs/IssuesArchive-NN.md`. If no archives
-   exist yet, use `01`. If `Issues.md` does not exist at all, skip this
+1. The previous `Issues-cc.md` is renamed (with `git mv`) to
+   `docs/Issues-cc-XX.md`, where `XX` is the next zero-padded integer
+   after the highest existing `docs/Issues-cc-NN.md`. If no archives
+   exist yet, use `01`. If `Issues-cc.md` does not exist at all, skip this
    step and create the new file directly. Create the `docs/` directory if
    it does not yet exist.
-2. A fresh `Issues.md` at the repository root, written in the structure
-   under "Required structure of `Issues.md`" below.
+2. A fresh `Issues-cc.md` at the repository root, written in the structure
+   under "Required structure of `Issues-cc.md`" below.
 
 `git status --short` after the run should show only:
 
-- `R  Issues.md -> docs/IssuesArchive-XX.md` (when archiving)
-- `?? Issues.md`
+- `R  Issues-cc.md -> docs/Issues-cc-XX.md` (when archiving)
+- `?? Issues-cc.md`
 - any pre-existing changes that were already staged or unstaged before the
   skill ran (do not touch them).
 
@@ -67,7 +67,7 @@ complete.
 
 ### 1. Determine the next archive number
 
-- `ls docs/IssuesArchive-*.md` (or equivalent) to enumerate existing
+- `ls docs/Issues-cc-*.md` (or equivalent) to enumerate existing
   archives.
 - Parse the trailing two-digit number from each filename.
 - The next archive number is `max(existing) + 1`, zero-padded to two digits.
@@ -76,12 +76,12 @@ complete.
 
 ### 2. Orient
 
-- Read the existing `Issues.md` end to end if it exists. Note severity legend,
+- Read the existing `Issues-cc.md` end to end if it exists. Note severity legend,
   section ordering, and any items it carried forward as unresolved.
 - Read `README.md`, `VersionHistory.md`, `TestPlan.md`, and
   `LessonsLearned.md` for product context, recent release notes, the
   intended test surface, and known gotchas.
-- Read the most recent `docs/IssuesArchive-*.md` (highest existing number)
+- Read the most recent `docs/Issues-cc-*.md` (highest existing number)
   for context on prior findings — this is reference, not a copy source.
 - Run `git status --short`, `git diff --stat`, and
   `git log --oneline -20`. Distinguish committed changes on this branch
@@ -187,7 +187,7 @@ mark it `Needs verification` and state what would confirm it.
 
 ### 5. Filter against archives
 
-- Skip an issue when it appears in any `docs/IssuesArchive-*.md` and the
+- Skip an issue when it appears in any `docs/Issues-cc-*.md` and the
   current code matches the prior resolution.
 - Keep an issue when the archive lists it as resolved but the code says
   otherwise (regression) — call this out in the entry.
@@ -197,31 +197,33 @@ mark it `Needs verification` and state what would confirm it.
 
 Only after steps 1–5 are complete:
 
-1. If `Issues.md` exists at the repo root:
+1. If `Issues-cc.md` exists at the repo root:
    - Ensure `docs/` exists (create it if missing — `mkdir -p docs`).
-   - `git mv Issues.md docs/IssuesArchive-XX.md` using the number from
+   - `git mv Issues-cc.md docs/Issues-cc-XX.md` using the number from
      step 1.
    - Verify the rename with `git status --short`.
-2. Write the new `Issues.md` at the repository root using the structure in
-   "Required structure of `Issues.md`" below.
-3. Run `git status --short` and `ls Issues.md docs/IssuesArchive-XX.md`
+2. Write the new `Issues-cc.md` at the repository root using the structure in
+   "Required structure of `Issues-cc.md`" below.
+3. Run `git status --short` and `ls Issues-cc.md docs/Issues-cc-XX.md`
    to confirm the only changes are the archive rename and the new file
    (plus any pre-existing unstaged work).
 
 ### 7. Verify
 
-- `head -1 docs/IssuesArchive-XX.md` should match the prior `Issues.md`
+- `head -1 docs/Issues-cc-XX.md` should match the prior `Issues-cc.md`
   title line.
-- Every issue entry in the new `Issues.md` has: title, severity, related
+- Every issue entry in the new `Issues-cc.md` has: title, severity, related
   file(s), description, why it matters, suggested fix, and risks /
   dependencies.
 - The priority recommendations section at the bottom is populated and is
   consistent with severities assigned above.
-- `grep -rn "Issues.md\|IssuesArchive" --include='*.md'` to confirm no
-  internal links need updating. If any internal references appear, update
+- `grep -rn "Issues-cc\|IssuesArchive" --include='*.md'` to confirm no
+  internal links need updating (the `IssuesArchive` alternation catches
+  references to the legacy archive name, which existed prior to the
+  `Issues-cc-NN.md` rename). If any internal references appear, update
   them as part of this run.
 
-## Required structure of `Issues.md`
+## Required structure of `Issues-cc.md`
 
 The new file must contain the following nine sections in order. Use Markdown
 headings exactly as shown so future runs can parse them. Severity must be
@@ -374,7 +376,7 @@ Numbering rules:
 
 - Writing anything before the survey is complete.
 - Adding issues without evidence (no `file:line`, no excerpt or grep).
-- Editing source code, project files, or any docs other than `Issues.md`
+- Editing source code, project files, or any docs other than `Issues-cc.md`
   and the new archive.
 - Running a build, tests, push, or commit. If a check requires a build,
   list it under "Testing gaps" or "Not checked".

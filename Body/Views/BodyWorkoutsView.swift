@@ -684,7 +684,6 @@ private struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     let workout: WorkoutSummary
 
-    private let sheetHeight: CGFloat = 730
     private let metricColumns = [
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12)
@@ -700,7 +699,7 @@ private struct BodyWorkoutDetailSheet: View {
             }
             .scrollDismissesKeyboard(.interactively)
         }
-        .presentationDetents([.height(sheetHeight)])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
 
@@ -832,14 +831,8 @@ private struct BodyWorkoutDetailSheet: View {
     }
 
     private var heartRateSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Heart Rate")
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
-
-            BodyWorkoutHeartRateChartCard(samples: presentation.heartRateSamples)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        BodyWorkoutHeartRateChartCard(samples: presentation.heartRateSamples)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var sourceFooter: some View {
@@ -978,57 +971,85 @@ private struct BodyWorkoutHeartRateChartCard: View {
     let samples: [WorkoutHeartRateSample]
 
     var body: some View {
-        Group {
-            if samples.isEmpty {
-                ZStack {
-                    Color.clear
+        let cachedMetrics: BodyWorkoutHeartRateChartMetrics? = samples.isEmpty
+            ? nil
+            : BodyWorkoutHeartRateChartMetrics(samples: samples)
 
-                    Text("No Heart Rate Data")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundColor(.secondary)
-                }
-                .frame(height: 210)
-            } else {
-                BodyWorkoutHeartRateChart(samples: samples)
-                    .frame(height: 210)
-            }
+        return VStack(alignment: .leading, spacing: 14) {
+            header(metrics: cachedMetrics)
+            chartView(metrics: cachedMetrics)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 18)
         .bodyCardBackground(cornerRadius: 30)
+    }
+
+    private func header(metrics: BodyWorkoutHeartRateChartMetrics?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("Heart Rate")
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+
+            Spacer(minLength: 0)
+
+            if let metrics {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text("\(metrics.dataMinimumLabel)-\(metrics.dataMaximumLabel)")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                    Text("BPM")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                }
+                .foregroundColor(BodyWorkoutHeartRateChart.referenceLineColor)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chartView(metrics: BodyWorkoutHeartRateChartMetrics?) -> some View {
+        if let metrics {
+            BodyWorkoutHeartRateChart(metrics: metrics)
+                .frame(height: 210)
+        } else {
+            ZStack {
+                Color.clear
+
+                Text("No Heart Rate Data")
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+            .frame(height: 210)
+        }
     }
 }
 
 private struct BodyWorkoutHeartRateChart: View {
-    let samples: [WorkoutHeartRateSample]
+    let metrics: BodyWorkoutHeartRateChartMetrics
 
     private static let timeMarkLabelHorizontalInset: CGFloat = 24
+    private static let yAxisLabelInset: CGFloat = 44
+    private static let xAxisLabelOffset: CGFloat = 18
+
+    static let referenceLineColor = Color(red: 0.20, green: 0.62, blue: 1.0)
 
     var body: some View {
         GeometryReader { geometry in
-            let metrics = BodyWorkoutHeartRateChartMetrics(samples: samples)
             let plotRect = CGRect(
                 x: 0,
                 y: 6,
-                width: max(1, geometry.size.width - 38),
+                width: max(1, geometry.size.width - Self.yAxisLabelInset),
                 height: max(1, geometry.size.height - 34)
             )
 
             ZStack {
                 Canvas { context, _ in
                     drawGrid(in: plotRect, context: &context)
-                    drawSamples(metrics: metrics, in: plotRect, context: &context)
+                    drawReferenceLine(in: plotRect, context: &context)
+                    drawScatterDots(in: plotRect, context: &context)
+                    drawSmoothedLine(in: plotRect, context: &context)
                 }
 
-                Text("\(metrics.maximumLabel)")
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .position(x: plotRect.maxX + 22, y: plotRect.minY)
-
-                Text("\(metrics.minimumLabel)")
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .position(x: plotRect.maxX + 22, y: plotRect.maxY)
+                yAxisLabels(in: plotRect)
 
                 ForEach(metrics.timeMarks) { mark in
                     Text(mark.label)
@@ -1038,7 +1059,7 @@ private struct BodyWorkoutHeartRateChart: View {
                         .minimumScaleFactor(0.7)
                         .position(
                             x: timeMarkLabelX(for: mark, in: plotRect),
-                            y: plotRect.maxY + 18
+                            y: plotRect.maxY + Self.xAxisLabelOffset
                         )
                 }
             }
@@ -1068,31 +1089,129 @@ private struct BodyWorkoutHeartRateChart: View {
             with: .color(Color.secondary.opacity(0.26)),
             style: StrokeStyle(lineWidth: 1, dash: [5, 5])
         )
+
+        var tickGrid = Path()
+        for tickValue in metrics.primaryTickValues {
+            let y = plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: Double(tickValue)))
+            tickGrid.move(to: CGPoint(x: plotRect.minX, y: y))
+            tickGrid.addLine(to: CGPoint(x: plotRect.maxX, y: y))
+        }
+        context.stroke(
+            tickGrid,
+            with: .color(Color.secondary.opacity(0.18)),
+            style: StrokeStyle(lineWidth: 1, dash: [3, 4])
+        )
     }
 
-    private func drawSamples(
-        metrics: BodyWorkoutHeartRateChartMetrics,
-        in plotRect: CGRect,
-        context: inout GraphicsContext
-    ) {
-        let tickHeight = min(max(plotRect.height * 0.12, 18), 44)
-        let lineWidth = min(max(plotRect.width / 320, 2), 3)
+    private func drawReferenceLine(in plotRect: CGRect, context: inout GraphicsContext) {
+        let y = plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: metrics.averageValue))
+        var line = Path()
+        line.move(to: CGPoint(x: plotRect.minX, y: y))
+        line.addLine(to: CGPoint(x: plotRect.maxX, y: y))
+        context.stroke(
+            line,
+            with: .color(Self.referenceLineColor.opacity(0.85)),
+            lineWidth: 1
+        )
+    }
 
+    private func drawScatterDots(in plotRect: CGRect, context: inout GraphicsContext) {
+        let dotRadius: CGFloat = 1.8
         for sample in metrics.samples {
-            let x = plotRect.minX + plotRect.width * metrics.xFraction(for: sample)
-            let y = plotRect.minY + plotRect.height * metrics.yFraction(for: sample)
-            let startY = max(plotRect.minY + 4, y - tickHeight / 2)
-            let endY = min(plotRect.maxY - 4, y + tickHeight / 2)
-
-            var path = Path()
-            path.move(to: CGPoint(x: x, y: startY))
-            path.addLine(to: CGPoint(x: x, y: endY))
-            context.stroke(
-                path,
-                with: .color(.red),
-                style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+            let x = plotRect.minX + plotRect.width * CGFloat(metrics.xFraction(for: sample))
+            let yFraction = metrics.yFraction(for: sample)
+            let y = plotRect.minY + plotRect.height * CGFloat(yFraction)
+            let color = BodyWorkoutHeartRateChartMetrics.color(forFraction: 1 - yFraction)
+            let circleRect = CGRect(
+                x: x - dotRadius,
+                y: y - dotRadius,
+                width: dotRadius * 2,
+                height: dotRadius * 2
+            )
+            context.fill(
+                Path(ellipseIn: circleRect),
+                with: .color(color.opacity(0.38))
             )
         }
+    }
+
+    private func drawSmoothedLine(in plotRect: CGRect, context: inout GraphicsContext) {
+        let series = metrics.smoothedSeries
+        guard series.count >= 2 else {
+            return
+        }
+
+        let points = series.map { point in
+            CGPoint(
+                x: plotRect.minX + plotRect.width * CGFloat(metrics.xFraction(forDate: point.date)),
+                y: plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: point.value))
+            )
+        }
+        let path = Self.smoothedPath(through: points)
+
+        let shading = GraphicsContext.Shading.linearGradient(
+            Gradient(stops: BodyWorkoutHeartRateChartMetrics.gradientStops),
+            startPoint: CGPoint(x: plotRect.midX, y: plotRect.maxY),
+            endPoint: CGPoint(x: plotRect.midX, y: plotRect.minY)
+        )
+
+        context.stroke(
+            path,
+            with: shading,
+            style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
+        )
+    }
+
+    private static func smoothedPath(through points: [CGPoint]) -> Path {
+        var path = Path()
+        guard let first = points.first else {
+            return path
+        }
+        path.move(to: first)
+
+        if points.count == 2 {
+            path.addLine(to: points[1])
+            return path
+        }
+
+        for i in 0..<(points.count - 1) {
+            let p0 = i > 0 ? points[i - 1] : points[i]
+            let p1 = points[i]
+            let p2 = points[i + 1]
+            let p3 = i < points.count - 2 ? points[i + 2] : points[i + 1]
+
+            let control1 = CGPoint(
+                x: p1.x + (p2.x - p0.x) / 6,
+                y: p1.y + (p2.y - p0.y) / 6
+            )
+            let control2 = CGPoint(
+                x: p2.x - (p3.x - p1.x) / 6,
+                y: p2.y - (p3.y - p1.y) / 6
+            )
+            path.addCurve(to: p2, control1: control1, control2: control2)
+        }
+        return path
+    }
+
+    @ViewBuilder
+    private func yAxisLabels(in plotRect: CGRect) -> some View {
+        ForEach(metrics.primaryTickValues, id: \.self) { tickValue in
+            Text("\(tickValue)")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+                .position(
+                    x: plotRect.maxX + 22,
+                    y: plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: Double(tickValue)))
+                )
+        }
+
+        Text("\(metrics.averageLabel)")
+            .font(.system(size: 16, weight: .bold, design: .rounded))
+            .foregroundColor(Self.referenceLineColor)
+            .position(
+                x: plotRect.maxX + 22,
+                y: plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: metrics.averageValue))
+            )
     }
 
     private func timeMarkLabelX(for mark: BodyWorkoutHeartRateTimeMark, in plotRect: CGRect) -> CGFloat {
@@ -1105,20 +1224,49 @@ private struct BodyWorkoutHeartRateChart: View {
 }
 
 private struct BodyWorkoutHeartRateChartMetrics {
+    struct SmoothedPoint {
+        let date: Date
+        let value: Double
+    }
+
     let samples: [WorkoutHeartRateSample]
     let minimumValue: Double
     let maximumValue: Double
+    let dataMinimumValue: Double
+    let dataMaximumValue: Double
+    let averageValue: Double
     let startDate: Date
     let endDate: Date
 
     static let timeMarkFractions = [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0]
 
-    var minimumLabel: Int {
-        Int(minimumValue.rounded())
+    var dataMinimumLabel: Int {
+        Int(dataMinimumValue.rounded())
     }
 
-    var maximumLabel: Int {
-        Int(maximumValue.rounded())
+    var dataMaximumLabel: Int {
+        Int(dataMaximumValue.rounded())
+    }
+
+    var averageLabel: Int {
+        Int(averageValue.rounded())
+    }
+
+    var primaryTickValues: [Int] {
+        let avg = Int(averageValue.rounded())
+        let dataMax = dataMaximumValue
+        let topTick = max(Int((dataMax / 10).rounded(.toNearestOrEven)) * 10, avg + 10)
+        let mid = (Double(avg) + Double(topTick)) / 2
+        let midTick = Int((mid / 10).rounded(.toNearestOrEven)) * 10
+
+        var ticks: [Int] = []
+        if topTick - avg >= 12 {
+            ticks.append(topTick)
+        }
+        if midTick - avg >= 10, topTick - midTick >= 10 {
+            ticks.append(midTick)
+        }
+        return ticks.sorted().reversed()
     }
 
     var timeMarks: [BodyWorkoutHeartRateTimeMark] {
@@ -1147,17 +1295,110 @@ private struct BodyWorkoutHeartRateChartMetrics {
         let lowerBound = max(0, (floor((lowestValue - 5) / 5) * 5))
         let upperBound = ceil((highestValue + 5) / 5) * 5
 
+        self.dataMinimumValue = lowestValue
+        self.dataMaximumValue = highestValue
         self.minimumValue = lowerBound
         self.maximumValue = max(upperBound, lowerBound + 10)
+        self.averageValue = values.isEmpty
+            ? (lowerBound + upperBound) / 2
+            : values.reduce(0, +) / Double(values.count)
     }
 
     func xFraction(for sample: WorkoutHeartRateSample) -> Double {
-        min(max(sample.date.timeIntervalSince(startDate) / duration, 0), 1)
+        xFraction(forDate: sample.date)
+    }
+
+    func xFraction(forDate date: Date) -> Double {
+        min(max(date.timeIntervalSince(startDate) / duration, 0), 1)
     }
 
     func yFraction(for sample: WorkoutHeartRateSample) -> Double {
+        yFraction(forValue: sample.beatsPerMinute)
+    }
+
+    func yFraction(forValue value: Double) -> Double {
         let range = max(maximumValue - minimumValue, 1)
-        return 1 - min(max((sample.beatsPerMinute - minimumValue) / range, 0), 1)
+        return 1 - min(max((value - minimumValue) / range, 0), 1)
+    }
+
+    var smoothedSeries: [SmoothedPoint] {
+        guard !samples.isEmpty else {
+            return []
+        }
+
+        let bucketTarget = 60
+        if samples.count <= bucketTarget {
+            return samples.map { SmoothedPoint(date: $0.date, value: $0.beatsPerMinute) }
+        }
+
+        let bucketDuration = duration / Double(bucketTarget)
+        guard bucketDuration > 0 else {
+            return samples.map { SmoothedPoint(date: $0.date, value: $0.beatsPerMinute) }
+        }
+
+        var sums = [Double](repeating: 0, count: bucketTarget)
+        var counts = [Int](repeating: 0, count: bucketTarget)
+
+        for sample in samples {
+            let offset = sample.date.timeIntervalSince(startDate)
+            let idx = min(bucketTarget - 1, max(0, Int(offset / bucketDuration)))
+            sums[idx] += sample.beatsPerMinute
+            counts[idx] += 1
+        }
+
+        var points: [SmoothedPoint] = []
+        points.reserveCapacity(bucketTarget)
+        for i in 0..<bucketTarget where counts[i] > 0 {
+            let midTime = bucketDuration * (Double(i) + 0.5)
+            points.append(SmoothedPoint(
+                date: startDate.addingTimeInterval(midTime),
+                value: sums[i] / Double(counts[i])
+            ))
+        }
+        return points
+    }
+
+    private struct ColorStop {
+        let location: Double
+        let red: Double
+        let green: Double
+        let blue: Double
+    }
+
+    private static let colorStops: [ColorStop] = [
+        ColorStop(location: 0.0,  red: 0.20, green: 0.92, blue: 0.82),
+        ColorStop(location: 0.30, red: 0.25, green: 0.62, blue: 1.0),
+        ColorStop(location: 0.55, red: 0.98, green: 0.86, blue: 0.30),
+        ColorStop(location: 0.78, red: 1.0,  green: 0.55, blue: 0.20),
+        ColorStop(location: 1.0,  red: 1.0,  green: 0.30, blue: 0.30)
+    ]
+
+    static let gradientStops: [Gradient.Stop] = colorStops.map { stop in
+        Gradient.Stop(
+            color: Color(red: stop.red, green: stop.green, blue: stop.blue),
+            location: stop.location
+        )
+    }
+
+    static func color(forFraction fraction: Double) -> Color {
+        let f = max(0, min(1, fraction))
+        guard let last = colorStops.last else {
+            return Color(red: 1.0, green: 0.30, blue: 0.30)
+        }
+        for i in 1..<colorStops.count {
+            if f <= colorStops[i].location {
+                let prev = colorStops[i - 1]
+                let curr = colorStops[i]
+                let span = curr.location - prev.location
+                let t = span > 0 ? (f - prev.location) / span : 0
+                return Color(
+                    red: prev.red + (curr.red - prev.red) * t,
+                    green: prev.green + (curr.green - prev.green) * t,
+                    blue: prev.blue + (curr.blue - prev.blue) * t
+                )
+            }
+        }
+        return Color(red: last.red, green: last.green, blue: last.blue)
     }
 }
 

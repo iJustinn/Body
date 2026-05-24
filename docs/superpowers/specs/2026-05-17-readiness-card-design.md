@@ -1,19 +1,19 @@
-# Recovery Card Design
+# Readiness Card Design
 
 ## Goal
 
-Add a Summary card named Recovery that estimates a user's near-term recovery state from Apple Health data already collected by Body. The score should be useful for day-to-day training decisions, but it must avoid medical claims and avoid presenting a proprietary-style readiness number as objective truth.
+Add a Summary card named Readiness that estimates a user's near-term readiness state from Apple Health data already collected by Body. The score should be useful for day-to-day training decisions, but it must avoid medical claims and avoid presenting a proprietary-style readiness number as objective truth.
 
-Recovery is a personal-baseline score. The same raw HRV, resting heart rate, respiratory rate, or blood oxygen value can mean different things for different users, so the algorithm compares today's signals against the user's recent valid history.
+Readiness is a personal-baseline score. The same raw HRV, resting heart rate, respiratory rate, or blood oxygen value can mean different things for different users, so the algorithm compares today's signals against the user's recent valid history.
 
 ## Product Shape
 
 The Summary card shows:
 
-- Title: `Recovery`
+- Title: `Readiness`
 - Primary value: integer score from 0 to 100
 - Status label: `Ready`, `Typical`, `Strained`, or `Low`
-- Preview: recent recovery scores when enough historical data exists
+- Preview: recent readiness scores when enough historical data exists
 
 The detail screen shows:
 
@@ -66,16 +66,16 @@ For metrics where lower is worse, invert the sign before scoring.
 
 ## Score Model
 
-Recovery starts at 100 and subtracts weighted penalties.
+Readiness starts at 100 and subtracts weighted penalties.
 
 ```text
-Recovery = clamp(100 - weightedPenalty, 0, 100)
+Readiness = clamp(100 - weightedPenalty, 0, 100)
 ```
 
 Component weights:
 
 - Autonomic strain: 30%
-- Sleep recovery: 30%
+- Sleep readiness: 30%
 - Training pressure: 25%
 - Vitals and illness-like anomalies: 15%
 
@@ -101,7 +101,7 @@ Penalty shape:
 penaltyProgress = smoothstep(start: 0.5, full: 2.0, adverseZ)
 ```
 
-### Sleep Recovery
+### Sleep Readiness
 
 Inputs:
 
@@ -114,7 +114,7 @@ Rules:
 
 - Weight duration and continuity more than sleep stages.
 - Treat sleep stages as advisory because consumer wearable staging is less reliable than sleep/wake and total sleep time.
-- Reuse the app's existing Sleep Score concepts where practical, but avoid making Recovery equal to Sleep Score.
+- Reuse the app's existing Sleep Score concepts where practical, but avoid making Readiness equal to Sleep Score.
 
 ### Training Pressure
 
@@ -128,7 +128,7 @@ Rules:
 - 0.80 to 1.30 is neutral.
 - 1.31 to 1.50 is moderate pressure.
 - Above 1.50 is high pressure.
-- Very low load should not heavily reduce Recovery. It can lower training readiness context, but it is not a recovery deficit by itself.
+- Very low load should not heavily reduce Readiness. It can lower training readiness context, but it is not a readiness deficit by itself.
 
 Training load is a context signal, not an injury prediction.
 
@@ -166,22 +166,22 @@ Compute confidence from input coverage and baseline quality:
 - Medium: at least 2 components, at least 14 valid baseline days for one core input
 - Low: fewer than 2 components or baseline is too short
 
-The Summary card can show a score with low confidence, but the detail screen should explain that Body needs more nights of data to personalize Recovery.
+The Summary card can show a score with low confidence, but the detail screen should explain that Body needs more nights of data to personalize Readiness.
 
 ## Data Model
 
-Add dedicated recovery models rather than expanding generic metric summaries too far:
+Add dedicated readiness models rather than expanding generic metric summaries too far:
 
 ```swift
-struct RecoverySummary: Codable, Equatable {
+struct ReadinessSummary: Codable, Equatable {
     var score: Int?
-    var status: RecoveryStatus
-    var confidence: RecoveryConfidence
-    var components: [RecoveryComponent]
-    var drivers: [RecoveryDriver]
+    var status: ReadinessStatus
+    var confidence: ReadinessConfidence
+    var components: [ReadinessComponent]
+    var drivers: [ReadinessDriver]
 }
 
-struct RecoveryTrendSnapshot: Codable, Equatable {
+struct ReadinessTrendSnapshot: Codable, Equatable {
     var series: HealthTrendSeries
 }
 ```
@@ -189,27 +189,27 @@ struct RecoveryTrendSnapshot: Codable, Equatable {
 The calculator should live separately from the HealthKit store:
 
 ```swift
-enum RecoveryScoreCalculator {
+enum ReadinessScoreCalculator {
     static func summary(
         on date: Date,
         trends: HealthTrendSnapshot,
         sleepHistory: SleepHistorySnapshot,
         calendar: Calendar
-    ) -> RecoverySummary
+    ) -> ReadinessSummary
 }
 ```
 
-HealthKit should keep fetching raw health data. The calculator should transform existing snapshots into recovery output.
+HealthKit should keep fetching raw health data. The calculator should transform existing snapshots into readiness output.
 
 ## Implementation Scope
 
-1. Add recovery model and calculator tests.
-2. Generate today's recovery summary and recent recovery trend from cached/fetched health trends.
-3. Add `.recovery` to Summary card ordering and metric display.
-4. Add Recovery detail screen content using existing card and chart patterns.
+1. Add readiness model and calculator tests.
+2. Generate today's readiness summary and recent readiness trend from cached/fetched health trends.
+3. Add `.readiness` to Summary card ordering and metric display.
+4. Add Readiness detail screen content using existing card and chart patterns.
 5. Add About copy and manual test plan entries.
 
-Avoid direct HealthKit query changes unless an existing trend needed by Recovery is missing.
+Avoid direct HealthKit query changes unless an existing trend needed by Readiness is missing.
 
 ## Test Plan
 
@@ -223,20 +223,20 @@ Unit tests:
 - Training load above 1.50 lowers Training.
 - Elevated respiratory rate and wrist temperature create anomaly drivers.
 - Low blood oxygen only affects score when persistent or meaningfully low.
-- Recovery score clamps to 0...100.
+- Readiness score clamps to 0...100.
 
 Integration/UI tests where practical:
 
-- Recovery appears in Summary card ordering.
-- Disabled permissions remove affected recovery inputs and lower confidence rather than crashing.
+- Readiness appears in Summary card ordering.
+- Disabled permissions remove affected readiness inputs and lower confidence rather than crashing.
 - Card and detail render with no score, provisional score, and high-confidence score.
 
 ## Research Notes
 
-- Apple HealthKit HRV uses SDNN, not RMSSD. This matters because much recovery literature uses RMSSD or lnRMSSD. Source: https://developer.apple.com/documentation/healthkit/hkquantitytypeidentifierheartratevariabilitysdnn
+- Apple HealthKit HRV uses SDNN, not RMSSD. This matters because much readiness literature uses RMSSD or lnRMSSD. Source: https://developer.apple.com/documentation/healthkit/hkquantitytypeidentifierheartratevariabilitysdnn
 - HRV-guided training can improve endurance markers, but meta-analysis did not find clear superiority over predefined training. Source: https://www.mdpi.com/2076-3417/10/23/8532
 - ACWR-style training load commonly uses 7-day acute and 3 to 6 week chronic windows with an often-cited 0.8 to 1.3 range, but the evidence is contested. Source: https://pmc.ncbi.nlm.nih.gov/articles/PMC8138569/
-- Sleep extension and naps have the strongest sleep-intervention support for athlete performance and recovery outcomes, though evidence quality varies. Source: https://link.springer.com/article/10.1186/s40798-023-00599-z
+- Sleep extension and naps have the strongest sleep-intervention support for athlete performance and readiness outcomes, though evidence quality varies. Source: https://link.springer.com/article/10.1186/s40798-023-00599-z
 - Wearable sleep staging is promising but less reliable than sleep/wake and total sleep time; use stages lightly. Source: https://www.nature.com/articles/s41746-024-01016-9
 - Wearable respiratory rate, HR, HRV, sleep, and steps can reflect illness-related physiological changes, but this should be treated as anomaly context, not diagnosis. Source: https://www.nature.com/articles/s41746-020-00363-7
 - Apple Watch SpO2 has low mean bias in normoxic ranges but wide limits of agreement and more variability in hypoxic ranges. Source: https://www.nature.com/articles/s41746-025-02238-1

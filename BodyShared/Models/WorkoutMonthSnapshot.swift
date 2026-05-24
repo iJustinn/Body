@@ -50,10 +50,31 @@ struct WorkoutDaySummary: Codable, Equatable, Identifiable {
 }
 
 struct WorkoutMonthSnapshot: Codable, Equatable {
+    /// Bumped when the persisted shape changes in a way that requires a
+    /// migration on load. Optional on decode so existing on-disk snapshots
+    /// (which predate this field) load as `nil` and are treated as the
+    /// implicit baseline. New saves write the current value.
+    static let currentSchemaVersion = 1
+
     let month: Int
     let year: Int
     let generatedAt: Date
     let days: [WorkoutDaySummary]
+    let schemaVersion: Int?
+
+    init(
+        month: Int,
+        year: Int,
+        generatedAt: Date,
+        days: [WorkoutDaySummary],
+        schemaVersion: Int? = WorkoutMonthSnapshot.currentSchemaVersion
+    ) {
+        self.month = month
+        self.year = year
+        self.generatedAt = generatedAt
+        self.days = days
+        self.schemaVersion = schemaVersion
+    }
 
     var activeDayCount: Int {
         days.filter { !$0.workouts.isEmpty }.count
@@ -151,20 +172,28 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
     }
 
     static var placeholder: WorkoutMonthSnapshot {
-        let calendar = Calendar.bodyGregorian
+        makePlaceholder(generatedAt: Date(), calendar: .bodyGregorian)
+    }
+
+    static func makePlaceholder(
+        generatedAt: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> WorkoutMonthSnapshot {
+        let month = calendar.component(.month, from: generatedAt)
+        let year = calendar.component(.year, from: generatedAt)
         let sampleWorkouts: [WorkoutSummary] = [
-            sampleWorkout(day: 1, type: .running, duration: 2_400, energy: 310, distance: 5_200, calendar: calendar),
-            sampleWorkout(day: 2, type: .strengthTraining, duration: 3_600, energy: 410, distance: nil, calendar: calendar),
-            sampleWorkout(day: 3, type: .walking, duration: 1_800, energy: 145, distance: 2_100, calendar: calendar),
-            sampleWorkout(day: 4, type: .yoga, duration: 2_700, energy: 120, distance: nil, calendar: calendar),
-            sampleWorkout(day: 5, type: .strengthTraining, duration: 3_000, energy: 330, distance: nil, calendar: calendar),
-            sampleWorkout(day: 6, type: .cycling, duration: 4_200, energy: 520, distance: 18_000, calendar: calendar),
-            sampleWorkout(day: 7, type: .running, duration: 2_200, energy: 285, distance: 4_800, calendar: calendar),
-            sampleWorkout(day: 8, type: .hiit, duration: 1_500, energy: 260, distance: nil, calendar: calendar),
-            sampleWorkout(day: 9, type: .hiking, duration: 5_400, energy: 610, distance: 7_300, calendar: calendar)
+            sampleWorkout(day: 1, month: month, year: year, type: .running, duration: 2_400, energy: 310, distance: 5_200, calendar: calendar),
+            sampleWorkout(day: 2, month: month, year: year, type: .strengthTraining, duration: 3_600, energy: 410, distance: nil, calendar: calendar),
+            sampleWorkout(day: 3, month: month, year: year, type: .walking, duration: 1_800, energy: 145, distance: 2_100, calendar: calendar),
+            sampleWorkout(day: 4, month: month, year: year, type: .yoga, duration: 2_700, energy: 120, distance: nil, calendar: calendar),
+            sampleWorkout(day: 5, month: month, year: year, type: .strengthTraining, duration: 3_000, energy: 330, distance: nil, calendar: calendar),
+            sampleWorkout(day: 6, month: month, year: year, type: .cycling, duration: 4_200, energy: 520, distance: 18_000, calendar: calendar),
+            sampleWorkout(day: 7, month: month, year: year, type: .running, duration: 2_200, energy: 285, distance: 4_800, calendar: calendar),
+            sampleWorkout(day: 8, month: month, year: year, type: .hiit, duration: 1_500, energy: 260, distance: nil, calendar: calendar),
+            sampleWorkout(day: 9, month: month, year: year, type: .hiking, duration: 5_400, energy: 610, distance: 7_300, calendar: calendar)
         ]
 
-        return make(month: 5, year: 2026, workouts: sampleWorkouts, calendar: calendar)
+        return make(month: month, year: year, workouts: sampleWorkouts, calendar: calendar, generatedAt: generatedAt)
     }
 
     private func dateComponents(day: Int, calendar: Calendar) -> DateComponents {
@@ -176,6 +205,8 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
 
     private static func sampleWorkout(
         day: Int,
+        month: Int,
+        year: Int,
         type: BodyWorkoutType,
         duration: TimeInterval,
         energy: Double?,
@@ -185,7 +216,7 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
         WorkoutSummary(
             id: UUID(uuidString: "00000000-0000-0000-0000-\(String(format: "%012d", day))") ?? UUID(),
             type: type,
-            startDate: date(month: 5, year: 2026, day: day, calendar: calendar),
+            startDate: date(month: month, year: year, day: day, calendar: calendar),
             duration: duration,
             activeEnergyKilocalories: energy,
             distanceMeters: distance,

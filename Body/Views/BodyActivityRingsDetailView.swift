@@ -533,10 +533,7 @@ private struct BodyActivityRingArc: View {
                     Circle()
                         .fill(color)
                         .frame(width: lineWidth, height: lineWidth)
-                        .offset(
-                            x: headOffsetX(progress: normalizedHeadProgress, radius: radius),
-                            y: headOffsetY(progress: normalizedHeadProgress, radius: radius)
-                        )
+                        .modifier(BodyActivityRingHeadPosition(progress: animatedHeadProgress, radius: radius))
                 }
 
                 BodyActivityRingHead(color: color)
@@ -562,10 +559,6 @@ private struct BodyActivityRingArc: View {
         displayedProgress ?? normalizedProgress
     }
 
-    private var normalizedHeadProgress: Double {
-        animatedHeadProgress.truncatingRemainder(dividingBy: 1)
-    }
-
     private func setAnimatedProgress(_ nextProgress: Double, animation: Animation?) {
         if let animation {
             withAnimation(animation) {
@@ -578,14 +571,6 @@ private struct BodyActivityRingArc: View {
                 displayedProgress = nextProgress
             }
         }
-    }
-
-    private func headOffsetX(progress: Double, radius: CGFloat) -> CGFloat {
-        CGFloat(sin(progress * 2 * .pi)) * radius
-    }
-
-    private func headOffsetY(progress: Double, radius: CGFloat) -> CGFloat {
-        -CGFloat(cos(progress * 2 * .pi)) * radius
     }
 }
 

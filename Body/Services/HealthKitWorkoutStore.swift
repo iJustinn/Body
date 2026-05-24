@@ -84,6 +84,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var permissionSelection: BodyHealthPermissionSelection
     @Published private(set) var healthDataSourceSelection: BodyHealthDataSourceSelection
     @Published private(set) var secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection
+    @Published private(set) var combinesHealthDataSourcesByName: Bool
     @Published private(set) var healthDataSourceOptionsByKind: [HealthMetricKind: [BodyHealthDataSourceOption]] = [:]
     @Published private(set) var healthDataNotice: String?
     @Published private(set) var isRefreshing = false
@@ -96,6 +97,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     private var loadedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
     private var lastAppEntrySyncDate: Date?
     private var refreshCompletionContinuations: [CheckedContinuation<Void, Never>] = []
+    private var monthLoadContinuations: [BodyWorkoutMonthKey: [CheckedContinuation<Void, Never>]] = [:]
 
     private func finishRefresh() {
         isRefreshing = false
@@ -115,27 +117,53 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
+    /// Drains the per-month continuation list for each key after the in-flight
+    /// `loadMonthKeysIfNeeded` releases the `loadingMonthKeys` lock. Callers
+    /// that registered via `awaitMonthLoadCompletion(for:)` resume here.
+    private func finishMonthLoad(for keys: Set<BodyWorkoutMonthKey>) {
+        for key in keys {
+            guard let toResume = monthLoadContinuations.removeValue(forKey: key) else {
+                continue
+            }
+            for continuation in toResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func awaitMonthLoadCompletion(for key: BodyWorkoutMonthKey) async {
+        guard loadingMonthKeys.contains(key), !Task.isCancelled else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            monthLoadContinuations[key, default: []].append(continuation)
+        }
+    }
+
     init(
         initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrPlaceholder(),
         initialHealthDashboardSnapshot: HealthDashboardSnapshot = HealthDashboardSnapshotStore.loadOrEmpty(),
         initialPermissionSelection: BodyHealthPermissionSelection = BodyHealthPermissionSelection.load(),
         initialHealthDataSourceSelection: BodyHealthDataSourceSelection = BodyHealthDataSourceSelection.load(),
         initialSecondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection = BodyHealthSecondaryDataSourceSelection.load(),
+        initialCombinesHealthDataSourcesByName: Bool = UserDefaults.standard.bool(forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey),
         date: Date = Date()
     ) {
         permissionSelection = initialPermissionSelection
         healthDataSourceSelection = initialHealthDataSourceSelection
         secondaryHealthDataSourceSelection = initialSecondaryHealthDataSourceSelection
+        combinesHealthDataSourcesByName = initialCombinesHealthDataSourcesByName
         engine = HealthKitFetchEngine(
             permission: initialPermissionSelection,
             healthDataSourceSelection: initialHealthDataSourceSelection,
-            secondaryHealthDataSourceSelection: initialSecondaryHealthDataSourceSelection
+            secondaryHealthDataSourceSelection: initialSecondaryHealthDataSourceSelection,
+            combinesHealthDataSourcesByName: initialCombinesHealthDataSourcesByName
         )
-        // Skip the recovery recompute at init — it's a per-day iteration over
+        // Skip the readiness recompute at init — it's a per-day iteration over
         // up to ~365 trend points that would block the first frame. The cached
-        // `summary.recovery` value was correct when written; the next refresh
+        // `summary.readiness` value was correct when written; the next refresh
         // recomputes it off the main thread.
-        let filteredHealthDashboardSnapshot = initialHealthDashboardSnapshot.filteredWithoutRecoveryRecompute(by: initialPermissionSelection)
+        let filteredHealthDashboardSnapshot = initialHealthDashboardSnapshot.filteredWithoutReadinessRecompute(by: initialPermissionSelection)
         let startingSnapshot = initialPermissionSelection.includes(.workouts)
             ? initialSnapshot
             : WorkoutMonthSnapshot.make(
@@ -310,7 +338,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         switch kind {
         case .heartRate, .restingHeartRate, .heartRateVariability, .respiratoryRate, .oxygenSaturation:
             usesHourlyBuckets = false
-        case .activeEnergy:
+        case .activeEnergy, .steps:
             usesHourlyBuckets = true
         default:
             return
@@ -365,7 +393,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             endDate: interval.end
         )
         let secondarySamples: HealthTrendSeries
-        if secondaryHealthDataSourceSelection.option(for: kind).isNoComparison
+        if selectedSecondaryHealthDataSourceOption(for: kind).isNoComparison
             || !permissionSelection.includes(permission) {
             secondarySamples = .empty
         } else {
@@ -414,6 +442,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         case .activeEnergy:
             trends.activeEnergyDaySamples = mergedPrimary
             trends.activeEnergyDaySamplesSecondary = mergedSecondary
+        case .steps:
+            trends.stepsDaySamples = mergedPrimary
+            trends.stepsDaySamplesSecondary = mergedSecondary
         default:
             return
         }
@@ -478,12 +509,99 @@ final class HealthKitWorkoutStore: ObservableObject {
         return [BodyHealthDataSourceOption.noComparison] + filtered
     }
 
+    func healthDataSourceDefaultOptions() -> [BodyHealthDataSourceOption] {
+        includeSelectedSourceOptionIfNeeded(
+            selectedHealthDataSourceOption: healthDataSourceSelection.defaultOption,
+            in: [BodyHealthDataSourceOption.allSources] + uniqueHealthDataSourceOptions(for: HealthMetricKind.sourceSelectableKinds)
+        )
+    }
+
+    func secondaryHealthDataSourceDefaultOptions() -> [BodyHealthDataSourceOption] {
+        let primaryOption = healthDataSourceSelection.defaultOption
+        let candidates = [BodyHealthDataSourceOption.allSources]
+            + uniqueHealthDataSourceOptions(for: HealthMetricKind.sourceSelectableKinds.filter(\.supportsSecondaryHealthDataSourceSelection))
+        let filteredCandidates = candidates.filter { $0.id != primaryOption.id }
+        guard secondaryHealthDataSourceSelection.defaultOption.id != primaryOption.id else {
+            return [BodyHealthDataSourceOption.noComparison] + filteredCandidates
+        }
+        return includeSelectedSourceOptionIfNeeded(
+            selectedHealthDataSourceOption: secondaryHealthDataSourceSelection.defaultOption,
+            in: [BodyHealthDataSourceOption.noComparison] + filteredCandidates
+        )
+    }
+
     func selectedHealthDataSourceOption(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
-        healthDataSourceSelection.option(for: kind)
+        resolvedHealthDataSourceOption(healthDataSourceSelection.option(for: kind), for: kind)
     }
 
     func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
-        secondaryHealthDataSourceSelection.option(for: kind)
+        let option = resolvedSecondaryHealthDataSourceOption(
+            secondaryHealthDataSourceSelection.option(for: kind),
+            for: kind
+        )
+        guard option.id != selectedHealthDataSourceOption(for: kind).id else {
+            return .noComparison
+        }
+
+        return option
+    }
+
+    var defaultHealthDataSourceOption: BodyHealthDataSourceOption {
+        healthDataSourceSelection.defaultOption
+    }
+
+    var defaultSecondaryHealthDataSourceOption: BodyHealthDataSourceOption {
+        secondaryHealthDataSourceSelection.defaultOption
+    }
+
+    func updateCombinesHealthDataSourcesByName(_ combines: Bool) async {
+        guard combinesHealthDataSourcesByName != combines else {
+            return
+        }
+
+        combinesHealthDataSourcesByName = combines
+        UserDefaults.standard.set(combines, forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey)
+        await engine.setCombinesHealthDataSourcesByName(combines)
+        await fetchHealthDataSourceOptions(calendar: .bodyGregorian)
+        await requestAuthorizationAndRefresh()
+    }
+
+    func updateDefaultHealthDataSource(option: BodyHealthDataSourceOption) async {
+        let nextSelection = healthDataSourceSelection.settingDefault(option: option)
+        guard nextSelection != healthDataSourceSelection else {
+            return
+        }
+
+        let nextSecondarySelection = secondaryHealthDataSourceSelection.defaultOption.id == nextSelection.defaultOption.id
+            ? secondaryHealthDataSourceSelection.settingDefault(option: .noComparison)
+            : secondaryHealthDataSourceSelection
+        healthDataSourceSelection = nextSelection
+        secondaryHealthDataSourceSelection = nextSecondarySelection
+        nextSelection.save()
+        nextSecondarySelection.save()
+        await engine.setHealthDataSourceSelection(nextSelection)
+        await engine.setSecondaryHealthDataSourceSelection(nextSecondarySelection)
+        await requestAuthorizationAndRefresh()
+    }
+
+    func updateDefaultSecondaryHealthDataSource(option: BodyHealthDataSourceOption) async {
+        let nextOption = option.id == healthDataSourceSelection.defaultOption.id ? .noComparison : option
+        let nextSelection = secondaryHealthDataSourceSelection.settingDefault(option: nextOption)
+        guard nextSelection != secondaryHealthDataSourceSelection else {
+            return
+        }
+
+        secondaryHealthDataSourceSelection = nextSelection
+        nextSelection.save()
+        await engine.setSecondaryHealthDataSourceSelection(nextSelection)
+
+        await awaitNextRefreshCompletion()
+
+        guard !Task.isCancelled else {
+            return
+        }
+
+        await requestAuthorizationAndRefresh()
     }
 
     func updateHealthDataSource(for kind: HealthMetricKind, option: BodyHealthDataSourceOption) async {
@@ -515,6 +633,73 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         await refreshHealthMetric(kind)
+    }
+
+    private func uniqueHealthDataSourceOptions(
+        for kinds: [HealthMetricKind]
+    ) -> [BodyHealthDataSourceOption] {
+        var optionsByID: [String: BodyHealthDataSourceOption] = [:]
+        for kind in kinds {
+            for option in healthDataSourceOptionsByKind[kind] ?? []
+            where !option.isAllSources && !option.isNoComparison {
+                optionsByID[option.id] = optionsByID[option.id] ?? option
+            }
+        }
+
+        return optionsByID.values.sorted { lhs, rhs in
+            if lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedSame {
+                return lhs.id < rhs.id
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private func includeSelectedSourceOptionIfNeeded(
+        selectedHealthDataSourceOption selectedOption: BodyHealthDataSourceOption,
+        in options: [BodyHealthDataSourceOption]
+    ) -> [BodyHealthDataSourceOption] {
+        guard !options.contains(where: { $0.id == selectedOption.id }) else {
+            return options
+        }
+
+        return options + [selectedOption]
+    }
+
+    private func resolvedHealthDataSourceOption(
+        _ option: BodyHealthDataSourceOption,
+        for kind: HealthMetricKind
+    ) -> BodyHealthDataSourceOption {
+        guard kind.supportsHealthDataSourceSelection,
+              !option.isAllSources,
+              !option.isNoComparison else {
+            return option.isNoComparison ? .allSources : option
+        }
+
+        guard healthDataSourceOptionsByKind[kind]?.contains(where: { $0.id == option.id }) == true else {
+            return .allSources
+        }
+
+        return option
+    }
+
+    private func resolvedSecondaryHealthDataSourceOption(
+        _ option: BodyHealthDataSourceOption,
+        for kind: HealthMetricKind
+    ) -> BodyHealthDataSourceOption {
+        guard kind.supportsSecondaryHealthDataSourceSelection,
+              !option.isNoComparison else {
+            return .noComparison
+        }
+
+        guard !option.isAllSources else {
+            return option
+        }
+
+        guard healthDataSourceOptionsByKind[kind]?.contains(where: { $0.id == option.id }) == true else {
+            return .noComparison
+        }
+
+        return option
     }
 
     func sourceComparisonTrend(for kind: HealthMetricKind) -> BodyHealthSourceComparisonTrend? {
@@ -678,9 +863,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return true
         }
 
-        while loadingMonthKeys.contains(key), !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
+        await awaitMonthLoadCompletion(for: key)
 
         guard !loadedMonthKeys.contains(key) else {
             return true
@@ -883,7 +1066,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// concurrently and publish each bucket to `@Published` state as soon as it
     /// completes. Users see metric values, ring values, then trend charts fill in
     /// progressively instead of one large update at the very end of the refresh.
-    /// Recovery is preserved at its cached value during the stream — the final
+    /// Readiness is preserved at its cached value during the stream — the final
     /// `updateHealthDashboardSnapshot` recomputes it once everything has landed.
     private func fetchDashboardSnapshotProgressively(
         calendar: Calendar
@@ -918,18 +1101,18 @@ final class HealthKitWorkoutStore: ObservableObject {
                 switch unit {
                 case .summary(let s):
                     fetchedSummary = s
-                    // Keep the cached `recovery` visible during the progressive
+                    // Keep the cached `readiness` visible during the progressive
                     // publish — the final filtered+recomputed snapshot overrides
                     // it in `updateHealthDashboardSnapshot`.
-                    healthSummary = s.replacingMetric(.recovery, with: healthSummary)
+                    healthSummary = s.replacingMetric(.readiness, with: healthSummary)
                 case .trends(let t):
                     fetchedTrends = t
-                    // `fetchHealthTrends` does not populate `.recovery` (it gets
+                    // `fetchHealthTrends` does not populate `.readiness` (it gets
                     // recomputed in `updateHealthDashboardSnapshot`). Preserve
-                    // the cached series so the Recovery preview chart can
+                    // the cached series so the Readiness preview chart can
                     // animate from old values to new instead of dropping to
                     // empty and reappearing.
-                    healthTrends = t.replacingMetric(.recovery, with: healthTrends)
+                    healthTrends = t.replacingMetric(.readiness, with: healthTrends)
                 case .rings(let r):
                     fetchedActivityRingHistory = r
                     activityRingHistory = r
@@ -972,7 +1155,10 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         loadingMonthKeys.formUnion(keysToLoad)
-        defer { loadingMonthKeys.subtract(keysToLoad) }
+        defer {
+            loadingMonthKeys.subtract(keysToLoad)
+            finishMonthLoad(for: keysToLoad)
+        }
 
         do {
             try await engine.requestAuthorization()
@@ -1031,13 +1217,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             activityRingHistory: activityRingHistory
         )
 
-        // Filter + recovery recompute are the heaviest per-refresh CPU spike
-        // (the recovery `dailySeries` iterates up to ~365 days × multi-metric
+        // Filter + readiness recompute are the heaviest per-refresh CPU spike
+        // (the readiness `dailySeries` iterates up to ~365 days × multi-metric
         // baselines). Run them off the main actor.
         let filteredSnapshot = await Task.detached(priority: .userInitiated) {
             rawSnapshot
                 .filtered(by: permissionSelection, idealSleepDuration: idealSleepDuration)
-                .recalculatingRecovery(
+                .recalculatingReadiness(
                     on: anchorDate,
                     idealSleepDuration: idealSleepDuration,
                     calendar: calendar
@@ -1404,7 +1590,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         case 32:
             return .play
         case 33:
-            return .preparationAndRecovery
+            return .preparationAndReadiness
         case 34:
             return .racquetball
         case 35:
