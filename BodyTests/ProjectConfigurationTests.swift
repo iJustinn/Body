@@ -1205,7 +1205,8 @@ final class ProjectConfigurationTests: XCTestCase {
             "Body/Services/HealthKitFetchEngine+SampleParsers.swift",
             "Body/Services/HealthKitFetchEngine+Sleep.swift",
             "Body/Services/HealthKitFetchEngine+TrainingLoad.swift",
-            "Body/Services/HealthKitFetchEngine+ActivityRings.swift"
+            "Body/Services/HealthKitFetchEngine+ActivityRings.swift",
+            "Body/Services/HealthKitFetchEngine+SourceOptions.swift"
         ]
         return try files.map { try text(at: $0) }.joined(separator: "\n")
     }
