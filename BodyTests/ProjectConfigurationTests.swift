@@ -508,7 +508,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testSourceSelectableDayChartsUsePrimarySecondaryComparisonLines() throws {
         let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
         let engineSource = try healthKitFetchEngineText()
-        let snapshotSource = try text(at: "Body/Models/HealthSummarySnapshot.swift")
+        let snapshotSource = try healthSummarySnapshotText()
         let dayChartCardStart = try XCTUnwrap(homeSource.range(of: "private var metricDayChartCard: some View")?.lowerBound)
         let dayChartCardBlock = String(homeSource[dayChartCardStart...].prefix(3_500))
         let dayChartStart = try XCTUnwrap(homeSource.range(of: "private struct BodyHealthMetricDayChart")?.lowerBound)
@@ -594,7 +594,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testHealthKitFetchesBarAndRangeSecondarySourceComparisons() throws {
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
         let engineSource = try healthKitFetchEngineText()
-        let snapshotSource = try text(at: "Body/Models/HealthSummarySnapshot.swift")
+        let snapshotSource = try healthSummarySnapshotText()
 
         XCTAssertTrue(storeSource.contains("@Published private(set) var secondaryHealthDataSourceSelection"))
         XCTAssertTrue(storeSource.contains("func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind)"))
@@ -1193,6 +1193,23 @@ final class ProjectConfigurationTests: XCTestCase {
 
     private func text(at relativePath: String) throws -> String {
         try String(contentsOf: projectRoot.appendingPathComponent(relativePath), encoding: .utf8)
+    }
+
+    /// Concatenates every Swift file backing the health summary / dashboard /
+    /// trend / activity-ring / sleep / source-comparison / training-load
+    /// models. The original 3,300-line `HealthSummarySnapshot.swift` was split
+    /// into focused peer files; tests that grep for snapshot substrings should
+    /// look across all of them, not just the main file.
+    private func healthSummarySnapshotText() throws -> String {
+        let files = [
+            "Body/Models/HealthSummarySnapshot.swift",
+            "Body/Models/ActivityRings.swift",
+            "Body/Models/Sleep.swift",
+            "Body/Models/SourceComparison.swift",
+            "Body/Models/TrainingLoadCalculator.swift",
+            "Body/Models/HealthTrend.swift"
+        ]
+        return try files.map { try text(at: $0) }.joined(separator: "\n")
     }
 
     /// Concatenates every Swift file backing `HealthKitFetchEngine`. The engine
