@@ -1212,6 +1212,7 @@ struct BodyHomeView: View {
                 sleepVitals: summary.sleep.vitals,
                 sleepDuration: summary.sleep.duration,
                 sleepHistory: trends.sleepHistory,
+                sleepHistorySecondary: trends.sleepHistorySecondary,
                 chartStyle: .line,
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + "h" },
                 secondaryValueFormatter: nil,
@@ -2151,5 +2152,3 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         return result
     }
 }
-
-

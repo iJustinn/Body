@@ -23,6 +23,7 @@ struct BodyHealthMetricDetailModel {
     let sleepVitals: SleepVitalsSummary?
     let sleepDuration: TimeInterval?
     let sleepHistory: SleepHistorySnapshot
+    let sleepHistorySecondary: SleepHistorySnapshot
     let readiness: ReadinessSummary?
     let chartStyle: BodyHealthMetricChartStyle
     let highlightedRange: BodyHealthMetricTrendHighlightedRange?
@@ -54,6 +55,7 @@ struct BodyHealthMetricDetailModel {
         sleepVitals: SleepVitalsSummary?,
         sleepDuration: TimeInterval?,
         sleepHistory: SleepHistorySnapshot = .empty,
+        sleepHistorySecondary: SleepHistorySnapshot = .empty,
         chartStyle: BodyHealthMetricChartStyle,
         highlightedRange: BodyHealthMetricTrendHighlightedRange? = nil,
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
@@ -84,6 +86,7 @@ struct BodyHealthMetricDetailModel {
         self.sleepVitals = sleepVitals
         self.sleepDuration = sleepDuration
         self.sleepHistory = sleepHistory
+        self.sleepHistorySecondary = sleepHistorySecondary
         self.readiness = readiness
         self.chartStyle = chartStyle
         self.highlightedRange = highlightedRange
@@ -364,6 +367,11 @@ struct BodyHealthMetricDetailView: View {
         selectedSleepSummary?.stageSnapshot ?? SleepStageSnapshot(date: selectedSleepDay, segments: [])
     }
 
+    private var selectedSecondarySleepStageSnapshot: SleepStageSnapshot {
+        model.sleepHistorySecondary.summary(on: selectedSleepDay, calendar: .bodyGregorian)?.summary.stageSnapshot
+            ?? SleepStageSnapshot(date: selectedSleepDay, segments: [])
+    }
+
     @ViewBuilder
     private var selectedSleepCards: some View {
         if showSleepScore {
@@ -374,7 +382,20 @@ struct BodyHealthMetricDetailView: View {
             }
         }
 
-        sleepStageCard(selectedSleepStageSnapshot)
+        if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
+            sleepStageCard(
+                selectedSleepStageSnapshot,
+                sourceName: sourceLineComparisonTrend.primary.sourceName,
+                emptyMessage: "No sleep stages for this source on this day"
+            )
+            sleepStageCard(
+                selectedSecondarySleepStageSnapshot,
+                sourceName: sourceLineComparisonTrend.secondary.sourceName,
+                emptyMessage: "No sleep stages for this source on this day"
+            )
+        } else {
+            sleepStageCard(selectedSleepStageSnapshot)
+        }
     }
 
     @ViewBuilder
@@ -1229,21 +1250,40 @@ struct BodyHealthMetricDetailView: View {
         .bodyCardBackground()
     }
 
-    private func sleepStageCard(_ snapshot: SleepStageSnapshot) -> some View {
+    private func sleepStageCard(
+        _ snapshot: SleepStageSnapshot,
+        title: String = "Sleep Stages",
+        sourceName: String? = nil,
+        emptyMessage: String = "No sleep stages for this day"
+    ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Sleep Stages")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                Spacer(minLength: 12)
+
+                if let sourceName {
+                    Text(sourceName)
+                        .font(.system(.caption, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
 
             if snapshot.isEmpty {
-                Text("No sleep stages for this day")
+                Text(emptyMessage)
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 220)
             } else {
                 BodySleepStageChart(snapshot: snapshot)
-                    .id(sleepStageChartIdentity(for: snapshot))
+                    .id("\(title)-\(sourceName ?? "default")-\(sleepStageChartIdentity(for: snapshot))")
                     .transition(dayChartTransition)
                     .transaction { transaction in
                         transaction.animation = nil
@@ -1586,4 +1626,3 @@ struct BodyHealthMetricDetailView: View {
             .minimumScaleFactor(0.75)
     }
 }
-

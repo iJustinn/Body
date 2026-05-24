@@ -386,7 +386,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testSupportedMetricDetailScreensExposeSwitchableDataSources() throws {
         let source = try bodyHomeViewText()
         let detailViewStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricDetailView")?.lowerBound)
-        let detailViewBlock = String(source[detailViewStart...].prefix(15_000))
+        let detailViewBlock = String(source[detailViewStart...].prefix(18_000))
         let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
         let pickerBlock = String(source[pickerStart...].prefix(8_000))
 
@@ -407,6 +407,25 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(pickerBlock.contains("All available Apple Health sources"))
         XCTAssertFalse(pickerBlock.contains("Hide secondary comparison"))
         XCTAssertFalse(pickerBlock.contains("optionDetailText"))
+    }
+
+    func testHealthDataSourcePickerUsesTypedScopedUpdateState() throws {
+        let source = try bodyHomeViewText()
+        let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
+        let pickerBlock = String(source[pickerStart...].prefix(8_000))
+
+        XCTAssertTrue(pickerBlock.contains("private enum SourceRole: Equatable"))
+        XCTAssertTrue(pickerBlock.contains("private struct PendingSelection: Equatable"))
+        XCTAssertTrue(pickerBlock.contains("@State private var updatingSelection: PendingSelection?"))
+        XCTAssertTrue(pickerBlock.contains("role: SourceRole"))
+        XCTAssertTrue(pickerBlock.contains("let isSectionLocked = updatingSelection?.role == role"))
+        XCTAssertTrue(pickerBlock.contains(".disabled(isSelected || isSectionLocked)"))
+        XCTAssertTrue(pickerBlock.contains("case .secondary:"))
+
+        XCTAssertFalse(pickerBlock.contains("role: String"))
+        XCTAssertFalse(pickerBlock.contains("updatingSelectionID"))
+        XCTAssertFalse(pickerBlock.contains(".disabled(updatingSelectionID != nil || isSelected)"))
+        XCTAssertFalse(pickerBlock.contains("role == \"secondary\""))
     }
 
     func testHealthKitFetchesApplySourcePreferencesToRequestedMetrics() throws {
@@ -503,6 +522,27 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(lineComparisonChartBlock.contains("series: .value(\"Source\", entry.sourceRole.rawValue)"))
         XCTAssertTrue(lineComparisonChartBlock.contains("BodyChartSelectionValue("))
         XCTAssertTrue(storeSource.contains("func sourceLineComparisonTrend(for kind: HealthMetricKind) -> BodyHealthSourceComparisonTrend?"))
+    }
+
+    func testSleepStageComparisonCardsShowTrailingSourceLabel() throws {
+        let homeSource = try bodyHomeViewText()
+        let selectedSleepCardsStart = try XCTUnwrap(
+            homeSource.range(of: "private var selectedSleepCards: some View")?.lowerBound
+        )
+        let selectedSleepCardsBlock = String(homeSource[selectedSleepCardsStart...].prefix(2_500))
+        let sleepStageCardStart = try XCTUnwrap(homeSource.range(of: "private func sleepStageCard")?.lowerBound)
+        let sleepStageCardBlock = String(homeSource[sleepStageCardStart...].prefix(2_500))
+
+        XCTAssertTrue(selectedSleepCardsBlock.contains("sourceName: sourceLineComparisonTrend.primary.sourceName"))
+        XCTAssertTrue(selectedSleepCardsBlock.contains("sourceName: sourceLineComparisonTrend.secondary.sourceName"))
+        XCTAssertFalse(selectedSleepCardsBlock.contains("title: \"Sleep Stages -"))
+        XCTAssertTrue(sleepStageCardBlock.contains("sourceName: String? = nil"))
+        XCTAssertTrue(sleepStageCardBlock.contains("HStack(alignment: .firstTextBaseline)"))
+        XCTAssertTrue(sleepStageCardBlock.contains("Spacer(minLength: 12)"))
+        XCTAssertTrue(sleepStageCardBlock.contains("if let sourceName"))
+        XCTAssertTrue(sleepStageCardBlock.contains("Text(sourceName)"))
+        XCTAssertTrue(sleepStageCardBlock.contains(".font(.system(.caption, design: .rounded))"))
+        XCTAssertTrue(sleepStageCardBlock.contains(".foregroundColor(.secondary)"))
     }
 
     func testSourceSelectableDayChartsUsePrimarySecondaryComparisonLines() throws {
@@ -618,6 +658,24 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(snapshotSource.contains("var heartRateVariabilityRangesSecondary: HealthTrendRangeSeries"))
         XCTAssertTrue(snapshotSource.contains("var oxygenSaturationRangesSecondary: HealthTrendRangeSeries"))
         XCTAssertTrue(snapshotSource.contains("next.restingEnergySecondary = refreshed.restingEnergySecondary"))
+    }
+
+    func testSecondarySleepStageHistorySkipsVitalsHydration() throws {
+        let sleepSource = try text(at: "Body/Services/HealthKitFetchEngine+Sleep.swift")
+        let secondarySource = try text(at: "Body/Services/HealthKitFetchEngine+Secondary.swift")
+        let fetchSleepHistoryStart = try XCTUnwrap(
+            sleepSource.range(of: "func fetchDailySleepHistory(")?.lowerBound
+        )
+        let fetchSleepHistoryBlock = String(sleepSource[fetchSleepHistoryStart...].prefix(5_500))
+        let fetchSecondarySleepStart = try XCTUnwrap(
+            secondarySource.range(of: "func fetchSecondarySleepHistory")?.lowerBound
+        )
+        let fetchSecondarySleepBlock = String(secondarySource[fetchSecondarySleepStart...].prefix(1_000))
+
+        XCTAssertTrue(fetchSleepHistoryBlock.contains("hydrateVitals: Bool = true"))
+        XCTAssertTrue(fetchSleepHistoryBlock.contains("guard hydrateVitals else {"))
+        XCTAssertTrue(fetchSleepHistoryBlock.contains("return SleepHistorySnapshot(days: days)"))
+        XCTAssertTrue(fetchSecondarySleepBlock.contains("hydrateVitals: false"))
     }
 
     func testMetricDetailScreensPullToRefreshOnlyCurrentMetric() throws {
@@ -775,7 +833,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.5.6;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 4;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 5;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 

@@ -66,7 +66,8 @@ extension HealthKitFetchEngine {
 
     func fetchDailySleepHistory(
         calendar: Calendar,
-        sourceOption: BodyHealthDataSourceOption? = nil
+        sourceOption: BodyHealthDataSourceOption? = nil,
+        hydrateVitals: Bool = true
     ) async -> SleepHistorySnapshot {
         guard permissionSelection.includes(.sleep) else {
             return .empty
@@ -111,6 +112,10 @@ extension HealthKitFetchEngine {
             }
 
             healthStore.execute(query)
+        }
+
+        guard hydrateVitals else {
+            return SleepHistorySnapshot(days: days)
         }
 
         // Hydrate sleep vitals per-day in parallel. The previous serial loop

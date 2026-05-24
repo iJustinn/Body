@@ -12,7 +12,17 @@ struct BodyHealthDataSourcePickerSheet: View {
     let kind: HealthMetricKind
     let accentColor: Color
 
-    @State private var updatingSelectionID: String?
+    @State private var updatingSelection: PendingSelection?
+
+    private enum SourceRole: Equatable {
+        case primary
+        case secondary
+    }
+
+    private struct PendingSelection: Equatable {
+        let role: SourceRole
+        let optionID: String
+    }
 
     private var selectedOption: BodyHealthDataSourceOption {
         workoutStore.selectedHealthDataSourceOption(for: kind)
@@ -39,7 +49,7 @@ struct BodyHealthDataSourcePickerSheet: View {
                         detail: "Used for the summary value and primary chart bars.",
                         options: options,
                         selectedOption: selectedOption,
-                        role: "primary"
+                        role: .primary
                     )
 
                     if kind.supportsSecondaryHealthDataSourceSelection {
@@ -48,7 +58,7 @@ struct BodyHealthDataSourcePickerSheet: View {
                             detail: "Used for the comparison bars on this chart.",
                             options: secondaryOptions,
                             selectedOption: selectedSecondaryOption,
-                            role: "secondary"
+                            role: .secondary
                         )
                     }
                 }
@@ -76,7 +86,7 @@ struct BodyHealthDataSourcePickerSheet: View {
         detail: String,
         options: [BodyHealthDataSourceOption],
         selectedOption: BodyHealthDataSourceOption,
-        role: String
+        role: SourceRole
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
@@ -103,15 +113,16 @@ struct BodyHealthDataSourcePickerSheet: View {
     private func sourceOptionButton(
         _ option: BodyHealthDataSourceOption,
         selectedOption: BodyHealthDataSourceOption,
-        role: String
+        role: SourceRole
     ) -> some View {
         let isSelected = selectedOption.id == option.id
-        let updatingID = "\(role)-\(option.id)"
+        let isThisRowUpdating = updatingSelection == PendingSelection(role: role, optionID: option.id)
+        let isSectionLocked = updatingSelection?.role == role
         return Button {
             updateSelection(option, role: role)
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: "heart.text.square.fill")
+                Image(systemName: optionIconName(for: role))
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundColor(accentColor)
                     .frame(width: 34, height: 34)
@@ -127,7 +138,7 @@ struct BodyHealthDataSourcePickerSheet: View {
 
                 Spacer(minLength: 8)
 
-                if updatingSelectionID == updatingID {
+                if isThisRowUpdating {
                     ProgressView()
                         .controlSize(.small)
                 } else if isSelected {
@@ -143,23 +154,32 @@ struct BodyHealthDataSourcePickerSheet: View {
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(updatingSelectionID != nil || isSelected)
+        .disabled(isSelected || isSectionLocked)
     }
 
-    private func updateSelection(_ option: BodyHealthDataSourceOption, role: String) {
-        updatingSelectionID = "\(role)-\(option.id)"
+    private func optionIconName(for role: SourceRole) -> String {
+        switch role {
+        case .primary:
+            return "heart.text.square.fill"
+        case .secondary:
+            return "square.stack.3d.up.fill"
+        }
+    }
+
+    private func updateSelection(_ option: BodyHealthDataSourceOption, role: SourceRole) {
+        updatingSelection = PendingSelection(role: role, optionID: option.id)
         Task {
-            if role == "secondary" {
+            switch role {
+            case .secondary:
                 await workoutStore.updateSecondaryHealthDataSource(for: kind, option: option)
-            } else {
+            case .primary:
                 await workoutStore.updateHealthDataSource(for: kind, option: option)
             }
-            updatingSelectionID = nil
+            updatingSelection = nil
             dismiss()
         }
     }
 }
-
 
 
 

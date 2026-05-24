@@ -20,10 +20,7 @@ extension HealthKitFetchEngine {
 
         switch kind {
         case .sleep:
-            return await fetchDailySleepHistory(
-                calendar: calendar,
-                sourceOption: secondaryOption
-            ).durationSeries
+            return await fetchSecondarySleepHistory(calendar: calendar).durationSeries
         case .restingHeartRate:
             return await fetchDailyQuantitySeries(
                 for: .restingHeartRate,
@@ -79,6 +76,19 @@ extension HealthKitFetchEngine {
              .timeInDaylight:
             return .empty
         }
+    }
+
+    func fetchSecondarySleepHistory(calendar: Calendar) async -> SleepHistorySnapshot {
+        let secondaryOption = selectedSecondaryHealthDataSourceOption(for: .sleep)
+        guard !secondaryOption.isNoComparison else {
+            return .empty
+        }
+
+        return await fetchDailySleepHistory(
+            calendar: calendar,
+            sourceOption: secondaryOption,
+            hydrateVitals: false
+        )
     }
 
     func fetchSecondaryDaySamples(

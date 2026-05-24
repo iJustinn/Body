@@ -37,6 +37,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
     var steps: HealthTrendSeries
     var stepsSecondary: HealthTrendSeries
     var sleepHistory: SleepHistorySnapshot
+    var sleepHistorySecondary: SleepHistorySnapshot
     var heartRateDaySamples: HealthTrendSeries
     var heartRateDaySamplesSecondary: HealthTrendSeries
     var restingHeartRateDaySamples: HealthTrendSeries
@@ -83,6 +84,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         steps: .empty,
         stepsSecondary: .empty,
         sleepHistory: .empty,
+        sleepHistorySecondary: .empty,
         heartRateDaySamples: .empty,
         heartRateDaySamplesSecondary: .empty,
         restingHeartRateDaySamples: .empty,
@@ -130,6 +132,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             steps.isEmpty &&
             stepsSecondary.isEmpty &&
             sleepHistory.isEmpty &&
+            sleepHistorySecondary.isEmpty &&
             heartRateDaySamples.isEmpty &&
             heartRateDaySamplesSecondary.isEmpty &&
             restingHeartRateDaySamples.isEmpty &&
@@ -177,6 +180,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         steps: HealthTrendSeries = .empty,
         stepsSecondary: HealthTrendSeries = .empty,
         sleepHistory: SleepHistorySnapshot = .empty,
+        sleepHistorySecondary: SleepHistorySnapshot = .empty,
         heartRateDaySamples: HealthTrendSeries = .empty,
         heartRateDaySamplesSecondary: HealthTrendSeries = .empty,
         restingHeartRateDaySamples: HealthTrendSeries = .empty,
@@ -222,6 +226,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.steps = steps
         self.stepsSecondary = stepsSecondary
         self.sleepHistory = sleepHistory
+        self.sleepHistorySecondary = sleepHistorySecondary
         self.heartRateDaySamples = heartRateDaySamples
         self.heartRateDaySamplesSecondary = heartRateDaySamplesSecondary
         self.restingHeartRateDaySamples = restingHeartRateDaySamples
@@ -269,6 +274,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case steps
         case stepsSecondary
         case sleepHistory
+        case sleepHistorySecondary
         case heartRateDaySamples
         case heartRateDaySamplesSecondary
         case restingHeartRateDaySamples
@@ -347,6 +353,10 @@ struct HealthTrendSnapshot: Codable, Equatable {
         steps = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .steps) ?? .empty
         stepsSecondary = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .stepsSecondary) ?? .empty
         sleepHistory = try container.decodeIfPresent(SleepHistorySnapshot.self, forKey: .sleepHistory) ?? .empty
+        sleepHistorySecondary = try container.decodeIfPresent(
+            SleepHistorySnapshot.self,
+            forKey: .sleepHistorySecondary
+        ) ?? .empty
         heartRateDaySamples = try container.decodeIfPresent(
             HealthTrendSeries.self,
             forKey: .heartRateDaySamples
@@ -598,6 +608,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             next.sleep = refreshed.sleep
             next.sleepSecondary = refreshed.sleepSecondary
             next.sleepHistory = refreshed.sleepHistory
+            next.sleepHistorySecondary = refreshed.sleepHistorySecondary
         case .basics:
             next.bodyMass = refreshed.bodyMass
             next.bodyFatPercentage = refreshed.bodyFatPercentage
@@ -681,6 +692,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             filtered.sleep = .empty
             filtered.sleepSecondary = .empty
             filtered.sleepHistory = .empty
+            filtered.sleepHistorySecondary = .empty
         }
         if !selection.includes(.heart) {
             filtered.heartRate = .empty
@@ -749,6 +761,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
     func clearingSecondarySeries() -> HealthTrendSnapshot {
         var cleared = self
         cleared.sleepSecondary = .empty
+        cleared.sleepHistorySecondary = .empty
         cleared.heartRateRangesSecondary = .empty
         cleared.heartRateDaySamplesSecondary = .empty
         cleared.restingHeartRateSecondary = .empty

@@ -1356,8 +1356,12 @@ actor HealthKitFetchEngine {
         async let sleepHistory = fetchIfPermitted(.sleep, default: SleepHistorySnapshot.empty) {
             await fetchDailySleepHistory(calendar: calendar)
         }
-        async let sleepSecondary = fetchSecondaryIfEnabled(for: .sleep, permission: .sleep, default: HealthTrendSeries.empty) {
-            await fetchSecondaryTrend(for: .sleep, calendar: calendar)
+        async let sleepHistorySecondary = fetchSecondaryIfEnabled(
+            for: .sleep,
+            permission: .sleep,
+            default: SleepHistorySnapshot.empty
+        ) {
+            await fetchSecondarySleepHistory(calendar: calendar)
         }
         async let restingHeartRate = fetchIfPermitted(.heart, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
@@ -1523,13 +1527,14 @@ actor HealthKitFetchEngine {
         }
 
         let fetchedSleepHistory = await sleepHistory
+        let fetchedSleepHistorySecondary = await sleepHistorySecondary
         let (fetchedHeartRate, fetchedHeartRateRanges) = await heartRatePair
         let (fetchedHeartRateVariability, fetchedHeartRateVariabilityRanges) = await heartRateVariabilityPair
         let (fetchedRespiratoryRate, fetchedRespiratoryRateRanges) = await respiratoryRatePair
         let (fetchedOxygenSaturation, fetchedOxygenSaturationRanges) = await oxygenSaturationPair
         return await HealthTrendSnapshot(
             sleep: fetchedSleepHistory.durationSeries,
-            sleepSecondary: sleepSecondary,
+            sleepSecondary: fetchedSleepHistorySecondary.durationSeries,
             heartRate: fetchedHeartRate,
             heartRateRanges: fetchedHeartRateRanges,
             heartRateRangesSecondary: heartRateRangesSecondary,
@@ -1558,6 +1563,7 @@ actor HealthKitFetchEngine {
             steps: steps,
             stepsSecondary: stepsSecondary,
             sleepHistory: fetchedSleepHistory,
+            sleepHistorySecondary: fetchedSleepHistorySecondary,
             heartRateDaySamples: cachedHeartRateDaySamples,
             heartRateDaySamplesSecondary: cachedHeartRateDaySamplesSecondary,
             restingHeartRateDaySamples: cachedRestingHeartRateDaySamples,
@@ -1605,13 +1611,15 @@ actor HealthKitFetchEngine {
         case .sleep:
             async let sleepSummary = fetchSleepSummary(calendar: calendar)
             async let sleepHistory = fetchDailySleepHistory(calendar: calendar)
-            async let sleepSecondaryTrend = fetchSecondaryTrend(for: .sleep, calendar: calendar)
+            async let sleepHistorySecondary = fetchSecondarySleepHistory(calendar: calendar)
             let fetchedSleepHistory = await sleepHistory
+            let fetchedSleepHistorySecondary = await sleepHistorySecondary
 
             summary.sleep = await sleepSummary ?? HealthSummarySnapshot.empty.sleep
             trends.sleep = fetchedSleepHistory.durationSeries
-            trends.sleepSecondary = await sleepSecondaryTrend
+            trends.sleepSecondary = fetchedSleepHistorySecondary.durationSeries
             trends.sleepHistory = fetchedSleepHistory
+            trends.sleepHistorySecondary = fetchedSleepHistorySecondary
         case .basics:
             async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
             async let bodyFatPercentage = latestQuantity(

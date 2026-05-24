@@ -2175,6 +2175,64 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(history.durationSeries.points.map(\.value), [6.5, 8])
     }
 
+    func testHealthTrendSnapshotPreservesSecondarySleepHistoryForStageComparison() throws {
+        let calendar = Calendar.bodyGregorian
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11)))
+        let primaryStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 10, hour: 23)))
+        let primaryEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 7)))
+        let secondaryStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 10, hour: 23, minute: 30)))
+        let secondaryEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 6, minute: 30)))
+        let primaryHistory = SleepHistorySnapshot(days: [
+            SleepDaySummary(
+                date: day,
+                summary: SleepSummary(
+                    duration: 8 * 3_600,
+                    stageSnapshot: SleepStageSnapshot(
+                        date: day,
+                        segments: [
+                            SleepStageSegment(stage: .core, startDate: primaryStart, endDate: primaryEnd)
+                        ]
+                    )
+                )
+            )
+        ])
+        let secondaryHistory = SleepHistorySnapshot(days: [
+            SleepDaySummary(
+                date: day,
+                summary: SleepSummary(
+                    duration: 7 * 3_600,
+                    stageSnapshot: SleepStageSnapshot(
+                        date: day,
+                        segments: [
+                            SleepStageSegment(stage: .deep, startDate: secondaryStart, endDate: secondaryEnd)
+                        ]
+                    )
+                )
+            )
+        ])
+        let refreshed = HealthTrendSnapshot(
+            sleep: primaryHistory.durationSeries,
+            sleepSecondary: secondaryHistory.durationSeries,
+            restingHeartRate: .empty,
+            bodyMass: .empty,
+            bodyFatPercentage: .empty,
+            heartRateVariability: .empty,
+            respiratoryRate: .empty,
+            oxygenSaturation: .empty,
+            bodyMassIndex: .empty,
+            activeEnergy: .empty,
+            restingEnergy: .empty,
+            sleepHistory: primaryHistory,
+            sleepHistorySecondary: secondaryHistory
+        )
+
+        let replaced = HealthTrendSnapshot.empty.replacingMetric(.sleep, with: refreshed)
+
+        XCTAssertEqual(replaced.sleepHistory.summary(on: day, calendar: calendar)?.summary.stageSnapshot, primaryHistory.days[0].summary.stageSnapshot)
+        XCTAssertEqual(replaced.sleepHistorySecondary.summary(on: day, calendar: calendar)?.summary.stageSnapshot, secondaryHistory.days[0].summary.stageSnapshot)
+        XCTAssertEqual(replaced.secondarySeries(for: .sleep), secondaryHistory.durationSeries)
+    }
+
     func testBasicsTrendSummaryFindsNearestDateAcrossWeightAndBodyFat() throws {
         let calendar = Calendar.bodyGregorian
         let weightDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 9)))
