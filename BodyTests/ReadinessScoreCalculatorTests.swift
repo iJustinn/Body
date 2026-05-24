@@ -1,12 +1,12 @@
 //
-//  RecoveryScoreCalculatorTests.swift
+//  ReadinessScoreCalculatorTests.swift
 //  BodyTests
 //
 
 import XCTest
 @testable import Body
 
-final class RecoveryScoreCalculatorTests: XCTestCase {
+final class ReadinessScoreCalculatorTests: XCTestCase {
 
     // MARK: - Sleep Goal (C1 regression)
 
@@ -21,7 +21,7 @@ final class RecoveryScoreCalculatorTests: XCTestCase {
         let sixHours: TimeInterval = 6 * 60 * 60
         let trends = trendsWithSleepDuration(sixHours, on: scoreDay, calendar: calendar)
 
-        let summary = RecoveryScoreCalculator.summary(
+        let summary = ReadinessScoreCalculator.summary(
             on: scoreDay,
             healthSummary: .empty,
             trends: trends,
@@ -45,7 +45,7 @@ final class RecoveryScoreCalculatorTests: XCTestCase {
         let eightHours: TimeInterval = 8 * 60 * 60
         let trends = trendsWithSleepDuration(sixHours, on: scoreDay, calendar: calendar)
 
-        let summary = RecoveryScoreCalculator.summary(
+        let summary = ReadinessScoreCalculator.summary(
             on: scoreDay,
             healthSummary: .empty,
             trends: trends,
@@ -68,14 +68,14 @@ final class RecoveryScoreCalculatorTests: XCTestCase {
         let sixHours: TimeInterval = 6 * 60 * 60
         let trends = trendsWithSleepDuration(sixHours, on: scoreDay, calendar: calendar)
 
-        let lenientGoal = RecoveryScoreCalculator.summary(
+        let lenientGoal = ReadinessScoreCalculator.summary(
             on: scoreDay,
             healthSummary: .empty,
             trends: trends,
             idealSleepDuration: 6 * 60 * 60,
             calendar: calendar
         )
-        let strictGoal = RecoveryScoreCalculator.summary(
+        let strictGoal = ReadinessScoreCalculator.summary(
             on: scoreDay,
             healthSummary: .empty,
             trends: trends,
@@ -88,7 +88,7 @@ final class RecoveryScoreCalculatorTests: XCTestCase {
         XCTAssertGreaterThan(lenientSleepScore, strictSleepScore)
     }
 
-    /// `dailySeries` recomputes recovery for every day in the window. It must
+    /// `dailySeries` recomputes readiness for every day in the window. It must
     /// thread the configured sleep goal through to each call rather than
     /// silently using the default.
     func testDailySeriesForwardsSleepGoalToEachDay() throws {
@@ -103,7 +103,7 @@ final class RecoveryScoreCalculatorTests: XCTestCase {
             calendar: calendar
         )
 
-        let lenient = RecoveryScoreCalculator.dailySeries(
+        let lenient = ReadinessScoreCalculator.dailySeries(
             healthSummary: .empty,
             trends: trends,
             startDate: startDay,
@@ -111,7 +111,7 @@ final class RecoveryScoreCalculatorTests: XCTestCase {
             idealSleepDuration: 6 * 60 * 60,
             calendar: calendar
         )
-        let strict = RecoveryScoreCalculator.dailySeries(
+        let strict = ReadinessScoreCalculator.dailySeries(
             healthSummary: .empty,
             trends: trends,
             startDate: startDay,
@@ -126,7 +126,7 @@ final class RecoveryScoreCalculatorTests: XCTestCase {
             XCTAssertGreaterThan(
                 lenient.points[index].value,
                 strict.points[index].value,
-                "Day \(index) recovery score should be higher when the configured goal is shorter"
+                "Day \(index) readiness score should be higher when the configured goal is shorter"
             )
         }
     }
@@ -137,12 +137,12 @@ final class RecoveryScoreCalculatorTests: XCTestCase {
         let calendar = Calendar.bodyGregorian
         let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
         let values = dailyValues(
-            constants: Array(repeating: 50.0, count: RecoveryScoreCalculator.minimumBaselineDayCount - 1),
+            constants: Array(repeating: 50.0, count: ReadinessScoreCalculator.minimumBaselineDayCount - 1),
             endingDayBefore: scoreDay,
             calendar: calendar
         )
 
-        XCTAssertNil(RecoveryScoreCalculator.robustBaseline(
+        XCTAssertNil(ReadinessScoreCalculator.robustBaseline(
             for: scoreDay,
             values: values,
             floor: 0.1,
@@ -159,7 +159,7 @@ final class RecoveryScoreCalculatorTests: XCTestCase {
             calendar: calendar
         )
 
-        let baseline = try XCTUnwrap(RecoveryScoreCalculator.robustBaseline(
+        let baseline = try XCTUnwrap(ReadinessScoreCalculator.robustBaseline(
             for: scoreDay,
             values: values,
             floor: 0.1,
@@ -180,9 +180,9 @@ final class RecoveryScoreCalculatorTests: XCTestCase {
             calendar: calendar
         )
         // An extreme outlier ON the scoring day must not pull the baseline.
-        values.append(RecoveryScoreCalculator.DailyValue(date: scoreDay, value: 9_999))
+        values.append(ReadinessScoreCalculator.DailyValue(date: scoreDay, value: 9_999))
 
-        let baseline = try XCTUnwrap(RecoveryScoreCalculator.robustBaseline(
+        let baseline = try XCTUnwrap(ReadinessScoreCalculator.robustBaseline(
             for: scoreDay,
             values: values,
             floor: 0.1,
@@ -196,26 +196,26 @@ final class RecoveryScoreCalculatorTests: XCTestCase {
     // MARK: - Robust Z-Score
 
     func testRobustZScoreFormula() {
-        let baseline = RecoveryScoreCalculator.Baseline(median: 60, spread: 5, validDayCount: 20)
-        XCTAssertEqual(RecoveryScoreCalculator.robustZScore(value: 65, baseline: baseline), 1.0, accuracy: 0.0001)
-        XCTAssertEqual(RecoveryScoreCalculator.robustZScore(value: 50, baseline: baseline), -2.0, accuracy: 0.0001)
+        let baseline = ReadinessScoreCalculator.Baseline(median: 60, spread: 5, validDayCount: 20)
+        XCTAssertEqual(ReadinessScoreCalculator.robustZScore(value: 65, baseline: baseline), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(ReadinessScoreCalculator.robustZScore(value: 50, baseline: baseline), -2.0, accuracy: 0.0001)
     }
 
     func testRobustZScoreReturnsZeroForZeroSpread() {
-        let baseline = RecoveryScoreCalculator.Baseline(median: 60, spread: 0, validDayCount: 20)
-        XCTAssertEqual(RecoveryScoreCalculator.robustZScore(value: 99, baseline: baseline), 0)
+        let baseline = ReadinessScoreCalculator.Baseline(median: 60, spread: 0, validDayCount: 20)
+        XCTAssertEqual(ReadinessScoreCalculator.robustZScore(value: 99, baseline: baseline), 0)
     }
 
     func testRobustZScoreReturnsZeroForNonFiniteValue() {
-        let baseline = RecoveryScoreCalculator.Baseline(median: 60, spread: 5, validDayCount: 20)
-        XCTAssertEqual(RecoveryScoreCalculator.robustZScore(value: .nan, baseline: baseline), 0)
-        XCTAssertEqual(RecoveryScoreCalculator.robustZScore(value: .infinity, baseline: baseline), 0)
+        let baseline = ReadinessScoreCalculator.Baseline(median: 60, spread: 5, validDayCount: 20)
+        XCTAssertEqual(ReadinessScoreCalculator.robustZScore(value: .nan, baseline: baseline), 0)
+        XCTAssertEqual(ReadinessScoreCalculator.robustZScore(value: .infinity, baseline: baseline), 0)
     }
 
     // MARK: - Summary aggregation
 
     func testSummaryReturnsUnavailableWithNoSignals() {
-        let summary = RecoveryScoreCalculator.summary(
+        let summary = ReadinessScoreCalculator.summary(
             on: Date(),
             healthSummary: .empty,
             trends: .empty
@@ -265,7 +265,7 @@ final class RecoveryScoreCalculatorTests: XCTestCase {
         constants: [Double],
         endingDayBefore scoreDay: Date,
         calendar: Calendar
-    ) -> [RecoveryScoreCalculator.DailyValue] {
+    ) -> [ReadinessScoreCalculator.DailyValue] {
         constants.enumerated().compactMap { offset, value in
             // Place values starting one day before scoreDay, going back in time.
             // This guarantees they fall inside the 56-day pre-window.
@@ -273,7 +273,7 @@ final class RecoveryScoreCalculatorTests: XCTestCase {
                 return nil
             }
 
-            return RecoveryScoreCalculator.DailyValue(date: date, value: value)
+            return ReadinessScoreCalculator.DailyValue(date: date, value: value)
         }
     }
 }

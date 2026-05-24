@@ -1,14 +1,14 @@
 //
-//  RecoveryScoreCalculator.swift
+//  ReadinessScoreCalculator.swift
 //  Body
 //
 
 import Foundation
 
-enum RecoveryScoreCalculator {
+enum ReadinessScoreCalculator {
     private struct ComponentResult {
-        var component: RecoveryComponent
-        var drivers: [RecoveryDriver]
+        var component: ReadinessComponent
+        var drivers: [ReadinessDriver]
         var bestBaselineDayCount: Int
     }
 
@@ -33,7 +33,7 @@ enum RecoveryScoreCalculator {
         trends: HealthTrendSnapshot,
         idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
         calendar: Calendar = .bodyGregorian
-    ) -> RecoverySummary {
+    ) -> ReadinessSummary {
         let componentResults = [
             autonomicComponent(on: date, trends: trends, calendar: calendar),
             sleepComponent(
@@ -63,13 +63,13 @@ enum RecoveryScoreCalculator {
         let score = adjustedSummaryScore(rawScore, componentResults: componentResults)
         let drivers = prioritizedDrivers(from: componentResults)
 
-        return RecoverySummary(
+        return ReadinessSummary(
             score: score,
-            status: RecoveryStatus.status(for: score),
+            status: ReadinessStatus.status(for: score),
             confidence: confidence(for: componentResults),
             components: componentResults.map(\.component),
             drivers: drivers.isEmpty
-                ? [RecoveryDriver(kind: .mostlyTypical, message: "Recovery signals are mostly typical.", impact: 0)]
+                ? [ReadinessDriver(kind: .mostlyTypical, message: "Readiness signals are mostly typical.", impact: 0)]
                 : drivers
         )
     }
@@ -169,7 +169,7 @@ enum RecoveryScoreCalculator {
         calendar: Calendar
     ) -> ComponentResult? {
         var scores: [Int] = []
-        var drivers: [RecoveryDriver] = []
+        var drivers: [ReadinessDriver] = []
         var baselineCounts: [Int] = []
 
         if let value = currentValue(on: date, in: trends.heartRateVariability, calendar: calendar),
@@ -184,7 +184,7 @@ enum RecoveryScoreCalculator {
             scores.append(scoreFromBaselineZScore(favorableZScore))
             baselineCounts.append(baseline.validDayCount)
             if progress > 0 {
-                drivers.append(RecoveryDriver(
+                drivers.append(ReadinessDriver(
                     kind: .hrvBelowBaseline,
                     message: "HRV is below baseline.",
                     impact: progress
@@ -204,7 +204,7 @@ enum RecoveryScoreCalculator {
             scores.append(scoreFromBaselineZScore(favorableZScore))
             baselineCounts.append(baseline.validDayCount)
             if progress > 0 {
-                drivers.append(RecoveryDriver(
+                drivers.append(ReadinessDriver(
                     kind: .heartRateAboveBaseline,
                     message: "Resting heart rate is above baseline.",
                     impact: progress
@@ -217,7 +217,7 @@ enum RecoveryScoreCalculator {
         }
 
         return ComponentResult(
-            component: RecoveryComponent(
+            component: ReadinessComponent(
                 kind: .autonomic,
                 score: averageScore(scores),
                 weight: 30,
@@ -246,13 +246,13 @@ enum RecoveryScoreCalculator {
         }
 
         var scores: [Int] = []
-        var drivers: [RecoveryDriver] = []
+        var drivers: [ReadinessDriver] = []
 
         let goalDuration = idealSleepDuration > 0 ? idealSleepDuration : BodySleepDurationGoal.defaultDuration
         let durationProgress = min(max(duration / goalDuration, 0), 1.10)
         scores.append(scoreFromSleepProgress(durationProgress))
         if durationProgress < 0.85 {
-            drivers.append(RecoveryDriver(
+            drivers.append(ReadinessDriver(
                 kind: .sleepDurationBelowGoal,
                 message: "Sleep duration is below goal.",
                 impact: 1 - durationProgress
@@ -266,7 +266,7 @@ enum RecoveryScoreCalculator {
                 let continuityProgress = min(max((efficiency - 0.78) / 0.18, 0), 1)
                 scores.append(scoreFromSleepProgress(continuityProgress))
                 if continuityProgress < 0.65 {
-                    drivers.append(RecoveryDriver(
+                    drivers.append(ReadinessDriver(
                         kind: .sleepFragmented,
                         message: "Sleep was more fragmented than usual.",
                         impact: 1 - continuityProgress
@@ -280,7 +280,7 @@ enum RecoveryScoreCalculator {
         }
 
         return ComponentResult(
-            component: RecoveryComponent(
+            component: ReadinessComponent(
                 kind: .sleep,
                 score: averageScore(scores),
                 weight: 30,
@@ -318,7 +318,7 @@ enum RecoveryScoreCalculator {
 
         let result = trainingLoadScore(value)
         return ComponentResult(
-            component: RecoveryComponent(
+            component: ReadinessComponent(
                 kind: .training,
                 score: result.score,
                 weight: 25,
@@ -335,7 +335,7 @@ enum RecoveryScoreCalculator {
         calendar: Calendar
     ) -> ComponentResult? {
         var anomalyProgressValues: [Double] = []
-        var drivers: [RecoveryDriver] = []
+        var drivers: [ReadinessDriver] = []
         var baselineCounts: [Int] = []
 
         appendHighSideAnomaly(
@@ -373,7 +373,7 @@ enum RecoveryScoreCalculator {
             if progress > 0 {
                 anomalyProgressValues.append(progress)
                 baselineCounts.append(baseline.validDayCount)
-                drivers.append(RecoveryDriver(
+                drivers.append(ReadinessDriver(
                     kind: .oxygenSaturationLow,
                     message: "Blood oxygen is below its usual range.",
                     impact: progress
@@ -387,7 +387,7 @@ enum RecoveryScoreCalculator {
 
         let maxProgress = anomalyProgressValues.max() ?? 0
         return ComponentResult(
-            component: RecoveryComponent(
+            component: ReadinessComponent(
                 kind: .vitals,
                 score: scoreFromPenaltyProgress(maxProgress),
                 weight: 15,
@@ -399,14 +399,14 @@ enum RecoveryScoreCalculator {
     }
 
     private static func appendHighSideAnomaly(
-        kind: RecoveryDriverKind,
+        kind: ReadinessDriverKind,
         message: String,
         date: Date,
         series: HealthTrendSeries,
         floor: Double,
         calendar: Calendar,
         progressValues: inout [Double],
-        drivers: inout [RecoveryDriver],
+        drivers: inout [ReadinessDriver],
         baselineCounts: inout [Int]
     ) {
         guard let value = currentValue(on: date, in: series, calendar: calendar),
@@ -426,10 +426,10 @@ enum RecoveryScoreCalculator {
 
         progressValues.append(progress)
         baselineCounts.append(baseline.validDayCount)
-        drivers.append(RecoveryDriver(kind: kind, message: message, impact: progress))
+        drivers.append(ReadinessDriver(kind: kind, message: message, impact: progress))
     }
 
-    private static func trainingLoadScore(_ value: Double) -> (score: Int, driver: RecoveryDriver?) {
+    private static func trainingLoadScore(_ value: Double) -> (score: Int, driver: ReadinessDriver?) {
         guard value.isFinite else {
             return (neutralScore, nil)
         }
@@ -441,7 +441,7 @@ enum RecoveryScoreCalculator {
         let progress = min(max((value - 1.30) / 0.25, 0), 1)
         return (
             scoreFromPenaltyProgress(progress, base: 70, minimum: 20),
-            RecoveryDriver(
+            ReadinessDriver(
                 kind: .trainingLoadElevated,
                 message: "Training load is elevated.",
                 impact: progress
@@ -449,7 +449,7 @@ enum RecoveryScoreCalculator {
         )
     }
 
-    private static func confidence(for componentResults: [ComponentResult]) -> RecoveryConfidence {
+    private static func confidence(for componentResults: [ComponentResult]) -> ReadinessConfidence {
         guard !componentResults.isEmpty else {
             return .unavailable
         }
@@ -468,7 +468,7 @@ enum RecoveryScoreCalculator {
         return .low
     }
 
-    private static func prioritizedDrivers(from componentResults: [ComponentResult]) -> [RecoveryDriver] {
+    private static func prioritizedDrivers(from componentResults: [ComponentResult]) -> [ReadinessDriver] {
         componentResults
             .flatMap(\.drivers)
             .filter { $0.impact > 0 }

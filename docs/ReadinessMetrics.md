@@ -1,10 +1,10 @@
-# Recovery Metrics Implementation Plan
+# Readiness Metrics Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `body-rtk-tdd` for every code-changing task in this repository. If delegating work, use `subagent-driven-development`; otherwise use `executing-plans`. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a Recovery Summary card and detail view that score near-term recovery from the user's own Apple Health baselines.
+**Goal:** Add a Readiness Summary card and detail view that score near-term readiness from the user's own Apple Health baselines.
 
-**Architecture:** Keep HealthKit fetching focused on raw health data. Add dedicated Recovery models and a pure `RecoveryScoreCalculator` that transforms existing `HealthSummarySnapshot`, `HealthTrendSnapshot`, and `SleepHistorySnapshot` data into a score, components, confidence, and drivers. Wire the result into existing Summary card ordering, dashboard caching, metric detail routing, and tests.
+**Architecture:** Keep HealthKit fetching focused on raw health data. Add dedicated Readiness models and a pure `ReadinessScoreCalculator` that transforms existing `HealthSummarySnapshot`, `HealthTrendSnapshot`, and `SleepHistorySnapshot` data into a score, components, confidence, and drivers. Wire the result into existing Summary card ordering, dashboard caching, metric detail routing, and tests.
 
 **Tech Stack:** Swift, SwiftUI, HealthKit, XCTest, existing Body snapshot models, existing `rtk xcodebuild` workflow.
 
@@ -14,16 +14,16 @@
 
 - Run all shell commands through `rtk`.
 - Do not commit unless the user explicitly asks for a commit.
-- Keep Recovery non-diagnostic. Use phrases like "above baseline", "below baseline", and "needs more data"; avoid illness diagnosis and injury prediction.
+- Keep Readiness non-diagnostic. Use phrases like "above baseline", "below baseline", and "needs more data"; avoid illness diagnosis and injury prediction.
 - Use Red-Green-Refactor: failing XCTest first, smallest code to pass, refactor only after green.
-- Preserve existing Summary card rhythm. Recovery should behave like the other health cards, not introduce a new landing page.
+- Preserve existing Summary card rhythm. Readiness should behave like the other health cards, not introduce a new landing page.
 
 ## Score Definition
 
-Recovery starts at 100 and subtracts weighted penalties from available components:
+Readiness starts at 100 and subtracts weighted penalties from available components:
 
 ```text
-Recovery = clamp(100 - normalizedPenalty, 0, 100)
+Readiness = clamp(100 - normalizedPenalty, 0, 100)
 ```
 
 Component weights:
@@ -69,39 +69,39 @@ Baseline window:
 
 ## File Map
 
-- Create `Body/Models/Recovery/RecoveryModels.swift`
-  - `RecoveryStatus` (with `lowerBound`/`upperBound`/`displayOrder` so chart bands can reuse the type), `RecoveryConfidence`, `RecoveryComponentKind`, `RecoveryDriverKind`, `RecoveryComponent`, `RecoveryDriver`, `RecoverySummary`.
-  - `RecoveryStatusBreakdownEntry`, `RecoveryStatusBreakdown` (parallels `TrainingLoadIntervalBreakdown` for the by-status day count chart).
-- Create `Body/Models/Recovery/RecoveryScoreCalculator.swift`
+- Create `Body/Models/Readiness/ReadinessModels.swift`
+  - `ReadinessStatus` (with `lowerBound`/`upperBound`/`displayOrder` so chart bands can reuse the type), `ReadinessConfidence`, `ReadinessComponentKind`, `ReadinessDriverKind`, `ReadinessComponent`, `ReadinessDriver`, `ReadinessSummary`.
+  - `ReadinessStatusBreakdownEntry`, `ReadinessStatusBreakdown` (parallels `TrainingLoadIntervalBreakdown` for the by-status day count chart).
+- Create `Body/Models/Readiness/ReadinessScoreCalculator.swift`
   - Pure scoring, baseline math, component scoring, **and a `dailySeries(...)` entrypoint that scores each day in the trend window** so the line chart and by-status breakdown have real data.
 - Modify `Body/Models/HealthSummarySnapshot.swift`
-  - Add `.recovery` to `HealthMetricKind`.
-  - Add `recovery: RecoverySummary` to `HealthSummarySnapshot`.
-  - Add `recovery: HealthTrendSeries` to `HealthTrendSnapshot`.
+  - Add `.readiness` to `HealthMetricKind`.
+  - Add `readiness: ReadinessSummary` to `HealthSummarySnapshot`.
+  - Add `readiness: HealthTrendSeries` to `HealthTrendSnapshot`.
   - Add Codable fallback support for older cache snapshots.
-  - Add `HealthDashboardSnapshot.recalculatingRecovery(on:calendar:)`.
+  - Add `HealthDashboardSnapshot.recalculatingReadiness(on:calendar:)`.
 - Modify `Body/Services/HealthKitWorkoutStore.swift`
-  - Recalculate Recovery whenever dashboard summary/trends are updated or filtered.
-  - Special-case `refreshHealthMetric(.recovery)` to recompute from cached/fetched health dashboard inputs.
+  - Recalculate Readiness whenever dashboard summary/trends are updated or filtered.
+  - Special-case `refreshHealthMetric(.readiness)` to recompute from cached/fetched health dashboard inputs.
 - Modify `Body/Models/BodyAppearancePreference.swift`
-  - Add Recovery card and trend card ordering, title, subtitle, icon, tint, metric mapping.
+  - Add Readiness card and trend card ordering, title, subtitle, icon, tint, metric mapping.
 - Modify `Body/Views/BodyHomeView.swift`
-  - Add Recovery card model and detail model (line chart, same shape as Training Load).
-  - Add `BodyRecoveryStatusPresentation` (chart band colors per status) and `BodyRecoveryStatusBreakdownChart` (Days-by-Status chart rendered below the trend).
+  - Add Readiness card model and detail model (line chart, same shape as Training Load).
+  - Add `BodyReadinessStatusPresentation` (chart band colors per status) and `BodyReadinessStatusBreakdownChart` (Days-by-Status chart rendered below the trend).
   - Add a supplementary "About your score" card with exact status ranges and short interval explanations under the trend section.
-  - Extend `BodyHealthMetricDetailModel` (and `metricDetail` helper) with an optional `recovery: RecoverySummary?` field used only by the Recovery branch.
+  - Extend `BodyHealthMetricDetailModel` (and `metricDetail` helper) with an optional `readiness: ReadinessSummary?` field used only by the Readiness branch.
 - Modify `BodyTests/WorkoutMonthSnapshotTests.swift`
   - Add calculator, snapshot Codable, filtering, ordering, and presentation tests.
 - Modify `BodyTests/ProjectConfigurationTests.swift`
   - Add static coverage tests for card/detail routing if the current static tests need extension.
 - Modify `TestPlan.md`, `README.md`, and `VersionHistory.md`
-  - Document the Recovery card, manual checks, and release note.
+  - Document the Readiness card, manual checks, and release note.
 
-## Task 1: Add Recovery Model Types
+## Task 1: Add Readiness Model Types
 
 **Files:**
 
-- Create: `Body/Models/Recovery/RecoveryModels.swift`
+- Create: `Body/Models/Readiness/ReadinessModels.swift`
 - Modify: `body.xcodeproj/project.pbxproj`
 - Test: `BodyTests/WorkoutMonthSnapshotTests.swift`
 
@@ -110,24 +110,24 @@ Baseline window:
 Add tests near the existing health summary tests:
 
 ```swift
-func testRecoveryStatusMapsScoresToBands() {
-    XCTAssertEqual(RecoveryStatus.status(for: nil), .unavailable)
-    XCTAssertEqual(RecoveryStatus.status(for: 100), .prime)
-    XCTAssertEqual(RecoveryStatus.status(for: 96), .prime)
-    XCTAssertEqual(RecoveryStatus.status(for: 95), .high)
-    XCTAssertEqual(RecoveryStatus.status(for: 75), .high)
-    XCTAssertEqual(RecoveryStatus.status(for: 74), .moderate)
-    XCTAssertEqual(RecoveryStatus.status(for: 50), .moderate)
-    XCTAssertEqual(RecoveryStatus.status(for: 49), .low)
-    XCTAssertEqual(RecoveryStatus.status(for: 25), .low)
-    XCTAssertEqual(RecoveryStatus.status(for: 24), .poor)
-    XCTAssertEqual(RecoveryStatus.status(for: 0), .poor)
+func testReadinessStatusMapsScoresToBands() {
+    XCTAssertEqual(ReadinessStatus.status(for: nil), .unavailable)
+    XCTAssertEqual(ReadinessStatus.status(for: 100), .prime)
+    XCTAssertEqual(ReadinessStatus.status(for: 96), .prime)
+    XCTAssertEqual(ReadinessStatus.status(for: 95), .high)
+    XCTAssertEqual(ReadinessStatus.status(for: 75), .high)
+    XCTAssertEqual(ReadinessStatus.status(for: 74), .moderate)
+    XCTAssertEqual(ReadinessStatus.status(for: 50), .moderate)
+    XCTAssertEqual(ReadinessStatus.status(for: 49), .low)
+    XCTAssertEqual(ReadinessStatus.status(for: 25), .low)
+    XCTAssertEqual(ReadinessStatus.status(for: 24), .poor)
+    XCTAssertEqual(ReadinessStatus.status(for: 0), .poor)
 }
 
-func testRecoverySummaryUnavailableIsCodable() throws {
-    let summary = RecoverySummary.unavailable
+func testReadinessSummaryUnavailableIsCodable() throws {
+    let summary = ReadinessSummary.unavailable
     let encoded = try JSONEncoder().encode(summary)
-    let decoded = try JSONDecoder().decode(RecoverySummary.self, from: encoded)
+    let decoded = try JSONDecoder().decode(ReadinessSummary.self, from: encoded)
 
     XCTAssertEqual(decoded, summary)
     XCTAssertNil(decoded.score)
@@ -137,17 +137,17 @@ func testRecoverySummaryUnavailableIsCodable() throws {
     XCTAssertTrue(decoded.drivers.isEmpty)
 }
 
-func testRecoveryStatusExposesBoundsForChartBands() {
-    XCTAssertNil(RecoveryStatus.poor.lowerBound)
-    XCTAssertEqual(RecoveryStatus.poor.upperBound, 25)
-    XCTAssertEqual(RecoveryStatus.low.lowerBound, 25)
-    XCTAssertEqual(RecoveryStatus.low.upperBound, 50)
-    XCTAssertEqual(RecoveryStatus.moderate.lowerBound, 50)
-    XCTAssertEqual(RecoveryStatus.moderate.upperBound, 75)
-    XCTAssertEqual(RecoveryStatus.high.lowerBound, 75)
-    XCTAssertEqual(RecoveryStatus.high.upperBound, 95)
-    XCTAssertEqual(RecoveryStatus.prime.lowerBound, 95)
-    XCTAssertNil(RecoveryStatus.prime.upperBound)
+func testReadinessStatusExposesBoundsForChartBands() {
+    XCTAssertNil(ReadinessStatus.poor.lowerBound)
+    XCTAssertEqual(ReadinessStatus.poor.upperBound, 25)
+    XCTAssertEqual(ReadinessStatus.low.lowerBound, 25)
+    XCTAssertEqual(ReadinessStatus.low.upperBound, 50)
+    XCTAssertEqual(ReadinessStatus.moderate.lowerBound, 50)
+    XCTAssertEqual(ReadinessStatus.moderate.upperBound, 75)
+    XCTAssertEqual(ReadinessStatus.high.lowerBound, 75)
+    XCTAssertEqual(ReadinessStatus.high.upperBound, 95)
+    XCTAssertEqual(ReadinessStatus.prime.lowerBound, 95)
+    XCTAssertNil(ReadinessStatus.prime.upperBound)
 }
 ```
 
@@ -156,19 +156,19 @@ func testRecoveryStatusExposesBoundsForChartBands() {
 Run:
 
 ```bash
-rtk xcodebuild test -project body.xcodeproj -scheme Body -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath /private/tmp/body-test-derived CODE_SIGNING_ALLOWED=NO -only-testing:BodyTests/WorkoutMonthSnapshotTests/testRecoveryStatusMapsScoresToBands -only-testing:BodyTests/WorkoutMonthSnapshotTests/testRecoverySummaryUnavailableIsCodable -only-testing:BodyTests/WorkoutMonthSnapshotTests/testRecoveryStatusExposesBoundsForChartBands
+rtk xcodebuild test -project body.xcodeproj -scheme Body -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath /private/tmp/body-test-derived CODE_SIGNING_ALLOWED=NO -only-testing:BodyTests/WorkoutMonthSnapshotTests/testReadinessStatusMapsScoresToBands -only-testing:BodyTests/WorkoutMonthSnapshotTests/testReadinessSummaryUnavailableIsCodable -only-testing:BodyTests/WorkoutMonthSnapshotTests/testReadinessStatusExposesBoundsForChartBands
 ```
 
-Expected: fail because `RecoveryStatus`, `RecoverySummary`, and the band bounds do not exist.
+Expected: fail because `ReadinessStatus`, `ReadinessSummary`, and the band bounds do not exist.
 
 - [ ] **Step 3: Add model file**
 
-Create `RecoveryModels.swift`:
+Create `ReadinessModels.swift`:
 
 ```swift
 import Foundation
 
-enum RecoveryStatus: String, Codable, Equatable {
+enum ReadinessStatus: String, Codable, Equatable {
     case prime
     case high
     case moderate
@@ -176,9 +176,9 @@ enum RecoveryStatus: String, Codable, Equatable {
     case poor
     case unavailable
 
-    static let displayOrder: [RecoveryStatus] = [.prime, .high, .moderate, .low, .poor]
+    static let displayOrder: [ReadinessStatus] = [.prime, .high, .moderate, .low, .poor]
 
-    static func status(for score: Int?) -> RecoveryStatus {
+    static func status(for score: Int?) -> ReadinessStatus {
         guard let score else { return .unavailable }
         switch score {
         case 96...100: return .prime
@@ -223,12 +223,12 @@ enum RecoveryStatus: String, Codable, Equatable {
     }
 }
 
-struct RecoveryStatusBreakdownEntry: Equatable, Identifiable {
-    let status: RecoveryStatus
+struct ReadinessStatusBreakdownEntry: Equatable, Identifiable {
+    let status: ReadinessStatus
     let dayCount: Int
     let totalDayCount: Int
 
-    var id: RecoveryStatus { status }
+    var id: ReadinessStatus { status }
 
     var fractionOfTotal: Double {
         guard totalDayCount > 0 else { return 0 }
@@ -236,24 +236,24 @@ struct RecoveryStatusBreakdownEntry: Equatable, Identifiable {
     }
 }
 
-enum RecoveryStatusBreakdown {
+enum ReadinessStatusBreakdown {
     static func entries(
         for series: HealthTrendSeries,
         range: BodyHealthTrendRange,
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
-    ) -> [RecoveryStatusBreakdownEntry] {
+    ) -> [ReadinessStatusBreakdownEntry] {
         let statuses = series.calendarPoints(to: range, calendar: calendar, date: date)
-            .compactMap { point -> RecoveryStatus? in
+            .compactMap { point -> ReadinessStatus? in
                 guard let value = point.value, value.isFinite else { return nil }
-                let status = RecoveryStatus.status(for: Int(value.rounded()))
+                let status = ReadinessStatus.status(for: Int(value.rounded()))
                 return status == .unavailable ? nil : status
             }
         let countsByStatus = Dictionary(grouping: statuses) { $0 }.mapValues(\.count)
         let totalDayCount = countsByStatus.values.reduce(0, +)
 
-        return RecoveryStatus.displayOrder.map { status in
-            RecoveryStatusBreakdownEntry(
+        return ReadinessStatus.displayOrder.map { status in
+            ReadinessStatusBreakdownEntry(
                 status: status,
                 dayCount: countsByStatus[status, default: 0],
                 totalDayCount: totalDayCount
@@ -262,7 +262,7 @@ enum RecoveryStatusBreakdown {
     }
 }
 
-enum RecoveryConfidence: String, Codable, Equatable {
+enum ReadinessConfidence: String, Codable, Equatable {
     case high
     case medium
     case low
@@ -278,7 +278,7 @@ enum RecoveryConfidence: String, Codable, Equatable {
     }
 }
 
-enum RecoveryComponentKind: String, Codable, CaseIterable, Equatable {
+enum ReadinessComponentKind: String, Codable, CaseIterable, Equatable {
     case autonomic
     case sleep
     case training
@@ -294,7 +294,7 @@ enum RecoveryComponentKind: String, Codable, CaseIterable, Equatable {
     }
 }
 
-enum RecoveryDriverKind: String, Codable, Equatable {
+enum ReadinessDriverKind: String, Codable, Equatable {
     case hrvBelowBaseline
     case heartRateAboveBaseline
     case sleepDurationBelowGoal
@@ -307,39 +307,39 @@ enum RecoveryDriverKind: String, Codable, Equatable {
     case needsMoreData
 }
 
-struct RecoveryComponent: Codable, Equatable, Identifiable {
-    var kind: RecoveryComponentKind
+struct ReadinessComponent: Codable, Equatable, Identifiable {
+    var kind: ReadinessComponentKind
     var score: Int?
     var weight: Double
     var message: String
 
-    var id: RecoveryComponentKind { kind }
+    var id: ReadinessComponentKind { kind }
 }
 
-struct RecoveryDriver: Codable, Equatable, Identifiable {
-    var kind: RecoveryDriverKind
+struct ReadinessDriver: Codable, Equatable, Identifiable {
+    var kind: ReadinessDriverKind
     var message: String
     var impact: Double
 
-    var id: RecoveryDriverKind { kind }
+    var id: ReadinessDriverKind { kind }
 }
 
-struct RecoverySummary: Codable, Equatable {
+struct ReadinessSummary: Codable, Equatable {
     var score: Int?
-    var status: RecoveryStatus
-    var confidence: RecoveryConfidence
-    var components: [RecoveryComponent]
-    var drivers: [RecoveryDriver]
+    var status: ReadinessStatus
+    var confidence: ReadinessConfidence
+    var components: [ReadinessComponent]
+    var drivers: [ReadinessDriver]
 
-    static let unavailable = RecoverySummary(
+    static let unavailable = ReadinessSummary(
         score: nil,
         status: .unavailable,
         confidence: .unavailable,
         components: [],
         drivers: [
-            RecoveryDriver(
+            ReadinessDriver(
                 kind: .needsMoreData,
-                message: "Recovery needs more Apple Health history.",
+                message: "Readiness needs more Apple Health history.",
                 impact: 0
             )
         ]
@@ -349,32 +349,32 @@ struct RecoverySummary: Codable, Equatable {
 
 - [ ] **Step 4: Add file to Xcode project**
 
-Add `Body/Models/Recovery/RecoveryModels.swift` to the Body app target in `body.xcodeproj/project.pbxproj` following the existing model-file pattern.
+Add `Body/Models/Readiness/ReadinessModels.swift` to the Body app target in `body.xcodeproj/project.pbxproj` following the existing model-file pattern.
 
 - [ ] **Step 5: Run focused tests again**
 
 Expected: pass.
 
-## Task 2: Add Pure Recovery Calculator Baseline Math
+## Task 2: Add Pure Readiness Calculator Baseline Math
 
 **Files:**
 
-- Create: `Body/Models/Recovery/RecoveryScoreCalculator.swift`
+- Create: `Body/Models/Readiness/ReadinessScoreCalculator.swift`
 - Modify: `body.xcodeproj/project.pbxproj`
 - Test: `BodyTests/WorkoutMonthSnapshotTests.swift`
 
 - [ ] **Step 1: Write failing baseline tests**
 
 ```swift
-func testRecoveryRobustBaselineUsesMedianAndMad() throws {
+func testReadinessRobustBaselineUsesMedianAndMad() throws {
     let calendar = Calendar.bodyGregorian
     let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
-    let values = (1...20).compactMap { offset -> RecoveryScoreCalculator.DailyValue? in
+    let values = (1...20).compactMap { offset -> ReadinessScoreCalculator.DailyValue? in
         guard let date = calendar.date(byAdding: .day, value: -offset, to: scoreDay) else { return nil }
-        return RecoveryScoreCalculator.DailyValue(date: date, value: offset == 1 ? 1000 : 50)
+        return ReadinessScoreCalculator.DailyValue(date: date, value: offset == 1 ? 1000 : 50)
     }
 
-    let baseline = try XCTUnwrap(RecoveryScoreCalculator.robustBaseline(
+    let baseline = try XCTUnwrap(ReadinessScoreCalculator.robustBaseline(
         for: scoreDay,
         values: values,
         floor: 1,
@@ -386,15 +386,15 @@ func testRecoveryRobustBaselineUsesMedianAndMad() throws {
     XCTAssertGreaterThanOrEqual(baseline.spread, 1)
 }
 
-func testRecoveryRobustBaselineReturnsNilWithTooFewDays() throws {
+func testReadinessRobustBaselineReturnsNilWithTooFewDays() throws {
     let calendar = Calendar.bodyGregorian
     let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
-    let values = (1...13).compactMap { offset -> RecoveryScoreCalculator.DailyValue? in
+    let values = (1...13).compactMap { offset -> ReadinessScoreCalculator.DailyValue? in
         guard let date = calendar.date(byAdding: .day, value: -offset, to: scoreDay) else { return nil }
-        return RecoveryScoreCalculator.DailyValue(date: date, value: 50)
+        return ReadinessScoreCalculator.DailyValue(date: date, value: 50)
     }
 
-    XCTAssertNil(RecoveryScoreCalculator.robustBaseline(
+    XCTAssertNil(ReadinessScoreCalculator.robustBaseline(
         for: scoreDay,
         values: values,
         floor: 1,
@@ -405,14 +405,14 @@ func testRecoveryRobustBaselineReturnsNilWithTooFewDays() throws {
 
 - [ ] **Step 2: Run failing baseline tests**
 
-Expected: fail because `RecoveryScoreCalculator` does not exist.
+Expected: fail because `ReadinessScoreCalculator` does not exist.
 
 - [ ] **Step 3: Add calculator shell and baseline helpers**
 
 ```swift
 import Foundation
 
-enum RecoveryScoreCalculator {
+enum ReadinessScoreCalculator {
     struct DailyValue: Equatable {
         var date: Date
         var value: Double
@@ -490,7 +490,7 @@ enum RecoveryScoreCalculator {
 
 - [ ] **Step 4: Add file to Xcode project**
 
-Add `Body/Models/Recovery/RecoveryScoreCalculator.swift` to the Body app target.
+Add `Body/Models/Readiness/ReadinessScoreCalculator.swift` to the Body app target.
 
 - [ ] **Step 5: Run focused baseline tests**
 
@@ -500,7 +500,7 @@ Expected: pass.
 
 **Files:**
 
-- Modify: `Body/Models/Recovery/RecoveryScoreCalculator.swift`
+- Modify: `Body/Models/Readiness/ReadinessScoreCalculator.swift`
 - Test: `BodyTests/WorkoutMonthSnapshotTests.swift`
 
 - [ ] **Step 1: Write failing component tests**
@@ -508,10 +508,10 @@ Expected: pass.
 Add focused tests using synthetic `HealthTrendSnapshot` and `SleepHistorySnapshot`:
 
 ```swift
-func testRecoveryCalculatorScoresLowHrvAndHighRestingHeartRateBelowHigh() throws {
+func testReadinessCalculatorScoresLowHrvAndHighRestingHeartRateBelowHigh() throws {
     let calendar = Calendar.bodyGregorian
     let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
-    let trends = recoveryTrendSnapshot(
+    let trends = readinessTrendSnapshot(
         scoreDay: scoreDay,
         hrvBaseline: 55,
         hrvToday: 30,
@@ -521,7 +521,7 @@ func testRecoveryCalculatorScoresLowHrvAndHighRestingHeartRateBelowHigh() throws
         calendar: calendar
     )
 
-    let summary = RecoveryScoreCalculator.summary(
+    let summary = ReadinessScoreCalculator.summary(
         on: scoreDay,
         healthSummary: .empty,
         trends: trends,
@@ -535,10 +535,10 @@ func testRecoveryCalculatorScoresLowHrvAndHighRestingHeartRateBelowHigh() throws
     XCTAssertTrue(summary.drivers.contains { $0.kind == .heartRateAboveBaseline })
 }
 
-func testRecoveryCalculatorDoesNotTreatMissingMetricsAsZero() throws {
+func testReadinessCalculatorDoesNotTreatMissingMetricsAsZero() throws {
     let calendar = Calendar.bodyGregorian
     let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
-    let trends = recoveryTrendSnapshot(
+    let trends = readinessTrendSnapshot(
         scoreDay: scoreDay,
         hrvBaseline: nil,
         hrvToday: nil,
@@ -548,7 +548,7 @@ func testRecoveryCalculatorDoesNotTreatMissingMetricsAsZero() throws {
         calendar: calendar
     )
 
-    let summary = RecoveryScoreCalculator.summary(
+    let summary = ReadinessScoreCalculator.summary(
         on: scoreDay,
         healthSummary: .empty,
         trends: trends,
@@ -564,7 +564,7 @@ func testRecoveryCalculatorDoesNotTreatMissingMetricsAsZero() throws {
 Add helper builders at the bottom of the test file:
 
 ```swift
-private func recoveryTrendSnapshot(
+private func readinessTrendSnapshot(
     scoreDay: Date,
     hrvBaseline: Double?,
     hrvToday: Double?,
@@ -576,7 +576,7 @@ private func recoveryTrendSnapshot(
     HealthTrendSnapshot(
         sleep: .empty,
         heartRate: .empty,
-        restingHeartRate: recoverySeries(
+        restingHeartRate: readinessSeries(
             scoreDay: scoreDay,
             baseline: restingHeartRateBaseline,
             today: restingHeartRateToday,
@@ -584,7 +584,7 @@ private func recoveryTrendSnapshot(
         ),
         bodyMass: .empty,
         bodyFatPercentage: .empty,
-        heartRateVariability: recoverySeries(
+        heartRateVariability: readinessSeries(
             scoreDay: scoreDay,
             baseline: hrvBaseline,
             today: hrvToday,
@@ -595,7 +595,7 @@ private func recoveryTrendSnapshot(
         bodyMassIndex: .empty,
         activeEnergy: .empty,
         restingEnergy: .empty,
-        trainingLoad: recoverySeries(
+        trainingLoad: readinessSeries(
             scoreDay: scoreDay,
             baseline: trainingLoadToday,
             today: trainingLoadToday,
@@ -604,7 +604,7 @@ private func recoveryTrendSnapshot(
     )
 }
 
-private func recoverySeries(
+private func readinessSeries(
     scoreDay: Date,
     baseline: Double?,
     today: Double?,
@@ -640,7 +640,7 @@ static func summary(
     healthSummary: HealthSummarySnapshot,
     trends: HealthTrendSnapshot,
     calendar: Calendar = .bodyGregorian
-) -> RecoverySummary {
+) -> ReadinessSummary {
     let componentResults = [
         autonomicComponent(on: date, trends: trends, calendar: calendar),
         sleepComponent(on: date, healthSummary: healthSummary, trends: trends, calendar: calendar),
@@ -663,12 +663,12 @@ static func summary(
     let score = min(max(Int(weightedScore.rounded()), 0), 100)
     let drivers = prioritizedDrivers(from: componentResults)
 
-    return RecoverySummary(
+    return ReadinessSummary(
         score: score,
-        status: RecoveryStatus.status(for: score),
+        status: ReadinessStatus.status(for: score),
         confidence: confidence(for: componentResults),
         components: componentResults.map(\.component),
-        drivers: drivers.isEmpty ? [RecoveryDriver(kind: .mostlyTypical, message: "Recovery signals are mostly typical.", impact: 0)] : drivers
+        drivers: drivers.isEmpty ? [ReadinessDriver(kind: .mostlyTypical, message: "Readiness signals are mostly typical.", impact: 0)] : drivers
     )
 }
 ```
@@ -677,8 +677,8 @@ Use a private result type:
 
 ```swift
 private struct ComponentResult {
-    var component: RecoveryComponent
-    var drivers: [RecoveryDriver]
+    var component: ReadinessComponent
+    var drivers: [ReadinessDriver]
     var bestBaselineDayCount: Int
 }
 ```
@@ -720,7 +720,7 @@ Rules:
 
 Expected: pass.
 
-## Task 4: Add Recovery To Dashboard Snapshots And Cache
+## Task 4: Add Readiness To Dashboard Snapshots And Cache
 
 **Files:**
 
@@ -730,10 +730,10 @@ Expected: pass.
 - [ ] **Step 1: Write failing snapshot tests**
 
 ```swift
-func testHealthDashboardSnapshotRecalculatesRecoveryFromTrends() throws {
+func testHealthDashboardSnapshotRecalculatesReadinessFromTrends() throws {
     let calendar = Calendar.bodyGregorian
     let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
-    let trends = recoveryTrendSnapshot(
+    let trends = readinessTrendSnapshot(
         scoreDay: scoreDay,
         hrvBaseline: 55,
         hrvToday: 56,
@@ -746,13 +746,13 @@ func testHealthDashboardSnapshotRecalculatesRecoveryFromTrends() throws {
     let dashboard = HealthDashboardSnapshot(
         summary: .empty,
         trends: trends
-    ).recalculatingRecovery(on: scoreDay, calendar: calendar)
+    ).recalculatingReadiness(on: scoreDay, calendar: calendar)
 
-    XCTAssertNotNil(dashboard.summary.recovery.score)
-    XCTAssertEqual(dashboard.trends.recovery.point(on: scoreDay)?.value, Double(try XCTUnwrap(dashboard.summary.recovery.score)))
+    XCTAssertNotNil(dashboard.summary.readiness.score)
+    XCTAssertEqual(dashboard.trends.readiness.point(on: scoreDay)?.value, Double(try XCTUnwrap(dashboard.summary.readiness.score)))
 }
 
-func testHealthSummarySnapshotDecodesOldCacheWithoutRecovery() throws {
+func testHealthSummarySnapshotDecodesOldCacheWithoutReadiness() throws {
     let data = Data("""
     {
       "activityRings": {},
@@ -771,36 +771,36 @@ func testHealthSummarySnapshotDecodesOldCacheWithoutRecovery() throws {
 
     let decoded = try JSONDecoder().decode(HealthSummarySnapshot.self, from: data)
 
-    XCTAssertEqual(decoded.recovery, .unavailable)
+    XCTAssertEqual(decoded.readiness, .unavailable)
 }
 ```
 
 - [ ] **Step 2: Run tests to verify failure**
 
-Expected: fail because Recovery fields and recalculation do not exist.
+Expected: fail because Readiness fields and recalculation do not exist.
 
-- [ ] **Step 3: Add `HealthMetricKind.recovery`**
+- [ ] **Step 3: Add `HealthMetricKind.readiness`**
 
 In `HealthMetricKind`, add:
 
 ```swift
-case recovery
+case readiness
 ```
 
 Add help text:
 
 ```swift
-case .recovery:
+case .readiness:
     return HealthMetricDetailHelpText(
-        title: "About Recovery",
-        body: "Recovery compares your recent sleep, heart, training, respiratory, blood oxygen, and wrist temperature signals with your own baseline. Missing sensors are skipped instead of counted as poor recovery. Treat the score as daily context, not a diagnosis or a guarantee of performance."
+        title: "About Readiness",
+        body: "Readiness compares your recent sleep, heart, training, respiratory, blood oxygen, and wrist temperature signals with your own baseline. Missing sensors are skipped instead of counted as poor readiness. Treat the score as daily context, not a diagnosis or a guarantee of performance."
     )
 ```
 
 Add data source text:
 
 ```swift
-case .recovery:
+case .readiness:
     return HealthMetricDetailDataSourceText(sourceText: "Calculated from Apple Health")
 ```
 
@@ -809,7 +809,7 @@ case .recovery:
 Add to `HealthSummarySnapshot`:
 
 ```swift
-var recovery: RecoverySummary
+var readiness: ReadinessSummary
 ```
 
 Default to `.unavailable` in `empty`, cache decoding, preview sample data, filtering, and replacement paths.
@@ -817,7 +817,7 @@ Default to `.unavailable` in `empty`, cache decoding, preview sample data, filte
 Add to `HealthTrendSnapshot`:
 
 ```swift
-var recovery: HealthTrendSeries
+var readiness: HealthTrendSeries
 ```
 
 Default to `.empty` in `empty`, init defaults, Codable fallback, `isEmpty`, `series(for:)`, `replacingMetric`, and `filtered(by:)`.
@@ -863,25 +863,25 @@ Per-day scoring is intentional: each day uses its own rolling 56-day baseline. C
 - [ ] **Step 6: Add dashboard recalculation**
 
 ```swift
-func recalculatingRecovery(
+func recalculatingReadiness(
     on date: Date = Date(),
     calendar: Calendar = .bodyGregorian
 ) -> HealthDashboardSnapshot {
     var nextSummary = summary
     var nextTrends = trends
 
-    let todaySummary = RecoveryScoreCalculator.summary(
+    let todaySummary = ReadinessScoreCalculator.summary(
         on: date,
         healthSummary: nextSummary,
         trends: nextTrends,
         calendar: calendar
     )
-    nextSummary.recovery = todaySummary
+    nextSummary.readiness = todaySummary
 
     let oldestOffset = BodyHealthTrendRange.maximumDayCount - 1
     let scoringStart = calendar.date(byAdding: .day, value: -oldestOffset, to: calendar.startOfDay(for: date))
         ?? calendar.startOfDay(for: date)
-    nextTrends.recovery = RecoveryScoreCalculator.dailySeries(
+    nextTrends.readiness = ReadinessScoreCalculator.dailySeries(
         healthSummary: nextSummary,
         trends: nextTrends,
         startDate: scoringStart,
@@ -903,7 +903,7 @@ Rebuilding the series from inputs each call (instead of appending to a cached se
 
 Expected: pass. Add a test that exercises `dailySeries` over a ≥14-day window with synthetic HRV/RHR/training-load inputs and asserts the returned series has one point per scorable day.
 
-## Task 5: Recalculate Recovery In `HealthKitWorkoutStore`
+## Task 5: Recalculate Readiness In `HealthKitWorkoutStore`
 
 **Files:**
 
@@ -913,19 +913,19 @@ Expected: pass. Add a test that exercises `dailySeries` over a ≥14-day window 
 - [ ] **Step 1: Write failing static coverage test**
 
 ```swift
-func testHealthDashboardUpdatesRecalculateRecoveryBeforeSaving() throws {
+func testHealthDashboardUpdatesRecalculateReadinessBeforeSaving() throws {
     let source = try sourceText("Body/Services/HealthKitWorkoutStore.swift")
     let updateStart = try XCTUnwrap(source.range(of: "private func updateHealthDashboardSnapshot(")?.lowerBound)
     let saveStart = try XCTUnwrap(source.range(of: "HealthDashboardSnapshotStore.save(", range: updateStart..<source.endIndex)?.lowerBound)
     let updateBlock = String(source[updateStart..<saveStart])
 
-    XCTAssertTrue(updateBlock.contains(".recalculatingRecovery("))
+    XCTAssertTrue(updateBlock.contains(".recalculatingReadiness("))
 }
 ```
 
 - [ ] **Step 2: Run test to verify failure**
 
-Expected: fail because the store does not recalculate Recovery.
+Expected: fail because the store does not recalculate Readiness.
 
 - [ ] **Step 3: Update dashboard update path**
 
@@ -938,29 +938,29 @@ let filteredSnapshot = HealthDashboardSnapshot(
     activityRingHistory: activityRingHistory
 )
 .filtered(by: permissionSelection)
-.recalculatingRecovery(on: healthTrendAnchorDate ?? Date(), calendar: calendar)
+.recalculatingReadiness(on: healthTrendAnchorDate ?? Date(), calendar: calendar)
 ```
 
 - [ ] **Step 4: Add individual refresh handling**
 
-In `fetchHealthDashboardSnapshot(for:calendar:)`, handle `.recovery` by returning the current cached dashboard recalculated:
+In `fetchHealthDashboardSnapshot(for:calendar:)`, handle `.readiness` by returning the current cached dashboard recalculated:
 
 ```swift
-case .recovery:
+case .readiness:
     return HealthDashboardSnapshot(
         summary: healthSummary,
         trends: healthTrends,
         activityRingHistory: activityRingHistory
-    ).recalculatingRecovery(on: healthTrendAnchorDate ?? Date(), calendar: calendar)
+    ).recalculatingReadiness(on: healthTrendAnchorDate ?? Date(), calendar: calendar)
 ```
 
-Also ensure `healthPermission(forMetric:)` returns a permission that does not block Recovery. Use `.heart` only if that function requires a concrete permission, then special-case `.recovery` before the permission guard. Prefer the special-case before the guard.
+Also ensure `healthPermission(forMetric:)` returns a permission that does not block Readiness. Use `.heart` only if that function requires a concrete permission, then special-case `.readiness` before the permission guard. Prefer the special-case before the guard.
 
 - [ ] **Step 5: Run focused store test**
 
 Expected: pass.
 
-## Task 6: Add Recovery Card Ordering And Settings Metadata
+## Task 6: Add Readiness Card Ordering And Settings Metadata
 
 **Files:**
 
@@ -970,92 +970,92 @@ Expected: pass.
 - [ ] **Step 1: Write failing ordering tests**
 
 ```swift
-func testBodyHomeCardKindIncludesRecoveryAfterActivityRings() {
-    XCTAssertEqual(BodyHomeCardKind.recovery.healthMetricKind, .recovery)
-    XCTAssertTrue(BodyHomeCardKind.defaultOrder.contains(.recovery))
+func testBodyHomeCardKindIncludesReadinessAfterActivityRings() {
+    XCTAssertEqual(BodyHomeCardKind.readiness.healthMetricKind, .readiness)
+    XCTAssertTrue(BodyHomeCardKind.defaultOrder.contains(.readiness))
     XCTAssertLessThan(
-        try XCTUnwrap(BodyHomeCardKind.defaultOrder.firstIndex(of: .recovery)),
+        try XCTUnwrap(BodyHomeCardKind.defaultOrder.firstIndex(of: .readiness)),
         try XCTUnwrap(BodyHomeCardKind.defaultOrder.firstIndex(of: .exerciseMinutes))
     )
-    XCTAssertEqual(BodyHomeCardKind.recovery.title, "Recovery")
-    XCTAssertEqual(BodyHomeCardKind.recovery.iconName, "bolt.heart.fill")
+    XCTAssertEqual(BodyHomeCardKind.readiness.title, "Readiness")
+    XCTAssertEqual(BodyHomeCardKind.readiness.iconName, "bolt.heart.fill")
 }
 
-func testBodyHomeTrendCardKindIncludesRecovery() {
-    XCTAssertEqual(BodyHomeTrendCardKind.recovery.metricKind, .recovery)
-    XCTAssertTrue(BodyHomeTrendCardKind.defaultOrder.contains(.recovery))
-    XCTAssertEqual(BodyHomeTrendCardKind.recovery.title, "Recovery")
+func testBodyHomeTrendCardKindIncludesReadiness() {
+    XCTAssertEqual(BodyHomeTrendCardKind.readiness.metricKind, .readiness)
+    XCTAssertTrue(BodyHomeTrendCardKind.defaultOrder.contains(.readiness))
+    XCTAssertEqual(BodyHomeTrendCardKind.readiness.title, "Readiness")
 }
 ```
 
 - [ ] **Step 2: Run tests to verify failure**
 
-Expected: fail because card kinds do not include Recovery.
+Expected: fail because card kinds do not include Readiness.
 
-- [ ] **Step 3: Add Recovery to `BodyHomeCardKind`**
+- [ ] **Step 3: Add Readiness to `BodyHomeCardKind`**
 
 Add case:
 
 ```swift
-case recovery
+case readiness
 ```
 
-Place `.recovery` immediately after `.activityRings` in `defaultOrder`.
+Place `.readiness` immediately after `.activityRings` in `defaultOrder`.
 
 Add switch values:
 
 ```swift
-case .recovery:
-    return .recovery
+case .readiness:
+    return .readiness
 ```
 
 ```swift
-case .recovery:
-    return "Recovery"
+case .readiness:
+    return "Readiness"
 ```
 
 ```swift
-case .recovery:
+case .readiness:
     return "Readiness from sleep, strain, and vitals"
 ```
 
 ```swift
-case .recovery:
+case .readiness:
     return "bolt.heart.fill"
 ```
 
 ```swift
-case .recovery:
+case .readiness:
     return Color(red: 0.12, green: 0.68, blue: 0.55)
 ```
 
-- [ ] **Step 4: Add Recovery to `BodyHomeTrendCardKind`**
+- [ ] **Step 4: Add Readiness to `BodyHomeTrendCardKind`**
 
 Add case and place it first in `defaultOrder`:
 
 ```swift
-case recovery
+case readiness
 ```
 
 Switch values:
 
 ```swift
-case .recovery:
-    return "Recovery"
+case .readiness:
+    return "Readiness"
 ```
 
 ```swift
-case .recovery:
-    return "Recovery score trend"
+case .readiness:
+    return "Readiness score trend"
 ```
 
 ```swift
-case .recovery:
+case .readiness:
     return "bolt.heart.fill"
 ```
 
 ```swift
-case .recovery:
+case .readiness:
     return Color(red: 0.12, green: 0.68, blue: 0.55)
 ```
 
@@ -1073,78 +1073,78 @@ Expected: pass.
 - [ ] **Step 1: Write failing static UI routing test**
 
 ```swift
-func testRecoveryCardAndDetailAreRouted() throws {
+func testReadinessCardAndDetailAreRouted() throws {
     let source = try sourceText("Body/Views/BodyHomeView.swift")
 
-    XCTAssertTrue(source.contains("metric(\n                kind: .recovery"))
-    XCTAssertTrue(source.contains("case .recovery:"))
-    XCTAssertTrue(source.contains("summary.recovery"))
-    XCTAssertTrue(source.contains("trends.series(for: .recovery)"))
-    XCTAssertTrue(source.contains("BodyRecoveryStatusPresentation"))
-    XCTAssertTrue(source.contains("BodyRecoveryStatusBreakdownChart"))
+    XCTAssertTrue(source.contains("metric(\n                kind: .readiness"))
+    XCTAssertTrue(source.contains("case .readiness:"))
+    XCTAssertTrue(source.contains("summary.readiness"))
+    XCTAssertTrue(source.contains("trends.series(for: .readiness)"))
+    XCTAssertTrue(source.contains("BodyReadinessStatusPresentation"))
+    XCTAssertTrue(source.contains("BodyReadinessStatusBreakdownChart"))
 }
 ```
 
 - [ ] **Step 2: Run test to verify failure**
 
-Expected: fail because Recovery UI routing is absent.
+Expected: fail because Readiness UI routing is absent.
 
-- [ ] **Step 3: Add Recovery card model**
+- [ ] **Step 3: Add Readiness card model**
 
 At the front of `metricCards`, after `let summary` and `let trends`, add:
 
 ```swift
 metric(
-    kind: .recovery,
-    title: "Recovery",
-    summary: HealthMetricSummary(value: summary.recovery.score.map(Double.init)),
+    kind: .readiness,
+    title: "Readiness",
+    summary: HealthMetricSummary(value: summary.readiness.score.map(Double.init)),
     unit: "",
     decimals: 0,
     symbolName: "bolt.heart.fill",
     symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
     chartStyle: .line,
-    chartPreview: trends.series(for: .recovery)
+    chartPreview: trends.series(for: .readiness)
 )
 ```
 
-- [ ] **Step 4: Add Recovery detail model**
+- [ ] **Step 4: Add Readiness detail model**
 
-Match Training Load's detail-model shape: call the existing `metricDetail(...)` helper so the standard `series`/`daySeries`/`rangeSeries` defaults populate, and wire `highlightedRange` + `highlightedRangeResolver` to the new `BodyRecoveryStatusPresentation` (defined in Step 5).
+Match Training Load's detail-model shape: call the existing `metricDetail(...)` helper so the standard `series`/`daySeries`/`rangeSeries` defaults populate, and wire `highlightedRange` + `highlightedRangeResolver` to the new `BodyReadinessStatusPresentation` (defined in Step 5).
 
 In `detailModel(for:)` add:
 
 ```swift
-case .recovery:
-    let recoveryBand = BodyRecoveryStatusPresentation.make(for: summary.recovery.score.map(Double.init))
+case .readiness:
+    let readinessBand = BodyReadinessStatusPresentation.make(for: summary.readiness.score.map(Double.init))
     return metricDetail(
         kind: kind,
-        title: "Recovery",
-        summary: HealthMetricSummary(value: summary.recovery.score.map(Double.init)),
+        title: "Readiness",
+        summary: HealthMetricSummary(value: summary.readiness.score.map(Double.init)),
         unit: "",
         decimals: 0,
         symbolName: "bolt.heart.fill",
         symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
         chartStyle: .line,
-        highlightedRange: recoveryBand,
-        highlightedRangeResolver: BodyRecoveryStatusPresentation.make(for:),
-        recovery: summary.recovery
+        highlightedRange: readinessBand,
+        highlightedRangeResolver: BodyReadinessStatusPresentation.make(for:),
+        readiness: summary.readiness
     )
 ```
 
 Notes:
 
 - Pass `unit: ""` because `metricDetail` concatenates the unit onto every formatted tick value (e.g. `"82 BPM"`). The status name (`"Typical"`) belongs in the supplementary "About your score" card and on the band label, not on every chart tick.
-- Extend `metricDetail` and `BodyHealthMetricDetailModel` with `recovery: RecoverySummary? = nil` so the Recovery branch can pass the summary through to the breakdown chart and "About your score" card. Other call sites continue to compile unchanged.
+- Extend `metricDetail` and `BodyHealthMetricDetailModel` with `readiness: ReadinessSummary? = nil` so the Readiness branch can pass the summary through to the breakdown chart and "About your score" card. Other call sites continue to compile unchanged.
 
-- [ ] **Step 5: Add Recovery band presentation and breakdown chart**
+- [ ] **Step 5: Add Readiness band presentation and breakdown chart**
 
-Add `BodyRecoveryStatusPresentation` (parallels `BodyTrainingLoadIntervalPresentation` at `BodyHomeView.swift:1890`) and `BodyRecoveryStatusBreakdownChart` (parallels `BodyTrainingLoadIntervalBreakdownChart` at `BodyHomeView.swift:1933`). Reuse the same row layout helpers (`intervalDistributionRow`, `dayCountBar`, etc.) — either share them across both charts or copy the structure if generalization adds noise.
+Add `BodyReadinessStatusPresentation` (parallels `BodyTrainingLoadIntervalPresentation` at `BodyHomeView.swift:1890`) and `BodyReadinessStatusBreakdownChart` (parallels `BodyTrainingLoadIntervalBreakdownChart` at `BodyHomeView.swift:1933`). Reuse the same row layout helpers (`intervalDistributionRow`, `dayCountBar`, etc.) — either share them across both charts or copy the structure if generalization adds noise.
 
 ```swift
-private enum BodyRecoveryStatusPresentation {
+private enum BodyReadinessStatusPresentation {
     static func make(for value: Double?) -> BodyHealthMetricTrendHighlightedRange? {
         guard let value, value.isFinite else { return nil }
-        let status = RecoveryStatus.status(for: Int(value.rounded()))
+        let status = ReadinessStatus.status(for: Int(value.rounded()))
         guard status != .unavailable else { return nil }
         return BodyHealthMetricTrendHighlightedRange(
             title: status.title,
@@ -1154,7 +1154,7 @@ private enum BodyRecoveryStatusPresentation {
         )
     }
 
-    static func color(for status: RecoveryStatus) -> Color {
+    static func color(for status: ReadinessStatus) -> Color {
         switch status {
         case .prime: return Color(red: 0.84, green: 0.08, blue: 0.92)
         case .high: return Color(red: 0.20, green: 0.74, blue: 1.00)
@@ -1166,7 +1166,7 @@ private enum BodyRecoveryStatusPresentation {
     }
 }
 
-private extension RecoveryStatus {
+private extension ReadinessStatus {
     var symbolName: String {
         switch self {
         case .prime: return "sparkles"
@@ -1180,15 +1180,15 @@ private extension RecoveryStatus {
 }
 ```
 
-Then add `BodyRecoveryStatusBreakdownChart` whose `entries` come from `RecoveryStatusBreakdown.entries(for: series, range: selectedRange, calendar: calendar, date: date)` and whose row colors come from `BodyRecoveryStatusPresentation.color(for:)`. Title: `"Days by Status"`.
+Then add `BodyReadinessStatusBreakdownChart` whose `entries` come from `ReadinessStatusBreakdown.entries(for: series, range: selectedRange, calendar: calendar, date: date)` and whose row colors come from `BodyReadinessStatusPresentation.color(for:)`. Title: `"Days by Status"`.
 
-- [ ] **Step 6: Render the breakdown chart inside the Recovery detail trend section**
+- [ ] **Step 6: Render the breakdown chart inside the Readiness detail trend section**
 
 Inside the trend card where Training Load already adds its breakdown (currently `if model.kind == .trainingLoad { BodyTrainingLoadIntervalBreakdownChart(...) }` near `BodyHomeView.swift:2703`), add a sibling branch:
 
 ```swift
-if model.kind == .recovery {
-    BodyRecoveryStatusBreakdownChart(
+if model.kind == .readiness {
+    BodyReadinessStatusBreakdownChart(
         series: model.series,
         selectedRange: selectedTrendRange
     )
@@ -1196,22 +1196,22 @@ if model.kind == .recovery {
 }
 ```
 
-Below the trend card, add a slimmer supplementary section that explains the exact status intervals. This keeps the user-facing guidance aligned with `RecoveryStatus.displayOrder` and the same thresholds used by the calculator:
+Below the trend card, add a slimmer supplementary section that explains the exact status intervals. This keeps the user-facing guidance aligned with `ReadinessStatus.displayOrder` and the same thresholds used by the calculator:
 
 ```swift
-if model.kind == .recovery, let recovery = model.recovery {
-    recoveryWhyCard(for: recovery, activeStatus: activeRecoveryStatus)
+if model.kind == .readiness, let readiness = model.readiness {
+    readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
 }
 ```
 
 ```swift
-private func recoveryWhyCard(for recovery: RecoverySummary, activeStatus: RecoveryStatus?) -> some View {
+private func readinessWhyCard(for readiness: ReadinessSummary, activeStatus: ReadinessStatus?) -> some View {
     VStack(alignment: .leading, spacing: 14) {
         Text("About your score")
             .font(.system(size: 18, weight: .bold, design: .rounded))
 
-        ForEach(RecoveryStatus.displayOrder, id: \.self) { status in
-            recoveryStatusExplanationRow(
+        ForEach(ReadinessStatus.displayOrder, id: \.self) { status in
+            readinessStatusExplanationRow(
                 status: status,
                 isCurrent: activeStatus == status
             )
@@ -1226,22 +1226,22 @@ private func recoveryWhyCard(for recovery: RecoverySummary, activeStatus: Recove
 
 Expected: pass.
 
-## Task 8: Add Recovery Calculator Coverage For Sleep, Training, And Vitals
+## Task 8: Add Readiness Calculator Coverage For Sleep, Training, And Vitals
 
 **Files:**
 
 - Modify: `BodyTests/WorkoutMonthSnapshotTests.swift`
-- Modify: `Body/Models/Recovery/RecoveryScoreCalculator.swift`
+- Modify: `Body/Models/Readiness/ReadinessScoreCalculator.swift`
 
 - [ ] **Step 1: Add failing behavior tests**
 
 Add tests:
 
 ```swift
-func testRecoveryCalculatorPenalizesHighTrainingLoad() throws {
+func testReadinessCalculatorPenalizesHighTrainingLoad() throws {
     let calendar = Calendar.bodyGregorian
     let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
-    let trends = recoveryTrendSnapshot(
+    let trends = readinessTrendSnapshot(
         scoreDay: scoreDay,
         hrvBaseline: 55,
         hrvToday: 55,
@@ -1251,18 +1251,18 @@ func testRecoveryCalculatorPenalizesHighTrainingLoad() throws {
         calendar: calendar
     )
 
-    let summary = RecoveryScoreCalculator.summary(on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar)
+    let summary = ReadinessScoreCalculator.summary(on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar)
 
     XCTAssertTrue(summary.drivers.contains { $0.kind == .trainingLoadElevated })
     XCTAssertLessThan(try XCTUnwrap(summary.components.first { $0.kind == .training }?.score), 70)
 }
 
-func testRecoveryCalculatorCreatesLowConfidenceForThinHistory() throws {
+func testReadinessCalculatorCreatesLowConfidenceForThinHistory() throws {
     let calendar = Calendar.bodyGregorian
     let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
     let trends = HealthTrendSnapshot.empty
 
-    let summary = RecoveryScoreCalculator.summary(on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar)
+    let summary = ReadinessScoreCalculator.summary(on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar)
 
     XCTAssertNil(summary.score)
     XCTAssertEqual(summary.confidence, .unavailable)
@@ -1282,7 +1282,7 @@ Complete Sleep, Training, and Vitals scoring:
 - Training score uses:
 
 ```swift
-private static func trainingLoadScore(_ value: Double) -> (score: Int, driver: RecoveryDriver?) {
+private static func trainingLoadScore(_ value: Double) -> (score: Int, driver: ReadinessDriver?) {
     guard value.isFinite else { return (100, nil) }
     if value <= 1.30 {
         return (100, nil)
@@ -1290,7 +1290,7 @@ private static func trainingLoadScore(_ value: Double) -> (score: Int, driver: R
     let progress = min(max((value - 1.30) / 0.20, 0), 1)
     return (
         scoreFromPenaltyProgress(progress),
-        RecoveryDriver(
+        ReadinessDriver(
             kind: .trainingLoadElevated,
             message: "Training load is elevated.",
             impact: progress
@@ -1323,17 +1323,17 @@ Expected: pass.
 - [ ] **Step 1: Write failing permission tests**
 
 ```swift
-func testRecoveryIsNotSourceSelectable() {
-    XCTAssertFalse(HealthMetricKind.recovery.supportsHealthDataSourceSelection)
-    XCTAssertFalse(HealthMetricKind.recovery.supportsSecondaryHealthDataSourceSelection)
+func testReadinessIsNotSourceSelectable() {
+    XCTAssertFalse(HealthMetricKind.readiness.supportsHealthDataSourceSelection)
+    XCTAssertFalse(HealthMetricKind.readiness.supportsSecondaryHealthDataSourceSelection)
 }
 
-func testFilteringHeartPermissionLowersRecoveryConfidenceInsteadOfRemovingRecoveryCard() throws {
+func testFilteringHeartPermissionLowersReadinessConfidenceInsteadOfRemovingReadinessCard() throws {
     let calendar = Calendar.bodyGregorian
     let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
     let dashboard = HealthDashboardSnapshot(
         summary: .empty,
-        trends: recoveryTrendSnapshot(
+        trends: readinessTrendSnapshot(
             scoreDay: scoreDay,
             hrvBaseline: 55,
             hrvToday: 30,
@@ -1343,24 +1343,24 @@ func testFilteringHeartPermissionLowersRecoveryConfidenceInsteadOfRemovingRecove
             calendar: calendar
         )
     ).filtered(by: BodyHealthPermissionSelection(selectedPermissions: [.workouts]))
-     .recalculatingRecovery(on: scoreDay, calendar: calendar)
+     .recalculatingReadiness(on: scoreDay, calendar: calendar)
 
-    XCTAssertNotEqual(dashboard.summary.recovery.confidence, .high)
+    XCTAssertNotEqual(dashboard.summary.readiness.confidence, .high)
 }
 ```
 
 - [ ] **Step 2: Run tests to verify failure**
 
-Expected: fail until Recovery source/permission handling is explicit.
+Expected: fail until Readiness source/permission handling is explicit.
 
 - [ ] **Step 3: Update source-selection extensions**
 
-Ensure `.recovery` is absent from:
+Ensure `.readiness` is absent from:
 
 - `HealthMetricKind.sourceSelectableKinds`
 - `supportsHealthDataSourceSelection`
 - `supportsSecondaryHealthDataSourceSelection`
-- `supportedComparisonCharts` unless Recovery comparison charts are intentionally supported
+- `supportedComparisonCharts` unless Readiness comparison charts are intentionally supported
 
 - [ ] **Step 4: Run permission tests**
 
@@ -1379,15 +1379,15 @@ Expected: pass.
 Add a row:
 
 ```markdown
-| M36 | High | Recovery card and detail | Open Summary after refreshing Health data with sleep, heart, workout, respiratory, blood oxygen, and wrist temperature permissions enabled | Recovery appears near the top of Summary, shows a 0-100% score with Prime/High/Moderate/Low/Poor status, opens a detail screen with confidence, trend chart, days-by-status chart, and an About section listing exact status ranges with short explanations; scrubbing the trend moves the Current label to the selected interval; Settings > Metrics > Summary Cards labels Recovery as Beta; disabling individual permissions lowers confidence or removes related drivers without crashing |
+| M36 | High | Readiness card and detail | Open Summary after refreshing Health data with sleep, heart, workout, respiratory, blood oxygen, and wrist temperature permissions enabled | Readiness appears near the top of Summary, shows a 0-100% score with Prime/High/Moderate/Low/Poor status, opens a detail screen with confidence, trend chart, days-by-status chart, and an About section listing exact status ranges with short explanations; scrubbing the trend moves the Current label to the selected interval; Settings > Metrics > Summary Cards labels Readiness as Beta; disabling individual permissions lowers confidence or removes related drivers without crashing |
 ```
 
 - [ ] **Step 2: Update README**
 
-Add Recovery to the Summary metrics list:
+Add Readiness to the Summary metrics list:
 
 ```markdown
-- Recovery score based on personal baselines for sleep, heart, training load, respiratory, blood oxygen, and wrist temperature signals.
+- Readiness score based on personal baselines for sleep, heart, training load, respiratory, blood oxygen, and wrist temperature signals.
 ```
 
 - [ ] **Step 3: Update VersionHistory**
@@ -1395,7 +1395,7 @@ Add Recovery to the Summary metrics list:
 Add:
 
 ```markdown
-- Added a Recovery Summary card that compares sleep, heart, training load, and sleep-window vitals against personal baselines, with confidence and driver explanations for missing or unusual signals.
+- Added a Readiness Summary card that compares sleep, heart, training load, and sleep-window vitals against personal baselines, with confidence and driver explanations for missing or unusual signals.
 ```
 
 - [ ] **Step 4: Run markdown/source sanity checks**
@@ -1403,10 +1403,10 @@ Add:
 Run:
 
 ```bash
-rtk rg -n "Recovery|recovery" RecoveryMetrics.md TestPlan.md README.md VersionHistory.md
+rtk rg -n "Readiness|readiness" ReadinessMetrics.md TestPlan.md README.md VersionHistory.md
 ```
 
-Expected: each file contains intentional Recovery references.
+Expected: each file contains intentional Readiness references.
 
 ## Task 11: Final Verification
 
@@ -1422,7 +1422,7 @@ Run:
 rtk git status --short
 ```
 
-Expected: only Recovery-related files are modified by this implementation, plus pre-existing unrelated local changes.
+Expected: only Readiness-related files are modified by this implementation, plus pre-existing unrelated local changes.
 
 - [ ] **Step 2: Run focused tests**
 
@@ -1462,7 +1462,7 @@ Report:
 - Files changed.
 - Tests run and exact result.
 - Any Simulator/system-service failure separated from real compile or assertion failures.
-- Remaining risks, especially Recovery validation against real Apple Health data.
+- Remaining risks, especially Readiness validation against real Apple Health data.
 
 ## Known Risks
 

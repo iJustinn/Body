@@ -1,11 +1,11 @@
 //
-//  RecoveryModels.swift
+//  ReadinessModels.swift
 //  Body
 //
 
 import Foundation
 
-enum RecoveryStatus: String, Codable, Equatable {
+enum ReadinessStatus: String, Codable, Equatable {
     case prime
     case high
     case moderate
@@ -13,9 +13,9 @@ enum RecoveryStatus: String, Codable, Equatable {
     case poor
     case unavailable
 
-    static let displayOrder: [RecoveryStatus] = [.prime, .high, .moderate, .low, .poor]
+    static let displayOrder: [ReadinessStatus] = [.prime, .high, .moderate, .low, .poor]
 
-    static func status(for score: Int?) -> RecoveryStatus {
+    static func status(for score: Int?) -> ReadinessStatus {
         guard let score else {
             return .unavailable
         }
@@ -71,13 +71,13 @@ enum RecoveryStatus: String, Codable, Equatable {
     var explanation: String {
         switch self {
         case .prime:
-            return "Strong recovery signals. Most training is on the table."
+            return "Strong readiness signals. Most training is on the table."
         case .high:
-            return "Well recovered. Normal training should be fine."
+            return "Well prepared. Normal training should be fine."
         case .moderate:
-            return "Decent recovery. Keep load controlled."
+            return "Decent readiness. Keep load controlled."
         case .low:
-            return "Recovery is lagging. Favor easy work or rest."
+            return "Readiness is lagging. Favor easy work or rest."
         case .poor:
             return "Rest or keep it very light until signals rebound."
         case .unavailable:
@@ -120,12 +120,12 @@ enum RecoveryStatus: String, Codable, Equatable {
     }
 }
 
-struct RecoveryStatusBreakdownEntry: Equatable, Identifiable {
-    let status: RecoveryStatus
+struct ReadinessStatusBreakdownEntry: Equatable, Identifiable {
+    let status: ReadinessStatus
     let dayCount: Int
     let totalDayCount: Int
 
-    var id: RecoveryStatus {
+    var id: ReadinessStatus {
         status
     }
 
@@ -138,28 +138,28 @@ struct RecoveryStatusBreakdownEntry: Equatable, Identifiable {
     }
 }
 
-enum RecoveryStatusBreakdown {
+enum ReadinessStatusBreakdown {
     static func entries(
         for series: HealthTrendSeries,
         range: BodyHealthTrendRange,
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
-    ) -> [RecoveryStatusBreakdownEntry] {
+    ) -> [ReadinessStatusBreakdownEntry] {
         let statuses = series.calendarPoints(to: range, calendar: calendar, date: date)
-            .compactMap { point -> RecoveryStatus? in
+            .compactMap { point -> ReadinessStatus? in
                 guard let value = point.value, value.isFinite else {
                     return nil
                 }
 
-                let status = RecoveryStatus.status(for: Int(value.rounded()))
+                let status = ReadinessStatus.status(for: Int(value.rounded()))
                 return status == .unavailable ? nil : status
             }
         let countsByStatus = Dictionary(grouping: statuses) { $0 }
             .mapValues(\.count)
         let totalDayCount = countsByStatus.values.reduce(0, +)
 
-        return RecoveryStatus.displayOrder.map { status in
-            RecoveryStatusBreakdownEntry(
+        return ReadinessStatus.displayOrder.map { status in
+            ReadinessStatusBreakdownEntry(
                 status: status,
                 dayCount: countsByStatus[status, default: 0],
                 totalDayCount: totalDayCount
@@ -168,7 +168,7 @@ enum RecoveryStatusBreakdown {
     }
 }
 
-enum RecoveryConfidence: String, Codable, Equatable {
+enum ReadinessConfidence: String, Codable, Equatable {
     case high
     case medium
     case low
@@ -188,7 +188,7 @@ enum RecoveryConfidence: String, Codable, Equatable {
     }
 }
 
-enum RecoveryComponentKind: String, Codable, CaseIterable, Equatable {
+enum ReadinessComponentKind: String, Codable, CaseIterable, Equatable {
     case autonomic
     case sleep
     case training
@@ -208,7 +208,7 @@ enum RecoveryComponentKind: String, Codable, CaseIterable, Equatable {
     }
 }
 
-enum RecoveryDriverKind: String, Codable, Equatable {
+enum ReadinessDriverKind: String, Codable, Equatable {
     case hrvBelowBaseline
     case heartRateAboveBaseline
     case sleepDurationBelowGoal
@@ -221,35 +221,35 @@ enum RecoveryDriverKind: String, Codable, Equatable {
     case needsMoreData
 }
 
-struct RecoveryComponent: Codable, Equatable, Identifiable {
-    var kind: RecoveryComponentKind
+struct ReadinessComponent: Codable, Equatable, Identifiable {
+    var kind: ReadinessComponentKind
     var score: Int?
     var weight: Double
     var message: String
 
-    var id: RecoveryComponentKind {
+    var id: ReadinessComponentKind {
         kind
     }
 }
 
-struct RecoveryDriver: Codable, Equatable, Identifiable {
-    var kind: RecoveryDriverKind
+struct ReadinessDriver: Codable, Equatable, Identifiable {
+    var kind: ReadinessDriverKind
     var message: String
     var impact: Double
 
-    var id: RecoveryDriverKind {
+    var id: ReadinessDriverKind {
         kind
     }
 }
 
-struct RecoverySummary: Codable, Equatable {
+struct ReadinessSummary: Codable, Equatable {
     var score: Int?
-    var status: RecoveryStatus
-    var confidence: RecoveryConfidence
-    var components: [RecoveryComponent]
-    var drivers: [RecoveryDriver]
+    var status: ReadinessStatus
+    var confidence: ReadinessConfidence
+    var components: [ReadinessComponent]
+    var drivers: [ReadinessDriver]
 
-    static let unavailable = RecoverySummary(
+    static let unavailable = ReadinessSummary(
         score: nil,
         status: .unavailable,
         confidence: .unavailable,
