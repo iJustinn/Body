@@ -70,7 +70,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testHealthMetricChartSelectionAnnotationsFitWithinChartEdges() throws {
         let source = try bodyHomeViewText()
 
-        XCTAssertTrue(source.contains("private let bodyChartSelectionOverflowResolution"))
+        XCTAssertTrue(source.contains("let bodyChartSelectionOverflowResolution"))
         XCTAssertTrue(source.contains("AnnotationOverflowResolution("))
         XCTAssertTrue(source.contains("x: .fit(to: .chart)"))
         XCTAssertTrue(source.contains("y: .disabled"))
@@ -83,10 +83,10 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(source.contains("bodyHealthDetailChartLeadingDatePadding: TimeInterval = 2 * 60 * 60"))
         XCTAssertTrue(source.contains("bodyHealthDetailChartMinimumTrailingDatePadding: TimeInterval = 36 * 60 * 60"))
-        XCTAssertTrue(source.contains("private func bodyHealthDetailChartTrailingDatePadding(for selectedRange: BodyHealthTrendRange) -> TimeInterval"))
+        XCTAssertTrue(source.contains("func bodyHealthDetailChartTrailingDatePadding(for selectedRange: BodyHealthTrendRange) -> TimeInterval"))
         XCTAssertTrue(source.contains("let rangeScaledPadding = Double(selectedRange.axisStrideDayCount) * 24 * 60 * 60 * 0.55"))
         XCTAssertTrue(source.contains("return max(bodyHealthDetailChartMinimumTrailingDatePadding, rangeScaledPadding)"))
-        XCTAssertTrue(source.contains("private func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange) -> ClosedRange<Date>"))
+        XCTAssertTrue(source.contains("func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange) -> ClosedRange<Date>"))
         XCTAssertEqual(
             source.occurrenceCount(of: "self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)"),
             7
@@ -158,7 +158,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testMetricDayLineChartUsesPreviewDotSymbols() throws {
         let source = try bodyHomeViewText()
-        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyHealthMetricDayChart")?.lowerBound)
+        let chartStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricDayChart")?.lowerBound)
         let chartBlock = source[chartStart...].prefix(7_000)
 
         XCTAssertTrue(chartBlock.contains("BodyLineChartPreviewPointSymbol("))
@@ -176,7 +176,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let detailBlock = String(source[detailStart...].prefix(900))
         let contextStart = try XCTUnwrap(source.range(of: "private var selectedMetricDayContextIntervals")?.lowerBound)
         let contextBlock = String(source[contextStart...].prefix(2_400))
-        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyHealthMetricDayChart")?.lowerBound)
+        let chartStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricDayChart")?.lowerBound)
         let chartBlock = String(source[chartStart...].prefix(5_000))
 
         XCTAssertTrue(detailBlock.contains("sleepHistory: trends.sleepHistory"))
@@ -194,7 +194,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testMetricCardPreviewStylesMatchRequestedChartKinds() throws {
         let source = try bodyHomeViewText()
         let previewBlock = String(source[
-            try XCTUnwrap(source.range(of: "private struct BodyHealthMetricCardTrendPreview")?.lowerBound)...
+            try XCTUnwrap(source.range(of: "struct BodyHealthMetricCardTrendPreview")?.lowerBound)...
         ].prefix(8_000))
         let heartRateCardStart = try XCTUnwrap(
             source.range(of: "kind: .heartRate,\n                title: \"Heart Rate\"")?.lowerBound
@@ -223,7 +223,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testHeartRateRangeChartUsesStandardBarSelectionRule() throws {
         let source = try bodyHomeViewText()
-        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyHeartRateRangeTrendChart")?.lowerBound)
+        let chartStart = try XCTUnwrap(source.range(of: "struct BodyHeartRateRangeTrendChart")?.lowerBound)
         let chartBlock = String(source[chartStart...].prefix(18_000))
 
         XCTAssertTrue(source.contains("private var usesRangeTrendChart: Bool"))
@@ -311,7 +311,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testTrainingLoadTrendChartDrawsDynamicHorizontalCurrentIntervalBandWithoutInlineLabel() throws {
         let source = try bodyHomeViewText()
-        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyHealthMetricTrendChart")?.lowerBound)
+        let chartStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricTrendChart")?.lowerBound)
         let chartBlock = String(source[chartStart...].prefix(12_000))
 
         XCTAssertTrue(chartBlock.contains("let highlightedRange: BodyHealthMetricTrendHighlightedRange?"))
@@ -339,7 +339,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let source = try bodyHomeViewText()
         let trendCardStart = try XCTUnwrap(source.range(of: "private var trendCard")?.lowerBound)
         let trendCardBlock = String(source[trendCardStart...].prefix(8_000))
-        let breakdownStart = try XCTUnwrap(source.range(of: "private struct BodyTrainingLoadIntervalBreakdownChart")?.lowerBound)
+        let breakdownStart = try XCTUnwrap(source.range(of: "struct BodyTrainingLoadIntervalBreakdownChart")?.lowerBound)
         let breakdownBlock = String(source[breakdownStart...].prefix(4_500))
 
         XCTAssertTrue(trendCardBlock.contains("if model.kind == .trainingLoad {"))
@@ -385,9 +385,9 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testSupportedMetricDetailScreensExposeSwitchableDataSources() throws {
         let source = try bodyHomeViewText()
-        let detailViewStart = try XCTUnwrap(source.range(of: "private struct BodyHealthMetricDetailView")?.lowerBound)
+        let detailViewStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricDetailView")?.lowerBound)
         let detailViewBlock = String(source[detailViewStart...].prefix(15_000))
-        let pickerStart = try XCTUnwrap(source.range(of: "private struct BodyHealthDataSourcePickerSheet")?.lowerBound)
+        let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
         let pickerBlock = String(source[pickerStart...].prefix(8_000))
 
         XCTAssertTrue(detailViewBlock.contains("model.kind.supportsHealthDataSourceSelection"))
@@ -399,7 +399,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testHealthDataSourcePickerRowsShowSourceNamesOnly() throws {
         let source = try bodyHomeViewText()
-        let pickerStart = try XCTUnwrap(source.range(of: "private struct BodyHealthDataSourcePickerSheet")?.lowerBound)
+        let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
         let pickerBlock = String(source[pickerStart...].prefix(8_000))
 
         XCTAssertTrue(pickerBlock.contains("Text(option.name)"))
@@ -550,9 +550,9 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testSourceLegendContentIsTrailingAligned() throws {
         let source = try bodyHomeViewText()
-        let legendStart = try XCTUnwrap(source.range(of: "private struct BodyHealthSourceLegend: View")?.lowerBound)
+        let legendStart = try XCTUnwrap(source.range(of: "struct BodyHealthSourceLegend: View")?.lowerBound)
         let comparisonChartStart = try XCTUnwrap(
-            source.range(of: "private struct BodyHealthSourceComparisonLineChart", range: legendStart..<source.endIndex)?.lowerBound
+            source.range(of: "struct BodyHealthSourceComparisonLineChart", range: legendStart..<source.endIndex)?.lowerBound
         )
         let legendBlock = String(source[legendStart..<comparisonChartStart])
 
@@ -564,9 +564,9 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testBasicsLegendMatchesTrailingSourceLegendStyle() throws {
         let source = try bodyHomeViewText()
-        let legendStart = try XCTUnwrap(source.range(of: "private struct BodyBasicsTrendLegend: View")?.lowerBound)
+        let legendStart = try XCTUnwrap(source.range(of: "struct BodyBasicsTrendLegend: View")?.lowerBound)
         let selectionValueStart = try XCTUnwrap(
-            source.range(of: "private struct BodyChartSelectionValue", range: legendStart..<source.endIndex)?.lowerBound
+            source.range(of: "struct BodyChartSelectionValue", range: legendStart..<source.endIndex)?.lowerBound
         )
         let legendBlock = String(source[legendStart..<selectionValueStart])
 
@@ -583,7 +583,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testBasicsTrendChartKeepsTopAxisBelowLegendBand() throws {
         let source = try bodyHomeViewText()
-        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyBasicsTrendChart")?.lowerBound)
+        let chartStart = try XCTUnwrap(source.range(of: "struct BodyBasicsTrendChart")?.lowerBound)
         let chartBlock = String(source[chartStart...].prefix(12_000))
 
         XCTAssertTrue(chartBlock.contains("private let normalizedYDomain = 0.0...1.1"))
@@ -659,8 +659,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let source = try bodyHomeViewText()
 
         XCTAssertFalse(source.contains("basicsLegendTrailingAxisGutter"))
-        XCTAssertTrue(source.contains("private func bodyChartSelectionDateText(for point: HealthTrendCalendarPoint) -> String?"))
-        XCTAssertTrue(source.contains("private func bodyChartSelectionDateText(for point: HealthTrendRangeCalendarPoint) -> String?"))
+        XCTAssertTrue(source.contains("func bodyChartSelectionDateText(for point: HealthTrendCalendarPoint) -> String?"))
+        XCTAssertTrue(source.contains("func bodyChartSelectionDateText(for point: HealthTrendRangeCalendarPoint) -> String?"))
         XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedTrendPoint)"), 1)
         XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedPoint)"), 1)
         XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedRangePoint)"), 1)
@@ -684,7 +684,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(source.contains("if showsWeightBodyFatPointMarks"))
         XCTAssertEqual(source.occurrenceCount(of: "if selectedRange.showsPointMarks"), 6)
 
-        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyBasicsTrendChart")?.lowerBound)
+        let chartStart = try XCTUnwrap(source.range(of: "struct BodyBasicsTrendChart")?.lowerBound)
         let chartBlock = String(source[chartStart...].prefix(7_000))
         XCTAssertEqual(chartBlock.occurrenceCount(of: "if selectedRange.showsPointMarks"), 2)
     }

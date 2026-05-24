@@ -166,7 +166,7 @@ struct BodyChartSelectionAnnotation: View {
     }
 }
 
-private extension DateInterval {
+extension DateInterval {
     func clamped(to boundary: DateInterval) -> DateInterval? {
         let clampedStart = max(start, boundary.start)
         let clampedEnd = min(end, boundary.end)

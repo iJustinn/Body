@@ -7,20 +7,20 @@ import Charts
 import SwiftUI
 import UniformTypeIdentifiers
 
-private let bodyChartSelectionOverflowResolution = AnnotationOverflowResolution(
+let bodyChartSelectionOverflowResolution = AnnotationOverflowResolution(
     x: .fit(to: .chart),
     y: .disabled
 )
 
-private let bodyHealthDetailChartLeadingDatePadding: TimeInterval = 2 * 60 * 60
-private let bodyHealthDetailChartMinimumTrailingDatePadding: TimeInterval = 36 * 60 * 60
+let bodyHealthDetailChartLeadingDatePadding: TimeInterval = 2 * 60 * 60
+let bodyHealthDetailChartMinimumTrailingDatePadding: TimeInterval = 36 * 60 * 60
 
-private func bodyHealthDetailChartTrailingDatePadding(for selectedRange: BodyHealthTrendRange) -> TimeInterval {
+func bodyHealthDetailChartTrailingDatePadding(for selectedRange: BodyHealthTrendRange) -> TimeInterval {
     let rangeScaledPadding = Double(selectedRange.axisStrideDayCount) * 24 * 60 * 60 * 0.55
     return max(bodyHealthDetailChartMinimumTrailingDatePadding, rangeScaledPadding)
 }
 
-private func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange) -> ClosedRange<Date> {
+func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange) -> ClosedRange<Date> {
     let trailingDatePadding = bodyHealthDetailChartTrailingDatePadding(for: selectedRange)
 
     guard let startDate = dates.min(), let endDate = dates.max() else {
@@ -61,11 +61,11 @@ enum BodyHealthMetricRangeYDomain {
     }
 }
 
-private func bodyChartSelectionDateText(for point: HealthTrendCalendarPoint) -> String? {
+func bodyChartSelectionDateText(for point: HealthTrendCalendarPoint) -> String? {
     bodyChartSelectionDateText(startDate: point.startDate, endDate: point.endDate)
 }
 
-private func bodyChartSelectionDateText(for point: HealthTrendRangeCalendarPoint) -> String? {
+func bodyChartSelectionDateText(for point: HealthTrendRangeCalendarPoint) -> String? {
     bodyChartSelectionDateText(startDate: point.startDate, endDate: point.endDate)
 }
 
@@ -73,7 +73,7 @@ private func bodyChartSelectionDateText(for point: HealthTrendRangeCalendarPoint
 // baseline away from the robust median Readiness's vitals component uses.
 // Without this, the card can show "Baseline +0.3 °C" while Readiness shows
 // no wrist-temperature driver (or vice versa) for the same day.
-private func wristTemperatureBaselineValue(from finiteValues: [Double]) -> Double {
+func wristTemperatureBaselineValue(from finiteValues: [Double]) -> Double {
     let sorted = finiteValues.sorted()
     let middle = sorted.count / 2
     if sorted.count.isMultiple(of: 2) {
@@ -82,7 +82,7 @@ private func wristTemperatureBaselineValue(from finiteValues: [Double]) -> Doubl
     return sorted[middle]
 }
 
-private func wristTemperatureBaseline(from series: HealthTrendSeries) -> Double {
+func wristTemperatureBaseline(from series: HealthTrendSeries) -> Double {
     let points = series.lineChartCalendarPoints(to: .recentYear)
     let finiteValues = points.compactMap(\.value).filter(\.isFinite)
     guard !finiteValues.isEmpty else {
@@ -92,7 +92,7 @@ private func wristTemperatureBaseline(from series: HealthTrendSeries) -> Double 
     return wristTemperatureBaselineValue(from: finiteValues)
 }
 
-private func wristTemperatureBaselineDeviationDisplay(
+func wristTemperatureBaselineDeviationDisplay(
     currentCelsius: Double?,
     series: HealthTrendSeries
 ) -> BodyMetricDisplayValue {
@@ -121,7 +121,7 @@ private func wristTemperatureBaselineDeviationDisplay(
     return BodyMetricDisplayValue(title: "Baseline", value: formattedValue, unit: "C")
 }
 
-private func bodyChartSelectionDateText(startDate: Date, endDate: Date) -> String? {
+func bodyChartSelectionDateText(startDate: Date, endDate: Date) -> String? {
     let calendar = Calendar.bodyGregorian
     guard startDate != endDate else {
         return nil
@@ -150,7 +150,7 @@ private func bodyChartSelectionDateText(startDate: Date, endDate: Date) -> Strin
     return "\(startMonth) \(startDay), \(startYear)-\(endMonth) \(endDay), \(endYear)"
 }
 
-private extension Array where Element == HealthTrendCalendarPoint {
+extension Array where Element == HealthTrendCalendarPoint {
     func nearestFinitePoint(to date: Date?) -> HealthTrendCalendarPoint? {
         guard let date else {
             return nil

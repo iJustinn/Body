@@ -412,7 +412,7 @@ struct BodyHealthMetricDayContextInterval: Identifiable {
     }
 }
 
-private extension HealthTrendSeries {
+extension HealthTrendSeries {
     func hourlyAverage(on day: Date) -> Double? {
         let values = hourlyAverageBuckets(on: day).map(\.averageValue).filter(\.isFinite)
         guard !values.isEmpty else {
