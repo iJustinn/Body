@@ -68,7 +68,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testHealthMetricChartSelectionAnnotationsFitWithinChartEdges() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
 
         XCTAssertTrue(source.contains("private let bodyChartSelectionOverflowResolution"))
         XCTAssertTrue(source.contains("AnnotationOverflowResolution("))
@@ -79,7 +79,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testHealthMetricChartDateDomainsFavorRightSidePadding() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
 
         XCTAssertTrue(source.contains("bodyHealthDetailChartLeadingDatePadding: TimeInterval = 2 * 60 * 60"))
         XCTAssertTrue(source.contains("bodyHealthDetailChartMinimumTrailingDatePadding: TimeInterval = 36 * 60 * 60"))
@@ -108,7 +108,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testReadinessCardAndDetailAreRouted() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let cardStart = try XCTUnwrap(source.range(of: "private func readinessMetric(")?.lowerBound)
         let cardEnd = try XCTUnwrap(source.range(of: "private func energyMetric(", range: cardStart..<source.endIndex)?.lowerBound)
         let cardBlock = String(source[cardStart..<cardEnd])
@@ -139,7 +139,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testLineHealthChartsDoNotRenderEmptyDatePlaceholderMarks() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
 
         XCTAssertFalse(source.contains("BodyLineChartPlaceholderSymbol"))
         XCTAssertFalse(source.contains("placeholderSymbolSize"))
@@ -147,7 +147,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testLineHealthChartsUseStraightInterpolation() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
 
         XCTAssertFalse(source.contains(".interpolationMethod(.catmullRom)"))
         XCTAssertEqual(
@@ -157,7 +157,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testMetricDayLineChartUsesPreviewDotSymbols() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let chartStart = try XCTUnwrap(source.range(of: "private struct BodyHealthMetricDayChart")?.lowerBound)
         let chartBlock = source[chartStart...].prefix(7_000)
 
@@ -169,7 +169,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testHeartRateVariabilityDayChartUsesSleepAndWorkoutContextOverlay() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let detailStart = try XCTUnwrap(
             source.range(of: "case .heartRateVariability:\n            return metricDetail(")?.lowerBound
         )
@@ -192,7 +192,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testMetricCardPreviewStylesMatchRequestedChartKinds() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let previewBlock = String(source[
             try XCTUnwrap(source.range(of: "private struct BodyHealthMetricCardTrendPreview")?.lowerBound)...
         ].prefix(8_000))
@@ -222,7 +222,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testHeartRateRangeChartUsesStandardBarSelectionRule() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let chartStart = try XCTUnwrap(source.range(of: "private struct BodyHeartRateRangeTrendChart")?.lowerBound)
         let chartBlock = String(source[chartStart...].prefix(18_000))
 
@@ -254,7 +254,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testWristTemperatureCardUsesLineChartDetailWithoutDayView() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let cardStart = try XCTUnwrap(source.range(of: "private func wristTemperatureMetric")?.lowerBound)
         let cardBlock = String(source[cardStart...].prefix(1_500))
         let trendCardStart = try XCTUnwrap(source.range(of: "homeTrendCard(\n                kind: .wristTemperature")?.lowerBound)
@@ -276,7 +276,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testTrainingLoadCardUsesLineChartWithCurrentIntervalWithoutUnitsOrDayView() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let cardStart = try XCTUnwrap(source.range(of: "metric(\n                kind: .trainingLoad")?.lowerBound)
         let cardBlock = String(source[cardStart...].prefix(1_100))
         let trendCardStart = try XCTUnwrap(source.range(of: "homeTrendCard(\n                kind: .trainingLoad")?.lowerBound)
@@ -310,7 +310,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testTrainingLoadTrendChartDrawsDynamicHorizontalCurrentIntervalBandWithoutInlineLabel() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let chartStart = try XCTUnwrap(source.range(of: "private struct BodyHealthMetricTrendChart")?.lowerBound)
         let chartBlock = String(source[chartStart...].prefix(12_000))
 
@@ -336,7 +336,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testTrainingLoadDetailShowsIntervalDayBreakdownBelowLineChart() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let trendCardStart = try XCTUnwrap(source.range(of: "private var trendCard")?.lowerBound)
         let trendCardBlock = String(source[trendCardStart...].prefix(8_000))
         let breakdownStart = try XCTUnwrap(source.range(of: "private struct BodyTrainingLoadIntervalBreakdownChart")?.lowerBound)
@@ -355,7 +355,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testSummaryMetricValuesUseClockStyleNumericTransitions() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
 
         XCTAssertTrue(source.contains("struct BodyAnimatedMetricValueText: View"))
         XCTAssertTrue(source.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
@@ -384,7 +384,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testSupportedMetricDetailScreensExposeSwitchableDataSources() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let detailViewStart = try XCTUnwrap(source.range(of: "private struct BodyHealthMetricDetailView")?.lowerBound)
         let detailViewBlock = String(source[detailViewStart...].prefix(15_000))
         let pickerStart = try XCTUnwrap(source.range(of: "private struct BodyHealthDataSourcePickerSheet")?.lowerBound)
@@ -398,7 +398,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testHealthDataSourcePickerRowsShowSourceNamesOnly() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let pickerStart = try XCTUnwrap(source.range(of: "private struct BodyHealthDataSourcePickerSheet")?.lowerBound)
         let pickerBlock = String(source[pickerStart...].prefix(8_000))
 
@@ -448,16 +448,16 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testSourceSelectableBarAndRangeDetailsUsePrimarySecondaryComparisonCharts() throws {
-        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+        let homeSource = try bodyHomeViewText()
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
         let appearanceSource = try text(at: "Body/Models/BodyAppearancePreference.swift")
         let trendCardStart = try XCTUnwrap(homeSource.range(of: "private var trendCard: some View")?.lowerBound)
         let trendCardBlock = String(homeSource[trendCardStart...].prefix(10_000))
-        let comparisonChartStart = try XCTUnwrap(homeSource.range(of: "private struct BodyHealthSourceComparisonBarChart")?.lowerBound)
+        let comparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonBarChart")?.lowerBound)
         let comparisonChartBlock = String(homeSource[comparisonChartStart...].prefix(8_000))
-        let rangeComparisonChartStart = try XCTUnwrap(homeSource.range(of: "private struct BodyHealthSourceComparisonRangeChart")?.lowerBound)
+        let rangeComparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonRangeChart")?.lowerBound)
         let rangeComparisonChartBlock = String(homeSource[rangeComparisonChartStart...].prefix(8_000))
-        let rangeBandChartStart = try XCTUnwrap(homeSource.range(of: "private struct BodyHeartRateRangeTrendChart")?.lowerBound)
+        let rangeBandChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHeartRateRangeTrendChart")?.lowerBound)
         let rangeBandChartBlock = String(homeSource[rangeBandChartStart...].prefix(14_000))
 
         XCTAssertTrue(trendCardBlock.contains("BodyHealthSourceLegend("))
@@ -487,12 +487,12 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testSourceSelectableLineDetailsUsePrimarySecondaryComparisonLines() throws {
-        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+        let homeSource = try bodyHomeViewText()
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
         let appearanceSource = try text(at: "Body/Models/BodyAppearancePreference.swift")
         let trendCardStart = try XCTUnwrap(homeSource.range(of: "private var trendCard: some View")?.lowerBound)
         let trendCardBlock = String(homeSource[trendCardStart...].prefix(9_000))
-        let lineComparisonChartStart = try XCTUnwrap(homeSource.range(of: "private struct BodyHealthSourceComparisonLineChart")?.lowerBound)
+        let lineComparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonLineChart")?.lowerBound)
         let lineComparisonChartBlock = String(homeSource[lineComparisonChartStart...].prefix(10_000))
 
         XCTAssertTrue(appearanceSource.contains("var usesSourceComparisonLineChart: Bool"))
@@ -506,12 +506,12 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testSourceSelectableDayChartsUsePrimarySecondaryComparisonLines() throws {
-        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+        let homeSource = try bodyHomeViewText()
         let engineSource = try healthKitFetchEngineText()
         let snapshotSource = try healthSummarySnapshotText()
         let dayChartCardStart = try XCTUnwrap(homeSource.range(of: "private var metricDayChartCard: some View")?.lowerBound)
         let dayChartCardBlock = String(homeSource[dayChartCardStart...].prefix(3_500))
-        let dayChartStart = try XCTUnwrap(homeSource.range(of: "private struct BodyHealthMetricDayChart")?.lowerBound)
+        let dayChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthMetricDayChart")?.lowerBound)
         let dayChartBlock = String(homeSource[dayChartStart...].prefix(10_000))
 
         XCTAssertTrue(dayChartCardBlock.contains("BodyHealthSourceLegend("))
@@ -532,7 +532,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testChartLegendHeadersFillAvailableWidth() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let trendCardStart = try XCTUnwrap(source.range(of: "private var trendCard: some View")?.lowerBound)
         let trendChartStart = try XCTUnwrap(
             source.range(of: "if let visibleBasicsTrend", range: trendCardStart..<source.endIndex)?.lowerBound
@@ -549,7 +549,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testSourceLegendContentIsTrailingAligned() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let legendStart = try XCTUnwrap(source.range(of: "private struct BodyHealthSourceLegend: View")?.lowerBound)
         let comparisonChartStart = try XCTUnwrap(
             source.range(of: "private struct BodyHealthSourceComparisonLineChart", range: legendStart..<source.endIndex)?.lowerBound
@@ -563,7 +563,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testBasicsLegendMatchesTrailingSourceLegendStyle() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let legendStart = try XCTUnwrap(source.range(of: "private struct BodyBasicsTrendLegend: View")?.lowerBound)
         let selectionValueStart = try XCTUnwrap(
             source.range(of: "private struct BodyChartSelectionValue", range: legendStart..<source.endIndex)?.lowerBound
@@ -582,7 +582,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testBasicsTrendChartKeepsTopAxisBelowLegendBand() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
         let chartStart = try XCTUnwrap(source.range(of: "private struct BodyBasicsTrendChart")?.lowerBound)
         let chartBlock = String(source[chartStart...].prefix(12_000))
 
@@ -621,9 +621,9 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testMetricDetailScreensPullToRefreshOnlyCurrentMetric() throws {
-        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+        let homeSource = try bodyHomeViewText()
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
-        let detailViewStart = try XCTUnwrap(homeSource.range(of: "private struct BodyHealthMetricDetailView")?.lowerBound)
+        let detailViewStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthMetricDetailView")?.lowerBound)
         let detailViewBlock = String(homeSource[detailViewStart...].prefix(3_500))
         let refreshStart = try XCTUnwrap(storeSource.range(of: "func refreshHealthMetric(_ kind: HealthMetricKind")?.lowerBound)
         let refreshBlock = String(storeSource[refreshStart...].prefix(8_000))
@@ -656,7 +656,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testAggregatedHealthChartsWireRangeLabelsAndBarWidths() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
 
         XCTAssertFalse(source.contains("basicsLegendTrailingAxisGutter"))
         XCTAssertTrue(source.contains("private func bodyChartSelectionDateText(for point: HealthTrendCalendarPoint) -> String?"))
@@ -677,7 +677,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testBasicsWeightBodyFatMonthChartKeepsStandardPointMarks() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
 
         XCTAssertFalse(source.contains("private var showsWeightBodyFatPointMarks: Bool"))
         XCTAssertFalse(source.contains("selectedRange.showsPointMarks && selectedRange != .recentMonth"))
@@ -690,7 +690,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testBasicsTrendLegendShowsAverageValuesBehindMetricLabels() throws {
-        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let source = try bodyHomeViewText()
 
         XCTAssertTrue(source.contains("weightAverageText: basicsWeightAverageText"))
         XCTAssertTrue(source.contains("bodyFatAverageText: basicsBodyFatAverageText"))
@@ -850,7 +850,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testDeadChartsViewAndHealthCardAccessoryBranchAreRemoved() throws {
         let oldChartsViewURL = projectRoot.appendingPathComponent("Body/Views/BodyChartsView.swift")
         let chartsSource = try text(at: "Body/Views/BodyWorkoutListSheet.swift")
-        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+        let homeSource = try bodyHomeViewText()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: oldChartsViewURL.path))
         XCTAssertFalse(chartsSource.contains("struct BodyChartsView"))
@@ -863,7 +863,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testSleepAndMetricDayPickersShareDateTileHelper() throws {
-        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+        let homeSource = try bodyHomeViewText()
 
         XCTAssertTrue(homeSource.contains("private var recentDatePickerDates: [Date]"))
         XCTAssertTrue(homeSource.contains("private func datePicker("))
@@ -877,7 +877,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testProjectDateMathUsesBodyGregorianForSleepAxisAndWidgetTimeline() throws {
-        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+        let homeSource = try bodyHomeViewText()
         let widgetSource = try text(at: "BodyWidgetExtension/WorkoutCalendarWidget.swift")
 
         XCTAssertFalse(homeSource.contains("let calendar = Calendar.current"))
@@ -958,7 +958,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testSettingsMetricsSectionGroupsUnitsSummaryCardsAndTrendControls() throws {
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
-        let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
+        let homeSource = try bodyHomeViewText()
         let appearanceSource = try text(at: "Body/Models/BodyAppearancePreference.swift")
         let appearanceStart = try XCTUnwrap(settingsSource.range(of: "private var appearanceSection: some View")?.lowerBound)
         let appearanceBlock = String(settingsSource[appearanceStart...].prefix(2_500))
@@ -1193,6 +1193,33 @@ final class ProjectConfigurationTests: XCTestCase {
 
     private func text(at relativePath: String) throws -> String {
         try String(contentsOf: projectRoot.appendingPathComponent(relativePath), encoding: .utf8)
+    }
+
+    /// Concatenates every Swift file backing `BodyHomeView`. The original
+    /// 8,600-line `BodyHomeView.swift` was split into focused peer files
+    /// (Body/Views/Health/...) — tests that grep for substrings on this view's
+    /// surface should look across all of them, not just the main file.
+    private func bodyHomeViewText() throws -> String {
+        let files = [
+            "Body/Views/BodyHomeView.swift",
+            "Body/Views/Health/BodyHealthMetricCard.swift",
+            "Body/Views/Health/BodyHealthMetricDetailView.swift",
+            "Body/Views/Health/BodyHealthDataSourcePickerSheet.swift",
+            "Body/Views/Health/BodyHomeTrendCard.swift",
+            "Body/Views/Health/BodyHealthNoticeBanner.swift",
+            "Body/Views/Health/SleepScoreSheet.swift",
+            "Body/Views/Health/ChartHelpers.swift",
+            "Body/Views/Health/Charts/MetricCharts.swift",
+            "Body/Views/Health/Charts/BasicsCharts.swift",
+            "Body/Views/Health/Charts/HeartRateRangeChart.swift",
+            "Body/Views/Health/Charts/SourceComparisonCharts.swift",
+            "Body/Views/Health/Charts/SleepCharts.swift",
+            "Body/Views/Health/Charts/TrainingLoadCharts.swift",
+            "Body/Views/Health/Charts/ReadinessChart.swift"
+        ]
+        return try files.compactMap { file -> String? in
+            try? text(at: file)
+        }.joined(separator: "\n")
     }
 
     /// Concatenates every Swift file backing the health summary / dashboard /
