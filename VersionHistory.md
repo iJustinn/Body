@@ -2,6 +2,9 @@
 
 ## 0.5.6 (build 4)
 
+- Added Settings > Data > Source with global primary and secondary Apple Health source defaults, an option to combine duplicate source names, and per-metric overrides still available from detail pages.
+- Combined source names now treat `iWatch X` and `iWatchX` as the same `iWatchX` source and preserve both underlying HealthKit sources for combined queries without broadening matching for unrelated names.
+- Fixed combined sleep-source timelines so generic sleep intervals from another source are kept when they add time outside detailed sleep-stage samples.
 - Updated the app, widget, and test bundle version to 0.5.6 build 4.
 
 ## 0.5.6 (build 3)

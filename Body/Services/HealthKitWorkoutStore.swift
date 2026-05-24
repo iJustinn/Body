@@ -84,6 +84,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var permissionSelection: BodyHealthPermissionSelection
     @Published private(set) var healthDataSourceSelection: BodyHealthDataSourceSelection
     @Published private(set) var secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection
+    @Published private(set) var combinesHealthDataSourcesByName: Bool
     @Published private(set) var healthDataSourceOptionsByKind: [HealthMetricKind: [BodyHealthDataSourceOption]] = [:]
     @Published private(set) var healthDataNotice: String?
     @Published private(set) var isRefreshing = false
@@ -121,15 +122,18 @@ final class HealthKitWorkoutStore: ObservableObject {
         initialPermissionSelection: BodyHealthPermissionSelection = BodyHealthPermissionSelection.load(),
         initialHealthDataSourceSelection: BodyHealthDataSourceSelection = BodyHealthDataSourceSelection.load(),
         initialSecondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection = BodyHealthSecondaryDataSourceSelection.load(),
+        initialCombinesHealthDataSourcesByName: Bool = UserDefaults.standard.bool(forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey),
         date: Date = Date()
     ) {
         permissionSelection = initialPermissionSelection
         healthDataSourceSelection = initialHealthDataSourceSelection
         secondaryHealthDataSourceSelection = initialSecondaryHealthDataSourceSelection
+        combinesHealthDataSourcesByName = initialCombinesHealthDataSourcesByName
         engine = HealthKitFetchEngine(
             permission: initialPermissionSelection,
             healthDataSourceSelection: initialHealthDataSourceSelection,
-            secondaryHealthDataSourceSelection: initialSecondaryHealthDataSourceSelection
+            secondaryHealthDataSourceSelection: initialSecondaryHealthDataSourceSelection,
+            combinesHealthDataSourcesByName: initialCombinesHealthDataSourcesByName
         )
         // Skip the recovery recompute at init — it's a per-day iteration over
         // up to ~365 trend points that would block the first frame. The cached
@@ -365,7 +369,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             endDate: interval.end
         )
         let secondarySamples: HealthTrendSeries
-        if secondaryHealthDataSourceSelection.option(for: kind).isNoComparison
+        if selectedSecondaryHealthDataSourceOption(for: kind).isNoComparison
             || !permissionSelection.includes(permission) {
             secondarySamples = .empty
         } else {
@@ -481,12 +485,99 @@ final class HealthKitWorkoutStore: ObservableObject {
         return [BodyHealthDataSourceOption.noComparison] + filtered
     }
 
+    func healthDataSourceDefaultOptions() -> [BodyHealthDataSourceOption] {
+        includeSelectedSourceOptionIfNeeded(
+            selectedHealthDataSourceOption: healthDataSourceSelection.defaultOption,
+            in: [BodyHealthDataSourceOption.allSources] + uniqueHealthDataSourceOptions(for: HealthMetricKind.sourceSelectableKinds)
+        )
+    }
+
+    func secondaryHealthDataSourceDefaultOptions() -> [BodyHealthDataSourceOption] {
+        let primaryOption = healthDataSourceSelection.defaultOption
+        let candidates = [BodyHealthDataSourceOption.allSources]
+            + uniqueHealthDataSourceOptions(for: HealthMetricKind.sourceSelectableKinds.filter(\.supportsSecondaryHealthDataSourceSelection))
+        let filteredCandidates = candidates.filter { $0.id != primaryOption.id }
+        guard secondaryHealthDataSourceSelection.defaultOption.id != primaryOption.id else {
+            return [BodyHealthDataSourceOption.noComparison] + filteredCandidates
+        }
+        return includeSelectedSourceOptionIfNeeded(
+            selectedHealthDataSourceOption: secondaryHealthDataSourceSelection.defaultOption,
+            in: [BodyHealthDataSourceOption.noComparison] + filteredCandidates
+        )
+    }
+
     func selectedHealthDataSourceOption(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
-        healthDataSourceSelection.option(for: kind)
+        resolvedHealthDataSourceOption(healthDataSourceSelection.option(for: kind), for: kind)
     }
 
     func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
-        secondaryHealthDataSourceSelection.option(for: kind)
+        let option = resolvedSecondaryHealthDataSourceOption(
+            secondaryHealthDataSourceSelection.option(for: kind),
+            for: kind
+        )
+        guard option.id != selectedHealthDataSourceOption(for: kind).id else {
+            return .noComparison
+        }
+
+        return option
+    }
+
+    var defaultHealthDataSourceOption: BodyHealthDataSourceOption {
+        healthDataSourceSelection.defaultOption
+    }
+
+    var defaultSecondaryHealthDataSourceOption: BodyHealthDataSourceOption {
+        secondaryHealthDataSourceSelection.defaultOption
+    }
+
+    func updateCombinesHealthDataSourcesByName(_ combines: Bool) async {
+        guard combinesHealthDataSourcesByName != combines else {
+            return
+        }
+
+        combinesHealthDataSourcesByName = combines
+        UserDefaults.standard.set(combines, forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey)
+        await engine.setCombinesHealthDataSourcesByName(combines)
+        await fetchHealthDataSourceOptions(calendar: .bodyGregorian)
+        await requestAuthorizationAndRefresh()
+    }
+
+    func updateDefaultHealthDataSource(option: BodyHealthDataSourceOption) async {
+        let nextSelection = healthDataSourceSelection.settingDefault(option: option)
+        guard nextSelection != healthDataSourceSelection else {
+            return
+        }
+
+        let nextSecondarySelection = secondaryHealthDataSourceSelection.defaultOption.id == nextSelection.defaultOption.id
+            ? secondaryHealthDataSourceSelection.settingDefault(option: .noComparison)
+            : secondaryHealthDataSourceSelection
+        healthDataSourceSelection = nextSelection
+        secondaryHealthDataSourceSelection = nextSecondarySelection
+        nextSelection.save()
+        nextSecondarySelection.save()
+        await engine.setHealthDataSourceSelection(nextSelection)
+        await engine.setSecondaryHealthDataSourceSelection(nextSecondarySelection)
+        await requestAuthorizationAndRefresh()
+    }
+
+    func updateDefaultSecondaryHealthDataSource(option: BodyHealthDataSourceOption) async {
+        let nextOption = option.id == healthDataSourceSelection.defaultOption.id ? .noComparison : option
+        let nextSelection = secondaryHealthDataSourceSelection.settingDefault(option: nextOption)
+        guard nextSelection != secondaryHealthDataSourceSelection else {
+            return
+        }
+
+        secondaryHealthDataSourceSelection = nextSelection
+        nextSelection.save()
+        await engine.setSecondaryHealthDataSourceSelection(nextSelection)
+
+        await awaitNextRefreshCompletion()
+
+        guard !Task.isCancelled else {
+            return
+        }
+
+        await requestAuthorizationAndRefresh()
     }
 
     func updateHealthDataSource(for kind: HealthMetricKind, option: BodyHealthDataSourceOption) async {
@@ -518,6 +609,73 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         await refreshHealthMetric(kind)
+    }
+
+    private func uniqueHealthDataSourceOptions(
+        for kinds: [HealthMetricKind]
+    ) -> [BodyHealthDataSourceOption] {
+        var optionsByID: [String: BodyHealthDataSourceOption] = [:]
+        for kind in kinds {
+            for option in healthDataSourceOptionsByKind[kind] ?? []
+            where !option.isAllSources && !option.isNoComparison {
+                optionsByID[option.id] = optionsByID[option.id] ?? option
+            }
+        }
+
+        return optionsByID.values.sorted { lhs, rhs in
+            if lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedSame {
+                return lhs.id < rhs.id
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private func includeSelectedSourceOptionIfNeeded(
+        selectedHealthDataSourceOption selectedOption: BodyHealthDataSourceOption,
+        in options: [BodyHealthDataSourceOption]
+    ) -> [BodyHealthDataSourceOption] {
+        guard !options.contains(where: { $0.id == selectedOption.id }) else {
+            return options
+        }
+
+        return options + [selectedOption]
+    }
+
+    private func resolvedHealthDataSourceOption(
+        _ option: BodyHealthDataSourceOption,
+        for kind: HealthMetricKind
+    ) -> BodyHealthDataSourceOption {
+        guard kind.supportsHealthDataSourceSelection,
+              !option.isAllSources,
+              !option.isNoComparison else {
+            return option.isNoComparison ? .allSources : option
+        }
+
+        guard healthDataSourceOptionsByKind[kind]?.contains(where: { $0.id == option.id }) == true else {
+            return .allSources
+        }
+
+        return option
+    }
+
+    private func resolvedSecondaryHealthDataSourceOption(
+        _ option: BodyHealthDataSourceOption,
+        for kind: HealthMetricKind
+    ) -> BodyHealthDataSourceOption {
+        guard kind.supportsSecondaryHealthDataSourceSelection,
+              !option.isNoComparison else {
+            return .noComparison
+        }
+
+        guard !option.isAllSources else {
+            return option
+        }
+
+        guard healthDataSourceOptionsByKind[kind]?.contains(where: { $0.id == option.id }) == true else {
+            return .noComparison
+        }
+
+        return option
     }
 
     func sourceComparisonTrend(for kind: HealthMetricKind) -> BodyHealthSourceComparisonTrend? {

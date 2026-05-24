@@ -2362,24 +2362,32 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             [
                 .heartRate,
                 .sleep,
+                .basics,
                 .heartRateVariability,
                 .restingHeartRate,
+                .respiratoryRate,
                 .steps,
                 .oxygenSaturation,
                 .activeEnergy,
                 .restingEnergy,
-                .exerciseMinutes
+                .exerciseMinutes,
+                .wristTemperature,
+                .timeInDaylight
             ]
         )
         XCTAssertTrue(HealthMetricKind.heartRate.supportsHealthDataSourceSelection)
         XCTAssertTrue(HealthMetricKind.sleep.supportsHealthDataSourceSelection)
+        XCTAssertTrue(HealthMetricKind.basics.supportsHealthDataSourceSelection)
         XCTAssertTrue(HealthMetricKind.heartRateVariability.supportsHealthDataSourceSelection)
         XCTAssertTrue(HealthMetricKind.restingHeartRate.supportsHealthDataSourceSelection)
+        XCTAssertTrue(HealthMetricKind.respiratoryRate.supportsHealthDataSourceSelection)
         XCTAssertTrue(HealthMetricKind.steps.supportsHealthDataSourceSelection)
         XCTAssertTrue(HealthMetricKind.oxygenSaturation.supportsHealthDataSourceSelection)
         XCTAssertTrue(HealthMetricKind.activeEnergy.supportsHealthDataSourceSelection)
         XCTAssertTrue(HealthMetricKind.restingEnergy.supportsHealthDataSourceSelection)
         XCTAssertTrue(HealthMetricKind.exerciseMinutes.supportsHealthDataSourceSelection)
+        XCTAssertTrue(HealthMetricKind.wristTemperature.supportsHealthDataSourceSelection)
+        XCTAssertTrue(HealthMetricKind.timeInDaylight.supportsHealthDataSourceSelection)
         XCTAssertFalse(HealthMetricKind.trainingLoad.supportsHealthDataSourceSelection)
     }
 
@@ -2514,18 +2522,90 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let oura = BodyHealthDataSourceOption(id: "com.ouraring.oura", name: "Oura")
 
         let selection = BodyHealthDataSourceSelection.defaultValue
+            .settingDefault(option: appleWatch)
             .setting(.heartRate, option: appleWatch)
             .setting(.sleep, option: oura)
 
+        XCTAssertEqual(selection.defaultOption, appleWatch)
         XCTAssertEqual(selection.option(for: .heartRate), appleWatch)
         XCTAssertEqual(selection.option(for: .sleep), oura)
-        XCTAssertEqual(selection.option(for: .steps), .allSources)
+        XCTAssertEqual(selection.option(for: .steps), appleWatch)
+        XCTAssertEqual(selection.option(for: .basics), appleWatch)
         XCTAssertFalse(selection.rawValue.isEmpty)
 
         let restoredSelection = BodyHealthDataSourceSelection.storedValue(from: selection.rawValue)
+        XCTAssertEqual(restoredSelection.defaultOption, appleWatch)
         XCTAssertEqual(restoredSelection.option(for: .heartRate), appleWatch)
         XCTAssertEqual(restoredSelection.option(for: .sleep), oura)
-        XCTAssertEqual(restoredSelection.option(for: .steps), .allSources)
+        XCTAssertEqual(restoredSelection.option(for: .steps), appleWatch)
+        XCTAssertEqual(restoredSelection.clearingOverride(for: .sleep).option(for: .sleep), appleWatch)
+    }
+
+    func testSecondaryDataSourceSelectionUsesGlobalDefaultUntilMetricOverride() {
+        let garmin = BodyHealthDataSourceOption(id: "com.garmin.connect", name: "Garmin")
+        let oura = BodyHealthDataSourceOption(id: "com.ouraring.oura", name: "Oura")
+
+        let selection = BodyHealthSecondaryDataSourceSelection.defaultValue
+            .settingDefault(option: garmin)
+            .setting(.sleep, option: oura)
+
+        XCTAssertEqual(selection.defaultOption, garmin)
+        XCTAssertEqual(selection.option(for: .heartRate), garmin)
+        XCTAssertEqual(selection.option(for: .sleep), oura)
+        XCTAssertEqual(selection.option(for: .respiratoryRate), .noComparison)
+
+        let restoredSelection = BodyHealthSecondaryDataSourceSelection.storedValue(from: selection.rawValue)
+        XCTAssertEqual(restoredSelection.defaultOption, garmin)
+        XCTAssertEqual(restoredSelection.option(for: .heartRate), garmin)
+        XCTAssertEqual(restoredSelection.option(for: .sleep), oura)
+        XCTAssertEqual(restoredSelection.clearingOverride(for: .sleep).option(for: .sleep), garmin)
+    }
+
+    func testCombinedHealthDataSourceOptionIdsUseNormalizedNames() {
+        let firstID = BodyHealthDataSourceOption.combinedSourceID(for: " iWatch X ")
+        let secondID = BodyHealthDataSourceOption.combinedSourceID(for: "iwatch x")
+        let compactID = BodyHealthDataSourceOption.combinedSourceID(for: "iWatchX")
+        let spacedIndividualID = BodyHealthDataSourceOption.individualSourceID(
+            bundleIdentifier: "com.apple.Health",
+            name: "iWatch X",
+            disambiguatesBundleIdentifier: true
+        )
+        let compactIndividualID = BodyHealthDataSourceOption.individualSourceID(
+            bundleIdentifier: "com.apple.Health",
+            name: "iWatchX",
+            disambiguatesBundleIdentifier: true
+        )
+
+        XCTAssertEqual(firstID, secondID)
+        XCTAssertEqual(firstID, compactID)
+        XCTAssertNotEqual(spacedIndividualID, compactIndividualID)
+        XCTAssertEqual(
+            BodyHealthDataSourceOption.individualSourceID(
+                bundleIdentifier: "com.apple.Health",
+                name: "iWatch X",
+                disambiguatesBundleIdentifier: false
+            ),
+            "com.apple.Health"
+        )
+        XCTAssertNotEqual(
+            BodyHealthDataSourceOption.individualSourceIdentityKey(
+                bundleIdentifier: "com.apple.Health",
+                name: "iWatch X"
+            ),
+            BodyHealthDataSourceOption.individualSourceIdentityKey(
+                bundleIdentifier: "com.apple.Health",
+                name: "iWatchX"
+            )
+        )
+        XCTAssertEqual(BodyHealthDataSourceOption.normalizedSourceName(" iWatch X "), "iwatchx")
+        XCTAssertEqual(BodyHealthDataSourceOption.normalizedSourceName("iWatchX"), "iwatchx")
+        XCTAssertEqual(BodyHealthDataSourceOption.combinedSourceDisplayName(for: " iWatch X "), "iWatchX")
+        XCTAssertNotEqual(
+            BodyHealthDataSourceOption.combinedSourceID(for: "Mi Fit"),
+            BodyHealthDataSourceOption.combinedSourceID(for: "MiFit")
+        )
+        XCTAssertTrue(BodyHealthDataSourceOption(id: firstID, name: "iWatchX").isCombinedSource)
+        XCTAssertFalse(BodyHealthDataSourceOption(id: "com.apple.Health", name: "Apple Watch").isCombinedSource)
     }
 
     func testHealthSummaryReplacingMetricOnlyChangesRequestedFields() {

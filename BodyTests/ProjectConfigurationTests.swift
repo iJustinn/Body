@@ -32,10 +32,29 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testSettingsDataTabsExposePermissions() {
-        XCTAssertEqual(BodySettingsDataTab.allCases.map(\.title), ["Permissions", "Data Refresh", "Cache"])
+        XCTAssertEqual(BodySettingsDataTab.allCases.map(\.title), ["Source", "Permissions", "Data Refresh", "Cache"])
+        XCTAssertEqual(BodySettingsDataTab.source.sheet, .source)
         XCTAssertEqual(BodySettingsDataTab.permissions.sheet, .permissions)
         XCTAssertEqual(BodySettingsDataTab.syncStatus.sheet, .syncStatus)
         XCTAssertEqual(BodySettingsDataTab.cache.sheet, .cache)
+    }
+
+    func testSettingsSourceSheetExposesGlobalDefaultsAndCombineToggle() throws {
+        let source = try text(at: "Body/Views/BodySettingsView.swift")
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let engineSource = try text(at: "Body/Services/HealthKitFetchEngine.swift")
+
+        XCTAssertTrue(source.contains("case source"))
+        XCTAssertTrue(source.contains("BodySourceSettingsSheet(workoutStore: workoutStore)"))
+        XCTAssertTrue(source.contains("Combine Sources with Same Name"))
+        XCTAssertTrue(source.contains("Primary Data Source"))
+        XCTAssertTrue(source.contains("Secondary Data Source"))
+        XCTAssertTrue(source.contains("updateCombinesHealthDataSourcesByName"))
+        XCTAssertTrue(source.contains("updateDefaultHealthDataSource"))
+        XCTAssertTrue(source.contains("updateDefaultSecondaryHealthDataSource"))
+        XCTAssertTrue(storeSource.contains("resolvedHealthDataSourceOption"))
+        XCTAssertTrue(storeSource.contains("resolvedSecondaryHealthDataSourceOption"))
+        XCTAssertTrue(engineSource.contains("selectedSecondaryHealthDataSourceOption(for: kind).isNoComparison"))
     }
 
     func testHealthPermissionTogglesUseGreenOnAndRedOffSwitchColors() throws {
@@ -399,20 +418,33 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(engineSource.contains("combinedPredicate(startDate:"))
         XCTAssertTrue(engineSource.contains("sourceKind: .heartRate"))
         XCTAssertTrue(engineSource.contains("sourceKind: .sleep"))
+        XCTAssertTrue(engineSource.contains("sourceKind: .basics"))
         XCTAssertTrue(engineSource.contains("sourceKind: .heartRateVariability"))
         XCTAssertTrue(engineSource.contains("sourceKind: .restingHeartRate"))
+        XCTAssertTrue(engineSource.contains("sourceKind: .respiratoryRate"))
         XCTAssertTrue(engineSource.contains("sourceKind: .steps"))
         XCTAssertTrue(engineSource.contains("sourceKind: .oxygenSaturation"))
         XCTAssertTrue(engineSource.contains("sourceKind: .activeEnergy"))
         XCTAssertTrue(engineSource.contains("sourceKind: .restingEnergy"))
         XCTAssertTrue(engineSource.contains("sourceKind: .exerciseMinutes"))
+        XCTAssertTrue(engineSource.contains("sourceKind: .wristTemperature"))
+        XCTAssertTrue(engineSource.contains("sourceKind: .timeInDaylight"))
         XCTAssertTrue(engineSource.contains("case .oxygenSaturation:"))
-        XCTAssertTrue(engineSource.contains("return HKObjectType.quantityType(forIdentifier: .oxygenSaturation)"))
-        XCTAssertTrue(engineSource.contains("return HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)"))
-        XCTAssertTrue(engineSource.contains("return HKObjectType.quantityType(forIdentifier: .basalEnergyBurned)"))
-        XCTAssertTrue(engineSource.contains("return HKObjectType.quantityType(forIdentifier: .appleExerciseTime)"))
+        XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: .bodyMass)"))
+        XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: .bodyFatPercentage)"))
+        XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: .bodyMassIndex)"))
+        XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: .oxygenSaturation)"))
+        XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)"))
+        XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: .basalEnergyBurned)"))
+        XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: .appleExerciseTime)"))
         XCTAssertTrue(engineSource.contains("HKSourceQuery("))
-        XCTAssertTrue(engineSource.contains("HKQuery.predicateForObjects(from: Set([source]))"))
+        XCTAssertTrue(engineSource.contains("HKQuery.predicateForObjects(from: source)"))
+        XCTAssertTrue(engineSource.contains("NSCompoundPredicate(orPredicateWithSubpredicates: sourcePredicates)"))
+        XCTAssertFalse(engineSource.contains("HKQuery.predicateForObjects(from: Set(sources))"))
+        XCTAssertTrue(engineSource.contains("BodyHealthDataSourceOption.individualSourceIdentityKey"))
+        XCTAssertTrue(engineSource.contains("BodyHealthDataSourceOption.individualSourceID"))
+        XCTAssertTrue(engineSource.contains("sourcesByID[sourceID, default: []].append(source)"))
+        XCTAssertFalse(engineSource.contains("sourcesByID[source.bundleIdentifier] = [source]"))
     }
 
     func testSourceSelectableBarAndRangeDetailsUsePrimarySecondaryComparisonCharts() throws {
@@ -1071,12 +1103,14 @@ final class ProjectConfigurationTests: XCTestCase {
         let howToUseBlock = String(settingsSource[howToUseStart...].prefix(5_500))
 
         XCTAssertTrue(howToUseBlock.contains(#"title: "Connect Apple Health""#))
+        XCTAssertTrue(howToUseBlock.contains("Open Data > Source to set default primary and secondary Apple Health sources or combine duplicate source names."))
         XCTAssertTrue(howToUseBlock.contains("Open Data > Permissions to choose which Apple Health categories Body uses inside the app."))
         XCTAssertTrue(howToUseBlock.contains("Open Data > Data Refresh to see the last refresh time or run Refresh Now."))
         XCTAssertTrue(howToUseBlock.contains(#"title: "Customize Metrics""#))
         XCTAssertTrue(howToUseBlock.contains("Use Metrics > Units to follow the system or choose weight, distance, energy, and temperature units manually."))
         XCTAssertTrue(howToUseBlock.contains("Use Metrics > Summary Cards, Charts Range, and Trend Cards to decide what appears on Summary and which default range charts open with."))
         XCTAssertTrue(howToUseBlock.contains(#"title: "Manage Cache""#))
+        XCTAssertTrue(howToUseBlock.contains("Use Data > Source for app-wide primary and secondary defaults, or tap the source picker on a metric detail to override that metric."))
         XCTAssertTrue(howToUseBlock.contains("Use Data > Cache to review cached dashboard, workout, and Activity Ring data."))
         XCTAssertTrue(howToUseBlock.contains("Clear Cache removes local snapshots; Rebuild Cache refreshes Apple Health and rebuilds the local files."))
         XCTAssertFalse(howToUseBlock.contains("Use Settings to change appearance, app accent, icon, and measurement units."))

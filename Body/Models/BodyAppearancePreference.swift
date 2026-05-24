@@ -23,6 +23,7 @@ enum BodyAppearancePreference {
     static let healthPermissionSelectionKey = "healthPermissionSelection"
     static let healthDataSourceSelectionKey = "healthDataSourceSelection"
     static let secondaryHealthDataSourceSelectionKey = "secondaryHealthDataSourceSelection"
+    static let combinesHealthDataSourcesByNameKey = "combinesHealthDataSourcesByName"
     static let bodyProIconShowsBackKey = "bodyProIconShowsBack"
     static let creatorSurpriseIconsUnlockedKey = "creatorSurpriseIconsUnlocked"
 
@@ -67,13 +68,17 @@ extension HealthMetricKind {
     static let sourceSelectableKinds: [HealthMetricKind] = [
         .heartRate,
         .sleep,
+        .basics,
         .heartRateVariability,
         .restingHeartRate,
+        .respiratoryRate,
         .steps,
         .oxygenSaturation,
         .activeEnergy,
         .restingEnergy,
-        .exerciseMinutes
+        .exerciseMinutes,
+        .wristTemperature,
+        .timeInDaylight
     ]
 
     var supportsHealthDataSourceSelection: Bool {
@@ -126,10 +131,14 @@ extension HealthMetricKind {
             return "Heart Rate"
         case .sleep:
             return "Sleep"
+        case .basics:
+            return "Basics"
         case .heartRateVariability:
             return "HRV"
         case .restingHeartRate:
             return "Resting Heart Rate"
+        case .respiratoryRate:
+            return "Respiratory Rate"
         case .steps:
             return "Steps"
         case .oxygenSaturation:
@@ -140,6 +149,10 @@ extension HealthMetricKind {
             return "Resting Energy"
         case .exerciseMinutes:
             return "Exercise Minutes"
+        case .wristTemperature:
+            return "Wrist Temperature"
+        case .timeInDaylight:
+            return "Time in Daylight"
         default:
             return "Data"
         }
@@ -354,6 +367,7 @@ struct BodyHealthPermissionSelection: Equatable {
 struct BodyHealthDataSourceOption: Codable, Equatable, Identifiable {
     static let allSources = BodyHealthDataSourceOption(id: "all", name: "Apple Health")
     static let noComparison = BodyHealthDataSourceOption(id: "none", name: "No Comparison")
+    private static let combinedSourcePrefix = "combined-name:"
 
     let id: String
     let name: String
@@ -365,22 +379,89 @@ struct BodyHealthDataSourceOption: Codable, Equatable, Identifiable {
     var isNoComparison: Bool {
         id == Self.noComparison.id
     }
+
+    var isCombinedSource: Bool {
+        id.hasPrefix(Self.combinedSourcePrefix)
+    }
+
+    static func normalizedSourceName(_ name: String) -> String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = trimmedName.isEmpty ? "Unknown Source" : trimmedName
+        let normalizedName = displayName
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+
+        if normalizedName == "iwatch x" || normalizedName == "iwatchx" {
+            return "iwatchx"
+        }
+
+        return normalizedName
+    }
+
+    static func combinedSourceDisplayName(for name: String) -> String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = trimmedName.isEmpty ? "Unknown Source" : trimmedName
+        return normalizedSourceName(displayName) == "iwatchx" ? "iWatchX" : displayName
+    }
+
+    static func individualSourceIdentityKey(bundleIdentifier: String, name: String) -> String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = trimmedName.isEmpty ? "Unknown Source" : trimmedName
+        let nameKey = displayName
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+        return "bundle=\(bundleIdentifier)|name=\(nameKey)"
+    }
+
+    static func individualSourceID(
+        bundleIdentifier: String,
+        name: String,
+        disambiguatesBundleIdentifier: Bool
+    ) -> String {
+        guard disambiguatesBundleIdentifier else {
+            return bundleIdentifier
+        }
+
+        return "source:\(individualSourceIdentityKey(bundleIdentifier: bundleIdentifier, name: name))"
+    }
+
+    static func combinedSourceID(for name: String) -> String {
+        combinedSourcePrefix + normalizedSourceName(name)
+    }
 }
 
 struct BodyHealthDataSourceSelection: Equatable {
-    static let defaultValue = BodyHealthDataSourceSelection(selectedOptions: [:])
+    private struct Storage: Codable {
+        var defaultOption: BodyHealthDataSourceOption?
+        var selectedOptions: [String: BodyHealthDataSourceOption]?
+    }
+
+    static let defaultValue = BodyHealthDataSourceSelection(defaultOption: .allSources, selectedOptions: [:])
     static var defaultRawValue: String {
         defaultValue.rawValue
     }
 
+    var defaultOption: BodyHealthDataSourceOption
     var selectedOptions: [HealthMetricKind: BodyHealthDataSourceOption]
+
+    init(
+        defaultOption: BodyHealthDataSourceOption = .allSources,
+        selectedOptions: [HealthMetricKind: BodyHealthDataSourceOption]
+    ) {
+        self.defaultOption = defaultOption.isNoComparison ? .allSources : defaultOption
+        self.selectedOptions = selectedOptions
+    }
 
     var rawValue: String {
         let storage = Dictionary(uniqueKeysWithValues: selectedOptions.map { kind, option in
             (kind.rawValue, option)
         })
+        let encodedStorage = Storage(
+            defaultOption: defaultOption.isAllSources ? nil : defaultOption,
+            selectedOptions: storage.isEmpty ? nil : storage
+        )
 
-        guard let data = try? JSONEncoder().encode(storage),
+        guard let data = try? JSONEncoder().encode(encodedStorage),
               let value = String(data: data, encoding: .utf8)
         else {
             return "{}"
@@ -394,7 +475,7 @@ struct BodyHealthDataSourceSelection: Equatable {
             return .allSources
         }
 
-        return selectedOptions[kind] ?? .allSources
+        return selectedOptions[kind] ?? defaultOption
     }
 
     func setting(_ kind: HealthMetricKind, option: BodyHealthDataSourceOption) -> BodyHealthDataSourceSelection {
@@ -403,13 +484,22 @@ struct BodyHealthDataSourceSelection: Equatable {
         }
 
         var nextOptions = selectedOptions
-        if option.isAllSources {
-            nextOptions.removeValue(forKey: kind)
-        } else {
-            nextOptions[kind] = option
-        }
+        nextOptions[kind] = option.isNoComparison ? .allSources : option
 
-        return BodyHealthDataSourceSelection(selectedOptions: nextOptions)
+        return BodyHealthDataSourceSelection(defaultOption: defaultOption, selectedOptions: nextOptions)
+    }
+
+    func settingDefault(option: BodyHealthDataSourceOption) -> BodyHealthDataSourceSelection {
+        BodyHealthDataSourceSelection(
+            defaultOption: option.isNoComparison ? .allSources : option,
+            selectedOptions: selectedOptions
+        )
+    }
+
+    func clearingOverride(for kind: HealthMetricKind) -> BodyHealthDataSourceSelection {
+        var nextOptions = selectedOptions
+        nextOptions.removeValue(forKey: kind)
+        return BodyHealthDataSourceSelection(defaultOption: defaultOption, selectedOptions: nextOptions)
     }
 
     static func storedValue(from rawValue: String) -> BodyHealthDataSourceSelection {
@@ -418,22 +508,37 @@ struct BodyHealthDataSourceSelection: Equatable {
             return defaultValue
         }
 
-        guard let storage = try? JSONDecoder().decode([String: BodyHealthDataSourceOption].self, from: data) else {
+        if let storage = try? JSONDecoder().decode(Storage.self, from: data),
+           storage.defaultOption != nil || storage.selectedOptions != nil {
+            let selectedOptionPairs: [(HealthMetricKind, BodyHealthDataSourceOption)] = (storage.selectedOptions ?? [:]).compactMap { rawKind, option in
+                guard let kind = HealthMetricKind(rawValue: rawKind),
+                      kind.supportsHealthDataSourceSelection else {
+                    return nil
+                }
+
+                return (kind, option.isNoComparison ? .allSources : option)
+            }
+            return BodyHealthDataSourceSelection(
+                defaultOption: storage.defaultOption ?? .allSources,
+                selectedOptions: Dictionary(uniqueKeysWithValues: selectedOptionPairs)
+            )
+        }
+
+        guard let legacyStorage = try? JSONDecoder().decode([String: BodyHealthDataSourceOption].self, from: data) else {
             return defaultValue
         }
 
-        let selectedOptionPairs: [(HealthMetricKind, BodyHealthDataSourceOption)] = storage.compactMap { rawKind, option in
+        let selectedOptionPairs: [(HealthMetricKind, BodyHealthDataSourceOption)] = legacyStorage.compactMap { rawKind, option in
             guard let kind = HealthMetricKind(rawValue: rawKind),
-                  kind.supportsHealthDataSourceSelection,
-                  !option.isAllSources else {
+                  kind.supportsHealthDataSourceSelection else {
                 return nil
             }
 
-            return (kind, option)
+            return (kind, option.isNoComparison ? .allSources : option)
         }
         let selectedOptions = Dictionary(uniqueKeysWithValues: selectedOptionPairs)
 
-        return BodyHealthDataSourceSelection(selectedOptions: selectedOptions)
+        return BodyHealthDataSourceSelection(defaultOption: .allSources, selectedOptions: selectedOptions)
     }
 
     static func load(defaults: UserDefaults = .standard) -> BodyHealthDataSourceSelection {
@@ -449,19 +554,37 @@ struct BodyHealthDataSourceSelection: Equatable {
 }
 
 struct BodyHealthSecondaryDataSourceSelection: Equatable {
-    static let defaultValue = BodyHealthSecondaryDataSourceSelection(selectedOptions: [:])
+    private struct Storage: Codable {
+        var defaultOption: BodyHealthDataSourceOption?
+        var selectedOptions: [String: BodyHealthDataSourceOption]?
+    }
+
+    static let defaultValue = BodyHealthSecondaryDataSourceSelection(defaultOption: .noComparison, selectedOptions: [:])
     static var defaultRawValue: String {
         defaultValue.rawValue
     }
 
+    var defaultOption: BodyHealthDataSourceOption
     var selectedOptions: [HealthMetricKind: BodyHealthDataSourceOption]
+
+    init(
+        defaultOption: BodyHealthDataSourceOption = .noComparison,
+        selectedOptions: [HealthMetricKind: BodyHealthDataSourceOption]
+    ) {
+        self.defaultOption = defaultOption.isNoComparison ? .noComparison : defaultOption
+        self.selectedOptions = selectedOptions
+    }
 
     var rawValue: String {
         let storage = Dictionary(uniqueKeysWithValues: selectedOptions.map { kind, option in
             (kind.rawValue, option)
         })
+        let encodedStorage = Storage(
+            defaultOption: defaultOption.isNoComparison ? nil : defaultOption,
+            selectedOptions: storage.isEmpty ? nil : storage
+        )
 
-        guard let data = try? JSONEncoder().encode(storage),
+        guard let data = try? JSONEncoder().encode(encodedStorage),
               let value = String(data: data, encoding: .utf8)
         else {
             return "{}"
@@ -475,7 +598,7 @@ struct BodyHealthSecondaryDataSourceSelection: Equatable {
             return .noComparison
         }
 
-        return selectedOptions[kind] ?? .noComparison
+        return selectedOptions[kind] ?? defaultOption
     }
 
     func setting(_ kind: HealthMetricKind, option: BodyHealthDataSourceOption) -> BodyHealthSecondaryDataSourceSelection {
@@ -484,19 +607,28 @@ struct BodyHealthSecondaryDataSourceSelection: Equatable {
         }
 
         var nextOptions = selectedOptions
-        if option.isNoComparison {
-            nextOptions.removeValue(forKey: kind)
-        } else {
-            nextOptions[kind] = option
-        }
+        nextOptions[kind] = option
 
-        return BodyHealthSecondaryDataSourceSelection(selectedOptions: nextOptions)
+        return BodyHealthSecondaryDataSourceSelection(defaultOption: defaultOption, selectedOptions: nextOptions)
+    }
+
+    func settingDefault(option: BodyHealthDataSourceOption) -> BodyHealthSecondaryDataSourceSelection {
+        BodyHealthSecondaryDataSourceSelection(
+            defaultOption: option,
+            selectedOptions: selectedOptions
+        )
+    }
+
+    func clearingOverride(for kind: HealthMetricKind) -> BodyHealthSecondaryDataSourceSelection {
+        var nextOptions = selectedOptions
+        nextOptions.removeValue(forKey: kind)
+        return BodyHealthSecondaryDataSourceSelection(defaultOption: defaultOption, selectedOptions: nextOptions)
     }
 
     var signature: String {
-        selectedOptions
+        (["default=\(defaultOption.id)"] + selectedOptions
             .sorted { $0.key.rawValue < $1.key.rawValue }
-            .map { "\($0.key.rawValue)=\($0.value.id)" }
+            .map { "\($0.key.rawValue)=\($0.value.id)" })
             .joined(separator: "|")
     }
 
@@ -506,14 +638,29 @@ struct BodyHealthSecondaryDataSourceSelection: Equatable {
             return defaultValue
         }
 
-        guard let storage = try? JSONDecoder().decode([String: BodyHealthDataSourceOption].self, from: data) else {
+        if let storage = try? JSONDecoder().decode(Storage.self, from: data),
+           storage.defaultOption != nil || storage.selectedOptions != nil {
+            let selectedOptionPairs: [(HealthMetricKind, BodyHealthDataSourceOption)] = (storage.selectedOptions ?? [:]).compactMap { rawKind, option in
+                guard let kind = HealthMetricKind(rawValue: rawKind),
+                      kind.supportsSecondaryHealthDataSourceSelection else {
+                    return nil
+                }
+
+                return (kind, option)
+            }
+            return BodyHealthSecondaryDataSourceSelection(
+                defaultOption: storage.defaultOption ?? .noComparison,
+                selectedOptions: Dictionary(uniqueKeysWithValues: selectedOptionPairs)
+            )
+        }
+
+        guard let legacyStorage = try? JSONDecoder().decode([String: BodyHealthDataSourceOption].self, from: data) else {
             return defaultValue
         }
 
-        let selectedOptionPairs: [(HealthMetricKind, BodyHealthDataSourceOption)] = storage.compactMap { rawKind, option in
+        let selectedOptionPairs: [(HealthMetricKind, BodyHealthDataSourceOption)] = legacyStorage.compactMap { rawKind, option in
             guard let kind = HealthMetricKind(rawValue: rawKind),
-                  kind.supportsSecondaryHealthDataSourceSelection,
-                  !option.isNoComparison else {
+                  kind.supportsSecondaryHealthDataSourceSelection else {
                 return nil
             }
 
@@ -521,7 +668,7 @@ struct BodyHealthSecondaryDataSourceSelection: Equatable {
         }
         let selectedOptions = Dictionary(uniqueKeysWithValues: selectedOptionPairs)
 
-        return BodyHealthSecondaryDataSourceSelection(selectedOptions: selectedOptions)
+        return BodyHealthSecondaryDataSourceSelection(defaultOption: .noComparison, selectedOptions: selectedOptions)
     }
 
     static func load(defaults: UserDefaults = .standard) -> BodyHealthSecondaryDataSourceSelection {

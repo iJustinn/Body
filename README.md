@@ -32,7 +32,7 @@ Current app version: **0.5.6 (build 4)**
 - **Pull-to-refresh feedback** - Summary, metric detail, and Workouts each show a "Loading data..." overlay during pull-to-refresh that stays on screen until the underlying HealthKit refresh actually finishes, including waiting for any background sync already in flight.
 - **Widgets** - Large workout calendar widget (monthly tiles using SF workout icons, with star/moon/sun count markers) and large workout types widget (percentage-bar breakdown by type). System, Black, and White background choices.
 - **Apple Health sync** - Read-only access to workouts, activity rings, sleep, heart, body measurements, energy, daylight, steps, exercise minutes, and wrist temperature. Workout summaries and dashboard snapshots are written to App Group storage for widgets.
-- **Settings** - Appearance, Units, app icon selection, Data > Permissions to hide categories from the dashboard, and About rows.
+- **Settings** - Appearance, Units, app icon selection, Data > Source defaults for Apple Health sources, Data > Permissions to hide categories from the dashboard, and About rows.
 - **Local-first** - Widgets read a cached JSON snapshot from the app group; they do not query HealthKit directly. A May 2026 seed snapshot keeps the UI useful before authorization. The dashboard cache invalidates stale secondary-source series automatically when the user changes a comparison source between launches.
 
 ## Requirements
@@ -62,7 +62,7 @@ Body/
 
 ## Privacy
 
-Body reads Apple Health data only after permission is granted. Users can hide categories in Settings > Data > Permissions without changing system-level authorization. Workout summaries are stored locally and mirrored to the widget through the app group's shared `UserDefaults`. Body does not collect tracking data.
+Body reads Apple Health data only after permission is granted. Users can choose default Apple Health sources in Settings > Data > Source and hide categories in Settings > Data > Permissions without changing system-level authorization. Workout summaries are stored locally and mirrored to the widget through the app group's shared `UserDefaults`. Body does not collect tracking data.
 
 ## Documentation
 

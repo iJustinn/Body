@@ -286,6 +286,28 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(duration, 17_100)
     }
 
+    func testSleepStageSegmentsPreserveUnspecifiedSamplesThatAddCoverage() throws {
+        let calendar = Calendar.bodyGregorian
+        let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))
+        let coreStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 1)))
+        let coreEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 3)))
+        let unspecifiedStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 2)))
+        let unspecifiedEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 5)))
+
+        let segments = HealthKitFetchEngine.sleepStageSegments(
+            from: [
+                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.asleepCore.rawValue, start: coreStart, end: coreEnd),
+                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.asleep.rawValue, start: unspecifiedStart, end: unspecifiedEnd)
+            ]
+        )
+
+        XCTAssertEqual(segments.map(\.stage), [SleepStage.core, .core])
+        XCTAssertEqual(segments[0].startDate, coreStart)
+        XCTAssertEqual(segments[0].endDate, coreEnd)
+        XCTAssertEqual(segments[1].startDate, coreEnd)
+        XCTAssertEqual(segments[1].endDate, unspecifiedEnd)
+    }
+
     private func cachedHealthDashboardSnapshot() throws -> HealthDashboardSnapshot {
         let calendar = Calendar.bodyGregorian
         let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 10)))

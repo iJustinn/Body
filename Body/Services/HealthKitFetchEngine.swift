@@ -17,8 +17,9 @@ actor HealthKitFetchEngine {
     private var permissionSelection: BodyHealthPermissionSelection
     private var healthDataSourceSelection: BodyHealthDataSourceSelection
     private var secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection
+    private var combinesHealthDataSourcesByName: Bool
 
-    private var healthSourcesByKind: [HealthMetricKind: [String: HKSource]] = [:]
+    private var healthSourcesByKind: [HealthMetricKind: [String: [HKSource]]] = [:]
     private var fetchedHealthDataSourcePermissionRawValue: String?
 
     private var anchorDate: Date?
@@ -41,11 +42,13 @@ actor HealthKitFetchEngine {
     init(
         permission: BodyHealthPermissionSelection,
         healthDataSourceSelection: BodyHealthDataSourceSelection,
-        secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection
+        secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection,
+        combinesHealthDataSourcesByName: Bool
     ) {
         self.permissionSelection = permission
         self.healthDataSourceSelection = healthDataSourceSelection
         self.secondaryHealthDataSourceSelection = secondaryHealthDataSourceSelection
+        self.combinesHealthDataSourcesByName = combinesHealthDataSourcesByName
     }
 
     // MARK: - Selection setters
@@ -60,6 +63,15 @@ actor HealthKitFetchEngine {
 
     func setSecondaryHealthDataSourceSelection(_ selection: BodyHealthSecondaryDataSourceSelection) {
         secondaryHealthDataSourceSelection = selection
+    }
+
+    func setCombinesHealthDataSourcesByName(_ combines: Bool) {
+        guard combinesHealthDataSourcesByName != combines else {
+            return
+        }
+
+        combinesHealthDataSourcesByName = combines
+        clearSourceCache()
     }
 
     func setHealthTrendAnchorDate(_ date: Date?) {
@@ -162,12 +174,16 @@ actor HealthKitFetchEngine {
         switch kind {
         case .sleep:
             return .sleep
+        case .basics:
+            return .basics
         case .steps:
             return .steps
         case .heartRate,
              .restingHeartRate,
              .heartRateVariability:
             return .heart
+        case .respiratoryRate:
+            return .respiratory
         case .oxygenSaturation:
             return .bloodOxygen
         case .activeEnergy,
@@ -175,33 +191,53 @@ actor HealthKitFetchEngine {
             return .energy
         case .exerciseMinutes:
             return .exerciseMinutes
+        case .wristTemperature:
+            return .wristTemperature
+        case .timeInDaylight:
+            return .timeInDaylight
         default:
             return .heart
         }
     }
 
     private func healthSampleType(forSourceKind kind: HealthMetricKind) -> HKSampleType? {
+        healthSampleTypes(forSourceKind: kind).first
+    }
+
+    private func healthSampleTypes(forSourceKind kind: HealthMetricKind) -> [HKSampleType] {
         switch kind {
         case .sleep:
-            return HKObjectType.categoryType(forIdentifier: .sleepAnalysis)
+            return [HKObjectType.categoryType(forIdentifier: .sleepAnalysis)].compactMap { $0 }
+        case .basics:
+            return [
+                HKObjectType.quantityType(forIdentifier: .bodyMass),
+                HKObjectType.quantityType(forIdentifier: .bodyFatPercentage),
+                HKObjectType.quantityType(forIdentifier: .bodyMassIndex)
+            ].compactMap { $0 }
         case .heartRate:
-            return HKObjectType.quantityType(forIdentifier: .heartRate)
+            return [HKObjectType.quantityType(forIdentifier: .heartRate)].compactMap { $0 }
         case .restingHeartRate:
-            return HKObjectType.quantityType(forIdentifier: .restingHeartRate)
+            return [HKObjectType.quantityType(forIdentifier: .restingHeartRate)].compactMap { $0 }
         case .heartRateVariability:
-            return HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN)
+            return [HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN)].compactMap { $0 }
+        case .respiratoryRate:
+            return [HKObjectType.quantityType(forIdentifier: .respiratoryRate)].compactMap { $0 }
         case .steps:
-            return HKObjectType.quantityType(forIdentifier: .stepCount)
+            return [HKObjectType.quantityType(forIdentifier: .stepCount)].compactMap { $0 }
         case .oxygenSaturation:
-            return HKObjectType.quantityType(forIdentifier: .oxygenSaturation)
+            return [HKObjectType.quantityType(forIdentifier: .oxygenSaturation)].compactMap { $0 }
         case .activeEnergy:
-            return HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)
+            return [HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)].compactMap { $0 }
         case .restingEnergy:
-            return HKObjectType.quantityType(forIdentifier: .basalEnergyBurned)
+            return [HKObjectType.quantityType(forIdentifier: .basalEnergyBurned)].compactMap { $0 }
         case .exerciseMinutes:
-            return HKObjectType.quantityType(forIdentifier: .appleExerciseTime)
+            return [HKObjectType.quantityType(forIdentifier: .appleExerciseTime)].compactMap { $0 }
+        case .wristTemperature:
+            return [HKObjectType.quantityType(forIdentifier: .appleSleepingWristTemperature)].compactMap { $0 }
+        case .timeInDaylight:
+            return [HKObjectType.quantityType(forIdentifier: .timeInDaylight)].compactMap { $0 }
         default:
-            return nil
+            return []
         }
     }
 
@@ -218,11 +254,21 @@ actor HealthKitFetchEngine {
         let option = explicitOption ?? healthDataSourceSelection.option(for: kind)
         guard !option.isAllSources,
               !option.isNoComparison,
-              let source = healthSourcesByKind[kind]?[option.id] else {
+              let sources = healthSourcesByKind[kind]?[option.id],
+              !sources.isEmpty else {
             return nil
         }
 
-        return HKQuery.predicateForObjects(from: Set([source]))
+        guard sources.count > 1 else {
+            return sources.first.map { source in
+                HKQuery.predicateForObjects(from: source)
+            }
+        }
+
+        let sourcePredicates = sources.map { source in
+            HKQuery.predicateForObjects(from: source)
+        }
+        return NSCompoundPredicate(orPredicateWithSubpredicates: sourcePredicates)
     }
 
     private func combinedPredicate(
@@ -307,15 +353,64 @@ actor HealthKitFetchEngine {
         default defaultValue: Value,
         operation: () async -> Value
     ) async -> Value {
-        guard !secondaryHealthDataSourceSelection.option(for: kind).isNoComparison else {
+        guard !selectedSecondaryHealthDataSourceOption(for: kind).isNoComparison else {
             return defaultValue
         }
 
         return await fetchIfPermitted(permission, default: defaultValue, operation: operation)
     }
 
+    private func selectedHealthDataSourceOption(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
+        resolvedHealthDataSourceOption(healthDataSourceSelection.option(for: kind), for: kind)
+    }
+
     private func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
-        secondaryHealthDataSourceSelection.option(for: kind)
+        let option = resolvedSecondaryHealthDataSourceOption(
+            secondaryHealthDataSourceSelection.option(for: kind),
+            for: kind
+        )
+        guard option.id != selectedHealthDataSourceOption(for: kind).id else {
+            return .noComparison
+        }
+
+        return option
+    }
+
+    private func resolvedHealthDataSourceOption(
+        _ option: BodyHealthDataSourceOption,
+        for kind: HealthMetricKind
+    ) -> BodyHealthDataSourceOption {
+        guard kind.supportsHealthDataSourceSelection,
+              !option.isAllSources,
+              !option.isNoComparison else {
+            return option.isNoComparison ? .allSources : option
+        }
+
+        guard healthSourcesByKind[kind]?[option.id]?.isEmpty == false else {
+            return .allSources
+        }
+
+        return option
+    }
+
+    private func resolvedSecondaryHealthDataSourceOption(
+        _ option: BodyHealthDataSourceOption,
+        for kind: HealthMetricKind
+    ) -> BodyHealthDataSourceOption {
+        guard kind.supportsSecondaryHealthDataSourceSelection,
+              !option.isNoComparison else {
+            return .noComparison
+        }
+
+        guard !option.isAllSources else {
+            return option
+        }
+
+        guard healthSourcesByKind[kind]?[option.id]?.isEmpty == false else {
+            return .noComparison
+        }
+
+        return option
     }
 
     // MARK: - Quantity / sample helpers
@@ -1232,7 +1327,8 @@ actor HealthKitFetchEngine {
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 startDate: startDate,
                 endDate: endDate,
-                aggregation: .average
+                aggregation: .average,
+                sourceKind: .respiratoryRate
             )
         }
         async let oxygenSaturation: HealthMetricSummary? = fetchIfPermitted(.bloodOxygen, default: nil) {
@@ -1252,7 +1348,8 @@ actor HealthKitFetchEngine {
                 unit: .degreeCelsius(),
                 startDate: startDate,
                 endDate: endDate,
-                aggregation: .average
+                aggregation: .average,
+                sourceKind: .wristTemperature
             )
         }
 
@@ -1530,31 +1627,16 @@ actor HealthKitFetchEngine {
         }
 
         var nextOptionsByKind: [HealthMetricKind: [BodyHealthDataSourceOption]] = [:]
-        var nextSourcesByKind: [HealthMetricKind: [String: HKSource]] = [:]
+        var nextSourcesByKind: [HealthMetricKind: [String: [HKSource]]] = [:]
 
         for kind in HealthMetricKind.sourceSelectableKinds {
             guard permissionSelection.includes(healthPermission(forSourceKind: kind)),
-                  let sampleType = healthSampleType(forSourceKind: kind) else {
+                  !healthSampleTypes(forSourceKind: kind).isEmpty else {
                 continue
             }
 
-            let sources = await fetchHealthDataSources(for: sampleType)
-            let sortedSources = sources.sorted { lhs, rhs in
-                lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-            }
-
-            var options: [BodyHealthDataSourceOption] = []
-            var sourcesByID: [String: HKSource] = [:]
-            for source in sortedSources where sourcesByID[source.bundleIdentifier] == nil {
-                let option = BodyHealthDataSourceOption(
-                    id: source.bundleIdentifier,
-                    name: source.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? "Unknown Source"
-                        : source.name
-                )
-                options.append(option)
-                sourcesByID[option.id] = source
-            }
+            let sources = await fetchHealthDataSources(for: healthSampleTypes(forSourceKind: kind))
+            let (options, sourcesByID) = sourceOptionsAndMap(from: sources)
 
             nextOptionsByKind[kind] = options
             nextSourcesByKind[kind] = sourcesByID
@@ -1563,6 +1645,111 @@ actor HealthKitFetchEngine {
         healthSourcesByKind = nextSourcesByKind
         fetchedHealthDataSourcePermissionRawValue = permissionRawValue
         return nextOptionsByKind
+    }
+
+    private func sourceOptionsAndMap(
+        from sources: [HKSource]
+    ) -> (options: [BodyHealthDataSourceOption], sourcesByID: [String: [HKSource]]) {
+        let sortedSources = sources.sorted { lhs, rhs in
+            let lhsName = displayName(for: lhs)
+            let rhsName = displayName(for: rhs)
+            if lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedSame {
+                return lhs.bundleIdentifier < rhs.bundleIdentifier
+            }
+            return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending
+        }
+
+        var sourcesByID: [String: [HKSource]] = [:]
+        let duplicateNameBundleIdentifiers = Set(
+            Dictionary(grouping: sortedSources, by: \.bundleIdentifier)
+                .compactMap { bundleIdentifier, sources in
+                    let sourceNameKeys = Set(sources.map { source in
+                        BodyHealthDataSourceOption.individualSourceIdentityKey(
+                            bundleIdentifier: source.bundleIdentifier,
+                            name: displayName(for: source)
+                        )
+                    })
+                    return sourceNameKeys.count > 1 ? bundleIdentifier : nil
+                }
+        )
+        for source in sortedSources {
+            let sourceID = BodyHealthDataSourceOption.individualSourceID(
+                bundleIdentifier: source.bundleIdentifier,
+                name: displayName(for: source),
+                disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(source.bundleIdentifier)
+            )
+            sourcesByID[sourceID, default: []].append(source)
+        }
+
+        let groupedSources = Dictionary(grouping: sortedSources) { source in
+            BodyHealthDataSourceOption.normalizedSourceName(displayName(for: source))
+        }
+        for group in groupedSources.values where group.count > 1 {
+            let displayName = displayName(for: group[0])
+            sourcesByID[BodyHealthDataSourceOption.combinedSourceID(for: displayName)] = group
+        }
+
+        let options: [BodyHealthDataSourceOption]
+        if combinesHealthDataSourcesByName {
+            options = groupedSources.values.map { group in
+                let displayName = displayName(for: group[0])
+                let optionID = group.count > 1
+                    ? BodyHealthDataSourceOption.combinedSourceID(for: displayName)
+                    : BodyHealthDataSourceOption.individualSourceID(
+                        bundleIdentifier: group[0].bundleIdentifier,
+                        name: displayName,
+                        disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(group[0].bundleIdentifier)
+                    )
+                return BodyHealthDataSourceOption(
+                    id: optionID,
+                    name: BodyHealthDataSourceOption.combinedSourceDisplayName(for: displayName)
+                )
+            }
+        } else {
+            options = sortedSources.map { source in
+                let displayName = displayName(for: source)
+                return BodyHealthDataSourceOption(
+                    id: BodyHealthDataSourceOption.individualSourceID(
+                        bundleIdentifier: source.bundleIdentifier,
+                        name: displayName,
+                        disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(source.bundleIdentifier)
+                    ),
+                    name: displayName
+                )
+            }
+        }
+
+        return (
+            options.sorted { lhs, rhs in
+                if lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedSame {
+                    return lhs.id < rhs.id
+                }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            },
+            sourcesByID
+        )
+    }
+
+    private func displayName(for source: HKSource) -> String {
+        let trimmedName = source.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedName.isEmpty ? "Unknown Source" : trimmedName
+    }
+
+    private func fetchHealthDataSources(for sampleTypes: [HKSampleType]) async -> [HKSource] {
+        var sourcesByIdentifier: [String: HKSource] = [:]
+        for sampleType in sampleTypes {
+            let sources = await fetchHealthDataSources(for: sampleType)
+            for source in sources {
+                let sourceKey = BodyHealthDataSourceOption.individualSourceIdentityKey(
+                    bundleIdentifier: source.bundleIdentifier,
+                    name: displayName(for: source)
+                )
+                if sourcesByIdentifier[sourceKey] == nil {
+                    sourcesByIdentifier[sourceKey] = source
+                }
+            }
+        }
+        return Array(sourcesByIdentifier.values)
     }
 
     private func fetchHealthDataSources(for sampleType: HKSampleType) async -> [HKSource] {
@@ -1830,6 +2017,7 @@ actor HealthKitFetchEngine {
                 for: .respiratoryRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 calendar: calendar,
+                sourceKind: .respiratoryRate,
                 startDate: startDate,
                 endDate: endDate
             )
@@ -1919,12 +2107,13 @@ actor HealthKitFetchEngine {
             )
         }
         async let bodyMass: HealthMetricSummary? = fetchIfPermitted(.basics, default: nil) {
-            await latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo))
+            await latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
         }
         async let bodyFatPercentage: HealthMetricSummary? = fetchIfPermitted(.basics, default: nil) {
             await latestQuantity(
                 for: .bodyFatPercentage,
                 unit: .percent(),
+                sourceKind: .basics,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         }
@@ -1938,7 +2127,8 @@ actor HealthKitFetchEngine {
         async let respiratoryRate: HealthMetricSummary? = fetchIfPermitted(.respiratory, default: nil) {
             await latestQuantity(
                 for: .respiratoryRate,
-                unit: HKUnit.count().unitDivided(by: .minute())
+                unit: HKUnit.count().unitDivided(by: .minute()),
+                sourceKind: .respiratoryRate
             )
         }
         async let oxygenSaturation: HealthMetricSummary? = fetchIfPermitted(.bloodOxygen, default: nil) {
@@ -1950,7 +2140,7 @@ actor HealthKitFetchEngine {
             )
         }
         async let bodyMassIndex: HealthMetricSummary? = fetchIfPermitted(.basics, default: nil) {
-            await latestQuantity(for: .bodyMassIndex, unit: .count())
+            await latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
         }
         async let activeEnergy: HealthMetricSummary? = fetchIfPermitted(.energy, default: nil) {
             await dailyCumulativeQuantitySummary(
@@ -1984,14 +2174,16 @@ actor HealthKitFetchEngine {
                 for: .appleSleepingWristTemperature,
                 unit: .degreeCelsius(),
                 aggregation: .average,
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .wristTemperature
             )
         }
         async let timeInDaylight: HealthMetricSummary? = fetchIfPermitted(.timeInDaylight, default: nil) {
             await dailyCumulativeQuantitySummary(
                 for: .timeInDaylight,
                 unit: .minute(),
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .timeInDaylight
             )
         }
         async let steps: HealthMetricSummary? = fetchIfPermitted(.steps, default: nil) {
@@ -2079,7 +2271,8 @@ actor HealthKitFetchEngine {
                 for: .bodyMass,
                 unit: .gramUnit(with: .kilo),
                 aggregation: .latest,
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .basics
             )
         }
         async let bodyFatPercentage = fetchIfPermitted(.basics, default: HealthTrendSeries.empty) {
@@ -2088,6 +2281,7 @@ actor HealthKitFetchEngine {
                 unit: .percent(),
                 aggregation: .latest,
                 calendar: calendar,
+                sourceKind: .basics,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         }
@@ -2112,7 +2306,8 @@ actor HealthKitFetchEngine {
             await fetchDailyQuantityAverageAndRangeSeries(
                 for: .respiratoryRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .respiratoryRate
             )
         }
         async let oxygenSaturationPair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchIfPermitted(
@@ -2139,7 +2334,8 @@ actor HealthKitFetchEngine {
                 for: .bodyMassIndex,
                 unit: .count(),
                 aggregation: .latest,
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .basics
             )
         }
         async let activeEnergy = fetchIfPermitted(.energy, default: HealthTrendSeries.empty) {
@@ -2183,14 +2379,16 @@ actor HealthKitFetchEngine {
                 for: .appleSleepingWristTemperature,
                 unit: .degreeCelsius(),
                 aggregation: .average,
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .wristTemperature
             )
         }
         async let timeInDaylight = fetchIfPermitted(.timeInDaylight, default: HealthTrendSeries.empty) {
             await fetchDailyCumulativeQuantitySeries(
                 for: .timeInDaylight,
                 unit: .minute(),
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .timeInDaylight
             )
         }
         async let steps = fetchIfPermitted(.steps, default: HealthTrendSeries.empty) {
@@ -2296,31 +2494,35 @@ actor HealthKitFetchEngine {
             trends.sleepSecondary = await sleepSecondaryTrend
             trends.sleepHistory = fetchedSleepHistory
         case .basics:
-            async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo))
+            async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
             async let bodyFatPercentage = latestQuantity(
                 for: .bodyFatPercentage,
                 unit: .percent(),
+                sourceKind: .basics,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
-            async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count())
+            async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
             async let bodyMassTrend = fetchDailyQuantitySeries(
                 for: .bodyMass,
                 unit: .gramUnit(with: .kilo),
                 aggregation: .latest,
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .basics
             )
             async let bodyFatPercentageTrend = fetchDailyQuantitySeries(
                 for: .bodyFatPercentage,
                 unit: .percent(),
                 aggregation: .latest,
                 calendar: calendar,
+                sourceKind: .basics,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
             async let bodyMassIndexTrend = fetchDailyQuantitySeries(
                 for: .bodyMassIndex,
                 unit: .count(),
                 aggregation: .latest,
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .basics
             )
 
             summary.bodyMass = await bodyMass ?? HealthSummarySnapshot.empty.bodyMass
@@ -2388,12 +2590,13 @@ actor HealthKitFetchEngine {
             trends.restingHeartRateDaySamples = await restingHeartRateDaySamples
             trends.restingHeartRateDaySamplesSecondary = await restingHeartRateDaySamplesSecondary
         case .bodyMass:
-            async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo))
+            async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
             async let bodyMassTrend = fetchDailyQuantitySeries(
                 for: .bodyMass,
                 unit: .gramUnit(with: .kilo),
                 aggregation: .latest,
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .basics
             )
 
             summary.bodyMass = await bodyMass ?? HealthSummarySnapshot.empty.bodyMass
@@ -2402,6 +2605,7 @@ actor HealthKitFetchEngine {
             async let bodyFatPercentage = latestQuantity(
                 for: .bodyFatPercentage,
                 unit: .percent(),
+                sourceKind: .basics,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
             async let bodyFatPercentageTrend = fetchDailyQuantitySeries(
@@ -2409,6 +2613,7 @@ actor HealthKitFetchEngine {
                 unit: .percent(),
                 aggregation: .latest,
                 calendar: calendar,
+                sourceKind: .basics,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
 
@@ -2451,17 +2656,20 @@ actor HealthKitFetchEngine {
         case .respiratoryRate:
             async let respiratoryRate = latestQuantity(
                 for: .respiratoryRate,
-                unit: HKUnit.count().unitDivided(by: .minute())
+                unit: HKUnit.count().unitDivided(by: .minute()),
+                sourceKind: .respiratoryRate
             )
             async let respiratoryRatePair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchDailyQuantityAverageAndRangeSeries(
                 for: .respiratoryRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .respiratoryRate
             )
             async let respiratoryRateDaySamples = fetchQuantitySampleSeries(
                 for: .respiratoryRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .respiratoryRate
             )
 
             summary.respiratoryRate = await respiratoryRate ?? HealthSummarySnapshot.empty.respiratoryRate
@@ -2507,12 +2715,13 @@ actor HealthKitFetchEngine {
             trends.oxygenSaturationDaySamples = await oxygenSaturationDaySamples
             trends.oxygenSaturationDaySamplesSecondary = await oxygenSaturationDaySamplesSecondary
         case .bodyMassIndex:
-            async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count())
+            async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
             async let bodyMassIndexTrend = fetchDailyQuantitySeries(
                 for: .bodyMassIndex,
                 unit: .count(),
                 aggregation: .latest,
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .basics
             )
 
             summary.bodyMassIndex = await bodyMassIndex ?? HealthSummarySnapshot.empty.bodyMassIndex
@@ -2594,13 +2803,15 @@ actor HealthKitFetchEngine {
                 for: .appleSleepingWristTemperature,
                 unit: .degreeCelsius(),
                 aggregation: .average,
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .wristTemperature
             )
             async let wristTemperatureTrend = fetchDailyQuantitySeries(
                 for: .appleSleepingWristTemperature,
                 unit: .degreeCelsius(),
                 aggregation: .average,
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .wristTemperature
             )
 
             summary.wristTemperature = await wristTemperature ?? HealthSummarySnapshot.empty.wristTemperature
@@ -2609,12 +2820,14 @@ actor HealthKitFetchEngine {
             async let timeInDaylight = dailyCumulativeQuantitySummary(
                 for: .timeInDaylight,
                 unit: .minute(),
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .timeInDaylight
             )
             async let timeInDaylightTrend = fetchDailyCumulativeQuantitySeries(
                 for: .timeInDaylight,
                 unit: .minute(),
-                calendar: calendar
+                calendar: calendar,
+                sourceKind: .timeInDaylight
             )
 
             summary.timeInDaylight = await timeInDaylight ?? HealthSummarySnapshot.empty.timeInDaylight
@@ -2742,18 +2955,9 @@ actor HealthKitFetchEngine {
         }
     }
 
-    nonisolated private static func sleepStageSegments(from samples: [HKCategorySample]) -> [SleepStageSegment] {
-        let hasDetailedSleepStages = samples.contains { sample in
-            switch HKCategoryValueSleepAnalysis(rawValue: sample.value) {
-            case .asleepCore, .asleepDeep, .asleepREM:
-                return true
-            default:
-                return false
-            }
-        }
-
-        return samples.compactMap { sample -> SleepStageSegment? in
-            guard let stage = sleepStage(for: sample, includeUnspecified: !hasDetailedSleepStages) else {
+    nonisolated static func sleepStageSegments(from samples: [HKCategorySample]) -> [SleepStageSegment] {
+        let explicitSegments = samples.compactMap { sample -> SleepStageSegment? in
+            guard let stage = sleepStage(for: sample, includeUnspecified: false) else {
                 return nil
             }
 
@@ -2763,7 +2967,77 @@ actor HealthKitFetchEngine {
                 endDate: sample.endDate
             )
         }
-        .sorted { $0.startDate < $1.startDate }
+        let explicitIntervals = explicitSegments.map { segment in
+            (start: segment.startDate, end: segment.endDate)
+        }
+        let unspecifiedSegments = samples.flatMap { sample -> [SleepStageSegment] in
+            guard isUnspecifiedSleep(sample) else {
+                return []
+            }
+
+            return uncoveredSleepIntervals(
+                in: (start: sample.startDate, end: sample.endDate),
+                coveredBy: explicitIntervals
+            )
+            .map { interval in
+                SleepStageSegment(stage: .core, startDate: interval.start, endDate: interval.end)
+            }
+        }
+
+        return (explicitSegments + unspecifiedSegments).sorted { $0.startDate < $1.startDate }
+    }
+
+    nonisolated private static func isUnspecifiedSleep(_ sample: HKCategorySample) -> Bool {
+        switch HKCategoryValueSleepAnalysis(rawValue: sample.value) {
+        case .asleep, .asleepUnspecified:
+            return true
+        default:
+            return false
+        }
+    }
+
+    nonisolated private static func uncoveredSleepIntervals(
+        in interval: (start: Date, end: Date),
+        coveredBy coverageIntervals: [(start: Date, end: Date)]
+    ) -> [(start: Date, end: Date)] {
+        guard interval.end > interval.start else {
+            return []
+        }
+
+        var uncoveredIntervals = [interval]
+        let sortedCoverageIntervals = coverageIntervals
+            .filter { $0.end > $0.start }
+            .sorted { $0.start < $1.start }
+
+        for coverageInterval in sortedCoverageIntervals {
+            uncoveredIntervals = uncoveredIntervals.flatMap { uncoveredInterval in
+                guard coverageInterval.start < uncoveredInterval.end,
+                      coverageInterval.end > uncoveredInterval.start else {
+                    return [uncoveredInterval]
+                }
+
+                var nextIntervals: [(start: Date, end: Date)] = []
+                if coverageInterval.start > uncoveredInterval.start {
+                    nextIntervals.append((
+                        start: uncoveredInterval.start,
+                        end: min(coverageInterval.start, uncoveredInterval.end)
+                    ))
+                }
+                if coverageInterval.end < uncoveredInterval.end {
+                    nextIntervals.append((
+                        start: max(coverageInterval.end, uncoveredInterval.start),
+                        end: uncoveredInterval.end
+                    ))
+                }
+                return nextIntervals.filter { $0.end > $0.start }
+            }
+
+            if uncoveredIntervals.isEmpty {
+                return []
+            }
+        }
+
+        return uncoveredIntervals
     }
 
     nonisolated private static func sleepStage(for sample: HKCategorySample, includeUnspecified: Bool) -> SleepStage? {
