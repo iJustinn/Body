@@ -103,6 +103,13 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 - Fix: `HealthKitWorkoutStore` keeps a `refreshCompletionContinuations: [CheckedContinuation<Void, Never>]`. Refresh `defer` blocks call `finishRefresh()` which flips `isRefreshing = false` *and* resumes all waiters. Waiters use `awaitNextRefreshCompletion()` instead of the polling loop.
 - Reuse: When code awaits a state change on a `@MainActor` observable, accumulate `CheckedContinuation`s in a list and resume them all in the producer's `defer` — cleaner and avoids the busy-wait/stall trade-off.
 
+### 2026-05-24 - Add headroom for normalized dual-axis Swift Charts
+- Context: Basics weight/body-fat detail chart needed to match the source-comparison legend-to-plot spacing after right-aligning its legend.
+- Symptom: The Basics legend looked horizontally correct, but the top y-axis labels and gridline started immediately below the legend while Sleep/source charts had a larger header band gap.
+- Cause: `BodyBasicsTrendChart` normalized both axes to `0...1` and also drew ticks at `1.0`, pinning the top visible axis row to the plot edge.
+- Fix: Keep the displayed tick values at `0.0...1.0`, but set the chart scale to `0.0...1.1` so the top tick sits below the legend band. Source-shape tests that inspect a large SwiftUI view need a slice long enough to include both declarations and chained modifiers.
+- Reuse: For normalized Swift Charts with explicit edge ticks, add domain headroom instead of padding the whole card when the issue is the first visible grid/axis row crowding the header.
+
 ## Archive
 
 Older entries (2026-05-10 through 2026-05-15) have been moved to [`docs/LessonsLearnedArchive.md`](docs/LessonsLearnedArchive.md) to keep this file scannable. Topics archived so far include: HealthKit cumulative-energy aggregation, `HKActivitySummary` calendar requirements, `HKWorkoutActivityType` test unwrapping, async authorization status API, Activity Rings pagination/synthesis rules, sleep-day bucketing and partial-minute formatting, Swift Charts axis/value gotchas, `LazyVGrid` span limitations, app-group `UserDefaults` guards, computed-property/`some View` return-statement rules, simulator/CoreSimulator/DerivedData build workarounds, and the chart-source-shape configuration tests.

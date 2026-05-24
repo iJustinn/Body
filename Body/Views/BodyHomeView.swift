@@ -3294,6 +3294,7 @@ private struct BodyHealthMetricDetailView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if let visibleBasicsTrend {
                 BodyBasicsTrendChart(
@@ -3578,6 +3579,7 @@ private struct BodyHealthMetricDetailView: View {
                     )
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if selectedMetricDaySeries.isEmpty && selectedMetricSecondaryDaySeries.isEmpty {
                 Text("No data for this day")
@@ -4895,7 +4897,7 @@ private struct BodyHealthSourceLegend: View {
 
     var body: some View {
         if isMultiSource {
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .trailing, spacing: 7) {
                 ForEach(items) { item in
                     HStack(spacing: 7) {
                         Circle()
@@ -4911,7 +4913,7 @@ private struct BodyHealthSourceLegend: View {
                     }
                 }
             }
-            .frame(maxWidth: 180, alignment: .leading)
+            .frame(maxWidth: 180, alignment: .trailing)
         } else if let item = items.first {
             Text("Avg \(averageText(for: item.averageValue))")
                 .font(.system(.subheadline, design: .rounded))
@@ -5717,30 +5719,33 @@ private struct BodyBasicsTrendLegend: View {
     let bodyFatAverageText: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .trailing, spacing: 7) {
             legendItem(title: "Body Fat", valueText: bodyFatAverageText, color: bodyFatColor)
             legendItem(title: "Weight", valueText: weightAverageText, color: weightColor)
         }
-        .lineLimit(1)
-        .minimumScaleFactor(0.78)
+        .frame(maxWidth: 180, alignment: .trailing)
     }
 
     private func legendItem(title: String, valueText: String?, color: Color) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 7) {
             Circle()
                 .fill(color)
-                .frame(width: 8, height: 8)
+                .frame(width: 9, height: 9)
 
             Text(title)
-                .font(.system(.caption, design: .rounded))
+                .font(.system(.subheadline, design: .rounded))
                 .fontWeight(.semibold)
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
 
             if let valueText {
                 Text("Avg \(valueText)")
-                    .font(.system(.caption, design: .rounded))
+                    .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.68)
             }
         }
     }
@@ -7160,6 +7165,7 @@ private struct BodyBasicsTrendChart: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let axisTickValues = [0.0, 0.25, 0.5, 0.75, 1.0]
+    private let normalizedYDomain = 0.0...1.1
 
     init(
         trend: BasicsTrendSummary,
@@ -7329,7 +7335,7 @@ private struct BodyBasicsTrendChart: View {
             }
         }
         .chartXScale(domain: chartXDomain)
-        .chartYScale(domain: 0...1)
+        .chartYScale(domain: normalizedYDomain)
         .chartXAxis {
             AxisMarks(values: .stride(by: .day, count: selectedRange.axisStrideDayCount)) { value in
                 AxisGridLine()

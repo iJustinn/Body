@@ -499,6 +499,66 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(engineSource.contains("trends.oxygenSaturationDaySamplesSecondary = await oxygenSaturationDaySamplesSecondary"))
     }
 
+    func testChartLegendHeadersFillAvailableWidth() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let trendCardStart = try XCTUnwrap(source.range(of: "private var trendCard: some View")?.lowerBound)
+        let trendChartStart = try XCTUnwrap(
+            source.range(of: "if let visibleBasicsTrend", range: trendCardStart..<source.endIndex)?.lowerBound
+        )
+        let trendHeaderBlock = String(source[trendCardStart..<trendChartStart])
+        let dayChartCardStart = try XCTUnwrap(source.range(of: "private var metricDayChartCard: some View")?.lowerBound)
+        let dayChartStart = try XCTUnwrap(
+            source.range(of: "if selectedMetricDaySeries.isEmpty", range: dayChartCardStart..<source.endIndex)?.lowerBound
+        )
+        let dayHeaderBlock = String(source[dayChartCardStart..<dayChartStart])
+
+        XCTAssertTrue(trendHeaderBlock.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
+        XCTAssertTrue(dayHeaderBlock.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
+    }
+
+    func testSourceLegendContentIsTrailingAligned() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let legendStart = try XCTUnwrap(source.range(of: "private struct BodyHealthSourceLegend: View")?.lowerBound)
+        let comparisonChartStart = try XCTUnwrap(
+            source.range(of: "private struct BodyHealthSourceComparisonLineChart", range: legendStart..<source.endIndex)?.lowerBound
+        )
+        let legendBlock = String(source[legendStart..<comparisonChartStart])
+
+        XCTAssertTrue(legendBlock.contains("VStack(alignment: .trailing, spacing: 7)"))
+        XCTAssertTrue(legendBlock.contains(".frame(maxWidth: 180, alignment: .trailing)"))
+        XCTAssertFalse(legendBlock.contains("VStack(alignment: .leading, spacing: 7)"))
+        XCTAssertFalse(legendBlock.contains(".frame(maxWidth: 180, alignment: .leading)"))
+    }
+
+    func testBasicsLegendMatchesTrailingSourceLegendStyle() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let legendStart = try XCTUnwrap(source.range(of: "private struct BodyBasicsTrendLegend: View")?.lowerBound)
+        let selectionValueStart = try XCTUnwrap(
+            source.range(of: "private struct BodyChartSelectionValue", range: legendStart..<source.endIndex)?.lowerBound
+        )
+        let legendBlock = String(source[legendStart..<selectionValueStart])
+
+        XCTAssertTrue(legendBlock.contains("VStack(alignment: .trailing, spacing: 7)"))
+        XCTAssertTrue(legendBlock.contains(".frame(maxWidth: 180, alignment: .trailing)"))
+        XCTAssertTrue(legendBlock.contains("HStack(spacing: 7)"))
+        XCTAssertTrue(legendBlock.contains(".frame(width: 9, height: 9)"))
+        XCTAssertTrue(legendBlock.contains(".font(.system(.subheadline, design: .rounded))"))
+        XCTAssertTrue(legendBlock.contains(".minimumScaleFactor(0.68)"))
+        XCTAssertFalse(legendBlock.contains("VStack(alignment: .leading, spacing: 5)"))
+        XCTAssertFalse(legendBlock.contains(".padding(.trailing"))
+        XCTAssertFalse(legendBlock.contains("basicsLegendTrailingAxisGutter"))
+    }
+
+    func testBasicsTrendChartKeepsTopAxisBelowLegendBand() throws {
+        let source = try text(at: "Body/Views/BodyHomeView.swift")
+        let chartStart = try XCTUnwrap(source.range(of: "private struct BodyBasicsTrendChart")?.lowerBound)
+        let chartBlock = String(source[chartStart...].prefix(12_000))
+
+        XCTAssertTrue(chartBlock.contains("private let normalizedYDomain = 0.0...1.1"))
+        XCTAssertTrue(chartBlock.contains(".chartYScale(domain: normalizedYDomain)"))
+        XCTAssertFalse(chartBlock.contains(".chartYScale(domain: 0...1)"))
+    }
+
     func testHealthKitFetchesBarAndRangeSecondarySourceComparisons() throws {
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
         let engineSource = try text(at: "Body/Services/HealthKitFetchEngine.swift")
@@ -566,6 +626,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testAggregatedHealthChartsWireRangeLabelsAndBarWidths() throws {
         let source = try text(at: "Body/Views/BodyHomeView.swift")
 
+        XCTAssertFalse(source.contains("basicsLegendTrailingAxisGutter"))
         XCTAssertTrue(source.contains("private func bodyChartSelectionDateText(for point: HealthTrendCalendarPoint) -> String?"))
         XCTAssertTrue(source.contains("private func bodyChartSelectionDateText(for point: HealthTrendRangeCalendarPoint) -> String?"))
         XCTAssertEqual(source.occurrenceCount(of: "dateText: bodyChartSelectionDateText(for: selectedTrendPoint)"), 1)
@@ -604,9 +665,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("legendItem(title: \"Body Fat\", valueText: bodyFatAverageText, color: bodyFatColor)"))
         XCTAssertTrue(source.contains("legendItem(title: \"Weight\", valueText: weightAverageText, color: weightColor)"))
         let legendItemStart = try XCTUnwrap(source.range(of: "private func legendItem")?.lowerBound)
-        let legendItemBlock = source[legendItemStart...].prefix(700)
+        let legendItemBlock = source[legendItemStart...].prefix(1_100)
         let averageTextStart = try XCTUnwrap(legendItemBlock.range(of: "Text(\"Avg \\(valueText)\")")?.lowerBound)
-        let averageTextBlock = legendItemBlock[averageTextStart...].prefix(180)
+        let averageTextBlock = legendItemBlock[averageTextStart...].prefix(260)
         XCTAssertTrue(averageTextBlock.contains(".foregroundColor(.secondary)"))
         XCTAssertFalse(legendItemBlock.contains("Text(valueText)"))
         XCTAssertFalse(averageTextBlock.contains(".foregroundColor(.primary)"))
@@ -682,7 +743,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.5.6;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 4;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -691,12 +752,14 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.5.6 (build 3)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.5.6 (build 4)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.5.6 (build 4)"))
         XCTAssertTrue(versionHistory.contains("## 0.5.6 (build 3)"))
         XCTAssertTrue(versionHistory.contains("Redesigned the workout detail heart rate chart"))
         XCTAssertTrue(versionHistory.contains("Added step-count day-line support"))
         XCTAssertTrue(versionHistory.contains("Recovery scoring now honors the configured sleep goal"))
-        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.5.6 build 3."))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.5.6 build 4."))
+        XCTAssertFalse(readme.contains("Current app version: **0.5.6 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.6 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.6 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.2 (build 4)**"))
@@ -728,7 +791,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-v0.5.6`"))
-        XCTAssertTrue(testPlan.contains("app version 0.5.6 build 1"))
+        XCTAssertTrue(testPlan.contains("app version 0.5.6 build 4"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.0`"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.4`"))
         XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))

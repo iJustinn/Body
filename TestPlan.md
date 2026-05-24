@@ -1,6 +1,6 @@
 # Body Test Plan
 
-Generated 2026-05-18 against branch `body-v0.5.6` (app version 0.5.6 build 1).
+Generated 2026-05-18 against branch `body-v0.5.6` (app version 0.5.6 build 4).
 
 ## 1. Project Testing Overview
 

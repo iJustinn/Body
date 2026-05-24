@@ -1,5 +1,9 @@
 # Version History
 
+## 0.5.6 (build 4)
+
+- Updated the app, widget, and test bundle version to 0.5.6 build 4.
+
 ## 0.5.6 (build 3)
 
 - Redesigned the workout detail heart rate chart with a smoothed gradient line (cyan → red by BPM intensity), faded color-coded scatter dots per raw sample, a horizontal average reference line, and inline header (title + min-max range) plus right-side Y-axis tick labels matching the Apple Health style.
