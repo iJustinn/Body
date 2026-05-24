@@ -117,6 +117,13 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 - Fix: Let the completed moves stand, wait for the transient lock to disappear, then retry remaining `git mv` commands sequentially.
 - Reuse: For multi-file renames in this repo, parallelize content reads/searches, but run Git index-mutating commands one at a time.
 
+### 2026-05-24 - Await actor values before XCTest autoclosure assertions
+- Context: Adding async `HealthKitFetchEngine` helper tests with an actor probe for concurrency limits.
+- Symptom: `XCTAssertLessThanOrEqual(await probe.maximumActiveCount(), 1)` failed to compile with `'await' in an autoclosure that does not support concurrency`.
+- Cause: XCTest assertion arguments are autoclosures, and actor-isolated calls cannot be awaited inside those synchronous autoclosures.
+- Fix: Await the actor method into a local first, then pass the local to the assertion.
+- Reuse: In async XCTest methods, avoid `await` directly inside `XCTAssert*` arguments when the awaited expression is actor-isolated.
+
 ## Archive
 
 Older entries (2026-05-10 through 2026-05-15) have been moved to [`docs/LessonsLearnedArchive.md`](docs/LessonsLearnedArchive.md) to keep this file scannable. Topics archived so far include: HealthKit cumulative-energy aggregation, `HKActivitySummary` calendar requirements, `HKWorkoutActivityType` test unwrapping, async authorization status API, Activity Rings pagination/synthesis rules, sleep-day bucketing and partial-minute formatting, Swift Charts axis/value gotchas, `LazyVGrid` span limitations, app-group `UserDefaults` guards, computed-property/`some View` return-statement rules, simulator/CoreSimulator/DerivedData build workarounds, and the chart-source-shape configuration tests.

@@ -57,6 +57,17 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(engineSource.contains("selectedSecondaryHealthDataSourceOption(for: kind).isNoComparison"))
     }
 
+    func testReadinessDailySeriesUsesCachedBaselineContext() throws {
+        let source = try text(at: "Body/Models/Readiness/ReadinessScoreCalculator.swift")
+        let dailySeriesStart = try XCTUnwrap(source.range(of: "static func dailySeries(")?.lowerBound)
+        let nextDeclaration = try XCTUnwrap(source[dailySeriesStart...].range(of: "private static func autonomicComponent(")?.lowerBound)
+        let dailySeriesBlock = String(source[dailySeriesStart..<nextDeclaration])
+
+        XCTAssertTrue(source.contains("ReadinessDailySeriesContext"))
+        XCTAssertTrue(dailySeriesBlock.contains("ReadinessDailySeriesContext("))
+        XCTAssertFalse(dailySeriesBlock.contains("summary("))
+    }
+
     func testHealthPermissionTogglesUseGreenOnAndRedOffSwitchColors() throws {
         let source = try text(at: "Body/Views/BodySettingsView.swift")
 

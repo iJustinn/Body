@@ -26,6 +26,22 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.day(9)?.primaryWorkoutType, .strengthTraining)
     }
 
+    func testPlaceholderUsesGeneratedDateMonthAndYear() throws {
+        let calendar = Calendar.bodyGregorian
+        let generatedAt = try XCTUnwrap(calendar.date(from: DateComponents(year: 2027, month: 6, day: 18, hour: 9)))
+
+        let snapshot = WorkoutMonthSnapshot.makePlaceholder(generatedAt: generatedAt, calendar: calendar)
+
+        XCTAssertEqual(snapshot.month, 6)
+        XCTAssertEqual(snapshot.year, 2027)
+        XCTAssertEqual(snapshot.days.count, 30)
+        let firstWorkout = try XCTUnwrap(snapshot.day(1)?.workouts.first)
+        let components = calendar.dateComponents([.year, .month, .day], from: firstWorkout.startDate)
+        XCTAssertEqual(components.year, 2027)
+        XCTAssertEqual(components.month, 6)
+        XCTAssertEqual(components.day, 1)
+    }
+
     func testSnapshotStoreRoundTripsCurrentMonthSnapshotFromFileURL() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("BodyTests-\(UUID().uuidString)", isDirectory: true)
