@@ -599,8 +599,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(storeSource.contains("@Published private(set) var secondaryHealthDataSourceSelection"))
         XCTAssertTrue(storeSource.contains("func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind)"))
         XCTAssertTrue(storeSource.contains("func updateSecondaryHealthDataSource(for kind: HealthMetricKind"))
-        XCTAssertTrue(engineSource.contains("private func fetchSecondaryTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendSeries"))
-        XCTAssertTrue(engineSource.contains("private func fetchSecondaryRangeTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendRangeSeries"))
+        XCTAssertTrue(engineSource.contains("func fetchSecondaryTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendSeries"))
+        XCTAssertTrue(engineSource.contains("func fetchSecondaryRangeTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendRangeSeries"))
         XCTAssertTrue(engineSource.contains("let secondaryOption = selectedSecondaryHealthDataSourceOption(for: kind)"))
         XCTAssertTrue(engineSource.contains("sourceOption: secondaryOption"))
         XCTAssertTrue(engineSource.contains("trends.activeEnergySecondary = await activeEnergySecondaryTrend"))
@@ -1206,7 +1206,9 @@ final class ProjectConfigurationTests: XCTestCase {
             "Body/Services/HealthKitFetchEngine+Sleep.swift",
             "Body/Services/HealthKitFetchEngine+TrainingLoad.swift",
             "Body/Services/HealthKitFetchEngine+ActivityRings.swift",
-            "Body/Services/HealthKitFetchEngine+SourceOptions.swift"
+            "Body/Services/HealthKitFetchEngine+SourceOptions.swift",
+            "Body/Services/HealthKitFetchEngine+Secondary.swift",
+            "Body/Services/HealthKitFetchEngine+IntradaySamples.swift"
         ]
         return try files.map { try text(at: $0) }.joined(separator: "\n")
     }
