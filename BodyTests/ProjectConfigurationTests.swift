@@ -96,7 +96,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(source.contains("let trailingPadding: TimeInterval = 18 * 60 * 60"))
     }
 
-    func testHealthDashboardUpdatesRecalculateRecoveryBeforeSaving() throws {
+    func testHealthDashboardUpdatesRecalculateReadinessBeforeSaving() throws {
         let source = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
         let updateStart = try XCTUnwrap(source.range(of: "private func updateHealthDashboardSnapshot(")?.lowerBound)
         let saveStart = try XCTUnwrap(
@@ -104,38 +104,38 @@ final class ProjectConfigurationTests: XCTestCase {
         )
         let updateBlock = String(source[updateStart..<saveStart])
 
-        XCTAssertTrue(updateBlock.contains(".recalculatingRecovery("))
+        XCTAssertTrue(updateBlock.contains(".recalculatingReadiness("))
     }
 
-    func testRecoveryCardAndDetailAreRouted() throws {
+    func testReadinessCardAndDetailAreRouted() throws {
         let source = try text(at: "Body/Views/BodyHomeView.swift")
-        let cardStart = try XCTUnwrap(source.range(of: "private func recoveryMetric(")?.lowerBound)
+        let cardStart = try XCTUnwrap(source.range(of: "private func readinessMetric(")?.lowerBound)
         let cardEnd = try XCTUnwrap(source.range(of: "private func energyMetric(", range: cardStart..<source.endIndex)?.lowerBound)
         let cardBlock = String(source[cardStart..<cardEnd])
-        let whyStart = try XCTUnwrap(source.range(of: "private func recoveryWhyCard(")?.lowerBound)
+        let whyStart = try XCTUnwrap(source.range(of: "private func readinessWhyCard(")?.lowerBound)
         let whyEnd = try XCTUnwrap(source.range(of: "@ViewBuilder\n    private var dataSourceFooter", range: whyStart..<source.endIndex)?.lowerBound)
         let whyBlock = String(source[whyStart..<whyEnd])
 
-        XCTAssertTrue(source.contains("recoveryMetric("))
-        XCTAssertTrue(source.contains("case .recovery:"))
-        XCTAssertTrue(source.contains("summary.recovery"))
-        XCTAssertTrue(source.contains("trends.series(for: .recovery)"))
-        XCTAssertTrue(source.contains("BodyRecoveryStatusPresentation"))
-        XCTAssertTrue(source.contains("BodyRecoveryStatusBreakdownChart"))
+        XCTAssertTrue(source.contains("readinessMetric("))
+        XCTAssertTrue(source.contains("case .readiness:"))
+        XCTAssertTrue(source.contains("summary.readiness"))
+        XCTAssertTrue(source.contains("trends.series(for: .readiness)"))
+        XCTAssertTrue(source.contains("BodyReadinessStatusPresentation"))
+        XCTAssertTrue(source.contains("BodyReadinessStatusBreakdownChart"))
         XCTAssertTrue(cardBlock.contains("unit: summary.score == nil ? \"\" : \"%\""))
         XCTAssertFalse(cardBlock.contains("BodyMetricDisplayValue(title: \"Status\""))
         XCTAssertTrue(source.contains("valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + \"%\" }"))
-        XCTAssertTrue(whyBlock.contains("RecoveryStatus.displayOrder"))
+        XCTAssertTrue(whyBlock.contains("ReadinessStatus.displayOrder"))
         XCTAssertTrue(whyBlock.contains("About your score"))
         XCTAssertTrue(whyBlock.contains("status.scoreRangeText"))
         XCTAssertTrue(whyBlock.contains("status.explanation"))
-        XCTAssertTrue(whyBlock.contains("BodyRecoveryStatusPresentation.color(for: status)"))
+        XCTAssertTrue(whyBlock.contains("BodyReadinessStatusPresentation.color(for: status)"))
         XCTAssertTrue(whyBlock.contains("activeStatus"))
-        XCTAssertTrue(source.contains("@State private var activeRecoveryTrendValue: Double?"))
-        XCTAssertTrue(source.contains("private var activeRecoveryStatus: RecoveryStatus?"))
-        XCTAssertTrue(source.contains("recoveryWhyCard(for: recovery, activeStatus: activeRecoveryStatus)"))
-        XCTAssertTrue(source.contains("activeHighlightedValue: model.kind == .recovery ? $activeRecoveryTrendValue : nil"))
-        XCTAssertFalse(whyBlock.contains("ForEach(recovery.components)"))
+        XCTAssertTrue(source.contains("@State private var activeReadinessTrendValue: Double?"))
+        XCTAssertTrue(source.contains("private var activeReadinessStatus: ReadinessStatus?"))
+        XCTAssertTrue(source.contains("readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)"))
+        XCTAssertTrue(source.contains("activeHighlightedValue: model.kind == .readiness ? $activeReadinessTrendValue : nil"))
+        XCTAssertFalse(whyBlock.contains("ForEach(readiness.components)"))
     }
 
     func testLineHealthChartsDoNotRenderEmptyDatePlaceholderMarks() throws {
@@ -789,7 +789,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(versionHistory.contains("## 0.5.6 (build 3)"))
         XCTAssertTrue(versionHistory.contains("Redesigned the workout detail heart rate chart"))
         XCTAssertTrue(versionHistory.contains("Added step-count day-line support"))
-        XCTAssertTrue(versionHistory.contains("Recovery scoring now honors the configured sleep goal"))
+        XCTAssertTrue(versionHistory.contains("Readiness scoring now honors the configured sleep goal"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.5.6 build 4."))
         XCTAssertFalse(readme.contains("Current app version: **0.5.6 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.6 (build 2)**"))
@@ -1012,7 +1012,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("BodySummaryCardToggleRow("))
         XCTAssertTrue(settingsSource.contains("BodyHomeTrendCardToggleRow("))
         XCTAssertTrue(appearanceSource.contains("var isBeta: Bool"))
-        XCTAssertTrue(appearanceSource.contains("case .recovery:"))
+        XCTAssertTrue(appearanceSource.contains("case .readiness:"))
         XCTAssertTrue(settingsSource.contains("if card.isBeta"))
         XCTAssertTrue(settingsSource.contains(#"Text("Beta")"#))
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.defaultTrendRangeKey)"))

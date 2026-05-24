@@ -50,10 +50,31 @@ struct WorkoutDaySummary: Codable, Equatable, Identifiable {
 }
 
 struct WorkoutMonthSnapshot: Codable, Equatable {
+    /// Bumped when the persisted shape changes in a way that requires a
+    /// migration on load. Optional on decode so existing on-disk snapshots
+    /// (which predate this field) load as `nil` and are treated as the
+    /// implicit baseline. New saves write the current value.
+    static let currentSchemaVersion = 1
+
     let month: Int
     let year: Int
     let generatedAt: Date
     let days: [WorkoutDaySummary]
+    let schemaVersion: Int?
+
+    init(
+        month: Int,
+        year: Int,
+        generatedAt: Date,
+        days: [WorkoutDaySummary],
+        schemaVersion: Int? = WorkoutMonthSnapshot.currentSchemaVersion
+    ) {
+        self.month = month
+        self.year = year
+        self.generatedAt = generatedAt
+        self.days = days
+        self.schemaVersion = schemaVersion
+    }
 
     var activeDayCount: Int {
         days.filter { !$0.workouts.isEmpty }.count

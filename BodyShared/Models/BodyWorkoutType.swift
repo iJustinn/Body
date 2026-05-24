@@ -43,7 +43,7 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
     case mixedMetabolicCardioTraining
     case paddleSports
     case play
-    case preparationAndRecovery
+    case preparationAndReadiness
     case racquetball
     case rowing
     case rugby
@@ -115,8 +115,8 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
             return "Mind & Body"
         case .mixedMetabolicCardioTraining, .mixedCardio:
             return "Mixed Cardio"
-        case .preparationAndRecovery:
-            return "Recovery"
+        case .preparationAndReadiness:
+            return "Readiness"
         case .taiChi:
             return "Tai Chi"
         case .swimBikeRun:
@@ -200,7 +200,7 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
             return "figure.open.water.swim"
         case .play:
             return "figure.play"
-        case .preparationAndRecovery, .flexibility, .cooldown:
+        case .preparationAndReadiness, .flexibility, .cooldown:
             return "figure.flexibility"
         case .racquetball:
             return "figure.racquetball"
@@ -313,7 +313,7 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
             return 0xF2926E
         case .yoga, .mindAndBody, .taiChi, .flexibility:
             return 0xAF7DAC
-        case .preparationAndRecovery:
+        case .preparationAndReadiness:
             return 0xEABCBA
         case .cooldown:
             return 0xFEE4D9

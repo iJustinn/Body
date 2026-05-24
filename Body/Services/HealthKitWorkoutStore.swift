@@ -97,6 +97,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     private var loadedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
     private var lastAppEntrySyncDate: Date?
     private var refreshCompletionContinuations: [CheckedContinuation<Void, Never>] = []
+    private var monthLoadContinuations: [BodyWorkoutMonthKey: [CheckedContinuation<Void, Never>]] = [:]
 
     private func finishRefresh() {
         isRefreshing = false
@@ -113,6 +114,29 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
         await withCheckedContinuation { continuation in
             refreshCompletionContinuations.append(continuation)
+        }
+    }
+
+    /// Drains the per-month continuation list for each key after the in-flight
+    /// `loadMonthKeysIfNeeded` releases the `loadingMonthKeys` lock. Callers
+    /// that registered via `awaitMonthLoadCompletion(for:)` resume here.
+    private func finishMonthLoad(for keys: Set<BodyWorkoutMonthKey>) {
+        for key in keys {
+            guard let toResume = monthLoadContinuations.removeValue(forKey: key) else {
+                continue
+            }
+            for continuation in toResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func awaitMonthLoadCompletion(for key: BodyWorkoutMonthKey) async {
+        guard loadingMonthKeys.contains(key), !Task.isCancelled else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            monthLoadContinuations[key, default: []].append(continuation)
         }
     }
 
@@ -135,11 +159,11 @@ final class HealthKitWorkoutStore: ObservableObject {
             secondaryHealthDataSourceSelection: initialSecondaryHealthDataSourceSelection,
             combinesHealthDataSourcesByName: initialCombinesHealthDataSourcesByName
         )
-        // Skip the recovery recompute at init — it's a per-day iteration over
+        // Skip the readiness recompute at init — it's a per-day iteration over
         // up to ~365 trend points that would block the first frame. The cached
-        // `summary.recovery` value was correct when written; the next refresh
+        // `summary.readiness` value was correct when written; the next refresh
         // recomputes it off the main thread.
-        let filteredHealthDashboardSnapshot = initialHealthDashboardSnapshot.filteredWithoutRecoveryRecompute(by: initialPermissionSelection)
+        let filteredHealthDashboardSnapshot = initialHealthDashboardSnapshot.filteredWithoutReadinessRecompute(by: initialPermissionSelection)
         let startingSnapshot = initialPermissionSelection.includes(.workouts)
             ? initialSnapshot
             : WorkoutMonthSnapshot.make(
@@ -839,9 +863,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return true
         }
 
-        while loadingMonthKeys.contains(key), !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
+        await awaitMonthLoadCompletion(for: key)
 
         guard !loadedMonthKeys.contains(key) else {
             return true
@@ -1044,7 +1066,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// concurrently and publish each bucket to `@Published` state as soon as it
     /// completes. Users see metric values, ring values, then trend charts fill in
     /// progressively instead of one large update at the very end of the refresh.
-    /// Recovery is preserved at its cached value during the stream — the final
+    /// Readiness is preserved at its cached value during the stream — the final
     /// `updateHealthDashboardSnapshot` recomputes it once everything has landed.
     private func fetchDashboardSnapshotProgressively(
         calendar: Calendar
@@ -1079,18 +1101,18 @@ final class HealthKitWorkoutStore: ObservableObject {
                 switch unit {
                 case .summary(let s):
                     fetchedSummary = s
-                    // Keep the cached `recovery` visible during the progressive
+                    // Keep the cached `readiness` visible during the progressive
                     // publish — the final filtered+recomputed snapshot overrides
                     // it in `updateHealthDashboardSnapshot`.
-                    healthSummary = s.replacingMetric(.recovery, with: healthSummary)
+                    healthSummary = s.replacingMetric(.readiness, with: healthSummary)
                 case .trends(let t):
                     fetchedTrends = t
-                    // `fetchHealthTrends` does not populate `.recovery` (it gets
+                    // `fetchHealthTrends` does not populate `.readiness` (it gets
                     // recomputed in `updateHealthDashboardSnapshot`). Preserve
-                    // the cached series so the Recovery preview chart can
+                    // the cached series so the Readiness preview chart can
                     // animate from old values to new instead of dropping to
                     // empty and reappearing.
-                    healthTrends = t.replacingMetric(.recovery, with: healthTrends)
+                    healthTrends = t.replacingMetric(.readiness, with: healthTrends)
                 case .rings(let r):
                     fetchedActivityRingHistory = r
                     activityRingHistory = r
@@ -1133,7 +1155,10 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         loadingMonthKeys.formUnion(keysToLoad)
-        defer { loadingMonthKeys.subtract(keysToLoad) }
+        defer {
+            loadingMonthKeys.subtract(keysToLoad)
+            finishMonthLoad(for: keysToLoad)
+        }
 
         do {
             try await engine.requestAuthorization()
@@ -1192,13 +1217,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             activityRingHistory: activityRingHistory
         )
 
-        // Filter + recovery recompute are the heaviest per-refresh CPU spike
-        // (the recovery `dailySeries` iterates up to ~365 days × multi-metric
+        // Filter + readiness recompute are the heaviest per-refresh CPU spike
+        // (the readiness `dailySeries` iterates up to ~365 days × multi-metric
         // baselines). Run them off the main actor.
         let filteredSnapshot = await Task.detached(priority: .userInitiated) {
             rawSnapshot
                 .filtered(by: permissionSelection, idealSleepDuration: idealSleepDuration)
-                .recalculatingRecovery(
+                .recalculatingReadiness(
                     on: anchorDate,
                     idealSleepDuration: idealSleepDuration,
                     calendar: calendar
@@ -1565,7 +1590,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         case 32:
             return .play
         case 33:
-            return .preparationAndRecovery
+            return .preparationAndReadiness
         case 34:
             return .racquetball
         case 35:

@@ -6,7 +6,7 @@
 import Foundation
 
 enum HealthMetricKind: String, CaseIterable, Identifiable {
-    case recovery
+    case readiness
     case sleep
     case basics
     case heartRate
@@ -31,10 +31,10 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
 
     var detailHelpText: HealthMetricDetailHelpText? {
         switch self {
-        case .recovery:
+        case .readiness:
             return HealthMetricDetailHelpText(
-                title: "About Recovery",
-                body: "Recovery combines your recent heart, sleep, training, and overnight vital signs against your own baseline. It is a readiness estimate, not a diagnosis. The strongest signal comes from sustained patterns across HRV, resting heart rate, sleep quality, and recent load rather than one isolated reading."
+                title: "About Readiness",
+                body: "Readiness combines your recent heart, sleep, training, and overnight vital signs against your own baseline. It is a readiness estimate, not a diagnosis. The strongest signal comes from sustained patterns across HRV, resting heart rate, sleep quality, and recent load rather than one isolated reading."
             )
         case .sleep:
             return HealthMetricDetailHelpText(
@@ -49,7 +49,7 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
         case .heartRate:
             return HealthMetricDetailHelpText(
                 title: "About Heart Rate",
-                body: "Heart rate is the number of beats per minute measured throughout the day. Daily ranges can shift with sleep, workouts, stress, caffeine, illness, heat, and recovery. Compare the range with your sleep and workout timing before judging a single spike."
+                body: "Heart rate is the number of beats per minute measured throughout the day. Daily ranges can shift with sleep, workouts, stress, caffeine, illness, heat, and readiness. Compare the range with your sleep and workout timing before judging a single spike."
             )
         case .restingHeartRate:
             return HealthMetricDetailHelpText(
@@ -69,7 +69,7 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
         case .heartRateVariability:
             return HealthMetricDetailHelpText(
                 title: "About HRV",
-                body: "Heart rate variability measures the small timing changes between heartbeats. Higher than your usual baseline often points to better recovery and lower strain; lower than usual can follow hard training, poor sleep, alcohol, illness, or stress. Compare trends over weeks instead of judging one day by itself."
+                body: "Heart rate variability measures the small timing changes between heartbeats. Higher than your usual baseline often points to better readiness and lower strain; lower than usual can follow hard training, poor sleep, alcohol, illness, or stress. Compare trends over weeks instead of judging one day by itself."
             )
         case .respiratoryRate:
             return HealthMetricDetailHelpText(
@@ -89,7 +89,7 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
         case .activeEnergy:
             return HealthMetricDetailHelpText(
                 title: "About Active Energy",
-                body: "Active Energy estimates calories you burn through movement and workouts, above your resting needs. More is not automatically better; useful context comes from matching activity to your goals and checking how sleep, appetite, soreness, and recovery respond."
+                body: "Active Energy estimates calories you burn through movement and workouts, above your resting needs. More is not automatically better; useful context comes from matching activity to your goals and checking how sleep, appetite, soreness, and readiness respond."
             )
         case .restingEnergy:
             return HealthMetricDetailHelpText(
@@ -104,7 +104,7 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
         case .trainingLoad:
             return HealthMetricDetailHelpText(
                 title: "About Training Load",
-                body: "Training Load compares acute training load with chronic training load. Acute load is a 7-day exponentially weighted average of workout strain, while chronic load is a 42-day weighted average that reflects your adapted baseline. Values near 0.80-1.30 are usually the most sustainable; sustained values above that range can point to higher recovery demand."
+                body: "Training Load compares acute training load with chronic training load. Acute load is a 7-day exponentially weighted average of workout strain, while chronic load is a 42-day weighted average that reflects your adapted baseline. Values near 0.80-1.30 are usually the most sustainable; sustained values above that range can point to higher readiness demand."
             )
         case .wristTemperature:
             return HealthMetricDetailHelpText(
@@ -126,7 +126,7 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
 
     var detailDataSourceText: HealthMetricDetailDataSourceText? {
         switch self {
-        case .recovery,
+        case .readiness,
              .sleep,
              .basics,
              .heartRate,
@@ -161,7 +161,7 @@ struct HealthMetricDetailDataSourceText: Equatable {
 
 struct HealthSummarySnapshot: Codable, Equatable {
     var activityRings: ActivityRingSummary
-    var recovery: RecoverySummary
+    var readiness: ReadinessSummary
     var sleep: SleepSummary
     var heartRate: HealthMetricSummary
     var restingHeartRate: HealthMetricSummary
@@ -181,7 +181,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
 
     init(
         activityRings: ActivityRingSummary,
-        recovery: RecoverySummary = .unavailable,
+        readiness: ReadinessSummary = .unavailable,
         sleep: SleepSummary,
         heartRate: HealthMetricSummary = HealthMetricSummary(value: nil),
         restingHeartRate: HealthMetricSummary,
@@ -200,7 +200,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         steps: HealthMetricSummary = HealthMetricSummary(value: nil)
     ) {
         self.activityRings = activityRings
-        self.recovery = recovery
+        self.readiness = readiness
         self.sleep = sleep
         self.heartRate = heartRate
         self.restingHeartRate = restingHeartRate
@@ -221,7 +221,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
 
     var isEmpty: Bool {
         activityRings.isEmpty &&
-            recovery.score == nil &&
+            readiness.score == nil &&
             sleep.duration == nil &&
             sleep.stageSnapshot.isEmpty &&
             sleep.vitals.isEmpty &&
@@ -244,7 +244,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
 
     static let empty = HealthSummarySnapshot(
         activityRings: .empty,
-        recovery: .unavailable,
+        readiness: .unavailable,
         sleep: SleepSummary(duration: nil),
         heartRate: HealthMetricSummary(value: nil),
         restingHeartRate: HealthMetricSummary(value: nil),
@@ -269,24 +269,24 @@ struct HealthSummarySnapshot: Codable, Equatable {
             exercise: ActivityRingMetric(value: 76, goal: 40),
             stand: ActivityRingMetric(value: 8, goal: 10)
         ),
-        recovery: RecoverySummary(
+        readiness: ReadinessSummary(
             score: 82,
             status: .high,
             confidence: .medium,
             components: [
-                RecoveryComponent(
+                ReadinessComponent(
                     kind: .autonomic,
                     score: 88,
                     weight: 30,
                     message: "Heart signals compared with your baseline."
                 ),
-                RecoveryComponent(
+                ReadinessComponent(
                     kind: .sleep,
                     score: 78,
                     weight: 30,
                     message: "Sleep amount and continuity."
                 ),
-                RecoveryComponent(
+                ReadinessComponent(
                     kind: .training,
                     score: 86,
                     weight: 25,
@@ -294,9 +294,9 @@ struct HealthSummarySnapshot: Codable, Equatable {
                 )
             ],
             drivers: [
-                RecoveryDriver(
+                ReadinessDriver(
                     kind: .mostlyTypical,
-                    message: "Recovery signals are mostly typical.",
+                    message: "Readiness signals are mostly typical.",
                     impact: 0
                 )
             ]
@@ -330,7 +330,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case activityRings
-        case recovery
+        case readiness
         case sleep
         case heartRate
         case restingHeartRate
@@ -352,7 +352,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         activityRings = (try? container.decodeIfPresent(ActivityRingSummary.self, forKey: .activityRings)) ?? .empty
-        recovery = try container.decodeIfPresent(RecoverySummary.self, forKey: .recovery) ?? .unavailable
+        readiness = try container.decodeIfPresent(ReadinessSummary.self, forKey: .readiness) ?? .unavailable
         sleep = (try? container.decodeIfPresent(SleepSummary.self, forKey: .sleep)) ?? SleepSummary(duration: nil)
         heartRate = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .heartRate) ?? HealthMetricSummary(value: nil)
         restingHeartRate = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .restingHeartRate) ?? HealthMetricSummary(value: nil)
@@ -428,8 +428,8 @@ struct HealthSummarySnapshot: Codable, Equatable {
         var next = self
 
         switch kind {
-        case .recovery:
-            next.recovery = refreshed.recovery
+        case .readiness:
+            next.readiness = refreshed.readiness
         case .sleep:
             next.sleep = refreshed.sleep
         case .basics:
@@ -1110,7 +1110,7 @@ struct SleepScoreSummary: Equatable {
     static func comment(for total: Int) -> String {
         switch total {
         case 90...:
-            return "Excellent sleep recovery for this day."
+            return "Excellent sleep readiness for this day."
         case 80..<90:
             return "Strong sleep with small room to improve."
         case 70..<80:
@@ -1118,7 +1118,7 @@ struct SleepScoreSummary: Equatable {
         case 60..<70:
             return "Mixed sleep signals for this day."
         default:
-            return "Low sleep score; prioritize recovery tonight."
+            return "Low sleep score; prioritize readiness tonight."
         }
     }
 
@@ -1468,18 +1468,29 @@ struct HealthMetricSummary: Codable, Equatable {
 }
 
 struct HealthDashboardSnapshot: Codable, Equatable {
+    /// Bumped when the persisted shape changes in a way that requires a
+    /// migration on load. Optional on decode so existing on-disk snapshots
+    /// (which predate this field) load as `nil` and are treated as the
+    /// implicit baseline ("v0 / unversioned"). New saves write the current
+    /// value. When the structure evolves, branch on `schemaVersion` in
+    /// `init(from:)` to migrate.
+    static let currentSchemaVersion = 1
+
     var summary: HealthSummarySnapshot
     var trends: HealthTrendSnapshot
     var activityRingHistory: ActivityRingHistorySnapshot
+    var schemaVersion: Int?
 
     init(
         summary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
-        activityRingHistory: ActivityRingHistorySnapshot = .empty
+        activityRingHistory: ActivityRingHistorySnapshot = .empty,
+        schemaVersion: Int? = HealthDashboardSnapshot.currentSchemaVersion
     ) {
         self.summary = summary
         self.trends = trends
         self.activityRingHistory = activityRingHistory
+        self.schemaVersion = schemaVersion
     }
 
     static let empty = HealthDashboardSnapshot(
@@ -1496,6 +1507,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         case summary
         case trends
         case activityRingHistory
+        case schemaVersion
     }
 
     init(from decoder: Decoder) throws {
@@ -1506,17 +1518,18 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             ActivityRingHistorySnapshot.self,
             forKey: .activityRingHistory
         ) ?? .empty
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
     }
 
     func filtered(
         by selection: BodyHealthPermissionSelection,
         idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration
     ) -> HealthDashboardSnapshot {
-        filteredWithoutRecoveryRecompute(by: selection)
-            .recalculatingRecovery(idealSleepDuration: idealSleepDuration, calendar: .bodyGregorian)
+        filteredWithoutReadinessRecompute(by: selection)
+            .recalculatingReadiness(idealSleepDuration: idealSleepDuration, calendar: .bodyGregorian)
     }
 
-    func filteredWithoutRecoveryRecompute(by selection: BodyHealthPermissionSelection) -> HealthDashboardSnapshot {
+    func filteredWithoutReadinessRecompute(by selection: BodyHealthPermissionSelection) -> HealthDashboardSnapshot {
         HealthDashboardSnapshot(
             summary: summary.filtered(by: selection),
             trends: trends.filtered(by: selection),
@@ -1524,13 +1537,13 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         )
     }
 
-    func recalculatingRecovery(
+    func recalculatingReadiness(
         on date: Date = Date(),
         idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
         calendar: Calendar = .bodyGregorian
     ) -> HealthDashboardSnapshot {
         var next = self
-        next.summary.recovery = RecoveryScoreCalculator.summary(
+        next.summary.readiness = ReadinessScoreCalculator.summary(
             on: date,
             healthSummary: next.summary,
             trends: next.trends,
@@ -1539,12 +1552,12 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         )
 
         let scoreDay = calendar.startOfDay(for: date)
-        let oldestTrendDate = next.trends.recoverySourceSeries.compactMap { series in
+        let oldestTrendDate = next.trends.readinessSourceSeries.compactMap { series in
             series.points.map { calendar.startOfDay(for: $0.date) }.min()
         }.min()
         let startDate = oldestTrendDate ?? scoreDay
 
-        next.trends.recovery = RecoveryScoreCalculator.dailySeries(
+        next.trends.readiness = ReadinessScoreCalculator.dailySeries(
             healthSummary: next.summary,
             trends: next.trends,
             startDate: startDate,
@@ -1560,7 +1573,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
 struct HealthTrendSnapshot: Codable, Equatable {
     var sleep: HealthTrendSeries
     var sleepSecondary: HealthTrendSeries
-    var recovery: HealthTrendSeries
+    var readiness: HealthTrendSeries
     var heartRate: HealthTrendSeries
     var heartRateRanges: HealthTrendRangeSeries
     var heartRateRangesSecondary: HealthTrendRangeSeries
@@ -1606,7 +1619,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
     static let empty = HealthTrendSnapshot(
         sleep: .empty,
         sleepSecondary: .empty,
-        recovery: .empty,
+        readiness: .empty,
         heartRate: .empty,
         heartRateRanges: .empty,
         heartRateRangesSecondary: .empty,
@@ -1653,7 +1666,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
     var isEmpty: Bool {
         sleep.isEmpty &&
             sleepSecondary.isEmpty &&
-            recovery.isEmpty &&
+            readiness.isEmpty &&
             heartRate.isEmpty &&
             heartRateRanges.isEmpty &&
             heartRateRangesSecondary.isEmpty &&
@@ -1700,7 +1713,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
     init(
         sleep: HealthTrendSeries,
         sleepSecondary: HealthTrendSeries = .empty,
-        recovery: HealthTrendSeries = .empty,
+        readiness: HealthTrendSeries = .empty,
         heartRate: HealthTrendSeries = .empty,
         heartRateRanges: HealthTrendRangeSeries = .empty,
         heartRateRangesSecondary: HealthTrendRangeSeries = .empty,
@@ -1745,7 +1758,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
     ) {
         self.sleep = sleep
         self.sleepSecondary = sleepSecondary
-        self.recovery = recovery
+        self.readiness = readiness
         self.heartRate = heartRate
         self.heartRateRanges = heartRateRanges
         self.heartRateRangesSecondary = heartRateRangesSecondary
@@ -1792,7 +1805,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case sleep
         case sleepSecondary
-        case recovery
+        case readiness
         case heartRate
         case heartRateRanges
         case heartRateRangesSecondary
@@ -1840,7 +1853,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         sleep = try container.decode(HealthTrendSeries.self, forKey: .sleep)
         sleepSecondary = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .sleepSecondary) ?? .empty
-        recovery = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .recovery) ?? .empty
+        readiness = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .readiness) ?? .empty
         heartRate = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .heartRate) ?? .empty
         heartRateRanges = try container.decodeIfPresent(HealthTrendRangeSeries.self, forKey: .heartRateRanges) ?? .empty
         heartRateRangesSecondary = try container.decodeIfPresent(
@@ -1955,8 +1968,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
 
     func series(for kind: HealthMetricKind) -> HealthTrendSeries {
         switch kind {
-        case .recovery:
-            return recovery
+        case .readiness:
+            return readiness
         case .sleep:
             return sleep
         case .basics:
@@ -2009,7 +2022,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case .steps:
             return stepsSecondary
         case .basics,
-             .recovery,
+             .readiness,
              .heartRate,
              .bodyMass,
              .bodyFatPercentage,
@@ -2035,7 +2048,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case .oxygenSaturation:
             return oxygenSaturationRanges
         case .sleep,
-             .recovery,
+             .readiness,
              .basics,
              .restingHeartRate,
              .bodyMass,
@@ -2061,7 +2074,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case .oxygenSaturation:
             return oxygenSaturationRangesSecondary
         case .sleep,
-             .recovery,
+             .readiness,
              .basics,
              .restingHeartRate,
              .bodyMass,
@@ -2096,7 +2109,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case .steps:
             return stepsDaySamples
         case .sleep,
-             .recovery,
+             .readiness,
              .basics,
              .bodyMass,
              .bodyFatPercentage,
@@ -2125,7 +2138,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case .steps:
             return stepsDaySamplesSecondary
         case .sleep,
-             .recovery,
+             .readiness,
              .basics,
              .bodyMass,
              .bodyFatPercentage,
@@ -2144,8 +2157,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         var next = self
 
         switch kind {
-        case .recovery:
-            next.recovery = refreshed.recovery
+        case .readiness:
+            next.readiness = refreshed.readiness
         case .sleep:
             next.sleep = refreshed.sleep
             next.sleepSecondary = refreshed.sleepSecondary
@@ -2214,7 +2227,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         return next
     }
 
-    var recoverySourceSeries: [HealthTrendSeries] {
+    var readinessSourceSeries: [HealthTrendSeries] {
         [
             heartRateVariability,
             restingHeartRate,

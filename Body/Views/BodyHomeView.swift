@@ -70,8 +70,8 @@ private func bodyChartSelectionDateText(for point: HealthTrendRangeCalendarPoint
 }
 
 // Median (not mean) so a single fever night cannot pull the displayed
-// baseline away from the robust median Recovery's vitals component uses.
-// Without this, the card can show "Baseline +0.3 °C" while Recovery shows
+// baseline away from the robust median Readiness's vitals component uses.
+// Without this, the card can show "Baseline +0.3 °C" while Readiness shows
 // no wrist-temperature driver (or vice versa) for the same day.
 private func wristTemperatureBaselineValue(from finiteValues: [Double]) -> Double {
     let sorted = finiteValues.sorted()
@@ -355,9 +355,9 @@ struct BodyHomeView: View {
         let trends = workoutStore.healthTrends
 
         return [
-            recoveryMetric(
-                summary: summary.recovery,
-                chartPreview: trends.series(for: .recovery)
+            readinessMetric(
+                summary: summary.readiness,
+                chartPreview: trends.series(for: .readiness)
             ),
             metric(
                 kind: .exerciseMinutes,
@@ -391,7 +391,7 @@ struct BodyHomeView: View {
                 summary: summary.timeInDaylight,
                 unit: "min",
                 decimals: 0,
-                symbolName: "plus",
+                symbolName: "sun.max.fill",
                 symbolColor: Color(red: 0.10, green: 0.58, blue: 1.00),
                 chartStyle: .bar,
                 chartPreview: trends.series(for: .timeInDaylight)
@@ -513,14 +513,14 @@ struct BodyHomeView: View {
         let energyUnit = selectedEnergyUnitPreference.unitLabel
         let cards = [
             homeTrendCard(
-                kind: .recovery,
-                title: "Recovery",
-                series: trends.series(for: .recovery),
+                kind: .readiness,
+                title: "Readiness",
+                series: trends.series(for: .readiness),
                 chartStyle: .line,
                 symbolName: "bolt.heart.fill",
                 symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + "%" },
-                messageStyle: .average(subject: "your recovery score"),
+                messageStyle: .average(subject: "your readiness score"),
                 includesStable: includesStable
             ),
             homeTrendCard(
@@ -675,7 +675,7 @@ struct BodyHomeView: View {
                 title: "Time In Daylight",
                 series: trends.series(for: .timeInDaylight),
                 chartStyle: .bar,
-                symbolName: "plus",
+                symbolName: "sun.max.fill",
                 symbolColor: Color(red: 0.10, green: 0.58, blue: 1.00),
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " min" },
                 messageStyle: .quantity(subject: "Your time in daylight"),
@@ -742,15 +742,15 @@ struct BodyHomeView: View {
         )
     }
 
-    private func recoveryMetric(
-        summary: RecoverySummary,
+    private func readinessMetric(
+        summary: ReadinessSummary,
         chartPreview: HealthTrendSeries
     ) -> BodyHealthMetricCard.Model {
         let scoreText = summary.score.map { "\($0)" } ?? "--"
 
         return BodyHealthMetricCard.Model(
-            kind: .recovery,
-            title: "Recovery",
+            kind: .readiness,
+            title: "Readiness",
             value: scoreText,
             unit: summary.score == nil ? "" : "%",
             symbolName: "bolt.heart.fill",
@@ -1030,15 +1030,15 @@ struct BodyHomeView: View {
         let trends = workoutStore.healthTrends
 
         switch kind {
-        case .recovery:
+        case .readiness:
             return BodyHealthMetricDetailModel(
                 kind: kind,
-                title: "Recovery",
-                value: summary.recovery.score.map { "\($0)" } ?? "--",
-                unit: summary.recovery.score == nil ? "" : "%",
+                title: "Readiness",
+                value: summary.readiness.score.map { "\($0)" } ?? "--",
+                unit: summary.readiness.score == nil ? "" : "%",
                 symbolName: "bolt.heart.fill",
                 symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
-                series: trends.recovery,
+                series: trends.readiness,
                 basicsTrend: nil,
                 sleepStageSnapshot: nil,
                 sleepScore: nil,
@@ -1046,22 +1046,22 @@ struct BodyHomeView: View {
                 sleepDuration: nil,
                 sleepHistory: trends.sleepHistory,
                 chartStyle: .line,
-                highlightedRange: BodyRecoveryStatusPresentation.make(
-                    for: summary.recovery.score.map(Double.init)
+                highlightedRange: BodyReadinessStatusPresentation.make(
+                    for: summary.readiness.score.map(Double.init)
                 ),
-                highlightedRangeResolver: BodyRecoveryStatusPresentation.make(for:),
+                highlightedRangeResolver: BodyReadinessStatusPresentation.make(for:),
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + "%" },
                 secondaryValueFormatter: nil,
-                recovery: summary.recovery,
+                readiness: summary.readiness,
                 headerMetrics: [
                     BodyMetricDisplayValue(
-                        title: "Recovery",
-                        value: summary.recovery.score.map { "\($0)" } ?? "--",
-                        unit: summary.recovery.score == nil ? "" : "%"
+                        title: "Readiness",
+                        value: summary.readiness.score.map { "\($0)" } ?? "--",
+                        unit: summary.readiness.score == nil ? "" : "%"
                     ),
                     BodyMetricDisplayValue(
                         title: "Status",
-                        value: summary.recovery.status.title,
+                        value: summary.readiness.status.title,
                         unit: ""
                     )
                 ],
@@ -1173,7 +1173,7 @@ struct BodyHomeView: View {
                 summary: summary.timeInDaylight,
                 unit: "min",
                 decimals: 0,
-                symbolName: "plus",
+                symbolName: "sun.max.fill",
                 symbolColor: Color(red: 0.10, green: 0.58, blue: 1.00),
                 chartStyle: .bar
             )
@@ -2454,13 +2454,13 @@ private struct BodyTrainingLoadIntervalBreakdownChart: View {
     }
 }
 
-private enum BodyRecoveryStatusPresentation {
+private enum BodyReadinessStatusPresentation {
     static func make(for value: Double?) -> BodyHealthMetricTrendHighlightedRange? {
         guard let value, value.isFinite else {
             return nil
         }
 
-        let status = RecoveryStatus.status(for: Int(value.rounded()))
+        let status = ReadinessStatus.status(for: Int(value.rounded()))
         guard status != .unavailable else {
             return nil
         }
@@ -2473,7 +2473,7 @@ private enum BodyRecoveryStatusPresentation {
         )
     }
 
-    static func color(for status: RecoveryStatus) -> Color {
+    static func color(for status: ReadinessStatus) -> Color {
         switch status {
         case .prime:
             return Color(red: 0.84, green: 0.08, blue: 0.92)
@@ -2491,7 +2491,7 @@ private enum BodyRecoveryStatusPresentation {
     }
 }
 
-private extension RecoveryStatus {
+private extension ReadinessStatus {
     var symbolName: String {
         switch self {
         case .prime:
@@ -2510,14 +2510,14 @@ private extension RecoveryStatus {
     }
 }
 
-private struct BodyRecoveryStatusBreakdownChart: View {
+private struct BodyReadinessStatusBreakdownChart: View {
     let series: HealthTrendSeries
     let selectedRange: BodyHealthTrendRange
     var calendar: Calendar = .bodyGregorian
     var date: Date = Date()
 
-    private var entries: [RecoveryStatusBreakdownEntry] {
-        RecoveryStatusBreakdown.entries(
+    private var entries: [ReadinessStatusBreakdownEntry] {
+        ReadinessStatusBreakdown.entries(
             for: series,
             range: selectedRange,
             calendar: calendar,
@@ -2559,14 +2559,14 @@ private struct BodyRecoveryStatusBreakdownChart: View {
                 .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(Color.secondary.opacity(0.45))
 
-            Text("No Recovery yet")
+            Text("No Readiness yet")
                 .font(.system(size: 15, weight: .bold, design: .rounded))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, minHeight: 120)
     }
 
-    private func statusDistributionRow(_ entry: RecoveryStatusBreakdownEntry) -> some View {
+    private func statusDistributionRow(_ entry: ReadinessStatusBreakdownEntry) -> some View {
         GeometryReader { geometry in
             let maxBarWidth = maximumBarWidth(for: geometry.size.width)
             let minBarWidth = min(minimumBarWidth, maxBarWidth)
@@ -2585,11 +2585,11 @@ private struct BodyRecoveryStatusBreakdownChart: View {
         .frame(height: rowHeight)
     }
 
-    private func dayCountBar(_ entry: RecoveryStatusBreakdownEntry) -> some View {
+    private func dayCountBar(_ entry: ReadinessStatusBreakdownEntry) -> some View {
         ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: barCornerRadius, style: .continuous)
                 .fill(
-                    BodyRecoveryStatusPresentation
+                    BodyReadinessStatusPresentation
                         .color(for: entry.status)
                         .opacity(entry.dayCount == 0 ? 0.18 : 1)
                 )
@@ -2603,12 +2603,12 @@ private struct BodyRecoveryStatusBreakdownChart: View {
         }
     }
 
-    private func statusDetails(_ entry: RecoveryStatusBreakdownEntry) -> some View {
+    private func statusDetails(_ entry: ReadinessStatusBreakdownEntry) -> some View {
         HStack(spacing: 9) {
             Image(systemName: entry.status.symbolName)
                 .font(.system(size: 22, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(BodyRecoveryStatusPresentation.color(for: entry.status))
+                .foregroundStyle(BodyReadinessStatusPresentation.color(for: entry.status))
                 .frame(width: 30, height: 30)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -2635,7 +2635,7 @@ private struct BodyRecoveryStatusBreakdownChart: View {
         dayCount == 1 ? "1 day" : "\(dayCount) days"
     }
 
-    private func percentageText(for entry: RecoveryStatusBreakdownEntry) -> String {
+    private func percentageText(for entry: ReadinessStatusBreakdownEntry) -> String {
         guard entry.totalDayCount > 0 else { return "0%" }
 
         let percentage = Int((entry.fractionOfTotal * 100).rounded())
@@ -2688,7 +2688,7 @@ private struct BodyHealthMetricDetailModel {
     let sleepVitals: SleepVitalsSummary?
     let sleepDuration: TimeInterval?
     let sleepHistory: SleepHistorySnapshot
-    let recovery: RecoverySummary?
+    let readiness: ReadinessSummary?
     let chartStyle: BodyHealthMetricChartStyle
     let highlightedRange: BodyHealthMetricTrendHighlightedRange?
     let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?
@@ -2724,7 +2724,7 @@ private struct BodyHealthMetricDetailModel {
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
         valueFormatter: @escaping (Double) -> String,
         secondaryValueFormatter: ((Double) -> String)?,
-        recovery: RecoverySummary? = nil,
+        readiness: ReadinessSummary? = nil,
         sourceComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
         sourceRangeComparisonTrend: BodyHealthSourceRangeComparisonTrend? = nil,
         sourceLineComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
@@ -2749,7 +2749,7 @@ private struct BodyHealthMetricDetailModel {
         self.sleepVitals = sleepVitals
         self.sleepDuration = sleepDuration
         self.sleepHistory = sleepHistory
-        self.recovery = recovery
+        self.readiness = readiness
         self.chartStyle = chartStyle
         self.highlightedRange = highlightedRange
         self.highlightedRangeResolver = highlightedRangeResolver
@@ -2810,7 +2810,7 @@ private struct BodyHealthMetricDetailView: View {
     @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
     @State private var showsDataSourcePicker = false
     @State private var isPullRefreshing = false
-    @State private var activeRecoveryTrendValue: Double?
+    @State private var activeReadinessTrendValue: Double?
 
     init(
         model: BodyHealthMetricDetailModel,
@@ -2843,8 +2843,8 @@ private struct BodyHealthMetricDetailView: View {
                         basicsRangeCard
                     }
                     trendCard
-                    if model.kind == .recovery, let recovery = model.recovery {
-                        recoveryWhyCard(for: recovery, activeStatus: activeRecoveryStatus)
+                    if model.kind == .readiness, let readiness = model.readiness {
+                        readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
                     }
                     if isBasicsDetail {
                         bodyMassIndexTrendCard
@@ -2920,7 +2920,7 @@ private struct BodyHealthMetricDetailView: View {
              .activeEnergy,
              .steps:
             return true
-        case .recovery,
+        case .readiness,
              .sleep,
              .basics,
              .bodyMass,
@@ -2945,16 +2945,16 @@ private struct BodyHealthMetricDetailView: View {
         return calendar.startOfDay(for: selectedMetricDate ?? Date())
     }
 
-    private var activeRecoveryStatus: RecoveryStatus? {
-        guard model.kind == .recovery else {
+    private var activeReadinessStatus: ReadinessStatus? {
+        guard model.kind == .readiness else {
             return nil
         }
 
-        if let activeRecoveryTrendValue, activeRecoveryTrendValue.isFinite {
-            return RecoveryStatus.status(for: Int(activeRecoveryTrendValue.rounded()))
+        if let activeReadinessTrendValue, activeReadinessTrendValue.isFinite {
+            return ReadinessStatus.status(for: Int(activeReadinessTrendValue.rounded()))
         }
 
-        return model.recovery?.status
+        return model.readiness?.status
     }
 
     private var recentDatePickerDates: [Date] {
@@ -3062,15 +3062,15 @@ private struct BodyHealthMetricDetailView: View {
         }
     }
 
-    private func recoveryWhyCard(for recovery: RecoverySummary, activeStatus: RecoveryStatus?) -> some View {
+    private func readinessWhyCard(for readiness: ReadinessSummary, activeStatus: ReadinessStatus?) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("About your score")
                 .font(.system(size: 18, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 
             VStack(alignment: .leading, spacing: 14) {
-                ForEach(RecoveryStatus.displayOrder, id: \.self) { status in
-                    recoveryStatusExplanationRow(
+                ForEach(ReadinessStatus.displayOrder, id: \.self) { status in
+                    readinessStatusExplanationRow(
                         status: status,
                         isCurrent: activeStatus == status
                     )
@@ -3082,10 +3082,10 @@ private struct BodyHealthMetricDetailView: View {
         .bodyCardBackground()
     }
 
-    private func recoveryStatusExplanationRow(status: RecoveryStatus, isCurrent: Bool) -> some View {
+    private func readinessStatusExplanationRow(status: ReadinessStatus, isCurrent: Bool) -> some View {
         HStack(alignment: .top, spacing: 12) {
             RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(BodyRecoveryStatusPresentation.color(for: status))
+                .fill(BodyReadinessStatusPresentation.color(for: status))
                 .frame(width: 4)
                 .padding(.vertical, 3)
 
@@ -3099,16 +3099,16 @@ private struct BodyHealthMetricDetailView: View {
                     Text(status.scoreRangeText)
                         .font(.system(.subheadline, design: .monospaced))
                         .fontWeight(.semibold)
-                        .foregroundStyle(BodyRecoveryStatusPresentation.color(for: status))
+                        .foregroundStyle(BodyReadinessStatusPresentation.color(for: status))
 
                     if isCurrent {
                         Text("Current")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .foregroundStyle(BodyRecoveryStatusPresentation.color(for: status))
+                            .foregroundStyle(BodyReadinessStatusPresentation.color(for: status))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
                             .background(
-                                BodyRecoveryStatusPresentation.color(for: status)
+                                BodyReadinessStatusPresentation.color(for: status)
                                     .opacity(0.14),
                                 in: Capsule()
                             )
@@ -3380,7 +3380,7 @@ private struct BodyHealthMetricDetailView: View {
                     valueFormatter: model.valueFormatter,
                     highlightedRange: model.highlightedRange,
                     highlightedRangeResolver: model.highlightedRangeResolver,
-                    activeHighlightedValue: model.kind == .recovery ? $activeRecoveryTrendValue : nil,
+                    activeHighlightedValue: model.kind == .readiness ? $activeReadinessTrendValue : nil,
                     isSleepDetail: isSleepDetail,
                     baselineValue: wristTemperatureTrendBaseline,
                     baselineDeviationFormatter: wristTemperatureTrendBaselineDeviationFormatter,
@@ -3396,8 +3396,8 @@ private struct BodyHealthMetricDetailView: View {
                     .padding(.top, 4)
                 }
 
-                if model.kind == .recovery {
-                    BodyRecoveryStatusBreakdownChart(
+                if model.kind == .readiness {
+                    BodyReadinessStatusBreakdownChart(
                         series: model.series,
                         selectedRange: selectedTrendRange
                     )

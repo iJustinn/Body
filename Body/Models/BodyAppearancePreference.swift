@@ -87,7 +87,7 @@ extension HealthMetricKind {
 
     var supportedComparisonCharts: Set<SourceComparisonChartKind> {
         switch self {
-        case .recovery:
+        case .readiness:
             return []
         case .sleep:
             return [.line]
@@ -812,7 +812,7 @@ struct BodyHomeTrendCardSelection: Equatable {
 }
 
 enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
-    case recovery
+    case readiness
     case heartRate
     case restingHeartRate
     case heartRateVariability
@@ -828,7 +828,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
     case timeInDaylight
 
     static let defaultOrder: [BodyHomeTrendCardKind] = [
-        .recovery,
+        .readiness,
         .heartRate,
         .restingHeartRate,
         .heartRateVariability,
@@ -858,8 +858,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .recovery:
-            return "Recovery"
+        case .readiness:
+            return "Readiness"
         case .heartRate:
             return "Heart Rate"
         case .restingHeartRate:
@@ -891,14 +891,14 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
 
     var subtitle: String {
         switch self {
-        case .recovery:
+        case .readiness:
             return "Readiness score trend"
         case .heartRate:
             return "Average heart rate trend"
         case .restingHeartRate:
             return "Resting heart trend"
         case .heartRateVariability:
-            return "Recovery signal trend"
+            return "Readiness signal trend"
         case .respiratoryRate:
             return "Breathing rate trend"
         case .oxygenSaturation:
@@ -924,7 +924,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
 
     var iconName: String {
         switch self {
-        case .recovery:
+        case .readiness:
             return "bolt.heart.fill"
         case .heartRate,
              .restingHeartRate:
@@ -956,7 +956,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
 
     var tintColor: Color {
         switch self {
-        case .recovery:
+        case .readiness:
             return Color(red: 0.12, green: 0.68, blue: 0.55)
         case .heartRate,
              .restingHeartRate,
@@ -983,7 +983,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
 
 enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     case activityRings
-    case recovery
+    case readiness
     case exerciseMinutes
     case trainingLoad
     case wristTemperature
@@ -1006,7 +1006,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         .heartRate,
         .heartRateVariability,
         .trainingLoad,
-        .recovery,
+        .readiness,
         .activeEnergy,
         .restingEnergy,
         .wristTemperature,
@@ -1039,8 +1039,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         switch self {
         case .activityRings:
             return nil
-        case .recovery:
-            return .recovery
+        case .readiness:
+            return .readiness
         case .exerciseMinutes:
             return .exerciseMinutes
         case .trainingLoad:
@@ -1076,8 +1076,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         switch self {
         case .activityRings:
             return "Activity Rings"
-        case .recovery:
-            return "Recovery"
+        case .readiness:
+            return "Readiness"
         case .exerciseMinutes:
             return "Exercise Minutes"
         case .trainingLoad:
@@ -1113,7 +1113,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         switch self {
         case .activityRings:
             return "Move, Exercise, and Stand progress"
-        case .recovery:
+        case .readiness:
             return "Readiness from sleep, strain, and vitals"
         case .exerciseMinutes:
             return "Daily exercise minute total"
@@ -1134,7 +1134,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         case .restingHeartRate:
             return "Resting beats per minute"
         case .heartRateVariability:
-            return "Recovery and stress signal"
+            return "Readiness and stress signal"
         case .oxygenSaturation:
             return "Blood oxygen range"
         case .respiratoryRate:
@@ -1148,7 +1148,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
 
     var isBeta: Bool {
         switch self {
-        case .recovery:
+        case .readiness:
             return true
         case .activityRings,
              .exerciseMinutes,
@@ -1173,7 +1173,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         switch self {
         case .activityRings:
             return "circle.circle.fill"
-        case .recovery:
+        case .readiness:
             return "bolt.heart.fill"
         case .exerciseMinutes:
             return "figure.run"
@@ -1209,7 +1209,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         switch self {
         case .activityRings:
             return .pink
-        case .recovery:
+        case .readiness:
             return Color(red: 0.12, green: 0.68, blue: 0.55)
         case .exerciseMinutes,
              .trainingLoad,

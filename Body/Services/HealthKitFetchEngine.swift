@@ -137,7 +137,7 @@ actor HealthKitFetchEngine {
 
     nonisolated static func healthPermission(forMetric kind: HealthMetricKind) -> BodyHealthPermission {
         switch kind {
-        case .recovery:
+        case .readiness:
             return .heart
         case .sleep:
             return .sleep
@@ -1821,7 +1821,7 @@ actor HealthKitFetchEngine {
                 sourceOption: secondaryOption
             )
         case .basics,
-             .recovery,
+             .readiness,
              .heartRate,
              .bodyMass,
              .bodyFatPercentage,
@@ -1910,7 +1910,7 @@ actor HealthKitFetchEngine {
                 endDate: endDate
             )
         case .sleep,
-             .recovery,
+             .readiness,
              .basics,
              .bodyMass,
              .bodyFatPercentage,
@@ -1958,7 +1958,7 @@ actor HealthKitFetchEngine {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         case .sleep,
-             .recovery,
+             .readiness,
              .basics,
              .restingHeartRate,
              .bodyMass,
@@ -2464,11 +2464,11 @@ actor HealthKitFetchEngine {
         var summary = HealthSummarySnapshot.empty
         var trends = HealthTrendSnapshot.empty
 
-        if kind == .recovery {
+        if kind == .readiness {
             let baseSnapshot = existing
             let anchor = anchorDate ?? Date()
             return await Task.detached(priority: .userInitiated) {
-                baseSnapshot.recalculatingRecovery(
+                baseSnapshot.recalculatingReadiness(
                     on: anchor,
                     idealSleepDuration: idealSleepDuration,
                     calendar: calendar
@@ -2481,7 +2481,7 @@ actor HealthKitFetchEngine {
         }
 
         switch kind {
-        case .recovery:
+        case .readiness:
             break
         case .sleep:
             async let sleepSummary = fetchSleepSummary(calendar: calendar)

@@ -4,7 +4,7 @@
   <img src="Body/Assets.xcassets/AppIcon.appiconset/AppIcon.png" alt="Body app icon" width="120">
 </p>
 
-Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, Recovery, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
+Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, Readiness, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
 Current app version: **0.5.6 (build 4)**
 
@@ -24,8 +24,8 @@ Current app version: **0.5.6 (build 4)**
 
 ## Features
 
-- **Summary tab** - Activity Rings card plus health cards for Recovery, Exercise Minutes, Wrist Temperature, Daylight, Steps, Sleep, Basics (body fat/weight/BMI), heart rate, Training Load, HRV, blood oxygen, respiratory rate, and energy. Each card includes a four-day preview chart and an About explainer. Detail screens support Week/Month/6 Months/Year ranges.
-- **Recovery** - Recovery score based on personal baselines for sleep, heart, training load, respiratory, blood oxygen, and wrist temperature signals, with status bands, component scores, confidence, and driver explanations.
+- **Summary tab** - Activity Rings card plus health cards for Readiness, Exercise Minutes, Wrist Temperature, Daylight, Steps, Sleep, Basics (body fat/weight/BMI), heart rate, Training Load, HRV, blood oxygen, respiratory rate, and energy. Each card includes a four-day preview chart and an About explainer. Detail screens support Week/Month/6 Months/Year ranges.
+- **Readiness** - Readiness score based on personal baselines for sleep, heart, training load, respiratory, blood oxygen, and wrist temperature signals, with status bands, component scores, confidence, and driver explanations.
 - **Two-source comparison** - Supported metrics (Sleep, Heart Rate, Resting Heart Rate, HRV, Blood Oxygen, Steps, Active Energy, Resting Energy, Exercise Minutes) can overlay a secondary Apple Health source alongside the primary. Primary and secondary share x-axis buckets, the legend lists each source's average, and the picker hides whichever source is already in use as the other slot to prevent duplicate series.
 - **Workouts tab** - Searchable workout history with month browsing, sort, type filters, summary totals, an in-app workout calendar, and a workout type breakdown with monthly totals.
 - **Sleep detail** - Today's sleep score, stage timeline, Apple-style Sleep Vitals chart, and range trend chart.

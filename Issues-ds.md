@@ -8,13 +8,13 @@ Severity legend: **Critical** (data loss / crash / store-blocking), **High** (in
 
 ## 1. Project Review Summary
 
-Body has evolved from v0.3.9 to v0.5.2 (build 4) with substantial engineering improvements: HealthKit fetch was extracted to a dedicated `actor` (`HealthKitFetchEngine`), N+1 queries were eliminated via OR-compound predicates and bounded `withTaskGroup`, cold-start latency was cut with persisted `lastSuccessfulRefreshDate`, progressive publishing streams dashboard data, and `Task.detached` isolation keeps recovery recompute and JSON saves off the main thread.
+Body has evolved from v0.3.9 to v0.5.2 (build 4) with substantial engineering improvements: HealthKit fetch was extracted to a dedicated `actor` (`HealthKitFetchEngine`), N+1 queries were eliminated via OR-compound predicates and bounded `withTaskGroup`, cold-start latency was cut with persisted `lastSuccessfulRefreshDate`, progressive publishing streams dashboard data, and `Task.detached` isolation keeps readiness recompute and JSON saves off the main thread.
 
 The code is clean and well-structured for an iOS SwiftUI app of this complexity. No force-unwraps, no `fatalError`, no leftover `Calendar.current` callers, no TODO/FIXME markers in source. Error handling is consistent through `do/catch` blocks with `os.Logger` fallbacks.
 
-This audit surfaces 16 items — focused on one critical data science bug (recovery calculator ignores user-set sleep goal), several modeling inconsistencies, structural hypertrophy, and missing test coverage for the most mathematically sensitive component.
+This audit surfaces 16 items — focused on one critical data science bug (readiness calculator ignores user-set sleep goal), several modeling inconsistencies, structural hypertrophy, and missing test coverage for the most mathematically sensitive component.
 
-Areas reviewed: app entry / scene phase, HealthKit ingestion (engine + store), recovery calculator (all four components, baselines, scoring functions), workout aggregation, snapshot persistence (file + app-group + UserDefaults migration), Summary dashboard / detail screens, Workouts tab, Settings, Body Pro, widgets, entitlements, privacy manifests, project build settings, and all four test files.
+Areas reviewed: app entry / scene phase, HealthKit ingestion (engine + store), readiness calculator (all four components, baselines, scoring functions), workout aggregation, snapshot persistence (file + app-group + UserDefaults migration), Summary dashboard / detail screens, Workouts tab, Settings, Body Pro, widgets, entitlements, privacy manifests, project build settings, and all four test files.
 
 ---
 
@@ -22,15 +22,15 @@ Areas reviewed: app entry / scene phase, HealthKit ingestion (engine + store), r
 
 ### Critical Bugs
 
-#### C1. Recovery sleep component always uses hardcoded 8-hour goal, ignoring user's stored sleep duration preference
+#### C1. Readiness sleep component always uses hardcoded 8-hour goal, ignoring user's stored sleep duration preference
 
 - **Severity:** Critical
 - **Related files:**
-  - `Body/Models/Recovery/RecoveryScoreCalculator.swift:241`
+  - `Body/Models/Readiness/ReadinessScoreCalculator.swift:241`
   - `Body/Views/BodySettingsView.swift:18,381,454-456`
-- **Description:** The `RecoveryScoreCalculator.sleepComponent` normalizes sleep duration against `BodySleepDurationGoal.defaultDuration` (8 hours / 28,800 seconds):
+- **Description:** The `ReadinessScoreCalculator.sleepComponent` normalizes sleep duration against `BodySleepDurationGoal.defaultDuration` (8 hours / 28,800 seconds):
   ```swift
-  // RecoveryScoreCalculator.swift:241
+  // ReadinessScoreCalculator.swift:241
   let durationProgress = min(max(duration / BodySleepDurationGoal.defaultDuration, 0), 1.10)
   ```
   The user can set a custom sleep goal via Settings > Metrics > Sleep Goal, which is stored in `UserDefaults` under `sleepDurationGoalMinutesKey` (range: 4–12 hours). The Settings sheet controls this value, and `BodyHomeView` reads it correctly when computing `SleepScoreSummary`:
@@ -38,42 +38,42 @@ Areas reviewed: app entry / scene phase, HealthKit ingestion (engine + store), r
   // BodyHomeView.swift:2985 — CORRECTLY uses user's goal
   idealSleepDuration: BodySleepDurationGoal.duration(from: sleepDurationGoalMinutes),
   ```
-  But the Recovery calculator has no access to this stored preference — it is a static enum method with no `UserDefaults` parameter. Every recovery score computation on every day uses exactly 8 hours regardless of the user's actual goal.
-- **Why it matters:** A user who sets a 6.5-hour sleep goal (or a 9-hour goal) gets recovery scores that diverge from the app's own sleep score. The Sleep detail page might show a "Good" sleep score (computed against the user's goal), while the Recovery score shows a depressed score because it compares the same sleep duration against a different (hardcoded) standard. Users cannot trust the recovery metric if one of its two sleep sub-signals (duration) is anchored to a wrong baseline. Recovery is a headlining feature — this is a correctness regression.
-- **Suggested fix:** Thread the stored sleep goal into the recovery calculator. Simplest path: add an `idealSleepDuration: TimeInterval` parameter to `RecoveryScoreCalculator.summary()` and `sleepComponent()`, defaulting to `BodySleepDurationGoal.defaultDuration`. Have `HealthKitWorkoutStore.updateHealthDashboardSnapshot` read `@AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey)` and pass the value through. Because `RecoveryScoreCalculator.dailySeries()` recomputes recovery for every day in a trend window, it should also accept and forward this parameter.
-- **Risks / dependencies:** The calculator lives in `Body/Models/Recovery/` — a pure model with no SwiftUI dependency. The `@AppStorage` value is read from `UserDefaults` in the view layer; passing it down through `HealthKitWorkoutStore` → `HealthDashboardSnapshot.recalculatingRecovery` → `RecoveryScoreCalculator` is the cleanest approach. No data migration needed — existing cached recovery values will be recomputed on the next refresh with the correct goal.
+  But the Readiness calculator has no access to this stored preference — it is a static enum method with no `UserDefaults` parameter. Every readiness score computation on every day uses exactly 8 hours regardless of the user's actual goal.
+- **Why it matters:** A user who sets a 6.5-hour sleep goal (or a 9-hour goal) gets readiness scores that diverge from the app's own sleep score. The Sleep detail page might show a "Good" sleep score (computed against the user's goal), while the Readiness score shows a depressed score because it compares the same sleep duration against a different (hardcoded) standard. Users cannot trust the readiness metric if one of its two sleep sub-signals (duration) is anchored to a wrong baseline. Readiness is a headlining feature — this is a correctness regression.
+- **Suggested fix:** Thread the stored sleep goal into the readiness calculator. Simplest path: add an `idealSleepDuration: TimeInterval` parameter to `ReadinessScoreCalculator.summary()` and `sleepComponent()`, defaulting to `BodySleepDurationGoal.defaultDuration`. Have `HealthKitWorkoutStore.updateHealthDashboardSnapshot` read `@AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey)` and pass the value through. Because `ReadinessScoreCalculator.dailySeries()` recomputes readiness for every day in a trend window, it should also accept and forward this parameter.
+- **Risks / dependencies:** The calculator lives in `Body/Models/Readiness/` — a pure model with no SwiftUI dependency. The `@AppStorage` value is read from `UserDefaults` in the view layer; passing it down through `HealthKitWorkoutStore` → `HealthDashboardSnapshot.recalculatingReadiness` → `ReadinessScoreCalculator` is the cleanest approach. No data migration needed — existing cached readiness values will be recomputed on the next refresh with the correct goal.
 
 ### Data Processing / Modeling Issues
 
-#### D1. Wrist temperature baseline uses simple arithmetic mean in UI while Recovery calculator uses robust median
+#### D1. Wrist temperature baseline uses simple arithmetic mean in UI while Readiness calculator uses robust median
 
 - **Severity:** Medium
 - **Related files:**
   - `Body/Views/BodyHomeView.swift:72-80` (`wristTemperatureBaseline`)
-  - `Body/Models/Recovery/RecoveryScoreCalculator.swift:70-112` (`robustBaseline`)
+  - `Body/Models/Readiness/ReadinessScoreCalculator.swift:70-112` (`robustBaseline`)
 - **Description:** The `wristTemperatureBaseline` helper in `BodyHomeView.swift` computes the average wrist temperature as a simple arithmetic mean across all available year-long points:
   ```swift
   return finiteValues.reduce(0, +) / Double(finiteValues.count)
   ```
-  The Recovery calculator's `robustBaseline` method uses the median and a robust spread estimate (1.4826 × MAD), then computes a z-score. The mean is sensitive to outliers (a single fever night can shift the baseline), while the median is not. The Recovery vitals component correctly uses the median-based baseline for wrist temperature anomaly detection; the UI display uses a different (less robust) estimate.
-- **Why it matters:** The baseline deviation shown on the wrist temperature card can disagree with the Recovery vitals driver for the same day. A user sees "Baseline +0.3°C" on the card but no wrist-temperature driver in Recovery (or vice versa), reducing trust in both surfaces.
+  The Readiness calculator's `robustBaseline` method uses the median and a robust spread estimate (1.4826 × MAD), then computes a z-score. The mean is sensitive to outliers (a single fever night can shift the baseline), while the median is not. The Readiness vitals component correctly uses the median-based baseline for wrist temperature anomaly detection; the UI display uses a different (less robust) estimate.
+- **Why it matters:** The baseline deviation shown on the wrist temperature card can disagree with the Readiness vitals driver for the same day. A user sees "Baseline +0.3°C" on the card but no wrist-temperature driver in Readiness (or vice versa), reducing trust in both surfaces.
 - **Suggested fix:** Either (a) replace the UI mean with the median from the same `robustBaseline` call, or (b) add a shared `HealthTrendSeries.robustBaseline(floor:)` method that both surfaces call. Option (b) is cleaner and prevents future drift.
 - **Risks / dependencies:** Low. The mean and median will agree on typical data; the divergence only appears with outliers.
 
-#### D2. Recovery `dailySeries()` recomputes full recovery from scratch for every day — O(n²) trend generation
+#### D2. Readiness `dailySeries()` recomputes full readiness from scratch for every day — O(n²) trend generation
 
 - **Severity:** Medium
-- **Related files:** `Body/Models/Recovery/RecoveryScoreCalculator.swift:122-155`
+- **Related files:** `Body/Models/Readiness/ReadinessScoreCalculator.swift:122-155`
 - **Description:** `dailySeries()` iterates day-by-day over a date range (up to 365 days for a Year trend) and calls `summary()` for each day. Each `summary()` call runs `autonomicComponent`, `sleepComponent`, `trainingComponent`, and `vitalsComponent`, each of which builds a 56-day robust baseline from scratch. For a 365-day trend, this means ~365 x 4 = 1,460 baseline computations, many scanning the same overlapping 56-day windows. On Apple Watch users with dense HealthKit data, the detached `Task.detached(.userInitiated)` already offloads this from the main thread, but the CPU cost is still high and contributes to the "refresh feels frozen for ~10 s" symptom noted in `LessonsLearned.md`.
-- **Why it matters:** Recovery trend chart generation is the single heaviest computation in the app. On a 365-day window with rich data, the baseline recomputation is mostly redundant — 90% of the work repeats across adjacent days. While already off-main, this still delays the final `@Published` update and burns CPU.
-- **Suggested fix:** Precompute a rolling window of daily recovery component scores (one forward pass, one backward pass for baselines), store them, and then assemble final scores by weighted combination. This reduces the complexity from O(n x baseline_window) to O(n). The tradeoff is added state management, but the speedup is substantial for long trends.
-- **Risks / dependencies:** This is a non-trivial refactor of the recovery calculator's internal architecture. The public API should remain unchanged. Worth pairing with a dedicated recovery calculator test suite (see T1).
+- **Why it matters:** Readiness trend chart generation is the single heaviest computation in the app. On a 365-day window with rich data, the baseline recomputation is mostly redundant — 90% of the work repeats across adjacent days. While already off-main, this still delays the final `@Published` update and burns CPU.
+- **Suggested fix:** Precompute a rolling window of daily readiness component scores (one forward pass, one backward pass for baselines), store them, and then assemble final scores by weighted combination. This reduces the complexity from O(n x baseline_window) to O(n). The tradeoff is added state management, but the speedup is substantial for long trends.
+- **Risks / dependencies:** This is a non-trivial refactor of the readiness calculator's internal architecture. The public API should remain unchanged. Worth pairing with a dedicated readiness calculator test suite (see T1).
 
-#### D3. `adjustedSummaryScore` caps recovery at <=24 with a binary severe-limiter gate that may be too aggressive
+#### D3. `adjustedSummaryScore` caps readiness at <=24 with a binary severe-limiter gate that may be too aggressive
 
 - **Severity:** Low
-- **Related files:** `Body/Models/Recovery/RecoveryScoreCalculator.swift:506-521`
-- **Description:** If ANY component has a score <=25 AND its strongest driver impact >=0.90, the entire recovery score is capped at `min(score, 24)`:
+- **Related files:** `Body/Models/Readiness/ReadinessScoreCalculator.swift:506-521`
+- **Description:** If ANY component has a score <=25 AND its strongest driver impact >=0.90, the entire readiness score is capped at `min(score, 24)`:
   ```swift
   private static func isSevereLimiter(_ result: ComponentResult) -> Bool {
       guard let componentScore = result.component.score else { return false }
@@ -81,15 +81,15 @@ Areas reviewed: app entry / scene phase, HealthKit ingestion (engine + store), r
       return componentScore <= 25 && strongestImpact >= 0.90
   }
   ```
-  This means a recovery score could be, say, 72 (from three healthy components) but get clamped to 24 because one component (e.g., vitals with a single borderline blood oxygen reading) triggers the gate. The gate treats "any one component in severe distress" as equivalent to "overall recovery is Poor," which may over-penalize users who have one noisy metric.
-- **Why it matters:** The adjusted score is shown to users as their primary recovery number. A single anomalous night (e.g., one low-HRV reading after drinking) can drag the score from "Moderate" to "Poor" even when sleep and training load are fine. Users may lose trust in the metric if one variable dominates.
+  This means a readiness score could be, say, 72 (from three healthy components) but get clamped to 24 because one component (e.g., vitals with a single borderline blood oxygen reading) triggers the gate. The gate treats "any one component in severe distress" as equivalent to "overall readiness is Poor," which may over-penalize users who have one noisy metric.
+- **Why it matters:** The adjusted score is shown to users as their primary readiness number. A single anomalous night (e.g., one low-HRV reading after drinking) can drag the score from "Moderate" to "Poor" even when sleep and training load are fine. Users may lose trust in the metric if one variable dominates.
 - **Suggested fix:** Consider a graduated cap — e.g., limit at 24 if >=2 components are severe limiters, or use a weighted penalty that reduces the score proportional to the number and severity of limiters rather than a hard binary gate. Alternatively, increase the impact threshold from 0.90 to 0.95 to reduce false positives.
-- **Risks / dependencies:** Changes the recovery score distribution for users with noisy data. Should be validated against real HealthKit exports before shipping.
+- **Risks / dependencies:** Changes the readiness score distribution for users with noisy data. Should be validated against real HealthKit exports before shipping.
 
 #### D4. Sleep continuity scoring uses hardcoded efficiency thresholds without personal baselines
 
 - **Severity:** Low
-- **Related files:** `Body/Models/Recovery/RecoveryScoreCalculator.swift:251-265`
+- **Related files:** `Body/Models/Readiness/ReadinessScoreCalculator.swift:251-265`
 - **Description:** Sleep fragmentation is scored by computing `efficiency = 1 - awakeDuration / inBedDuration` and then normalizing against fixed thresholds:
   ```swift
   let continuityProgress = min(max((efficiency - 0.78) / 0.18, 0), 1)
@@ -128,16 +128,16 @@ Areas reviewed: app entry / scene phase, HealthKit ingestion (engine + store), r
 - **Suggested fix:** Add `// MARK: - Snapshot Construction`, `// MARK: - Store Round-Trips`, `// MARK: - Value Formatting`, etc. sub-sections.
 - **Risks / dependencies:** None.
 
-#### Q4. Sleep duration goal is read by views but never threaded into the recovery calculator — architectural gap
+#### Q4. Sleep duration goal is read by views but never threaded into the readiness calculator — architectural gap
 
 - **Severity:** Medium
 - **Related files:**
   - `Body/Views/BodySettingsView.swift:18`
   - `Body/Views/BodyHomeView.swift:224,2985`
-  - `Body/Models/Recovery/RecoveryScoreCalculator.swift:241`
-- **Description:** The user's sleep duration goal is stored via `@AppStorage` and passed correctly to `SleepScoreSummary` in the Sleep detail view. But the Recovery calculator — which also scores sleep duration — has no access to this preference. This is an architectural gap: the calculator is a pure `enum` with static methods; it has no dependency injection point for user preferences.
-- **Why it matters:** Beyond the specific bug (C1), this reveals a fragility pattern: any future user-configurable parameter that affects Recovery scoring (e.g., training load sensitivity, HRV baseline window) will hit the same gap.
-- **Suggested fix:** Introduce a `RecoveryScoreCalculator.Configuration` struct with `idealSleepDuration: TimeInterval` and any future tunables. Pass it as a parameter to `summary()` and `dailySeries()`. The `BodyAppearancePreference` enum already centralizes keys — the configuration can be assembled from `UserDefaults` at the call site.
+  - `Body/Models/Readiness/ReadinessScoreCalculator.swift:241`
+- **Description:** The user's sleep duration goal is stored via `@AppStorage` and passed correctly to `SleepScoreSummary` in the Sleep detail view. But the Readiness calculator — which also scores sleep duration — has no access to this preference. This is an architectural gap: the calculator is a pure `enum` with static methods; it has no dependency injection point for user preferences.
+- **Why it matters:** Beyond the specific bug (C1), this reveals a fragility pattern: any future user-configurable parameter that affects Readiness scoring (e.g., training load sensitivity, HRV baseline window) will hit the same gap.
+- **Suggested fix:** Introduce a `ReadinessScoreCalculator.Configuration` struct with `idealSleepDuration: TimeInterval` and any future tunables. Pass it as a parameter to `summary()` and `dailySeries()`. The `BodyAppearancePreference` enum already centralizes keys — the configuration can be assembled from `UserDefaults` at the call site.
 - **Risks / dependencies:** Non-breaking if the `Configuration` type has sensible defaults.
 
 ### Performance Issues
@@ -172,15 +172,15 @@ Areas reviewed: app entry / scene phase, HealthKit ingestion (engine + store), r
 
 ### Missing Tests
 
-#### T1. Recovery score calculator has zero unit tests despite containing the most mathematically complex code in the app
+#### T1. Readiness score calculator has zero unit tests despite containing the most mathematically complex code in the app
 
 - **Severity:** High
 - **Related files:**
-  - `Body/Models/Recovery/RecoveryScoreCalculator.swift` (601 lines, no corresponding test file)
-  - `BodyTests/` (no `RecoveryScoreCalculatorTests.swift`)
-- **Description:** The recovery calculator implements robust median baselines, z-scores, smoothstep functions, weighted scoring, penalized scoring, sleep progress scoring, training load scoring, severe-limiter gating, and confidence computation — all with zero automated tests. C1, D1, D3, and D4 in this report are all recovery-calculator issues that would have been caught by even basic parameterized tests.
-- **Why it matters:** The recovery score is a headlining feature. Any regression in scoring logic silently changes the user's recovery number. Without tests, future changes to baselines, thresholds, or scoring curves are unverifiable.
-- **Suggested fix:** Create `BodyTests/RecoveryScoreCalculatorTests.swift` with test cases for:
+  - `Body/Models/Readiness/ReadinessScoreCalculator.swift` (601 lines, no corresponding test file)
+  - `BodyTests/` (no `ReadinessScoreCalculatorTests.swift`)
+- **Description:** The readiness calculator implements robust median baselines, z-scores, smoothstep functions, weighted scoring, penalized scoring, sleep progress scoring, training load scoring, severe-limiter gating, and confidence computation — all with zero automated tests. C1, D1, D3, and D4 in this report are all readiness-calculator issues that would have been caught by even basic parameterized tests.
+- **Why it matters:** The readiness score is a headlining feature. Any regression in scoring logic silently changes the user's readiness number. Without tests, future changes to baselines, thresholds, or scoring curves are unverifiable.
+- **Suggested fix:** Create `BodyTests/ReadinessScoreCalculatorTests.swift` with test cases for:
   - `robustBaseline` with known values (verify median, MAD, validDayCount)
   - `robustZScore` with above/below/at baseline values
   - `scoreFromBaselineZScore` across the range
@@ -208,14 +208,14 @@ Areas reviewed: app entry / scene phase, HealthKit ingestion (engine + store), r
   - `sleepDuration` / `mergedSleepDuration` merging logic
 - **Risks / dependencies:** The engine is an `actor` — tests need `async` context. The `nonisolated static` helpers can be tested synchronously.
 
-#### T3. Recovery component weights and scoring thresholds are undocumented magic numbers
+#### T3. Readiness component weights and scoring thresholds are undocumented magic numbers
 
 - **Severity:** Low
 - **Related files:**
-  - `Body/Models/Recovery/RecoveryScoreCalculator.swift`
-  - `docs/RecoveryMetrics.md`
+  - `Body/Models/Readiness/ReadinessScoreCalculator.swift`
+  - `docs/ReadinessMetrics.md`
 - **Description:** Weight constants (30, 30, 25, 15) are inline; sleep efficiency thresholds (0.78/0.18) have no comments; z-score start/full parameters have no justification. A future developer modifying these numbers has no guidance.
-- **Why it matters:** Recovery scoring is the most scientifically sensitive part of the app. Undocumented magic numbers invite uninformed changes.
+- **Why it matters:** Readiness scoring is the most scientifically sensitive part of the app. Undocumented magic numbers invite uninformed changes.
 - **Suggested fix:** Add doc comments explaining the rationale (e.g., "Weights sum to 100" or "Thresholds derived from population norms"). If heuristic, state that explicitly.
 - **Risks / dependencies:** None. Comment-only change.
 
@@ -225,27 +225,27 @@ Areas reviewed: app entry / scene phase, HealthKit ingestion (engine + store), r
 
 ### Fix First (Critical / High)
 
-1. **C1 — Recovery sleep component ignores user's sleep goal.** Thread `idealSleepDuration` through the calculator. High user impact — Recovery is a headlining feature.
-2. **T1 — Add Recovery score calculator tests.** Without tests, C1 and any future scoring changes are unverifiable. Zero device dependency.
+1. **C1 — Readiness sleep component ignores user's sleep goal.** Thread `idealSleepDuration` through the calculator. High user impact — Readiness is a headlining feature.
+2. **T1 — Add Readiness score calculator tests.** Without tests, C1 and any future scoring changes are unverifiable. Zero device dependency.
 
 ### Fix Next (Medium)
 
-3. **D1 — Unify wrist temperature baseline between UI (mean) and Recovery (median).** Small code change, eliminates a visible disagreement.
+3. **D1 — Unify wrist temperature baseline between UI (mean) and Readiness (median).** Small code change, eliminates a visible disagreement.
 4. **C2 — Add schema version fields to snapshot models.** One-line Codable addition per type. Prevents silent data loss on type evolution.
 5. **U1 — Disable Body Pro purchase buttons or gate behind feature flag.** User-facing trust issue.
 6. **Q1 — Split `BodyHomeView.swift` (8,656 lines).** Start with the smallest carve-out to build the pattern.
 
 ### Optional Cleanup (Low)
 
-7. D2 — Optimize recovery dailySeries to O(n). Worth doing after T1.
+7. D2 — Optimize readiness dailySeries to O(n). Worth doing after T1.
 8. D3 — Review adjustedSummaryScore binary gate.
 9. D4 — Personalize sleep continuity efficiency baseline.
 10. Q2 — Split `HealthSummarySnapshot.swift`.
 11. Q3 — Add MARK sub-sections to `WorkoutMonthSnapshotTests.swift`.
-12. Q4 — Add configuration struct to recovery calculator.
+12. Q4 — Add configuration struct to readiness calculator.
 13. P1 — Replace polling loop with continuation map.
 14. T2 — Add `HealthKitFetchEngine` tests for pure-logic helpers.
-15. T3 — Document recovery scoring weights and thresholds.
+15. T3 — Document readiness scoring weights and thresholds.
 16. U2 — Fix Body Pro future-updates checkmark icon.
 
 ---
@@ -254,7 +254,7 @@ Areas reviewed: app entry / scene phase, HealthKit ingestion (engine + store), r
 
 - App entry / scene phase: `Body/BodyApp.swift`
 - HealthKit ingestion: `Body/Services/HealthKitFetchEngine.swift` (full, 2,815 lines), `Body/Services/HealthKitWorkoutStore.swift` (full, 1,531 lines)
-- Recovery calculator: `Body/Models/Recovery/RecoveryScoreCalculator.swift` (full, 601 lines), `Body/Models/Recovery/RecoveryModels.swift` (full, 259 lines)
+- Readiness calculator: `Body/Models/Readiness/ReadinessScoreCalculator.swift` (full, 601 lines), `Body/Models/Readiness/ReadinessModels.swift` (full, 259 lines)
 - Dashboard persistence: `Body/Services/HealthDashboardSnapshotStore.swift` (full), `BodyShared/Services/WorkoutSnapshotStore.swift` (full)
 - Models: `Body/Models/HealthSummarySnapshot.swift` (selective — key types), `Body/Models/BodyAppearancePreference.swift` (selective — keys, permissions, source comparison), `BodyShared/Models/WorkoutSummary.swift`, `BodyShared/Models/WorkoutMonthSnapshot.swift`, `BodyShared/Models/BodyWorkoutType.swift`
 - Views: `Body/Views/BodyHomeView.swift` (selective — metricCards, chart structs, source comparison, training-load, sleep detail, activity rings), `Body/Views/BodyWorkoutsView.swift` (full), `Body/Views/BodySettingsView.swift` (selective — sleep goal, version display), `Body/Views/BodyProView.swift` (full), `Body/Views/MainTabView.swift`, `Body/Views/BodyActivityRingsDetailView.swift` (header)
@@ -283,5 +283,5 @@ Grep queries:
 - LaunchScreen XML and Xcode shared scheme XML.
 - Asset catalog `Contents.json` JSON validation beyond `ProjectConfigurationTests`.
 - `WorkoutMonthSnapshotTests.swift` (3,551 lines) was function-indexed but not read in full.
-- Recovery scoring calibration against real multi-user HealthKit exports (weights and thresholds would benefit from empirical validation).
-- `docs/RecoveryMetrics.md` content accuracy against current code.
+- Readiness scoring calibration against real multi-user HealthKit exports (weights and thresholds would benefit from empirical validation).
+- `docs/ReadinessMetrics.md` content accuracy against current code.

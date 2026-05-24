@@ -1382,6 +1382,9 @@ private struct BodyWorkoutHeartRateChartMetrics {
 
     static func color(forFraction fraction: Double) -> Color {
         let f = max(0, min(1, fraction))
+        guard let last = colorStops.last else {
+            return Color(red: 1.0, green: 0.30, blue: 0.30)
+        }
         for i in 1..<colorStops.count {
             if f <= colorStops[i].location {
                 let prev = colorStops[i - 1]
@@ -1395,7 +1398,6 @@ private struct BodyWorkoutHeartRateChartMetrics {
                 )
             }
         }
-        let last = colorStops.last!
         return Color(red: last.red, green: last.green, blue: last.blue)
     }
 }
