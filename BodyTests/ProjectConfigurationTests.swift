@@ -42,7 +42,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testSettingsSourceSheetExposesGlobalDefaultsAndCombineToggle() throws {
         let source = try text(at: "Body/Views/BodySettingsView.swift")
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
-        let engineSource = try text(at: "Body/Services/HealthKitFetchEngine.swift")
+        let engineSource = try healthKitFetchEngineText()
 
         XCTAssertTrue(source.contains("case source"))
         XCTAssertTrue(source.contains("BodySourceSettingsSheet(workoutStore: workoutStore)"))
@@ -411,7 +411,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testHealthKitFetchesApplySourcePreferencesToRequestedMetrics() throws {
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
-        let engineSource = try text(at: "Body/Services/HealthKitFetchEngine.swift")
+        let engineSource = try healthKitFetchEngineText()
 
         XCTAssertTrue(storeSource.contains("fetchHealthDataSourceOptions(calendar: calendar)"))
         XCTAssertTrue(engineSource.contains("sourcePredicate(for: sourceKind)"))
@@ -507,7 +507,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testSourceSelectableDayChartsUsePrimarySecondaryComparisonLines() throws {
         let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
-        let engineSource = try text(at: "Body/Services/HealthKitFetchEngine.swift")
+        let engineSource = try healthKitFetchEngineText()
         let snapshotSource = try text(at: "Body/Models/HealthSummarySnapshot.swift")
         let dayChartCardStart = try XCTUnwrap(homeSource.range(of: "private var metricDayChartCard: some View")?.lowerBound)
         let dayChartCardBlock = String(homeSource[dayChartCardStart...].prefix(3_500))
@@ -593,7 +593,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testHealthKitFetchesBarAndRangeSecondarySourceComparisons() throws {
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
-        let engineSource = try text(at: "Body/Services/HealthKitFetchEngine.swift")
+        let engineSource = try healthKitFetchEngineText()
         let snapshotSource = try text(at: "Body/Models/HealthSummarySnapshot.swift")
 
         XCTAssertTrue(storeSource.contains("@Published private(set) var secondaryHealthDataSourceSelection"))
@@ -1193,6 +1193,18 @@ final class ProjectConfigurationTests: XCTestCase {
 
     private func text(at relativePath: String) throws -> String {
         try String(contentsOf: projectRoot.appendingPathComponent(relativePath), encoding: .utf8)
+    }
+
+    /// Concatenates every Swift file backing `HealthKitFetchEngine`. The engine
+    /// was split across the main actor file and one or more `+...swift`
+    /// extension files; tests that grep for engine substrings should look across
+    /// the whole engine, not just the main file.
+    private func healthKitFetchEngineText() throws -> String {
+        let files = [
+            "Body/Services/HealthKitFetchEngine.swift",
+            "Body/Services/HealthKitFetchEngine+SampleParsers.swift"
+        ]
+        return try files.map { try text(at: $0) }.joined(separator: "\n")
     }
 
     private func propertyList(at relativePath: String) throws -> [String: Any] {
