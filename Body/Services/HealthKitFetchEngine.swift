@@ -12,32 +12,38 @@ import HealthKit
 /// delegates every `HKHealthStore` query, predicate, and aggregation here so
 /// the store body itself stays focused on presentation glue.
 actor HealthKitFetchEngine {
-    private let healthStore = HKHealthStore()
+    // Stored properties are declared `internal` (default access) so peer
+    // extension files in this module (HealthKitFetchEngine+Sleep.swift,
+    // HealthKitFetchEngine+TrainingLoad.swift, etc.) can reach them.
+    // Because the actor is isolated, callers outside the actor still need
+    // an `await` to read or write, so the broader visibility doesn't
+    // change the threading model.
+    let healthStore = HKHealthStore()
 
-    private var permissionSelection: BodyHealthPermissionSelection
-    private var healthDataSourceSelection: BodyHealthDataSourceSelection
-    private var secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection
-    private var combinesHealthDataSourcesByName: Bool
+    var permissionSelection: BodyHealthPermissionSelection
+    var healthDataSourceSelection: BodyHealthDataSourceSelection
+    var secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection
+    var combinesHealthDataSourcesByName: Bool
 
-    private var healthSourcesByKind: [HealthMetricKind: [String: [HKSource]]] = [:]
-    private var fetchedHealthDataSourcePermissionRawValue: String?
+    var healthSourcesByKind: [HealthMetricKind: [String: [HKSource]]] = [:]
+    var fetchedHealthDataSourcePermissionRawValue: String?
 
-    private var anchorDate: Date?
+    var anchorDate: Date?
 
     /// Shared workout fetch for the training-load summary AND the training-load
     /// trend series. Both consume the same 180-day workout window; running them
     /// as independent HK queries (one per orchestrator) duplicates the round-trip
     /// and the per-workout effort fan-out. Memoized by window so simultaneous
     /// callers within a refresh share a single in-flight fetch.
-    private var sharedTrainingLoadWorkoutsTask: Task<[WorkoutSummary], Error>?
-    private var sharedTrainingLoadWorkoutsWindow: TrainingLoadWorkoutsWindow?
+    var sharedTrainingLoadWorkoutsTask: Task<[WorkoutSummary], Error>?
+    var sharedTrainingLoadWorkoutsWindow: TrainingLoadWorkoutsWindow?
 
-    private struct TrainingLoadWorkoutsWindow: Equatable {
+    struct TrainingLoadWorkoutsWindow: Equatable {
         let start: Date
         let end: Date
     }
 
-    private static let trainingLoadSummaryDayCount = 180
+    static let trainingLoadSummaryDayCount = 180
 
     init(
         permission: BodyHealthPermissionSelection,
@@ -325,7 +331,7 @@ actor HealthKitFetchEngine {
         return (start, end)
     }
 
-    private func activityRingHistoryInterval(calendar: Calendar, date: Date = Date()) -> (start: Date, end: Date) {
+    func activityRingHistoryInterval(calendar: Calendar, date: Date = Date()) -> (start: Date, end: Date) {
         let currentDayStart = calendar.startOfDay(for: date)
         let currentMonthStart = calendar.dateInterval(of: .month, for: currentDayStart)?.start ?? currentDayStart
         let start = calendar.date(byAdding: .month, value: -(HealthKitWorkoutStore.recentChartMonthCount - 1), to: currentMonthStart)
@@ -997,7 +1003,7 @@ actor HealthKitFetchEngine {
         )
     }
 
-    private func fetchWorkoutSummaries(
+    func fetchWorkoutSummaries(
         startDate: Date,
         endDate: Date,
         includesHeartRateSamples: Bool
@@ -1181,202 +1187,11 @@ actor HealthKitFetchEngine {
     // Sleep summary + history + per-day vitals hydration live in
     // `HealthKitFetchEngine+Sleep.swift`.
 
-    // MARK: - Training load
+    // Training-load summary + trend series live in
+    // `HealthKitFetchEngine+TrainingLoad.swift`.
 
-    private func trainingLoadWorkoutsWindow(calendar: Calendar) -> TrainingLoadWorkoutsWindow {
-        let anchor = anchorDate ?? Date()
-        let dayStart = calendar.startOfDay(for: anchor)
-        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)
-            ?? dayStart.addingTimeInterval(86_400)
-        let start = calendar.date(byAdding: .day, value: -Self.trainingLoadSummaryDayCount, to: dayStart)
-            ?? dayStart.addingTimeInterval(-TimeInterval(Self.trainingLoadSummaryDayCount) * 86_400)
-        return TrainingLoadWorkoutsWindow(start: start, end: dayEnd)
-    }
-
-    /// Fetches (or reuses an in-flight fetch of) the 180-day training-load
-    /// workout window. Concurrent callers within the same refresh await the
-    /// same `Task`; the memo is invalidated whenever the trend anchor date is
-    /// (re)set on the engine.
-    private func sharedTrainingLoadWorkouts(
-        window: TrainingLoadWorkoutsWindow
-    ) async throws -> [WorkoutSummary] {
-        if let task = sharedTrainingLoadWorkoutsTask,
-           sharedTrainingLoadWorkoutsWindow == window {
-            return try await task.value
-        }
-
-        let task = Task<[WorkoutSummary], Error> { [self] in
-            try await fetchWorkoutSummaries(
-                startDate: window.start,
-                endDate: window.end,
-                includesHeartRateSamples: false
-            )
-        }
-        sharedTrainingLoadWorkoutsTask = task
-        sharedTrainingLoadWorkoutsWindow = window
-        return try await task.value
-    }
-
-    private func fetchTrainingLoadSummary(calendar: Calendar) async -> HealthMetricSummary? {
-        let date = anchorDate ?? Date()
-        let window = trainingLoadWorkoutsWindow(calendar: calendar)
-
-        do {
-            let workouts = try await sharedTrainingLoadWorkouts(window: window)
-            return TrainingLoadCalculator.summary(
-                on: date,
-                from: workouts,
-                startDate: window.start,
-                calendar: calendar
-            )
-        } catch {
-            return nil
-        }
-    }
-
-    private func fetchTrainingLoadSeries(calendar: Calendar) async -> HealthTrendSeries {
-        let end = anchorDate ?? Date()
-        let window = trainingLoadWorkoutsWindow(calendar: calendar)
-
-        do {
-            let workouts = try await sharedTrainingLoadWorkouts(window: window)
-            return TrainingLoadCalculator.dailySeries(
-                from: workouts,
-                startDate: window.start,
-                endDate: end,
-                calendar: calendar
-            )
-        } catch {
-            return .empty
-        }
-    }
-
-    // MARK: - Activity rings
-
-    private func fetchActivityRingSummary(calendar: Calendar, date: Date = Date()) async -> ActivityRingSummary {
-        guard permissionSelection.includes(.activityRings) else {
-            return .empty
-        }
-
-        let dateComponents = Self.activityDateComponents(for: date, calendar: calendar)
-
-        let predicate = HKQuery.predicateForActivitySummary(with: dateComponents)
-        let descriptor = HKActivitySummaryQueryDescriptor(predicate: predicate)
-
-        do {
-            guard let summary = try await descriptor.result(for: healthStore).first else {
-                return .empty
-            }
-
-            return Self.activityRingSummary(from: summary)
-        } catch {
-            return .empty
-        }
-    }
-
-    func fetchActivityRingHistory(calendar: Calendar, date: Date = Date()) async -> ActivityRingHistorySnapshot {
-        guard permissionSelection.includes(.activityRings) else {
-            return .empty
-        }
-
-        let interval = activityRingHistoryInterval(calendar: calendar, date: date)
-        let loadedMonthKeys = Self.recentActivityRingMonthKeys(
-            count: HealthKitWorkoutStore.recentChartMonthCount,
-            from: date,
-            calendar: calendar
-        )
-        return await fetchActivityRingHistory(
-            start: interval.start,
-            end: interval.end,
-            loadedMonthKeys: loadedMonthKeys,
-            calendar: calendar
-        )
-    }
-
-    func fetchActivityRingHistory(
-        monthKey: ActivityRingMonthKey,
-        calendar: Calendar
-    ) async -> ActivityRingHistorySnapshot {
-        guard permissionSelection.includes(.activityRings) else {
-            return .empty
-        }
-
-        guard
-            let start = monthKey.startDate(calendar: calendar),
-            let nextMonthStart = calendar.date(byAdding: .month, value: 1, to: start),
-            let end = calendar.date(byAdding: .day, value: -1, to: nextMonthStart)
-        else {
-            return ActivityRingHistorySnapshot(days: [], loadedMonthKeys: [monthKey])
-        }
-
-        return await fetchActivityRingHistory(
-            start: start,
-            end: end,
-            loadedMonthKeys: [monthKey],
-            calendar: calendar
-        )
-    }
-
-    private func fetchActivityRingHistory(
-        start: Date,
-        end: Date,
-        loadedMonthKeys: [ActivityRingMonthKey],
-        calendar: Calendar
-    ) async -> ActivityRingHistorySnapshot {
-        guard permissionSelection.includes(.activityRings) else {
-            return .empty
-        }
-
-        let startComponents = Self.activityDateComponents(for: start, calendar: calendar)
-        let endComponents = Self.activityDateComponents(for: end, calendar: calendar)
-        let predicate = HKQuery.predicate(forActivitySummariesBetweenStart: startComponents, end: endComponents)
-        let descriptor = HKActivitySummaryQueryDescriptor(predicate: predicate)
-
-        do {
-            let summaries = try await descriptor.result(for: healthStore)
-            let days = summaries.compactMap { summary -> ActivityRingDaySummary? in
-                let components = summary.dateComponents(for: calendar)
-                guard let date = calendar.date(from: components) else {
-                    return nil
-                }
-
-                return ActivityRingDaySummary(
-                    date: calendar.startOfDay(for: date),
-                    summary: Self.activityRingSummary(from: summary)
-                )
-            }
-            .sorted { $0.date < $1.date }
-
-            return ActivityRingHistorySnapshot(days: days, loadedMonthKeys: loadedMonthKeys)
-                .filteringDaysToLoadedMonths(calendar: calendar)
-        } catch {
-            return .empty
-        }
-    }
-
-    private static func recentActivityRingMonthKeys(
-        count: Int,
-        from date: Date = Date(),
-        calendar: Calendar = .bodyGregorian
-    ) -> [ActivityRingMonthKey] {
-        guard let currentMonthStart = calendar.dateInterval(of: .month, for: date)?.start else {
-            return [ActivityRingMonthKey(date: date, calendar: calendar)]
-        }
-
-        return (0..<max(count, 1)).compactMap { offset in
-            guard let monthDate = calendar.date(byAdding: .month, value: -offset, to: currentMonthStart) else {
-                return nil
-            }
-
-            return ActivityRingMonthKey(date: monthDate, calendar: calendar)
-        }
-        .sorted { lhs, rhs in
-            if lhs.year == rhs.year {
-                return lhs.month < rhs.month
-            }
-            return lhs.year < rhs.year
-        }
-    }
+    // Activity Rings summary + history live in
+    // `HealthKitFetchEngine+ActivityRings.swift`.
 
     // MARK: - Source options
 
