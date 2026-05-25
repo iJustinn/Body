@@ -251,7 +251,6 @@ struct BodyHealthMetricDetailView: View {
     private var supportsMetricDayView: Bool {
         switch model.kind {
         case .heartRate,
-             .restingHeartRate,
              .heartRateVariability,
              .respiratoryRate,
              .oxygenSaturation,
@@ -259,6 +258,7 @@ struct BodyHealthMetricDetailView: View {
              .steps:
             return true
         case .readiness,
+             .restingHeartRate,
              .sleep,
              .basics,
              .bodyMass,
