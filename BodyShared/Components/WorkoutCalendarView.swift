@@ -17,6 +17,60 @@ enum WorkoutCalendarDaySelection {
     }
 }
 
+struct WorkoutCalendarCountMarker: Equatable {
+    let symbolName: String
+
+    static func symbolNames(for workoutCount: Int) -> [String] {
+        markers(for: workoutCount).map(\.symbolName)
+    }
+
+    static func markers(for workoutCount: Int) -> [WorkoutCalendarCountMarker] {
+        switch workoutCount {
+        case ..<1:
+            return []
+        case 1:
+            return [star]
+        case 2:
+            return [star, star]
+        case 3:
+            return [moon]
+        case 4:
+            return [moon, star]
+        case 5:
+            return [moon, star, star]
+        case 6:
+            return [moon, moon]
+        case 7:
+            return [moon, moon, star]
+        case 8:
+            return [sun]
+        case 9:
+            return [sun, star]
+        case 10:
+            return [sun, star, star]
+        case 11:
+            return [sun, moon]
+        case 12:
+            return [sun, moon, star]
+        default:
+            return [flame]
+        }
+    }
+
+    var fontSize: CGFloat {
+        symbolName == Self.star.symbolName ? 7 : 8
+    }
+
+    var opacity: Double {
+        symbolName == Self.star.symbolName ? 0.76 : 0.78
+    }
+
+    private static let star = WorkoutCalendarCountMarker(symbolName: "star.fill")
+    private static let moon = WorkoutCalendarCountMarker(symbolName: "moon.fill")
+    private static let sun = WorkoutCalendarCountMarker(symbolName: "sun.max.fill")
+    private static let flame = WorkoutCalendarCountMarker(symbolName: "flame.fill")
+}
+
 struct WorkoutCalendarView: View {
     @Environment(\.colorScheme) private var colorScheme
 
@@ -143,22 +197,10 @@ struct WorkoutCalendarView: View {
     @ViewBuilder
     private func workoutMarkers(count: Int, color: Color) -> some View {
         HStack(spacing: 2) {
-            if count >= 13 {
-                Image(systemName: "sun.max.fill")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundColor(color.opacity(0.78))
-            } else {
-                ForEach(0..<moonCount(for: count), id: \.self) { _ in
-                    Image(systemName: "moon.fill")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(color.opacity(0.78))
-                }
-
-                ForEach(0..<starCount(for: count), id: \.self) { _ in
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundColor(color.opacity(0.76))
-                }
+            ForEach(Array(WorkoutCalendarCountMarker.markers(for: count).enumerated()), id: \.offset) { _, marker in
+                Image(systemName: marker.symbolName)
+                    .font(.system(size: marker.fontSize, weight: .bold))
+                    .foregroundColor(color.opacity(marker.opacity))
             }
         }
         .frame(height: 9)
@@ -186,14 +228,6 @@ struct WorkoutCalendarView: View {
         }
 
         return date.formatted(.dateTime.month(.wide).day())
-    }
-
-    private func moonCount(for workoutCount: Int) -> Int {
-        min(workoutCount / 4, 3)
-    }
-
-    private func starCount(for workoutCount: Int) -> Int {
-        workoutCount % 4
     }
 
     private var workoutIconSize: CGFloat {

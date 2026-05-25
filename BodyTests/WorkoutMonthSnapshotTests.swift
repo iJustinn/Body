@@ -3081,6 +3081,30 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(WorkoutCalendarDaySelection.isSelectable(activeDay, hasSelectionHandler: true))
     }
 
+    func testWorkoutCalendarCountMarkersMatchCountRepresentation() {
+        let expectedSymbolsByCount = [
+            0: [],
+            1: ["star.fill"],
+            2: ["star.fill", "star.fill"],
+            3: ["moon.fill"],
+            4: ["moon.fill", "star.fill"],
+            5: ["moon.fill", "star.fill", "star.fill"],
+            6: ["moon.fill", "moon.fill"],
+            7: ["moon.fill", "moon.fill", "star.fill"],
+            8: ["sun.max.fill"],
+            9: ["sun.max.fill", "star.fill"],
+            10: ["sun.max.fill", "star.fill", "star.fill"],
+            11: ["sun.max.fill", "moon.fill"],
+            12: ["sun.max.fill", "moon.fill", "star.fill"],
+            13: ["flame.fill"],
+            18: ["flame.fill"]
+        ]
+
+        for (count, expectedSymbols) in expectedSymbolsByCount {
+            XCTAssertEqual(WorkoutCalendarCountMarker.symbolNames(for: count), expectedSymbols)
+        }
+    }
+
     func testWorkoutTypeFilterUsesPlainToggleSemantics() {
         var selectedTypes = Set(BodyWorkoutType.allCases)
 
