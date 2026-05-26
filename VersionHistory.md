@@ -1,5 +1,13 @@
 # Version History
 
+## 0.6.0 (build 2)
+
+- Updated the app, widget, and test bundle version to 0.6.0 build 2.
+
+## 0.6.0 (build 1)
+
+- Updated the app, widget, and test bundle version to 0.6.0 build 1.
+
 ## 0.5.6 (build 4)
 
 - Added Settings > Data > Source with global primary and secondary Apple Health source defaults, an option to combine duplicate source names, and per-metric overrides still available from detail pages.

@@ -815,13 +815,6 @@ private struct BodyThemePickerSheet: View {
                     .padding(.bottom, 24)
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-            }
         }
     }
 }
@@ -864,13 +857,6 @@ private struct BodyAccentPickerSheet: View {
                     .padding(.bottom, 24)
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-            }
         }
     }
 }
@@ -910,7 +896,6 @@ private struct BodySleepDurationGoalSettingsSheet: View {
 }
 
 private struct BodyUnitPreferencePickerSheet: View {
-    @Environment(\.dismiss) private var dismiss
     @Binding var followsSystemUnits: Bool
     @Binding var selectedWeightUnit: BodyValueFormat.WeightUnitPreference
     @Binding var selectedDistanceUnit: BodyValueFormat.DistanceUnitPreference
@@ -992,13 +977,6 @@ private struct BodyUnitPreferencePickerSheet: View {
             }
             .navigationTitle("Units")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-            }
         }
     }
 }
@@ -1127,13 +1105,6 @@ private struct BodyDefaultTrendRangePickerSheet: View {
                     }
                     .padding()
                     .padding(.bottom, 24)
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
                 }
             }
             .navigationTitle("Charts Range")
@@ -1981,7 +1952,6 @@ private struct BodySettingsIconTile: View {
 }
 
 private struct BodyAppIconPickerSheet: View {
-    @Environment(\.dismiss) private var dismiss
     let selectedIconName: String?
     let showsCreatorSurprises: Bool
     let onSelect: (BodyAppIconOption) -> Void
@@ -2025,13 +1995,6 @@ private struct BodyAppIconPickerSheet: View {
                     }
                     .padding()
                     .padding(.bottom, 24)
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
                 }
             }
             .navigationTitle("App Icon")
@@ -2511,8 +2474,6 @@ private struct BodyDisclaimerSettingsSheet: View {
 }
 
 private struct BodyCopyrightSettingsSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
     var body: some View {
         NavigationStack {
             ZStack {
@@ -2546,13 +2507,6 @@ private struct BodyCopyrightSettingsSheet: View {
                     .padding(.bottom, 24)
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
             .navigationTitle("Copyright")
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -2560,7 +2514,6 @@ private struct BodyCopyrightSettingsSheet: View {
 }
 
 private struct BodySettingsAboutSheetScaffold<Content: View>: View {
-    @Environment(\.dismiss) private var dismiss
     let title: String
     private let content: Content
 
@@ -2583,13 +2536,6 @@ private struct BodySettingsAboutSheetScaffold<Content: View>: View {
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
         }
     }
 }

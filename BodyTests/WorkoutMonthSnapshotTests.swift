@@ -2594,6 +2594,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
     func testHealthDataSourceSelectionPersistsPerMetricSourceOptions() throws {
         let appleWatch = BodyHealthDataSourceOption(id: "com.apple.Health", name: "Apple Watch")
         let oura = BodyHealthDataSourceOption(id: "com.ouraring.oura", name: "Oura")
+        let whoop = BodyHealthDataSourceOption(id: "com.whoop", name: "WHOOP")
 
         let selection = BodyHealthDataSourceSelection.defaultValue
             .settingDefault(option: appleWatch)
@@ -2613,11 +2614,25 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(restoredSelection.option(for: .sleep), oura)
         XCTAssertEqual(restoredSelection.option(for: .steps), appleWatch)
         XCTAssertEqual(restoredSelection.clearingOverride(for: .sleep).option(for: .sleep), appleWatch)
+        XCTAssertEqual(
+            selection
+                .setting(.sleep, option: appleWatch)
+                .settingDefault(option: whoop)
+                .option(for: .sleep),
+            whoop
+        )
+
+        let staleOverrideSelection = BodyHealthDataSourceSelection(
+            defaultOption: appleWatch,
+            selectedOptions: [.sleep: appleWatch]
+        )
+        XCTAssertEqual(staleOverrideSelection.settingDefault(option: whoop).option(for: .sleep), whoop)
     }
 
     func testSecondaryDataSourceSelectionUsesGlobalDefaultUntilMetricOverride() {
         let garmin = BodyHealthDataSourceOption(id: "com.garmin.connect", name: "Garmin")
         let oura = BodyHealthDataSourceOption(id: "com.ouraring.oura", name: "Oura")
+        let whoop = BodyHealthDataSourceOption(id: "com.whoop", name: "WHOOP")
 
         let selection = BodyHealthSecondaryDataSourceSelection.defaultValue
             .settingDefault(option: garmin)
@@ -2633,6 +2648,19 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(restoredSelection.option(for: .heartRate), garmin)
         XCTAssertEqual(restoredSelection.option(for: .sleep), oura)
         XCTAssertEqual(restoredSelection.clearingOverride(for: .sleep).option(for: .sleep), garmin)
+        XCTAssertEqual(
+            selection
+                .setting(.sleep, option: garmin)
+                .settingDefault(option: whoop)
+                .option(for: .sleep),
+            whoop
+        )
+
+        let staleOverrideSelection = BodyHealthSecondaryDataSourceSelection(
+            defaultOption: garmin,
+            selectedOptions: [.sleep: garmin]
+        )
+        XCTAssertEqual(staleOverrideSelection.settingDefault(option: whoop).option(for: .sleep), whoop)
     }
 
     func testCombinedHealthDataSourceOptionIdsUseNormalizedNames() {
@@ -3081,6 +3109,30 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(WorkoutCalendarDaySelection.isSelectable(activeDay, hasSelectionHandler: true))
     }
 
+    func testWorkoutCalendarCountMarkersMatchCountRepresentation() {
+        let expectedSymbolsByCount = [
+            0: [],
+            1: ["star.fill"],
+            2: ["star.fill", "star.fill"],
+            3: ["moon.fill"],
+            4: ["moon.fill", "star.fill"],
+            5: ["moon.fill", "star.fill", "star.fill"],
+            6: ["moon.fill", "moon.fill"],
+            7: ["moon.fill", "moon.fill", "star.fill"],
+            8: ["sun.max.fill"],
+            9: ["sun.max.fill", "star.fill"],
+            10: ["sun.max.fill", "star.fill", "star.fill"],
+            11: ["sun.max.fill", "moon.fill"],
+            12: ["sun.max.fill", "moon.fill", "star.fill"],
+            13: ["flame.fill"],
+            18: ["flame.fill"]
+        ]
+
+        for (count, expectedSymbols) in expectedSymbolsByCount {
+            XCTAssertEqual(WorkoutCalendarCountMarker.symbolNames(for: count), expectedSymbols)
+        }
+    }
+
     func testWorkoutTypeFilterUsesPlainToggleSemantics() {
         var selectedTypes = Set(BodyWorkoutType.allCases)
 
@@ -3217,6 +3269,10 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(geometry.offset(for: 34).height, -4, accuracy: 0.001)
         XCTAssertEqual(geometry.offset(for: 108).width, 9.529, accuracy: 0.001)
         XCTAssertEqual(geometry.offset(for: 108).height, -12.706, accuracy: 0.001)
+    }
+
+    func testActivityRingCompletionStarStaysAboveRingsWhileFading() {
+        XCTAssertGreaterThan(BodyActivityRingCompletionStarGeometry.foregroundZIndex, 0)
     }
 
     func testActivityRingSummaryCompletionRequiresAllThreeRings() {

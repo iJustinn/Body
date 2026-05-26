@@ -139,6 +139,7 @@ struct BodyHealthMetricDetailView: View {
 
     let model: BodyHealthMetricDetailModel
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
+    @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
@@ -149,6 +150,7 @@ struct BodyHealthMetricDetailView: View {
     @State private var showsDataSourcePicker = false
     @State private var isPullRefreshing = false
     @State private var activeReadinessTrendValue: Double?
+    @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
 
     init(
         model: BodyHealthMetricDetailModel,
@@ -171,6 +173,7 @@ struct BodyHealthMetricDetailView: View {
                     trendCard
                     sleepDatePicker
                     selectedSleepCards
+                    detailTrendComparisonCard
                     if showSleepScore {
                         aboutSleepScoreCard
                     }
@@ -181,15 +184,18 @@ struct BodyHealthMetricDetailView: View {
                         basicsRangeCard
                     }
                     trendCard
+                    if supportsMetricDayView {
+                        metricDatePicker
+                        metricDayChartCard
+                        detailTrendComparisonCard
+                    } else {
+                        detailTrendComparisonCard
+                    }
                     if model.kind == .readiness, let readiness = model.readiness {
                         readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
                     }
                     if isBasicsDetail {
                         bodyMassIndexTrendCard
-                    }
-                    if supportsMetricDayView {
-                        metricDatePicker
-                        metricDayChartCard
                     }
                     helpTextCard
                     dataSourceFooter
@@ -228,12 +234,38 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
+    private var selectedEnergyUnitPreference: BodyValueFormat.EnergyUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.EnergyUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.EnergyUnitPreference.storedValue(from: selectedEnergyUnitRawValue)
+    }
+
     private var selectedTemperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference {
         if followsSystemUnits {
             return BodyValueFormat.TemperatureUnitPreference.systemValue(locale: .current)
         }
 
         return BodyValueFormat.TemperatureUnitPreference.storedValue(from: selectedTemperatureUnitRawValue)
+    }
+
+    private var detailTrendComparisonModel: BodyHomeTrendCard.Model? {
+        BodyHomeTrendCardFactory.card(
+            for: model.kind,
+            trends: workoutStore.healthTrends,
+            temperatureUnitPreference: selectedTemperatureUnitPreference,
+            energyUnitPreference: selectedEnergyUnitPreference,
+            includesStable: true,
+            cache: trendComputationCache
+        )
+    }
+
+    @ViewBuilder
+    private var detailTrendComparisonCard: some View {
+        if let card = detailTrendComparisonModel {
+            BodyHomeTrendCard(model: card, showsNavigationIndicator: false)
+        }
     }
 
     private var isSleepDetail: Bool {
@@ -251,7 +283,6 @@ struct BodyHealthMetricDetailView: View {
     private var supportsMetricDayView: Bool {
         switch model.kind {
         case .heartRate,
-             .restingHeartRate,
              .heartRateVariability,
              .respiratoryRate,
              .oxygenSaturation,
@@ -259,6 +290,7 @@ struct BodyHealthMetricDetailView: View {
              .steps:
             return true
         case .readiness,
+             .restingHeartRate,
              .sleep,
              .basics,
              .bodyMass,
