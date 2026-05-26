@@ -63,6 +63,12 @@ struct BodyHomeTrendCard: View {
     }
 
     let model: Model
+    let showsNavigationIndicator: Bool
+
+    init(model: Model, showsNavigationIndicator: Bool = true) {
+        self.model = model
+        self.showsNavigationIndicator = showsNavigationIndicator
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -108,10 +114,12 @@ struct BodyHomeTrendCard: View {
 
             Spacer(minLength: 8)
 
-            Image(systemName: "chevron.right")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundColor(.secondary.opacity(0.55))
-                .accessibilityHidden(true)
+            if showsNavigationIndicator {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(.secondary.opacity(0.55))
+                    .accessibilityHidden(true)
+            }
         }
     }
 
@@ -146,6 +154,289 @@ struct BodyHomeTrendCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
             }
+        }
+    }
+}
+
+@MainActor
+enum BodyHomeTrendCardFactory {
+    private struct Configuration {
+        let kind: HealthMetricKind
+        let title: String
+        let series: HealthTrendSeries
+        let chartStyle: BodyHealthMetricChartStyle
+        let symbolName: String
+        let symbolColor: Color
+        let valueFormatter: (Double) -> String
+        let messageStyle: BodyHomeTrendMessageStyle
+    }
+
+    static func cards(
+        trends: HealthTrendSnapshot,
+        selection: BodyHomeTrendCardSelection? = nil,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        includesStable: Bool,
+        cache: BodyHomeTrendComputationCache
+    ) -> [BodyHomeTrendCard.Model] {
+        BodyHomeTrendCardKind.defaultOrder.compactMap { trendKind in
+            if let selection, selection.includes(trendKind) == false {
+                return nil
+            }
+
+            return card(
+                for: trendKind,
+                trends: trends,
+                temperatureUnitPreference: temperatureUnitPreference,
+                energyUnitPreference: energyUnitPreference,
+                includesStable: includesStable,
+                cache: cache
+            )
+        }
+    }
+
+    static func card(
+        for metricKind: HealthMetricKind,
+        trends: HealthTrendSnapshot,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        includesStable: Bool,
+        cache: BodyHomeTrendComputationCache
+    ) -> BodyHomeTrendCard.Model? {
+        guard let trendKind = BodyHomeTrendCardKind(metricKind: metricKind) else {
+            return nil
+        }
+
+        return card(
+            for: trendKind,
+            trends: trends,
+            temperatureUnitPreference: temperatureUnitPreference,
+            energyUnitPreference: energyUnitPreference,
+            includesStable: includesStable,
+            cache: cache
+        )
+    }
+
+    private static func card(
+        for trendKind: BodyHomeTrendCardKind,
+        trends: HealthTrendSnapshot,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        includesStable: Bool,
+        cache: BodyHomeTrendComputationCache
+    ) -> BodyHomeTrendCard.Model? {
+        let configuration = configuration(
+            for: trendKind,
+            trends: trends,
+            temperatureUnitPreference: temperatureUnitPreference,
+            energyUnitPreference: energyUnitPreference
+        )
+        guard let result = cache.result(
+            for: configuration.kind,
+            series: configuration.series,
+            includesStable: includesStable
+        ) else {
+            return nil
+        }
+
+        let presentation = BodyHomeTrendCardPresentation.make(
+            from: result,
+            kind: configuration.kind,
+            title: configuration.title,
+            chartStyle: configuration.chartStyle,
+            valueFormatter: configuration.valueFormatter,
+            messageStyle: configuration.messageStyle
+        )
+
+        return BodyHomeTrendCard.Model(
+            presentation: presentation,
+            symbolName: configuration.symbolName,
+            symbolColor: configuration.symbolColor
+        )
+    }
+
+    private static func configuration(
+        for trendKind: BodyHomeTrendCardKind,
+        trends: HealthTrendSnapshot,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference
+    ) -> Configuration {
+        let temperatureUnit = BodyValueFormat.temperatureDisplay(
+            celsius: 0,
+            temperatureUnitPreference: temperatureUnitPreference
+        ).unit
+        let energyUnit = energyUnitPreference.unitLabel
+
+        switch trendKind {
+        case .readiness:
+            return Configuration(
+                kind: .readiness,
+                title: "Readiness",
+                series: trends.series(for: .readiness),
+                chartStyle: .line,
+                symbolName: "bolt.heart.fill",
+                symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + "%" },
+                messageStyle: .average(subject: "your readiness score")
+            )
+        case .heartRate:
+            return Configuration(
+                kind: .heartRate,
+                title: "Heart Rate",
+                series: trends.series(for: .heartRate),
+                chartStyle: .line,
+                symbolName: "heart.fill",
+                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " BPM" },
+                messageStyle: .average(subject: "your heart rate")
+            )
+        case .restingHeartRate:
+            return Configuration(
+                kind: .restingHeartRate,
+                title: "Resting Heart Rate",
+                series: trends.series(for: .restingHeartRate),
+                chartStyle: .line,
+                symbolName: "heart.fill",
+                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " BPM" },
+                messageStyle: .average(subject: "your resting heart rate")
+            )
+        case .heartRateVariability:
+            return Configuration(
+                kind: .heartRateVariability,
+                title: "HRV",
+                series: trends.series(for: .heartRateVariability),
+                chartStyle: .line,
+                symbolName: "waveform.path.ecg",
+                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " ms" },
+                messageStyle: .average(subject: "your HRV")
+            )
+        case .respiratoryRate:
+            return Configuration(
+                kind: .respiratoryRate,
+                title: "Respiratory Rate",
+                series: trends.series(for: .respiratoryRate),
+                chartStyle: .line,
+                symbolName: "lungs.fill",
+                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " br/min" },
+                messageStyle: .average(subject: "your respiratory rate")
+            )
+        case .oxygenSaturation:
+            return Configuration(
+                kind: .oxygenSaturation,
+                title: "Blood Oxygen",
+                series: trends.series(for: .oxygenSaturation),
+                chartStyle: .line,
+                symbolName: "drop.fill",
+                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + "%" },
+                messageStyle: .average(subject: "your blood oxygen")
+            )
+        case .sleep:
+            return Configuration(
+                kind: .sleep,
+                title: "Sleep",
+                series: trends.series(for: .sleep),
+                chartStyle: .line,
+                symbolName: "bed.double.fill",
+                symbolColor: Color(red: 0.20, green: 0.72, blue: 1.00),
+                valueFormatter: { BodyValueFormat.sleepDurationText(for: $0 * 60 * 60) },
+                messageStyle: .average(subject: "your sleep duration")
+            )
+        case .wristTemperature:
+            return Configuration(
+                kind: .wristTemperature,
+                title: "Wrist Temperature",
+                series: trends.series(for: .wristTemperature).mapValues {
+                    BodyValueFormat.temperatureValue(
+                        celsius: $0,
+                        temperatureUnitPreference: temperatureUnitPreference
+                    ).value
+                },
+                chartStyle: .line,
+                symbolName: "thermometer.medium",
+                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + " " + temperatureUnit },
+                messageStyle: .average(subject: "your wrist temperature")
+            )
+        case .steps:
+            return Configuration(
+                kind: .steps,
+                title: "Steps",
+                series: trends.series(for: .steps),
+                chartStyle: .bar,
+                symbolName: "flame.fill",
+                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " steps" },
+                messageStyle: .quantity(subject: "The number of steps you took per day")
+            )
+        case .activeEnergy:
+            return Configuration(
+                kind: .activeEnergy,
+                title: "Active Energy",
+                series: trends.series(for: .activeEnergy).mapValues {
+                    BodyValueFormat.energyValue(
+                        kilocalories: $0,
+                        energyUnitPreference: energyUnitPreference
+                    ).value
+                },
+                chartStyle: .bar,
+                symbolName: "flame.fill",
+                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " " + energyUnit },
+                messageStyle: .quantity(subject: "Your active energy")
+            )
+        case .restingEnergy:
+            return Configuration(
+                kind: .restingEnergy,
+                title: "Resting Energy",
+                series: trends.series(for: .restingEnergy).mapValues {
+                    BodyValueFormat.energyValue(
+                        kilocalories: $0,
+                        energyUnitPreference: energyUnitPreference
+                    ).value
+                },
+                chartStyle: .bar,
+                symbolName: "leaf.fill",
+                symbolColor: Color(red: 0.14, green: 0.72, blue: 0.42),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " " + energyUnit },
+                messageStyle: .quantity(subject: "Your resting energy")
+            )
+        case .exerciseMinutes:
+            return Configuration(
+                kind: .exerciseMinutes,
+                title: "Exercise Minutes",
+                series: trends.series(for: .exerciseMinutes),
+                chartStyle: .bar,
+                symbolName: "figure.run",
+                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " min" },
+                messageStyle: .quantity(subject: "Your exercise minutes")
+            )
+        case .trainingLoad:
+            return Configuration(
+                kind: .trainingLoad,
+                title: "Training Load",
+                series: trends.series(for: .trainingLoad),
+                chartStyle: .line,
+                symbolName: "figure.strengthtraining.traditional",
+                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 2) },
+                messageStyle: .quantity(subject: "Your training load ratio")
+            )
+        case .timeInDaylight:
+            return Configuration(
+                kind: .timeInDaylight,
+                title: "Time In Daylight",
+                series: trends.series(for: .timeInDaylight),
+                chartStyle: .bar,
+                symbolName: "sun.max.fill",
+                symbolColor: Color(red: 0.10, green: 0.58, blue: 1.00),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " min" },
+                messageStyle: .quantity(subject: "Your time in daylight")
+            )
         }
     }
 }

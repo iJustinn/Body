@@ -39,6 +39,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(BodySettingsDataTab.cache.sheet, .cache)
     }
 
+    func testSettingsSheetsDoNotShowToolbarCloseButtons() throws {
+        let source = try text(at: "Body/Views/BodySettingsView.swift")
+
+        XCTAssertFalse(source.contains(#"Button("Cancel")"#))
+        XCTAssertFalse(source.contains(#"Button("Done")"#))
+    }
+
     func testSettingsSourceSheetExposesGlobalDefaultsAndCombineToggle() throws {
         let source = try text(at: "Body/Views/BodySettingsView.swift")
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
@@ -147,6 +154,46 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)"))
         XCTAssertTrue(source.contains("activeHighlightedValue: model.kind == .readiness ? $activeReadinessTrendValue : nil"))
         XCTAssertFalse(whyBlock.contains("ForEach(readiness.components)"))
+    }
+
+    func testMetricDetailPagesShowHomeTrendCardBeforeAboutCards() throws {
+        let source = try bodyHomeViewText()
+        let detailStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricDetailView")?.lowerBound)
+        let detailEnd = try XCTUnwrap(source.range(of: "private var selectedTemperatureUnitPreference", range: detailStart..<source.endIndex)?.lowerBound)
+        let detailBodyBlock = String(source[detailStart..<detailEnd])
+        let sleepSelectedCardsStart = try XCTUnwrap(detailBodyBlock.range(of: "selectedSleepCards")?.lowerBound)
+        let sleepTrendCardStart = try XCTUnwrap(
+            detailBodyBlock.range(of: "detailTrendComparisonCard", range: sleepSelectedCardsStart..<detailBodyBlock.endIndex)?.lowerBound
+        )
+        let sleepAboutStart = try XCTUnwrap(detailBodyBlock.range(of: "aboutSleepScoreCard")?.lowerBound)
+        let trendCardStart = try XCTUnwrap(detailBodyBlock.range(of: "trendCard", range: sleepAboutStart..<detailBodyBlock.endIndex)?.lowerBound)
+        let dayViewStart = try XCTUnwrap(detailBodyBlock.range(of: "if supportsMetricDayView")?.lowerBound)
+        let metricDayChartStart = try XCTUnwrap(
+            detailBodyBlock.range(of: "metricDayChartCard", range: dayViewStart..<detailBodyBlock.endIndex)?.lowerBound
+        )
+        let dayViewTrendCardStart = try XCTUnwrap(
+            detailBodyBlock.range(of: "detailTrendComparisonCard", range: metricDayChartStart..<detailBodyBlock.endIndex)?.lowerBound
+        )
+        let dayViewElseStart = try XCTUnwrap(
+            detailBodyBlock.range(of: "} else {", range: dayViewTrendCardStart..<detailBodyBlock.endIndex)?.lowerBound
+        )
+        let nonDayTrendCardStart = try XCTUnwrap(
+            detailBodyBlock.range(of: "detailTrendComparisonCard", range: dayViewElseStart..<detailBodyBlock.endIndex)?.lowerBound
+        )
+        let readinessAboutStart = try XCTUnwrap(detailBodyBlock.range(of: "readinessWhyCard(for: readiness")?.lowerBound)
+        let helpTextStart = try XCTUnwrap(detailBodyBlock.range(of: "helpTextCard")?.lowerBound)
+
+        XCTAssertLessThan(sleepSelectedCardsStart, sleepTrendCardStart)
+        XCTAssertLessThan(sleepTrendCardStart, sleepAboutStart)
+        XCTAssertLessThan(trendCardStart, dayViewStart)
+        XCTAssertLessThan(metricDayChartStart, dayViewTrendCardStart)
+        XCTAssertLessThan(dayViewTrendCardStart, dayViewElseStart)
+        XCTAssertLessThan(nonDayTrendCardStart, readinessAboutStart)
+        XCTAssertLessThan(dayViewTrendCardStart, helpTextStart)
+        XCTAssertEqual(detailBodyBlock.occurrenceCount(of: "detailTrendComparisonCard"), 3)
+        XCTAssertTrue(source.contains("BodyHomeTrendCardFactory.card("))
+        XCTAssertTrue(source.contains("BodyHomeTrendCard(model: card, showsNavigationIndicator: false)"))
+        XCTAssertTrue(source.contains("@StateObject private var trendComputationCache = BodyHomeTrendComputationCache()"))
     }
 
     func testLineHealthChartsDoNotRenderEmptyDatePlaceholderMarks() throws {
@@ -268,7 +315,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let source = try bodyHomeViewText()
         let cardStart = try XCTUnwrap(source.range(of: "private func wristTemperatureMetric")?.lowerBound)
         let cardBlock = String(source[cardStart...].prefix(1_500))
-        let trendCardStart = try XCTUnwrap(source.range(of: "homeTrendCard(\n                kind: .wristTemperature")?.lowerBound)
+        let factoryStart = try XCTUnwrap(source.range(of: "enum BodyHomeTrendCardFactory")?.lowerBound)
+        let trendCardStart = try XCTUnwrap(
+            source.range(of: "case .wristTemperature:", range: factoryStart..<source.endIndex)?.lowerBound
+        )
         let trendCardBlock = String(source[trendCardStart...].prefix(1_100))
         let detailStart = try XCTUnwrap(source.range(of: "case .wristTemperature:")?.lowerBound)
         let detailBlock = String(source[detailStart...].prefix(3_000))
@@ -290,7 +340,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let source = try bodyHomeViewText()
         let cardStart = try XCTUnwrap(source.range(of: "metric(\n                kind: .trainingLoad")?.lowerBound)
         let cardBlock = String(source[cardStart...].prefix(1_100))
-        let trendCardStart = try XCTUnwrap(source.range(of: "homeTrendCard(\n                kind: .trainingLoad")?.lowerBound)
+        let factoryStart = try XCTUnwrap(source.range(of: "enum BodyHomeTrendCardFactory")?.lowerBound)
+        let trendCardStart = try XCTUnwrap(
+            source.range(of: "case .trainingLoad:", range: factoryStart..<source.endIndex)?.lowerBound
+        )
         let trendCardBlock = String(source[trendCardStart...].prefix(1_100))
         let detailStart = try XCTUnwrap(source.range(of: "case .trainingLoad:")?.lowerBound)
         let detailBlock = String(source[detailStart...].prefix(900))
@@ -693,7 +746,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let homeSource = try bodyHomeViewText()
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
         let detailViewStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthMetricDetailView")?.lowerBound)
-        let detailViewBlock = String(homeSource[detailViewStart...].prefix(3_500))
+        let detailViewBlock = String(homeSource[detailViewStart...].prefix(4_200))
         let refreshStart = try XCTUnwrap(storeSource.range(of: "func refreshHealthMetric(_ kind: HealthMetricKind")?.lowerBound)
         let refreshBlock = String(storeSource[refreshStart...].prefix(8_000))
 
@@ -844,7 +897,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.6.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -853,9 +906,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.6.0 (build 1)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.6.0 (build 2)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.6.0 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.6.0 build 2."))
         XCTAssertTrue(versionHistory.contains("## 0.6.0 (build 1)"))
-        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.6.0 build 1."))
         XCTAssertTrue(versionHistory.contains("## 0.5.6 (build 4)"))
         XCTAssertTrue(versionHistory.contains("## 0.5.6 (build 3)"))
         XCTAssertTrue(versionHistory.contains("Redesigned the workout detail heart rate chart"))
@@ -863,6 +917,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(versionHistory.contains("Readiness scoring now honors the configured sleep goal"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.5.6 build 4."))
         XCTAssertFalse(readme.contains("Current app version: **0.5.6 (build 4)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.6.0 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.6 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.6 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.6 (build 1)**"))
@@ -895,7 +950,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-v0.6.0`"))
-        XCTAssertTrue(testPlan.contains("app version 0.6.0 build 1"))
+        XCTAssertTrue(testPlan.contains("app version 0.6.0 build 2"))
         XCTAssertFalse(testPlan.contains("branch `body-v0.5.6`"))
         XCTAssertFalse(testPlan.contains("app version 0.5.6 build 4"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.0`"))
@@ -1094,7 +1149,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey)"))
         XCTAssertTrue(homeSource.contains("initialTrendRange: defaultTrendRange"))
         XCTAssertTrue(homeSource.contains("idealSleepDuration: sleepDurationGoal"))
-        XCTAssertTrue(homeSource.contains(".filter { homeTrendCardSelection.includes($0.presentation.kind) }"))
+        XCTAssertTrue(homeSource.contains("BodyHomeTrendCardFactory.cards("))
+        XCTAssertTrue(homeSource.contains("selection: homeTrendCardSelection"))
     }
 
     func testSettingsUnitsPageHasSystemToggleAndIndependentUnitControls() throws {

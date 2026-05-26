@@ -484,15 +484,25 @@ struct BodyHealthDataSourceSelection: Equatable {
         }
 
         var nextOptions = selectedOptions
-        nextOptions[kind] = option.isNoComparison ? .allSources : option
+        let nextOption = option.isNoComparison ? BodyHealthDataSourceOption.allSources : option
+        if nextOption.id == defaultOption.id {
+            nextOptions.removeValue(forKey: kind)
+        } else {
+            nextOptions[kind] = nextOption
+        }
 
         return BodyHealthDataSourceSelection(defaultOption: defaultOption, selectedOptions: nextOptions)
     }
 
     func settingDefault(option: BodyHealthDataSourceOption) -> BodyHealthDataSourceSelection {
-        BodyHealthDataSourceSelection(
-            defaultOption: option.isNoComparison ? .allSources : option,
-            selectedOptions: selectedOptions
+        let nextDefaultOption = option.isNoComparison ? BodyHealthDataSourceOption.allSources : option
+        let nextOptions = selectedOptions.filter { _, selectedOption in
+            selectedOption.id != defaultOption.id && selectedOption.id != nextDefaultOption.id
+        }
+
+        return BodyHealthDataSourceSelection(
+            defaultOption: nextDefaultOption,
+            selectedOptions: nextOptions
         )
     }
 
@@ -607,15 +617,23 @@ struct BodyHealthSecondaryDataSourceSelection: Equatable {
         }
 
         var nextOptions = selectedOptions
-        nextOptions[kind] = option
+        if option.id == defaultOption.id {
+            nextOptions.removeValue(forKey: kind)
+        } else {
+            nextOptions[kind] = option
+        }
 
         return BodyHealthSecondaryDataSourceSelection(defaultOption: defaultOption, selectedOptions: nextOptions)
     }
 
     func settingDefault(option: BodyHealthDataSourceOption) -> BodyHealthSecondaryDataSourceSelection {
-        BodyHealthSecondaryDataSourceSelection(
+        let nextOptions = selectedOptions.filter { _, selectedOption in
+            selectedOption.id != defaultOption.id && selectedOption.id != option.id
+        }
+
+        return BodyHealthSecondaryDataSourceSelection(
             defaultOption: option,
-            selectedOptions: selectedOptions
+            selectedOptions: nextOptions
         )
     }
 

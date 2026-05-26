@@ -56,6 +56,7 @@ enum BodyActivityRingCompletionStarGeometry {
     static let referenceOffset = CGSize(width: 3, height: -4)
     static let referenceShadowRadius: CGFloat = 1
     static let referenceShadowYOffset: CGFloat = 0.5
+    static let foregroundZIndex: Double = 1
 
     static func scale(for ringSize: CGFloat) -> CGFloat {
         max(ringSize, 0) / referenceRingSize
@@ -261,6 +262,7 @@ private struct BodyActivityRingCalendarDayCell: View {
 
                 if showsCompletionStar {
                     BodyActivityRingCompletionStar(ringSize: 34)
+                        .zIndex(BodyActivityRingCompletionStarGeometry.foregroundZIndex)
                 }
             }
             .frame(width: 38, height: 34)
@@ -349,6 +351,7 @@ struct BodyActivityRingsCard: View {
                     if summary.isCompleted {
                         BodyActivityRingCompletionStar(ringSize: ringSize)
                             .transition(.opacity)
+                            .zIndex(BodyActivityRingCompletionStarGeometry.foregroundZIndex)
                     }
                 }
                 .frame(width: ringSize, height: ringSize)
