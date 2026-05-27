@@ -366,6 +366,58 @@ actor HealthKitFetchEngine {
         return await fetchIfPermitted(permission, default: defaultValue, operation: operation)
     }
 
+    private func fetchDashboardMetricIfNeeded<Value>(
+        _ kind: HealthMetricKind,
+        selection: BodyDashboardFetchSelection,
+        default defaultValue: Value,
+        operation: () async -> Value
+    ) async -> Value {
+        guard selection.includes(kind) else {
+            return defaultValue
+        }
+
+        return await fetchIfPermitted(
+            Self.healthPermission(forMetric: kind),
+            default: defaultValue,
+            operation: operation
+        )
+    }
+
+    private func fetchDashboardActivityRingsIfNeeded<Value>(
+        selection: BodyDashboardFetchSelection,
+        default defaultValue: Value,
+        operation: () async -> Value
+    ) async -> Value {
+        guard selection.includesActivityRings else {
+            return defaultValue
+        }
+
+        return await fetchIfPermitted(
+            .activityRings,
+            default: defaultValue,
+            operation: operation
+        )
+    }
+
+    private func fetchSecondaryDashboardMetricIfNeeded<Value>(
+        for kind: HealthMetricKind,
+        selection: BodyDashboardFetchSelection,
+        permission: BodyHealthPermission,
+        default defaultValue: Value,
+        operation: () async -> Value
+    ) async -> Value {
+        guard selection.includes(kind) else {
+            return defaultValue
+        }
+
+        return await fetchSecondaryIfEnabled(
+            for: kind,
+            permission: permission,
+            default: defaultValue,
+            operation: operation
+        )
+    }
+
     func selectedHealthDataSourceOption(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
         resolvedHealthDataSourceOption(healthDataSourceSelection.option(for: kind), for: kind)
     }
@@ -1204,31 +1256,34 @@ actor HealthKitFetchEngine {
 
     // MARK: - Orchestrators
 
-    func fetchHealthSummary(calendar: Calendar) async -> HealthSummarySnapshot {
-        async let activityRings = fetchIfPermitted(.activityRings, default: ActivityRingSummary.empty) {
+    func fetchHealthSummary(
+        calendar: Calendar,
+        selection: BodyDashboardFetchSelection = .defaultValue
+    ) async -> HealthSummarySnapshot {
+        async let activityRings = fetchDashboardActivityRingsIfNeeded(selection: selection, default: ActivityRingSummary.empty) {
             await fetchActivityRingSummary(calendar: calendar)
         }
-        async let sleep: SleepSummary? = fetchIfPermitted(.sleep, default: nil) {
+        async let sleep: SleepSummary? = fetchDashboardMetricIfNeeded(.sleep, selection: selection, default: nil) {
             await fetchSleepSummary(calendar: calendar)
         }
-        async let heartRate: HealthMetricSummary? = fetchIfPermitted(.heart, default: nil) {
+        async let heartRate: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.heartRate, selection: selection, default: nil) {
             await latestQuantity(
                 for: .heartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 sourceKind: .heartRate
             )
         }
-        async let restingHeartRate: HealthMetricSummary? = fetchIfPermitted(.heart, default: nil) {
+        async let restingHeartRate: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.restingHeartRate, selection: selection, default: nil) {
             await latestQuantity(
                 for: .restingHeartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 sourceKind: .restingHeartRate
             )
         }
-        async let bodyMass: HealthMetricSummary? = fetchIfPermitted(.basics, default: nil) {
+        async let bodyMass: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.bodyMass, selection: selection, default: nil) {
             await latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
         }
-        async let bodyFatPercentage: HealthMetricSummary? = fetchIfPermitted(.basics, default: nil) {
+        async let bodyFatPercentage: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.bodyFatPercentage, selection: selection, default: nil) {
             await latestQuantity(
                 for: .bodyFatPercentage,
                 unit: .percent(),
@@ -1236,21 +1291,21 @@ actor HealthKitFetchEngine {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         }
-        async let heartRateVariability: HealthMetricSummary? = fetchIfPermitted(.heart, default: nil) {
+        async let heartRateVariability: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.heartRateVariability, selection: selection, default: nil) {
             await latestQuantity(
                 for: .heartRateVariabilitySDNN,
                 unit: .secondUnit(with: .milli),
                 sourceKind: .heartRateVariability
             )
         }
-        async let respiratoryRate: HealthMetricSummary? = fetchIfPermitted(.respiratory, default: nil) {
+        async let respiratoryRate: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.respiratoryRate, selection: selection, default: nil) {
             await latestQuantity(
                 for: .respiratoryRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 sourceKind: .respiratoryRate
             )
         }
-        async let oxygenSaturation: HealthMetricSummary? = fetchIfPermitted(.bloodOxygen, default: nil) {
+        async let oxygenSaturation: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.oxygenSaturation, selection: selection, default: nil) {
             await latestQuantity(
                 for: .oxygenSaturation,
                 unit: .percent(),
@@ -1258,10 +1313,10 @@ actor HealthKitFetchEngine {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         }
-        async let bodyMassIndex: HealthMetricSummary? = fetchIfPermitted(.basics, default: nil) {
+        async let bodyMassIndex: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.bodyMassIndex, selection: selection, default: nil) {
             await latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
         }
-        async let activeEnergy: HealthMetricSummary? = fetchIfPermitted(.energy, default: nil) {
+        async let activeEnergy: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.activeEnergy, selection: selection, default: nil) {
             await dailyCumulativeQuantitySummary(
                 for: .activeEnergyBurned,
                 unit: .kilocalorie(),
@@ -1269,7 +1324,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .activeEnergy
             )
         }
-        async let restingEnergy: HealthMetricSummary? = fetchIfPermitted(.energy, default: nil) {
+        async let restingEnergy: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.restingEnergy, selection: selection, default: nil) {
             await dailyCumulativeQuantitySummary(
                 for: .basalEnergyBurned,
                 unit: .kilocalorie(),
@@ -1277,7 +1332,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .restingEnergy
             )
         }
-        async let exerciseMinutes: HealthMetricSummary? = fetchIfPermitted(.exerciseMinutes, default: nil) {
+        async let exerciseMinutes: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.exerciseMinutes, selection: selection, default: nil) {
             await dailyCumulativeQuantitySummary(
                 for: .appleExerciseTime,
                 unit: .minute(),
@@ -1285,10 +1340,10 @@ actor HealthKitFetchEngine {
                 sourceKind: .exerciseMinutes
             )
         }
-        async let trainingLoad: HealthMetricSummary? = fetchIfPermitted(.workouts, default: nil) {
+        async let trainingLoad: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.trainingLoad, selection: selection, default: nil) {
             await fetchTrainingLoadSummary(calendar: calendar)
         }
-        async let wristTemperature: HealthMetricSummary? = fetchIfPermitted(.wristTemperature, default: nil) {
+        async let wristTemperature: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.wristTemperature, selection: selection, default: nil) {
             await dailyQuantitySummary(
                 for: .appleSleepingWristTemperature,
                 unit: .degreeCelsius(),
@@ -1297,7 +1352,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .wristTemperature
             )
         }
-        async let timeInDaylight: HealthMetricSummary? = fetchIfPermitted(.timeInDaylight, default: nil) {
+        async let timeInDaylight: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.timeInDaylight, selection: selection, default: nil) {
             await dailyCumulativeQuantitySummary(
                 for: .timeInDaylight,
                 unit: .minute(),
@@ -1305,7 +1360,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .timeInDaylight
             )
         }
-        async let steps: HealthMetricSummary? = fetchIfPermitted(.steps, default: nil) {
+        async let steps: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.steps, selection: selection, default: nil) {
             await dailyCumulativeQuantitySummary(
                 for: .stepCount,
                 unit: .count(),
@@ -1335,7 +1390,11 @@ actor HealthKitFetchEngine {
         )
     }
 
-    func fetchHealthTrends(calendar: Calendar, cachedTrends: HealthTrendSnapshot) async -> HealthTrendSnapshot {
+    func fetchHealthTrends(
+        calendar: Calendar,
+        cachedTrends: HealthTrendSnapshot,
+        selection: BodyDashboardFetchSelection = .defaultValue
+    ) async -> HealthTrendSnapshot {
         // Preserve any intraday daySamples that have already been lazy-loaded for
         // the metric detail views — fetching them is expensive (~50k HR samples)
         // and they are not displayed on the Home dashboard.
@@ -1353,17 +1412,18 @@ actor HealthKitFetchEngine {
         let cachedStepsDaySamples = cachedTrends.stepsDaySamples
         let cachedStepsDaySamplesSecondary = cachedTrends.stepsDaySamplesSecondary
 
-        async let sleepHistory = fetchIfPermitted(.sleep, default: SleepHistorySnapshot.empty) {
+        async let sleepHistory = fetchDashboardMetricIfNeeded(.sleep, selection: selection, default: SleepHistorySnapshot.empty) {
             await fetchDailySleepHistory(calendar: calendar)
         }
-        async let sleepHistorySecondary = fetchSecondaryIfEnabled(
+        async let sleepHistorySecondary = fetchSecondaryDashboardMetricIfNeeded(
             for: .sleep,
+            selection: selection,
             permission: .sleep,
             default: SleepHistorySnapshot.empty
         ) {
             await fetchSecondarySleepHistory(calendar: calendar)
         }
-        async let restingHeartRate = fetchIfPermitted(.heart, default: HealthTrendSeries.empty) {
+        async let restingHeartRate = fetchDashboardMetricIfNeeded(.restingHeartRate, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .restingHeartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
@@ -1372,11 +1432,17 @@ actor HealthKitFetchEngine {
                 sourceKind: .restingHeartRate
             )
         }
-        async let restingHeartRateSecondary = fetchSecondaryIfEnabled(for: .restingHeartRate, permission: .heart, default: HealthTrendSeries.empty) {
+        async let restingHeartRateSecondary = fetchSecondaryDashboardMetricIfNeeded(
+            for: .restingHeartRate,
+            selection: selection,
+            permission: .heart,
+            default: HealthTrendSeries.empty
+        ) {
             await fetchSecondaryTrend(for: .restingHeartRate, calendar: calendar)
         }
-        async let heartRatePair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchIfPermitted(
-            .heart,
+        async let heartRatePair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchDashboardMetricIfNeeded(
+            .heartRate,
+            selection: selection,
             default: (HealthTrendSeries.empty, HealthTrendRangeSeries.empty)
         ) {
             await fetchDailyQuantityAverageAndRangeSeries(
@@ -1386,10 +1452,15 @@ actor HealthKitFetchEngine {
                 sourceKind: .heartRate
             )
         }
-        async let heartRateRangesSecondary = fetchSecondaryIfEnabled(for: .heartRate, permission: .heart, default: HealthTrendRangeSeries.empty) {
+        async let heartRateRangesSecondary = fetchSecondaryDashboardMetricIfNeeded(
+            for: .heartRate,
+            selection: selection,
+            permission: .heart,
+            default: HealthTrendRangeSeries.empty
+        ) {
             await fetchSecondaryRangeTrend(for: .heartRate, calendar: calendar)
         }
-        async let bodyMass = fetchIfPermitted(.basics, default: HealthTrendSeries.empty) {
+        async let bodyMass = fetchDashboardMetricIfNeeded(.bodyMass, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .bodyMass,
                 unit: .gramUnit(with: .kilo),
@@ -1398,7 +1469,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .basics
             )
         }
-        async let bodyFatPercentage = fetchIfPermitted(.basics, default: HealthTrendSeries.empty) {
+        async let bodyFatPercentage = fetchDashboardMetricIfNeeded(.bodyFatPercentage, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .bodyFatPercentage,
                 unit: .percent(),
@@ -1408,8 +1479,9 @@ actor HealthKitFetchEngine {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         }
-        async let heartRateVariabilityPair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchIfPermitted(
-            .heart,
+        async let heartRateVariabilityPair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchDashboardMetricIfNeeded(
+            .heartRateVariability,
+            selection: selection,
             default: (HealthTrendSeries.empty, HealthTrendRangeSeries.empty)
         ) {
             await fetchDailyQuantityAverageAndRangeSeries(
@@ -1419,11 +1491,17 @@ actor HealthKitFetchEngine {
                 sourceKind: .heartRateVariability
             )
         }
-        async let heartRateVariabilityRangesSecondary = fetchSecondaryIfEnabled(for: .heartRateVariability, permission: .heart, default: HealthTrendRangeSeries.empty) {
+        async let heartRateVariabilityRangesSecondary = fetchSecondaryDashboardMetricIfNeeded(
+            for: .heartRateVariability,
+            selection: selection,
+            permission: .heart,
+            default: HealthTrendRangeSeries.empty
+        ) {
             await fetchSecondaryRangeTrend(for: .heartRateVariability, calendar: calendar)
         }
-        async let respiratoryRatePair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchIfPermitted(
-            .respiratory,
+        async let respiratoryRatePair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchDashboardMetricIfNeeded(
+            .respiratoryRate,
+            selection: selection,
             default: (HealthTrendSeries.empty, HealthTrendRangeSeries.empty)
         ) {
             await fetchDailyQuantityAverageAndRangeSeries(
@@ -1433,8 +1511,9 @@ actor HealthKitFetchEngine {
                 sourceKind: .respiratoryRate
             )
         }
-        async let oxygenSaturationPair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchIfPermitted(
-            .bloodOxygen,
+        async let oxygenSaturationPair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchDashboardMetricIfNeeded(
+            .oxygenSaturation,
+            selection: selection,
             default: (HealthTrendSeries.empty, HealthTrendRangeSeries.empty)
         ) {
             await fetchDailyQuantityAverageAndRangeSeries(
@@ -1445,14 +1524,15 @@ actor HealthKitFetchEngine {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         }
-        async let oxygenSaturationRangesSecondary = fetchSecondaryIfEnabled(
+        async let oxygenSaturationRangesSecondary = fetchSecondaryDashboardMetricIfNeeded(
             for: .oxygenSaturation,
+            selection: selection,
             permission: .bloodOxygen,
             default: HealthTrendRangeSeries.empty
         ) {
             await fetchSecondaryRangeTrend(for: .oxygenSaturation, calendar: calendar)
         }
-        async let bodyMassIndex = fetchIfPermitted(.basics, default: HealthTrendSeries.empty) {
+        async let bodyMassIndex = fetchDashboardMetricIfNeeded(.bodyMassIndex, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .bodyMassIndex,
                 unit: .count(),
@@ -1461,7 +1541,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .basics
             )
         }
-        async let activeEnergy = fetchIfPermitted(.energy, default: HealthTrendSeries.empty) {
+        async let activeEnergy = fetchDashboardMetricIfNeeded(.activeEnergy, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyCumulativeQuantitySeries(
                 for: .activeEnergyBurned,
                 unit: .kilocalorie(),
@@ -1469,10 +1549,15 @@ actor HealthKitFetchEngine {
                 sourceKind: .activeEnergy
             )
         }
-        async let activeEnergySecondary = fetchSecondaryIfEnabled(for: .activeEnergy, permission: .energy, default: HealthTrendSeries.empty) {
+        async let activeEnergySecondary = fetchSecondaryDashboardMetricIfNeeded(
+            for: .activeEnergy,
+            selection: selection,
+            permission: .energy,
+            default: HealthTrendSeries.empty
+        ) {
             await fetchSecondaryTrend(for: .activeEnergy, calendar: calendar)
         }
-        async let restingEnergy = fetchIfPermitted(.energy, default: HealthTrendSeries.empty) {
+        async let restingEnergy = fetchDashboardMetricIfNeeded(.restingEnergy, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyCumulativeQuantitySeries(
                 for: .basalEnergyBurned,
                 unit: .kilocalorie(),
@@ -1480,10 +1565,15 @@ actor HealthKitFetchEngine {
                 sourceKind: .restingEnergy
             )
         }
-        async let restingEnergySecondary = fetchSecondaryIfEnabled(for: .restingEnergy, permission: .energy, default: HealthTrendSeries.empty) {
+        async let restingEnergySecondary = fetchSecondaryDashboardMetricIfNeeded(
+            for: .restingEnergy,
+            selection: selection,
+            permission: .energy,
+            default: HealthTrendSeries.empty
+        ) {
             await fetchSecondaryTrend(for: .restingEnergy, calendar: calendar)
         }
-        async let exerciseMinutes = fetchIfPermitted(.exerciseMinutes, default: HealthTrendSeries.empty) {
+        async let exerciseMinutes = fetchDashboardMetricIfNeeded(.exerciseMinutes, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyCumulativeQuantitySeries(
                 for: .appleExerciseTime,
                 unit: .minute(),
@@ -1491,13 +1581,18 @@ actor HealthKitFetchEngine {
                 sourceKind: .exerciseMinutes
             )
         }
-        async let exerciseMinutesSecondary = fetchSecondaryIfEnabled(for: .exerciseMinutes, permission: .exerciseMinutes, default: HealthTrendSeries.empty) {
+        async let exerciseMinutesSecondary = fetchSecondaryDashboardMetricIfNeeded(
+            for: .exerciseMinutes,
+            selection: selection,
+            permission: .exerciseMinutes,
+            default: HealthTrendSeries.empty
+        ) {
             await fetchSecondaryTrend(for: .exerciseMinutes, calendar: calendar)
         }
-        async let trainingLoad = fetchIfPermitted(.workouts, default: HealthTrendSeries.empty) {
+        async let trainingLoad = fetchDashboardMetricIfNeeded(.trainingLoad, selection: selection, default: HealthTrendSeries.empty) {
             await fetchTrainingLoadSeries(calendar: calendar)
         }
-        async let wristTemperature = fetchIfPermitted(.wristTemperature, default: HealthTrendSeries.empty) {
+        async let wristTemperature = fetchDashboardMetricIfNeeded(.wristTemperature, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .appleSleepingWristTemperature,
                 unit: .degreeCelsius(),
@@ -1506,7 +1601,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .wristTemperature
             )
         }
-        async let timeInDaylight = fetchIfPermitted(.timeInDaylight, default: HealthTrendSeries.empty) {
+        async let timeInDaylight = fetchDashboardMetricIfNeeded(.timeInDaylight, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyCumulativeQuantitySeries(
                 for: .timeInDaylight,
                 unit: .minute(),
@@ -1514,7 +1609,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .timeInDaylight
             )
         }
-        async let steps = fetchIfPermitted(.steps, default: HealthTrendSeries.empty) {
+        async let steps = fetchDashboardMetricIfNeeded(.steps, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyCumulativeQuantitySeries(
                 for: .stepCount,
                 unit: .count(),
@@ -1522,7 +1617,12 @@ actor HealthKitFetchEngine {
                 sourceKind: .steps
             )
         }
-        async let stepsSecondary = fetchSecondaryIfEnabled(for: .steps, permission: .steps, default: HealthTrendSeries.empty) {
+        async let stepsSecondary = fetchSecondaryDashboardMetricIfNeeded(
+            for: .steps,
+            selection: selection,
+            permission: .steps,
+            default: HealthTrendSeries.empty
+        ) {
             await fetchSecondaryTrend(for: .steps, calendar: calendar)
         }
 

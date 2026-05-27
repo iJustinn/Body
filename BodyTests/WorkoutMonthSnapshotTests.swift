@@ -1950,6 +1950,38 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
     }
 
+    func testDashboardFetchSelectionIncludesVisibleSummaryAndTrendCards() {
+        let selection = BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection(selectedCards: [.activityRings, .steps]),
+            trendCards: BodyHomeTrendCardSelection(selectedCards: [.sleep])
+        )
+
+        XCTAssertTrue(selection.includesActivityRings)
+        XCTAssertTrue(selection.includes(.steps))
+        XCTAssertTrue(selection.includes(.sleep))
+        XCTAssertFalse(selection.includes(.heartRate))
+        XCTAssertFalse(selection.includes(.activeEnergy))
+    }
+
+    func testDashboardFetchSelectionKeepsReadinessDependencies() {
+        let selection = BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection(selectedCards: []),
+            trendCards: BodyHomeTrendCardSelection(selectedCards: [.readiness])
+        )
+
+        XCTAssertFalse(selection.includesActivityRings)
+        XCTAssertTrue(selection.includes(.readiness))
+        XCTAssertTrue(selection.includes(.sleep))
+        XCTAssertTrue(selection.includes(.heartRateVariability))
+        XCTAssertTrue(selection.includes(.restingHeartRate))
+        XCTAssertTrue(selection.includes(.trainingLoad))
+        XCTAssertTrue(selection.includes(.respiratoryRate))
+        XCTAssertTrue(selection.includes(.oxygenSaturation))
+        XCTAssertTrue(selection.includes(.wristTemperature))
+        XCTAssertFalse(selection.includes(.heartRate))
+        XCTAssertFalse(selection.includes(.steps))
+    }
+
     func testHealthTrendSeriesLimitsToAvailableRanges() throws {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 15)))

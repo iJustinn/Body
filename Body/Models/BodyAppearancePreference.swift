@@ -829,6 +829,65 @@ struct BodyHomeTrendCardSelection: Equatable {
     }
 }
 
+struct BodyDashboardFetchSelection: Equatable {
+    private static let basicsMetricKinds: Set<HealthMetricKind> = [
+        .bodyMass,
+        .bodyFatPercentage,
+        .bodyMassIndex
+    ]
+    private static let readinessDependencyKinds: Set<HealthMetricKind> = [
+        .sleep,
+        .heartRateVariability,
+        .restingHeartRate,
+        .trainingLoad,
+        .respiratoryRate,
+        .oxygenSaturation,
+        .wristTemperature
+    ]
+
+    static let defaultValue = BodyDashboardFetchSelection(
+        summaryCards: BodySummaryCardSelection.defaultValue,
+        trendCards: BodyHomeTrendCardSelection.defaultValue
+    )
+
+    let includesActivityRings: Bool
+    private let metricKinds: Set<HealthMetricKind>
+
+    init(summaryCards: BodySummaryCardSelection, trendCards: BodyHomeTrendCardSelection) {
+        includesActivityRings = summaryCards.includes(.activityRings)
+
+        var metrics = Set(summaryCards.selectedCards.compactMap(\.healthMetricKind))
+        metrics.formUnion(trendCards.selectedCards.map(\.metricKind))
+
+        if metrics.contains(.basics) {
+            metrics.formUnion(Self.basicsMetricKinds)
+        }
+
+        if metrics.contains(.readiness) {
+            metrics.formUnion(Self.readinessDependencyKinds)
+        }
+
+        metricKinds = metrics
+    }
+
+    func includes(_ kind: HealthMetricKind) -> Bool {
+        metricKinds.contains(kind)
+    }
+
+    static func load(defaults: UserDefaults = .standard) -> BodyDashboardFetchSelection {
+        BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection.storedValue(
+                from: defaults.string(forKey: BodyAppearancePreference.summaryCardSelectionKey)
+                    ?? BodySummaryCardSelection.defaultRawValue
+            ),
+            trendCards: BodyHomeTrendCardSelection.storedValue(
+                from: defaults.string(forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
+                    ?? BodyHomeTrendCardSelection.defaultRawValue
+            )
+        )
+    }
+}
+
 enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
     case readiness
     case heartRate

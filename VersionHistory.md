@@ -1,5 +1,9 @@
 # Version History
 
+## 0.7.0 (build 2)
+
+- Updated the app, widget, and test bundle version to 0.7.0 build 2.
+
 ## 0.7.0 (build 1)
 
 - Added average heart metric cards below Day View for Heart Rate and HRV, with HRV limited to sleep averages.
