@@ -412,6 +412,19 @@ struct BodyHealthMetricDayContextInterval: Identifiable {
     }
 }
 
+enum BodyHealthMetricDayContextBand {
+    static let topStripeHeightRatio = 0.006
+
+    static func topStripeLowerBound(for yDomain: ClosedRange<Double>) -> Double {
+        let span = yDomain.upperBound - yDomain.lowerBound
+        guard span.isFinite, span > 0 else {
+            return yDomain.upperBound
+        }
+
+        return yDomain.upperBound - span * topStripeHeightRatio
+    }
+}
+
 extension HealthTrendSeries {
     func hourlyAverage(on day: Date) -> Double? {
         let values = hourlyAverageBuckets(on: day).map(\.averageValue).filter(\.isFinite)
@@ -658,8 +671,7 @@ struct BodyHealthMetricDayChart: View {
     }
 
     private var contextTopLineLowerBound: Double {
-        let span = chartYDomain.upperBound - chartYDomain.lowerBound
-        return chartYDomain.upperBound - max(span * 0.006, 0.5)
+        BodyHealthMetricDayContextBand.topStripeLowerBound(for: chartYDomain)
     }
 
     private var chartPressGesture: some Gesture {
@@ -783,4 +795,3 @@ struct BodyHealthMetricDayAnnotation: View {
         date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
     }
 }
-
