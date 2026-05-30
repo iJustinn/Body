@@ -156,7 +156,25 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(whyBlock.contains("ForEach(readiness.components)"))
     }
 
-    func testMetricDetailPagesShowHomeTrendCardBeforeAboutCards() throws {
+    func testMetricDetailHeaderIconMatchesHomeMetricCardTintTreatment() throws {
+        let source = try bodyHomeViewText()
+        let cardIconStart = try XCTUnwrap(source.range(of: "Image(systemName: metric.symbolName)")?.lowerBound)
+        let cardIconEnd = try XCTUnwrap(source.range(of: "private var valueRow", range: cardIconStart..<source.endIndex)?.lowerBound)
+        let cardIconBlock = String(source[cardIconStart..<cardIconEnd])
+        let headerStart = try XCTUnwrap(source.range(of: "private var headerCard: some View")?.lowerBound)
+        let headerEnd = try XCTUnwrap(source.range(of: "@ViewBuilder\n    private var headerValues", range: headerStart..<source.endIndex)?.lowerBound)
+        let headerBlock = String(source[headerStart..<headerEnd])
+
+        XCTAssertTrue(cardIconBlock.contains(".foregroundColor(metric.symbolColor)"))
+        XCTAssertTrue(cardIconBlock.contains(".fill(metric.symbolColor.opacity(0.16))"))
+        XCTAssertTrue(headerBlock.contains(".foregroundColor(model.symbolColor)"))
+        XCTAssertTrue(headerBlock.contains(".background(model.symbolColor.opacity(0.16))"))
+        XCTAssertFalse(headerBlock.contains(".symbolRenderingMode(.hierarchical)"))
+        XCTAssertFalse(headerBlock.contains(".foregroundStyle(model.symbolColor)"))
+        XCTAssertFalse(headerBlock.contains(".background(model.symbolColor.opacity(0.14))"))
+    }
+
+    func testMetricDetailPagesUseRequestedCardOrdering() throws {
         let source = try bodyHomeViewText()
         let detailStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricDetailView")?.lowerBound)
         let detailEnd = try XCTUnwrap(source.range(of: "private var selectedTemperatureUnitPreference", range: detailStart..<source.endIndex)?.lowerBound)
@@ -193,7 +211,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertLessThan(metricDayChartStart, metricActivityAveragesStart)
         XCTAssertLessThan(metricActivityAveragesStart, dayViewTrendCardStart)
         XCTAssertLessThan(dayViewTrendCardStart, dayViewElseStart)
-        XCTAssertLessThan(nonDayTrendCardStart, readinessAboutStart)
+        XCTAssertLessThan(readinessAboutStart, nonDayTrendCardStart)
         XCTAssertLessThan(dayViewTrendCardStart, helpTextStart)
         XCTAssertEqual(detailBodyBlock.occurrenceCount(of: "detailTrendComparisonCard"), 3)
         XCTAssertTrue(source.contains("BodyHomeTrendCardFactory.card("))
@@ -282,7 +300,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("chartPreviewStyle: .range"))
         XCTAssertTrue(previewBlock.contains("case .range:"))
         XCTAssertTrue(previewBlock.contains("rangePreview"))
-        XCTAssertTrue(previewBlock.contains("BodyHomeMetricCardPreview.rangeCalendarPoints(from: rangeSeries)"))
+        XCTAssertTrue(previewBlock.contains("BodyHomeMetricCardPreview.rangeCalendarPoints(from: rangeSeries, previewDayCount: previewDayCount)"))
         XCTAssertTrue(previewBlock.contains("RoundedRectangle(cornerRadius: 2, style: .continuous)"))
         XCTAssertTrue(previewBlock.contains("Capsule(style: .continuous)"))
     }

@@ -21,13 +21,13 @@ enum ReadinessStatus: String, Codable, Equatable {
         }
 
         switch score {
-        case 96...100:
+        case 95...100:
             return .prime
-        case 75...95:
+        case 80...94:
             return .high
-        case 50..<75:
+        case 65...79:
             return .moderate
-        case 25..<50:
+        case 30...64:
             return .low
         default:
             return .poor
@@ -54,15 +54,15 @@ enum ReadinessStatus: String, Codable, Equatable {
     var scoreRangeText: String {
         switch self {
         case .prime:
-            return "96-100%"
+            return "95-100%"
         case .high:
-            return "75-95%"
+            return "80-94%"
         case .moderate:
-            return "50-74%"
+            return "65-79%"
         case .low:
-            return "25-49%"
+            return "30-64%"
         case .poor:
-            return "0-24%"
+            return "0-29%"
         case .unavailable:
             return "--"
         }
@@ -90,11 +90,11 @@ enum ReadinessStatus: String, Codable, Equatable {
         case .poor:
             return nil
         case .low:
-            return 25
+            return 30
         case .moderate:
-            return 50
+            return 65
         case .high:
-            return 75
+            return 80
         case .prime:
             return 95
         case .unavailable:
@@ -105,11 +105,11 @@ enum ReadinessStatus: String, Codable, Equatable {
     var upperBound: Double? {
         switch self {
         case .poor:
-            return 25
+            return 30
         case .low:
-            return 50
+            return 65
         case .moderate:
-            return 75
+            return 80
         case .high:
             return 95
         case .prime:

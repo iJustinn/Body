@@ -174,6 +174,21 @@ struct BodyHealthMetricCardTrendPreview: View {
     let rangeSeries: HealthTrendRangeSeries?
     let tintColor: Color
     let style: BodyHomeMetricCardPreview.Style
+    let previewDayCount: Int
+
+    init(
+        series: HealthTrendSeries?,
+        rangeSeries: HealthTrendRangeSeries?,
+        tintColor: Color,
+        style: BodyHomeMetricCardPreview.Style,
+        previewDayCount: Int = BodyHomeMetricCardPreview.dayCount(forScreenWidth: UIScreen.main.bounds.width)
+    ) {
+        self.series = series
+        self.rangeSeries = rangeSeries
+        self.tintColor = tintColor
+        self.style = style
+        self.previewDayCount = previewDayCount
+    }
 
     private var refreshAnimation: Animation? {
         reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0)
@@ -198,7 +213,7 @@ struct BodyHealthMetricCardTrendPreview: View {
             return []
         }
 
-        return BodyHomeMetricCardPreview.calendarPoints(from: series)
+        return BodyHomeMetricCardPreview.calendarPoints(from: series, previewDayCount: previewDayCount)
     }
 
     private var rangeCalendarPoints: [HealthTrendRangeCalendarPoint] {
@@ -206,7 +221,7 @@ struct BodyHealthMetricCardTrendPreview: View {
             return []
         }
 
-        return BodyHomeMetricCardPreview.rangeCalendarPoints(from: rangeSeries)
+        return BodyHomeMetricCardPreview.rangeCalendarPoints(from: rangeSeries, previewDayCount: previewDayCount)
     }
 
     private var values: [Double] {
@@ -508,4 +523,3 @@ struct AnimatableVector: VectorArithmetic {
         return values + Array(repeating: 0, count: count - values.count)
     }
 }
-

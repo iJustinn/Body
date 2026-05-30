@@ -8,6 +8,29 @@ import XCTest
 
 final class ReadinessScoreCalculatorTests: XCTestCase {
 
+    // MARK: - Status Bands
+
+    func testReadinessStatusUsesRequestedScoreBands() {
+        XCTAssertEqual(ReadinessStatus.status(for: 100), .prime)
+        XCTAssertEqual(ReadinessStatus.status(for: 95), .prime)
+        XCTAssertEqual(ReadinessStatus.status(for: 94), .high)
+        XCTAssertEqual(ReadinessStatus.status(for: 80), .high)
+        XCTAssertEqual(ReadinessStatus.status(for: 79), .moderate)
+        XCTAssertEqual(ReadinessStatus.status(for: 65), .moderate)
+        XCTAssertEqual(ReadinessStatus.status(for: 64), .low)
+        XCTAssertEqual(ReadinessStatus.status(for: 30), .low)
+        XCTAssertEqual(ReadinessStatus.status(for: 29), .poor)
+        XCTAssertEqual(ReadinessStatus.status(for: 0), .poor)
+    }
+
+    func testReadinessStatusRangeTextMatchesRequestedScoreBands() {
+        XCTAssertEqual(ReadinessStatus.prime.scoreRangeText, "95-100%")
+        XCTAssertEqual(ReadinessStatus.high.scoreRangeText, "80-94%")
+        XCTAssertEqual(ReadinessStatus.moderate.scoreRangeText, "65-79%")
+        XCTAssertEqual(ReadinessStatus.low.scoreRangeText, "30-64%")
+        XCTAssertEqual(ReadinessStatus.poor.scoreRangeText, "0-29%")
+    }
+
     // MARK: - Sleep Goal (C1 regression)
 
     /// Regression for C1: the sleep component must honor the caller's

@@ -474,14 +474,14 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
     func testReadinessStatusMapsScoresToBands() {
         XCTAssertEqual(ReadinessStatus.status(for: nil), .unavailable)
         XCTAssertEqual(ReadinessStatus.status(for: 100), .prime)
-        XCTAssertEqual(ReadinessStatus.status(for: 96), .prime)
-        XCTAssertEqual(ReadinessStatus.status(for: 95), .high)
-        XCTAssertEqual(ReadinessStatus.status(for: 75), .high)
-        XCTAssertEqual(ReadinessStatus.status(for: 74), .moderate)
-        XCTAssertEqual(ReadinessStatus.status(for: 50), .moderate)
-        XCTAssertEqual(ReadinessStatus.status(for: 49), .low)
-        XCTAssertEqual(ReadinessStatus.status(for: 25), .low)
-        XCTAssertEqual(ReadinessStatus.status(for: 24), .poor)
+        XCTAssertEqual(ReadinessStatus.status(for: 95), .prime)
+        XCTAssertEqual(ReadinessStatus.status(for: 94), .high)
+        XCTAssertEqual(ReadinessStatus.status(for: 80), .high)
+        XCTAssertEqual(ReadinessStatus.status(for: 79), .moderate)
+        XCTAssertEqual(ReadinessStatus.status(for: 65), .moderate)
+        XCTAssertEqual(ReadinessStatus.status(for: 64), .low)
+        XCTAssertEqual(ReadinessStatus.status(for: 30), .low)
+        XCTAssertEqual(ReadinessStatus.status(for: 29), .poor)
         XCTAssertEqual(ReadinessStatus.status(for: 0), .poor)
     }
 
@@ -500,12 +500,12 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
     func testReadinessStatusExposesBoundsForChartBands() {
         XCTAssertNil(ReadinessStatus.poor.lowerBound)
-        XCTAssertEqual(ReadinessStatus.poor.upperBound, 25)
-        XCTAssertEqual(ReadinessStatus.low.lowerBound, 25)
-        XCTAssertEqual(ReadinessStatus.low.upperBound, 50)
-        XCTAssertEqual(ReadinessStatus.moderate.lowerBound, 50)
-        XCTAssertEqual(ReadinessStatus.moderate.upperBound, 75)
-        XCTAssertEqual(ReadinessStatus.high.lowerBound, 75)
+        XCTAssertEqual(ReadinessStatus.poor.upperBound, 30)
+        XCTAssertEqual(ReadinessStatus.low.lowerBound, 30)
+        XCTAssertEqual(ReadinessStatus.low.upperBound, 65)
+        XCTAssertEqual(ReadinessStatus.moderate.lowerBound, 65)
+        XCTAssertEqual(ReadinessStatus.moderate.upperBound, 80)
+        XCTAssertEqual(ReadinessStatus.high.lowerBound, 80)
         XCTAssertEqual(ReadinessStatus.high.upperBound, 95)
         XCTAssertEqual(ReadinessStatus.prime.lowerBound, 95)
         XCTAssertNil(ReadinessStatus.prime.upperBound)
@@ -514,7 +514,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
     func testReadinessStatusExposesExactRangeTextAndExplanation() {
         XCTAssertEqual(
             ReadinessStatus.displayOrder.map(\.scoreRangeText),
-            ["96-100%", "75-95%", "50-74%", "25-49%", "0-24%"]
+            ["95-100%", "80-94%", "65-79%", "30-64%", "0-29%"]
         )
         XCTAssertTrue(ReadinessStatus.prime.explanation.contains("Strong readiness"))
         XCTAssertTrue(ReadinessStatus.high.explanation.contains("Well prepared"))
@@ -1292,6 +1292,13 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(previewPoints.map(\.value), [18, 20])
     }
 
+    func testHomeMetricCardPreviewUsesCompactCountOnSmallScreens() {
+        XCTAssertEqual(BodyHomeMetricCardPreview.compactPreviewDayCount, 3)
+        XCTAssertEqual(BodyHomeMetricCardPreview.dayCount(forScreenWidth: 375), 3)
+        XCTAssertEqual(BodyHomeMetricCardPreview.dayCount(forScreenWidth: 390), 4)
+        XCTAssertEqual(BodyHomeMetricCardPreview.dayCount(forScreenWidth: Double.nan), 4)
+    }
+
     func testHomeMetricCardPreviewCalendarPointsIncludeTodayWhenTodayHasData() throws {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 13, hour: 12)))
@@ -1309,6 +1316,26 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
 
         XCTAssertEqual(previewPoints.map(\.value), [nil, 18, nil, 20])
+    }
+
+    func testHomeMetricCardPreviewCalendarPointsCanUseCompactThreeDayWindow() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 13, hour: 12)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let points = try [-10, -6, -2, 0].map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
+            return HealthTrendDataPoint(date: date, value: Double(offset + 20))
+        }
+        let series = HealthTrendSeries(points: points)
+
+        let previewPoints = BodyHomeMetricCardPreview.calendarPoints(
+            from: series,
+            previewDayCount: BodyHomeMetricCardPreview.compactPreviewDayCount,
+            calendar: calendar,
+            date: currentDate
+        )
+
+        XCTAssertEqual(previewPoints.map(\.value), [18, nil, 20])
     }
 
     func testHomeMetricCardPreviewCalendarPointsOmitTodayPlaceholderWhenTodayHasNoData() throws {
@@ -1350,6 +1377,29 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         XCTAssertEqual(previewPoints.map(\.lowValue), [nil, 52, nil, 58])
         XCTAssertEqual(previewPoints.map(\.highValue), [nil, 118, nil, 132])
+        XCTAssertEqual(previewPoints.last?.date, may13)
+    }
+
+    func testHomeMetricCardRangePreviewCalendarPointsCanUseCompactThreeDayWindow() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 13, hour: 12)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let may11 = try XCTUnwrap(calendar.date(byAdding: .day, value: -2, to: currentDayStart))
+        let may13 = currentDayStart
+        let series = HealthTrendRangeSeries(points: [
+            HealthTrendRangeDataPoint(date: may11, lowValue: 52, highValue: 118, averageValue: 78),
+            HealthTrendRangeDataPoint(date: may13, lowValue: 58, highValue: 132, averageValue: 88)
+        ])
+
+        let previewPoints = BodyHomeMetricCardPreview.rangeCalendarPoints(
+            from: series,
+            previewDayCount: BodyHomeMetricCardPreview.compactPreviewDayCount,
+            calendar: calendar,
+            date: currentDate
+        )
+
+        XCTAssertEqual(previewPoints.map(\.lowValue), [52, nil, 58])
+        XCTAssertEqual(previewPoints.map(\.highValue), [118, nil, 132])
         XCTAssertEqual(previewPoints.last?.date, may13)
     }
 

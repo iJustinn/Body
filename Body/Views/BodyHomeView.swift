@@ -1285,6 +1285,8 @@ private struct BodyHomeCardDropDelegate: DropDelegate {
 
 enum BodyHomeMetricCardPreview {
     static let previewDayCount = 4
+    static let compactPreviewDayCount = 3
+    static let compactScreenMaximumWidth: CGFloat = 375
     static let linePreviewWidth: CGFloat = 42
     static let barPreviewWidth: CGFloat = 42
     static let linePointDiameter: CGFloat = 6
@@ -1305,12 +1307,21 @@ enum BodyHomeMetricCardPreview {
         }
     }
 
+    static func dayCount(forScreenWidth screenWidth: CGFloat) -> Int {
+        guard screenWidth.isFinite, screenWidth > 0 else {
+            return previewDayCount
+        }
+
+        return screenWidth <= compactScreenMaximumWidth ? compactPreviewDayCount : previewDayCount
+    }
+
     static func points(
         from series: HealthTrendSeries,
+        previewDayCount: Int = Self.previewDayCount,
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> [HealthTrendDataPoint] {
-        let bounds = previewDateBounds(for: series, calendar: calendar, date: date)
+        let bounds = previewDateBounds(for: series, previewDayCount: previewDayCount, calendar: calendar, date: date)
 
         return series.points
             .filter { point in
@@ -1321,15 +1332,17 @@ enum BodyHomeMetricCardPreview {
 
     static func calendarPoints(
         from series: HealthTrendSeries,
+        previewDayCount: Int = Self.previewDayCount,
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> [HealthTrendCalendarPoint] {
-        let bounds = previewDateBounds(for: series, calendar: calendar, date: date)
-        let pointsByDay = Dictionary(grouping: points(from: series, calendar: calendar, date: date)) {
+        let count = max(previewDayCount, 1)
+        let bounds = previewDateBounds(for: series, previewDayCount: count, calendar: calendar, date: date)
+        let pointsByDay = Dictionary(grouping: points(from: series, previewDayCount: count, calendar: calendar, date: date)) {
             calendar.startOfDay(for: $0.date)
         }
 
-        return (0..<previewDayCount).compactMap { offset in
+        return (0..<count).compactMap { offset in
             guard let day = calendar.date(byAdding: .day, value: offset, to: bounds.startDate) else {
                 return nil
             }
@@ -1344,15 +1357,17 @@ enum BodyHomeMetricCardPreview {
 
     static func rangeCalendarPoints(
         from series: HealthTrendRangeSeries,
+        previewDayCount: Int = Self.previewDayCount,
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> [HealthTrendRangeCalendarPoint] {
-        let bounds = previewDateBounds(for: series, calendar: calendar, date: date)
-        let pointsByDay = Dictionary(grouping: rangePoints(from: series, calendar: calendar, date: date)) {
+        let count = max(previewDayCount, 1)
+        let bounds = previewDateBounds(for: series, previewDayCount: count, calendar: calendar, date: date)
+        let pointsByDay = Dictionary(grouping: rangePoints(from: series, previewDayCount: count, calendar: calendar, date: date)) {
             calendar.startOfDay(for: $0.date)
         }
 
-        return (0..<previewDayCount).compactMap { offset in
+        return (0..<count).compactMap { offset in
             guard let day = calendar.date(byAdding: .day, value: offset, to: bounds.startDate) else {
                 return nil
             }
@@ -1369,10 +1384,11 @@ enum BodyHomeMetricCardPreview {
 
     private static func rangePoints(
         from series: HealthTrendRangeSeries,
+        previewDayCount: Int = Self.previewDayCount,
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> [HealthTrendRangeDataPoint] {
-        let bounds = previewDateBounds(for: series, calendar: calendar, date: date)
+        let bounds = previewDateBounds(for: series, previewDayCount: previewDayCount, calendar: calendar, date: date)
 
         return series.points
             .filter { point in
@@ -1383,9 +1399,11 @@ enum BodyHomeMetricCardPreview {
 
     private static func previewDateBounds(
         for series: HealthTrendSeries,
+        previewDayCount: Int,
         calendar: Calendar,
         date: Date
     ) -> (startDate: Date, endDate: Date) {
+        let count = max(previewDayCount, 1)
         let currentDayStart = calendar.startOfDay(for: date)
         let nextDayStart = calendar.date(byAdding: .day, value: 1, to: currentDayStart)
             ?? date
@@ -1393,7 +1411,7 @@ enum BodyHomeMetricCardPreview {
             point.date >= currentDayStart && point.date < nextDayStart && point.value.isFinite
         }
         let endDate = hasCurrentDayValue ? nextDayStart : currentDayStart
-        let startDate = calendar.date(byAdding: .day, value: -previewDayCount, to: endDate)
+        let startDate = calendar.date(byAdding: .day, value: -count, to: endDate)
             ?? currentDayStart
 
         return (startDate, endDate)
@@ -1401,9 +1419,11 @@ enum BodyHomeMetricCardPreview {
 
     private static func previewDateBounds(
         for series: HealthTrendRangeSeries,
+        previewDayCount: Int,
         calendar: Calendar,
         date: Date
     ) -> (startDate: Date, endDate: Date) {
+        let count = max(previewDayCount, 1)
         let currentDayStart = calendar.startOfDay(for: date)
         let nextDayStart = calendar.date(byAdding: .day, value: 1, to: currentDayStart)
             ?? date
@@ -1414,7 +1434,7 @@ enum BodyHomeMetricCardPreview {
                 point.highValue.isFinite
         }
         let endDate = hasCurrentDayValue ? nextDayStart : currentDayStart
-        let startDate = calendar.date(byAdding: .day, value: -previewDayCount, to: endDate)
+        let startDate = calendar.date(byAdding: .day, value: -count, to: endDate)
             ?? currentDayStart
 
         return (startDate, endDate)

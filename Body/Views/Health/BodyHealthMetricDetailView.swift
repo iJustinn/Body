@@ -757,10 +757,9 @@ struct BodyHealthMetricDetailView: View {
         HStack(spacing: 16) {
             Image(systemName: model.symbolName)
                 .font(.system(size: 26, weight: .semibold))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(model.symbolColor)
+                .foregroundColor(model.symbolColor)
                 .frame(width: 58, height: 58)
-                .background(model.symbolColor.opacity(0.14))
+                .background(model.symbolColor.opacity(0.16))
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .accessibilityHidden(true)
 
