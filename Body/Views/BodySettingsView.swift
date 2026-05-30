@@ -815,6 +815,8 @@ private struct BodyThemePickerSheet: View {
                     .padding(.bottom, 24)
                 }
             }
+            .navigationTitle("Theme")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
@@ -857,6 +859,8 @@ private struct BodyAccentPickerSheet: View {
                     .padding(.bottom, 24)
                 }
             }
+            .navigationTitle("App Accent")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
