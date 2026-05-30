@@ -347,10 +347,10 @@ struct BodyHealthMetricDetailView: View {
                         metricActivityAveragesCard
                         detailTrendComparisonCard
                     } else {
+                        if model.kind == .readiness, let readiness = model.readiness {
+                            readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
+                        }
                         detailTrendComparisonCard
-                    }
-                    if model.kind == .readiness, let readiness = model.readiness {
-                        readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
                     }
                     if isBasicsDetail {
                         bodyMassIndexTrendCard
