@@ -3949,6 +3949,52 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         return HealthTrendSeries(points: points)
     }
 
+    func testMakeHeartRateMergesDuplicateWorkoutsWithSameTypeAndTimeRange() throws {
+        let calendar = Calendar.bodyGregorian
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 31)))
+        let walkStart = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 5, day: 31, hour: 10, minute: 32))
+        )
+        let laterStart = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 5, day: 31, hour: 12, minute: 5))
+        )
+
+        let duplicateWalk = WorkoutSummary(
+            type: .walking,
+            startDate: walkStart,
+            duration: 14 * 60,
+            averageHeartRateBeatsPerMinute: 135,
+            sourceName: "Apple Watch"
+        )
+        let secondDuplicate = WorkoutSummary(
+            type: .walking,
+            startDate: walkStart,
+            duration: 14 * 60,
+            averageHeartRateBeatsPerMinute: 135,
+            sourceName: "Apple Watch"
+        )
+        let distinctWalk = WorkoutSummary(
+            type: .walking,
+            startDate: laterStart,
+            duration: 15 * 60,
+            averageHeartRateBeatsPerMinute: 108,
+            sourceName: "Strava"
+        )
+
+        let rows = BodyMetricActivityAverages.makeHeartRate(
+            day: day,
+            heartRateSeries: HealthTrendSeries(points: []),
+            sleepSummary: nil,
+            workouts: [duplicateWalk, secondDuplicate, distinctWalk],
+            calendar: calendar
+        )
+
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows.map(\.startDate), [walkStart, laterStart])
+        XCTAssertEqual(rows.first?.averageValue, 135)
+        XCTAssertEqual(rows.map(\.source), ["Apple Watch", "Strava"])
+    }
+
     private func workout(day: Int, type: BodyWorkoutType, duration: TimeInterval) -> WorkoutSummary {
         WorkoutSummary(
             id: UUID(uuidString: "00000000-0000-0000-0000-\(String(format: "%012d", day))") ?? UUID(),

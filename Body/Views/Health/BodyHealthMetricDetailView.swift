@@ -137,6 +137,7 @@ struct BodyMetricActivityAverage: Equatable, Identifiable {
     let startDate: Date
     let endDate: Date
     let averageValue: Double
+    let source: String?
 
     var id: String {
         "\(activity.id)-\(startDate.timeIntervalSinceReferenceDate)-\(endDate.timeIntervalSinceReferenceDate)"
@@ -187,6 +188,7 @@ enum BodyMetricActivityAverages {
         heartRateSeries: HealthTrendSeries,
         sleepSummary: SleepSummary?,
         workouts: [WorkoutSummary],
+        sleepSource: String? = nil,
         calendar: Calendar = .bodyGregorian
     ) -> [BodyMetricActivityAverage] {
         let dayInterval = interval(for: day, calendar: calendar)
@@ -195,6 +197,7 @@ enum BodyMetricActivityAverages {
             series: heartRateSeries,
             sleepSummary: sleepSummary,
             fallbackValue: sleepSummary?.vitals.heartRate,
+            source: sleepSource,
             calendar: calendar
         )
 
@@ -217,17 +220,21 @@ enum BodyMetricActivityAverages {
                 activity: .workout(workout.type),
                 startDate: workoutInterval.start,
                 endDate: workoutInterval.end,
-                averageValue: average
+                averageValue: average,
+                source: workout.sourceName
             )
         })
 
-        return rows.sorted {
-            if $0.startDate != $1.startDate {
-                return $0.startDate < $1.startDate
-            }
+        var seenIDs = Set<String>()
+        return rows
+            .filter { seenIDs.insert($0.id).inserted }
+            .sorted {
+                if $0.startDate != $1.startDate {
+                    return $0.startDate < $1.startDate
+                }
 
-            return $0.title < $1.title
-        }
+                return $0.title < $1.title
+            }
     }
 
     static func makeSleepOnly(
@@ -235,6 +242,7 @@ enum BodyMetricActivityAverages {
         series: HealthTrendSeries,
         sleepSummary: SleepSummary?,
         fallbackValue: Double?,
+        source: String? = nil,
         calendar: Calendar = .bodyGregorian
     ) -> [BodyMetricActivityAverage] {
         let dayInterval = interval(for: day, calendar: calendar)
@@ -250,7 +258,8 @@ enum BodyMetricActivityAverages {
                 activity: .sleep,
                 startDate: sleepInterval.start,
                 endDate: sleepInterval.end,
-                averageValue: average
+                averageValue: average,
+                source: source
             )
         ]
     }
@@ -516,7 +525,8 @@ struct BodyHealthMetricDetailView: View {
                 day: selectedMetricDay,
                 heartRateSeries: selectedMetricDaySeries,
                 sleepSummary: sleepSummary(for: selectedMetricDay),
-                workouts: workouts(on: selectedMetricDayInterval)
+                workouts: workouts(on: selectedMetricDayInterval),
+                sleepSource: workoutStore.selectedHealthDataSourceOption(for: model.kind).name
             )
         case .heartRateVariability:
             let sleepSummary = sleepSummary(for: selectedMetricDay)
@@ -524,7 +534,8 @@ struct BodyHealthMetricDetailView: View {
                 day: selectedMetricDay,
                 series: selectedMetricDaySeries,
                 sleepSummary: sleepSummary,
-                fallbackValue: sleepSummary?.vitals.heartRateVariability
+                fallbackValue: sleepSummary?.vitals.heartRateVariability,
+                source: workoutStore.selectedHealthDataSourceOption(for: model.kind).name
             )
         default:
             return []
@@ -1255,11 +1266,22 @@ struct BodyHealthMetricDetailView: View {
 
             Spacer(minLength: 12)
 
-            Text(model.valueFormatter(row.averageValue))
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundColor(row.color)
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(model.valueFormatter(row.averageValue))
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundColor(row.color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+
+                if let source = row.source, !source.isEmpty {
+                    Text(source)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                }
+            }
         }
         .padding(.vertical, 11)
         .accessibilityElement(children: .combine)
