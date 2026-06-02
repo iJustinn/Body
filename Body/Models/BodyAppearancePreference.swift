@@ -20,6 +20,7 @@ enum BodyAppearancePreference {
     static let summaryCardSelectionKey = "summaryCardSelection"
     static let defaultTrendRangeKey = "defaultTrendRange"
     static let homeTrendCardSelectionKey = "homeTrendCardSelection"
+    static let metricDayViewSelectionKey = "metricDayViewSelection"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
     static let healthDataSourceSelectionKey = "healthDataSourceSelection"
     static let secondaryHealthDataSourceSelectionKey = "secondaryHealthDataSourceSelection"
@@ -84,6 +85,17 @@ extension HealthMetricKind {
     var supportsHealthDataSourceSelection: Bool {
         Self.sourceSelectableKinds.contains(self)
     }
+
+    // Kinds whose detail page offers a per-day (intraday) view. Must stay in
+    // sync with `supportsMetricDayView` in BodyHealthMetricDetailView.
+    static let dayViewKinds: [HealthMetricKind] = [
+        .heartRate,
+        .heartRateVariability,
+        .respiratoryRate,
+        .oxygenSaturation,
+        .activeEnergy,
+        .steps
+    ]
 
     var supportedComparisonCharts: Set<SourceComparisonChartKind> {
         switch self {
@@ -826,6 +838,66 @@ struct BodyHomeTrendCardSelection: Equatable {
         }
 
         return BodyHomeTrendCardSelection(selectedCards: cards)
+    }
+}
+
+struct BodyMetricDayViewSelection: Equatable {
+    static let defaultValue = BodyMetricDayViewSelection(enabledKinds: Set(HealthMetricKind.dayViewKinds))
+    static var defaultRawValue: String {
+        defaultValue.rawValue
+    }
+
+    var enabledKinds: Set<HealthMetricKind>
+
+    var rawValue: String {
+        guard !enabledKinds.isEmpty else {
+            return "none"
+        }
+
+        return HealthMetricKind.dayViewKinds
+            .filter { enabledKinds.contains($0) }
+            .map(\.rawValue)
+            .joined(separator: ",")
+    }
+
+    var enabledCount: Int {
+        enabledKinds.count
+    }
+
+    func includes(_ kind: HealthMetricKind) -> Bool {
+        enabledKinds.contains(kind)
+    }
+
+    func setting(_ kind: HealthMetricKind, isEnabled: Bool) -> BodyMetricDayViewSelection {
+        var nextKinds = enabledKinds
+        if isEnabled {
+            nextKinds.insert(kind)
+        } else {
+            nextKinds.remove(kind)
+        }
+
+        return BodyMetricDayViewSelection(enabledKinds: nextKinds)
+    }
+
+    static func storedValue(from rawValue: String) -> BodyMetricDayViewSelection {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty else {
+            return defaultValue
+        }
+
+        guard trimmedValue != "none" else {
+            return BodyMetricDayViewSelection(enabledKinds: [])
+        }
+
+        let kinds = Set(trimmedValue.split(separator: ",").compactMap {
+            HealthMetricKind(rawValue: String($0))
+        }.filter(HealthMetricKind.dayViewKinds.contains))
+
+        guard !kinds.isEmpty else {
+            return defaultValue
+        }
+
+        return BodyMetricDayViewSelection(enabledKinds: kinds)
     }
 }
 

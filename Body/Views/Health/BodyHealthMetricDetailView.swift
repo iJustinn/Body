@@ -309,6 +309,7 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
+    @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @State private var selectedTrendRange: BodyHealthTrendRange
     @State private var selectedSleepDate: Date?
     @State private var selectedMetricDate: Date?
@@ -448,6 +449,10 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var supportsMetricDayView: Bool {
+        guard metricDayViewEnabled else {
+            return false
+        }
+
         switch model.kind {
         case .heartRate,
              .heartRateVariability,
@@ -470,6 +475,12 @@ struct BodyHealthMetricDetailView: View {
              .timeInDaylight:
             return false
         }
+    }
+
+    private var metricDayViewEnabled: Bool {
+        BodyMetricDayViewSelection
+            .storedValue(from: metricDayViewSelectionRawValue)
+            .includes(model.kind)
     }
 
     private var selectedSleepDay: Date {
