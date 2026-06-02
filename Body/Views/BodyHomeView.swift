@@ -1315,129 +1315,52 @@ enum BodyHomeMetricCardPreview {
         return screenWidth <= compactScreenMaximumWidth ? compactPreviewDayCount : previewDayCount
     }
 
-    static func points(
-        from series: HealthTrendSeries,
-        previewDayCount: Int = Self.previewDayCount,
-        calendar: Calendar = .bodyGregorian,
-        date: Date = Date()
-    ) -> [HealthTrendDataPoint] {
-        let bounds = previewDateBounds(for: series, previewDayCount: previewDayCount, calendar: calendar, date: date)
-
-        return series.points
-            .filter { point in
-                point.date >= bounds.startDate && point.date < bounds.endDate
-            }
-            .sorted { $0.date < $1.date }
-    }
-
     static func calendarPoints(
         from series: HealthTrendSeries,
         previewDayCount: Int = Self.previewDayCount,
-        calendar: Calendar = .bodyGregorian,
-        date: Date = Date()
+        calendar: Calendar = .bodyGregorian
     ) -> [HealthTrendCalendarPoint] {
         let count = max(previewDayCount, 1)
-        let bounds = previewDateBounds(for: series, previewDayCount: count, calendar: calendar, date: date)
-        let pointsByDay = Dictionary(grouping: points(from: series, previewDayCount: count, calendar: calendar, date: date)) {
+        let sortedPoints = series.points
+            .filter { $0.value.isFinite }
+            .sorted { $0.date < $1.date }
+        let pointsByDay = Dictionary(grouping: sortedPoints) {
             calendar.startOfDay(for: $0.date)
         }
 
-        return (0..<count).compactMap { offset in
-            guard let day = calendar.date(byAdding: .day, value: offset, to: bounds.startDate) else {
-                return nil
+        return pointsByDay.keys
+            .sorted()
+            .suffix(count)
+            .map { day in
+                HealthTrendCalendarPoint(date: day, value: pointsByDay[day]?.last?.value)
             }
-
-            let value = pointsByDay[day]?.last?.value
-            return HealthTrendCalendarPoint(
-                date: day,
-                value: value?.isFinite == true ? value : nil
-            )
-        }
     }
 
     static func rangeCalendarPoints(
         from series: HealthTrendRangeSeries,
         previewDayCount: Int = Self.previewDayCount,
-        calendar: Calendar = .bodyGregorian,
-        date: Date = Date()
+        calendar: Calendar = .bodyGregorian
     ) -> [HealthTrendRangeCalendarPoint] {
         let count = max(previewDayCount, 1)
-        let bounds = previewDateBounds(for: series, previewDayCount: count, calendar: calendar, date: date)
-        let pointsByDay = Dictionary(grouping: rangePoints(from: series, previewDayCount: count, calendar: calendar, date: date)) {
+        let sortedPoints = series.points
+            .filter { $0.lowValue.isFinite && $0.highValue.isFinite }
+            .sorted { $0.date < $1.date }
+        let pointsByDay = Dictionary(grouping: sortedPoints) {
             calendar.startOfDay(for: $0.date)
         }
 
-        return (0..<count).compactMap { offset in
-            guard let day = calendar.date(byAdding: .day, value: offset, to: bounds.startDate) else {
-                return nil
+        return pointsByDay.keys
+            .sorted()
+            .suffix(count)
+            .map { day in
+                let point = pointsByDay[day]?.last
+                return HealthTrendRangeCalendarPoint(
+                    date: day,
+                    lowValue: point?.lowValue,
+                    highValue: point?.highValue,
+                    averageValue: point?.averageValue?.isFinite == true ? point?.averageValue : nil
+                )
             }
-
-            let point = pointsByDay[day]?.last
-            return HealthTrendRangeCalendarPoint(
-                date: day,
-                lowValue: point?.lowValue.isFinite == true ? point?.lowValue : nil,
-                highValue: point?.highValue.isFinite == true ? point?.highValue : nil,
-                averageValue: point?.averageValue?.isFinite == true ? point?.averageValue : nil
-            )
-        }
-    }
-
-    private static func rangePoints(
-        from series: HealthTrendRangeSeries,
-        previewDayCount: Int = Self.previewDayCount,
-        calendar: Calendar = .bodyGregorian,
-        date: Date = Date()
-    ) -> [HealthTrendRangeDataPoint] {
-        let bounds = previewDateBounds(for: series, previewDayCount: previewDayCount, calendar: calendar, date: date)
-
-        return series.points
-            .filter { point in
-                point.date >= bounds.startDate && point.date < bounds.endDate
-            }
-            .sorted { $0.date < $1.date }
-    }
-
-    private static func previewDateBounds(
-        for series: HealthTrendSeries,
-        previewDayCount: Int,
-        calendar: Calendar,
-        date: Date
-    ) -> (startDate: Date, endDate: Date) {
-        let count = max(previewDayCount, 1)
-        let currentDayStart = calendar.startOfDay(for: date)
-        let nextDayStart = calendar.date(byAdding: .day, value: 1, to: currentDayStart)
-            ?? date
-        let hasCurrentDayValue = series.points.contains { point in
-            point.date >= currentDayStart && point.date < nextDayStart && point.value.isFinite
-        }
-        let endDate = hasCurrentDayValue ? nextDayStart : currentDayStart
-        let startDate = calendar.date(byAdding: .day, value: -count, to: endDate)
-            ?? currentDayStart
-
-        return (startDate, endDate)
-    }
-
-    private static func previewDateBounds(
-        for series: HealthTrendRangeSeries,
-        previewDayCount: Int,
-        calendar: Calendar,
-        date: Date
-    ) -> (startDate: Date, endDate: Date) {
-        let count = max(previewDayCount, 1)
-        let currentDayStart = calendar.startOfDay(for: date)
-        let nextDayStart = calendar.date(byAdding: .day, value: 1, to: currentDayStart)
-            ?? date
-        let hasCurrentDayValue = series.points.contains { point in
-            point.date >= currentDayStart &&
-                point.date < nextDayStart &&
-                point.lowValue.isFinite &&
-                point.highValue.isFinite
-        }
-        let endDate = hasCurrentDayValue ? nextDayStart : currentDayStart
-        let startDate = calendar.date(byAdding: .day, value: -count, to: endDate)
-            ?? currentDayStart
-
-        return (startDate, endDate)
     }
 }
 

@@ -1272,7 +1272,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         })
     }
 
-    func testHomeMetricCardPreviewUsesOnlyRecentFourDayPoints() throws {
+    func testHomeMetricCardPreviewUsesMostRecentFourDataPoints() throws {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 13, hour: 12)))
         let currentDayStart = calendar.startOfDay(for: currentDate)
@@ -1282,14 +1282,19 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         }
         let series = HealthTrendSeries(points: points)
 
-        let previewPoints = BodyHomeMetricCardPreview.points(
+        let previewPoints = BodyHomeMetricCardPreview.calendarPoints(
             from: series,
-            calendar: calendar,
-            date: currentDate
+            calendar: calendar
         )
 
         XCTAssertEqual(BodyHomeMetricCardPreview.previewDayCount, 4)
-        XCTAssertEqual(previewPoints.map(\.value), [18, 20])
+        // The four most recent data points (offsets -7, -6, -2, 0) — skipping the
+        // oldest point and the empty days between them, not the last four days.
+        XCTAssertEqual(previewPoints.map(\.value), [13, 14, 18, 20])
+        let expectedDates = try [-7, -6, -2, 0].map { offset in
+            try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
+        }
+        XCTAssertEqual(previewPoints.map(\.date), expectedDates)
     }
 
     func testHomeMetricCardPreviewUsesCompactCountOnSmallScreens() {
@@ -1311,11 +1316,12 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         let previewPoints = BodyHomeMetricCardPreview.calendarPoints(
             from: series,
-            calendar: calendar,
-            date: currentDate
+            calendar: calendar
         )
 
-        XCTAssertEqual(previewPoints.map(\.value), [nil, 18, nil, 20])
+        XCTAssertEqual(previewPoints.map(\.value), [10, 14, 18, 20])
+        XCTAssertEqual(previewPoints.last?.date, currentDayStart)
+        XCTAssertFalse(previewPoints.contains { $0.value == nil })
     }
 
     func testHomeMetricCardPreviewCalendarPointsCanUseCompactThreeDayWindow() throws {
@@ -1331,11 +1337,10 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let previewPoints = BodyHomeMetricCardPreview.calendarPoints(
             from: series,
             previewDayCount: BodyHomeMetricCardPreview.compactPreviewDayCount,
-            calendar: calendar,
-            date: currentDate
+            calendar: calendar
         )
 
-        XCTAssertEqual(previewPoints.map(\.value), [18, nil, 20])
+        XCTAssertEqual(previewPoints.map(\.value), [14, 18, 20])
     }
 
     func testHomeMetricCardPreviewCalendarPointsOmitTodayPlaceholderWhenTodayHasNoData() throws {
@@ -1350,12 +1355,11 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         let previewPoints = BodyHomeMetricCardPreview.calendarPoints(
             from: series,
-            calendar: calendar,
-            date: currentDate
+            calendar: calendar
         )
 
-        XCTAssertEqual(previewPoints.map(\.value), [nil, nil, 18, nil])
-        XCTAssertEqual(previewPoints.last?.date, try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: currentDayStart)))
+        XCTAssertEqual(previewPoints.map(\.value), [14, 18])
+        XCTAssertEqual(previewPoints.last?.date, try XCTUnwrap(calendar.date(byAdding: .day, value: -2, to: currentDayStart)))
     }
 
     func testHomeMetricCardRangePreviewCalendarPointsUseRecentFourDayRanges() throws {
@@ -1371,12 +1375,11 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         let previewPoints = BodyHomeMetricCardPreview.rangeCalendarPoints(
             from: series,
-            calendar: calendar,
-            date: currentDate
+            calendar: calendar
         )
 
-        XCTAssertEqual(previewPoints.map(\.lowValue), [nil, 52, nil, 58])
-        XCTAssertEqual(previewPoints.map(\.highValue), [nil, 118, nil, 132])
+        XCTAssertEqual(previewPoints.map(\.lowValue), [52, 58])
+        XCTAssertEqual(previewPoints.map(\.highValue), [118, 132])
         XCTAssertEqual(previewPoints.last?.date, may13)
     }
 
@@ -1394,12 +1397,11 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let previewPoints = BodyHomeMetricCardPreview.rangeCalendarPoints(
             from: series,
             previewDayCount: BodyHomeMetricCardPreview.compactPreviewDayCount,
-            calendar: calendar,
-            date: currentDate
+            calendar: calendar
         )
 
-        XCTAssertEqual(previewPoints.map(\.lowValue), [52, nil, 58])
-        XCTAssertEqual(previewPoints.map(\.highValue), [118, nil, 132])
+        XCTAssertEqual(previewPoints.map(\.lowValue), [52, 58])
+        XCTAssertEqual(previewPoints.map(\.highValue), [118, 132])
         XCTAssertEqual(previewPoints.last?.date, may13)
     }
 
