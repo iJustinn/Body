@@ -51,6 +51,18 @@ extension HealthKitFetchEngine {
         )
     }
 
+    func fetchDashboardActivityRingHistory(
+        calendar: Calendar,
+        selection: BodyDashboardFetchSelection,
+        date: Date = Date()
+    ) async -> ActivityRingHistorySnapshot {
+        guard selection.includesActivityRings else {
+            return .empty
+        }
+
+        return await fetchActivityRingHistory(calendar: calendar, date: date)
+    }
+
     func fetchActivityRingHistory(
         monthKey: ActivityRingMonthKey,
         calendar: Calendar

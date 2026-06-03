@@ -156,7 +156,25 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(whyBlock.contains("ForEach(readiness.components)"))
     }
 
-    func testMetricDetailPagesShowHomeTrendCardBeforeAboutCards() throws {
+    func testMetricDetailHeaderIconMatchesHomeMetricCardTintTreatment() throws {
+        let source = try bodyHomeViewText()
+        let cardIconStart = try XCTUnwrap(source.range(of: "Image(systemName: metric.symbolName)")?.lowerBound)
+        let cardIconEnd = try XCTUnwrap(source.range(of: "private var valueRow", range: cardIconStart..<source.endIndex)?.lowerBound)
+        let cardIconBlock = String(source[cardIconStart..<cardIconEnd])
+        let headerStart = try XCTUnwrap(source.range(of: "private var headerCard: some View")?.lowerBound)
+        let headerEnd = try XCTUnwrap(source.range(of: "@ViewBuilder\n    private var headerValues", range: headerStart..<source.endIndex)?.lowerBound)
+        let headerBlock = String(source[headerStart..<headerEnd])
+
+        XCTAssertTrue(cardIconBlock.contains(".foregroundColor(metric.symbolColor)"))
+        XCTAssertTrue(cardIconBlock.contains(".fill(metric.symbolColor.opacity(0.16))"))
+        XCTAssertTrue(headerBlock.contains(".foregroundColor(model.symbolColor)"))
+        XCTAssertTrue(headerBlock.contains(".background(model.symbolColor.opacity(0.16))"))
+        XCTAssertFalse(headerBlock.contains(".symbolRenderingMode(.hierarchical)"))
+        XCTAssertFalse(headerBlock.contains(".foregroundStyle(model.symbolColor)"))
+        XCTAssertFalse(headerBlock.contains(".background(model.symbolColor.opacity(0.14))"))
+    }
+
+    func testMetricDetailPagesUseRequestedCardOrdering() throws {
         let source = try bodyHomeViewText()
         let detailStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricDetailView")?.lowerBound)
         let detailEnd = try XCTUnwrap(source.range(of: "private var selectedTemperatureUnitPreference", range: detailStart..<source.endIndex)?.lowerBound)
@@ -170,6 +188,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let dayViewStart = try XCTUnwrap(detailBodyBlock.range(of: "if supportsMetricDayView")?.lowerBound)
         let metricDayChartStart = try XCTUnwrap(
             detailBodyBlock.range(of: "metricDayChartCard", range: dayViewStart..<detailBodyBlock.endIndex)?.lowerBound
+        )
+        let metricActivityAveragesStart = try XCTUnwrap(
+            detailBodyBlock.range(of: "metricActivityAveragesCard", range: metricDayChartStart..<detailBodyBlock.endIndex)?.lowerBound
         )
         let dayViewTrendCardStart = try XCTUnwrap(
             detailBodyBlock.range(of: "detailTrendComparisonCard", range: metricDayChartStart..<detailBodyBlock.endIndex)?.lowerBound
@@ -187,13 +208,18 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertLessThan(sleepTrendCardStart, sleepAboutStart)
         XCTAssertLessThan(trendCardStart, dayViewStart)
         XCTAssertLessThan(metricDayChartStart, dayViewTrendCardStart)
+        XCTAssertLessThan(metricDayChartStart, metricActivityAveragesStart)
+        XCTAssertLessThan(metricActivityAveragesStart, dayViewTrendCardStart)
         XCTAssertLessThan(dayViewTrendCardStart, dayViewElseStart)
-        XCTAssertLessThan(nonDayTrendCardStart, readinessAboutStart)
+        XCTAssertLessThan(readinessAboutStart, nonDayTrendCardStart)
         XCTAssertLessThan(dayViewTrendCardStart, helpTextStart)
         XCTAssertEqual(detailBodyBlock.occurrenceCount(of: "detailTrendComparisonCard"), 3)
         XCTAssertTrue(source.contains("BodyHomeTrendCardFactory.card("))
         XCTAssertTrue(source.contains("BodyHomeTrendCard(model: card, showsNavigationIndicator: false)"))
         XCTAssertTrue(source.contains("@StateObject private var trendComputationCache = BodyHomeTrendComputationCache()"))
+        XCTAssertTrue(source.contains("model.kind == .heartRate || model.kind == .heartRateVariability"))
+        XCTAssertTrue(source.contains(#"model.kind == .heartRate ? "Average Heart Rate" : "Average HRV""#))
+        XCTAssertFalse(source.contains("Activity Heart Rate"))
     }
 
     func testLineHealthChartsDoNotRenderEmptyDatePlaceholderMarks() throws {
@@ -274,7 +300,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("chartPreviewStyle: .range"))
         XCTAssertTrue(previewBlock.contains("case .range:"))
         XCTAssertTrue(previewBlock.contains("rangePreview"))
-        XCTAssertTrue(previewBlock.contains("BodyHomeMetricCardPreview.rangeCalendarPoints(from: rangeSeries)"))
+        XCTAssertTrue(previewBlock.contains("BodyHomeMetricCardPreview.rangeCalendarPoints(from: rangeSeries, previewDayCount: previewDayCount)"))
         XCTAssertTrue(previewBlock.contains("RoundedRectangle(cornerRadius: 2, style: .continuous)"))
         XCTAssertTrue(previewBlock.contains("Capsule(style: .continuous)"))
     }
@@ -896,8 +922,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = 1;"))
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.6.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.0;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -906,9 +932,12 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.6.0 (build 2)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 1)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 1.0.0 build 1."))
+        XCTAssertTrue(versionHistory.contains("## 0.7.0 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("## 0.7.0 (build 1)"))
         XCTAssertTrue(versionHistory.contains("## 0.6.0 (build 2)"))
-        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.6.0 build 2."))
         XCTAssertTrue(versionHistory.contains("## 0.6.0 (build 1)"))
         XCTAssertTrue(versionHistory.contains("## 0.5.6 (build 4)"))
         XCTAssertTrue(versionHistory.contains("## 0.5.6 (build 3)"))
@@ -917,6 +946,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(versionHistory.contains("Readiness scoring now honors the configured sleep goal"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.5.6 build 4."))
         XCTAssertFalse(readme.contains("Current app version: **0.5.6 (build 4)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.7.0 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.7.0 (build 1)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.6.0 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.6.0 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.6 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.5.6 (build 2)**"))
@@ -949,10 +981,11 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-v0.6.0`"))
-        XCTAssertTrue(testPlan.contains("app version 0.6.0 build 2"))
-        XCTAssertFalse(testPlan.contains("branch `body-v0.5.6`"))
-        XCTAssertFalse(testPlan.contains("app version 0.5.6 build 4"))
+        XCTAssertTrue(testPlan.contains("branch `body-v0.7.0`"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 1"))
+        XCTAssertFalse(testPlan.contains("app version 0.7.0 build 1"))
+        XCTAssertFalse(testPlan.contains("branch `body-v0.6.0`"))
+        XCTAssertFalse(testPlan.contains("app version 0.6.0 build 2"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.0`"))
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.4`"))
         XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))

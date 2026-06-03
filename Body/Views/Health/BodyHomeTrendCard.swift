@@ -441,6 +441,35 @@ enum BodyHomeTrendCardFactory {
     }
 }
 
+struct BodyHomeTrendBarLayout: Equatable {
+    static let minimumBarWidth: CGFloat = 3
+    static let preferredSpacing: CGFloat = 5
+
+    let barWidth: CGFloat
+    let spacing: CGFloat
+
+    static func fitting(barCount: Int, availableWidth: CGFloat) -> BodyHomeTrendBarLayout {
+        guard barCount > 0, availableWidth.isFinite, availableWidth > 0 else {
+            return BodyHomeTrendBarLayout(barWidth: 0, spacing: 0)
+        }
+
+        guard barCount > 1 else {
+            return BodyHomeTrendBarLayout(barWidth: availableWidth, spacing: 0)
+        }
+
+        let count = CGFloat(barCount)
+        let gapCount = CGFloat(barCount - 1)
+        let minimumBarsWidth = minimumBarWidth * count
+        guard minimumBarsWidth < availableWidth else {
+            return BodyHomeTrendBarLayout(barWidth: availableWidth / count, spacing: 0)
+        }
+
+        let spacing = min(preferredSpacing, (availableWidth - minimumBarsWidth) / gapCount)
+        let barWidth = (availableWidth - spacing * gapCount) / count
+        return BodyHomeTrendBarLayout(barWidth: barWidth, spacing: spacing)
+    }
+}
+
 struct BodyHomeTrendComparisonChart: View {
     let presentation: BodyHomeTrendCardPresentation
     let color: Color
@@ -516,13 +545,13 @@ struct BodyHomeTrendComparisonChart: View {
     }
 
     private func barPlot(entries: [PlotEntry], size: CGSize) -> some View {
-        let barWidth = max((size.width - CGFloat(max(entries.count - 1, 0)) * 5) / CGFloat(max(entries.count, 1)), 3)
+        let layout = BodyHomeTrendBarLayout.fitting(barCount: entries.count, availableWidth: size.width)
 
-        return HStack(alignment: .bottom, spacing: 5) {
+        return HStack(alignment: .bottom, spacing: layout.spacing) {
             ForEach(entries) { entry in
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .fill(barColor(for: entry))
-                    .frame(width: barWidth, height: barHeight(for: entry.point.value, in: size.height))
+                    .frame(width: layout.barWidth, height: barHeight(for: entry.point.value, in: size.height))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)

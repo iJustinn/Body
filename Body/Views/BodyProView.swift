@@ -95,6 +95,7 @@ struct BodyProView: View {
             }
             .buttonStyle(.bordered)
             .buttonBorderShape(.roundedRectangle(radius: 16))
+            .tint(BodyProPalette.gold)
 
             Button {
                 statusMessage = "Restore purchases is not available in this build."
@@ -106,6 +107,7 @@ struct BodyProView: View {
             }
             .buttonStyle(.bordered)
             .buttonBorderShape(.roundedRectangle(radius: 16))
+            .tint(BodyProPalette.gold)
         }
     }
 }

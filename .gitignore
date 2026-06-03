@@ -66,6 +66,8 @@ fastlane/test_output
 .Rhistory
 .claude/
 .codex/
+.codegraph/
+.cursor/
 .obsidian/
 .env
 .env.*

@@ -19,6 +19,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @AppStorage(BodyAppearancePreference.creatorSurpriseIconsUnlockedKey) private var creatorSurpriseIconsUnlocked = false
     @State private var activeSheet: BodySettingsSheet?
@@ -288,6 +289,21 @@ struct BodySettingsView: View {
             settingsDivider
 
             Button {
+                activeSheet = .dayView
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Day View",
+                    value: dayViewSummaryText,
+                    iconName: "clock.fill",
+                    tintColor: .indigo,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
                 activeSheet = .homeTrendCards
             } label: {
                 BodySettingsRowLabel(
@@ -323,6 +339,10 @@ struct BodySettingsView: View {
 
     private var homeTrendCardsSummaryText: String {
         "\(currentHomeTrendCardSelection.enabledCount)/\(BodyHomeTrendCardKind.defaultOrder.count)"
+    }
+
+    private var dayViewSummaryText: String {
+        "\(currentMetricDayViewSelection.enabledCount)/\(HealthMetricKind.dayViewKinds.count)"
     }
 
     private func dataValue(for tab: BodySettingsDataTab) -> String {
@@ -403,6 +423,10 @@ struct BodySettingsView: View {
 
     private var currentHomeTrendCardSelection: BodyHomeTrendCardSelection {
         BodyHomeTrendCardSelection.storedValue(from: homeTrendCardSelectionRawValue)
+    }
+
+    private var currentMetricDayViewSelection: BodyMetricDayViewSelection {
+        BodyMetricDayViewSelection.storedValue(from: metricDayViewSelectionRawValue)
     }
 
     private var selectedTheme: Binding<BodyAppTheme> {
@@ -493,6 +517,14 @@ struct BodySettingsView: View {
         }
     }
 
+    private var metricDayViewSelection: Binding<BodyMetricDayViewSelection> {
+        Binding {
+            currentMetricDayViewSelection
+        } set: { selection in
+            metricDayViewSelectionRawValue = selection.rawValue
+        }
+    }
+
     @ViewBuilder
     private func settingsSheet(for sheet: BodySettingsSheet) -> some View {
         switch sheet {
@@ -512,6 +544,8 @@ struct BodySettingsView: View {
             BodyDefaultTrendRangePickerSheet(selectedRange: defaultTrendRange)
         case .homeTrendCards:
             BodyHomeTrendCardsSettingsSheet(selection: homeTrendCardSelection)
+        case .dayView:
+            BodyMetricDayViewSettingsSheet(selection: metricDayViewSelection)
         case .sleepDurationGoal:
             BodySleepDurationGoalSettingsSheet(goalMinutes: sleepDurationGoal)
         case .units:
@@ -613,6 +647,7 @@ enum BodySettingsSheet: String, Identifiable {
     case summaryCards
     case defaultTrendRange
     case homeTrendCards
+    case dayView
     case units
     case source
     case permissions
@@ -815,6 +850,8 @@ private struct BodyThemePickerSheet: View {
                     .padding(.bottom, 24)
                 }
             }
+            .navigationTitle("Theme")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
@@ -857,6 +894,8 @@ private struct BodyAccentPickerSheet: View {
                     .padding(.bottom, 24)
                 }
             }
+            .navigationTitle("App Accent")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
@@ -1290,6 +1329,75 @@ private struct BodyHomeTrendCardToggleRow: View {
                     .minimumScaleFactor(0.8)
 
                 Text(card.subtitle)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle(card.title, isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct BodyMetricDayViewSettingsSheet: View {
+    @Binding var selection: BodyMetricDayViewSelection
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Day View") {
+            VStack(spacing: 0) {
+                ForEach(HealthMetricKind.dayViewKinds) { kind in
+                    BodyMetricDayViewToggleRow(
+                        kind: kind,
+                        isEnabled: Binding {
+                            selection.includes(kind)
+                        } set: { isEnabled in
+                            selection = selection.setting(kind, isEnabled: isEnabled)
+                        }
+                    )
+
+                    if kind.id != HealthMetricKind.dayViewKinds.last?.id {
+                        Divider()
+                            .padding(.leading, 76)
+                    }
+                }
+            }
+            .bodyCardBackground()
+        }
+    }
+}
+
+private struct BodyMetricDayViewToggleRow: View {
+    let kind: HealthMetricKind
+    @Binding var isEnabled: Bool
+
+    private var card: BodyHomeTrendCardKind {
+        BodyHomeTrendCardKind(metricKind: kind) ?? .heartRate
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: card.iconName, color: card.tintColor)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(card.title)
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("Hour-by-hour chart for a chosen day")
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)

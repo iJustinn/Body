@@ -474,14 +474,14 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
     func testReadinessStatusMapsScoresToBands() {
         XCTAssertEqual(ReadinessStatus.status(for: nil), .unavailable)
         XCTAssertEqual(ReadinessStatus.status(for: 100), .prime)
-        XCTAssertEqual(ReadinessStatus.status(for: 96), .prime)
-        XCTAssertEqual(ReadinessStatus.status(for: 95), .high)
-        XCTAssertEqual(ReadinessStatus.status(for: 75), .high)
-        XCTAssertEqual(ReadinessStatus.status(for: 74), .moderate)
-        XCTAssertEqual(ReadinessStatus.status(for: 50), .moderate)
-        XCTAssertEqual(ReadinessStatus.status(for: 49), .low)
-        XCTAssertEqual(ReadinessStatus.status(for: 25), .low)
-        XCTAssertEqual(ReadinessStatus.status(for: 24), .poor)
+        XCTAssertEqual(ReadinessStatus.status(for: 95), .prime)
+        XCTAssertEqual(ReadinessStatus.status(for: 94), .high)
+        XCTAssertEqual(ReadinessStatus.status(for: 80), .high)
+        XCTAssertEqual(ReadinessStatus.status(for: 79), .moderate)
+        XCTAssertEqual(ReadinessStatus.status(for: 65), .moderate)
+        XCTAssertEqual(ReadinessStatus.status(for: 64), .low)
+        XCTAssertEqual(ReadinessStatus.status(for: 30), .low)
+        XCTAssertEqual(ReadinessStatus.status(for: 29), .poor)
         XCTAssertEqual(ReadinessStatus.status(for: 0), .poor)
     }
 
@@ -500,12 +500,12 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
     func testReadinessStatusExposesBoundsForChartBands() {
         XCTAssertNil(ReadinessStatus.poor.lowerBound)
-        XCTAssertEqual(ReadinessStatus.poor.upperBound, 25)
-        XCTAssertEqual(ReadinessStatus.low.lowerBound, 25)
-        XCTAssertEqual(ReadinessStatus.low.upperBound, 50)
-        XCTAssertEqual(ReadinessStatus.moderate.lowerBound, 50)
-        XCTAssertEqual(ReadinessStatus.moderate.upperBound, 75)
-        XCTAssertEqual(ReadinessStatus.high.lowerBound, 75)
+        XCTAssertEqual(ReadinessStatus.poor.upperBound, 30)
+        XCTAssertEqual(ReadinessStatus.low.lowerBound, 30)
+        XCTAssertEqual(ReadinessStatus.low.upperBound, 65)
+        XCTAssertEqual(ReadinessStatus.moderate.lowerBound, 65)
+        XCTAssertEqual(ReadinessStatus.moderate.upperBound, 80)
+        XCTAssertEqual(ReadinessStatus.high.lowerBound, 80)
         XCTAssertEqual(ReadinessStatus.high.upperBound, 95)
         XCTAssertEqual(ReadinessStatus.prime.lowerBound, 95)
         XCTAssertNil(ReadinessStatus.prime.upperBound)
@@ -514,7 +514,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
     func testReadinessStatusExposesExactRangeTextAndExplanation() {
         XCTAssertEqual(
             ReadinessStatus.displayOrder.map(\.scoreRangeText),
-            ["96-100%", "75-95%", "50-74%", "25-49%", "0-24%"]
+            ["95-100%", "80-94%", "65-79%", "30-64%", "0-29%"]
         )
         XCTAssertTrue(ReadinessStatus.prime.explanation.contains("Strong readiness"))
         XCTAssertTrue(ReadinessStatus.high.explanation.contains("Well prepared"))
@@ -1272,7 +1272,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         })
     }
 
-    func testHomeMetricCardPreviewUsesOnlyRecentFourDayPoints() throws {
+    func testHomeMetricCardPreviewUsesMostRecentFourDataPoints() throws {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 13, hour: 12)))
         let currentDayStart = calendar.startOfDay(for: currentDate)
@@ -1282,14 +1282,26 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         }
         let series = HealthTrendSeries(points: points)
 
-        let previewPoints = BodyHomeMetricCardPreview.points(
+        let previewPoints = BodyHomeMetricCardPreview.calendarPoints(
             from: series,
-            calendar: calendar,
-            date: currentDate
+            calendar: calendar
         )
 
         XCTAssertEqual(BodyHomeMetricCardPreview.previewDayCount, 4)
-        XCTAssertEqual(previewPoints.map(\.value), [18, 20])
+        // The four most recent data points (offsets -7, -6, -2, 0) — skipping the
+        // oldest point and the empty days between them, not the last four days.
+        XCTAssertEqual(previewPoints.map(\.value), [13, 14, 18, 20])
+        let expectedDates = try [-7, -6, -2, 0].map { offset in
+            try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
+        }
+        XCTAssertEqual(previewPoints.map(\.date), expectedDates)
+    }
+
+    func testHomeMetricCardPreviewUsesCompactCountOnSmallScreens() {
+        XCTAssertEqual(BodyHomeMetricCardPreview.compactPreviewDayCount, 3)
+        XCTAssertEqual(BodyHomeMetricCardPreview.dayCount(forScreenWidth: 375), 3)
+        XCTAssertEqual(BodyHomeMetricCardPreview.dayCount(forScreenWidth: 390), 4)
+        XCTAssertEqual(BodyHomeMetricCardPreview.dayCount(forScreenWidth: Double.nan), 4)
     }
 
     func testHomeMetricCardPreviewCalendarPointsIncludeTodayWhenTodayHasData() throws {
@@ -1304,11 +1316,31 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         let previewPoints = BodyHomeMetricCardPreview.calendarPoints(
             from: series,
-            calendar: calendar,
-            date: currentDate
+            calendar: calendar
         )
 
-        XCTAssertEqual(previewPoints.map(\.value), [nil, 18, nil, 20])
+        XCTAssertEqual(previewPoints.map(\.value), [10, 14, 18, 20])
+        XCTAssertEqual(previewPoints.last?.date, currentDayStart)
+        XCTAssertFalse(previewPoints.contains { $0.value == nil })
+    }
+
+    func testHomeMetricCardPreviewCalendarPointsCanUseCompactThreeDayWindow() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 13, hour: 12)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let points = try [-10, -6, -2, 0].map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
+            return HealthTrendDataPoint(date: date, value: Double(offset + 20))
+        }
+        let series = HealthTrendSeries(points: points)
+
+        let previewPoints = BodyHomeMetricCardPreview.calendarPoints(
+            from: series,
+            previewDayCount: BodyHomeMetricCardPreview.compactPreviewDayCount,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(previewPoints.map(\.value), [14, 18, 20])
     }
 
     func testHomeMetricCardPreviewCalendarPointsOmitTodayPlaceholderWhenTodayHasNoData() throws {
@@ -1323,12 +1355,11 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         let previewPoints = BodyHomeMetricCardPreview.calendarPoints(
             from: series,
-            calendar: calendar,
-            date: currentDate
+            calendar: calendar
         )
 
-        XCTAssertEqual(previewPoints.map(\.value), [nil, nil, 18, nil])
-        XCTAssertEqual(previewPoints.last?.date, try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: currentDayStart)))
+        XCTAssertEqual(previewPoints.map(\.value), [14, 18])
+        XCTAssertEqual(previewPoints.last?.date, try XCTUnwrap(calendar.date(byAdding: .day, value: -2, to: currentDayStart)))
     }
 
     func testHomeMetricCardRangePreviewCalendarPointsUseRecentFourDayRanges() throws {
@@ -1344,12 +1375,33 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         let previewPoints = BodyHomeMetricCardPreview.rangeCalendarPoints(
             from: series,
-            calendar: calendar,
-            date: currentDate
+            calendar: calendar
         )
 
-        XCTAssertEqual(previewPoints.map(\.lowValue), [nil, 52, nil, 58])
-        XCTAssertEqual(previewPoints.map(\.highValue), [nil, 118, nil, 132])
+        XCTAssertEqual(previewPoints.map(\.lowValue), [52, 58])
+        XCTAssertEqual(previewPoints.map(\.highValue), [118, 132])
+        XCTAssertEqual(previewPoints.last?.date, may13)
+    }
+
+    func testHomeMetricCardRangePreviewCalendarPointsCanUseCompactThreeDayWindow() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 13, hour: 12)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        let may11 = try XCTUnwrap(calendar.date(byAdding: .day, value: -2, to: currentDayStart))
+        let may13 = currentDayStart
+        let series = HealthTrendRangeSeries(points: [
+            HealthTrendRangeDataPoint(date: may11, lowValue: 52, highValue: 118, averageValue: 78),
+            HealthTrendRangeDataPoint(date: may13, lowValue: 58, highValue: 132, averageValue: 88)
+        ])
+
+        let previewPoints = BodyHomeMetricCardPreview.rangeCalendarPoints(
+            from: series,
+            previewDayCount: BodyHomeMetricCardPreview.compactPreviewDayCount,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(previewPoints.map(\.lowValue), [52, 58])
+        XCTAssertEqual(previewPoints.map(\.highValue), [118, 132])
         XCTAssertEqual(previewPoints.last?.date, may13)
     }
 
@@ -1463,6 +1515,126 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(averageLineSegments.baseline.upperBound, 43, accuracy: 0.001)
         XCTAssertEqual(averageLineSegments.recent.lowerBound, 47, accuracy: 0.001)
         XCTAssertEqual(averageLineSegments.recent.upperBound, 270, accuracy: 0.001)
+    }
+
+    func testHomeTrendBarLayoutFitsLongTrendInsideAvailableWidth() {
+        let availableWidth: CGFloat = 320
+        let barCount = BodyHomeTrendCardPresentation.maximumDisplayPointCount
+
+        let layout = BodyHomeTrendBarLayout.fitting(barCount: barCount, availableWidth: availableWidth)
+        let usedWidth = CGFloat(barCount) * layout.barWidth + CGFloat(barCount - 1) * layout.spacing
+
+        XCTAssertLessThanOrEqual(usedWidth, availableWidth + 0.001)
+        XCTAssertEqual(layout.barWidth, 3, accuracy: 0.001)
+        XCTAssertLessThan(layout.spacing, 5)
+    }
+
+    func testHeartRateActivityAveragesUseSelectedDaySleepAndWorkoutIntervals() throws {
+        let calendar = Calendar.bodyGregorian
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28)))
+        let sleepStart = day.addingTimeInterval(60 * 60)
+        let sleepEnd = day.addingTimeInterval(3 * 60 * 60)
+        let runStart = day.addingTimeInterval(7 * 60 * 60)
+        let runEnd = day.addingTimeInterval(8 * 60 * 60)
+        let strengthStart = day.addingTimeInterval(20 * 60 * 60)
+
+        let sleep = SleepSummary(
+            duration: sleepEnd.timeIntervalSince(sleepStart),
+            stageSnapshot: SleepStageSnapshot(
+                date: day,
+                segments: [
+                    SleepStageSegment(stage: .core, startDate: sleepStart, endDate: sleepEnd)
+                ]
+            )
+        )
+        let heartRateSeries = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: sleepStart.addingTimeInterval(15 * 60), value: 50),
+            HealthTrendDataPoint(date: sleepStart.addingTimeInterval(45 * 60), value: 60),
+            HealthTrendDataPoint(date: runStart.addingTimeInterval(10 * 60), value: 140),
+            HealthTrendDataPoint(date: runStart.addingTimeInterval(40 * 60), value: 160),
+            HealthTrendDataPoint(date: day.addingTimeInterval(12 * 60 * 60), value: 80)
+        ])
+        let workouts = [
+            WorkoutSummary(
+                type: .running,
+                startDate: runStart,
+                duration: runEnd.timeIntervalSince(runStart)
+            ),
+            WorkoutSummary(
+                type: .strengthTraining,
+                startDate: strengthStart,
+                duration: 45 * 60,
+                averageHeartRateBeatsPerMinute: 112
+            )
+        ]
+
+        let rows = BodyMetricActivityAverages.makeHeartRate(
+            day: day,
+            heartRateSeries: heartRateSeries,
+            sleepSummary: sleep,
+            workouts: workouts,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(rows.map(\.title), ["Sleep", "Run", "Strength"])
+        XCTAssertEqual(rows.count, 3)
+        XCTAssertEqual(rows[0].averageValue, 55, accuracy: 0.001)
+        XCTAssertEqual(rows[1].averageValue, 150, accuracy: 0.001)
+        XCTAssertEqual(rows[2].averageValue, 112, accuracy: 0.001)
+        XCTAssertEqual(rows.map(\.activity), [.sleep, .workout(.running), .workout(.strengthTraining)])
+        XCTAssertEqual(rows.map(\.startDate), [sleepStart, runStart, strengthStart])
+    }
+
+    func testHeartRateVariabilityActivityAveragesOnlyUseSelectedDaySleepInterval() throws {
+        let calendar = Calendar.bodyGregorian
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28)))
+        let sleepStart = day.addingTimeInterval(60 * 60)
+        let sleepEnd = day.addingTimeInterval(3 * 60 * 60)
+        let workoutStart = day.addingTimeInterval(8 * 60 * 60)
+        let sleep = SleepSummary(
+            duration: sleepEnd.timeIntervalSince(sleepStart),
+            stageSnapshot: SleepStageSnapshot(
+                date: day,
+                segments: [
+                    SleepStageSegment(stage: .core, startDate: sleepStart, endDate: sleepEnd)
+                ]
+            ),
+            vitals: SleepVitalsSummary(heartRateVariability: 44)
+        )
+        let hrvSeries = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: sleepStart.addingTimeInterval(10 * 60), value: 60),
+            HealthTrendDataPoint(date: sleepStart.addingTimeInterval(30 * 60), value: 80),
+            HealthTrendDataPoint(date: workoutStart.addingTimeInterval(10 * 60), value: 20)
+        ])
+
+        let rows = BodyMetricActivityAverages.makeSleepOnly(
+            day: day,
+            series: hrvSeries,
+            sleepSummary: sleep,
+            fallbackValue: sleep.vitals.heartRateVariability,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].title, "Sleep")
+        XCTAssertEqual(rows[0].activity, .sleep)
+        XCTAssertEqual(rows[0].averageValue, 70, accuracy: 0.001)
+        XCTAssertEqual(rows[0].startDate, sleepStart)
+        XCTAssertEqual(rows[0].endDate, sleepEnd)
+    }
+
+    func testMetricDayContextBandTopStripeUsesFixedRelativeThickness() {
+        let narrowDomain = 45.0...47.0
+        let wideDomain = 0.0...300.0
+
+        let narrowLowerBound = BodyHealthMetricDayContextBand.topStripeLowerBound(for: narrowDomain)
+        let wideLowerBound = BodyHealthMetricDayContextBand.topStripeLowerBound(for: wideDomain)
+        let narrowFraction = (narrowDomain.upperBound - narrowLowerBound) / (narrowDomain.upperBound - narrowDomain.lowerBound)
+        let wideFraction = (wideDomain.upperBound - wideLowerBound) / (wideDomain.upperBound - wideDomain.lowerBound)
+
+        XCTAssertEqual(narrowFraction, BodyHealthMetricDayContextBand.topStripeHeightRatio, accuracy: 0.0001)
+        XCTAssertEqual(wideFraction, BodyHealthMetricDayContextBand.topStripeHeightRatio, accuracy: 0.0001)
+        XCTAssertEqual(narrowFraction, wideFraction, accuracy: 0.0001)
     }
 
     func testHomeTrendCardPresentationKeepsAtLeastThreeDaysInEachTrendWindow() throws {
@@ -1828,6 +2000,38 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             BodyHomeTrendCardSelection.storedValue(from: "none").enabledCount,
             0
         )
+    }
+
+    func testDashboardFetchSelectionIncludesVisibleSummaryAndTrendCards() {
+        let selection = BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection(selectedCards: [.activityRings, .steps]),
+            trendCards: BodyHomeTrendCardSelection(selectedCards: [.sleep])
+        )
+
+        XCTAssertTrue(selection.includesActivityRings)
+        XCTAssertTrue(selection.includes(.steps))
+        XCTAssertTrue(selection.includes(.sleep))
+        XCTAssertFalse(selection.includes(.heartRate))
+        XCTAssertFalse(selection.includes(.activeEnergy))
+    }
+
+    func testDashboardFetchSelectionKeepsReadinessDependencies() {
+        let selection = BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection(selectedCards: []),
+            trendCards: BodyHomeTrendCardSelection(selectedCards: [.readiness])
+        )
+
+        XCTAssertFalse(selection.includesActivityRings)
+        XCTAssertTrue(selection.includes(.readiness))
+        XCTAssertTrue(selection.includes(.sleep))
+        XCTAssertTrue(selection.includes(.heartRateVariability))
+        XCTAssertTrue(selection.includes(.restingHeartRate))
+        XCTAssertTrue(selection.includes(.trainingLoad))
+        XCTAssertTrue(selection.includes(.respiratoryRate))
+        XCTAssertTrue(selection.includes(.oxygenSaturation))
+        XCTAssertTrue(selection.includes(.wristTemperature))
+        XCTAssertFalse(selection.includes(.heartRate))
+        XCTAssertFalse(selection.includes(.steps))
     }
 
     func testHealthTrendSeriesLimitsToAvailableRanges() throws {
@@ -3745,6 +3949,52 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             points.append(HealthTrendDataPoint(date: scoreDay, value: today))
         }
         return HealthTrendSeries(points: points)
+    }
+
+    func testMakeHeartRateMergesDuplicateWorkoutsWithSameTypeAndTimeRange() throws {
+        let calendar = Calendar.bodyGregorian
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 31)))
+        let walkStart = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 5, day: 31, hour: 10, minute: 32))
+        )
+        let laterStart = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 5, day: 31, hour: 12, minute: 5))
+        )
+
+        let duplicateWalk = WorkoutSummary(
+            type: .walking,
+            startDate: walkStart,
+            duration: 14 * 60,
+            averageHeartRateBeatsPerMinute: 135,
+            sourceName: "Apple Watch"
+        )
+        let secondDuplicate = WorkoutSummary(
+            type: .walking,
+            startDate: walkStart,
+            duration: 14 * 60,
+            averageHeartRateBeatsPerMinute: 135,
+            sourceName: "Apple Watch"
+        )
+        let distinctWalk = WorkoutSummary(
+            type: .walking,
+            startDate: laterStart,
+            duration: 15 * 60,
+            averageHeartRateBeatsPerMinute: 108,
+            sourceName: "Strava"
+        )
+
+        let rows = BodyMetricActivityAverages.makeHeartRate(
+            day: day,
+            heartRateSeries: HealthTrendSeries(points: []),
+            sleepSummary: nil,
+            workouts: [duplicateWalk, secondDuplicate, distinctWalk],
+            calendar: calendar
+        )
+
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows.map(\.startDate), [walkStart, laterStart])
+        XCTAssertEqual(rows.first?.averageValue, 135)
+        XCTAssertEqual(rows.map(\.source), ["Apple Watch", "Strava"])
     }
 
     private func workout(day: Int, type: BodyWorkoutType, duration: TimeInterval) -> WorkoutSummary {

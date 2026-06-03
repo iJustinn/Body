@@ -352,7 +352,7 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
         case .transition:
             return 0x19192F
         case .other:
-            return 0x1A182F
+            return 0x8E8E93
         }
     }
 
@@ -384,7 +384,7 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
     }
 
     static let attachedPaletteHexes: Set<UInt32> = [
-        0x1A182F, 0x45184D, 0x662249, 0xA34053, 0xEE9D58, 0xEABCBA,
+        0x8E8E93, 0x45184D, 0x662249, 0xA34053, 0xEE9D58, 0xEABCBA,
         0x011230, 0x1B305D, 0x423B63, 0xAF7DAC, 0xF5DADF, 0xF2926E,
         0x021716, 0x032E30, 0x0A6F73, 0x0D9099, 0x6AA4BE, 0x274E61,
         0x19192F, 0x252F47, 0x373F5B, 0xFEA382, 0xB7172D, 0x55152B,

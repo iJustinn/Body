@@ -995,6 +995,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         let calendar = Calendar.bodyGregorian
         let keys = Self.recentMonthKeys(count: Self.recentChartMonthCount, from: date, calendar: calendar)
+        let dashboardFetchSelection = BodyDashboardFetchSelection.load()
 
         do {
             if permissionSelection.includes(.workouts) {
@@ -1005,7 +1006,10 @@ final class HealthKitWorkoutStore: ObservableObject {
             await fetchHealthDataSourceOptions(calendar: calendar)
 
             let (fetchedHealthSummary, fetchedHealthTrends, fetchedActivityRingHistory) =
-                await fetchDashboardSnapshotProgressively(calendar: calendar)
+                await fetchDashboardSnapshotProgressively(
+                    calendar: calendar,
+                    selection: dashboardFetchSelection
+                )
 
             await updateHealthDashboardSnapshot(
                 summary: fetchedHealthSummary,
@@ -1039,10 +1043,14 @@ final class HealthKitWorkoutStore: ObservableObject {
                 clearWorkoutSnapshots(calendar: calendar)
             }
             if updatesHealthSummary {
+                let dashboardFetchSelection = BodyDashboardFetchSelection.load()
                 await fetchHealthDataSourceOptions(calendar: calendar)
 
                 let (fetchedHealthSummary, fetchedHealthTrends, fetchedActivityRingHistory) =
-                    await fetchDashboardSnapshotProgressively(calendar: calendar)
+                    await fetchDashboardSnapshotProgressively(
+                        calendar: calendar,
+                        selection: dashboardFetchSelection
+                    )
 
                 await updateHealthDashboardSnapshot(
                     summary: fetchedHealthSummary,
@@ -1069,7 +1077,8 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// Readiness is preserved at its cached value during the stream — the final
     /// `updateHealthDashboardSnapshot` recomputes it once everything has landed.
     private func fetchDashboardSnapshotProgressively(
-        calendar: Calendar
+        calendar: Calendar,
+        selection: BodyDashboardFetchSelection
     ) async -> (
         summary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
@@ -1083,18 +1092,19 @@ final class HealthKitWorkoutStore: ObservableObject {
         let engine = self.engine
         await withTaskGroup(of: DashboardFetchUnit.self) { group in
             group.addTask {
-                .summary(await engine.fetchHealthSummary(calendar: calendar))
+                .summary(await engine.fetchHealthSummary(calendar: calendar, selection: selection))
             }
             group.addTask {
                 .trends(
                     await engine.fetchHealthTrends(
                         calendar: calendar,
-                        cachedTrends: cachedTrendsAtStart
+                        cachedTrends: cachedTrendsAtStart,
+                        selection: selection
                     )
                 )
             }
             group.addTask {
-                .rings(await engine.fetchActivityRingHistory(calendar: calendar))
+                .rings(await engine.fetchDashboardActivityRingHistory(calendar: calendar, selection: selection))
             }
 
             for await unit in group {

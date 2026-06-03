@@ -127,6 +127,172 @@ enum BodyDateSliderTileLabel {
     }
 }
 
+struct BodyMetricActivityAverage: Equatable, Identifiable {
+    enum Activity: Equatable {
+        case sleep
+        case workout(BodyWorkoutType)
+    }
+
+    let activity: Activity
+    let startDate: Date
+    let endDate: Date
+    let averageValue: Double
+    let source: String?
+
+    var id: String {
+        "\(activity.id)-\(startDate.timeIntervalSinceReferenceDate)-\(endDate.timeIntervalSinceReferenceDate)"
+    }
+
+    var title: String {
+        switch activity {
+        case .sleep:
+            return "Sleep"
+        case .workout(let workoutType):
+            return workoutType.displayName
+        }
+    }
+
+    var symbolName: String {
+        switch activity {
+        case .sleep:
+            return "bed.double.fill"
+        case .workout(let workoutType):
+            return workoutType.symbolName
+        }
+    }
+
+    var color: Color {
+        switch activity {
+        case .sleep:
+            return Color(red: 0.20, green: 0.72, blue: 1.00)
+        case .workout(let workoutType):
+            return workoutType.color
+        }
+    }
+}
+
+extension BodyMetricActivityAverage.Activity {
+    var id: String {
+        switch self {
+        case .sleep:
+            return "sleep"
+        case .workout(let workoutType):
+            return "workout-\(workoutType.rawValue)"
+        }
+    }
+}
+
+enum BodyMetricActivityAverages {
+    static func makeHeartRate(
+        day: Date,
+        heartRateSeries: HealthTrendSeries,
+        sleepSummary: SleepSummary?,
+        workouts: [WorkoutSummary],
+        sleepSource: String? = nil,
+        calendar: Calendar = .bodyGregorian
+    ) -> [BodyMetricActivityAverage] {
+        let dayInterval = interval(for: day, calendar: calendar)
+        var rows = makeSleepOnly(
+            day: day,
+            series: heartRateSeries,
+            sleepSummary: sleepSummary,
+            fallbackValue: sleepSummary?.vitals.heartRate,
+            source: sleepSource,
+            calendar: calendar
+        )
+
+        rows.append(contentsOf: workouts.compactMap { workout in
+            let workoutEndDate = workout.startDate.addingTimeInterval(workout.duration)
+            guard let workoutInterval = DateInterval(start: workout.startDate, end: workoutEndDate)
+                .clamped(to: dayInterval) else {
+                return nil
+            }
+
+            let sampleAverage = average(in: workoutInterval, from: heartRateSeries)
+                ?? average(in: workoutInterval, from: workout.heartRateSamples ?? [])
+            let fallbackAverage = workout.averageHeartRateBeatsPerMinute
+                .flatMap { $0.isFinite ? $0 : nil }
+            guard let average = sampleAverage ?? fallbackAverage else {
+                return nil
+            }
+
+            return BodyMetricActivityAverage(
+                activity: .workout(workout.type),
+                startDate: workoutInterval.start,
+                endDate: workoutInterval.end,
+                averageValue: average,
+                source: workout.sourceName
+            )
+        })
+
+        var seenIDs = Set<String>()
+        return rows
+            .filter { seenIDs.insert($0.id).inserted }
+            .sorted {
+                if $0.startDate != $1.startDate {
+                    return $0.startDate < $1.startDate
+                }
+
+                return $0.title < $1.title
+            }
+    }
+
+    static func makeSleepOnly(
+        day: Date,
+        series: HealthTrendSeries,
+        sleepSummary: SleepSummary?,
+        fallbackValue: Double?,
+        source: String? = nil,
+        calendar: Calendar = .bodyGregorian
+    ) -> [BodyMetricActivityAverage] {
+        let dayInterval = interval(for: day, calendar: calendar)
+        guard let sleepSummary,
+              let sleepInterval = sleepSummary.stageSnapshot.dateInterval?.clamped(to: dayInterval),
+              let average = average(in: sleepInterval, from: series)
+                ?? fallbackValue.flatMap({ $0.isFinite ? $0 : nil }) else {
+            return []
+        }
+
+        return [
+            BodyMetricActivityAverage(
+                activity: .sleep,
+                startDate: sleepInterval.start,
+                endDate: sleepInterval.end,
+                averageValue: average,
+                source: source
+            )
+        ]
+    }
+
+    private static func interval(for day: Date, calendar: Calendar) -> DateInterval {
+        let dayStart = calendar.startOfDay(for: day)
+        let nextDayStart = calendar.date(byAdding: .day, value: 1, to: dayStart)
+            ?? dayStart.addingTimeInterval(86_400)
+        return DateInterval(start: dayStart, end: nextDayStart)
+    }
+
+    private static func average(in interval: DateInterval, from series: HealthTrendSeries) -> Double? {
+        finiteAverage(series.points
+            .filter { $0.date >= interval.start && $0.date < interval.end }
+            .map(\.value))
+    }
+
+    private static func average(in interval: DateInterval, from samples: [WorkoutHeartRateSample]) -> Double? {
+        finiteAverage(samples
+            .filter { $0.date >= interval.start && $0.date < interval.end }
+            .map(\.beatsPerMinute))
+    }
+
+    private static func finiteAverage(_ values: [Double]) -> Double? {
+        let finiteValues = values.filter(\.isFinite)
+        guard !finiteValues.isEmpty else {
+            return nil
+        }
+
+        return finiteValues.reduce(0, +) / Double(finiteValues.count)
+    }
+}
+
 enum BodyMetricDetailDatePicker {
     case sleep
     case metric
@@ -143,6 +309,7 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
+    @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @State private var selectedTrendRange: BodyHealthTrendRange
     @State private var selectedSleepDate: Date?
     @State private var selectedMetricDate: Date?
@@ -187,12 +354,13 @@ struct BodyHealthMetricDetailView: View {
                     if supportsMetricDayView {
                         metricDatePicker
                         metricDayChartCard
+                        metricActivityAveragesCard
                         detailTrendComparisonCard
                     } else {
+                        if model.kind == .readiness, let readiness = model.readiness {
+                            readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
+                        }
                         detailTrendComparisonCard
-                    }
-                    if model.kind == .readiness, let readiness = model.readiness {
-                        readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
                     }
                     if isBasicsDetail {
                         bodyMassIndexTrendCard
@@ -281,6 +449,10 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var supportsMetricDayView: Bool {
+        guard metricDayViewEnabled else {
+            return false
+        }
+
         switch model.kind {
         case .heartRate,
              .heartRateVariability,
@@ -305,6 +477,12 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
+    private var metricDayViewEnabled: Bool {
+        BodyMetricDayViewSelection
+            .storedValue(from: metricDayViewSelectionRawValue)
+            .includes(model.kind)
+    }
+
     private var selectedSleepDay: Date {
         let calendar = Calendar.bodyGregorian
         return calendar.startOfDay(for: selectedSleepDate ?? Date())
@@ -313,6 +491,14 @@ struct BodyHealthMetricDetailView: View {
     private var selectedMetricDay: Date {
         let calendar = Calendar.bodyGregorian
         return calendar.startOfDay(for: selectedMetricDate ?? Date())
+    }
+
+    private var selectedMetricDayInterval: DateInterval {
+        let calendar = Calendar.bodyGregorian
+        let dayStart = calendar.startOfDay(for: selectedMetricDay)
+        let nextDayStart = calendar.date(byAdding: .day, value: 1, to: dayStart)
+            ?? dayStart.addingTimeInterval(86_400)
+        return DateInterval(start: dayStart, end: nextDayStart)
     }
 
     private var activeReadinessStatus: ReadinessStatus? {
@@ -341,6 +527,30 @@ struct BodyHealthMetricDetailView: View {
         }
 
         return liveSecondaryDaySeries.points(on: selectedMetricDay)
+    }
+
+    private var selectedMetricActivityAverages: [BodyMetricActivityAverage] {
+        switch model.kind {
+        case .heartRate:
+            return BodyMetricActivityAverages.makeHeartRate(
+                day: selectedMetricDay,
+                heartRateSeries: selectedMetricDaySeries,
+                sleepSummary: sleepSummary(for: selectedMetricDay),
+                workouts: workouts(on: selectedMetricDayInterval),
+                sleepSource: workoutStore.selectedHealthDataSourceOption(for: model.kind).name
+            )
+        case .heartRateVariability:
+            let sleepSummary = sleepSummary(for: selectedMetricDay)
+            return BodyMetricActivityAverages.makeSleepOnly(
+                day: selectedMetricDay,
+                series: selectedMetricDaySeries,
+                sleepSummary: sleepSummary,
+                fallbackValue: sleepSummary?.vitals.heartRateVariability,
+                source: workoutStore.selectedHealthDataSourceOption(for: model.kind).name
+            )
+        default:
+            return []
+        }
     }
 
     private var liveDaySeries: HealthTrendSeries {
@@ -569,10 +779,9 @@ struct BodyHealthMetricDetailView: View {
         HStack(spacing: 16) {
             Image(systemName: model.symbolName)
                 .font(.system(size: 26, weight: .semibold))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(model.symbolColor)
+                .foregroundColor(model.symbolColor)
                 .frame(width: 58, height: 58)
-                .background(model.symbolColor.opacity(0.14))
+                .background(model.symbolColor.opacity(0.16))
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .accessibilityHidden(true)
 
@@ -1003,6 +1212,98 @@ struct BodyHealthMetricDetailView: View {
         .bodyCardBackground()
     }
 
+    @ViewBuilder
+    private var metricActivityAveragesCard: some View {
+        if model.kind == .heartRate || model.kind == .heartRateVariability {
+            let rows = selectedMetricActivityAverages
+
+            VStack(alignment: .leading, spacing: 14) {
+                Text(model.kind == .heartRate ? "Average Heart Rate" : "Average HRV")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                if rows.isEmpty {
+                    Text(model.kind == .heartRate ? "No sleep or workout heart rate for this day" : "No sleep HRV for this day")
+                        .font(.system(.body, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 88, alignment: .center)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                            metricActivityAverageRow(row)
+
+                            if index < rows.count - 1 {
+                                Divider()
+                                    .padding(.leading, 50)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .bodyCardBackground()
+        }
+    }
+
+    private func metricActivityAverageRow(_ row: BodyMetricActivityAverage) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: row.symbolName)
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(row.color)
+                .frame(width: 38, height: 38)
+                .background(
+                    Circle()
+                        .fill(row.color.opacity(0.14))
+                )
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(row.title)
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+
+                Text(activityAverageTimeRangeText(for: row))
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+            }
+
+            Spacer(minLength: 12)
+
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(model.valueFormatter(row.averageValue))
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundColor(row.color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+
+                if let source = row.source, !source.isEmpty {
+                    Text(source)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                }
+            }
+        }
+        .padding(.vertical, 11)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func activityAverageTimeRangeText(for row: BodyMetricActivityAverage) -> String {
+        let startText = row.startDate.formatted(.dateTime.hour().minute())
+        let endText = row.endDate.formatted(.dateTime.hour().minute())
+        return "\(startText)-\(endText)"
+    }
+
     private var selectedMetricDayAggregationLabel: String {
         switch model.kind {
         case .activeEnergy, .steps:
@@ -1028,11 +1329,7 @@ struct BodyHealthMetricDetailView: View {
             return []
         }
 
-        let calendar = Calendar.bodyGregorian
-        let dayStart = calendar.startOfDay(for: selectedMetricDay)
-        let nextDayStart = calendar.date(byAdding: .day, value: 1, to: dayStart)
-            ?? dayStart.addingTimeInterval(86_400)
-        let dayInterval = DateInterval(start: dayStart, end: nextDayStart)
+        let dayInterval = selectedMetricDayInterval
         var intervals: [BodyHealthMetricDayContextInterval] = []
 
         if let sleepInterval = sleepSummary(for: selectedMetricDay)?.stageSnapshot.dateInterval,
