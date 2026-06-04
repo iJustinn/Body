@@ -31,6 +31,12 @@ func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTr
     return startDate.addingTimeInterval(-bodyHealthDetailChartLeadingDatePadding)...endDate.addingTimeInterval(trailingDatePadding)
 }
 
+// Symbol area for a PointMark that renders a circle whose diameter matches a
+// range bar's width, used to draw single-data-point days as a dot.
+func bodyRangeChartPointSymbolSize(forBarWidth barWidth: CGFloat) -> CGFloat {
+    .pi * pow(barWidth / 2, 2)
+}
+
 enum BodyHealthMetricRangeYDomain {
     static func bloodOxygen(from values: [Double]) -> ClosedRange<Double> {
         fiveStepDomain(from: values, defaultDomain: 90...100, minimumUpperBound: 100)
