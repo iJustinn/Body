@@ -18,19 +18,22 @@ struct MainTabView: View {
         TabView(selection: $selectedTab) {
             BodyHomeView()
                 .tabItem {
-                    Label("Summary", systemImage: "heart.text.square.fill")
+                    Image(systemName: "heart.text.square.fill")
+                        .accessibilityLabel("Summary")
                 }
                 .tag(BodyMainTab.summary)
 
             BodyWorkoutsView()
                 .tabItem {
-                    Label("Workouts", systemImage: "figure.strengthtraining.traditional")
+                    Image(systemName: "figure.strengthtraining.traditional")
+                        .accessibilityLabel("Workouts")
                 }
                 .tag(BodyMainTab.workouts)
 
             BodySettingsView()
                 .tabItem {
-                    Label("Settings", systemImage: "slider.horizontal.3")
+                    Image(systemName: "slider.horizontal.3")
+                        .accessibilityLabel("Settings")
                 }
                 .tag(BodyMainTab.settings)
         }
