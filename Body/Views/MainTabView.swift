@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 private enum BodyMainTab: Hashable {
     case summary
@@ -18,22 +19,35 @@ struct MainTabView: View {
         TabView(selection: $selectedTab) {
             BodyHomeView()
                 .tabItem {
-                    Label("Summary", systemImage: "heart.text.square.fill")
+                    boldTabIcon("waveform.path.ecg.text")
+                        .accessibilityLabel("Summary")
                 }
                 .tag(BodyMainTab.summary)
 
             BodyWorkoutsView()
                 .tabItem {
-                    Label("Workouts", systemImage: "figure.strengthtraining.traditional")
+                    boldTabIcon("figure.mixed.cardio")
+                        .accessibilityLabel("Workouts")
                 }
                 .tag(BodyMainTab.workouts)
 
             BodySettingsView()
                 .tabItem {
-                    Label("Settings", systemImage: "slider.horizontal.3")
+                    boldTabIcon("slider.horizontal.3")
+                        .accessibilityLabel("Settings")
                 }
                 .tag(BodyMainTab.settings)
         }
+    }
+
+    /// Tab bar icons ignore SwiftUI font-weight modifiers, so bake the bold
+    /// weight into the symbol image itself.
+    private func boldTabIcon(_ systemName: String) -> Image {
+        let configuration = UIImage.SymbolConfiguration(weight: .bold)
+        if let image = UIImage(systemName: systemName, withConfiguration: configuration) {
+            return Image(uiImage: image)
+        }
+        return Image(systemName: systemName)
     }
 }
 

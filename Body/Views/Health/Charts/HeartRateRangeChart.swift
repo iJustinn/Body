@@ -94,14 +94,23 @@ struct BodyHeartRateRangeTrendChart: View {
 
                 ForEach(rangePoints) { point in
                     if let lowValue = point.lowValue, let highValue = point.highValue {
-                        BarMark(
-                            x: .value("Date", point.date, unit: .day),
-                            yStart: .value("Low \(title)", lowValue),
-                            yEnd: .value("High \(title)", highValue),
-                            width: .fixed(chartBarWidth)
-                        )
-                        .foregroundStyle(rangeBarColor)
-                        .cornerRadius(chartBarWidth / 2)
+                        if lowValue == highValue {
+                            PointMark(
+                                x: .value("Date", point.date, unit: .day),
+                                y: .value(title, lowValue)
+                            )
+                            .symbolSize(bodyRangeChartPointSymbolSize(forBarWidth: chartBarWidth))
+                            .foregroundStyle(rangeBarColor)
+                        } else {
+                            BarMark(
+                                x: .value("Date", point.date, unit: .day),
+                                yStart: .value("Low \(title)", lowValue),
+                                yEnd: .value("High \(title)", highValue),
+                                width: .fixed(chartBarWidth)
+                            )
+                            .foregroundStyle(rangeBarColor)
+                            .cornerRadius(chartBarWidth / 2)
+                        }
                     }
                 }
 

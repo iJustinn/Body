@@ -627,14 +627,23 @@ struct BodyHealthSourceComparisonRangeChart: View {
 
                 ForEach(entries) { entry in
                     if let lowValue = entry.lowValue, let highValue = entry.highValue {
-                        BarMark(
-                            x: .value("Date", entry.chartDate),
-                            yStart: .value("Low \(title)", lowValue),
-                            yEnd: .value("High \(title)", highValue),
-                            width: .fixed(chartBarWidth)
-                        )
-                        .foregroundStyle(color(for: entry).gradient)
-                        .cornerRadius(chartBarWidth / 2)
+                        if lowValue == highValue {
+                            PointMark(
+                                x: .value("Date", entry.chartDate),
+                                y: .value(title, lowValue)
+                            )
+                            .symbolSize(bodyRangeChartPointSymbolSize(forBarWidth: chartBarWidth))
+                            .foregroundStyle(color(for: entry).gradient)
+                        } else {
+                            BarMark(
+                                x: .value("Date", entry.chartDate),
+                                yStart: .value("Low \(title)", lowValue),
+                                yEnd: .value("High \(title)", highValue),
+                                width: .fixed(chartBarWidth)
+                            )
+                            .foregroundStyle(color(for: entry).gradient)
+                            .cornerRadius(chartBarWidth / 2)
+                        }
                     }
                 }
 
