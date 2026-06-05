@@ -11,5 +11,7 @@ struct BodyWidgetExtensionBundle: WidgetBundle {
     var body: some Widget {
         BodyWorkoutCalendarWidget()
         BodyWorkoutTypeBreakdownWidget()
+        BodyHealthTrendWidget()
+        BodySleepStagesWidget()
     }
 }

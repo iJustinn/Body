@@ -139,7 +139,7 @@ private struct WorkoutTypeBreakdownWidgetView: View {
     }
 }
 
-private extension View {
+extension View {
     @ViewBuilder
     func bodyWidgetBackground(_ background: BodyWidgetBackgroundSelection) -> some View {
         switch background {

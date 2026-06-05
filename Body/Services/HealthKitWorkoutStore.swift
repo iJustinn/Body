@@ -1259,11 +1259,48 @@ final class HealthKitWorkoutStore: ObservableObject {
             HealthDashboardSnapshotStore.save(snapshotToSave)
             HealthDashboardSnapshotStore.saveSecondarySelectionSignature(secondarySignature)
         }
+        saveHealthWidgetSnapshot()
     }
 
     private func markRefreshSucceeded(date: Date) {
         lastSuccessfulRefreshDate = date
         HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(date)
+    }
+
+    /// Builds the slim widget snapshot from the current trends, sleep stages,
+    /// source selection, and unit preferences, then writes it to the App Group
+    /// so the trend + sleep-stage widgets can render. Reads run on the main
+    /// actor; the build + disk write happen off-actor.
+    private func saveHealthWidgetSnapshot() {
+        let trends = healthTrends
+        let sleepStageSnapshot = healthSummary.sleep.stageSnapshot
+        let temperatureUnitPreference = HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference()
+        let energyUnitPreference = HealthWidgetSnapshotBuilder.storedEnergyUnitPreference()
+
+        var primarySourceNames: [HealthMetricKind: String] = [:]
+        var secondarySourceNames: [HealthMetricKind: String] = [:]
+        for metric in HealthWidgetMetric.allCases {
+            let kind = metric.healthMetricKind
+            primarySourceNames[kind] = selectedHealthDataSourceOption(for: kind).name
+            let secondaryOption = selectedSecondaryHealthDataSourceOption(for: kind)
+            if !secondaryOption.isNoComparison {
+                secondarySourceNames[kind] = secondaryOption.name
+            }
+        }
+
+        Task.detached(priority: .utility) {
+            let snapshot = HealthWidgetSnapshotBuilder.make(
+                trends: trends,
+                sleepStageSnapshot: sleepStageSnapshot,
+                temperatureUnitPreference: temperatureUnitPreference,
+                energyUnitPreference: energyUnitPreference,
+                primarySourceName: { primarySourceNames[$0] },
+                secondarySourceName: { secondarySourceNames[$0] }
+            )
+            if HealthWidgetSnapshotStore.save(snapshot) {
+                WidgetCenter.shared.reloadAllTimelines()
+            }
+        }
     }
 
     private func applyPermissionSelectionToCachedData() async {
@@ -1291,6 +1328,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         Task.detached(priority: .utility) {
             HealthDashboardSnapshotStore.save(filteredSnapshot)
         }
+        saveHealthWidgetSnapshot()
     }
 
     private func clearWorkoutSnapshots(calendar: Calendar = .bodyGregorian) {
