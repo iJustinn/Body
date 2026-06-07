@@ -547,7 +547,7 @@ enum ReadinessScoreCalculator {
         )
         appendHighSideAnomaly(
             kind: .wristTemperatureAboveBaseline,
-            message: "Wrist temperature is above baseline.",
+            message: "Skin temperature is above baseline.",
             date: date,
             metric: .wristTemperature,
             series: trends.wristTemperature,

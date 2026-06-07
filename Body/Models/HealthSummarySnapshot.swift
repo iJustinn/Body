@@ -108,8 +108,8 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
             )
         case .wristTemperature:
             return HealthMetricDetailHelpText(
-                title: "About Wrist Temperature",
-                body: "Wrist Temperature shows changes captured during sleep from supported devices. It is most useful as a trend against your own baseline. Shifts can follow room temperature, illness, alcohol, menstrual cycle changes, travel, or wearable fit."
+                title: "About Skin Temperature",
+                body: "Skin Temperature shows changes captured during sleep from supported devices. It is most useful as a trend against your own baseline. Shifts can follow room temperature, illness, alcohol, menstrual cycle changes, travel, or wearable fit."
             )
         case .timeInDaylight:
             return HealthMetricDetailHelpText(

@@ -162,7 +162,7 @@ extension HealthMetricKind {
         case .exerciseMinutes:
             return "Exercise Minutes"
         case .wristTemperature:
-            return "Wrist Temperature"
+            return "Skin Temperature"
         case .timeInDaylight:
             return "Time in Daylight"
         default:
@@ -210,7 +210,7 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
         case .exerciseMinutes:
             return "Exercise Minutes"
         case .wristTemperature:
-            return "Wrist Temperature"
+            return "Skin Temperature"
         case .timeInDaylight:
             return "Time in Daylight"
         case .steps:
@@ -239,7 +239,7 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
         case .exerciseMinutes:
             return "Exercise minute totals"
         case .wristTemperature:
-            return "Sleeping wrist temperature"
+            return "Sleeping skin temperature"
         case .timeInDaylight:
             return "Daylight exposure time"
         case .steps:
@@ -1022,7 +1022,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
         case .sleep:
             return "Sleep"
         case .wristTemperature:
-            return "Wrist Temperature"
+            return "Skin Temperature"
         case .steps:
             return "Steps"
         case .activeEnergy:
@@ -1055,7 +1055,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
         case .sleep:
             return "Sleep duration trend"
         case .wristTemperature:
-            return "Sleeping wrist temperature trend"
+            return "Sleeping skin temperature trend"
         case .steps:
             return "Daily step trend"
         case .activeEnergy:
@@ -1232,7 +1232,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         case .trainingLoad:
             return "Training Load"
         case .wristTemperature:
-            return "Wrist Temperature"
+            return "Skin Temperature"
         case .timeInDaylight:
             return "Time In Daylight"
         case .steps:
@@ -1269,7 +1269,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         case .trainingLoad:
             return "Workout strain ratio"
         case .wristTemperature:
-            return "Sleeping wrist temperature"
+            return "Sleeping skin temperature"
         case .timeInDaylight:
             return "Outdoor daylight exposure"
         case .steps:

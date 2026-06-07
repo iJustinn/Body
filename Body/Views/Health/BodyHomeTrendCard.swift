@@ -348,7 +348,7 @@ enum BodyHomeTrendCardFactory {
         case .wristTemperature:
             return Configuration(
                 kind: .wristTemperature,
-                title: "Wrist Temperature",
+                title: "Skin Temperature",
                 series: trends.series(for: .wristTemperature).mapValues {
                     BodyValueFormat.temperatureValue(
                         celsius: $0,
@@ -359,7 +359,7 @@ enum BodyHomeTrendCardFactory {
                 symbolName: "thermometer.medium",
                 symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + " " + temperatureUnit },
-                messageStyle: .average(subject: "your wrist temperature")
+                messageStyle: .average(subject: "your skin temperature")
             )
         case .steps:
             return Configuration(
