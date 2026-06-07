@@ -25,6 +25,8 @@ struct HealthWidgetSleepStagesView: View {
                 chart
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
+                timeAxis
+
                 legend
             } else {
                 emptyState
@@ -72,30 +74,31 @@ struct HealthWidgetSleepStagesView: View {
         }
         .chartXScale(domain: chartXDomain)
         .chartYScale(domain: 0.5...4.5)
-        .chartXAxis {
-            AxisMarks(values: .stride(by: .hour, count: 2)) { value in
-                AxisGridLine().foregroundStyle(Color.secondary.opacity(0.16))
-                AxisValueLabel {
-                    if let date = value.as(Date.self) {
-                        Text(date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)))
-                            .font(.system(size: 9, design: .rounded))
-                            .foregroundStyle(Color.secondary)
-                    }
-                }
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+    }
+
+    /// Start and wake times rendered manually (leading/trailing) so the end
+    /// time stays inside the widget instead of being clipped by a centered
+    /// chart axis label at the right edge.
+    private var timeAxis: some View {
+        HStack(spacing: 8) {
+            if let start = sleep.segments.map(\.startDate).min() {
+                Text(timeText(start))
+            }
+
+            Spacer(minLength: 8)
+
+            if let end = sleep.segments.map(\.endDate).max() {
+                Text(timeText(end))
             }
         }
-        .chartYAxis {
-            AxisMarks(position: .leading, values: HealthWidgetSleepStage.allCases.map(\.chartPosition)) { value in
-                AxisValueLabel {
-                    if let position = value.as(Double.self),
-                       let stage = HealthWidgetSleepStage.stage(at: position) {
-                        Text(stage.displayName)
-                            .font(.system(size: 9, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Color.secondary)
-                    }
-                }
-            }
-        }
+        .font(.system(size: 10, weight: .semibold, design: .rounded))
+        .foregroundColor(.secondary)
+    }
+
+    private func timeText(_ date: Date) -> String {
+        date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
     }
 
     private var legend: some View {
@@ -133,11 +136,12 @@ struct HealthWidgetSleepStagesView: View {
     private var chartXDomain: ClosedRange<Date> {
         let start = sleep.segments.map(\.startDate).min() ?? Date()
         let end = sleep.segments.map(\.endDate).max() ?? Date()
-        let padding: TimeInterval = 10 * 60
         guard end > start else {
             return start...start.addingTimeInterval(3_600)
         }
-        return start.addingTimeInterval(-padding)...end.addingTimeInterval(padding)
+        // No padding: the hypnogram spans the full width so the manually
+        // rendered start/end labels line up with the data edges.
+        return start...end
     }
 
     private var emptyState: some View {

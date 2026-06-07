@@ -28,6 +28,22 @@ extension HealthWidgetMetric {
         case .exerciseMinutes: return .exerciseMinutes
         case .trainingLoad: return .trainingLoad
         case .timeInDaylight: return .timeInDaylight
+        case .bodyMass: return .bodyMass
+        case .bodyFatPercentage: return .bodyFatPercentage
+        }
+    }
+
+    /// The kind whose source selection applies to this metric. Weight and Body
+    /// Fat are fetched and source-selected together under `.basics` (see the
+    /// `sourceKind: .basics` fetches in HealthKitFetchEngine), so their source
+    /// name must be resolved there. `.bodyMass`/`.bodyFatPercentage` are not
+    /// source-selectable and would otherwise fall back to the default source.
+    var sourceSelectionKind: HealthMetricKind {
+        switch self {
+        case .bodyMass, .bodyFatPercentage:
+            return .basics
+        default:
+            return healthMetricKind
         }
     }
 }
@@ -44,11 +60,14 @@ private extension HealthWidgetTrendRange {
 enum HealthWidgetSnapshotBuilder {
     static func make(
         trends: HealthTrendSnapshot,
+        summary: HealthSummarySnapshot,
         sleepStageSnapshot: SleepStageSnapshot,
         temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference,
+        idealSleepDuration: TimeInterval,
+        showSleepScore: Bool,
         primarySourceName: (HealthMetricKind) -> String?,
-        secondarySourceName: (HealthMetricKind) -> String?,
         date: Date = Date(),
         calendar: Calendar = .bodyGregorian
     ) -> HealthWidgetSnapshot {
@@ -56,10 +75,13 @@ enum HealthWidgetSnapshotBuilder {
             metricTrend(
                 for: metric,
                 trends: trends,
+                summary: summary,
                 temperatureUnitPreference: temperatureUnitPreference,
                 energyUnitPreference: energyUnitPreference,
+                weightUnitPreference: weightUnitPreference,
+                idealSleepDuration: idealSleepDuration,
+                showSleepScore: showSleepScore,
                 primarySourceName: primarySourceName,
-                secondarySourceName: secondarySourceName,
                 date: date,
                 calendar: calendar
             )
@@ -81,10 +103,13 @@ enum HealthWidgetSnapshotBuilder {
     private static func metricTrend(
         for metric: HealthWidgetMetric,
         trends: HealthTrendSnapshot,
+        summary: HealthSummarySnapshot,
         temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference,
+        idealSleepDuration: TimeInterval,
+        showSleepScore: Bool,
         primarySourceName: (HealthMetricKind) -> String?,
-        secondarySourceName: (HealthMetricKind) -> String?,
         date: Date,
         calendar: Calendar
     ) -> HealthWidgetMetricTrend {
@@ -92,64 +117,166 @@ enum HealthWidgetSnapshotBuilder {
         let transform = valueTransform(
             for: metric,
             temperatureUnitPreference: temperatureUnitPreference,
-            energyUnitPreference: energyUnitPreference
+            energyUnitPreference: energyUnitPreference,
+            weightUnitPreference: weightUnitPreference
         )
         let format = averageFormatter(
             for: metric,
             temperatureUnitPreference: temperatureUnitPreference,
-            energyUnitPreference: energyUnitPreference
+            energyUnitPreference: energyUnitPreference,
+            weightUnitPreference: weightUnitPreference
         )
 
         let primarySeries = trends.series(for: kind).mapValues(transform)
-        let secondaryName = secondarySourceName(kind)
-        let rawSecondary = trends.secondarySeries(for: kind)
-        let secondarySeries = (secondaryName != nil && !rawSecondary.isEmpty)
-            ? rawSecondary.mapValues(transform)
-            : nil
 
         return HealthWidgetMetricTrend(
             metric: metric,
             primarySourceName: primarySourceName(kind),
-            secondarySourceName: secondarySeries == nil ? nil : secondaryName,
-            week: rangeTrend(
-                range: .week,
-                primarySeries: primarySeries,
-                secondarySeries: secondarySeries,
-                format: format,
-                date: date,
-                calendar: calendar
-            ),
-            month: rangeTrend(
-                range: .month,
-                primarySeries: primarySeries,
-                secondarySeries: secondarySeries,
-                format: format,
-                date: date,
+            week: widgetSeries(from: primarySeries, range: .week, format: format, date: date, calendar: calendar),
+            month: widgetSeries(from: primarySeries, range: .month, format: format, date: date, calendar: calendar),
+            displayValues: displayValues(
+                for: metric,
+                summary: summary,
+                trends: trends,
+                temperatureUnitPreference: temperatureUnitPreference,
+                energyUnitPreference: energyUnitPreference,
+                weightUnitPreference: weightUnitPreference,
+                idealSleepDuration: idealSleepDuration,
+                showSleepScore: showSleepScore,
                 calendar: calendar
             )
         )
     }
 
-    private static func rangeTrend(
-        range: HealthWidgetTrendRange,
-        primarySeries: HealthTrendSeries,
-        secondarySeries: HealthTrendSeries?,
-        format: (Double) -> String,
-        date: Date,
+    /// The value(s) shown on the home preview card, mirroring BodyHomeView's
+    /// per-metric card construction. One value for most metrics; two for the
+    /// prominent Sleep (score + duration) and Skin Temp (deviation + actual).
+    private static func displayValues(
+        for metric: HealthWidgetMetric,
+        summary: HealthSummarySnapshot,
+        trends: HealthTrendSnapshot,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference,
+        idealSleepDuration: TimeInterval,
+        showSleepScore: Bool,
         calendar: Calendar
-    ) -> HealthWidgetRangeTrend {
-        HealthWidgetRangeTrend(
-            primary: widgetSeries(
-                from: primarySeries,
-                range: range,
-                format: format,
-                date: date,
-                calendar: calendar
-            ),
-            secondary: secondarySeries.map {
-                widgetSeries(from: $0, range: range, format: format, date: date, calendar: calendar)
+    ) -> [HealthWidgetDisplayValue] {
+        func single(_ value: String, _ unit: String) -> [HealthWidgetDisplayValue] {
+            [HealthWidgetDisplayValue(value: value, unit: unit)]
+        }
+        func number(_ value: Double?, _ decimals: Int) -> String {
+            value.map { BodyValueFormat.numberText($0, decimals: decimals) } ?? "--"
+        }
+
+        switch metric {
+        case .readiness:
+            let score = summary.readiness.score
+            return single(score.map { "\($0)" } ?? "--", score == nil ? "" : "%")
+        case .heartRate:
+            return single(number(summary.heartRate.value, 0), "bpm")
+        case .restingHeartRate:
+            return single(number(summary.restingHeartRate.value, 0), "bpm")
+        case .heartRateVariability:
+            return single(number(summary.heartRateVariability.value, 1), "ms")
+        case .respiratoryRate:
+            return single(number(summary.respiratoryRate.value, 0), "br/min")
+        case .oxygenSaturation:
+            return single(number(summary.oxygenSaturation.value, 0), "%")
+        case .sleep:
+            let duration = summary.sleep.duration.map { BodyValueFormat.sleepDurationText(for: $0) } ?? "--"
+            guard showSleepScore else {
+                return single(duration, "")
             }
-        )
+            let score = SleepScoreSummary(
+                sleep: summary.sleep,
+                idealSleepDuration: idealSleepDuration,
+                recentSleepHistory: trends.sleepHistory,
+                on: summary.sleep.stageSnapshot.date,
+                calendar: calendar
+            )?.total
+            return [
+                HealthWidgetDisplayValue(value: score.map { "\($0)" } ?? "--", unit: score == nil ? "" : "PTS"),
+                HealthWidgetDisplayValue(value: duration, unit: "")
+            ]
+        case .wristTemperature:
+            let unit = BodyValueFormat.temperatureDisplay(
+                celsius: 0,
+                temperatureUnitPreference: temperatureUnitPreference
+            ).unit
+            let actual = summary.wristTemperature.value.map {
+                BodyValueFormat.temperatureDisplay(celsius: $0, temperatureUnitPreference: temperatureUnitPreference).value
+            } ?? "--"
+            let deviation = wristTemperatureDeviation(
+                currentCelsius: summary.wristTemperature.value,
+                series: trends.series(for: .wristTemperature)
+            )
+            return [deviation, HealthWidgetDisplayValue(value: actual, unit: unit)]
+        case .steps:
+            return single(number(summary.steps.value, 0), "")
+        case .activeEnergy:
+            return single(energyValueText(summary.activeEnergy.value, energyUnitPreference), energyUnitPreference.unitLabel)
+        case .restingEnergy:
+            return single(energyValueText(summary.restingEnergy.value, energyUnitPreference), energyUnitPreference.unitLabel)
+        case .exerciseMinutes:
+            return single(number(summary.exerciseMinutes.value, 0), "")
+        case .trainingLoad:
+            return single(number(summary.trainingLoad.value, 2), "")
+        case .timeInDaylight:
+            return single(number(summary.timeInDaylight.value, 0), "min")
+        case .bodyMass:
+            let unit = BodyValueFormat.massValue(kilograms: 0, weightUnitPreference: weightUnitPreference).unit
+            let value = summary.bodyMass.value.map {
+                BodyValueFormat.massDisplay(kilograms: $0, weightUnitPreference: weightUnitPreference, decimals: 2).value
+            } ?? "--"
+            return single(value, unit)
+        case .bodyFatPercentage:
+            return single(number(summary.bodyFatPercentage.value, 1), "%")
+        }
+    }
+
+    /// The wrist-temperature deviation from the user's median baseline, matching
+    /// BodyHomeView.wristTemperatureBaselineDeviationDisplay. The series is the
+    /// raw (Celsius) trend; the deviation is always reported in C.
+    private static func wristTemperatureDeviation(
+        currentCelsius: Double?,
+        series: HealthTrendSeries
+    ) -> HealthWidgetDisplayValue {
+        let finiteValues = series.lineChartCalendarPoints(to: .recentYear)
+            .compactMap(\.value)
+            .filter(\.isFinite)
+        guard !finiteValues.isEmpty, let current = currentCelsius, current.isFinite else {
+            return HealthWidgetDisplayValue(value: "--", unit: "")
+        }
+
+        let sorted = finiteValues.sorted()
+        let middle = sorted.count / 2
+        let baseline = sorted.count.isMultiple(of: 2)
+            ? (sorted[middle - 1] + sorted[middle]) / 2
+            : sorted[middle]
+        let diff = current - baseline
+        let magnitude = BodyValueFormat.numberText(abs(diff), decimals: 1)
+        let value: String
+        if diff > 0.05 {
+            value = "+\(magnitude)"
+        } else if diff < -0.05 {
+            value = "−\(magnitude)"
+        } else {
+            value = magnitude
+        }
+        return HealthWidgetDisplayValue(value: value, unit: "C")
+    }
+
+    private static func energyValueText(
+        _ kilocalories: Double?,
+        _ energyUnitPreference: BodyValueFormat.EnergyUnitPreference
+    ) -> String {
+        kilocalories.map {
+            BodyValueFormat.numberText(
+                BodyValueFormat.energyValue(kilocalories: $0, energyUnitPreference: energyUnitPreference).value,
+                decimals: 0
+            )
+        } ?? "--"
     }
 
     private static func widgetSeries(
@@ -167,12 +294,10 @@ enum HealthWidgetSnapshotBuilder {
             )
         }
 
-        let finiteValues = points.compactMap(\.value)
-        let averageText = finiteValues.isEmpty
-            ? nil
-            : format(finiteValues.reduce(0, +) / Double(finiteValues.count))
-
-        return HealthWidgetTrendSeries(points: points, averageText: averageText)
+        var widgetSeries = HealthWidgetTrendSeries(points: points, averageText: nil)
+        widgetSeries.averageText = widgetSeries.average.map(format)
+        widgetSeries.latestText = widgetSeries.latest.map(format)
+        return widgetSeries
     }
 
     // MARK: - Value transforms & formatting (mirrors BodyHomeTrendCardFactory)
@@ -180,13 +305,16 @@ enum HealthWidgetSnapshotBuilder {
     private static func valueTransform(
         for metric: HealthWidgetMetric,
         temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
-        energyUnitPreference: BodyValueFormat.EnergyUnitPreference
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference
     ) -> (Double) -> Double {
         switch metric {
         case .wristTemperature:
             return { BodyValueFormat.temperatureValue(celsius: $0, temperatureUnitPreference: temperatureUnitPreference).value }
         case .activeEnergy, .restingEnergy:
             return { BodyValueFormat.energyValue(kilocalories: $0, energyUnitPreference: energyUnitPreference).value }
+        case .bodyMass:
+            return { BodyValueFormat.massValue(kilograms: $0, weightUnitPreference: weightUnitPreference).value }
         default:
             return { $0 }
         }
@@ -195,7 +323,8 @@ enum HealthWidgetSnapshotBuilder {
     private static func averageFormatter(
         for metric: HealthWidgetMetric,
         temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
-        energyUnitPreference: BodyValueFormat.EnergyUnitPreference
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference
     ) -> (Double) -> String {
         let temperatureUnit = BodyValueFormat.temperatureValue(
             celsius: 0,
@@ -204,6 +333,10 @@ enum HealthWidgetSnapshotBuilder {
         let energyUnit = BodyValueFormat.energyValue(
             kilocalories: 0,
             energyUnitPreference: energyUnitPreference
+        ).unit
+        let massUnit = BodyValueFormat.massValue(
+            kilograms: 0,
+            weightUnitPreference: weightUnitPreference
         ).unit
 
         switch metric {
@@ -227,6 +360,10 @@ enum HealthWidgetSnapshotBuilder {
             return { BodyValueFormat.numberText($0, decimals: 0) + " min" }
         case .trainingLoad:
             return { BodyValueFormat.numberText($0, decimals: 2) }
+        case .bodyMass:
+            return { BodyValueFormat.numberText($0, decimals: 1) + " " + massUnit }
+        case .bodyFatPercentage:
+            return { BodyValueFormat.numberText($0, decimals: 1) + "%" }
         }
     }
 
@@ -278,6 +415,21 @@ enum HealthWidgetSnapshotBuilder {
         let rawValue = defaults.string(forKey: BodyAppearancePreference.selectedEnergyUnitKey)
             ?? BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
         return BodyValueFormat.EnergyUnitPreference.storedValue(from: rawValue)
+    }
+
+    static func storedWeightUnitPreference(
+        defaults: UserDefaults = .standard
+    ) -> BodyValueFormat.WeightUnitPreference {
+        if followsSystemUnits(defaults: defaults) {
+            return BodyValueFormat.WeightUnitPreference.systemValue(locale: .current)
+        }
+        let rawValue = defaults.string(forKey: BodyAppearancePreference.selectedWeightUnitKey)
+            ?? BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
+        return BodyValueFormat.WeightUnitPreference.storedValue(from: rawValue)
+    }
+
+    static func storedShowSleepScore(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: BodyAppearancePreference.showSleepScoreKey) as? Bool ?? true
     }
 
     private static func followsSystemUnits(defaults: UserDefaults) -> Bool {

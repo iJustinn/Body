@@ -1273,29 +1273,31 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// actor; the build + disk write happen off-actor.
     private func saveHealthWidgetSnapshot() {
         let trends = healthTrends
-        let sleepStageSnapshot = healthSummary.sleep.stageSnapshot
+        let summary = healthSummary
+        let sleepStageSnapshot = summary.sleep.stageSnapshot
         let temperatureUnitPreference = HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference()
         let energyUnitPreference = HealthWidgetSnapshotBuilder.storedEnergyUnitPreference()
+        let weightUnitPreference = HealthWidgetSnapshotBuilder.storedWeightUnitPreference()
+        let idealSleepDuration = Self.storedIdealSleepDuration()
+        let showSleepScore = HealthWidgetSnapshotBuilder.storedShowSleepScore()
 
         var primarySourceNames: [HealthMetricKind: String] = [:]
-        var secondarySourceNames: [HealthMetricKind: String] = [:]
         for metric in HealthWidgetMetric.allCases {
             let kind = metric.healthMetricKind
-            primarySourceNames[kind] = selectedHealthDataSourceOption(for: kind).name
-            let secondaryOption = selectedSecondaryHealthDataSourceOption(for: kind)
-            if !secondaryOption.isNoComparison {
-                secondarySourceNames[kind] = secondaryOption.name
-            }
+            primarySourceNames[kind] = selectedHealthDataSourceOption(for: metric.sourceSelectionKind).name
         }
 
         Task.detached(priority: .utility) {
             let snapshot = HealthWidgetSnapshotBuilder.make(
                 trends: trends,
+                summary: summary,
                 sleepStageSnapshot: sleepStageSnapshot,
                 temperatureUnitPreference: temperatureUnitPreference,
                 energyUnitPreference: energyUnitPreference,
-                primarySourceName: { primarySourceNames[$0] },
-                secondarySourceName: { secondarySourceNames[$0] }
+                weightUnitPreference: weightUnitPreference,
+                idealSleepDuration: idealSleepDuration,
+                showSleepScore: showSleepScore,
+                primarySourceName: { primarySourceNames[$0] }
             )
             if HealthWidgetSnapshotStore.save(snapshot) {
                 WidgetCenter.shared.reloadAllTimelines()

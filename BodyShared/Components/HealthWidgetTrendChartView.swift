@@ -2,50 +2,41 @@
 //  HealthWidgetTrendChartView.swift
 //  Body
 //
-//  Medium-widget content that charts a single metric's weekly/monthly trend.
-//  Draws the primary source and, when a secondary source is selected in the
-//  app, overlays it for comparison. Self-contained (BodyShared) so it renders
-//  inside the widget extension.
+//  Medium-widget content that charts a single metric's weekly/monthly trend
+//  for the primary source, with a dashed reference line at the range average
+//  and the average value shown at the bottom-right. Self-contained (BodyShared)
+//  so it renders inside the widget extension.
 //
 
 import SwiftUI
-
-/// The secondary-source overlay color, matching the in-app comparison charts.
-private let healthWidgetSecondaryColor = Color(red: 0.58, green: 0.36, blue: 0.98)
 
 struct HealthWidgetTrendChartView: View {
     let metric: HealthWidgetMetric
     let range: HealthWidgetTrendRange
     let trend: HealthWidgetMetricTrend?
 
-    private var rangeTrend: HealthWidgetRangeTrend? {
-        trend?.rangeTrend(for: range)
+    private var series: HealthWidgetTrendSeries? {
+        trend?.series(for: range)
     }
 
     private var hasData: Bool {
-        (rangeTrend?.primary.isEmpty == false)
-    }
-
-    private var hasSecondary: Bool {
-        guard let secondary = rangeTrend?.secondary else { return false }
-        return !secondary.isEmpty
+        series?.isEmpty == false
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
 
-            if hasData, let rangeTrend {
+            if hasData, let series {
                 HealthWidgetTrendPlot(
                     style: metric.chartStyle,
-                    primary: rangeTrend.primary.points,
-                    secondary: hasSecondary ? rangeTrend.secondary?.points : nil,
-                    primaryColor: metric.tintColor,
-                    secondaryColor: healthWidgetSecondaryColor
+                    points: series.points,
+                    average: series.average,
+                    color: metric.tintColor
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                footer(rangeTrend: rangeTrend)
+                footer(series: series)
             } else {
                 emptyState
             }
@@ -80,58 +71,42 @@ struct HealthWidgetTrendChartView: View {
         }
     }
 
-    private func footer(rangeTrend: HealthWidgetRangeTrend) -> some View {
-        HStack(alignment: .bottom) {
-            averageColumn(
-                value: rangeTrend.primary.averageText,
-                source: trend?.primarySourceName,
-                color: metric.tintColor,
-                alignment: .leading
-            )
+    private func footer(series: HealthWidgetTrendSeries) -> some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            if let source = trend?.primarySourceName, !source.isEmpty {
+                Text(source)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .layoutPriority(-1)
+            }
 
-            if hasSecondary {
-                Spacer(minLength: 10)
-                averageColumn(
-                    value: rangeTrend.secondary?.averageText,
-                    source: trend?.secondarySourceName,
-                    color: healthWidgetSecondaryColor,
-                    alignment: .trailing
-                )
+            Spacer(minLength: 4)
+
+            // Snapshots cached by older builds predate `latestText`; omit the label
+            // rather than showing "Latest --" until the app rewrites the cache.
+            if let latestText = series.latestText {
+                valueLabel("Latest", value: latestText)
+            }
+            if let averageText = series.averageText {
+                valueLabel("Avg", value: averageText)
             }
         }
     }
 
-    @ViewBuilder
-    private func averageColumn(
-        value: String?,
-        source: String?,
-        color: Color,
-        alignment: HorizontalAlignment
-    ) -> some View {
-        VStack(alignment: alignment, spacing: 1) {
-            Text(value ?? "--")
+    private func valueLabel(_ label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(label)
+                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .foregroundColor(.primary)
+
+            Text(value)
                 .font(.system(size: 17, weight: .bold, design: .rounded))
-                .foregroundColor(color)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-
-            Text(sourceCaption(source))
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundColor(.secondary)
+                .foregroundColor(.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
-        .frame(
-            maxWidth: .infinity,
-            alignment: alignment == .leading ? .leading : .trailing
-        )
-    }
-
-    private func sourceCaption(_ source: String?) -> String {
-        if let source, !source.isEmpty {
-            return source
-        }
-        return "\(range.chartTitle) avg"
     }
 
     private var emptyState: some View {
@@ -156,12 +131,13 @@ struct HealthWidgetTrendChartView: View {
 
 // MARK: - Plot
 
-private struct HealthWidgetTrendPlot: View {
+/// Line/bar plot with a dashed average reference line. Shared by the medium
+/// trend widget and the small metric widget so their chart style matches.
+struct HealthWidgetTrendPlot: View {
     let style: HealthWidgetChartStyle
-    let primary: [HealthWidgetPoint]
-    let secondary: [HealthWidgetPoint]?
-    let primaryColor: Color
-    let secondaryColor: Color
+    let points: [HealthWidgetPoint]
+    let average: Double?
+    let color: Color
 
     var body: some View {
         GeometryReader { proxy in
@@ -169,37 +145,37 @@ private struct HealthWidgetTrendPlot: View {
             ZStack {
                 switch style {
                 case .line:
-                    linePath(for: primary, in: proxy.size, domain: domain)
+                    linePath(for: points, in: proxy.size, domain: domain)
                         .stroke(
-                            primaryColor,
+                            color,
                             style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
                         )
                 case .bar:
-                    barPlot(for: primary, in: proxy.size, domain: domain)
+                    barPlot(for: points, in: proxy.size, domain: domain)
                 }
 
-                if let secondary {
-                    linePath(for: secondary, in: proxy.size, domain: domain)
-                        .stroke(
-                            secondaryColor.opacity(0.9),
-                            style: StrokeStyle(
-                                lineWidth: 2,
-                                lineCap: .round,
-                                lineJoin: .round,
-                                dash: style == .bar ? [4, 3] : []
-                            )
-                        )
+                if let average, average.isFinite {
+                    averageLine(value: average, in: proxy.size, domain: domain)
                 }
             }
         }
         .accessibilityHidden(true)
     }
 
-    /// Shared value domain across both series so they're visually comparable.
+    private func averageLine(value: Double, in size: CGSize, domain: ClosedRange<Double>) -> some View {
+        let y = yPosition(for: value, in: size.height, domain: domain)
+        return Path { path in
+            path.move(to: CGPoint(x: 0, y: y))
+            path.addLine(to: CGPoint(x: size.width, y: y))
+        }
+        .stroke(
+            color.opacity(0.8),
+            style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [5, 4])
+        )
+    }
+
     private var valueDomain: ClosedRange<Double> {
-        let values = (primary + (secondary ?? []))
-            .compactMap(\.value)
-            .filter(\.isFinite)
+        let values = points.compactMap(\.value).filter(\.isFinite)
         guard let minimum = values.min(), let maximum = values.max() else {
             return 0...1
         }
@@ -210,7 +186,7 @@ private struct HealthWidgetTrendPlot: View {
 
         // For bars, anchor the baseline at zero so heights read correctly.
         if style == .bar {
-            return 0...(maximum + (maximum - 0) * 0.08)
+            return 0...(maximum + maximum * 0.08)
         }
 
         let padding = (maximum - minimum) * 0.16
@@ -266,7 +242,7 @@ private struct HealthWidgetTrendPlot: View {
         return HStack(alignment: .bottom, spacing: spacing) {
             ForEach(points) { point in
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(point.value == nil ? Color.secondary.opacity(0.12) : primaryColor.opacity(0.85))
+                    .fill(point.value == nil ? Color.secondary.opacity(0.12) : color.opacity(0.85))
                     .frame(
                         width: barWidth,
                         height: barHeight(for: point.value, in: size.height, domain: domain)

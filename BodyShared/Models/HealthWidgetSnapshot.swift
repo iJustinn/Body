@@ -31,6 +31,8 @@ enum HealthWidgetMetric: String, Codable, CaseIterable, Identifiable {
     case exerciseMinutes
     case trainingLoad
     case timeInDaylight
+    case bodyMass
+    case bodyFatPercentage
 
     var id: String { rawValue }
 
@@ -43,13 +45,15 @@ enum HealthWidgetMetric: String, Codable, CaseIterable, Identifiable {
         case .respiratoryRate: return "Respiratory Rate"
         case .oxygenSaturation: return "Blood Oxygen"
         case .sleep: return "Sleep"
-        case .wristTemperature: return "Wrist Temperature"
+        case .wristTemperature: return "Skin Temperature"
         case .steps: return "Steps"
         case .activeEnergy: return "Active Energy"
         case .restingEnergy: return "Resting Energy"
         case .exerciseMinutes: return "Exercise Minutes"
         case .trainingLoad: return "Training Load"
         case .timeInDaylight: return "Time In Daylight"
+        case .bodyMass: return "Weight"
+        case .bodyFatPercentage: return "Body Fat"
         }
     }
 
@@ -62,11 +66,14 @@ enum HealthWidgetMetric: String, Codable, CaseIterable, Identifiable {
         case .oxygenSaturation: return "drop.fill"
         case .sleep: return "bed.double.fill"
         case .wristTemperature: return "thermometer.medium"
-        case .steps, .activeEnergy: return "flame.fill"
+        case .steps: return "figure.walk"
+        case .activeEnergy: return "flame.fill"
         case .restingEnergy: return "leaf.fill"
         case .exerciseMinutes: return "figure.run"
         case .trainingLoad: return "figure.strengthtraining.traditional"
         case .timeInDaylight: return "sun.max.fill"
+        case .bodyMass: return "scalemass.fill"
+        case .bodyFatPercentage: return "percent"
         }
     }
 
@@ -82,6 +89,8 @@ enum HealthWidgetMetric: String, Codable, CaseIterable, Identifiable {
             return Color(red: 1.00, green: 0.38, blue: 0.12)
         case .restingEnergy: return Color(red: 0.14, green: 0.72, blue: 0.42)
         case .timeInDaylight: return Color(red: 0.10, green: 0.58, blue: 1.00)
+        case .bodyMass: return Color(red: 0.50, green: 0.34, blue: 1.00)
+        case .bodyFatPercentage: return Color(red: 1.00, green: 0.68, blue: 0.08)
         }
     }
 
@@ -90,7 +99,8 @@ enum HealthWidgetMetric: String, Codable, CaseIterable, Identifiable {
         case .steps, .activeEnergy, .restingEnergy, .exerciseMinutes, .timeInDaylight:
             return .bar
         case .readiness, .heartRate, .restingHeartRate, .heartRateVariability,
-             .respiratoryRate, .oxygenSaturation, .sleep, .wristTemperature, .trainingLoad:
+             .respiratoryRate, .oxygenSaturation, .sleep, .wristTemperature, .trainingLoad,
+             .bodyMass, .bodyFatPercentage:
             return .line
         }
     }
@@ -139,31 +149,65 @@ struct HealthWidgetTrendSeries: Codable, Equatable {
     /// Pre-formatted average over the range (computed app-side where unit
     /// preferences are available), e.g. "62 BPM" or "7h 12m".
     var averageText: String?
+    /// Pre-formatted most-recent (today/now) value in the range, e.g. "64 BPM".
+    var latestText: String?
+
+    init(points: [HealthWidgetPoint], averageText: String? = nil, latestText: String? = nil) {
+        self.points = points
+        self.averageText = averageText
+        self.latestText = latestText
+    }
 
     var isEmpty: Bool {
         points.allSatisfy { $0.value == nil }
     }
 
-    static let empty = HealthWidgetTrendSeries(points: [], averageText: nil)
+    /// Numeric average over the range, used to position the reference line.
+    /// Matches the value `averageText` formats.
+    var average: Double? {
+        let values = points.compactMap(\.value).filter(\.isFinite)
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +) / Double(values.count)
+    }
+
+    /// The most recent finite value in the range. Matches `latestText`.
+    var latest: Double? {
+        points.reversed().compactMap(\.value).first { $0.isFinite }
+    }
+
+    static let empty = HealthWidgetTrendSeries(points: [])
 }
 
-struct HealthWidgetRangeTrend: Codable, Equatable {
-    var primary: HealthWidgetTrendSeries
-    var secondary: HealthWidgetTrendSeries?
-
-    static let empty = HealthWidgetRangeTrend(primary: .empty, secondary: nil)
+/// A single value + unit shown on a metric preview card, e.g. "62"/"bpm" or
+/// "85"/"PTS". Most metrics have one; Sleep and Skin Temp have two (matching
+/// the app's prominent cards).
+struct HealthWidgetDisplayValue: Codable, Equatable {
+    var value: String
+    var unit: String
 }
 
 struct HealthWidgetMetricTrend: Codable, Equatable, Identifiable {
     var metric: HealthWidgetMetric
     var primarySourceName: String?
-    var secondarySourceName: String?
-    var week: HealthWidgetRangeTrend
-    var month: HealthWidgetRangeTrend
+    var week: HealthWidgetTrendSeries
+    var month: HealthWidgetTrendSeries
+    /// The value(s) shown on the home preview card (from the latest summary
+    /// reading), pre-formatted. One element for most metrics; two for the
+    /// prominent Sleep (score + duration) and Skin Temp (deviation + actual)
+    /// cards. Used by the small metric widget.
+    var displayValues: [HealthWidgetDisplayValue]
+
+    private enum CodingKeys: String, CodingKey {
+        case metric
+        case primarySourceName
+        case week
+        case month
+        case displayValues
+    }
 
     var id: String { metric.rawValue }
 
-    func rangeTrend(for range: HealthWidgetTrendRange) -> HealthWidgetRangeTrend {
+    func series(for range: HealthWidgetTrendRange) -> HealthWidgetTrendSeries {
         switch range {
         case .week: return week
         case .month: return month
@@ -171,7 +215,44 @@ struct HealthWidgetMetricTrend: Codable, Equatable, Identifiable {
     }
 
     var hasAnyData: Bool {
-        !week.primary.isEmpty || !month.primary.isEmpty
+        !week.isEmpty || !month.isEmpty
+    }
+}
+
+extension HealthWidgetMetricTrend {
+    /// Tolerant decoder for snapshots written by older builds. Previously
+    /// `week`/`month` were `{ primary, secondary }` range trends and
+    /// `displayValues` did not exist; accepting that shape keeps an existing
+    /// on-disk cache from failing to decode (which would blank the widget until
+    /// the app rewrites it). The `displayValues` default also lets a freshly
+    /// updated widget extension read a snapshot the app hasn't refreshed yet.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            metric: try container.decode(HealthWidgetMetric.self, forKey: .metric),
+            primarySourceName: try container.decodeIfPresent(String.self, forKey: .primarySourceName),
+            week: Self.decodeSeries(from: container, forKey: .week),
+            month: Self.decodeSeries(from: container, forKey: .month),
+            displayValues: (try? container.decode([HealthWidgetDisplayValue].self, forKey: .displayValues)) ?? []
+        )
+    }
+
+    private static func decodeSeries(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> HealthWidgetTrendSeries {
+        if let series = try? container.decode(HealthWidgetTrendSeries.self, forKey: key) {
+            return series
+        }
+        // Legacy `{ primary, secondary }` range-trend shape: keep the primary.
+        if let legacy = try? container.decode(LegacyRangeTrend.self, forKey: key) {
+            return legacy.primary
+        }
+        return .empty
+    }
+
+    private struct LegacyRangeTrend: Decodable {
+        var primary: HealthWidgetTrendSeries
     }
 }
 
@@ -214,10 +295,6 @@ enum HealthWidgetSleepStage: String, Codable, CaseIterable, Identifiable {
         case .core: return Color(red: 0.24, green: 0.56, blue: 1.00)
         case .deep: return Color(red: 0.25, green: 0.25, blue: 0.82)
         }
-    }
-
-    static func stage(at position: Double) -> HealthWidgetSleepStage? {
-        allCases.first { $0.chartPosition == position }
     }
 }
 
@@ -317,6 +394,8 @@ private enum HealthWidgetPlaceholder {
             case .exerciseMinutes: return (44, 22)
             case .trainingLoad: return (1.05, 0.25)
             case .timeInDaylight: return (62, 30)
+            case .bodyMass: return (70, 1.5)
+            case .bodyFatPercentage: return (18, 2)
             }
         }()
         return metricTrend(for: metric, base: base, spread: spread)
@@ -330,13 +409,15 @@ private enum HealthWidgetPlaceholder {
         HealthWidgetMetricTrend(
             metric: metric,
             primarySourceName: nil,
-            secondarySourceName: nil,
-            week: range(base: base, spread: spread, dayCount: 7),
-            month: range(base: base, spread: spread, dayCount: 30)
+            week: series(base: base, spread: spread, dayCount: 7),
+            month: series(base: base, spread: spread, dayCount: 30),
+            displayValues: [
+                HealthWidgetDisplayValue(value: BodyValueFormat.numberText(base, decimals: 0), unit: "")
+            ]
         )
     }
 
-    private static func range(base: Double, spread: Double, dayCount: Int) -> HealthWidgetRangeTrend {
+    private static func series(base: Double, spread: Double, dayCount: Int) -> HealthWidgetTrendSeries {
         let calendar = Calendar.bodyGregorian
         let today = calendar.startOfDay(for: Date())
         let points: [HealthWidgetPoint] = (0..<dayCount).reversed().map { offset in
@@ -344,10 +425,10 @@ private enum HealthWidgetPlaceholder {
             let wave = sin(Double(offset) / 2.4) * spread * 0.5
             return HealthWidgetPoint(date: date, value: base + wave)
         }
-        return HealthWidgetRangeTrend(
-            primary: HealthWidgetTrendSeries(points: points, averageText: nil),
-            secondary: nil
-        )
+        var series = HealthWidgetTrendSeries(points: points, averageText: nil)
+        series.averageText = series.average.map { BodyValueFormat.numberText($0, decimals: 0) }
+        series.latestText = series.latest.map { BodyValueFormat.numberText($0, decimals: 0) }
+        return series
     }
 
     static func sleepStages() -> HealthWidgetSleepStages {

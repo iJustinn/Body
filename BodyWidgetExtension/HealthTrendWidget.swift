@@ -28,6 +28,8 @@ enum BodyTrendMetricSelection: String, AppEnum, Codable, CaseIterable {
     case exerciseMinutes
     case trainingLoad
     case timeInDaylight
+    case bodyMass
+    case bodyFatPercentage
 
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Metric")
 
@@ -39,13 +41,15 @@ enum BodyTrendMetricSelection: String, AppEnum, Codable, CaseIterable {
         .respiratoryRate: "Respiratory Rate",
         .oxygenSaturation: "Blood Oxygen",
         .sleep: "Sleep",
-        .wristTemperature: "Wrist Temperature",
+        .wristTemperature: "Skin Temperature",
         .steps: "Steps",
         .activeEnergy: "Active Energy",
         .restingEnergy: "Resting Energy",
         .exerciseMinutes: "Exercise Minutes",
         .trainingLoad: "Training Load",
-        .timeInDaylight: "Time In Daylight"
+        .timeInDaylight: "Time In Daylight",
+        .bodyMass: "Weight",
+        .bodyFatPercentage: "Body Fat"
     ]
 
     var widgetMetric: HealthWidgetMetric {
