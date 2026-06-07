@@ -372,6 +372,7 @@ struct BodyHealthMetricDetailView: View {
             .padding(.horizontal, 16)
             .padding(.top, 16)
             .padding(.bottom, 32)
+            .readableContentColumn()
         }
         .refreshable {
             let started = Date()
@@ -1637,7 +1638,7 @@ struct BodyHealthMetricDetailView: View {
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 
-            Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and wrist temperature. Missing sensors are skipped instead of counted as zero.")
+            Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Missing sensors are skipped instead of counted as zero.")
                 .font(.system(.body, design: .rounded))
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
@@ -1732,7 +1733,7 @@ struct BodyHealthMetricDetailView: View {
                 temperatureUnitPreference: selectedTemperatureUnitPreference
             )
             rows.append(SleepVitalDisplayRow(
-                title: "Wrist Temperature",
+                title: "Skin Temperature",
                 value: display.value,
                 unit: display.unit,
                 symbolName: "thermometer.medium",

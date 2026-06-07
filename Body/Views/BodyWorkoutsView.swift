@@ -115,6 +115,7 @@ struct BodyWorkoutsView: View {
                         .allowsHitTesting(false)
                     }
                 }
+                .readableContentColumn()
             }
             .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing || pendingMonthSelection != nil)
             .sheet(isPresented: $showingSortSheet) {

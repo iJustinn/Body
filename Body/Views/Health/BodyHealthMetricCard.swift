@@ -134,7 +134,10 @@ struct BodyHealthMetricCard: View {
                 )
                 .accessibilityHidden(true)
         }
-        .frame(width: BodyHomeMetricCardPreview.barPreviewWidth, alignment: .bottomTrailing)
+        .frame(
+            width: BodyHomeMetricCardPreview.previewWidth(for: metric.chartPreviewStyle, screenWidth: UIScreen.main.bounds.width),
+            alignment: .bottomTrailing
+        )
         .padding(.bottom, 4)
     }
 
@@ -268,19 +271,16 @@ struct BodyHealthMetricCardTrendPreview: View {
                 rangePreview
             }
         }
-        .frame(width: previewWidth, height: 42, alignment: .bottomTrailing)
+        .frame(width: previewWidth, height: previewHeight, alignment: .bottomTrailing)
         .accessibilityHidden(true)
     }
 
     private var previewWidth: CGFloat {
-        switch style {
-        case .line:
-            return BodyHomeMetricCardPreview.linePreviewWidth
-        case .bar:
-            return BodyHomeMetricCardPreview.barPreviewWidth
-        case .range:
-            return BodyHomeMetricCardPreview.barPreviewWidth
-        }
+        BodyHomeMetricCardPreview.previewWidth(for: style, screenWidth: UIScreen.main.bounds.width)
+    }
+
+    private var previewHeight: CGFloat {
+        BodyHomeMetricCardPreview.previewHeight(forScreenWidth: UIScreen.main.bounds.width)
     }
 
     private var barPreview: some View {

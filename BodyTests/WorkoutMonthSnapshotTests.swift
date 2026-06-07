@@ -1304,6 +1304,14 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(BodyHomeMetricCardPreview.dayCount(forScreenWidth: Double.nan), 4)
     }
 
+    func testHomeMetricCardPreviewUsesRegularCountOnIPadScreens() {
+        XCTAssertEqual(BodyHomeMetricCardPreview.regularPreviewDayCount, 5)
+        XCTAssertEqual(BodyHomeMetricCardPreview.dayCount(forScreenWidth: 744), 5)
+        XCTAssertEqual(BodyHomeMetricCardPreview.dayCount(forScreenWidth: 1024), 5)
+        // Largest portrait iPhone width still keeps the iPhone preview count.
+        XCTAssertEqual(BodyHomeMetricCardPreview.dayCount(forScreenWidth: 430), 4)
+    }
+
     func testHomeMetricCardPreviewCalendarPointsIncludeTodayWhenTodayHasData() throws {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 13, hour: 12)))
@@ -1444,6 +1452,17 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(BodyHomeMetricCardPreview.linePreviewWidth, 42, accuracy: 0.001)
         XCTAssertEqual(BodyHomeMetricCardPreview.barPreviewWidth, 42, accuracy: 0.001)
         XCTAssertEqual(BodyHomeMetricCardPreview.linePreviewWidth, BodyHomeMetricCardPreview.barPreviewWidth)
+    }
+
+    func testHomeMetricCardPreviewEnlargesOnIPadScreens() {
+        XCTAssertEqual(BodyHomeMetricCardPreview.regularPreviewWidth, 50, accuracy: 0.001)
+        XCTAssertEqual(BodyHomeMetricCardPreview.regularPreviewHeight, 50, accuracy: 0.001)
+        XCTAssertEqual(BodyHomeMetricCardPreview.previewWidth(for: .line, screenWidth: 1024), 50, accuracy: 0.001)
+        XCTAssertEqual(BodyHomeMetricCardPreview.previewWidth(for: .bar, screenWidth: 744), 50, accuracy: 0.001)
+        XCTAssertEqual(BodyHomeMetricCardPreview.previewHeight(forScreenWidth: 1024), 50, accuracy: 0.001)
+        // iPhone keeps the compact preview size.
+        XCTAssertEqual(BodyHomeMetricCardPreview.previewWidth(for: .line, screenWidth: 390), 42, accuracy: 0.001)
+        XCTAssertEqual(BodyHomeMetricCardPreview.previewHeight(forScreenWidth: 390), 42, accuracy: 0.001)
     }
 
     func testHomeTrendCardPresentationComparesRecentWeekAgainstPriorThreeWeeks() throws {
@@ -2593,7 +2612,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(HealthMetricKind.exerciseMinutes.detailHelpText?.title, "About Exercise Minutes")
         XCTAssertEqual(HealthMetricKind.trainingLoad.detailHelpText?.title, "About Training Load")
         XCTAssertTrue(HealthMetricKind.trainingLoad.detailHelpText?.body.contains("acute training load") == true)
-        XCTAssertEqual(HealthMetricKind.wristTemperature.detailHelpText?.title, "About Wrist Temperature")
+        XCTAssertEqual(HealthMetricKind.wristTemperature.detailHelpText?.title, "About Skin Temperature")
         XCTAssertEqual(HealthMetricKind.timeInDaylight.detailHelpText?.title, "About Time In Daylight")
         XCTAssertEqual(HealthMetricKind.steps.detailHelpText?.title, "About Steps")
     }

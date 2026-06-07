@@ -46,6 +46,7 @@ struct BodySettingsView: View {
                     .padding(.horizontal)
                     .padding(.top, 10)
                     .padding(.bottom, 110)
+                    .readableContentColumn()
                 }
 
                 if showingCreatorSurprise {

@@ -122,6 +122,7 @@ struct BodyActivityRingsDetailView: View {
                 .padding(.horizontal, 18)
                 .padding(.top, 18)
                 .padding(.bottom, 36)
+                .readableContentColumn()
             }
             .task {
                 if let currentMonthID = calendarMonths.last?.id {

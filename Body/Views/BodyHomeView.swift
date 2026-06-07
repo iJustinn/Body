@@ -246,6 +246,7 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var draggedHomeCard: BodyHomeCardKind?
     @State private var showsAllHomeTrends = false
     @State private var isPullRefreshing = false
@@ -265,29 +266,26 @@ struct BodyHomeView: View {
                             BodyHealthNoticeBanner(message: healthDataNotice)
                         }
 
-                        VStack(spacing: 14) {
-                            ForEach(homeCardRows) { row in
-                                HStack(spacing: 14) {
-                                    ForEach(row.cards) { card in
-                                        reorderableHomeCard(for: card, lookup: metricCardLookup)
-                                            .frame(maxWidth: .infinity)
-                                    }
+                        if horizontalSizeClass == .regular {
+                            HStack(alignment: .top, spacing: 14) {
+                                metricCardsGrid(lookup: metricCardLookup)
+                                    .frame(maxWidth: .infinity, alignment: .top)
 
-                                    if row.slotCount < 2 {
-                                        Color.clear
-                                            .frame(maxWidth: .infinity)
-                                            .accessibilityHidden(true)
-                                    }
+                                if hasHomeTrends {
+                                    homeTrendsContent
+                                        .frame(maxWidth: .infinity, alignment: .top)
                                 }
                             }
-                        }
-                        .animation(.spring(response: 0.25, dampingFraction: 0.85), value: homeCardOrder)
+                        } else {
+                            metricCardsGrid(lookup: metricCardLookup)
 
-                        homeTrendsSection
+                            homeTrendsSection
+                        }
                     }
                     .padding(.horizontal)
                     .padding(.top, 10)
                     .padding(.bottom, 110)
+                    .readableContentColumn(maxWidth: AppLayout.homeContentWidth)
                 }
                 .refreshable {
                     let started = Date()
@@ -315,6 +313,28 @@ struct BodyHomeView: View {
         BodyHomeCardKind.layoutRows(from: homeCardOrder, visibleIn: summaryCardSelection)
     }
 
+    /// The two-column grid of summary metric cards (identical on iPhone and iPad).
+    @ViewBuilder
+    private func metricCardsGrid(lookup: [HealthMetricKind: BodyHealthMetricCard.Model]) -> some View {
+        VStack(spacing: 14) {
+            ForEach(homeCardRows) { row in
+                HStack(spacing: 14) {
+                    ForEach(row.cards) { card in
+                        reorderableHomeCard(for: card, lookup: lookup)
+                            .frame(maxWidth: .infinity)
+                    }
+
+                    if row.slotCount < 2 {
+                        Color.clear
+                            .frame(maxWidth: .infinity)
+                            .accessibilityHidden(true)
+                    }
+                }
+            }
+        }
+        .animation(.spring(response: 0.25, dampingFraction: 0.85), value: homeCardOrder)
+    }
+
     private var summaryCardSelection: BodySummaryCardSelection {
         BodySummaryCardSelection.storedValue(from: summaryCardSelectionRawValue)
     }
@@ -331,24 +351,33 @@ struct BodyHomeView: View {
         BodyHomeTrendCardSelection.storedValue(from: homeTrendCardSelectionRawValue)
     }
 
+    private var hasHomeTrends: Bool {
+        !visibleHomeTrendCards.isEmpty
+    }
+
+    /// The trends list without the leading section divider, shared by the iPhone
+    /// (stacked below the metrics) and iPad (right-hand column) layouts.
     @ViewBuilder
-    private var homeTrendsSection: some View {
-        let allCards = allHomeTrendCards
-        let significantCards = showsAllHomeTrends ? allCards : significantHomeTrendCards
-        let visibleTrendCards = showsAllHomeTrends ? allCards : Array(significantCards.prefix(4))
-        let canToggleAll = showsAllHomeTrends || allCards.count > visibleTrendCards.count
-
-        if !visibleTrendCards.isEmpty {
-            BodyHomeSectionDivider()
-                .padding(.top, 8)
-
+    private var homeTrendsContent: some View {
+        if hasHomeTrends {
             BodyHomeTrendsSection(
-                cards: visibleTrendCards,
-                canToggleAll: canToggleAll,
+                cards: visibleHomeTrendCards,
+                canToggleAll: canToggleAllHomeTrends,
                 showsAllTrends: showsAllHomeTrends,
                 toggleAll: toggleAllHomeTrends
             )
-            .padding(.top, 8)
+        }
+    }
+
+    /// iPhone layout: trends stacked beneath the metrics with a divider separator.
+    @ViewBuilder
+    private var homeTrendsSection: some View {
+        if hasHomeTrends {
+            BodyHomeSectionDivider()
+                .padding(.top, 8)
+
+            homeTrendsContent
+                .padding(.top, 8)
         }
     }
 
@@ -637,7 +666,7 @@ struct BodyHomeView: View {
             temperatureUnitPreference: selectedTemperatureUnitPreference
         ).unit
         let actualDisplay = BodyMetricDisplayValue(
-            title: "Wrist Temperature",
+            title: "Skin Temperature",
             value: display?.value ?? "--",
             unit: display?.unit ?? temperatureUnit
         )
@@ -648,7 +677,7 @@ struct BodyHomeView: View {
 
         return BodyHealthMetricCard.Model(
             kind: .wristTemperature,
-            title: "Wrist Temp",
+            title: "Skin Temp",
             value: display?.value ?? "--",
             unit: display?.unit ?? temperatureUnit,
             symbolName: "thermometer.medium",
@@ -928,7 +957,7 @@ struct BodyHomeView: View {
                 temperatureUnitPreference: selectedTemperatureUnitPreference
             ).unit
             let actualDisplay = BodyMetricDisplayValue(
-                title: "Wrist Temperature",
+                title: "Skin Temperature",
                 value: display?.value ?? "--",
                 unit: display?.unit ?? temperatureUnit
             )
@@ -938,7 +967,7 @@ struct BodyHomeView: View {
             )
             return BodyHealthMetricDetailModel(
                 kind: kind,
-                title: "Wrist Temperature",
+                title: "Skin Temperature",
                 value: display?.value ?? "--",
                 unit: display?.unit ?? temperatureUnit,
                 symbolName: "thermometer.medium",
@@ -1292,9 +1321,14 @@ private struct BodyHomeCardDropDelegate: DropDelegate {
 enum BodyHomeMetricCardPreview {
     static let previewDayCount = 4
     static let compactPreviewDayCount = 3
+    static let regularPreviewDayCount = 5
     static let compactScreenMaximumWidth: CGFloat = 375
+    static let regularScreenMinimumWidth: CGFloat = 700
     static let linePreviewWidth: CGFloat = 42
     static let barPreviewWidth: CGFloat = 42
+    static let compactPreviewHeight: CGFloat = 42
+    static let regularPreviewWidth: CGFloat = 50
+    static let regularPreviewHeight: CGFloat = 50
     static let linePointDiameter: CGFloat = 6
     static let lineCurrentPointDiameter: CGFloat = 7
 
@@ -1318,7 +1352,33 @@ enum BodyHomeMetricCardPreview {
             return previewDayCount
         }
 
+        if screenWidth >= regularScreenMinimumWidth {
+            return regularPreviewDayCount
+        }
+
         return screenWidth <= compactScreenMaximumWidth ? compactPreviewDayCount : previewDayCount
+    }
+
+    /// iPad-class screens (same threshold as the larger preview point count) get a roomier preview chart.
+    static func isRegularPreviewWidth(_ screenWidth: CGFloat) -> Bool {
+        screenWidth.isFinite && screenWidth >= regularScreenMinimumWidth
+    }
+
+    static func previewWidth(for style: Style, screenWidth: CGFloat) -> CGFloat {
+        if isRegularPreviewWidth(screenWidth) {
+            return regularPreviewWidth
+        }
+
+        switch style {
+        case .line:
+            return linePreviewWidth
+        case .bar, .range:
+            return barPreviewWidth
+        }
+    }
+
+    static func previewHeight(forScreenWidth screenWidth: CGFloat) -> CGFloat {
+        isRegularPreviewWidth(screenWidth) ? regularPreviewHeight : compactPreviewHeight
     }
 
     static func calendarPoints(
