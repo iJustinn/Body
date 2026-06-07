@@ -351,11 +351,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let dayViewStart = try XCTUnwrap(source.range(of: "private var supportsMetricDayView")?.lowerBound)
         let dayViewBlock = String(source[dayViewStart...].prefix(700))
 
-        XCTAssertTrue(cardBlock.contains(#"title: "Wrist Temp""#))
-        XCTAssertEqual(source.components(separatedBy: #"title: "Wrist Temp""#).count - 1, 1)
+        XCTAssertTrue(cardBlock.contains(#"title: "Skin Temp""#))
+        XCTAssertEqual(source.components(separatedBy: #"title: "Skin Temp""#).count - 1, 1)
         XCTAssertTrue(cardBlock.contains("chartPreviewStyle: .line"))
-        XCTAssertTrue(trendCardBlock.contains(#"title: "Wrist Temperature""#))
-        XCTAssertTrue(detailBlock.contains(#"title: "Wrist Temperature""#))
+        XCTAssertTrue(trendCardBlock.contains(#"title: "Skin Temperature""#))
+        XCTAssertTrue(detailBlock.contains(#"title: "Skin Temperature""#))
         XCTAssertTrue(detailBlock.contains("series: trends.wristTemperature.mapValues"))
         XCTAssertTrue(detailBlock.contains("daySeries: .empty"))
         XCTAssertTrue(detailBlock.contains("chartStyle: .line"))
@@ -921,11 +921,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_NSHealthUpdateUsageDescription"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;"))
         XCTAssertTrue(project.contains("IPHONEOS_DEPLOYMENT_TARGET = 18.0;"))
-        XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = 1;"))
+        XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = \"1,2\";"))
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
+        XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.1;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -934,9 +935,12 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 1)**"))
-        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 1)"))
-        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 1.0.0 build 1."))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.1 (build 2)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.1 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.9.1 build 2."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.1 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.9.1 build 1."))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.1 (build 1)**"))
         XCTAssertTrue(versionHistory.contains("## 0.7.0 (build 2)"))
         XCTAssertTrue(versionHistory.contains("## 0.7.0 (build 1)"))
         XCTAssertTrue(versionHistory.contains("## 0.6.0 (build 2)"))
@@ -974,7 +978,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testHealthKitUsageDescriptionListsRequestedHealthCategories() throws {
         let project = try text(at: "body.xcodeproj/project.pbxproj")
-        let usageDescription = "Body reads workouts, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, wrist temperature, daylight, and steps from Apple Health to power your dashboard, charts, and widgets."
+        let usageDescription = "Body reads workouts, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, and steps from Apple Health to power your dashboard, charts, and widgets."
 
         XCTAssertEqual(project.occurrenceCount(of: usageDescription), 2)
         XCTAssertFalse(project.contains("Body reads workout, sleep, heart, and body measurement data"))
@@ -983,8 +987,9 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-v0.7.0`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 1"))
+        XCTAssertTrue(testPlan.contains("branch `body-v0.9.1`"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.1 build 2"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.1 build 1"))
         XCTAssertFalse(testPlan.contains("app version 0.7.0 build 1"))
         XCTAssertFalse(testPlan.contains("branch `body-v0.6.0`"))
         XCTAssertFalse(testPlan.contains("app version 0.6.0 build 2"))

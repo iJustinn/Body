@@ -1,8 +1,16 @@
 # Version History
 
-## 1.0.0 (build 1)
+## 0.9.1 (build 2)
 
-- Updated the app, widget, and test bundle version to 1.0.0 build 1.
+- Added iPad support with a two-column dashboard, a side column for trends, larger preview charts, and readable width limits on the dashboard, workouts, settings, and metric detail screens.
+- Enabled landscape orientation on iPad.
+- Removed an unused Sign in with Apple entitlement from the widget extension so automatic signing succeeds.
+- Renamed the Wrist Temperature metric to Skin Temperature across the app, widgets, and the Health permission description.
+- Updated the app, widget, and test bundle version to 0.9.1 build 2.
+
+## 0.9.1 (build 1)
+
+- Updated the app, widget, and test bundle version to 0.9.1 build 1.
 
 ## 0.7.0 (build 2)
 
