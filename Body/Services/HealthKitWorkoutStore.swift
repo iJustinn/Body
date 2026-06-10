@@ -254,7 +254,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             workoutMonthCount: workoutSnapshotsWithData.count,
             workoutCount: workoutSnapshotsWithData.reduce(0) { $0 + $1.workoutCount },
             activityRingMonthCount: loadedActivityRingMonthKeys.count,
-            diskSizeBytes: WorkoutSnapshotStore.totalDiskSizeBytes + HealthDashboardSnapshotStore.totalDiskSizeBytes
+            diskSizeBytes: WorkoutSnapshotStore.totalDiskSizeBytes
+                + HealthDashboardSnapshotStore.totalDiskSizeBytes
+                + HealthWidgetSnapshotStore.totalDiskSizeBytes
         )
     }
 
@@ -268,6 +270,12 @@ final class HealthKitWorkoutStore: ObservableObject {
             healthDataNotice = "Apple Health is not available on this device."
             return
         }
+
+        // Claim the refresh slot before the first suspension — otherwise a
+        // second entry point arriving during the authorization round-trip
+        // passes the `isRefreshing` guard and starts a concurrent refresh.
+        isRefreshing = true
+        defer { finishRefresh() }
 
         do {
             try await engine.requestAuthorization()
@@ -461,6 +469,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             healthDataNotice = "Apple Health is not available on this device."
             return
         }
+
+        isRefreshing = true
+        defer { finishRefresh() }
 
         let calendar = Calendar.bodyGregorian
 
@@ -942,11 +953,18 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     func refreshCurrentMonth(date: Date = Date()) async {
+        guard !isRefreshing else {
+            return
+        }
+
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
             healthDataNotice = "Apple Health is not available on this device."
             return
         }
+
+        isRefreshing = true
+        defer { finishRefresh() }
 
         let calendar = Calendar.bodyGregorian
         let month = calendar.component(.month, from: date)
@@ -985,13 +1003,14 @@ final class HealthKitWorkoutStore: ObservableObject {
         WorkoutSnapshotStore.deletePrevious()
         HealthDashboardSnapshotStore.delete()
         HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
+        HealthWidgetSnapshotStore.delete()
         WidgetCenter.shared.reloadAllTimelines()
     }
 
+    /// Expects the caller to have set `isRefreshing` (and to call
+    /// `finishRefresh()` when done) before the first suspension.
     private func refreshRecentMonths(date: Date = Date()) async {
-        isRefreshing = true
         await engine.setHealthTrendAnchorDate(date)
-        defer { finishRefresh() }
 
         let calendar = Calendar.bodyGregorian
         let keys = Self.recentMonthKeys(count: Self.recentChartMonthCount, from: date, calendar: calendar)
@@ -1026,13 +1045,13 @@ final class HealthKitWorkoutStore: ObservableObject {
         await engine.setHealthTrendAnchorDate(nil)
     }
 
+    /// Expects the caller to have set `isRefreshing` (and to call
+    /// `finishRefresh()` when done) before the first suspension.
     private func refresh(month: Int, year: Int, calendar: Calendar, updatesHealthSummary: Bool) async {
-        isRefreshing = true
         let refreshDate = Date()
         if updatesHealthSummary {
             await engine.setHealthTrendAnchorDate(refreshDate)
         }
-        defer { finishRefresh() }
 
         let key = BodyWorkoutMonthKey(month: month, year: year)
 
@@ -1435,25 +1454,6 @@ final class HealthKitWorkoutStore: ObservableObject {
 
             return BodyWorkoutMonthKey(date: monthDate, calendar: calendar)
         })
-    }
-
-    private static func recentActivityRingMonthKeys(
-        count: Int,
-        from date: Date = Date(),
-        calendar: Calendar = .bodyGregorian
-    ) -> [ActivityRingMonthKey] {
-        guard let currentMonthStart = calendar.dateInterval(of: .month, for: date)?.start else {
-            return [ActivityRingMonthKey(date: date, calendar: calendar)]
-        }
-
-        return (0..<max(count, 1)).compactMap { offset in
-            guard let monthDate = calendar.date(byAdding: .month, value: -offset, to: currentMonthStart) else {
-                return nil
-            }
-
-            return ActivityRingMonthKey(date: monthDate, calendar: calendar)
-        }
-        .sortedByDate
     }
 
     nonisolated static func readObjectTypes(

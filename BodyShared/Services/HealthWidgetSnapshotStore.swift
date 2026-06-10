@@ -116,6 +116,10 @@ enum HealthWidgetSnapshotStore {
         return size.int64Value
     }
 
+    static var totalDiskSizeBytes: Int64 {
+        fileSize(at: snapshotFileURL)
+    }
+
     static func delete(fileURL: URL? = snapshotFileURL) {
         guard let fileURL, FileManager.default.fileExists(atPath: fileURL.path) else {
             return
