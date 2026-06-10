@@ -1,5 +1,11 @@
 # Version History
 
+## 0.9.2 (build 2)
+
+- Today's date now stands out in the Workouts calendar and the Workout Calendar widget: its day number uses the primary label color (white in dark mode, black in light mode) instead of the muted gray shared by the other days.
+- Calendar workout icons, count markers, and day numbers now scale with the cell size so they keep their proportions on iPad's larger calendar instead of staying pinned to the iPhone point sizes.
+- Updated the app, widget, and test bundle version to 0.9.2 build 2.
+
 ## 0.9.2 (build 1)
 
 - Performance: cold launch no longer decodes lazily loaded intraday chart samples on the main thread — they live in a sidecar cache hydrated in the background after the first frame, and the current-month workout snapshot is read once at launch instead of twice.
