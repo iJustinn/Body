@@ -127,16 +127,11 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
     }
 
     var monthTitle: String {
-        let formatter = DateFormatter()
-        formatter.calendar = .bodyGregorian
-        formatter.locale = .current
-        formatter.dateFormat = "MMMM yyyy"
-
         guard let date = Calendar.bodyGregorian.date(from: DateComponents(year: year, month: month, day: 1)) else {
             return "\(month)/\(year)"
         }
 
-        return formatter.string(from: date)
+        return BodyDateFormatterCache.formatter(dateFormat: "MMMM yyyy").string(from: date)
     }
 
     func day(_ number: Int) -> WorkoutDaySummary? {
@@ -235,9 +230,7 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
 
 extension Calendar {
     func bodyRotatedVeryShortWeekdaySymbols(locale: Locale = .current) -> [String] {
-        let formatter = DateFormatter()
-        formatter.calendar = self
-        formatter.locale = locale
+        let formatter = BodyDateFormatterCache.formatter(dateFormat: "", calendar: self, locale: locale)
         let symbols = formatter.veryShortStandaloneWeekdaySymbols ?? []
         let fallback = ["S", "M", "T", "W", "T", "F", "S"]
         let source = symbols.isEmpty ? fallback : symbols

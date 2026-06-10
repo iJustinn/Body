@@ -318,6 +318,7 @@ struct BodyHealthMetricDetailView: View {
     @State private var isPullRefreshing = false
     @State private var activeReadinessTrendValue: Double?
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
+    @StateObject private var daySeriesCache = BodyMetricDaySeriesCache()
 
     init(
         model: BodyHealthMetricDetailModel,
@@ -518,8 +519,11 @@ struct BodyHealthMetricDetailView: View {
         SleepHistorySnapshot.datePickerDates(dayCount: BodyHealthTrendRange.recentMonth.dayCount, futureDayCount: 1)
     }
 
+    // `points(on:)` scans the whole intraday series (tens of thousands of
+    // points for heart rate); these are read several times per render, so the
+    // day slice is memoized until the series or selected day changes.
     private var selectedMetricDaySeries: HealthTrendSeries {
-        liveDaySeries.points(on: selectedMetricDay)
+        daySeriesCache.daySeries(from: liveDaySeries, on: selectedMetricDay, slot: .primary)
     }
 
     private var selectedMetricSecondaryDaySeries: HealthTrendSeries {
@@ -527,7 +531,7 @@ struct BodyHealthMetricDetailView: View {
             return .empty
         }
 
-        return liveSecondaryDaySeries.points(on: selectedMetricDay)
+        return daySeriesCache.daySeries(from: liveSecondaryDaySeries, on: selectedMetricDay, slot: .secondary)
     }
 
     private var selectedMetricActivityAverages: [BodyMetricActivityAverage] {
@@ -1954,5 +1958,42 @@ struct BodyHealthMetricDetailView: View {
             .foregroundColor(.secondary)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
+    }
+}
+
+/// Memoizes the day slice of the intraday sample series. Filtering is O(full
+/// series) — up to tens of thousands of points for heart rate — and the
+/// detail view reads the slice several times per render while the store
+/// publishes multiple progressive-refresh updates.
+@MainActor
+final class BodyMetricDaySeriesCache: ObservableObject {
+    enum Slot {
+        case primary
+        case secondary
+    }
+
+    private struct Key: Equatable {
+        let day: Date
+        let pointCount: Int
+        let firstDate: Date?
+        let lastDate: Date?
+    }
+
+    private var entriesBySlot: [Slot: (key: Key, series: HealthTrendSeries)] = [:]
+
+    func daySeries(from series: HealthTrendSeries, on day: Date, slot: Slot) -> HealthTrendSeries {
+        let key = Key(
+            day: day,
+            pointCount: series.points.count,
+            firstDate: series.points.first?.date,
+            lastDate: series.points.last?.date
+        )
+        if let entry = entriesBySlot[slot], entry.key == key {
+            return entry.series
+        }
+
+        let daySeries = series.points(on: day)
+        entriesBySlot[slot] = (key, daySeries)
+        return daySeries
     }
 }

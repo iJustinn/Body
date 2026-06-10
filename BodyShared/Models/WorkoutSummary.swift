@@ -227,12 +227,12 @@ struct WorkoutDetailPresentation: Equatable {
         locale: Locale,
         timeZone: TimeZone
     ) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.locale = locale
-        formatter.timeZone = timeZone
-        formatter.dateFormat = dateFormat
-        return formatter.string(from: date)
+        BodyDateFormatterCache.formatter(
+            dateFormat: dateFormat,
+            calendar: calendar,
+            locale: locale,
+            timeZone: timeZone
+        ).string(from: date)
     }
 
     private static func averageHeartRate(from samples: [WorkoutHeartRateSample]) -> Double? {

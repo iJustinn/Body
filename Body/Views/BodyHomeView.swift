@@ -89,10 +89,22 @@ func wristTemperatureBaselineValue(from finiteValues: [Double]) -> Double {
 }
 
 func wristTemperatureBaseline(from series: HealthTrendSeries) -> Double {
-    let points = series.lineChartCalendarPoints(to: .recentYear)
+    wristTemperatureBaselineIfAvailable(from: series) ?? 0
+}
+
+/// The chart-stable baseline median over the recent year, or `nil` when the
+/// series has no finite values. The compression inside
+/// `lineChartCalendarPoints` is the costly step — render paths should cache
+/// the result (see `BodyHomeTrendComputationCache.wristTemperatureBaseline`).
+func wristTemperatureBaselineIfAvailable(
+    from series: HealthTrendSeries,
+    calendar: Calendar = .bodyGregorian,
+    date: Date = Date()
+) -> Double? {
+    let points = series.lineChartCalendarPoints(to: .recentYear, calendar: calendar, date: date)
     let finiteValues = points.compactMap(\.value).filter(\.isFinite)
     guard !finiteValues.isEmpty else {
-        return 0
+        return nil
     }
 
     return wristTemperatureBaselineValue(from: finiteValues)
@@ -103,17 +115,26 @@ func wristTemperatureBaselineDeviationDisplay(
     series: HealthTrendSeries,
     temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
 ) -> BodyMetricDisplayValue {
-    let points = series.lineChartCalendarPoints(to: .recentYear)
-    let finiteValues = points.compactMap(\.value).filter(\.isFinite)
+    wristTemperatureBaselineDeviationDisplay(
+        currentCelsius: currentCelsius,
+        baseline: wristTemperatureBaselineIfAvailable(from: series),
+        temperatureUnitPreference: temperatureUnitPreference
+    )
+}
+
+func wristTemperatureBaselineDeviationDisplay(
+    currentCelsius: Double?,
+    baseline: Double?,
+    temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
+) -> BodyMetricDisplayValue {
     guard
-        !finiteValues.isEmpty,
+        let baseline,
         let current = currentCelsius,
         current.isFinite
     else {
         return BodyMetricDisplayValue(title: "Baseline", value: "--", unit: "")
     }
 
-    let baseline = wristTemperatureBaselineValue(from: finiteValues)
     // A temperature delta converts by scale only (1 °C of change = 1.8 °F of
     // change); the +32 offset of the absolute conversion must not be applied.
     let diffCelsius = current - baseline
@@ -680,7 +701,7 @@ struct BodyHomeView: View {
         )
         let deviationDisplay = wristTemperatureBaselineDeviationDisplay(
             currentCelsius: summary.wristTemperature.value,
-            series: chartPreview,
+            baseline: trendComputationCache.wristTemperatureBaseline(from: chartPreview),
             temperatureUnitPreference: selectedTemperatureUnitPreference
         )
 
@@ -1933,6 +1954,7 @@ final class BodyHomeTrendComputationCache: ObservableObject {
     }
 
     private var entries: [CacheKey: Entry] = [:]
+    private var wristTemperatureBaselineEntry: (fingerprint: Fingerprint, baseline: Double?)?
 
     func result(
         for kind: HealthMetricKind,
@@ -1941,14 +1963,7 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> BodyHomeTrendCardPresentation.WindowResult? {
-        let fingerprint = Fingerprint(
-            dayStart: calendar.startOfDay(for: date),
-            pointCount: series.points.count,
-            firstTimestamp: series.points.first?.date.timeIntervalSinceReferenceDate,
-            lastTimestamp: series.points.last?.date.timeIntervalSinceReferenceDate,
-            firstValue: series.points.first?.value,
-            lastValue: series.points.last?.value
-        )
+        let fingerprint = Self.fingerprint(for: series, dayStart: calendar.startOfDay(for: date))
         let key = CacheKey(kind: kind, includesStable: includesStable)
         if let entry = entries[key], entry.fingerprint == fingerprint {
             return entry.result
@@ -1961,5 +1976,34 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         )
         entries[key] = Entry(fingerprint: fingerprint, result: result)
         return result
+    }
+
+    /// Memoizes the Skin Temperature baseline median — its stable-line
+    /// compression is the most expensive per-render computation in the
+    /// metric-card build, and the series only changes when a refresh lands.
+    func wristTemperatureBaseline(
+        from series: HealthTrendSeries,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> Double? {
+        let fingerprint = Self.fingerprint(for: series, dayStart: calendar.startOfDay(for: date))
+        if let entry = wristTemperatureBaselineEntry, entry.fingerprint == fingerprint {
+            return entry.baseline
+        }
+
+        let baseline = wristTemperatureBaselineIfAvailable(from: series, calendar: calendar, date: date)
+        wristTemperatureBaselineEntry = (fingerprint, baseline)
+        return baseline
+    }
+
+    private static func fingerprint(for series: HealthTrendSeries, dayStart: Date) -> Fingerprint {
+        Fingerprint(
+            dayStart: dayStart,
+            pointCount: series.points.count,
+            firstTimestamp: series.points.first?.date.timeIntervalSinceReferenceDate,
+            lastTimestamp: series.points.last?.date.timeIntervalSinceReferenceDate,
+            firstValue: series.points.first?.value,
+            lastValue: series.points.last?.value
+        )
     }
 }

@@ -16,8 +16,9 @@ struct BodyHealthMetricCard: View {
         let symbolColor: Color
         let prominentMetrics: [BodyMetricDisplayValue]
         let chartPreviewStyle: BodyHomeMetricCardPreview.Style
-        let chartPreview: HealthTrendSeries?
-        let chartRangePreview: HealthTrendRangeSeries?
+        let hasChartPreview: Bool
+        let previewCalendarPoints: [HealthTrendCalendarPoint]
+        let previewRangeCalendarPoints: [HealthTrendRangeCalendarPoint]
 
         init(
             kind: HealthMetricKind,
@@ -29,7 +30,8 @@ struct BodyHealthMetricCard: View {
             prominentMetrics: [BodyMetricDisplayValue] = [],
             chartPreviewStyle: BodyHomeMetricCardPreview.Style = .line,
             chartPreview: HealthTrendSeries? = nil,
-            chartRangePreview: HealthTrendRangeSeries? = nil
+            chartRangePreview: HealthTrendRangeSeries? = nil,
+            previewDayCount: Int = BodyHomeMetricCardPreview.dayCount(forScreenWidth: UIScreen.main.bounds.width)
         ) {
             self.kind = kind
             self.title = title
@@ -39,8 +41,16 @@ struct BodyHealthMetricCard: View {
             self.symbolColor = symbolColor
             self.prominentMetrics = prominentMetrics
             self.chartPreviewStyle = chartPreviewStyle
-            self.chartPreview = chartPreview
-            self.chartRangePreview = chartRangePreview
+            // Preview points are derived once per model — the preview view
+            // used to regroup the full trend series in chained computed
+            // properties on every render of every card.
+            hasChartPreview = chartPreview != nil || chartRangePreview != nil
+            previewCalendarPoints = chartPreview.map {
+                BodyHomeMetricCardPreview.calendarPoints(from: $0, previewDayCount: previewDayCount)
+            } ?? []
+            previewRangeCalendarPoints = chartRangePreview.map {
+                BodyHomeMetricCardPreview.rangeCalendarPoints(from: $0, previewDayCount: previewDayCount)
+            } ?? []
         }
 
         var id: String {
@@ -115,10 +125,10 @@ struct BodyHealthMetricCard: View {
 
     private var visualStack: some View {
         VStack(alignment: .trailing, spacing: 20) {
-            if metric.chartPreview != nil || metric.chartRangePreview != nil {
+            if metric.hasChartPreview {
                 BodyHealthMetricCardTrendPreview(
-                    series: metric.chartPreview,
-                    rangeSeries: metric.chartRangePreview,
+                    calendarPoints: metric.previewCalendarPoints,
+                    rangeCalendarPoints: metric.previewRangeCalendarPoints,
                     tintColor: metric.symbolColor,
                     style: metric.chartPreviewStyle
                 )
@@ -173,24 +183,23 @@ struct BodyHealthMetricCard: View {
 struct BodyHealthMetricCardTrendPreview: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    let series: HealthTrendSeries?
-    let rangeSeries: HealthTrendRangeSeries?
+    // Precomputed by `BodyHealthMetricCard.Model` so re-renders don't regroup
+    // the full trend series.
+    let calendarPoints: [HealthTrendCalendarPoint]
+    let rangeCalendarPoints: [HealthTrendRangeCalendarPoint]
     let tintColor: Color
     let style: BodyHomeMetricCardPreview.Style
-    let previewDayCount: Int
 
     init(
-        series: HealthTrendSeries?,
-        rangeSeries: HealthTrendRangeSeries?,
+        calendarPoints: [HealthTrendCalendarPoint],
+        rangeCalendarPoints: [HealthTrendRangeCalendarPoint] = [],
         tintColor: Color,
-        style: BodyHomeMetricCardPreview.Style,
-        previewDayCount: Int = BodyHomeMetricCardPreview.dayCount(forScreenWidth: UIScreen.main.bounds.width)
+        style: BodyHomeMetricCardPreview.Style
     ) {
-        self.series = series
-        self.rangeSeries = rangeSeries
+        self.calendarPoints = calendarPoints
+        self.rangeCalendarPoints = rangeCalendarPoints
         self.tintColor = tintColor
         self.style = style
-        self.previewDayCount = previewDayCount
     }
 
     private var refreshAnimation: Animation? {
@@ -209,22 +218,6 @@ struct BodyHealthMetricCardTrendPreview: View {
         var hasValue: Bool {
             point.value?.isFinite == true
         }
-    }
-
-    private var calendarPoints: [HealthTrendCalendarPoint] {
-        guard let series else {
-            return []
-        }
-
-        return BodyHomeMetricCardPreview.calendarPoints(from: series, previewDayCount: previewDayCount)
-    }
-
-    private var rangeCalendarPoints: [HealthTrendRangeCalendarPoint] {
-        guard let rangeSeries else {
-            return []
-        }
-
-        return BodyHomeMetricCardPreview.rangeCalendarPoints(from: rangeSeries, previewDayCount: previewDayCount)
     }
 
     private var values: [Double] {
