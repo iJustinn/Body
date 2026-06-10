@@ -367,7 +367,7 @@ enum BodyHomeTrendCardFactory {
                 title: "Steps",
                 series: trends.series(for: .steps),
                 chartStyle: .bar,
-                symbolName: "flame.fill",
+                symbolName: "figure.walk",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " steps" },
                 messageStyle: .quantity(subject: "The number of steps you took per day")
