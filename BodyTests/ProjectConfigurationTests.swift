@@ -300,7 +300,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("chartPreviewStyle: .range"))
         XCTAssertTrue(previewBlock.contains("case .range:"))
         XCTAssertTrue(previewBlock.contains("rangePreview"))
-        XCTAssertTrue(previewBlock.contains("BodyHomeMetricCardPreview.rangeCalendarPoints(from: rangeSeries, previewDayCount: previewDayCount)"))
+        // The card model precomputes the preview points once (instead of the
+        // preview view regrouping the series per render); the preview then
+        // consumes the prepared range points.
+        XCTAssertTrue(source.contains("BodyHomeMetricCardPreview.rangeCalendarPoints(from: $0, previewDayCount: previewDayCount)"))
+        XCTAssertTrue(previewBlock.contains("let rangeCalendarPoints: [HealthTrendRangeCalendarPoint]"))
         XCTAssertTrue(previewBlock.contains("RoundedRectangle(cornerRadius: 2, style: .continuous)"))
         XCTAssertTrue(previewBlock.contains("Capsule(style: .continuous)"))
     }
@@ -926,8 +930,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.1;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.2;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -936,13 +940,16 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.1 (build 3)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.2 (build 1)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.2 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.9.2 build 1."))
         XCTAssertTrue(versionHistory.contains("## 0.9.1 (build 3)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.9.1 build 3."))
         XCTAssertTrue(versionHistory.contains("## 0.9.1 (build 2)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.9.1 build 2."))
         XCTAssertTrue(versionHistory.contains("## 0.9.1 (build 1)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.9.1 build 1."))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.1 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.1 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.1 (build 1)**"))
         XCTAssertTrue(versionHistory.contains("## 0.7.0 (build 2)"))
@@ -991,8 +998,9 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-v0.9.1`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.1 build 3"))
+        XCTAssertTrue(testPlan.contains("branch `body-v0.9.2`"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.2 build 1"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.1 build 3"))
         XCTAssertFalse(testPlan.contains("app version 0.9.1 build 2"))
         XCTAssertFalse(testPlan.contains("app version 0.9.1 build 1"))
         XCTAssertFalse(testPlan.contains("app version 0.7.0 build 1"))

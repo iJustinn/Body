@@ -1,5 +1,16 @@
 # Version History
 
+## 0.9.2 (build 1)
+
+- Performance: cold launch no longer decodes lazily loaded intraday chart samples on the main thread — they live in a sidecar cache hydrated in the background after the first frame, and the current-month workout snapshot is read once at launch instead of twice.
+- Performance: full refresh batches sleep-vitals hydration into five window-wide HealthKit queries partitioned per night in memory, replacing up to ~1,800 per-day queries.
+- Performance: workout heart-rate samples are partitioned per workout with binary search instead of rescanning the month's samples per workout, and effort-score fetches run with bounded concurrency.
+- Performance: metric-detail pull-to-refresh extends cached intraday samples incrementally instead of refetching the full trend window of raw samples, and metrics that do not feed Readiness skip the readiness recompute.
+- Performance: Summary metric cards precompute their preview points once per model update instead of regrouping the full trend series several times per render, metric detail views slice the intraday day series once per selected day instead of rescanning it on every render, calendar and workout text reuses cached date formatters, and the Settings cache row reads disk sizes off the main thread.
+- Performance: widget timeline reloads are coalesced to a single reload per refresh, and cached workout months are capped in memory.
+- Fixed the snapshot save-if-changed compare: `JSONEncoder` randomizes key order between encodes, so every refresh previously rewrote all snapshot caches and requested widget reloads even when nothing changed. Snapshot encoders now emit sorted keys, making the byte compare reliable.
+- Updated the app, widget, and test bundle version to 0.9.2 build 1.
+
 ## 0.9.1 (build 3)
 
 - Fixed the Steps trend card icon to use the walking figure instead of the Active Energy flame.
