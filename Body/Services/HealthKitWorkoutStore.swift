@@ -92,12 +92,26 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var loadingMonthKeys: Set<BodyWorkoutMonthKey> = []
     @Published private(set) var loadingActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
 
+    /// Disk size of the three snapshot caches, refreshed off the main thread
+    /// (`refreshCacheDiskSize`). `cacheStatus` reads this instead of running
+    /// per-render `FileManager` stat calls on the main thread.
+    @Published private(set) var cacheDiskSizeBytes: Int64 = 0
+
+    /// Months beyond this cap are evicted (least recently loaded first) so
+    /// browsing years of history doesn't accumulate every month's workouts
+    /// (with up to 96 heart-rate samples each) in memory for the app's
+    /// lifetime. The current chart window and the displayed month never
+    /// evict.
+    nonisolated static let maximumCachedMonthSnapshots = 12
+
     private let engine: HealthKitFetchEngine
     private var loadedMonthKeys: Set<BodyWorkoutMonthKey> = []
+    private var monthLoadOrder: [BodyWorkoutMonthKey] = []
     private var loadedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
     private var lastAppEntrySyncDate: Date?
     private var refreshCompletionContinuations: [CheckedContinuation<Void, Never>] = []
     private var monthLoadContinuations: [BodyWorkoutMonthKey: [CheckedContinuation<Void, Never>]] = [:]
+    private var persistedDaySamplesHydration: Task<HealthTrendDaySampleSnapshot?, Never>?
 
     private func finishRefresh() {
         isRefreshing = false
@@ -141,7 +155,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     init(
-        initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrPlaceholder(),
+        initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrSeedPlaceholder(),
         initialHealthDashboardSnapshot: HealthDashboardSnapshot = HealthDashboardSnapshotStore.loadOrEmpty(),
         initialPermissionSelection: BodyHealthPermissionSelection = BodyHealthPermissionSelection.load(),
         initialHealthDataSourceSelection: BodyHealthDataSourceSelection = BodyHealthDataSourceSelection.load(),
@@ -191,6 +205,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // Restore the persisted last-successful-refresh timestamp so the
         // cold-start sync path applies the same tiered TTL as a warm resume.
         lastSuccessfulRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
+        Task { await self.refreshCacheDiskSize() }
     }
 
     var healthSyncStatusSummaryText: String {
@@ -254,10 +269,20 @@ final class HealthKitWorkoutStore: ObservableObject {
             workoutMonthCount: workoutSnapshotsWithData.count,
             workoutCount: workoutSnapshotsWithData.reduce(0) { $0 + $1.workoutCount },
             activityRingMonthCount: loadedActivityRingMonthKeys.count,
-            diskSizeBytes: WorkoutSnapshotStore.totalDiskSizeBytes
+            diskSizeBytes: cacheDiskSizeBytes
+        )
+    }
+
+    /// Re-stats the snapshot cache files off the main thread and publishes
+    /// the total for the Settings cache row. Called after launch and after
+    /// each detached snapshot save.
+    func refreshCacheDiskSize() async {
+        let size = await Task.detached(priority: .utility) {
+            WorkoutSnapshotStore.totalDiskSizeBytes
                 + HealthDashboardSnapshotStore.totalDiskSizeBytes
                 + HealthWidgetSnapshotStore.totalDiskSizeBytes
-        )
+        }.value
+        cacheDiskSizeBytes = size
     }
 
     func requestAuthorizationAndRefresh() async {
@@ -297,6 +322,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         isRefreshing = true
+        await hydratePersistedDaySamplesIfNeeded()
         await engine.setHealthTrendAnchorDate(date)
         defer { finishRefresh() }
 
@@ -321,7 +347,8 @@ final class HealthKitWorkoutStore: ObservableObject {
             await updateHealthDashboardSnapshot(
                 summary: nextSummary,
                 trends: nextTrends,
-                activityRingHistory: activityRingHistory
+                activityRingHistory: activityRingHistory,
+                recomputesReadiness: Self.readinessInputMetricKinds.contains(kind)
             )
             authorizationState = .authorized
             markRefreshSucceeded(date: date)
@@ -330,6 +357,26 @@ final class HealthKitWorkoutStore: ObservableObject {
             handleRefreshError(error)
         }
         await engine.setHealthTrendAnchorDate(nil)
+    }
+
+    /// Loads the intraday day-sample sidecar (split out of the launch-critical
+    /// snapshot decode) off the main actor and merges it into any still-empty
+    /// `*DaySamples` fields. Refresh and lazy-load entry points await this
+    /// first so a snapshot save can never overwrite the sidecar with empty
+    /// series before it has been read, and so the incremental intraday fetch
+    /// sees the cached points. Idempotent; concurrent callers share one load.
+    func hydratePersistedDaySamplesIfNeeded() async {
+        if persistedDaySamplesHydration == nil {
+            persistedDaySamplesHydration = Task.detached(priority: .utility) {
+                HealthDashboardSnapshotStore.loadDaySamples()
+            }
+        }
+
+        guard let daySamples = await persistedDaySamplesHydration?.value, !daySamples.isEmpty else {
+            return
+        }
+
+        healthTrends = healthTrends.mergingMissingDaySamples(from: daySamples)
     }
 
     /// Lazy-loads the intraday day-sample series used by the metric detail view's
@@ -352,6 +399,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
 
+        await hydratePersistedDaySamplesIfNeeded()
         await awaitNextRefreshCompletion()
         guard !Task.isCancelled else {
             return
@@ -885,6 +933,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     func loadPreviousActivityRingMonthIfNeeded(date: Date = Date()) async {
+        await hydratePersistedDaySamplesIfNeeded()
         await awaitNextRefreshCompletion()
 
         guard permissionSelection.includes(.activityRings) else {
@@ -990,11 +1039,13 @@ final class HealthKitWorkoutStore: ObservableObject {
         healthTrends = .empty
         activityRingHistory = .empty
         loadedMonthKeys.removeAll()
+        monthLoadOrder = [key]
         loadedActivityRingMonthKeys.removeAll()
         loadingMonthKeys.removeAll()
         loadingActivityRingMonthKeys.removeAll()
         healthDataSourceOptionsByKind = [:]
         Task { [engine] in await engine.clearSourceCache() }
+        persistedDaySamplesHydration = nil
         lastSuccessfulRefreshDate = nil
         authorizationState = .unknown
         healthDataNotice = "Local cache cleared. Refresh to load Apple Health data again."
@@ -1004,12 +1055,17 @@ final class HealthKitWorkoutStore: ObservableObject {
         HealthDashboardSnapshotStore.delete()
         HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
         HealthWidgetSnapshotStore.delete()
-        WidgetCenter.shared.reloadAllTimelines()
+        cacheDiskSizeBytes = 0
+        BodyWidgetReloadCoalescer.shared.requestReload()
     }
 
     /// Expects the caller to have set `isRefreshing` (and to call
     /// `finishRefresh()` when done) before the first suspension.
     private func refreshRecentMonths(date: Date = Date()) async {
+        let signpostState = BodyPerformanceSignposts.signposter.beginInterval("RefreshRecentMonths")
+        defer { BodyPerformanceSignposts.signposter.endInterval("RefreshRecentMonths", signpostState) }
+
+        await hydratePersistedDaySamplesIfNeeded()
         await engine.setHealthTrendAnchorDate(date)
 
         let calendar = Calendar.bodyGregorian
@@ -1050,6 +1106,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     private func refresh(month: Int, year: Int, calendar: Calendar, updatesHealthSummary: Bool) async {
         let refreshDate = Date()
         if updatesHealthSummary {
+            await hydratePersistedDaySamplesIfNeeded()
             await engine.setHealthTrendAnchorDate(refreshDate)
         }
 
@@ -1227,14 +1284,76 @@ final class HealthKitWorkoutStore: ObservableObject {
                     calendar: calendar
                 )
                 loadedMonthKeys.insert(key)
+                noteMonthSnapshotStored(key)
             }
         }
     }
 
+    private func noteMonthSnapshotStored(_ key: BodyWorkoutMonthKey, date: Date = Date()) {
+        monthLoadOrder.removeAll { $0 == key }
+        monthLoadOrder.append(key)
+
+        let protectedKeys = Self.recentMonthKeys(
+            count: Self.recentChartMonthCount,
+            from: date,
+            calendar: .bodyGregorian
+        ).union([BodyWorkoutMonthKey(month: snapshot.month, year: snapshot.year)])
+        for evictedKey in Self.evictableMonthKeys(
+            loadOrder: monthLoadOrder,
+            maximumCount: Self.maximumCachedMonthSnapshots,
+            protectedKeys: protectedKeys
+        ) {
+            monthLoadOrder.removeAll { $0 == evictedKey }
+            monthSnapshots.removeValue(forKey: evictedKey)
+            loadedMonthKeys.remove(evictedKey)
+        }
+    }
+
+    /// The least-recently-loaded keys to drop so at most `maximumCount`
+    /// months stay cached, never evicting `protectedKeys`. `loadOrder` is
+    /// ordered oldest-load first.
+    nonisolated static func evictableMonthKeys(
+        loadOrder: [BodyWorkoutMonthKey],
+        maximumCount: Int,
+        protectedKeys: Set<BodyWorkoutMonthKey>
+    ) -> [BodyWorkoutMonthKey] {
+        var excess = loadOrder.count - maximumCount
+        guard excess > 0 else {
+            return []
+        }
+
+        var evictable: [BodyWorkoutMonthKey] = []
+        for key in loadOrder where excess > 0 {
+            guard !protectedKeys.contains(key) else {
+                continue
+            }
+            evictable.append(key)
+            excess -= 1
+        }
+        return evictable
+    }
+
+    /// Metric kinds whose data feeds the Readiness score (the
+    /// `ReadinessScoreCalculator` components and
+    /// `HealthTrendSnapshot.readinessSourceSeries`). Refreshing any other
+    /// single metric skips the per-day readiness recompute — its inputs
+    /// cannot have changed.
+    nonisolated static let readinessInputMetricKinds: Set<HealthMetricKind> = [
+        .readiness,
+        .sleep,
+        .restingHeartRate,
+        .heartRateVariability,
+        .respiratoryRate,
+        .oxygenSaturation,
+        .trainingLoad,
+        .wristTemperature
+    ]
+
     private func updateHealthDashboardSnapshot(
         summary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
-        activityRingHistory: ActivityRingHistorySnapshot
+        activityRingHistory: ActivityRingHistorySnapshot,
+        recomputesReadiness: Bool = true
     ) async {
         let calendar = Calendar.bodyGregorian
         let anchorDate = await engine.healthTrendAnchorDate ?? Date()
@@ -1248,15 +1367,20 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         // Filter + readiness recompute are the heaviest per-refresh CPU spike
         // (the readiness `dailySeries` iterates up to ~365 days × multi-metric
-        // baselines). Run them off the main actor.
+        // baselines). Run them off the main actor, recompute at most once
+        // (`filtered(by:)` would chain its own recompute ahead of the anchored
+        // one), and skip entirely when the refreshed metric cannot change any
+        // readiness input.
         let filteredSnapshot = await Task.detached(priority: .userInitiated) {
-            rawSnapshot
-                .filtered(by: permissionSelection, idealSleepDuration: idealSleepDuration)
-                .recalculatingReadiness(
-                    on: anchorDate,
-                    idealSleepDuration: idealSleepDuration,
-                    calendar: calendar
-                )
+            let filtered = rawSnapshot.filteredWithoutReadinessRecompute(by: permissionSelection)
+            guard recomputesReadiness else {
+                return filtered
+            }
+            return filtered.recalculatingReadiness(
+                on: anchorDate,
+                idealSleepDuration: idealSleepDuration,
+                calendar: calendar
+            )
         }.value
 
         let nextActivityRingHistory = self.activityRingHistory.replacingLoadedMonths(
@@ -1277,6 +1401,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         Task.detached(priority: .utility) {
             HealthDashboardSnapshotStore.save(snapshotToSave)
             HealthDashboardSnapshotStore.saveSecondarySelectionSignature(secondarySignature)
+            await self.refreshCacheDiskSize()
         }
         saveHealthWidgetSnapshot()
     }
@@ -1319,12 +1444,13 @@ final class HealthKitWorkoutStore: ObservableObject {
                 primarySourceName: { primarySourceNames[$0] }
             )
             if HealthWidgetSnapshotStore.save(snapshot) {
-                WidgetCenter.shared.reloadAllTimelines()
+                await BodyWidgetReloadCoalescer.shared.requestReload()
             }
         }
     }
 
     private func applyPermissionSelectionToCachedData() async {
+        await hydratePersistedDaySamplesIfNeeded()
         let rawSnapshot = HealthDashboardSnapshot(
             summary: healthSummary,
             trends: healthTrends,
@@ -1370,7 +1496,8 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
         monthSnapshots[BodyWorkoutMonthKey(month: emptySnapshot.month, year: emptySnapshot.year)] = emptySnapshot
         loadedMonthKeys.removeAll()
-        WidgetCenter.shared.reloadAllTimelines()
+        monthLoadOrder.removeAll()
+        BodyWidgetReloadCoalescer.shared.requestReload()
     }
 
     private func updateCurrentMonthSnapshot(date: Date, calendar: Calendar) {
@@ -1396,8 +1523,9 @@ final class HealthKitWorkoutStore: ObservableObject {
                 widgetReloadNeeded = true
             }
             if widgetReloadNeeded {
-                WidgetCenter.shared.reloadAllTimelines()
+                await BodyWidgetReloadCoalescer.shared.requestReload()
             }
+            await self.refreshCacheDiskSize()
         }
     }
 

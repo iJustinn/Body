@@ -12,10 +12,6 @@ struct BodyApp: App {
     @AppStorage(BodyAppearancePreference.selectedThemeKey) private var selectedThemeRawValue = BodyAppTheme.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedAccentKey) private var selectedAccentRawValue = BodyAppAccent.defaultValue.rawValue
 
-    init() {
-        WorkoutSnapshotStore.seedPreviewSnapshotIfNeeded()
-    }
-
     var body: some Scene {
         WindowGroup {
             MainTabView()

@@ -9,6 +9,17 @@ import os
 enum HealthDashboardSnapshotStore {
     static let healthDashboardSnapshotKey = "lastHealthDashboardSnapshot"
     static let healthDashboardSnapshotFileName = "lastHealthDashboardSnapshot.json"
+    static let healthDashboardDaySamplesFileName = "lastHealthDashboardDaySamples.json"
+
+    /// `JSONEncoder` randomizes keyed-container key order between encode
+    /// calls, so the save-if-changed byte compare needs `.sortedKeys` to be
+    /// deterministic — without it every save rewrites the file (and triggers
+    /// downstream side effects) even when nothing changed.
+    static func makeSnapshotEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }
     static let secondarySelectionSignatureKey = "lastHealthDashboardSecondarySelectionSignature"
     static let lastSuccessfulRefreshDateKey = "lastHealthDashboardSuccessfulRefreshDate"
     private static let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "HealthDashboardSnapshotStore")
@@ -53,41 +64,122 @@ enum HealthDashboardSnapshotStore {
             .appendingPathComponent(healthDashboardSnapshotFileName)
     }
 
+    /// The intraday day-sample series live in a sidecar file next to the main
+    /// snapshot so cold launch only pays the small main-file decode on the
+    /// main thread; the sidecar is decoded off-main via `loadDaySamples`.
+    static func daySamplesFileURL(alongside fileURL: URL) -> URL {
+        fileURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(healthDashboardDaySamplesFileName)
+    }
+
     @discardableResult
     static func save(
         _ snapshot: HealthDashboardSnapshot,
         defaults: UserDefaults = .standard,
         fileURL: URL? = snapshotFileURL
     ) -> Bool {
-        let data: Data
-        do {
-            data = try JSONEncoder().encode(snapshot)
-        } catch {
-            logger.error("Health dashboard snapshot encode failed: \(error.localizedDescription, privacy: .public)")
-            return false
-        }
+        let signpostState = BodyPerformanceSignposts.signposter.beginInterval("DashboardSnapshotSave")
+        defer { BodyPerformanceSignposts.signposter.endInterval("DashboardSnapshotSave", signpostState) }
 
         guard let fileURL else {
             logger.error("Health dashboard snapshot file save skipped because file URL is unavailable.")
             return false
         }
 
-        if let existing = try? Data(contentsOf: fileURL), existing == data {
-            defaults.removeObject(forKey: healthDashboardSnapshotKey)
+        let mainSnapshot = HealthDashboardSnapshot(
+            summary: snapshot.summary,
+            trends: snapshot.trends.strippingDaySamples(),
+            activityRingHistory: snapshot.activityRingHistory
+        )
+        let data: Data
+        do {
+            data = try makeSnapshotEncoder().encode(mainSnapshot)
+        } catch {
+            logger.error("Health dashboard snapshot encode failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+
+        var didWrite = false
+        if (try? Data(contentsOf: fileURL)) != data {
+            do {
+                try FileManager.default.createDirectory(
+                    at: fileURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: fileURL, options: [.atomic])
+                didWrite = true
+            } catch {
+                logger.error("Health dashboard snapshot file write failed: \(error.localizedDescription, privacy: .public)")
+                return false
+            }
+        }
+        defaults.removeObject(forKey: healthDashboardSnapshotKey)
+
+        if saveDaySamples(HealthTrendDaySampleSnapshot(trends: snapshot.trends), alongside: fileURL) {
+            didWrite = true
+        }
+        return didWrite
+    }
+
+    private static func saveDaySamples(
+        _ daySamples: HealthTrendDaySampleSnapshot,
+        alongside fileURL: URL
+    ) -> Bool {
+        let sidecarURL = daySamplesFileURL(alongside: fileURL)
+        if daySamples.isEmpty, !FileManager.default.fileExists(atPath: sidecarURL.path) {
+            return false
+        }
+
+        let data: Data
+        do {
+            data = try makeSnapshotEncoder().encode(daySamples)
+        } catch {
+            logger.error("Health dashboard day-sample encode failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+
+        if let existing = try? Data(contentsOf: sidecarURL), existing == data {
             return false
         }
 
         do {
             try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
+                at: sidecarURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try data.write(to: fileURL, options: [.atomic])
-            defaults.removeObject(forKey: healthDashboardSnapshotKey)
+            try data.write(to: sidecarURL, options: [.atomic])
             return true
         } catch {
-            logger.error("Health dashboard snapshot file write failed: \(error.localizedDescription, privacy: .public)")
+            logger.error("Health dashboard day-sample file write failed: \(error.localizedDescription, privacy: .public)")
             return false
+        }
+    }
+
+    static func loadDaySamples(fileURL: URL? = snapshotFileURL) -> HealthTrendDaySampleSnapshot? {
+        guard let fileURL else {
+            return nil
+        }
+
+        let signpostState = BodyPerformanceSignposts.signposter.beginInterval("DaySamplesSidecarLoad")
+        defer { BodyPerformanceSignposts.signposter.endInterval("DaySamplesSidecarLoad", signpostState) }
+
+        let sidecarURL = daySamplesFileURL(alongside: fileURL)
+        let data: Data
+        do {
+            data = try Data(contentsOf: sidecarURL)
+        } catch CocoaError.fileReadNoSuchFile {
+            return nil
+        } catch {
+            logger.error("Health dashboard day-sample file read failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+
+        do {
+            return try JSONDecoder().decode(HealthTrendDaySampleSnapshot.self, from: data)
+        } catch {
+            logger.error("Health dashboard day-sample decode failed: \(error.localizedDescription, privacy: .public)")
+            return nil
         }
     }
 
@@ -95,6 +187,9 @@ enum HealthDashboardSnapshotStore {
         defaults: UserDefaults = .standard,
         fileURL: URL? = snapshotFileURL
     ) -> HealthDashboardSnapshot? {
+        let signpostState = BodyPerformanceSignposts.signposter.beginInterval("DashboardSnapshotLoad")
+        defer { BodyPerformanceSignposts.signposter.endInterval("DashboardSnapshotLoad", signpostState) }
+
         if let snapshot = loadFromFile(fileURL: fileURL) {
             return snapshot
         }
@@ -139,6 +234,7 @@ enum HealthDashboardSnapshotStore {
 
     static var totalDiskSizeBytes: Int64 {
         fileSize(at: snapshotFileURL)
+            + fileSize(at: snapshotFileURL.map(daySamplesFileURL(alongside:)))
     }
 
     static func delete(
@@ -147,14 +243,17 @@ enum HealthDashboardSnapshotStore {
     ) {
         defaults.removeObject(forKey: healthDashboardSnapshotKey)
 
-        guard let fileURL, FileManager.default.fileExists(atPath: fileURL.path) else {
+        guard let fileURL else {
             return
         }
 
-        do {
-            try FileManager.default.removeItem(at: fileURL)
-        } catch {
-            logger.error("Health dashboard snapshot file delete failed: \(error.localizedDescription, privacy: .public)")
+        for url in [fileURL, daySamplesFileURL(alongside: fileURL)]
+        where FileManager.default.fileExists(atPath: url.path) {
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                logger.error("Health dashboard snapshot file delete failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 

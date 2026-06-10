@@ -47,7 +47,12 @@ enum HealthWidgetSnapshotStore {
 
         let data: Data
         do {
-            data = try JSONEncoder().encode(snapshot)
+            // `.sortedKeys` keeps the encoded bytes deterministic so the
+            // save-if-changed compare below actually gates widget reloads;
+            // `JSONEncoder` randomizes key order between calls otherwise.
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            data = try encoder.encode(snapshot)
         } catch {
             logger.error("Health widget snapshot encode failed: \(error.localizedDescription, privacy: .public)")
             return false
