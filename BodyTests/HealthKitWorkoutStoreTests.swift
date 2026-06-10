@@ -356,33 +356,125 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(merged.points.map(\.value), [61, 62])
     }
 
-    func testHydrateSleepVitalsInParallelPreservesOrderAndConcurrencyLimit() async throws {
+    func testAverageVitalValuesPartitionsSamplesPerNightInterval() throws {
         let calendar = Calendar.bodyGregorian
-        let firstDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 10)))
-        let secondDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11)))
-        let thirdDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 12)))
-        let probe = SleepHydrationProbe()
+        let night1Start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 10, hour: 1)))
+        let night1End = night1Start.addingTimeInterval(7 * 60 * 60)
+        let night2Start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 0, minute: 30)))
+        let night2End = night2Start.addingTimeInterval(7 * 60 * 60)
+        let night3Start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 12, hour: 2)))
+        let night3End = night3Start.addingTimeInterval(6 * 60 * 60)
 
-        let hydratedDays = await HealthKitFetchEngine.hydrateSleepVitalsInParallel(
-            days: [
-                sleepDaySummary(on: firstDay, heartRateSeed: 51, calendar: calendar),
-                SleepDaySummary(date: secondDay, summary: SleepSummary(duration: nil)),
-                sleepDaySummary(on: thirdDay, heartRateSeed: 53, calendar: calendar)
-            ],
-            maxConcurrentDays: 1
-        ) { interval in
-            await probe.begin(interval)
-            try? await Task.sleep(nanoseconds: 1_000_000)
-            await probe.end()
-            return SleepVitalsSummary(heartRate: interval.duration / 60)
+        func instant(_ date: Date, _ value: Double) -> SleepVitalWindowSample {
+            SleepVitalWindowSample(startDate: date, endDate: date, value: value)
         }
 
-        XCTAssertEqual(hydratedDays.map(\.date), [firstDay, secondDay, thirdDay])
-        XCTAssertEqual(hydratedDays[0].summary.vitals.heartRate, 51)
-        XCTAssertTrue(hydratedDays[1].summary.vitals.isEmpty)
-        XCTAssertEqual(hydratedDays[2].summary.vitals.heartRate, 53)
-        let maximumActiveCount = await probe.maximumActiveCount()
-        XCTAssertLessThanOrEqual(maximumActiveCount, 1)
+        let samples = [
+            // Instantaneous sample at the exact night start counts.
+            instant(night1Start, 60),
+            instant(night1Start.addingTimeInterval(3_600), 64),
+            // Spans the night-2 boundary: overlaps night 2 only.
+            SleepVitalWindowSample(
+                startDate: night2Start.addingTimeInterval(-1_800),
+                endDate: night2Start.addingTimeInterval(1_800),
+                value: 50
+            ),
+            instant(night2Start.addingTimeInterval(60), 54),
+            // Instantaneous sample at the exact night end is excluded ([start, end)).
+            instant(night2End, 99)
+        ].sorted { $0.startDate < $1.startDate }
+
+        let averages = HealthKitFetchEngine.averageVitalValues(
+            samples: samples,
+            intervals: [
+                DateInterval(start: night1Start, end: night1End),
+                DateInterval(start: night2Start, end: night2End),
+                DateInterval(start: night3Start, end: night3End)
+            ]
+        )
+
+        XCTAssertEqual(averages.count, 3)
+        XCTAssertEqual(try XCTUnwrap(averages[0]), 62, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(averages[1]), 52, accuracy: 0.0001)
+        XCTAssertNil(averages[2])
+    }
+
+    func testAverageVitalValuesReturnsNilsWhenNoSamples() {
+        let now = Date()
+
+        let averages = HealthKitFetchEngine.averageVitalValues(
+            samples: [],
+            intervals: [DateInterval(start: now, end: now.addingTimeInterval(3_600))]
+        )
+
+        XCTAssertEqual(averages, [nil])
+    }
+
+    func testEvictableMonthKeysDropOldestUnprotectedBeyondCap() {
+        let keys = (1...6).map { BodyWorkoutMonthKey(month: $0, year: 2026) }
+
+        let evicted = HealthKitWorkoutStore.evictableMonthKeys(
+            loadOrder: keys,
+            maximumCount: 4,
+            protectedKeys: [keys[0]]
+        )
+
+        XCTAssertEqual(evicted, [keys[1], keys[2]])
+        XCTAssertTrue(
+            HealthKitWorkoutStore.evictableMonthKeys(
+                loadOrder: keys,
+                maximumCount: 6,
+                protectedKeys: []
+            ).isEmpty
+        )
+    }
+
+    @MainActor
+    func testWidgetReloadCoalescerCollapsesBurstsIntoOneReload() async {
+        var reloadCount = 0
+        let coalescer = BodyWidgetReloadCoalescer(debounceNanoseconds: 5_000_000) {
+            reloadCount += 1
+        }
+
+        coalescer.requestReload()
+        coalescer.requestReload()
+        coalescer.requestReload()
+        try? await Task.sleep(nanoseconds: 60_000_000)
+        XCTAssertEqual(reloadCount, 1)
+
+        coalescer.requestReload()
+        try? await Task.sleep(nanoseconds: 60_000_000)
+        XCTAssertEqual(reloadCount, 2)
+    }
+
+    func testPartitionHeartRateSamplesMatchesPerWorkoutWindowFiltering() {
+        let base = Date(timeIntervalSinceReferenceDate: 790_000_000)
+        let samples = (0..<500).map { offset in
+            WorkoutHeartRateSample(
+                date: base.addingTimeInterval(Double(offset) * 90),
+                beatsPerMinute: 80 + Double(offset % 40)
+            )
+        }
+        let windows: [(id: UUID, startDate: Date, endDate: Date)] = [
+            // Starts exactly on a sample date.
+            (UUID(), base, base.addingTimeInterval(1_800)),
+            // Overlaps the first window.
+            (UUID(), base.addingTimeInterval(900), base.addingTimeInterval(2_700)),
+            // Zero-length window matches nothing.
+            (UUID(), base.addingTimeInterval(10_000), base.addingTimeInterval(10_000)),
+            (UUID(), base.addingTimeInterval(20_000), base.addingTimeInterval(26_000)),
+            // Extends past the last sample.
+            (UUID(), base.addingTimeInterval(44_910), base.addingTimeInterval(60_000))
+        ]
+
+        let partitioned = HealthKitFetchEngine.partitionHeartRateSamples(samples, forWorkoutWindows: windows)
+
+        XCTAssertEqual(partitioned.count, windows.count)
+        for window in windows {
+            let expected = samples.filter { $0.date >= window.startDate && $0.date < window.endDate }
+            XCTAssertEqual(partitioned[window.id]?.map(\.date), expected.map(\.date))
+            XCTAssertEqual(partitioned[window.id]?.map(\.beatsPerMinute), expected.map(\.beatsPerMinute))
+        }
     }
 
     private func cachedHealthDashboardSnapshot() throws -> HealthDashboardSnapshot {
@@ -458,27 +550,6 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
             .appendingPathComponent("currentMonthWorkoutSnapshot.json")
     }
 
-    private func sleepDaySummary(
-        on day: Date,
-        heartRateSeed: Double,
-        calendar: Calendar
-    ) -> SleepDaySummary {
-        let start = calendar.date(byAdding: .hour, value: 1, to: day) ?? day
-        let end = start.addingTimeInterval(heartRateSeed * 60)
-        return SleepDaySummary(
-            date: day,
-            summary: SleepSummary(
-                duration: end.timeIntervalSince(start),
-                stageSnapshot: SleepStageSnapshot(
-                    date: day,
-                    segments: [
-                        SleepStageSegment(stage: .core, startDate: start, endDate: end)
-                    ]
-                )
-            )
-        )
-    }
-
     private func workout(day: Int, type: BodyWorkoutType, duration: TimeInterval) -> WorkoutSummary {
         WorkoutSummary(
             id: UUID(uuidString: "00000000-0000-0000-0000-\(String(format: "%012d", day))") ?? UUID(),
@@ -494,24 +565,5 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
     private struct LegacyHealthDashboardSnapshot: Codable {
         var summary: HealthSummarySnapshot
         var trends: HealthTrendSnapshot
-    }
-}
-
-private actor SleepHydrationProbe {
-    private var activeCount = 0
-    private var maxActiveCount = 0
-
-    func begin(_ interval: DateInterval) {
-        _ = interval
-        activeCount += 1
-        maxActiveCount = max(maxActiveCount, activeCount)
-    }
-
-    func end() {
-        activeCount -= 1
-    }
-
-    func maximumActiveCount() -> Int {
-        maxActiveCount
     }
 }
