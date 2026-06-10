@@ -100,7 +100,8 @@ func wristTemperatureBaseline(from series: HealthTrendSeries) -> Double {
 
 func wristTemperatureBaselineDeviationDisplay(
     currentCelsius: Double?,
-    series: HealthTrendSeries
+    series: HealthTrendSeries,
+    temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
 ) -> BodyMetricDisplayValue {
     let points = series.lineChartCalendarPoints(to: .recentYear)
     let finiteValues = points.compactMap(\.value).filter(\.isFinite)
@@ -113,7 +114,10 @@ func wristTemperatureBaselineDeviationDisplay(
     }
 
     let baseline = wristTemperatureBaselineValue(from: finiteValues)
-    let diff = current - baseline
+    // A temperature delta converts by scale only (1 °C of change = 1.8 °F of
+    // change); the +32 offset of the absolute conversion must not be applied.
+    let diffCelsius = current - baseline
+    let diff = temperatureUnitPreference == .fahrenheit ? diffCelsius * 1.8 : diffCelsius
     let magnitude = BodyValueFormat.numberText(abs(diff), decimals: 1)
     let formattedValue: String
     if diff > 0.05 {
@@ -124,7 +128,11 @@ func wristTemperatureBaselineDeviationDisplay(
         formattedValue = magnitude
     }
 
-    return BodyMetricDisplayValue(title: "Baseline", value: formattedValue, unit: "C")
+    return BodyMetricDisplayValue(
+        title: "Baseline",
+        value: formattedValue,
+        unit: temperatureUnitPreference.unitLabel
+    )
 }
 
 func bodyChartSelectionDateText(startDate: Date, endDate: Date) -> String? {
@@ -672,7 +680,8 @@ struct BodyHomeView: View {
         )
         let deviationDisplay = wristTemperatureBaselineDeviationDisplay(
             currentCelsius: summary.wristTemperature.value,
-            series: chartPreview
+            series: chartPreview,
+            temperatureUnitPreference: selectedTemperatureUnitPreference
         )
 
         return BodyHealthMetricCard.Model(
@@ -963,7 +972,8 @@ struct BodyHomeView: View {
             )
             let deviationDisplay = wristTemperatureBaselineDeviationDisplay(
                 currentCelsius: summary.wristTemperature.value,
-                series: trends.wristTemperature
+                series: trends.wristTemperature,
+                temperatureUnitPreference: selectedTemperatureUnitPreference
             )
             return BodyHealthMetricDetailModel(
                 kind: kind,

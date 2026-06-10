@@ -207,11 +207,15 @@ enum HealthWidgetSnapshotBuilder {
             let actual = summary.wristTemperature.value.map {
                 BodyValueFormat.temperatureDisplay(celsius: $0, temperatureUnitPreference: temperatureUnitPreference).value
             } ?? "--"
-            let deviation = wristTemperatureDeviation(
+            let deviation = wristTemperatureBaselineDeviationDisplay(
                 currentCelsius: summary.wristTemperature.value,
-                series: trends.series(for: .wristTemperature)
+                series: trends.series(for: .wristTemperature),
+                temperatureUnitPreference: temperatureUnitPreference
             )
-            return [deviation, HealthWidgetDisplayValue(value: actual, unit: unit)]
+            return [
+                HealthWidgetDisplayValue(value: deviation.value, unit: deviation.unit),
+                HealthWidgetDisplayValue(value: actual, unit: unit)
+            ]
         case .steps:
             return single(number(summary.steps.value, 0), "")
         case .activeEnergy:
@@ -233,38 +237,6 @@ enum HealthWidgetSnapshotBuilder {
         case .bodyFatPercentage:
             return single(number(summary.bodyFatPercentage.value, 1), "%")
         }
-    }
-
-    /// The wrist-temperature deviation from the user's median baseline, matching
-    /// BodyHomeView.wristTemperatureBaselineDeviationDisplay. The series is the
-    /// raw (Celsius) trend; the deviation is always reported in C.
-    private static func wristTemperatureDeviation(
-        currentCelsius: Double?,
-        series: HealthTrendSeries
-    ) -> HealthWidgetDisplayValue {
-        let finiteValues = series.lineChartCalendarPoints(to: .recentYear)
-            .compactMap(\.value)
-            .filter(\.isFinite)
-        guard !finiteValues.isEmpty, let current = currentCelsius, current.isFinite else {
-            return HealthWidgetDisplayValue(value: "--", unit: "")
-        }
-
-        let sorted = finiteValues.sorted()
-        let middle = sorted.count / 2
-        let baseline = sorted.count.isMultiple(of: 2)
-            ? (sorted[middle - 1] + sorted[middle]) / 2
-            : sorted[middle]
-        let diff = current - baseline
-        let magnitude = BodyValueFormat.numberText(abs(diff), decimals: 1)
-        let value: String
-        if diff > 0.05 {
-            value = "+\(magnitude)"
-        } else if diff < -0.05 {
-            value = "−\(magnitude)"
-        } else {
-            value = magnitude
-        }
-        return HealthWidgetDisplayValue(value: value, unit: "C")
     }
 
     private static func energyValueText(
