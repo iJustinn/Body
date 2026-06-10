@@ -2,9 +2,9 @@
 //  HealthTrendWidget.swift
 //  BodyWidgetExtension
 //
-//  Medium widget that charts a chosen metric's weekly/monthly trend (primary
-//  source, plus the secondary source when one is selected in the app). The
-//  metric, range, and background are chosen in the widget's edit screen.
+//  Medium widget that charts a chosen metric's weekly/monthly trend for the
+//  primary source. The metric, range, and background are chosen in the
+//  widget's edit screen.
 //
 
 import AppIntents
