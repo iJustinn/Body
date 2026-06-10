@@ -781,10 +781,12 @@ actor HealthKitFetchEngine {
             return nil
         }
 
+        // Today's bucket only: a day with no samples yet reports nil so the
+        // card shows its empty state instead of yesterday's full-day total
+        // under a "Current" label.
         let now = Date()
-        let dayStart = calendar.startOfDay(for: now)
-        let intervalStart = calendar.date(byAdding: .day, value: -1, to: dayStart) ?? dayStart
-        let intervalEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? now
+        let intervalStart = calendar.startOfDay(for: now)
+        let intervalEnd = calendar.date(byAdding: .day, value: 1, to: intervalStart) ?? now
         let predicate = combinedPredicate(
             startDate: intervalStart,
             endDate: intervalEnd,
