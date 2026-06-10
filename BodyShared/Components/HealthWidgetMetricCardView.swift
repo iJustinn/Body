@@ -16,7 +16,11 @@ struct HealthWidgetMetricCardView: View {
     let trend: HealthWidgetMetricTrend?
 
     var body: some View {
-        if let trend {
+        // The app writes a trend entry for every metric, so a nil check alone
+        // would never show the empty state once a snapshot exists; route on
+        // whether the metric actually has chartable data (matches the medium
+        // trend widget's empty handling).
+        if let trend, trend.hasAnyData {
             cardContent(trend: trend)
         } else {
             emptyState
