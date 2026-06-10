@@ -1,5 +1,17 @@
 # Version History
 
+## 0.9.1 (build 3)
+
+- Fixed the Steps trend card icon to use the walking figure instead of the Active Energy flame.
+- Clear Cache now also deletes the shared health widget snapshot so the Health Metric, Health Trend, and Sleep Stages widgets empty out with the rest of the local cache, and the Settings cache size readout includes that file.
+- Skin Temperature baseline deviation now converts to the selected temperature unit on the Summary card, the detail header, and the Health Metric widget, matching the detail chart's annotation.
+- Refresh entry points now claim the refresh slot before requesting HealthKit authorization so concurrent triggers can no longer start overlapping full refreshes or dismiss the loading overlay early.
+- The small Health Metric widget now shows its empty state for metrics without chartable data instead of a blank chart with "--".
+- Cumulative metric summaries (Steps, Active Energy, Resting Energy, Exercise Minutes, Time In Daylight) now report only today's total instead of showing yesterday's full-day total under the Current label before today's first sample.
+- Hardened cached dashboard decoding so an unreadable readiness blob degrades to "Needs Data" instead of discarding the entire cached snapshot.
+- Removed an unused duplicate activity-ring month key helper from `HealthKitWorkoutStore` and refreshed stale "May 2026 seed" references in README/TestPlan plus the Health Trend widget's header comment.
+- Updated the app, widget, and test bundle version to 0.9.1 build 3.
+
 ## 0.9.1 (build 2)
 
 - Added iPad support with a two-column dashboard, a side column for trends, larger preview charts, and readable width limits on the dashboard, workouts, settings, and metric detail screens.

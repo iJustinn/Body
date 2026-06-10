@@ -1,6 +1,6 @@
 # Body Test Plan
 
-Generated 2026-05-27 against branch `body-v0.9.1` (app version 0.9.1 build 2).
+Generated 2026-05-27 against branch `body-v0.9.1` (app version 0.9.1 build 3).
 
 ## 1. Project Testing Overview
 
@@ -46,7 +46,7 @@ Generated 2026-05-27 against branch `body-v0.9.1` (app version 0.9.1 build 2).
 | M1 | Critical | First launch before Health permission | Install fresh build and open Body | App shows health cards with empty states and no sync button without crashing |
 | M2 | Critical | Apple Health authorization | Pull down on the Summary tab on a physical device with workout, sleep, heart, body, and energy data | Permission prompt appears; after approval, current month workouts and summary health cards render |
 | M3 | Critical | Widget reads app snapshot | Refresh workouts, add the large widget to Home Screen | Widget calendar matches app snapshot |
-| M4 | High | Widget placeholder | Add widget before opening app | Widget shows May 2026 preview data |
+| M4 | High | Widget placeholder | Add widget before opening app | Widget shows preview data for the current month |
 | M5 | High | Widget background choices | Add both large widgets and edit their widget configuration background between System, Black, and White | Day numbers, glyphs, type bars, and labels remain readable in each background choice |
 | M6 | Medium | Empty workout month | Test with a month/device that has no workouts | Calendar shows inactive days and zero workout summary |
 | M7 | Medium | Multiple workout types in one day | Record/import running and strength workouts on one day | Day tile shows count badge and colored glyphs |

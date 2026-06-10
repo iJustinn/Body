@@ -6,7 +6,7 @@
 
 Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, Readiness, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
-Current app version: **0.9.1 (build 2)**
+Current app version: **0.9.1 (build 3)**
 
 ## Screenshots
 
@@ -33,7 +33,7 @@ Current app version: **0.9.1 (build 2)**
 - **Widgets** - Large workout calendar widget (monthly tiles using SF workout icons, with star/moon/sun count markers) and large workout types widget (percentage-bar breakdown by type). System, Black, and White background choices.
 - **Apple Health sync** - Read-only access to workouts, activity rings, sleep, heart, body measurements, energy, daylight, steps, exercise minutes, and skin temperature. Workout summaries and dashboard snapshots are written to App Group storage for widgets.
 - **Settings** - Appearance, Units, app icon selection, Data > Source defaults for Apple Health sources, Data > Permissions to hide categories from the dashboard, and About rows.
-- **Local-first** - Widgets read a cached JSON snapshot from the app group; they do not query HealthKit directly. A May 2026 seed snapshot keeps the UI useful before authorization. The dashboard cache invalidates stale secondary-source series automatically when the user changes a comparison source between launches.
+- **Local-first** - Widgets read a cached JSON snapshot from the app group; they do not query HealthKit directly. A current-month preview snapshot keeps the UI useful before authorization. The dashboard cache invalidates stale secondary-source series automatically when the user changes a comparison source between launches.
 
 ## Requirements
 
