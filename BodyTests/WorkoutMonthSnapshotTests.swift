@@ -26,6 +26,24 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.day(9)?.primaryWorkoutType, .strengthTraining)
     }
 
+    func testSnapshotIdentifiesTodayOnlyWithinItsOwnMonth() throws {
+        let calendar = Calendar.bodyGregorian
+        let reference = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 9)))
+        let snapshot = WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: calendar)
+
+        let today = try XCTUnwrap(snapshot.day(17))
+        let otherDay = try XCTUnwrap(snapshot.day(16))
+
+        XCTAssertTrue(snapshot.isToday(today, reference: reference, calendar: calendar))
+        XCTAssertFalse(snapshot.isToday(otherDay, reference: reference, calendar: calendar))
+
+        // A snapshot for a different month must never highlight a day as today,
+        // even when the day-of-month matches the reference date.
+        let otherMonthSnapshot = WorkoutMonthSnapshot.make(month: 4, year: 2026, workouts: [], calendar: calendar)
+        let sameDayDifferentMonth = try XCTUnwrap(otherMonthSnapshot.day(17))
+        XCTAssertFalse(otherMonthSnapshot.isToday(sameDayDifferentMonth, reference: reference, calendar: calendar))
+    }
+
     func testPlaceholderUsesGeneratedDateMonthAndYear() throws {
         let calendar = Calendar.bodyGregorian
         let generatedAt = try XCTUnwrap(calendar.date(from: DateComponents(year: 2027, month: 6, day: 18, hour: 9)))

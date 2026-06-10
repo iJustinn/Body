@@ -138,6 +138,17 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
         days.first { $0.day == number }
     }
 
+    /// Whether `reference` falls on `day` within this snapshot's month, used to
+    /// highlight "today" in the calendar grid. Returns `false` whenever the
+    /// snapshot is showing a different month or year than `reference`, so past
+    /// or future months never highlight a day.
+    func isToday(_ day: WorkoutDaySummary, reference: Date = Date(), calendar: Calendar = .bodyGregorian) -> Bool {
+        let components = calendar.dateComponents([.year, .month, .day], from: reference)
+        return components.year == year
+            && components.month == month
+            && components.day == day.day
+    }
+
     static func make(
         month: Int,
         year: Int,

@@ -119,7 +119,8 @@ private struct WorkoutCalendarWidgetView: View {
     var body: some View {
         WorkoutCalendarView(
             snapshot: entry.snapshot,
-            style: .widgetLarge
+            style: .widgetLarge,
+            referenceDate: entry.date
         )
         .padding(14)
     }
