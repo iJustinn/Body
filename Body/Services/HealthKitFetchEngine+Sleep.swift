@@ -118,23 +118,172 @@ extension HealthKitFetchEngine {
             return SleepHistorySnapshot(days: days)
         }
 
-        // Hydrate sleep vitals per-day in parallel. The previous serial loop
-        // could fire up to ~365 days × 5 sub-queries sequentially; with the
-        // sleep window now bounded by the trend interval, that's the largest
-        // single source of cold-launch latency. Bound concurrency so we don't
-        // flood HK with thousands of in-flight queries.
-        let hydratedDays = await Self.hydrateSleepVitalsInParallel(
-            days: days,
-            maxConcurrentDays: 16,
-            hydrate: { interval in
-                await self.fetchSleepVitals(
-                    startDate: interval.start,
-                    endDate: interval.end
-                )
-            }
-        )
+        // Hydrate sleep vitals with one OR-compound query per vital type,
+        // partitioned per night in memory. The prior per-day fan-out issued
+        // up to ~365 days × 5 HK queries per full refresh; this issues
+        // exactly 5 regardless of day count, with the same per-night
+        // predicates so only in-night samples cross the HK IPC boundary.
+        let signpostState = BodyPerformanceSignposts.signposter.beginInterval("SleepVitalsHydration")
+        let hydratedDays = await hydrateSleepVitals(for: days)
+        BodyPerformanceSignposts.signposter.endInterval("SleepVitalsHydration", signpostState)
 
         return SleepHistorySnapshot(days: hydratedDays)
+    }
+
+    private func hydrateSleepVitals(for days: [SleepDaySummary]) async -> [SleepDaySummary] {
+        let indexedIntervals = days.enumerated().compactMap { index, day in
+            day.summary.stageSnapshot.dateInterval.map { (index: index, interval: $0) }
+        }
+        guard !indexedIntervals.isEmpty else {
+            return days
+        }
+
+        let vitals = await fetchSleepVitals(forIntervals: indexedIntervals.map(\.interval))
+        var hydrated = days
+        for (offset, entry) in indexedIntervals.enumerated() where offset < vitals.count {
+            hydrated[entry.index].summary.vitals = vitals[offset]
+        }
+        return hydrated
+    }
+
+    /// One sample query per vital type covering every night interval (via an
+    /// OR-compound of the per-night predicates), averaged per night with
+    /// `averageVitalValues`. Matches the per-interval queries it replaces:
+    /// same predicates, units, and per-sample value transforms.
+    func fetchSleepVitals(forIntervals intervals: [DateInterval]) async -> [SleepVitalsSummary] {
+        guard !intervals.isEmpty else {
+            return []
+        }
+
+        let emptyValues = [Double?](repeating: nil, count: intervals.count)
+        async let heartRates = fetchIfPermitted(.heart, default: emptyValues) {
+            Self.averageVitalValues(
+                samples: await self.fetchVitalSamples(
+                    for: .heartRate,
+                    unit: HKUnit.count().unitDivided(by: .minute()),
+                    sourceKind: .heartRate,
+                    intervals: intervals
+                ),
+                intervals: intervals
+            )
+        }
+        async let heartRateVariabilities = fetchIfPermitted(.heart, default: emptyValues) {
+            Self.averageVitalValues(
+                samples: await self.fetchVitalSamples(
+                    for: .heartRateVariabilitySDNN,
+                    unit: .secondUnit(with: .milli),
+                    sourceKind: .heartRateVariability,
+                    intervals: intervals
+                ),
+                intervals: intervals
+            )
+        }
+        async let respiratoryRates = fetchIfPermitted(.respiratory, default: emptyValues) {
+            Self.averageVitalValues(
+                samples: await self.fetchVitalSamples(
+                    for: .respiratoryRate,
+                    unit: HKUnit.count().unitDivided(by: .minute()),
+                    sourceKind: .respiratoryRate,
+                    intervals: intervals
+                ),
+                intervals: intervals
+            )
+        }
+        async let oxygenSaturations = fetchIfPermitted(.bloodOxygen, default: emptyValues) {
+            Self.averageVitalValues(
+                samples: await self.fetchVitalSamples(
+                    for: .oxygenSaturation,
+                    unit: .percent(),
+                    sourceKind: .oxygenSaturation,
+                    intervals: intervals,
+                    valueTransform: Self.normalizedPercentDisplayValue
+                ),
+                intervals: intervals
+            )
+        }
+        async let wristTemperatures = fetchIfPermitted(.wristTemperature, default: emptyValues) {
+            Self.averageVitalValues(
+                samples: await self.fetchVitalSamples(
+                    for: .appleSleepingWristTemperature,
+                    unit: .degreeCelsius(),
+                    sourceKind: .wristTemperature,
+                    intervals: intervals
+                ),
+                intervals: intervals
+            )
+        }
+
+        let resolved = await (
+            heartRates,
+            heartRateVariabilities,
+            respiratoryRates,
+            oxygenSaturations,
+            wristTemperatures
+        )
+        return intervals.indices.map { index in
+            SleepVitalsSummary(
+                heartRate: resolved.0[index],
+                heartRateVariability: resolved.1[index],
+                respiratoryRate: resolved.2[index],
+                oxygenSaturation: resolved.3[index],
+                wristTemperatureCelsius: resolved.4[index]
+            )
+        }
+    }
+
+    /// All samples for one vital across the night intervals, sorted ascending
+    /// by start date, with the per-sample value transform already applied
+    /// (matching `dailyQuantityValue`, which transforms before averaging).
+    private func fetchVitalSamples(
+        for identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        sourceKind: HealthMetricKind?,
+        intervals: [DateInterval],
+        valueTransform: @escaping (Double) -> Double = { $0 }
+    ) async -> [SleepVitalWindowSample] {
+        guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
+            return []
+        }
+
+        let intervalPredicates = intervals.map { interval in
+            HKQuery.predicateForSamples(withStart: interval.start, end: interval.end)
+        }
+        var predicates: [NSPredicate] = [
+            intervalPredicates.count == 1
+                ? intervalPredicates[0]
+                : NSCompoundPredicate(orPredicateWithSubpredicates: intervalPredicates)
+        ]
+        if let sourceKind, let sourcePredicate = combinedPredicate(sourceKind: sourceKind) {
+            predicates.append(sourcePredicate)
+        }
+        let predicate = predicates.count == 1
+            ? predicates[0]
+            : NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+
+        return await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: quantityType,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sort]
+            ) { _, samples, _ in
+                let windowSamples = (samples as? [HKQuantitySample] ?? []).compactMap { sample -> SleepVitalWindowSample? in
+                    let value = valueTransform(sample.quantity.doubleValue(for: unit))
+                    guard value.isFinite else {
+                        return nil
+                    }
+                    return SleepVitalWindowSample(
+                        startDate: sample.startDate,
+                        endDate: sample.endDate,
+                        value: value
+                    )
+                }
+                continuation.resume(returning: windowSamples)
+            }
+
+            healthStore.execute(query)
+        }
     }
 
     func fetchSleepVitals(startDate: Date, endDate: Date) async -> SleepVitalsSummary {
@@ -199,61 +348,52 @@ extension HealthKitFetchEngine {
         )
     }
 
-    /// Run `hydrate` on every day with a sleep interval in parallel, with at most
-    /// `maxConcurrentDays` queries in flight. Each day internally fans out to 5
-    /// vitals queries, so the effective HK concurrency ceiling is roughly
-    /// `maxConcurrentDays × 5`. Returned days are sorted by date ascending to
-    /// match the prior serial-loop ordering.
-    static func hydrateSleepVitalsInParallel(
-        days: [SleepDaySummary],
-        maxConcurrentDays: Int,
-        hydrate: @escaping @Sendable (DateInterval) async -> SleepVitalsSummary
-    ) async -> [SleepDaySummary] {
-        guard !days.isEmpty else {
-            return []
+    /// Per-interval averages from window-wide samples. A sample counts toward
+    /// an interval when it overlaps it as `HKQuery.predicateForSamples` would
+    /// (`[start, end)`, with instantaneous samples at the exact interval start
+    /// included), so the batched query + in-memory partition matches the
+    /// per-night queries it replaces. `samples` must be sorted ascending by
+    /// `startDate`; `intervals` ascending and non-overlapping (nights).
+    nonisolated static func averageVitalValues(
+        samples: [SleepVitalWindowSample],
+        intervals: [DateInterval]
+    ) -> [Double?] {
+        guard !samples.isEmpty else {
+            return [Double?](repeating: nil, count: intervals.count)
         }
 
-        let limit = max(1, maxConcurrentDays)
-        return await withTaskGroup(
-            of: (Int, SleepDaySummary).self,
-            returning: [SleepDaySummary].self
-        ) { group in
-            var nextIndex = 0
-            let initialBatch = min(limit, days.count)
-            while nextIndex < initialBatch {
-                let index = nextIndex
-                let day = days[index]
-                group.addTask {
-                    var hydrated = day
-                    if let interval = hydrated.summary.stageSnapshot.dateInterval {
-                        hydrated.summary.vitals = await hydrate(interval)
-                    }
-                    return (index, hydrated)
-                }
-                nextIndex += 1
+        var base = 0
+        return intervals.map { interval in
+            // Samples fully before this interval can't match any later
+            // interval either; advance the shared base past them once.
+            while base < samples.count,
+                  samples[base].startDate < interval.start,
+                  samples[base].endDate <= interval.start {
+                base += 1
             }
 
-            var results: [(Int, SleepDaySummary)] = []
-            results.reserveCapacity(days.count)
-            for await pair in group {
-                results.append(pair)
-                if nextIndex < days.count {
-                    let index = nextIndex
-                    let day = days[index]
-                    group.addTask {
-                        var hydrated = day
-                        if let interval = hydrated.summary.stageSnapshot.dateInterval {
-                            hydrated.summary.vitals = await hydrate(interval)
-                        }
-                        return (index, hydrated)
-                    }
-                    nextIndex += 1
+            var sum = 0.0
+            var count = 0
+            var index = base
+            while index < samples.count, samples[index].startDate < interval.end {
+                let sample = samples[index]
+                let overlaps = sample.startDate == sample.endDate
+                    ? sample.startDate >= interval.start
+                    : sample.endDate > interval.start
+                if overlaps {
+                    sum += sample.value
+                    count += 1
                 }
+                index += 1
             }
-
-            return results
-                .sorted { $0.0 < $1.0 }
-                .map(\.1)
+            return count > 0 ? sum / Double(count) : nil
         }
     }
+}
+
+/// One transformed quantity sample inside the batched sleep-vitals window.
+struct SleepVitalWindowSample: Equatable {
+    let startDate: Date
+    let endDate: Date
+    let value: Double
 }

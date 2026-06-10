@@ -1154,35 +1154,61 @@ actor HealthKitFetchEngine {
             healthStore.execute(query)
         }
 
-        var samplesByWorkoutID: [UUID: [WorkoutHeartRateSample]] = [:]
-        samplesByWorkoutID.reserveCapacity(workouts.count)
-        for workout in workouts {
-            let workoutStart = workout.startDate
-            let workoutEnd = workout.endDate
-            var workoutSamples: [WorkoutHeartRateSample] = []
-            for sample in samples {
-                let sampleDate = sample.startDate
-                if sampleDate < workoutStart {
-                    continue
-                }
-                if sampleDate >= workoutEnd {
-                    // Samples are sorted ascending; we're past this workout's window.
-                    break
-                }
-                let beatsPerMinute = sample.quantity.doubleValue(for: heartRateUnit)
-                guard beatsPerMinute.isFinite, beatsPerMinute > 0 else {
-                    continue
-                }
-                workoutSamples.append(
-                    WorkoutHeartRateSample(
-                        date: sampleDate,
-                        beatsPerMinute: beatsPerMinute
-                    )
-                )
+        let heartRateSamples = samples.compactMap { sample -> WorkoutHeartRateSample? in
+            let beatsPerMinute = sample.quantity.doubleValue(for: heartRateUnit)
+            guard beatsPerMinute.isFinite, beatsPerMinute > 0 else {
+                return nil
             }
-            samplesByWorkoutID[workout.uuid] = workoutSamples
+            return WorkoutHeartRateSample(date: sample.startDate, beatsPerMinute: beatsPerMinute)
+        }
+        return Self.partitionHeartRateSamples(
+            heartRateSamples,
+            forWorkoutWindows: workouts.map { (id: $0.uuid, startDate: $0.startDate, endDate: $0.endDate) }
+        )
+    }
+
+    /// Assigns window-query heart-rate samples to each workout's
+    /// `[startDate, endDate)` window. `samples` must be sorted ascending by
+    /// date. Binary-searches each workout's first sample instead of
+    /// rescanning the month's samples per workout (the prior restart-per-
+    /// workout scan was O(workouts × samples)); overlapping workouts simply
+    /// match the same samples.
+    nonisolated static func partitionHeartRateSamples(
+        _ samples: [WorkoutHeartRateSample],
+        forWorkoutWindows windows: [(id: UUID, startDate: Date, endDate: Date)]
+    ) -> [UUID: [WorkoutHeartRateSample]] {
+        var samplesByWorkoutID: [UUID: [WorkoutHeartRateSample]] = [:]
+        samplesByWorkoutID.reserveCapacity(windows.count)
+
+        for window in windows {
+            var index = firstSampleIndex(in: samples, atOrAfter: window.startDate)
+            var workoutSamples: [WorkoutHeartRateSample] = []
+            while index < samples.count, samples[index].date < window.endDate {
+                workoutSamples.append(samples[index])
+                index += 1
+            }
+            samplesByWorkoutID[window.id] = workoutSamples
         }
         return samplesByWorkoutID
+    }
+
+    /// First index whose sample date is at or after `date` (samples sorted
+    /// ascending by date).
+    nonisolated private static func firstSampleIndex(
+        in samples: [WorkoutHeartRateSample],
+        atOrAfter date: Date
+    ) -> Int {
+        var low = 0
+        var high = samples.count
+        while low < high {
+            let mid = (low + high) / 2
+            if samples[mid].date < date {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
     }
 
     private func fetchEffortLevels(forWorkouts workouts: [HKWorkout]) async -> [UUID: Double] {
@@ -1190,21 +1216,36 @@ actor HealthKitFetchEngine {
             return [:]
         }
 
+        // HKWorkoutEffortScore needs one relationship-predicate query per
+        // workout, so it can't be folded into a single OR-compound query the
+        // way heart-rate samples are. Pump the task group with bounded
+        // concurrency instead of one in-flight HK query per workout in the
+        // month (multiple months refresh concurrently on top of this).
+        let maxConcurrentQueries = 12
         return await withTaskGroup(
             of: (UUID, Double?).self,
             returning: [UUID: Double].self
         ) { group in
-            for workout in workouts {
+            var nextIndex = 0
+            while nextIndex < min(maxConcurrentQueries, workouts.count) {
+                let workout = workouts[nextIndex]
                 group.addTask {
-                    let effort = await self.fetchSavedEffortLevel(for: workout)
-                    return (workout.uuid, effort)
+                    (workout.uuid, await self.fetchSavedEffortLevel(for: workout))
                 }
+                nextIndex += 1
             }
 
             var results: [UUID: Double] = [:]
             for await (id, effort) in group {
                 if let effort {
                     results[id] = effort
+                }
+                if nextIndex < workouts.count {
+                    let workout = workouts[nextIndex]
+                    group.addTask {
+                        (workout.uuid, await self.fetchSavedEffortLevel(for: workout))
+                    }
+                    nextIndex += 1
                 }
             }
             return results
@@ -1682,6 +1723,33 @@ actor HealthKitFetchEngine {
         )
     }
 
+    /// Incremental day-sample refetch for the per-metric detail refresh:
+    /// only asks HealthKit for samples newer than the cached series, then
+    /// merges (mirroring `HealthKitWorkoutStore.loadIntradayMetricSamplesIfNeeded`)
+    /// instead of re-shipping the full trend window of raw samples.
+    /// Secondary-source day samples still refetch fully — the comparison
+    /// source can change between refreshes, and an incremental merge would
+    /// extend the old source's samples instead of replacing them.
+    private func fetchIncrementalPrimaryDaySamples(
+        for kind: HealthMetricKind,
+        cached: HealthTrendSeries,
+        calendar: Calendar
+    ) async -> HealthTrendSeries {
+        let interval = recentHealthTrendInterval(calendar: calendar)
+        let fetchStart = Self.incrementalFetchStart(after: cached, windowStart: interval.start)
+        guard fetchStart < interval.end else {
+            return Self.mergeIntradaySamples(existing: cached, incoming: .empty, windowStart: interval.start)
+        }
+
+        let incoming = await fetchIntradayDaySamples(
+            for: kind,
+            calendar: calendar,
+            startDate: fetchStart,
+            endDate: interval.end
+        )
+        return Self.mergeIntradaySamples(existing: cached, incoming: incoming, windowStart: interval.start)
+    }
+
     func fetchHealthDashboardSnapshot(
         for kind: HealthMetricKind,
         calendar: Calendar,
@@ -1773,11 +1841,10 @@ actor HealthKitFetchEngine {
                 sourceKind: .heartRate
             )
             async let heartRateRangesSecondary = fetchSecondaryRangeTrend(for: .heartRate, calendar: calendar)
-            async let heartRateDaySamples = fetchQuantitySampleSeries(
+            async let heartRateDaySamples = fetchIncrementalPrimaryDaySamples(
                 for: .heartRate,
-                unit: HKUnit.count().unitDivided(by: .minute()),
-                calendar: calendar,
-                sourceKind: .heartRate
+                cached: existing.trends.heartRateDaySamples,
+                calendar: calendar
             )
             async let heartRateDaySamplesSecondary = fetchSecondaryDaySamples(for: .heartRate, calendar: calendar)
 
@@ -1802,11 +1869,10 @@ actor HealthKitFetchEngine {
                 sourceKind: .restingHeartRate
             )
             async let restingHeartRateSecondaryTrend = fetchSecondaryTrend(for: .restingHeartRate, calendar: calendar)
-            async let restingHeartRateDaySamples = fetchQuantitySampleSeries(
+            async let restingHeartRateDaySamples = fetchIncrementalPrimaryDaySamples(
                 for: .restingHeartRate,
-                unit: HKUnit.count().unitDivided(by: .minute()),
-                calendar: calendar,
-                sourceKind: .restingHeartRate
+                cached: existing.trends.restingHeartRateDaySamples,
+                calendar: calendar
             )
             async let restingHeartRateDaySamplesSecondary = fetchSecondaryDaySamples(
                 for: .restingHeartRate,
@@ -1864,11 +1930,10 @@ actor HealthKitFetchEngine {
                 for: .heartRateVariability,
                 calendar: calendar
             )
-            async let heartRateVariabilityDaySamples = fetchQuantitySampleSeries(
-                for: .heartRateVariabilitySDNN,
-                unit: .secondUnit(with: .milli),
-                calendar: calendar,
-                sourceKind: .heartRateVariability
+            async let heartRateVariabilityDaySamples = fetchIncrementalPrimaryDaySamples(
+                for: .heartRateVariability,
+                cached: existing.trends.heartRateVariabilityDaySamples,
+                calendar: calendar
             )
             async let heartRateVariabilityDaySamplesSecondary = fetchSecondaryDaySamples(
                 for: .heartRateVariability,
@@ -1894,11 +1959,10 @@ actor HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .respiratoryRate
             )
-            async let respiratoryRateDaySamples = fetchQuantitySampleSeries(
+            async let respiratoryRateDaySamples = fetchIncrementalPrimaryDaySamples(
                 for: .respiratoryRate,
-                unit: HKUnit.count().unitDivided(by: .minute()),
-                calendar: calendar,
-                sourceKind: .respiratoryRate
+                cached: existing.trends.respiratoryRateDaySamples,
+                calendar: calendar
             )
 
             summary.respiratoryRate = await respiratoryRate ?? HealthSummarySnapshot.empty.respiratoryRate
@@ -1924,12 +1988,10 @@ actor HealthKitFetchEngine {
                 for: .oxygenSaturation,
                 calendar: calendar
             )
-            async let oxygenSaturationDaySamples = fetchQuantitySampleSeries(
+            async let oxygenSaturationDaySamples = fetchIncrementalPrimaryDaySamples(
                 for: .oxygenSaturation,
-                unit: .percent(),
-                calendar: calendar,
-                sourceKind: .oxygenSaturation,
-                valueTransform: Self.normalizedPercentDisplayValue
+                cached: existing.trends.oxygenSaturationDaySamples,
+                calendar: calendar
             )
             async let oxygenSaturationDaySamplesSecondary = fetchSecondaryDaySamples(
                 for: .oxygenSaturation,
