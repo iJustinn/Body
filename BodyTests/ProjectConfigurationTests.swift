@@ -1200,7 +1200,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(appearanceSource.contains("var isBeta: Bool"))
         XCTAssertTrue(appearanceSource.contains("case .readiness:"))
         XCTAssertTrue(settingsSource.contains("if card.isBeta"))
-        XCTAssertTrue(settingsSource.contains(#"Text("Beta")"#))
+        XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("Beta v2")"#), 2)
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.defaultTrendRangeKey)"))
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey)"))
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey)"))

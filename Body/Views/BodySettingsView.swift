@@ -1207,7 +1207,7 @@ private struct BodySleepScoreToggleRow: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
 
-                    Text("Beta")
+                    Text("Beta v2")
                         .font(.system(size: 11, weight: .bold, design: .rounded))
                         .foregroundStyle(.blue)
                         .padding(.horizontal, 7)
@@ -1255,7 +1255,7 @@ private struct BodySummaryCardToggleRow: View {
                         .minimumScaleFactor(0.8)
 
                     if card.isBeta {
-                        Text("Beta")
+                        Text("Beta v2")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(.blue)
                             .padding(.horizontal, 7)
