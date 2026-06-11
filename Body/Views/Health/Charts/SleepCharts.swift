@@ -61,7 +61,7 @@ struct BodySleepStageChart: View {
                     .foregroundStyle(Color.secondary.opacity(0.18))
                 AxisTick()
                     .foregroundStyle(Color.secondary.opacity(0.28))
-                AxisValueLabel {
+                AxisValueLabel(anchor: xAxisLabelAnchor(for: value)) {
                     if let date = value.as(Date.self) {
                         Text(date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)))
                             .font(.system(.caption2, design: .rounded))
@@ -268,39 +268,18 @@ struct BodySleepStageChart: View {
     }
 
     private var xAxisValues: [Date] {
-        axisValues(strideHours: 2, minimumCount: 4)
+        guard let startDate = snapshot.segments.map(\.startDate).min(),
+              let endDate = snapshot.segments.map(\.endDate).max() else {
+            return []
+        }
+        return [startDate, endDate]
     }
 
-    private func axisValues(strideHours: Int, minimumCount: Int) -> [Date] {
-        let calendar = Calendar.bodyGregorian
-        let lowerBound = chartXDomain.lowerBound
-        let upperBound = chartXDomain.upperBound
-        var components = calendar.dateComponents([.year, .month, .day, .hour], from: lowerBound)
-        components.minute = 0
-        components.second = 0
-        components.nanosecond = 0
-
-        var current = calendar.date(from: components) ?? lowerBound
-        if current < lowerBound {
-            current = calendar.date(byAdding: .hour, value: 1, to: current) ?? lowerBound
-        }
-
-        var values: [Date] = []
-        while current <= upperBound {
-            values.append(current)
-            let next = calendar.date(byAdding: .hour, value: strideHours, to: current)
-                ?? current.addingTimeInterval(TimeInterval(strideHours) * 60 * 60)
-            guard next > current else {
-                break
-            }
-            current = next
-        }
-
-        if values.count < minimumCount && strideHours > 1 {
-            return axisValues(strideHours: 1, minimumCount: minimumCount)
-        }
-
-        return values
+    private func xAxisLabelAnchor(for value: AxisValue) -> UnitPoint {
+        guard let date = value.as(Date.self) else { return .top }
+        if date == xAxisValues.first { return .topLeading }
+        if date == xAxisValues.last { return .topTrailing }
+        return .top
     }
 
     private func color(for stage: SleepStage) -> Color {
