@@ -222,6 +222,7 @@ enum BodyHealthDetailChartLayout {
     static let sleepVitalsHeight: CGFloat = 248
     static let sleepVitalsPlotHeight: CGFloat = 188
     static let sleepVitalsIconAxisHeight: CGFloat = 28
+    static let sleepConsistencyHeight: CGFloat = 248
     static let yAxisLabelCount = 4
 }
 

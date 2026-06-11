@@ -679,3 +679,133 @@ enum SleepStage: String, CaseIterable, Codable, Equatable, Identifiable {
         allCases.first { $0.chartPosition == position }
     }
 }
+
+struct SleepConsistencyNightSlice: Equatable, Identifiable {
+    var stage: SleepStage
+    var startOffsetHours: Double
+    var endOffsetHours: Double
+
+    var id: String {
+        "\(stage.rawValue)-\(startOffsetHours)-\(endOffsetHours)"
+    }
+}
+
+struct SleepConsistencyNight: Equatable, Identifiable {
+    var day: Date
+    var bedOffsetHours: Double
+    var wakeOffsetHours: Double
+    var slices: [SleepConsistencyNightSlice]
+
+    var id: Date {
+        day
+    }
+}
+
+/// Day-by-day bed-to-wake bars positioned by time of day, with offsets
+/// expressed in hours relative to each wake day's midnight (pre-midnight
+/// bedtimes are negative). Offsets use elapsed time from midnight, so the
+/// pre-midnight portion of a DST-change night can drift by up to an hour.
+struct SleepConsistencyChartModel: Equatable {
+    var days: [Date]
+    var nights: [SleepConsistencyNight]
+    var averageBedOffsetHours: Double?
+    var averageWakeOffsetHours: Double?
+    var yDomainHours: ClosedRange<Double>
+    var gridHourOffsets: [Double]
+
+    static let dayCount = 14
+
+    static func make(
+        entries: [(day: Date, snapshot: SleepStageSnapshot?)],
+        calendar: Calendar = .bodyGregorian
+    ) -> SleepConsistencyChartModel {
+        let nights = entries.compactMap { entry -> SleepConsistencyNight? in
+            guard let snapshot = entry.snapshot,
+                  let interval = snapshot.dateInterval else {
+                return nil
+            }
+
+            let dayStart = calendar.startOfDay(for: entry.day)
+            let bedOffset = interval.start.timeIntervalSince(dayStart) / 3_600
+            let wakeOffset = interval.end.timeIntervalSince(dayStart) / 3_600
+            let slices = snapshot.segments
+                .sorted { $0.startDate < $1.startDate }
+                .compactMap { segment -> SleepConsistencyNightSlice? in
+                    let start = max(segment.startDate.timeIntervalSince(dayStart) / 3_600, bedOffset)
+                    let end = min(segment.endDate.timeIntervalSince(dayStart) / 3_600, wakeOffset)
+                    guard end > start else {
+                        return nil
+                    }
+
+                    return SleepConsistencyNightSlice(
+                        stage: segment.stage,
+                        startOffsetHours: start,
+                        endOffsetHours: end
+                    )
+                }
+
+            return SleepConsistencyNight(
+                day: entry.day,
+                bedOffsetHours: bedOffset,
+                wakeOffsetHours: wakeOffset,
+                slices: slices
+            )
+        }
+
+        let bedOffsets = nights.map(\.bedOffsetHours)
+        let wakeOffsets = nights.map(\.wakeOffsetHours)
+        let averageBed = bedOffsets.isEmpty ? nil : bedOffsets.reduce(0, +) / Double(bedOffsets.count)
+        let averageWake = wakeOffsets.isEmpty ? nil : wakeOffsets.reduce(0, +) / Double(wakeOffsets.count)
+
+        let domain: ClosedRange<Double>
+        if let minBed = bedOffsets.min(), let maxWake = wakeOffsets.max(), maxWake > minBed {
+            domain = (minBed - domainPaddingHours)...(maxWake + domainPaddingHours)
+        } else {
+            domain = 0...1
+        }
+
+        return SleepConsistencyChartModel(
+            days: entries.map { $0.day },
+            nights: nights,
+            averageBedOffsetHours: averageBed,
+            averageWakeOffsetHours: averageWake,
+            yDomainHours: domain,
+            gridHourOffsets: gridHourOffsets(
+                in: domain,
+                suppressingNear: [averageBed, averageWake].compactMap { $0 }
+            )
+        )
+    }
+
+    static func clockDate(
+        forOffsetHours offsetHours: Double,
+        on day: Date,
+        calendar: Calendar = .bodyGregorian
+    ) -> Date? {
+        let normalized = offsetHours.truncatingRemainder(dividingBy: 24)
+        let positiveHours = normalized < 0 ? normalized + 24 : normalized
+        let totalMinutes = Int((positiveHours * 60).rounded()) % (24 * 60)
+        return calendar.date(
+            byAdding: DateComponents(hour: totalMinutes / 60, minute: totalMinutes % 60),
+            to: calendar.startOfDay(for: day)
+        )
+    }
+
+    private static let domainPaddingHours = 0.5
+    private static let gridStepHours = 2.0
+    private static let gridSuppressionWindowHours = 0.6
+
+    private static func gridHourOffsets(
+        in domain: ClosedRange<Double>,
+        suppressingNear averages: [Double]
+    ) -> [Double] {
+        guard domain.upperBound > domain.lowerBound else {
+            return []
+        }
+
+        let first = (domain.lowerBound / gridStepHours).rounded(.up) * gridStepHours
+        return stride(from: first, through: domain.upperBound, by: gridStepHours).filter { offset in
+            averages.allSatisfy { abs(offset - $0) >= gridSuppressionWindowHours }
+        }
+    }
+}

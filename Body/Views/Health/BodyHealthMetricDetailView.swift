@@ -643,6 +643,8 @@ struct BodyHealthMetricDetailView: View {
         } else {
             sleepStageCard(selectedSleepStageSnapshot)
         }
+
+        sleepConsistencyCard
     }
 
     @ViewBuilder
@@ -1634,6 +1636,69 @@ struct BodyHealthMetricDetailView: View {
         let dateIdentity = snapshot.date.map { String($0.timeIntervalSinceReferenceDate) } ?? "no-date"
         let segmentIdentity = snapshot.segments.map(\.id).joined(separator: "|")
         return "\(dateIdentity)-\(segmentIdentity)"
+    }
+
+    private var sleepConsistencyCard: some View {
+        let chartModel = sleepConsistencyChartModel
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Sleep Consistency")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                Spacer(minLength: 12)
+
+                Text(workoutStore.selectedHealthDataSourceOption(for: model.kind).name)
+                    .font(.system(.caption, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .multilineTextAlignment(.trailing)
+            }
+
+            if chartModel.nights.count < 2 {
+                Text("Not enough sleep data yet")
+                    .font(.system(.body, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 220)
+            } else {
+                BodySleepConsistencyChart(
+                    model: chartModel,
+                    selectedDay: selectedSleepDay,
+                    onSelectDay: { day in
+                        selectDate(day, for: .sleep)
+                    }
+                )
+                .frame(height: BodyHealthDetailChartLayout.sleepConsistencyHeight)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground()
+    }
+
+    // One pass over the history instead of 14 `sleepSummary(for:)` scans;
+    // same precedence as that helper (history first, live summary only for
+    // today's slot).
+    private var sleepConsistencyChartModel: SleepConsistencyChartModel {
+        let calendar = Calendar.bodyGregorian
+        let days = SleepHistorySnapshot.datePickerDates(dayCount: SleepConsistencyChartModel.dayCount)
+        let historyByDay = Dictionary(
+            model.sleepHistory.days.map { (calendar.startOfDay(for: $0.date), $0.summary) },
+            uniquingKeysWith: { _, newest in newest }
+        )
+        let today = calendar.startOfDay(for: Date())
+
+        return SleepConsistencyChartModel.make(
+            entries: days.map { day in
+                let summary = historyByDay[day] ?? (day == today ? currentSleepSummary(for: day) : nil)
+                return (day: day, snapshot: summary?.stageSnapshot)
+            },
+            calendar: calendar
+        )
     }
 
     private var aboutSleepScoreCard: some View {
