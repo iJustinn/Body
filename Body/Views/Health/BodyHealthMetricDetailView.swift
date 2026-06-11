@@ -389,6 +389,8 @@ struct BodyHealthMetricDetailView: View {
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .navigationTitle(model.title)
         .navigationBarTitleDisplayMode(.inline)
+        .tint(model.symbolColor)
+        .accentColor(model.symbolColor)
         .sheet(item: $selectedSleepScoreDetails) { selection in
             SleepScoreDetailsSheet(selection: selection, accentColor: model.symbolColor)
                 .presentationDetents([.height(BodySleepScoreDetailsSheetLayout.sheetHeight), .large])
@@ -1489,7 +1491,7 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var dateSliderSelectionColor: Color {
-        Color.accentColor
+        model.symbolColor
     }
 
     private var sleepDateSliderBackground: Color {
