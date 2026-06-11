@@ -9,7 +9,6 @@ import UIKit
 struct BodySettingsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @AppStorage(BodyAppearancePreference.selectedThemeKey) private var selectedThemeRawValue = BodyAppTheme.defaultValue.rawValue
-    @AppStorage(BodyAppearancePreference.selectedAccentKey) private var selectedAccentRawValue = BodyAppAccent.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
@@ -124,21 +123,6 @@ struct BodySettingsView: View {
                     value: currentTheme.displayName,
                     iconName: currentTheme.iconName,
                     tintColor: currentTheme.tintColor,
-                    accessory: .chevron
-                )
-            }
-            .buttonStyle(.plain)
-
-            settingsDivider
-
-            Button {
-                activeSheet = .appAccent
-            } label: {
-                BodySettingsRowLabel(
-                    title: "App Accent",
-                    value: currentAccent.displayName,
-                    iconName: "paintpalette.fill",
-                    tintColor: currentAccent.color,
                     accessory: .chevron
                 )
             }
@@ -367,10 +351,6 @@ struct BodySettingsView: View {
         BodyAppTheme.storedValue(from: selectedThemeRawValue)
     }
 
-    private var currentAccent: BodyAppAccent {
-        BodyAppAccent.storedValue(from: selectedAccentRawValue)
-    }
-
     private var currentWeightUnit: BodyValueFormat.WeightUnitPreference {
         BodyValueFormat.WeightUnitPreference.storedValue(from: selectedWeightUnitRawValue)
     }
@@ -435,14 +415,6 @@ struct BodySettingsView: View {
             currentTheme
         } set: { theme in
             selectedThemeRawValue = theme.rawValue
-        }
-    }
-
-    private var selectedAccent: Binding<BodyAppAccent> {
-        Binding {
-            currentAccent
-        } set: { accent in
-            selectedAccentRawValue = accent.rawValue
         }
     }
 
@@ -531,8 +503,6 @@ struct BodySettingsView: View {
         switch sheet {
         case .theme:
             BodyThemePickerSheet(selectedTheme: selectedTheme)
-        case .appAccent:
-            BodyAccentPickerSheet(selectedAccent: selectedAccent)
         case .appIcon:
             BodyAppIconPickerSheet(
                 selectedIconName: selectedAppIconName,
@@ -642,7 +612,6 @@ struct BodySettingsView: View {
 
 enum BodySettingsSheet: String, Identifiable {
     case theme
-    case appAccent
     case appIcon
     case sleepDurationGoal
     case summaryCards
@@ -852,50 +821,6 @@ private struct BodyThemePickerSheet: View {
                 }
             }
             .navigationTitle("Theme")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-}
-
-private struct BodyAccentPickerSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Binding var selectedAccent: BodyAppAccent
-
-    private let columns = [
-        GridItem(.flexible()),
-        GridItem(.flexible()),
-        GridItem(.flexible())
-    ]
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(BodyAppAccent.allCases) { accent in
-                            Button {
-                                selectedAccent = accent
-                                dismiss()
-                            } label: {
-                                BodySymbolSelectionTile(
-                                    title: accent.displayName,
-                                    subtitle: accent.selectionSubtitle,
-                                    iconName: accent.iconName,
-                                    tintColor: accent.color,
-                                    isSelected: selectedAccent == accent
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding()
-                    .padding(.bottom, 24)
-                }
-            }
-            .navigationTitle("App Accent")
             .navigationBarTitleDisplayMode(.inline)
         }
     }
@@ -2254,7 +2179,7 @@ private struct BodyCreatorSurpriseOverlay: View {
                             Text("Choose Icons")
                                 .font(.system(.headline, design: .rounded))
                                 .fontWeight(.semibold)
-                                .foregroundColor(.white)
+                                .foregroundColor(Color(.systemBackground))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
                                 .background(
@@ -2350,7 +2275,7 @@ private struct BodyHowToUseSettingsSheet: View {
             steps: [
                 "Use Metrics > Units to follow the system or choose weight, distance, energy, and temperature units manually.",
                 "Use Metrics > Summary Cards, Charts Range, and Trend Cards to decide what appears on Summary and which default range charts open with.",
-                "Use Appearance to change theme, app accent, and icon separately from metric behavior."
+                "Use Appearance to change theme and icon separately from metric behavior."
             ]
         ),
         BodyHowToUseGuideSection(

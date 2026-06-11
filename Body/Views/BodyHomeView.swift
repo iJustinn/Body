@@ -264,7 +264,6 @@ extension View {
 
 struct BodyHomeView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
-    @AppStorage(BodyAppearancePreference.selectedAccentKey) private var selectedAccentRawValue = BodyAppAccent.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
@@ -577,10 +576,6 @@ struct BodyHomeView: View {
             includesStable: includesStable,
             cache: trendComputationCache
         )
-    }
-
-    private var selectedAccent: BodyAppAccent {
-        BodyAppAccent.storedValue(from: selectedAccentRawValue)
     }
 
     private var selectedWeightUnitPreference: BodyValueFormat.WeightUnitPreference {
@@ -1225,7 +1220,7 @@ struct BodyHomeView: View {
                 unit: "",
                 decimals: 1,
                 symbolName: "person.fill",
-                symbolColor: selectedAccent.color
+                symbolColor: Color(red: 0.00, green: 0.62, blue: 0.70)
             )
         case .activeEnergy:
             return metricDetail(

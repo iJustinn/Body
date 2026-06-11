@@ -7,7 +7,6 @@ import SwiftUI
 
 enum BodyAppearancePreference {
     static let selectedThemeKey = "selectedTheme"
-    static let selectedAccentKey = "selectedAppAccent"
     static let selectedUnitPreferenceKey = "selectedUnitPreference"
     static let followsSystemUnitsKey = "followsSystemUnits"
     static let selectedWeightUnitKey = "selectedWeightUnit"
@@ -1840,119 +1839,5 @@ enum BodyAppTheme: String, CaseIterable, Identifiable {
 
     static func storedValue(from rawValue: String) -> BodyAppTheme {
         BodyAppTheme(rawValue: rawValue) ?? defaultValue
-    }
-}
-
-enum BodyAppAccent: String, CaseIterable, Identifiable {
-    case blue
-    case purple
-    case pink
-    case green
-    case orange
-    case teal
-    case indigo
-    case red
-    case gray
-
-    static let defaultValue: BodyAppAccent = .blue
-
-    var id: String {
-        rawValue
-    }
-
-    var displayName: String {
-        switch self {
-        case .blue:
-            return "Blue"
-        case .purple:
-            return "Purple"
-        case .pink:
-            return "Pink"
-        case .green:
-            return "Green"
-        case .orange:
-            return "Orange"
-        case .teal:
-            return "Teal"
-        case .indigo:
-            return "Indigo"
-        case .red:
-            return "Red"
-        case .gray:
-            return "Gray"
-        }
-    }
-
-    var selectionSubtitle: String {
-        switch self {
-        case .blue:
-            return "Classic"
-        case .purple:
-            return "Vivid"
-        case .pink:
-            return "Rose"
-        case .green:
-            return "Fresh"
-        case .orange:
-            return "Warm"
-        case .teal:
-            return "Calm"
-        case .indigo:
-            return "Deep"
-        case .red:
-            return "Bold"
-        case .gray:
-            return "Neutral"
-        }
-    }
-
-    var iconName: String {
-        switch self {
-        case .blue:
-            return "drop.fill"
-        case .purple:
-            return "sparkles"
-        case .pink:
-            return "heart.fill"
-        case .green:
-            return "leaf.fill"
-        case .orange:
-            return "sun.max.fill"
-        case .teal:
-            return "water.waves"
-        case .indigo:
-            return "moon.stars.fill"
-        case .red:
-            return "flame.fill"
-        case .gray:
-            return "circle.fill"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .blue:
-            return .blue
-        case .purple:
-            return .purple
-        case .pink:
-            return .pink
-        case .green:
-            return .green
-        case .orange:
-            return .orange
-        case .teal:
-            return .teal
-        case .indigo:
-            return .indigo
-        case .red:
-            return .red
-        case .gray:
-            return .gray
-        }
-    }
-
-    static func storedValue(from rawValue: String) -> BodyAppAccent {
-        BodyAppAccent(rawValue: rawValue) ?? defaultValue
     }
 }
