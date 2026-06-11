@@ -249,6 +249,269 @@ final class ReadinessScoreCalculatorTests: XCTestCase {
         XCTAssertEqual(summary.confidence, .unavailable)
     }
 
+    // MARK: - Recovery-Anchored Scoring (WHOOP recalibration)
+
+    /// Regression fixture from the May 30 – Jun 11 2026 Apple Health export
+    /// (whole-day fallback path, no overnight vitals). Crash days the data
+    /// can see must drop into the Low band or below, strong days must stay
+    /// High, and the score range must be wide — the old weighted average
+    /// compressed this exact window into 76–95.
+    func testExportRegressionCrashDaysScoreLowAndTopDaysScoreHigh() throws {
+        let calendar = Calendar.bodyGregorian
+        let fixture = try exportFixture(calendar: calendar)
+
+        var scores: [String: Int] = [:]
+        for (name, day) in fixture.daysByName {
+            scores[name] = ReadinessScoreCalculator.summary(
+                on: day,
+                healthSummary: .empty,
+                trends: fixture.trends,
+                calendar: calendar
+            ).score
+        }
+
+        for crashDay in ["Jun01", "Jun02", "Jun04"] {
+            let score = try XCTUnwrap(scores[crashDay], "\(crashDay) should be scorable")
+            XCTAssertLessThanOrEqual(score, 45, "\(crashDay) was a physiological crash day")
+            XCTAssertLessThanOrEqual(score, 64, "\(crashDay) must read Low band or worse")
+        }
+        for strongDay in ["Jun07", "Jun08"] {
+            let score = try XCTUnwrap(scores[strongDay], "\(strongDay) should be scorable")
+            XCTAssertGreaterThanOrEqual(score, 80, "\(strongDay) was a strong recovery day")
+        }
+
+        let allScores = Array(scores.values)
+        let width = try XCTUnwrap(allScores.max()) - XCTUnwrap(allScores.min())
+        XCTAssertGreaterThanOrEqual(width, 45, "scores must not compress into a narrow band")
+    }
+
+    /// When ≥14 nights of overnight vitals exist, the autonomic core must
+    /// score the overnight values, not the whole-day averages.
+    func testOvernightVitalsPreferredOverWholeDaySeries() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        let wholeDayOnly = autonomicTrends(
+            on: scoreDay,
+            overnightNights: 0,
+            overnightHRVToday: nil,
+            calendar: calendar
+        )
+        let overnightCrashed = autonomicTrends(
+            on: scoreDay,
+            overnightNights: 20,
+            overnightHRVToday: 30,
+            calendar: calendar
+        )
+
+        let wholeDayScore = try XCTUnwrap(ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: wholeDayOnly, calendar: calendar
+        ).score)
+        let overnightScore = try XCTUnwrap(ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: overnightCrashed, calendar: calendar
+        ).score)
+
+        XCTAssertLessThan(
+            overnightScore,
+            wholeDayScore,
+            "crashed overnight HRV must drive the score even when whole-day HRV looks typical"
+        )
+    }
+
+    /// Fewer than 14 overnight nights → the metric is not overnight-qualified
+    /// and scoring must match the whole-day-only behavior exactly.
+    func testSparseOvernightHistoryFallsBackToWholeDay() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        let wholeDayOnly = autonomicTrends(
+            on: scoreDay,
+            overnightNights: 0,
+            overnightHRVToday: nil,
+            calendar: calendar
+        )
+        let sparseOvernight = autonomicTrends(
+            on: scoreDay,
+            overnightNights: 5,
+            overnightHRVToday: 30,
+            calendar: calendar
+        )
+
+        let wholeDayScore = ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: wholeDayOnly, calendar: calendar
+        ).score
+        let sparseScore = ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: sparseOvernight, calendar: calendar
+        ).score
+
+        XCTAssertEqual(sparseScore, wholeDayScore, "sparse overnight history must not change the source")
+    }
+
+    /// An overnight-qualified metric with no value on the scoring day is
+    /// absent for that day — it must NOT fall back to the whole-day value
+    /// against the overnight baseline. Two variants that differ only in the
+    /// scoring-day whole-day HRV must therefore score identically.
+    func testMissingTodayOvernightValueDoesNotFallBackToWholeDay() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        let highWholeDayToday = autonomicTrends(
+            on: scoreDay,
+            overnightNights: 20,
+            overnightHRVToday: nil,
+            wholeDayHRVToday: 95,
+            calendar: calendar
+        )
+        let lowWholeDayToday = autonomicTrends(
+            on: scoreDay,
+            overnightNights: 20,
+            overnightHRVToday: nil,
+            wholeDayHRVToday: 25,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(
+            ReadinessScoreCalculator.summary(
+                on: scoreDay, healthSummary: .empty, trends: highWholeDayToday, calendar: calendar
+            ).score,
+            ReadinessScoreCalculator.summary(
+                on: scoreDay, healthSummary: .empty, trends: lowWholeDayToday, calendar: calendar
+            ).score,
+            "whole-day HRV must be ignored on days the overnight-qualified value is missing"
+        )
+    }
+
+    /// The multiplicative redesign must not let great sleep rescue a crashed
+    /// autonomic core — the exact dilution failure of the weighted average.
+    func testCrashedAutonomicCannotBeRescuedByPerfectSleep() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        var trends = HealthTrendSnapshot.empty
+        // Realistic HRV variance (±10 around 60) keeps the robust spread off
+        // the MAD floor, modelling a moderate crash rather than a floor-tight
+        // outlier the old severe-limiter would already catch.
+        trends.heartRateVariability = variedSeries(
+            baseline: 60,
+            offsets: [-10, -5, 5, 10, 0],
+            today: 50,
+            on: scoreDay,
+            calendar: calendar
+        )
+        trends.restingHeartRate = constantSeries(baseline: 58, today: 62, on: scoreDay, calendar: calendar)
+        trends.trainingLoad = HealthTrendSeries(points: [HealthTrendDataPoint(date: scoreDay, value: 1.0)])
+        trends.sleepHistory = SleepHistorySnapshot(days: [
+            SleepDaySummary(
+                date: scoreDay,
+                summary: SleepSummary(
+                    duration: 8 * 3_600,
+                    stageSnapshot: stageSnapshot(on: scoreDay, asleepHours: 8, awakeHours: 0, calendar: calendar)
+                )
+            )
+        ])
+
+        let score = try XCTUnwrap(ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
+        ).score)
+
+        XCTAssertLessThanOrEqual(score, 30, "perfect sleep must not dilute a crashed autonomic core")
+    }
+
+    /// Extreme vitals anomalies must keep forcing a Poor-band score even with
+    /// a neutral autonomic core (replacement for the old severe limiter).
+    func testSevereVitalsAnomalyCapsScoreAtPoor() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        var trends = HealthTrendSnapshot.empty
+        trends.heartRateVariability = constantSeries(baseline: 60, today: 60, on: scoreDay, calendar: calendar)
+        trends.restingHeartRate = constantSeries(baseline: 58, today: 58, on: scoreDay, calendar: calendar)
+        trends.wristTemperature = constantSeries(baseline: 35.7, today: 36.5, on: scoreDay, calendar: calendar)
+
+        let score = try XCTUnwrap(ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
+        ).score)
+
+        XCTAssertLessThanOrEqual(score, 25, "a severe temperature anomaly must cap readiness at Poor")
+        XCTAssertTrue(
+            ReadinessScoreCalculator.summary(
+                on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
+            ).drivers.contains { $0.kind == .wristTemperatureAboveBaseline }
+        )
+    }
+
+    /// Duration-only nights (no stage snapshot) must score sleep on duration
+    /// alone instead of treating the missing continuity as zero.
+    func testDurationOnlySleepUsesDurationProgressAlone() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        var trends = HealthTrendSnapshot.empty
+        trends.heartRateVariability = constantSeries(baseline: 60, today: 60, on: scoreDay, calendar: calendar)
+        trends.restingHeartRate = constantSeries(baseline: 58, today: 58, on: scoreDay, calendar: calendar)
+        trends.sleepHistory = SleepHistorySnapshot(days: [
+            SleepDaySummary(date: scoreDay, summary: SleepSummary(duration: 7.9 * 3_600))
+        ])
+
+        let score = try XCTUnwrap(ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
+        ).score)
+
+        XCTAssertGreaterThanOrEqual(score, 68, "a near-goal duration-only night must not be hidden-penalized")
+    }
+
+    /// A day with every metric at its own baseline and decent sleep should
+    /// land in the Moderate band — typical is no longer inflated to High.
+    func testTypicalDayLandsInModerateBand() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        var trends = HealthTrendSnapshot.empty
+        trends.heartRateVariability = constantSeries(baseline: 60, today: 60, on: scoreDay, calendar: calendar)
+        trends.restingHeartRate = constantSeries(baseline: 58, today: 58, on: scoreDay, calendar: calendar)
+        trends.trainingLoad = HealthTrendSeries(points: [HealthTrendDataPoint(date: scoreDay, value: 1.0)])
+        trends.sleepHistory = SleepHistorySnapshot(days: [
+            SleepDaySummary(
+                date: scoreDay,
+                summary: SleepSummary(
+                    duration: 7.6 * 3_600,
+                    stageSnapshot: stageSnapshot(on: scoreDay, asleepHours: 7.6, awakeHours: 0.3, calendar: calendar)
+                )
+            )
+        ])
+
+        let score = try XCTUnwrap(ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
+        ).score)
+
+        XCTAssertTrue((65...79).contains(score), "typical day scored \(score), expected Moderate band")
+    }
+
+    /// Without any autonomic data the core is neutral-filled, so confidence
+    /// must be capped at .low no matter how rich the other components are.
+    func testNeutralAutonomicCoreCapsConfidenceAtLow() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        var trends = HealthTrendSnapshot.empty
+        trends.trainingLoad = HealthTrendSeries(points: [HealthTrendDataPoint(date: scoreDay, value: 1.0)])
+        var sleepDays: [SleepDaySummary] = []
+        for offset in 0...30 {
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: scoreDay) else {
+                continue
+            }
+            sleepDays.append(SleepDaySummary(date: date, summary: SleepSummary(duration: 7.9 * 3_600)))
+        }
+        trends.sleepHistory = SleepHistorySnapshot(days: sleepDays)
+
+        let summary = ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
+        )
+
+        XCTAssertNotNil(summary.score)
+        XCTAssertEqual(summary.confidence, .low, "neutral autonomic core must cap confidence at low")
+    }
+
     // MARK: - Helpers
 
     private func trendsWithSleepDuration(
@@ -298,5 +561,202 @@ final class ReadinessScoreCalculatorTests: XCTestCase {
 
             return ReadinessScoreCalculator.DailyValue(date: date, value: value)
         }
+    }
+
+    /// 28 prior days at `baseline` plus the scoring day at `today`.
+    private func constantSeries(
+        baseline: Double,
+        today: Double,
+        on scoreDay: Date,
+        calendar: Calendar
+    ) -> HealthTrendSeries {
+        variedSeries(baseline: baseline, offsets: [0], today: today, on: scoreDay, calendar: calendar)
+    }
+
+    /// 28 prior days cycling `baseline + offsets[i % count]` plus the scoring
+    /// day at `today`.
+    private func variedSeries(
+        baseline: Double,
+        offsets: [Double],
+        today: Double,
+        on scoreDay: Date,
+        calendar: Calendar
+    ) -> HealthTrendSeries {
+        var points: [HealthTrendDataPoint] = []
+        for offset in 1...28 {
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: scoreDay) else {
+                continue
+            }
+            points.append(HealthTrendDataPoint(date: date, value: baseline + offsets[(offset - 1) % offsets.count]))
+        }
+        points.append(HealthTrendDataPoint(date: scoreDay, value: today))
+        return HealthTrendSeries(points: points)
+    }
+
+    /// One awake segment followed by one asleep segment so that the snapshot
+    /// interval spans `asleepHours + awakeHours` with the given awake total.
+    private func stageSnapshot(
+        on day: Date,
+        asleepHours: Double,
+        awakeHours: Double,
+        calendar: Calendar
+    ) -> SleepStageSnapshot {
+        let inBedStart = calendar.startOfDay(for: day).addingTimeInterval(3_600)
+        let awakeEnd = inBedStart.addingTimeInterval(awakeHours * 3_600)
+        let asleepEnd = awakeEnd.addingTimeInterval(asleepHours * 3_600)
+        var segments: [SleepStageSegment] = []
+        if awakeHours > 0 {
+            segments.append(SleepStageSegment(stage: .awake, startDate: inBedStart, endDate: awakeEnd))
+        }
+        segments.append(SleepStageSegment(stage: .core, startDate: awakeEnd, endDate: asleepEnd))
+        return SleepStageSnapshot(date: day, segments: segments)
+    }
+
+    /// Whole-day HRV/HR at steady baselines, plus `overnightNights` prior
+    /// nights of overnight vitals (HRV 60, HR 58) and an optional overnight
+    /// HRV for the scoring day. `overnightHRVToday == nil` leaves the scoring
+    /// night without an HRV reading (overnight HR still present).
+    private func autonomicTrends(
+        on scoreDay: Date,
+        overnightNights: Int,
+        overnightHRVToday: Double?,
+        wholeDayHRVToday: Double = 62,
+        calendar: Calendar
+    ) -> HealthTrendSnapshot {
+        var trends = HealthTrendSnapshot.empty
+        trends.heartRateVariability = constantSeries(
+            baseline: 62,
+            today: wholeDayHRVToday,
+            on: scoreDay,
+            calendar: calendar
+        )
+        trends.restingHeartRate = constantSeries(baseline: 58, today: 58, on: scoreDay, calendar: calendar)
+
+        // Sleep nights are always present so every variant scores the same
+        // sleep component; only the vitals hydration differs.
+        var days: [SleepDaySummary] = []
+        for offset in 1...21 {
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: scoreDay) else {
+                continue
+            }
+            let vitals = offset <= overnightNights
+                ? SleepVitalsSummary(heartRate: 58, heartRateVariability: 60)
+                : SleepVitalsSummary.empty
+            days.append(SleepDaySummary(
+                date: date,
+                summary: SleepSummary(duration: 7.9 * 3_600, vitals: vitals)
+            ))
+        }
+        let todayVitals = overnightNights > 0
+            ? SleepVitalsSummary(heartRate: 58, heartRateVariability: overnightHRVToday)
+            : SleepVitalsSummary.empty
+        days.append(SleepDaySummary(
+            date: scoreDay,
+            summary: SleepSummary(duration: 7.9 * 3_600, vitals: todayVitals)
+        ))
+        trends.sleepHistory = SleepHistorySnapshot(days: days)
+        return trends
+    }
+
+    private struct ExportFixture {
+        var trends: HealthTrendSnapshot
+        var daysByName: [String: Date]
+    }
+
+    /// The May 30 – Jun 11 2026 Apple Health export preceded by 45 synthetic
+    /// days with realistic variance (constant fixtures would collapse the
+    /// robust spread to the MAD floor and dodge the production failure mode).
+    private func exportFixture(calendar: Calendar) throws -> ExportFixture {
+        let may30 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 30)))
+
+        // (name, hrv, rhr, respRate, spo2, wristTemp, asleepH, awakeH, acwr)
+        let exportDays: [(String, Double, Double, Double, Double, Double?, Double, Double, Double)] = [
+            ("May30", 61.94, 53.25, 14.95, 97.66, 35.51, 7.57, 0.15, 0.79),
+            ("May31", 84.05, 86.09, 15.51, 97.20, 35.81, 7.64, 0.18, 0.89),
+            ("Jun01", 45.33, 64.58, 16.14, 97.74, 35.41, 8.12, 0.04, 1.21),
+            ("Jun02", 25.88, 65.11, 14.91, 96.21, 35.91, 7.77, 0.44, 1.09),
+            ("Jun03", 94.35, 71.93, 14.81, 96.87, 35.73, 7.58, 0.11, 1.20),
+            ("Jun04", 34.26, 68.87, 14.86, 97.41, 35.71, 7.69, 0.30, 0.94),
+            ("Jun05", 52.03, 66.23, 15.34, 97.15, 35.58, 7.27, 0.39, 1.02),
+            ("Jun06", 65.51, 65.77, 15.41, 96.76, 35.76, 7.77, 0.73, 0.97),
+            ("Jun07", 87.01, 56.00, 15.25, 96.65, nil, 9.38, 0.60, 1.22),
+            ("Jun08", 95.59, 52.00, 15.17, 96.96, 35.80, 7.76, 0.48, 0.96),
+            ("Jun09", 51.36, 61.00, 15.20, 97.55, 35.91, 9.15, 0.46, 0.75),
+            ("Jun10", 49.19, 60.00, 15.13, 97.20, 35.63, 7.99, 0.46, 1.04),
+            ("Jun11", 89.40, 64.00, 15.25, 96.60, 35.82, 7.83, 0.74, 0.95)
+        ]
+
+        // Variance matched to the real export window (whole-day HRV MAD ≈ 22
+        // → robust spread ≈ 33 ms). Tighter synthetic baselines would let the
+        // old severe-limiter catch the crash days and hide the compression
+        // failure this fixture exists to reproduce.
+        let hrvOffsets = [-35.0, -22, 22, 35, 0]
+        let heartRateOffsets = [-6.0, -3, 3, 6, 0]
+        let respiratoryOffsets = [-0.5, -0.25, 0.25, 0.5, 0]
+        let oxygenOffsets = [-0.6, -0.3, 0.3, 0.6, 0]
+        let temperatureOffsets = [-0.2, -0.1, 0.1, 0.2, 0]
+        let sleepOffsets = [-0.4, 0.4, 0, -0.2, 0.2]
+
+        var hrv: [HealthTrendDataPoint] = []
+        var heartRate: [HealthTrendDataPoint] = []
+        var respiratory: [HealthTrendDataPoint] = []
+        var oxygen: [HealthTrendDataPoint] = []
+        var temperature: [HealthTrendDataPoint] = []
+        var trainingLoad: [HealthTrendDataPoint] = []
+        var sleepDays: [SleepDaySummary] = []
+
+        for index in 0..<45 {
+            guard let date = calendar.date(byAdding: .day, value: index - 45, to: may30) else {
+                continue
+            }
+            hrv.append(HealthTrendDataPoint(date: date, value: 62 + hrvOffsets[index % 5]))
+            heartRate.append(HealthTrendDataPoint(date: date, value: 60 + heartRateOffsets[index % 5]))
+            respiratory.append(HealthTrendDataPoint(date: date, value: 15.2 + respiratoryOffsets[index % 5]))
+            oxygen.append(HealthTrendDataPoint(date: date, value: 97.2 + oxygenOffsets[index % 5]))
+            temperature.append(HealthTrendDataPoint(date: date, value: 35.7 + temperatureOffsets[index % 5]))
+            trainingLoad.append(HealthTrendDataPoint(date: date, value: 1.0))
+            sleepDays.append(SleepDaySummary(
+                date: date,
+                summary: SleepSummary(duration: (7.9 + sleepOffsets[index % 5]) * 3_600)
+            ))
+        }
+
+        var daysByName: [String: Date] = [:]
+        for (offset, day) in exportDays.enumerated() {
+            guard let date = calendar.date(byAdding: .day, value: offset, to: may30) else {
+                continue
+            }
+            daysByName[day.0] = date
+            hrv.append(HealthTrendDataPoint(date: date, value: day.1))
+            heartRate.append(HealthTrendDataPoint(date: date, value: day.2))
+            respiratory.append(HealthTrendDataPoint(date: date, value: day.3))
+            oxygen.append(HealthTrendDataPoint(date: date, value: day.4))
+            if let wristTemperature = day.5 {
+                temperature.append(HealthTrendDataPoint(date: date, value: wristTemperature))
+            }
+            trainingLoad.append(HealthTrendDataPoint(date: date, value: day.8))
+            sleepDays.append(SleepDaySummary(
+                date: date,
+                summary: SleepSummary(
+                    duration: day.6 * 3_600,
+                    stageSnapshot: stageSnapshot(
+                        on: date,
+                        asleepHours: day.6,
+                        awakeHours: day.7,
+                        calendar: calendar
+                    )
+                )
+            ))
+        }
+
+        var trends = HealthTrendSnapshot.empty
+        trends.heartRateVariability = HealthTrendSeries(points: hrv)
+        trends.restingHeartRate = HealthTrendSeries(points: heartRate)
+        trends.respiratoryRate = HealthTrendSeries(points: respiratory)
+        trends.oxygenSaturation = HealthTrendSeries(points: oxygen)
+        trends.wristTemperature = HealthTrendSeries(points: temperature)
+        trends.trainingLoad = HealthTrendSeries(points: trainingLoad)
+        trends.sleepHistory = SleepHistorySnapshot(days: sleepDays)
+        return ExportFixture(trends: trends, daysByName: daysByName)
     }
 }
