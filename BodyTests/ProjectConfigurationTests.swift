@@ -67,7 +67,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testReadinessDailySeriesUsesCachedBaselineContext() throws {
         let source = try text(at: "Body/Models/Readiness/ReadinessScoreCalculator.swift")
         let dailySeriesStart = try XCTUnwrap(source.range(of: "static func dailySeries(")?.lowerBound)
-        let nextDeclaration = try XCTUnwrap(source[dailySeriesStart...].range(of: "private static func autonomicComponent(")?.lowerBound)
+        let nextDeclaration = try XCTUnwrap(source[dailySeriesStart...].range(of: "private static func autonomicReadings(")?.lowerBound)
         let dailySeriesBlock = String(source[dailySeriesStart..<nextDeclaration])
 
         XCTAssertTrue(source.contains("ReadinessDailySeriesContext"))

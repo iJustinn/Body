@@ -6,12 +6,6 @@
 import Foundation
 
 enum ReadinessScoreCalculator {
-    private struct ComponentResult {
-        var component: ReadinessComponent
-        var drivers: [ReadinessDriver]
-        var bestBaselineDayCount: Int
-    }
-
     struct DailyValue: Equatable {
         var date: Date
         var value: Double
@@ -32,14 +26,55 @@ enum ReadinessScoreCalculator {
         case wristTemperature
     }
 
+    /// A source-consistent reading: the value and the baseline always come
+    /// from the same series (overnight or whole-day), never mixed.
+    private struct MetricReading {
+        var value: Double
+        var baseline: Baseline
+    }
+
+    private struct AutonomicAssessment {
+        var combinedZScore: Double
+        var drivers: [ReadinessDriver]
+        var bestBaselineDayCount: Int
+    }
+
+    private struct SleepAssessment {
+        var componentScore: Int
+        var quality: Double
+        var drivers: [ReadinessDriver]
+        var historyDayCount: Int
+    }
+
+    private struct TrainingAssessment {
+        var componentScore: Int
+        var ratio: Double
+        var driver: ReadinessDriver?
+        var pointCount: Int
+    }
+
+    private struct VitalsAssessment {
+        var componentScore: Int
+        var maxAnomalyProgress: Double
+        var drivers: [ReadinessDriver]
+        var bestBaselineDayCount: Int
+    }
+
     private struct ReadinessDailySeriesContext {
         private let calendar: Calendar
-        private let currentValuesByMetric: [ReadinessMetric: [Date: Double]]
-        private let baselineCachesByMetric: [ReadinessMetric: ReadinessBaselineCache]
+        private let wholeDayValuesByMetric: [ReadinessMetric: [Date: Double]]
+        private let wholeDayBaselineCachesByMetric: [ReadinessMetric: ReadinessBaselineCache]
+        private let overnightValuesByMetric: [ReadinessMetric: [Date: Double]]
+        private let overnightBaselineCachesByMetric: [ReadinessMetric: ReadinessBaselineCache]
 
-        init(trends: HealthTrendSnapshot, calendar: Calendar) {
+        init(
+            trends: HealthTrendSnapshot,
+            healthSummary: HealthSummarySnapshot,
+            today: Date,
+            calendar: Calendar
+        ) {
             self.calendar = calendar
-            currentValuesByMetric = [
+            wholeDayValuesByMetric = [
                 .heartRateVariability: Self.currentValuesByDay(from: trends.heartRateVariability, calendar: calendar),
                 .restingHeartRate: Self.currentValuesByDay(from: trends.restingHeartRate, calendar: calendar),
                 .trainingLoad: Self.currentValuesByDay(from: trends.trainingLoad, calendar: calendar),
@@ -47,22 +82,52 @@ enum ReadinessScoreCalculator {
                 .oxygenSaturation: Self.currentValuesByDay(from: trends.oxygenSaturation, calendar: calendar),
                 .wristTemperature: Self.currentValuesByDay(from: trends.wristTemperature, calendar: calendar)
             ]
-            baselineCachesByMetric = [
+            wholeDayBaselineCachesByMetric = [
                 .heartRateVariability: ReadinessBaselineCache(series: trends.heartRateVariability, floor: MetricFloor.hrv, calendar: calendar),
                 .restingHeartRate: ReadinessBaselineCache(series: trends.restingHeartRate, floor: MetricFloor.heartRate, calendar: calendar),
                 .respiratoryRate: ReadinessBaselineCache(series: trends.respiratoryRate, floor: MetricFloor.respiratoryRate, calendar: calendar),
                 .oxygenSaturation: ReadinessBaselineCache(series: trends.oxygenSaturation, floor: MetricFloor.oxygenSaturation, calendar: calendar),
                 .wristTemperature: ReadinessBaselineCache(series: trends.wristTemperature, floor: MetricFloor.wristTemperature, calendar: calendar)
             ]
+
+            let currentDaySleep = ReadinessScoreCalculator.currentDaySleepSummary(
+                healthSummary.sleep,
+                for: today,
+                calendar: calendar
+            )
+            let overnightSeriesByMetric: [ReadinessMetric: HealthTrendSeries] = [
+                .heartRateVariability: Self.overnightSeries(\.heartRateVariability, sleepHistory: trends.sleepHistory, currentDaySleep: currentDaySleep, today: today, calendar: calendar),
+                .restingHeartRate: Self.overnightSeries(\.heartRate, sleepHistory: trends.sleepHistory, currentDaySleep: currentDaySleep, today: today, calendar: calendar),
+                .respiratoryRate: Self.overnightSeries(\.respiratoryRate, sleepHistory: trends.sleepHistory, currentDaySleep: currentDaySleep, today: today, calendar: calendar),
+                .oxygenSaturation: Self.overnightSeries(\.oxygenSaturation, sleepHistory: trends.sleepHistory, currentDaySleep: currentDaySleep, today: today, calendar: calendar),
+                .wristTemperature: Self.overnightSeries(\.wristTemperatureCelsius, sleepHistory: trends.sleepHistory, currentDaySleep: currentDaySleep, today: today, calendar: calendar)
+            ]
+            overnightValuesByMetric = overnightSeriesByMetric.mapValues {
+                Self.currentValuesByDay(from: $0, calendar: calendar)
+            }
+            overnightBaselineCachesByMetric = [
+                .heartRateVariability: ReadinessBaselineCache(series: overnightSeriesByMetric[.heartRateVariability] ?? .empty, floor: MetricFloor.hrv, calendar: calendar),
+                .restingHeartRate: ReadinessBaselineCache(series: overnightSeriesByMetric[.restingHeartRate] ?? .empty, floor: MetricFloor.heartRate, calendar: calendar),
+                .respiratoryRate: ReadinessBaselineCache(series: overnightSeriesByMetric[.respiratoryRate] ?? .empty, floor: MetricFloor.respiratoryRate, calendar: calendar),
+                .oxygenSaturation: ReadinessBaselineCache(series: overnightSeriesByMetric[.oxygenSaturation] ?? .empty, floor: MetricFloor.oxygenSaturation, calendar: calendar),
+                .wristTemperature: ReadinessBaselineCache(series: overnightSeriesByMetric[.wristTemperature] ?? .empty, floor: MetricFloor.wristTemperature, calendar: calendar)
+            ]
         }
 
-        func currentValue(on date: Date, metric: ReadinessMetric) -> Double? {
-            let day = calendar.startOfDay(for: date)
-            return currentValuesByMetric[metric]?[day]
+        func wholeDayValue(on date: Date, metric: ReadinessMetric) -> Double? {
+            wholeDayValuesByMetric[metric]?[calendar.startOfDay(for: date)]
         }
 
-        func baseline(for date: Date, metric: ReadinessMetric) -> Baseline? {
-            baselineCachesByMetric[metric]?.baseline(for: date)
+        func wholeDayBaseline(for date: Date, metric: ReadinessMetric) -> Baseline? {
+            wholeDayBaselineCachesByMetric[metric]?.baseline(for: date)
+        }
+
+        func overnightValue(on date: Date, metric: ReadinessMetric) -> Double? {
+            overnightValuesByMetric[metric]?[calendar.startOfDay(for: date)]
+        }
+
+        func overnightBaseline(for date: Date, metric: ReadinessMetric) -> Baseline? {
+            overnightBaselineCachesByMetric[metric]?.baseline(for: date)
         }
 
         private static func currentValuesByDay(
@@ -79,6 +144,35 @@ enum ReadinessScoreCalculator {
             }
 
             return latestPointByDay.mapValues(\.value)
+        }
+
+        /// One point per night from the hydrated sleep-history vitals, plus
+        /// the current day's sleep summary when history does not cover it.
+        private static func overnightSeries(
+            _ vital: KeyPath<SleepVitalsSummary, Double?>,
+            sleepHistory: SleepHistorySnapshot,
+            currentDaySleep: SleepSummary?,
+            today: Date,
+            calendar: Calendar
+        ) -> HealthTrendSeries {
+            var valuesByDay: [Date: Double] = [:]
+            for day in sleepHistory.days {
+                guard let value = day.summary.vitals[keyPath: vital], value.isFinite else {
+                    continue
+                }
+                valuesByDay[calendar.startOfDay(for: day.date)] = value
+            }
+
+            let todayKey = calendar.startOfDay(for: today)
+            if valuesByDay[todayKey] == nil,
+               let value = currentDaySleep?.vitals[keyPath: vital],
+               value.isFinite {
+                valuesByDay[todayKey] = value
+            }
+
+            return HealthTrendSeries(points: valuesByDay.map { day, value in
+                HealthTrendDataPoint(date: day, value: value)
+            })
         }
     }
 
@@ -189,7 +283,12 @@ enum ReadinessScoreCalculator {
             trends: trends,
             idealSleepDuration: idealSleepDuration,
             calendar: calendar,
-            context: nil
+            context: ReadinessDailySeriesContext(
+                trends: trends,
+                healthSummary: healthSummary,
+                today: Date(),
+                calendar: calendar
+            )
         )
     }
 
@@ -199,42 +298,97 @@ enum ReadinessScoreCalculator {
         trends: HealthTrendSnapshot,
         idealSleepDuration: TimeInterval,
         calendar: Calendar,
-        context: ReadinessDailySeriesContext?
+        context: ReadinessDailySeriesContext
     ) -> ReadinessSummary {
-        let componentResults = [
-            autonomicComponent(on: date, trends: trends, calendar: calendar, context: context),
-            sleepComponent(
-                on: date,
-                healthSummary: healthSummary,
-                trends: trends,
-                idealSleepDuration: idealSleepDuration,
-                calendar: calendar
-            ),
-            trainingComponent(on: date, trends: trends, calendar: calendar, context: context),
-            vitalsComponent(on: date, trends: trends, calendar: calendar, context: context)
-        ].compactMap { $0 }
+        let autonomic = autonomicAssessment(on: date, context: context)
+        let sleep = sleepAssessment(
+            on: date,
+            healthSummary: healthSummary,
+            trends: trends,
+            idealSleepDuration: idealSleepDuration,
+            calendar: calendar
+        )
+        let training = trainingAssessment(on: date, trends: trends, context: context)
+        let vitals = vitalsAssessment(on: date, context: context)
 
-        guard !componentResults.isEmpty else {
+        guard autonomic != nil || sleep != nil || training != nil || vitals != nil else {
             return .unavailable
         }
 
-        let availableWeight = componentResults.reduce(0) { $0 + $1.component.weight }
-        guard availableWeight > 0 else {
-            return .unavailable
+        // The autonomic recovery core anchors the score; the other signals
+        // act as bounded multiplicative penalties so good sleep or light
+        // training can never dilute a crashed core back into the High band.
+        let core = autonomic.map { recoveryCore(fromZScore: $0.combinedZScore) } ?? neutralCore
+        let sleepFactor = sleep.map { sleepModifierFloor + (1 - sleepModifierFloor) * $0.quality } ?? 1
+        let strainModifier = training.map { strainFactor(forTrainingLoadRatio: $0.ratio) } ?? 1
+        let vitalsFactor = vitals.map { 1 - vitalsModifierWeight * $0.maxAnomalyProgress } ?? 1
+
+        var score = min(max(Int((core * sleepFactor * strainModifier * vitalsFactor).rounded()), 0), 100)
+        if let vitals, vitals.maxAnomalyProgress >= severeVitalsAnomalyThreshold {
+            score = min(score, severeVitalsScoreCap)
         }
 
-        let weightedScore = componentResults.reduce(0) { partialResult, result in
-            partialResult + Double(result.component.score ?? 0) * (result.component.weight / availableWeight)
+        var components: [ReadinessComponent] = []
+        var bestBaselineDayCounts: [Int] = []
+        if let autonomic {
+            components.append(ReadinessComponent(
+                kind: .autonomic,
+                score: Int(recoveryCore(fromZScore: autonomic.combinedZScore).rounded()),
+                weight: 30,
+                message: "Heart signals compared with your baseline."
+            ))
+            bestBaselineDayCounts.append(autonomic.bestBaselineDayCount)
         }
-        let rawScore = min(max(Int(weightedScore.rounded()), 0), 100)
-        let score = adjustedSummaryScore(rawScore, componentResults: componentResults)
-        let drivers = prioritizedDrivers(from: componentResults)
+        if let sleep {
+            components.append(ReadinessComponent(
+                kind: .sleep,
+                score: sleep.componentScore,
+                weight: 30,
+                message: "Sleep amount and continuity."
+            ))
+            bestBaselineDayCounts.append(sleep.historyDayCount)
+        }
+        if let training {
+            components.append(ReadinessComponent(
+                kind: .training,
+                score: training.componentScore,
+                weight: 25,
+                message: "Recent load relative to your longer baseline."
+            ))
+            bestBaselineDayCounts.append(training.pointCount)
+        }
+        if let vitals {
+            components.append(ReadinessComponent(
+                kind: .vitals,
+                score: vitals.componentScore,
+                weight: 15,
+                message: "Breathing, oxygen, and temperature anomalies."
+            ))
+            bestBaselineDayCounts.append(vitals.bestBaselineDayCount)
+        }
+
+        let drivers = prioritizedDrivers(
+            from: (autonomic?.drivers ?? [])
+                + (sleep?.drivers ?? [])
+                + (training?.driver.map { [$0] } ?? [])
+                + (vitals?.drivers ?? [])
+        )
+
+        var confidence = Self.confidence(
+            componentCount: components.count,
+            bestBaselineDayCount: bestBaselineDayCounts.max() ?? 0
+        )
+        if autonomic == nil {
+            // A neutral-filled core means the most important signal is
+            // missing; never present that as a confident score.
+            confidence = .low
+        }
 
         return ReadinessSummary(
             score: score,
             status: ReadinessStatus.status(for: score),
-            confidence: confidence(for: componentResults),
-            components: componentResults.map(\.component),
+            confidence: confidence,
+            components: components,
             drivers: drivers.isEmpty
                 ? [ReadinessDriver(kind: .mostlyTypical, message: "Readiness signals are mostly typical.", impact: 0)]
                 : drivers
@@ -309,7 +463,12 @@ enum ReadinessScoreCalculator {
             return .empty
         }
 
-        let context = ReadinessDailySeriesContext(trends: trends, calendar: calendar)
+        let context = ReadinessDailySeriesContext(
+            trends: trends,
+            healthSummary: healthSummary,
+            today: Date(),
+            calendar: calendar
+        )
         while day <= endDay {
             let readiness = readinessSummary(
                 on: day,
@@ -332,35 +491,83 @@ enum ReadinessScoreCalculator {
         return HealthTrendSeries(points: points)
     }
 
-    private static func autonomicComponent(
+    // MARK: - Source resolution
+
+    /// The autonomic pair switches sources atomically: overnight HRV + HR are
+    /// used only when both have a qualifying overnight baseline (≥ 14 nights
+    /// in the window). A metric missing its overnight value on the scoring
+    /// day is simply absent for that day — never swapped for the whole-day
+    /// value against an overnight baseline.
+    private static func autonomicReadings(
         on date: Date,
-        trends: HealthTrendSnapshot,
-        calendar: Calendar,
-        context: ReadinessDailySeriesContext?
-    ) -> ComponentResult? {
-        var scores: [Int] = []
+        context: ReadinessDailySeriesContext
+    ) -> (heartRateVariability: MetricReading?, heartRate: MetricReading?) {
+        if let overnightHRVBaseline = context.overnightBaseline(for: date, metric: .heartRateVariability),
+           let overnightHeartRateBaseline = context.overnightBaseline(for: date, metric: .restingHeartRate) {
+            return (
+                context.overnightValue(on: date, metric: .heartRateVariability).map {
+                    MetricReading(value: $0, baseline: overnightHRVBaseline)
+                },
+                context.overnightValue(on: date, metric: .restingHeartRate).map {
+                    MetricReading(value: $0, baseline: overnightHeartRateBaseline)
+                }
+            )
+        }
+
+        return (
+            wholeDayReading(on: date, metric: .heartRateVariability, context: context),
+            wholeDayReading(on: date, metric: .restingHeartRate, context: context)
+        )
+    }
+
+    private static func wholeDayReading(
+        on date: Date,
+        metric: ReadinessMetric,
+        context: ReadinessDailySeriesContext
+    ) -> MetricReading? {
+        guard let value = context.wholeDayValue(on: date, metric: metric),
+              let baseline = context.wholeDayBaseline(for: date, metric: metric) else {
+            return nil
+        }
+
+        return MetricReading(value: value, baseline: baseline)
+    }
+
+    private static func vitalsReading(
+        on date: Date,
+        metric: ReadinessMetric,
+        context: ReadinessDailySeriesContext
+    ) -> MetricReading? {
+        if let overnightBaseline = context.overnightBaseline(for: date, metric: metric) {
+            return context.overnightValue(on: date, metric: metric).map {
+                MetricReading(value: $0, baseline: overnightBaseline)
+            }
+        }
+
+        return wholeDayReading(on: date, metric: metric, context: context)
+    }
+
+    // MARK: - Component assessments
+
+    private static func autonomicAssessment(
+        on date: Date,
+        context: ReadinessDailySeriesContext
+    ) -> AutonomicAssessment? {
+        let readings = autonomicReadings(on: date, context: context)
+        var weightedZScore = 0.0
+        var totalWeight = 0.0
         var drivers: [ReadinessDriver] = []
         var baselineCounts: [Int] = []
 
-        if let value = currentValue(
-            on: date,
-            metric: .heartRateVariability,
-            series: trends.heartRateVariability,
-            calendar: calendar,
-            context: context
-        ),
-           let baseline = baseline(
-            for: date,
-            metric: .heartRateVariability,
-            series: trends.heartRateVariability,
-            floor: MetricFloor.hrv,
-            calendar: calendar,
-            context: context
-           ) {
-            let favorableZScore = robustZScore(value: value, baseline: baseline)
-            let progress = adverseProgress(-favorableZScore)
-            scores.append(scoreFromBaselineZScore(favorableZScore))
-            baselineCounts.append(baseline.validDayCount)
+        if let heartRateVariability = readings.heartRateVariability {
+            let zScore = clampedZScore(robustZScore(
+                value: heartRateVariability.value,
+                baseline: heartRateVariability.baseline
+            ))
+            weightedZScore += hrvZScoreWeight * zScore
+            totalWeight += hrvZScoreWeight
+            baselineCounts.append(heartRateVariability.baseline.validDayCount)
+            let progress = adverseProgress(-zScore)
             if progress > 0 {
                 drivers.append(ReadinessDriver(
                     kind: .hrvBelowBaseline,
@@ -370,25 +577,12 @@ enum ReadinessScoreCalculator {
             }
         }
 
-        if let value = currentValue(
-            on: date,
-            metric: .restingHeartRate,
-            series: trends.restingHeartRate,
-            calendar: calendar,
-            context: context
-        ),
-           let baseline = baseline(
-            for: date,
-            metric: .restingHeartRate,
-            series: trends.restingHeartRate,
-            floor: MetricFloor.heartRate,
-            calendar: calendar,
-            context: context
-           ) {
-            let favorableZScore = -robustZScore(value: value, baseline: baseline)
-            let progress = adverseProgress(-favorableZScore)
-            scores.append(scoreFromBaselineZScore(favorableZScore))
-            baselineCounts.append(baseline.validDayCount)
+        if let heartRate = readings.heartRate {
+            let zScore = clampedZScore(-robustZScore(value: heartRate.value, baseline: heartRate.baseline))
+            weightedZScore += heartRateZScoreWeight * zScore
+            totalWeight += heartRateZScoreWeight
+            baselineCounts.append(heartRate.baseline.validDayCount)
+            let progress = adverseProgress(-zScore)
             if progress > 0 {
                 drivers.append(ReadinessDriver(
                     kind: .heartRateAboveBaseline,
@@ -398,29 +592,24 @@ enum ReadinessScoreCalculator {
             }
         }
 
-        guard !scores.isEmpty else {
+        guard totalWeight > 0 else {
             return nil
         }
 
-        return ComponentResult(
-            component: ReadinessComponent(
-                kind: .autonomic,
-                score: averageScore(scores),
-                weight: 30,
-                message: "Heart signals compared with your baseline."
-            ),
+        return AutonomicAssessment(
+            combinedZScore: weightedZScore / totalWeight,
             drivers: drivers,
             bestBaselineDayCount: baselineCounts.max() ?? 0
         )
     }
 
-    private static func sleepComponent(
+    private static func sleepAssessment(
         on date: Date,
         healthSummary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
         idealSleepDuration: TimeInterval,
         calendar: Calendar
-    ) -> ComponentResult? {
+    ) -> SleepAssessment? {
         let sleepSummary = trends.sleepHistory.summary(
             on: date,
             currentDaySummary: currentDaySleepSummary(healthSummary.sleep, for: date, calendar: calendar),
@@ -432,11 +621,13 @@ enum ReadinessScoreCalculator {
         }
 
         var scores: [Int] = []
+        var qualityValues: [Double] = []
         var drivers: [ReadinessDriver] = []
 
         let goalDuration = idealSleepDuration > 0 ? idealSleepDuration : BodySleepDurationGoal.defaultDuration
         let durationProgress = min(max(duration / goalDuration, 0), 1.10)
         scores.append(scoreFromSleepProgress(durationProgress))
+        qualityValues.append(min(durationProgress, 1))
         if durationProgress < 0.85 {
             drivers.append(ReadinessDriver(
                 kind: .sleepDurationBelowGoal,
@@ -451,6 +642,7 @@ enum ReadinessScoreCalculator {
                 let efficiency = min(max(1 - (sleepSummary.stageSnapshot.awakeDuration / inBedDuration), 0), 1)
                 let continuityProgress = min(max((efficiency - 0.78) / 0.18, 0), 1)
                 scores.append(scoreFromSleepProgress(continuityProgress))
+                qualityValues.append(continuityProgress)
                 if continuityProgress < 0.65 {
                     drivers.append(ReadinessDriver(
                         kind: .sleepFragmented,
@@ -461,19 +653,11 @@ enum ReadinessScoreCalculator {
             }
         }
 
-        guard !scores.isEmpty else {
-            return nil
-        }
-
-        return ComponentResult(
-            component: ReadinessComponent(
-                kind: .sleep,
-                score: averageScore(scores),
-                weight: 30,
-                message: "Sleep amount and continuity."
-            ),
+        return SleepAssessment(
+            componentScore: averageScore(scores),
+            quality: qualityValues.reduce(0, +) / Double(qualityValues.count),
             drivers: drivers,
-            bestBaselineDayCount: trends.sleepHistory.days.count
+            historyDayCount: trends.sleepHistory.days.count
         )
     }
 
@@ -493,41 +677,28 @@ enum ReadinessScoreCalculator {
         return calendar.isDate(date, inSameDayAs: Date()) ? summary : nil
     }
 
-    private static func trainingComponent(
+    private static func trainingAssessment(
         on date: Date,
         trends: HealthTrendSnapshot,
-        calendar: Calendar,
-        context: ReadinessDailySeriesContext?
-    ) -> ComponentResult? {
-        guard let value = currentValue(
-            on: date,
-            metric: .trainingLoad,
-            series: trends.trainingLoad,
-            calendar: calendar,
-            context: context
-        ), value.isFinite else {
+        context: ReadinessDailySeriesContext
+    ) -> TrainingAssessment? {
+        guard let value = context.wholeDayValue(on: date, metric: .trainingLoad), value.isFinite else {
             return nil
         }
 
         let result = trainingLoadScore(value)
-        return ComponentResult(
-            component: ReadinessComponent(
-                kind: .training,
-                score: result.score,
-                weight: 25,
-                message: "Recent load relative to your longer baseline."
-            ),
-            drivers: result.driver.map { [$0] } ?? [],
-            bestBaselineDayCount: trends.trainingLoad.points.count
+        return TrainingAssessment(
+            componentScore: result.score,
+            ratio: value,
+            driver: result.driver,
+            pointCount: trends.trainingLoad.points.count
         )
     }
 
-    private static func vitalsComponent(
+    private static func vitalsAssessment(
         on date: Date,
-        trends: HealthTrendSnapshot,
-        calendar: Calendar,
-        context: ReadinessDailySeriesContext?
-    ) -> ComponentResult? {
+        context: ReadinessDailySeriesContext
+    ) -> VitalsAssessment? {
         var anomalyProgressValues: [Double] = []
         var drivers: [ReadinessDriver] = []
         var baselineCounts: [Int] = []
@@ -537,9 +708,6 @@ enum ReadinessScoreCalculator {
             message: "Respiratory rate is above baseline.",
             date: date,
             metric: .respiratoryRate,
-            series: trends.respiratoryRate,
-            floor: MetricFloor.respiratoryRate,
-            calendar: calendar,
             context: context,
             progressValues: &anomalyProgressValues,
             drivers: &drivers,
@@ -550,35 +718,21 @@ enum ReadinessScoreCalculator {
             message: "Skin temperature is above baseline.",
             date: date,
             metric: .wristTemperature,
-            series: trends.wristTemperature,
-            floor: MetricFloor.wristTemperature,
-            calendar: calendar,
             context: context,
             progressValues: &anomalyProgressValues,
             drivers: &drivers,
             baselineCounts: &baselineCounts
         )
 
-        if let value = currentValue(
-            on: date,
-            metric: .oxygenSaturation,
-            series: trends.oxygenSaturation,
-            calendar: calendar,
-            context: context
-        ),
-           let baseline = baseline(
-            for: date,
-            metric: .oxygenSaturation,
-            series: trends.oxygenSaturation,
-            floor: MetricFloor.oxygenSaturation,
-            calendar: calendar,
-            context: context
-           ) {
-            let adverseZScore = -robustZScore(value: value, baseline: baseline)
-            let progress = max(adverseProgress(adverseZScore, start: 1.0, full: 2.5), value < 95 ? 0.35 : 0)
+        if let reading = vitalsReading(on: date, metric: .oxygenSaturation, context: context) {
+            let adverseZScore = -robustZScore(value: reading.value, baseline: reading.baseline)
+            let progress = max(
+                adverseProgress(adverseZScore, start: 1.0, full: 2.5),
+                reading.value < 95 ? 0.35 : 0
+            )
             if progress > 0 {
                 anomalyProgressValues.append(progress)
-                baselineCounts.append(baseline.validDayCount)
+                baselineCounts.append(reading.baseline.validDayCount)
                 drivers.append(ReadinessDriver(
                     kind: .oxygenSaturationLow,
                     message: "Blood oxygen is below its usual range.",
@@ -592,13 +746,9 @@ enum ReadinessScoreCalculator {
         }
 
         let maxProgress = anomalyProgressValues.max() ?? 0
-        return ComponentResult(
-            component: ReadinessComponent(
-                kind: .vitals,
-                score: scoreFromPenaltyProgress(maxProgress),
-                weight: 15,
-                message: "Breathing, oxygen, and temperature anomalies."
-            ),
+        return VitalsAssessment(
+            componentScore: scoreFromPenaltyProgress(maxProgress),
+            maxAnomalyProgress: maxProgress,
             drivers: drivers,
             bestBaselineDayCount: baselineCounts.max() ?? 0
         )
@@ -609,39 +759,22 @@ enum ReadinessScoreCalculator {
         message: String,
         date: Date,
         metric: ReadinessMetric,
-        series: HealthTrendSeries,
-        floor: Double,
-        calendar: Calendar,
-        context: ReadinessDailySeriesContext?,
+        context: ReadinessDailySeriesContext,
         progressValues: inout [Double],
         drivers: inout [ReadinessDriver],
         baselineCounts: inout [Int]
     ) {
-        guard let value = currentValue(
-            on: date,
-            metric: metric,
-            series: series,
-            calendar: calendar,
-            context: context
-        ),
-              let baseline = baseline(
-                for: date,
-                metric: metric,
-                series: series,
-                floor: floor,
-                calendar: calendar,
-                context: context
-              ) else {
+        guard let reading = vitalsReading(on: date, metric: metric, context: context) else {
             return
         }
 
-        let progress = adverseProgress(robustZScore(value: value, baseline: baseline))
+        let progress = adverseProgress(robustZScore(value: reading.value, baseline: reading.baseline))
         guard progress > 0 else {
             return
         }
 
         progressValues.append(progress)
-        baselineCounts.append(baseline.validDayCount)
+        baselineCounts.append(reading.baseline.validDayCount)
         drivers.append(ReadinessDriver(kind: kind, message: message, impact: progress))
     }
 
@@ -665,13 +798,13 @@ enum ReadinessScoreCalculator {
         )
     }
 
-    private static func confidence(for componentResults: [ComponentResult]) -> ReadinessConfidence {
-        guard !componentResults.isEmpty else {
+    private static func confidence(
+        componentCount: Int,
+        bestBaselineDayCount: Int
+    ) -> ReadinessConfidence {
+        guard componentCount > 0 else {
             return .unavailable
         }
-
-        let componentCount = componentResults.count
-        let bestBaselineDayCount = componentResults.map(\.bestBaselineDayCount).max() ?? 0
 
         if componentCount >= 3, bestBaselineDayCount >= 28 {
             return .high
@@ -684,9 +817,8 @@ enum ReadinessScoreCalculator {
         return .low
     }
 
-    private static func prioritizedDrivers(from componentResults: [ComponentResult]) -> [ReadinessDriver] {
-        componentResults
-            .flatMap(\.drivers)
+    private static func prioritizedDrivers(from drivers: [ReadinessDriver]) -> [ReadinessDriver] {
+        drivers
             .filter { $0.impact > 0 }
             .sorted { first, second in
                 guard first.impact == second.impact else {
@@ -699,62 +831,6 @@ enum ReadinessScoreCalculator {
             .map { $0 }
     }
 
-    private static func currentValue(
-        on date: Date,
-        metric: ReadinessMetric,
-        series: HealthTrendSeries,
-        calendar: Calendar,
-        context: ReadinessDailySeriesContext?
-    ) -> Double? {
-        if let context {
-            return context.currentValue(on: date, metric: metric)
-        }
-
-        return currentValue(on: date, in: series, calendar: calendar)
-    }
-
-    private static func baseline(
-        for date: Date,
-        metric: ReadinessMetric,
-        series: HealthTrendSeries,
-        floor: Double,
-        calendar: Calendar,
-        context: ReadinessDailySeriesContext?
-    ) -> Baseline? {
-        if let context {
-            return context.baseline(for: date, metric: metric)
-        }
-
-        return robustBaseline(
-            for: date,
-            values: dailyValues(from: series),
-            floor: floor,
-            calendar: calendar
-        )
-    }
-
-    private static func currentValue(
-        on date: Date,
-        in series: HealthTrendSeries,
-        calendar: Calendar
-    ) -> Double? {
-        series.points(on: date, calendar: calendar).points
-            .filter { $0.value.isFinite }
-            .sorted { $0.date < $1.date }
-            .last?
-            .value
-    }
-
-    private static func dailyValues(from series: HealthTrendSeries) -> [DailyValue] {
-        series.points.compactMap { point in
-            guard point.value.isFinite else {
-                return nil
-            }
-
-            return DailyValue(date: point.date, value: point.value)
-        }
-    }
-
     private static func averageScore(_ scores: [Int]) -> Int {
         guard !scores.isEmpty else {
             return 0
@@ -764,33 +840,45 @@ enum ReadinessScoreCalculator {
         return min(max(Int((Double(total) / Double(scores.count)).rounded()), 0), 100)
     }
 
-    private static func adjustedSummaryScore(_ score: Int, componentResults: [ComponentResult]) -> Int {
-        guard componentResults.contains(where: isSevereLimiter) else {
-            return score
-        }
-
-        return min(score, 24)
-    }
-
-    private static func isSevereLimiter(_ result: ComponentResult) -> Bool {
-        guard let componentScore = result.component.score else {
-            return false
-        }
-
-        let strongestImpact = result.drivers.map(\.impact).max() ?? 0
-        return componentScore <= 25 && strongestImpact >= 0.90
-    }
+    // MARK: - Score curves
 
     private static let neutralScore = 75
+    private static let neutralCore = 70.0
+    private static let hrvZScoreWeight = 0.65
+    private static let heartRateZScoreWeight = 0.35
+    private static let adverseZScoreCap = -2.5
+    private static let favorableZScoreCap = 2.0
+    private static let sleepModifierFloor = 0.75
+    private static let vitalsModifierWeight = 0.45
+    private static let severeVitalsAnomalyThreshold = 0.95
+    private static let severeVitalsScoreCap = 25
 
-    private static func scoreFromBaselineZScore(_ zScore: Double) -> Int {
-        if zScore >= 0 {
-            let progress = min(max(zScore / 1.75, 0), 1)
-            return Int((Double(neutralScore) + smoothStep(progress) * 25).rounded())
+    /// Single-metric artifact guard: one wild sample cannot move the combined
+    /// z beyond what the curve treats as a full crash or full recovery.
+    private static func clampedZScore(_ zScore: Double) -> Double {
+        min(max(zScore, adverseZScoreCap), favorableZScoreCap)
+    }
+
+    /// Logistic recovery curve mapping the combined autonomic z-score to the
+    /// score anchor: z −2.5 → 7.6, −2 → 11, −1 → 33, 0 → 72, +1 → 92, +2 → 96.
+    private static func recoveryCore(fromZScore zScore: Double) -> Double {
+        5 + 92 / (1 + exp(-(zScore + 0.55) / 0.55))
+    }
+
+    private static func strainFactor(forTrainingLoadRatio ratio: Double) -> Double {
+        guard ratio.isFinite, ratio > 1.0 else {
+            return 1
         }
 
-        let progress = min(max(-zScore / 2.0, 0), 1)
-        return Int((Double(neutralScore) - smoothStep(progress) * 70).rounded())
+        if ratio <= 1.3 {
+            return 1 - 0.10 * (ratio - 1.0) / 0.3
+        }
+
+        if ratio <= 1.6 {
+            return 0.90 - 0.20 * (ratio - 1.3) / 0.3
+        }
+
+        return 0.70
     }
 
     private static func scoreFromSleepProgress(_ progress: Double) -> Int {
@@ -831,11 +919,6 @@ enum ReadinessScoreCalculator {
 
     private static func adverseProgress(_ zScore: Double, start: Double = 0.5, full: Double = 2.0) -> Double {
         let normalized = min(max((zScore - start) / (full - start), 0), 1)
-        return normalized * normalized * (3 - 2 * normalized)
-    }
-
-    private static func smoothStep(_ value: Double) -> Double {
-        let normalized = min(max(value, 0), 1)
         return normalized * normalized * (3 - 2 * normalized)
     }
 
