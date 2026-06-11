@@ -931,7 +931,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.2;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -940,11 +940,14 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.2 (build 2)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.2 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.9.2 build 3."))
         XCTAssertTrue(versionHistory.contains("## 0.9.2 (build 2)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.9.2 build 2."))
         XCTAssertTrue(versionHistory.contains("## 0.9.2 (build 1)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.9.2 build 1."))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 1)**"))
         XCTAssertTrue(versionHistory.contains("## 0.9.1 (build 3)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.9.1 build 3."))
@@ -1002,7 +1005,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-v0.9.2`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.2 build 2"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.2 build 3"))
         XCTAssertFalse(testPlan.contains("app version 0.9.2 build 1"))
         XCTAssertFalse(testPlan.contains("app version 0.9.1 build 3"))
         XCTAssertFalse(testPlan.contains("app version 0.9.1 build 2"))

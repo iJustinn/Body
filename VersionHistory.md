@@ -1,5 +1,12 @@
 # Version History
 
+## 0.9.2 (build 3)
+
+- The Sleep Score was recalibrated after a 13-night comparison against WHOOP sleep scores showed every night landing 80–92: REM, start-time, vitals, and temperature were near-guaranteed points, and HRV was graded against a fixed 80 ms target. Pressure (HRV), sleeping heart rate, respiratory rate, and wrist temperature are now graded against the user's own 14-night overnight medians (falling back to the previous absolute bands below 5 nights of history), continuity and duration use steeper curves, deep/REM use floor-anchored one-sided ramps (high REM and long sleep are never penalized), and the total passes through a breadth-aware decompression map so only truly strong nights score 90+. Typical nights now read ~75–88, disturbed or crash nights drop to ~55–70, and a perfect night still reads 100; sleep scores users saw previously will drop — expected.
+- The Sleep Stages card now shows the night's total sleep time (hours and minutes, awake time excluded) in the header next to the source label, so the duration is visible without adding up stages — including per-source totals on the two-source comparison cards.
+- Sleep durations on the week, month, six-month, and year trend charts (axis labels, selection readouts, and average annotations) now display as hours and minutes ("7h 54m") instead of decimal hours ("7.9h"), matching the Sleep card and widget.
+- Updated the app, widget, and test bundle version to 0.9.2 build 3.
+
 ## 0.9.2 (build 2)
 
 - Today's date now stands out in the Workouts calendar and the Workout Calendar widget: its day number uses the primary label color (white in dark mode, black in light mode) instead of the muted gray shared by the other days.
