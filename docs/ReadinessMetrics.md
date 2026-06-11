@@ -20,27 +20,57 @@
 
 ## Score Definition
 
-Readiness starts at 100 and subtracts weighted penalties from available components:
+> **Revised in 0.9.2 (recovery-anchored recalibration):** the original
+> weighted-average score compressed real crash days into the High band
+> (May 30 – Jun 11 2026 export vs WHOOP recovery: WHOOP 9–96, Body 76–95).
+> The score is now anchored on an autonomic recovery core computed from
+> overnight-first inputs, with sleep, training, and vitals acting as bounded
+> multiplicative penalties instead of averaged weights.
+
+Inputs (overnight-first):
+
+- Autonomic and vitals metrics prefer the overnight values hydrated into
+  `sleepHistory.days[].summary.vitals` (sleep-window HRV, heart rate,
+  respiratory rate, blood oxygen, wrist temperature).
+- A metric is overnight-qualified for a scoring day when at least 14 nights
+  carry that vital inside the 56-day baseline window. The autonomic HRV+HR
+  pair switches sources atomically (both overnight or both whole-day), and
+  value + baseline always come from the same series.
+- When an overnight-qualified metric has no value on the scoring day it is
+  simply absent for that day — it never falls back to the whole-day value
+  against an overnight baseline. Users without sleep tracking keep the
+  whole-day trend series behavior exactly as before.
+
+Score:
 
 ```text
-Readiness = clamp(100 - normalizedPenalty, 0, 100)
+z_hrv = clamp(robustZ(hrv), -2.5, +2.0)          // favorable = above baseline
+z_hr  = clamp(-robustZ(heartRate), -2.5, +2.0)   // favorable = below baseline
+z     = weighted mean of available parts (HRV 0.65, HR 0.35)
+core  = 5 + 92 / (1 + exp(-(z + 0.55) / 0.55))   // −2→11, −1→33, 0→72, +1→92, +2→96
+        (= 70 neutral when no autonomic data; confidence capped at low)
+
+f_sleep  = 0.75 + 0.25·q      // q = mean of the available sub-progresses
+                              // (duration vs goal, continuity); 1.0 if no sleep
+f_strain = 1.0 at ACWR ≤ 1.0, easing to 0.90 at 1.3, 0.70 at ≥ 1.6; 1.0 if none
+f_vitals = 1 − 0.45·maxAnomalyProgress           // resp/temp high-side, SpO₂
+                                                 // low-side (< 95 % ⇒ ≥ 0.35)
+
+Readiness = clamp(round(core × f_sleep × f_strain × f_vitals), 0, 100)
+            capped at 25 when any vitals anomaly progress ≥ 0.95
 ```
 
-Component weights:
-
-- Autonomic: 30
-- Sleep: 30
-- Training: 25
-- Vitals: 15
-
-If a component has no usable signals, omit it and renormalize the remaining component weights.
+Component sub-scores (autonomic = rounded core, sleep, training, vitals) are
+still emitted with nominal weights 30/30/25/15 for display; the headline
+score comes only from the formula above.
 
 Status bands (also used as chart band colors via `highlightedRange`/`highlightedRangeResolver`, mirroring `BodyTrainingLoadIntervalPresentation`):
 
-- `ready`: 85...100
-- `typical`: 70...84
-- `strained`: 50...69
-- `low`: 0...49
+- `prime`: 95...100
+- `high`: 80...94
+- `moderate`: 65...79 — a typical all-at-baseline day lands here
+- `low`: 30...64
+- `poor`: 0...29
 - `unavailable`: no score
 
 Each band exposes `lowerBound`/`upperBound`/`title`/`color` so the line chart paints the active band behind the value (same pattern as `TrainingLoadInterval`).
@@ -49,7 +79,8 @@ Confidence:
 
 - `high`: at least 3 scored components and at least 28 valid baseline days for a core signal.
 - `medium`: at least 2 scored components and at least 14 valid baseline days for a core signal.
-- `low`: a score exists, but baseline or component coverage is thin.
+- `low`: a score exists, but baseline or component coverage is thin — always
+  the cap when the autonomic core is neutral-filled (no HRV and no HR data).
 - `unavailable`: no score.
 
 Robust baseline:
