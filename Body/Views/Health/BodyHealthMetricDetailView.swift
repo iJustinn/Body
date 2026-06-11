@@ -1600,6 +1600,15 @@ struct BodyHealthMetricDetailView: View {
 
                 Spacer(minLength: 12)
 
+                if snapshot.asleepDuration > 0 {
+                    Text(BodyValueFormat.sleepDurationText(for: snapshot.asleepDuration))
+                        .font(.system(.caption, design: .rounded))
+                        .fontWeight(.bold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+
                 if let sourceName {
                     Text(sourceName)
                         .font(.system(.caption, design: .rounded))
@@ -1707,7 +1716,7 @@ struct BodyHealthMetricDetailView: View {
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 
-            Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Missing sensors are skipped instead of counted as zero.")
+            Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines, and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero.")
                 .font(.system(.body, design: .rounded))
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)

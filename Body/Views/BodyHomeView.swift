@@ -1072,7 +1072,7 @@ struct BodyHomeView: View {
                 sleepHistory: trends.sleepHistory,
                 sleepHistorySecondary: trends.sleepHistorySecondary,
                 chartStyle: .line,
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + "h" },
+                valueFormatter: { BodyValueFormat.sleepDurationText(for: $0 * 60 * 60) },
                 secondaryValueFormatter: nil,
                 sourceLineComparisonTrend: workoutStore.sourceLineComparisonTrend(for: kind),
                 dataSourceText: kind.detailDataSourceText
