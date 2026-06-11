@@ -3047,9 +3047,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
         let score = try XCTUnwrap(summary.score)
 
-        XCTAssertEqual(score.total, 94)
+        XCTAssertEqual(score.total, 98)
         XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .deep, .rem, .pressure, .vitals, .temperature])
-        XCTAssertEqual(score.categories.map(\.points), [25, 20, 11, 9, 14, 10, 5])
+        XCTAssertEqual(score.categories.map(\.points), [25, 20, 15, 10, 14, 10, 5])
         XCTAssertEqual(score.category(for: .deep)?.valueDescription, "15%")
         XCTAssertEqual(score.category(for: .rem)?.valueDescription, "20%")
         XCTAssertEqual(score.category(for: .pressure)?.valueDescription, "72 ms")
@@ -3083,9 +3083,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
         let score = try XCTUnwrap(SleepSummary(duration: 8 * 60 * 60, stageSnapshot: snapshot).score)
 
-        XCTAssertEqual(score.total, 93)
+        XCTAssertEqual(score.total, 100)
         XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .deep, .rem])
-        XCTAssertEqual(score.categories.map(\.points), [25, 20, 11, 9])
+        XCTAssertEqual(score.categories.map(\.points), [25, 20, 15, 10])
     }
 
     func testSleepScoreAmountUsesIdealSleepDurationGoal() throws {
@@ -3096,7 +3096,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             idealSleepDuration: 7 * 60 * 60
         ))
 
-        XCTAssertEqual(defaultGoalScore.category(for: .duration)?.points, 17)
+        XCTAssertEqual(defaultGoalScore.category(for: .duration)?.points, 15)
         XCTAssertEqual(customGoalScore.category(for: .duration)?.points, 25)
         XCTAssertEqual(customGoalScore.category(for: .duration)?.valueDescription, "7h")
         XCTAssertEqual(customGoalScore.total, 100)
@@ -3156,7 +3156,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             calendar: calendar
         ))
 
-        XCTAssertEqual(score.total, 82)
+        XCTAssertEqual(score.total, 78)
         XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .startTime])
         XCTAssertEqual(score.category(for: .startTime)?.points, 0)
         XCTAssertEqual(score.category(for: .startTime)?.maximumPoints, 10)
@@ -3202,7 +3202,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
         let score = try XCTUnwrap(summary.score)
 
-        XCTAssertEqual(score.category(for: .deep)?.points, 6)
+        XCTAssertEqual(score.category(for: .deep)?.points, 5)
         XCTAssertEqual(score.category(for: .deep)?.valueDescription, "8%")
         XCTAssertEqual(score.category(for: .pressure)?.points, 6)
         XCTAssertEqual(score.category(for: .pressure)?.valueDescription, "30 ms")
@@ -3252,9 +3252,323 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let score = try XCTUnwrap(summary.score)
 
         XCTAssertLessThan(score.total, 90)
-        XCTAssertEqual(score.category(for: .duration)?.points, 21)
-        XCTAssertEqual(score.category(for: .continuity)?.points, 17)
+        XCTAssertEqual(score.category(for: .duration)?.points, 20)
+        XCTAssertEqual(score.category(for: .continuity)?.points, 13)
         XCTAssertEqual(score.category(for: .pressure)?.points, 9)
+    }
+
+    func testSleepScoreNightArchetypesSpanRecalibratedBands() throws {
+        let archetypes = try sleepScoreArchetypeNights()
+        let history = SleepHistorySnapshot(days: try sleepScoreBaselineNights() + archetypes)
+        let totals = try archetypes.map { night in
+            try sleepScore(on: night, history: history).total
+        }
+
+        XCTAssertLessThanOrEqual(totals[3], 63)
+        XCTAssertLessThanOrEqual(totals[5], 65)
+        XCTAssertLessThanOrEqual(totals[12], 64)
+        XCTAssertGreaterThanOrEqual(totals[10], 84)
+        XCTAssertGreaterThanOrEqual(totals[9], 80)
+
+        let mean = Double(totals.reduce(0, +)) / Double(totals.count)
+        XCTAssertGreaterThanOrEqual(mean, 72)
+        XCTAssertLessThanOrEqual(mean, 80)
+        let spread = try XCTUnwrap(totals.max()) - (try XCTUnwrap(totals.min()))
+        XCTAssertGreaterThanOrEqual(spread, 25)
+    }
+
+    func testSleepScorePressureIsRelativeToPersonalBaseline() throws {
+        let night = try sleepScoreNight(
+            month: 6,
+            day: 1,
+            startHour: 1,
+            startMinute: 30,
+            asleepHours: 7.9,
+            deepHours: 1.15,
+            remHours: 1.85,
+            awakeHours: 0.3,
+            heartRateVariability: 55
+        )
+        let typicalHistory = SleepHistorySnapshot(days: try sleepScoreBaselineNights() + [night])
+        let highHistory = SleepHistorySnapshot(
+            days: try sleepScoreBaselineNights(heartRateVariabilityOffset: 28) + [night]
+        )
+        let typicalScore = try sleepScore(on: night, history: typicalHistory)
+        let highBaselineScore = try sleepScore(on: night, history: highHistory)
+
+        XCTAssertLessThan(
+            try XCTUnwrap(highBaselineScore.category(for: .pressure)?.points),
+            try XCTUnwrap(typicalScore.category(for: .pressure)?.points)
+        )
+        XCTAssertLessThan(highBaselineScore.total, typicalScore.total)
+    }
+
+    func testSleepScoreFallsBackToAbsoluteCurvesWithSparseVitalsHistory() throws {
+        let night = try sleepScoreNight(
+            month: 6,
+            day: 1,
+            startHour: 1,
+            startMinute: 30,
+            asleepHours: 7.9,
+            deepHours: 1.15,
+            remHours: 1.85,
+            awakeHours: 0.3,
+            heartRateVariability: 55,
+            heartRate: 57,
+            respiratoryRate: 15.2,
+            oxygenSaturation: 97,
+            wristTemperatureCelsius: 35.7
+        )
+        let sparseVitalsNights = try sleepScoreBaselineNights().enumerated().map { index, day -> SleepDaySummary in
+            var day = day
+            if index >= 4 {
+                day.summary.vitals = .empty
+            }
+            return day
+        }
+        let strippedNights = try sleepScoreBaselineNights().map { day -> SleepDaySummary in
+            var day = day
+            day.summary.vitals = .empty
+            return day
+        }
+        let sparse = try sleepScore(on: night, history: SleepHistorySnapshot(days: sparseVitalsNights))
+        let stripped = try sleepScore(on: night, history: SleepHistorySnapshot(days: strippedNights))
+
+        XCTAssertEqual(sparse.total, stripped.total)
+        XCTAssertEqual(sparse.categories.map(\.points), stripped.categories.map(\.points))
+    }
+
+    func testSleepScoreBaselineExcludesScoringDayVitals() throws {
+        let baseline = try sleepScoreBaselineNights()
+        let night = try sleepScoreNight(
+            month: 6,
+            day: 1,
+            startHour: 1,
+            startMinute: 30,
+            asleepHours: 7.9,
+            deepHours: 1.15,
+            remHours: 1.85,
+            awakeHours: 0.3,
+            heartRateVariability: 55,
+            heartRate: 57,
+            respiratoryRate: 15.2,
+            oxygenSaturation: 97,
+            wristTemperatureCelsius: 35.7
+        )
+        var spikedNight = night
+        spikedNight.summary.vitals = SleepVitalsSummary(
+            heartRate: 90,
+            heartRateVariability: 200,
+            respiratoryRate: 19,
+            oxygenSaturation: 99,
+            wristTemperatureCelsius: 37.5
+        )
+
+        let clean = try sleepScore(on: night, history: SleepHistorySnapshot(days: baseline + [night]))
+        let spiked = try sleepScore(on: night, history: SleepHistorySnapshot(days: baseline + [spikedNight]))
+        XCTAssertEqual(clean.total, spiked.total)
+
+        let pastNight = baseline[13]
+        var spikedPast = pastNight
+        spikedPast.summary.vitals = SleepVitalsSummary(
+            heartRate: 90,
+            heartRateVariability: 200,
+            respiratoryRate: 19,
+            oxygenSaturation: 99,
+            wristTemperatureCelsius: 37.5
+        )
+        let pastClean = try sleepScore(on: pastNight, history: SleepHistorySnapshot(days: baseline))
+        let pastSpiked = try sleepScore(
+            on: pastNight,
+            history: SleepHistorySnapshot(days: baseline.dropLast() + [spikedPast])
+        )
+        XCTAssertEqual(pastClean.total, pastSpiked.total)
+    }
+
+    func testSleepScoreElevatedSleepingHeartRateDrainsVitalsCategory() throws {
+        let night = try sleepScoreNight(
+            month: 6,
+            day: 1,
+            startHour: 1,
+            startMinute: 45,
+            asleepHours: 7.9,
+            deepHours: 1.15,
+            remHours: 1.85,
+            awakeHours: 0.3,
+            heartRate: 69
+        )
+        let history = SleepHistorySnapshot(days: try sleepScoreBaselineNights() + [night])
+        let score = try sleepScore(on: night, history: history)
+
+        XCTAssertLessThanOrEqual(try XCTUnwrap(score.category(for: .vitals)?.points), 4)
+    }
+
+    func testSleepScoreFragmentedNightDrainsContinuity() throws {
+        let night = try sleepScoreNight(
+            month: 6,
+            day: 1,
+            startHour: 1,
+            startMinute: 30,
+            asleepHours: 7.3,
+            deepHours: 1.1,
+            remHours: 1.7,
+            awakeHours: 0.72
+        )
+        let score = try XCTUnwrap(SleepScoreSummary(sleep: night.summary, on: night.date))
+
+        XCTAssertLessThanOrEqual(try XCTUnwrap(score.category(for: .continuity)?.points), 10)
+    }
+
+    func testSleepScoreDoesNotPenalizeHighREMShare() throws {
+        let night = try sleepScoreNight(
+            month: 6,
+            day: 9,
+            startHour: 0,
+            startMinute: 33,
+            asleepHours: 9.15,
+            deepHours: 1.50,
+            remHours: 3.67,
+            awakeHours: 0.46
+        )
+        let score = try XCTUnwrap(SleepScoreSummary(sleep: night.summary, on: night.date))
+
+        XCTAssertEqual(score.category(for: .rem)?.points, 10)
+    }
+
+    func testSleepScoreDecompressionRespectsCategoryBreadth() throws {
+        let baseline = try sleepScoreBaselineNights()
+        let perfect = try sleepScoreNight(
+            month: 5,
+            day: 30,
+            startHour: 1,
+            startMinute: 45,
+            asleepHours: 8.0,
+            deepHours: 1.7,
+            remHours: 1.8,
+            awakeHours: 0,
+            heartRateVariability: 75,
+            heartRate: 52,
+            respiratoryRate: 15.2,
+            oxygenSaturation: 97.5,
+            wristTemperatureCelsius: 35.70
+        )
+        let history = SleepHistorySnapshot(days: baseline + [perfect])
+        XCTAssertEqual(try sleepScore(on: perfect, history: history).total, 100)
+
+        var noTemp = perfect
+        noTemp.summary.vitals.wristTemperatureCelsius = nil
+        let noTempHistory = SleepHistorySnapshot(days: baseline + [noTemp])
+        XCTAssertEqual(try sleepScore(on: noTemp, history: noTempHistory).total, 100)
+
+        let strong = try sleepScoreNight(
+            month: 5,
+            day: 30,
+            startHour: 1,
+            startMinute: 45,
+            asleepHours: 7.5,
+            deepHours: 1.5,
+            remHours: 1.6,
+            awakeHours: 0.5,
+            heartRateVariability: 75,
+            heartRate: 52,
+            respiratoryRate: 15.2,
+            oxygenSaturation: 97.5,
+            wristTemperatureCelsius: 35.70
+        )
+        let strongHistory = SleepHistorySnapshot(days: baseline + [strong])
+        XCTAssertLessThanOrEqual(try sleepScore(on: strong, history: strongHistory).total, 87)
+
+        let sevenHour = try XCTUnwrap(SleepScoreSummary(sleep: SleepSummary(duration: 7 * 60 * 60)))
+        XCTAssertGreaterThanOrEqual(sevenHour.total, 50)
+        let sixHour = try XCTUnwrap(SleepScoreSummary(sleep: SleepSummary(duration: 6 * 60 * 60)))
+        XCTAssertGreaterThanOrEqual(sixHour.total, 10)
+        XCTAssertLessThanOrEqual(sixHour.total, 35)
+    }
+
+    func testSleepScoreOxygenSaturationRampIsClinical() throws {
+        func vitalsPoints(oxygenSaturation: Double) throws -> Int {
+            let night = try sleepScoreNight(
+                month: 6,
+                day: 1,
+                startHour: 1,
+                startMinute: 30,
+                asleepHours: 7.9,
+                deepHours: 1.15,
+                remHours: 1.85,
+                awakeHours: 0.3,
+                oxygenSaturation: oxygenSaturation
+            )
+            let score = try XCTUnwrap(SleepScoreSummary(sleep: night.summary, on: night.date))
+            return try XCTUnwrap(score.category(for: .vitals)?.points)
+        }
+
+        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 93), 3)
+        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 94), 5)
+        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 95), 8)
+        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 96), 10)
+    }
+
+    func testHealthWidgetSnapshotBuilderEmitsSleepScoreDisplayValues() throws {
+        let baseline = try sleepScoreBaselineNights()
+        let night = try sleepScoreNight(
+            month: 6,
+            day: 1,
+            startHour: 1,
+            startMinute: 30,
+            asleepHours: 7.9,
+            deepHours: 1.15,
+            remHours: 1.85,
+            awakeHours: 0.3,
+            heartRateVariability: 55,
+            heartRate: 57
+        )
+        var trends = HealthTrendSnapshot.empty
+        trends.sleepHistory = SleepHistorySnapshot(days: baseline + [night])
+        var summary = HealthSummarySnapshot(
+            activityRings: .empty,
+            sleep: night.summary,
+            restingHeartRate: HealthMetricSummary(value: nil),
+            bodyMass: HealthMetricSummary(value: nil),
+            bodyFatPercentage: HealthMetricSummary(value: nil),
+            heartRateVariability: HealthMetricSummary(value: nil),
+            respiratoryRate: HealthMetricSummary(value: nil),
+            oxygenSaturation: HealthMetricSummary(value: nil),
+            bodyMassIndex: HealthMetricSummary(value: nil),
+            activeEnergy: HealthMetricSummary(value: nil),
+            restingEnergy: HealthMetricSummary(value: nil)
+        )
+        let snapshot = HealthWidgetSnapshotBuilder.make(
+            trends: trends,
+            summary: summary,
+            sleepStageSnapshot: night.summary.stageSnapshot,
+            temperatureUnitPreference: .celsius,
+            energyUnitPreference: .kilojoules,
+            weightUnitPreference: .kilograms,
+            idealSleepDuration: BodySleepDurationGoal.defaultDuration,
+            showSleepScore: true,
+            primarySourceName: { _ in nil },
+            date: night.date
+        )
+        let sleepTrend = try XCTUnwrap(snapshot.metricTrends.first { $0.metric == .sleep })
+        let scoreValue = try XCTUnwrap(sleepTrend.displayValues.first)
+        XCTAssertEqual(scoreValue.unit, "PTS")
+        XCTAssertNotNil(Int(scoreValue.value))
+
+        summary.sleep = SleepSummary(duration: nil)
+        let emptySnapshot = HealthWidgetSnapshotBuilder.make(
+            trends: trends,
+            summary: summary,
+            sleepStageSnapshot: .empty,
+            temperatureUnitPreference: .celsius,
+            energyUnitPreference: .kilojoules,
+            weightUnitPreference: .kilograms,
+            idealSleepDuration: BodySleepDurationGoal.defaultDuration,
+            showSleepScore: true,
+            primarySourceName: { _ in nil },
+            date: night.date
+        )
+        let emptyTrend = try XCTUnwrap(emptySnapshot.metricTrends.first { $0.metric == .sleep })
+        XCTAssertEqual(emptyTrend.displayValues.first?.value, "--")
     }
 
     func testSleepVitalsMakeSleepSummaryNonEmptyAndUseSleepWindow() throws {
@@ -4044,5 +4358,133 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             distanceMeters: 1_000,
             sourceName: "Tests"
         )
+    }
+
+    // MARK: - Sleep score fixtures
+
+    private func sleepScoreNight(
+        month: Int,
+        day: Int,
+        startHour: Int,
+        startMinute: Int = 0,
+        asleepHours: Double,
+        deepHours: Double,
+        remHours: Double,
+        awakeHours: Double,
+        heartRateVariability: Double? = nil,
+        heartRate: Double? = nil,
+        respiratoryRate: Double? = nil,
+        oxygenSaturation: Double? = nil,
+        wristTemperatureCelsius: Double? = nil
+    ) throws -> SleepDaySummary {
+        let calendar = Calendar.bodyGregorian
+        let dayDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: month, day: day)))
+        let start = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: month, day: day, hour: startHour, minute: startMinute)
+        ))
+        let hour: TimeInterval = 60 * 60
+        let coreHours = max(asleepHours - deepHours - remHours, 0)
+        var segments: [SleepStageSegment] = []
+        var cursor = start
+        for (stage, hours) in [(SleepStage.deep, deepHours), (.core, coreHours), (.rem, remHours), (.awake, awakeHours)]
+        where hours > 0 {
+            let end = cursor.addingTimeInterval(hours * hour)
+            segments.append(SleepStageSegment(stage: stage, startDate: cursor, endDate: end))
+            cursor = end
+        }
+
+        return SleepDaySummary(
+            date: dayDate,
+            summary: SleepSummary(
+                duration: asleepHours * hour,
+                stageSnapshot: SleepStageSnapshot(date: dayDate, segments: segments),
+                vitals: SleepVitalsSummary(
+                    heartRate: heartRate,
+                    heartRateVariability: heartRateVariability,
+                    respiratoryRate: respiratoryRate,
+                    oxygenSaturation: oxygenSaturation,
+                    wristTemperatureCelsius: wristTemperatureCelsius
+                )
+            )
+        )
+    }
+
+    /// 14 typical nights (May 16–29 2026) with production-like variance around the
+    /// user's overnight baselines; constant values would collapse the medians.
+    private func sleepScoreBaselineNights(heartRateVariabilityOffset: Double = 0) throws -> [SleepDaySummary] {
+        let startMinutes = [75, 135, 105, 90, 120, 100, 110, 105, 85, 125, 95, 115, 100, 110]
+        let heartRateVariability: [Double] = [50, 74, 62, 55, 69, 58, 66, 62, 53, 71, 60, 64, 57, 67]
+        let heartRate: [Double] = [53, 61, 57, 55, 59, 56, 58, 57, 54, 60, 56, 58, 55, 59]
+        let respiratoryRate: [Double] = [14.8, 15.6, 15.2, 15.0, 15.4, 15.1, 15.3, 15.2, 14.9, 15.5, 15.1, 15.3, 15.0, 15.4]
+        let oxygenSaturation: [Double] = [96.7, 97.7, 97.2, 97.0, 97.4, 97.1, 97.3, 97.2, 96.8, 97.6, 97.1, 97.3, 96.9, 97.5]
+        let temperature: [Double] = [35.55, 35.85, 35.70, 35.62, 35.78, 35.66, 35.74, 35.70, 35.58, 35.82, 35.68, 35.72, 35.64, 35.76]
+
+        return try (0..<14).map { index in
+            try sleepScoreNight(
+                month: 5,
+                day: 16 + index,
+                startHour: startMinutes[index] / 60,
+                startMinute: startMinutes[index] % 60,
+                asleepHours: 7.9,
+                deepHours: 1.15,
+                remHours: 1.85,
+                awakeHours: 0.3,
+                heartRateVariability: heartRateVariability[index] + heartRateVariabilityOffset,
+                heartRate: heartRate[index],
+                respiratoryRate: respiratoryRate[index],
+                oxygenSaturation: oxygenSaturation[index],
+                wristTemperatureCelsius: temperature[index]
+            )
+        }
+    }
+
+    /// The 13 real nights from the May 30 – Jun 11 2026 Apple Health export
+    /// (stage/duration/awake/resp/SpO₂ values are real). Overnight HRV, sleeping
+    /// heart rate, and wrist temperature are estimates — the export only carries
+    /// whole-day values; crash-night HRV is anchored to WHOOP recovery
+    /// (24/13/9/43/17 on Jun 1/2/4/3/11).
+    private func sleepScoreArchetypeNights() throws -> [SleepDaySummary] {
+        let table: [(month: Int, day: Int, hour: Int, minute: Int, asleep: Double, deep: Double, rem: Double,
+                     awake: Double, hrv: Double, heartRate: Double, resp: Double, spo2: Double, temp: Double?)] = [
+            (5, 30, 1, 54, 7.57, 0.79, 1.65, 0.15, 62, 56, 14.95, 97.66, 35.51),
+            (5, 31, 2, 10, 7.64, 1.04, 1.80, 0.18, 55, 66, 15.51, 97.20, 35.95),
+            (6, 1, 1, 41, 8.12, 1.12, 1.74, 0.04, 40, 62, 16.14, 97.74, 35.41),
+            (6, 2, 1, 44, 7.77, 0.82, 2.62, 0.44, 28, 64, 14.91, 96.21, 35.91),
+            (6, 3, 2, 4, 7.58, 0.96, 1.60, 0.11, 45, 63, 14.81, 96.87, 35.73),
+            (6, 4, 1, 51, 7.69, 0.76, 1.90, 0.30, 30, 64, 14.86, 97.41, 35.71),
+            (6, 5, 2, 23, 7.27, 1.41, 1.74, 0.39, 52, 60, 15.34, 97.15, 35.58),
+            (6, 6, 1, 1, 7.77, 1.21, 1.82, 0.73, 60, 58, 15.41, 96.76, 35.76),
+            (6, 7, 0, 9, 9.38, 1.93, 2.42, 0.60, 75, 53, 15.25, 96.65, nil),
+            (6, 8, 2, 0, 7.76, 0.97, 2.24, 0.48, 78, 52, 15.17, 96.96, 35.80),
+            (6, 9, 0, 33, 9.15, 1.50, 3.67, 0.46, 72, 55, 15.20, 97.55, 35.91),
+            (6, 10, 1, 24, 7.99, 1.61, 2.04, 0.46, 58, 57, 15.13, 97.20, 35.63),
+            (6, 11, 1, 32, 7.83, 1.15, 2.43, 0.74, 32, 65, 15.25, 96.60, 36.05)
+        ]
+
+        return try table.map { night in
+            try sleepScoreNight(
+                month: night.month,
+                day: night.day,
+                startHour: night.hour,
+                startMinute: night.minute,
+                asleepHours: night.asleep,
+                deepHours: night.deep,
+                remHours: night.rem,
+                awakeHours: night.awake,
+                heartRateVariability: night.hrv,
+                heartRate: night.heartRate,
+                respiratoryRate: night.resp,
+                oxygenSaturation: night.spo2,
+                wristTemperatureCelsius: night.temp
+            )
+        }
+    }
+
+    private func sleepScore(on day: SleepDaySummary, history: SleepHistorySnapshot) throws -> SleepScoreSummary {
+        try XCTUnwrap(SleepScoreSummary(
+            sleep: day.summary,
+            recentSleepHistory: history,
+            on: day.date
+        ))
     }
 }

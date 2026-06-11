@@ -251,6 +251,12 @@ struct SleepScoreSummary: Equatable {
             return nil
         }
 
+        let baselines = Self.vitalsBaselines(
+            recentSleepHistory: recentSleepHistory,
+            on: date ?? sleep.stageSnapshot.date ?? sleep.stageSnapshot.sleepStartDate,
+            calendar: calendar
+        )
+
         var categoryScores = [
             Self.category(
                 kind: .duration,
@@ -278,14 +284,16 @@ struct SleepScoreSummary: Equatable {
                 kind: .deep,
                 stageDuration: sleep.stageSnapshot.duration(for: .deep),
                 sleepDuration: duration,
-                targetPercentage: 0.20,
+                floorPercentage: 0.05,
+                fullCreditPercentage: 0.13,
                 maximumPoints: 15
             ))
             categoryScores.append(Self.stagePercentageCategory(
                 kind: .rem,
                 stageDuration: sleep.stageSnapshot.duration(for: .rem),
                 sleepDuration: duration,
-                targetPercentage: 0.22,
+                floorPercentage: 0.10,
+                fullCreditPercentage: 0.18,
                 maximumPoints: 10
             ))
         }
@@ -293,17 +301,20 @@ struct SleepScoreSummary: Equatable {
         if let heartRateVariability = sleep.vitals.heartRateVariability, heartRateVariability > 0 {
             categoryScores.append(Self.category(
                 kind: .pressure,
-                progress: Self.targetProgress(value: heartRateVariability, target: 80),
+                progress: Self.pressureProgress(heartRateVariability, baseline: baselines.heartRateVariability),
                 maximumPoints: 15,
                 valueDescription: "\(Int(heartRateVariability.rounded())) ms"
             ))
         }
 
-        if let vitalsCategory = Self.vitalsCategory(vitals: sleep.vitals) {
+        if let vitalsCategory = Self.vitalsCategory(vitals: sleep.vitals, baselines: baselines) {
             categoryScores.append(vitalsCategory)
         }
 
-        if let temperatureCategory = Self.temperatureCategory(vitals: sleep.vitals) {
+        if let temperatureCategory = Self.temperatureCategory(
+            vitals: sleep.vitals,
+            baseline: baselines.wristTemperatureCelsius
+        ) {
             categoryScores.append(temperatureCategory)
         }
 
@@ -312,8 +323,16 @@ struct SleepScoreSummary: Equatable {
         guard availablePoints > 0 else {
             return nil
         }
-        let earnedPoints = categoryScores.reduce(0) { $0 + $1.points }
-        total = min(max(Int((Double(earnedPoints) / Double(availablePoints) * 100).rounded()), 0), 100)
+        // Earned fraction over unrounded progresses, then a decompression map whose
+        // steepness scales with how many categories had data: a full-breadth night
+        // maps 0.90 → 86 so "almost all points" no longer reads as excellent, while
+        // a duration-only night stays near the plain fraction instead of cliffing.
+        // A perfect fraction maps to 100 at any breadth.
+        let rawFraction = categoryScores.reduce(0.0) {
+            $0 + $1.progress * Double($1.maximumPoints)
+        } / Double(availablePoints)
+        let steepness = 1 + Self.decompressionSteepness * Double(availablePoints) / Double(Self.fullCategoryPoints)
+        total = min(max(Int((100 * (steepness * rawFraction - (steepness - 1))).rounded()), 0), 100)
     }
 
     func category(for kind: SleepScoreCategory.Kind) -> SleepScoreCategory? {
@@ -367,7 +386,7 @@ struct SleepScoreSummary: Equatable {
 
         let awakeDuration = sleep.stageSnapshot.awakeDuration
         let sleepEfficiency = min(max(1 - (awakeDuration / inSleepWindowDuration), 0), 1)
-        let progress = min(max((sleepEfficiency - 0.78) / 0.18, 0), 1)
+        let progress = min(max((sleepEfficiency - 0.86) / 0.115, 0), 1)
         return category(
             kind: .continuity,
             progress: progress,
@@ -380,13 +399,15 @@ struct SleepScoreSummary: Equatable {
         kind: SleepScoreCategory.Kind,
         stageDuration: TimeInterval,
         sleepDuration: TimeInterval,
-        targetPercentage: Double,
+        floorPercentage: Double,
+        fullCreditPercentage: Double,
         maximumPoints: Int
     ) -> SleepScoreCategory {
         let percentage = sleepDuration > 0 ? stageDuration / sleepDuration : 0
+        let span = max(fullCreditPercentage - floorPercentage, 0.001)
         return category(
             kind: kind,
-            progress: Self.targetProgress(value: percentage, target: targetPercentage),
+            progress: (percentage - floorPercentage) / span,
             maximumPoints: maximumPoints,
             valueDescription: "\(Int((percentage * 100).rounded()))%"
         )
@@ -433,19 +454,40 @@ struct SleepScoreSummary: Equatable {
         )
     }
 
-    private static func vitalsCategory(vitals: SleepVitalsSummary) -> SleepScoreCategory? {
+    private static func pressureProgress(_ heartRateVariability: Double, baseline: Double?) -> Double {
+        guard let baseline, baseline > 0 else {
+            return targetProgress(value: heartRateVariability, target: 80)
+        }
+
+        let ratio = heartRateVariability / baseline
+        return min(max((ratio - 0.55) / 0.50, 0), 1)
+    }
+
+    private static func vitalsCategory(
+        vitals: SleepVitalsSummary,
+        baselines: SleepVitalsBaselines
+    ) -> SleepScoreCategory? {
         var progressValues: [Double] = []
 
         if let heartRate = vitals.heartRate {
-            progressValues.append(Self.rangeProgress(value: heartRate, lowerBound: 45, upperBound: 65, tolerance: 20))
+            if let baseline = baselines.heartRate {
+                progressValues.append(min(max(1 - max(heartRate - (baseline + 2), 0) / 8, 0), 1))
+            } else {
+                progressValues.append(Self.rangeProgress(value: heartRate, lowerBound: 45, upperBound: 65, tolerance: 20))
+            }
         }
 
         if let respiratoryRate = vitals.respiratoryRate {
-            progressValues.append(Self.rangeProgress(value: respiratoryRate, lowerBound: 12, upperBound: 20, tolerance: 6))
+            if let baseline = baselines.respiratoryRate {
+                progressValues.append(min(max(1 - (max(abs(respiratoryRate - baseline) - 0.5, 0) / 2), 0), 1))
+            } else {
+                progressValues.append(Self.rangeProgress(value: respiratoryRate, lowerBound: 12, upperBound: 20, tolerance: 6))
+            }
         }
 
         if let oxygenSaturation = vitals.oxygenSaturation {
-            progressValues.append(Self.increasingRangeProgress(value: oxygenSaturation, lowerBound: 90, target: 95))
+            // Absolute clinical scale on purpose — low SpO₂ is adverse at any personal baseline.
+            progressValues.append(Self.increasingRangeProgress(value: oxygenSaturation, lowerBound: 92, target: 96))
         }
 
         guard !progressValues.isEmpty else {
@@ -459,17 +501,95 @@ struct SleepScoreSummary: Equatable {
         )
     }
 
-    private static func temperatureCategory(vitals: SleepVitalsSummary) -> SleepScoreCategory? {
+    private static func temperatureCategory(vitals: SleepVitalsSummary, baseline: Double?) -> SleepScoreCategory? {
         guard let wristTemperatureCelsius = vitals.wristTemperatureCelsius else {
             return nil
         }
 
+        let progress: Double
+        if let baseline {
+            progress = min(max(1 - (max(abs(wristTemperatureCelsius - baseline) - 0.25, 0) / 0.5), 0), 1)
+        } else {
+            progress = Self.rangeProgress(value: wristTemperatureCelsius, lowerBound: 35.8, upperBound: 37.2, tolerance: 0.8)
+        }
+
         return category(
             kind: .temperature,
-            progress: Self.rangeProgress(value: wristTemperatureCelsius, lowerBound: 35.8, upperBound: 37.2, tolerance: 0.8),
+            progress: progress,
             maximumPoints: 5,
             valueDescription: "\(BodyValueFormat.numberText(wristTemperatureCelsius, decimals: 1))C"
         )
+    }
+
+    private struct SleepVitalsBaselines {
+        var heartRateVariability: Double?
+        var heartRate: Double?
+        var respiratoryRate: Double?
+        var wristTemperatureCelsius: Double?
+
+        static let empty = SleepVitalsBaselines()
+    }
+
+    private static func vitalsBaselines(
+        recentSleepHistory: SleepHistorySnapshot,
+        on date: Date?,
+        calendar: Calendar
+    ) -> SleepVitalsBaselines {
+        guard let date, !recentSleepHistory.isEmpty else {
+            return .empty
+        }
+
+        let scoringDay = calendar.startOfDay(for: date)
+        let oldestBaselineDay = calendar.date(
+            byAdding: .day,
+            value: -Self.vitalsBaselineDayCount,
+            to: scoringDay
+        ) ?? scoringDay.addingTimeInterval(-TimeInterval(Self.vitalsBaselineDayCount) * Self.secondsPerDay)
+
+        var heartRateVariability: [Double] = []
+        var heartRate: [Double] = []
+        var respiratoryRate: [Double] = []
+        var wristTemperature: [Double] = []
+        for day in recentSleepHistory.days {
+            let dayDate = calendar.startOfDay(for: day.date)
+            guard dayDate < scoringDay, dayDate >= oldestBaselineDay else {
+                continue
+            }
+
+            let vitals = day.summary.vitals
+            if let value = vitals.heartRateVariability, value > 0 {
+                heartRateVariability.append(value)
+            }
+            if let value = vitals.heartRate, value > 0 {
+                heartRate.append(value)
+            }
+            if let value = vitals.respiratoryRate, value > 0 {
+                respiratoryRate.append(value)
+            }
+            if let value = vitals.wristTemperatureCelsius, value > 0 {
+                wristTemperature.append(value)
+            }
+        }
+
+        return SleepVitalsBaselines(
+            heartRateVariability: baselineMedian(heartRateVariability),
+            heartRate: baselineMedian(heartRate),
+            respiratoryRate: baselineMedian(respiratoryRate),
+            wristTemperatureCelsius: baselineMedian(wristTemperature)
+        )
+    }
+
+    private static func baselineMedian(_ values: [Double]) -> Double? {
+        guard values.count >= Self.minimumVitalsBaselineCount else {
+            return nil
+        }
+
+        let sorted = values.sorted()
+        let middle = sorted.count / 2
+        if sorted.count.isMultiple(of: 2) {
+            return (sorted[middle - 1] + sorted[middle]) / 2
+        }
+        return sorted[middle]
     }
 
     private static func durationProgress(_ duration: TimeInterval, idealDuration: TimeInterval) -> Double {
@@ -477,14 +597,18 @@ struct SleepScoreSummary: Equatable {
         let idealHours = max(idealDuration / 3_600, 1)
 
         if hours <= idealHours {
-            return min(max((hours - (idealHours - 3)) / 3, 0), 1)
+            let deficit = idealHours - hours
+            if deficit <= 1.25 {
+                return 1 - deficit / 2.5
+            }
+            return max(0.5 - (deficit - 1.25) / 4, 0)
         }
 
-        if hours <= idealHours + 1 {
-            return min(max(1 - ((hours - idealHours) * 0.1), 0), 1)
+        if hours <= idealHours + 2 {
+            return 1 - (hours - idealHours) * 0.04
         }
 
-        return min(max(0.9 - ((hours - (idealHours + 1)) / 3 * 0.5), 0.4), 1)
+        return max(0.92 - (hours - idealHours - 2) * 0.15, 0.4)
     }
 
     private static func startTimeProgress(forDeviation deviation: TimeInterval) -> Double {
@@ -578,8 +702,12 @@ struct SleepScoreSummary: Equatable {
 
     private static let startTimeBaselineDayCount = 14
     private static let minimumStartTimeBaselineCount = 3
-    private static let startTimeFullCreditDeviation: TimeInterval = 60 * 60
-    private static let startTimeNoCreditDeviation: TimeInterval = 3 * 60 * 60
+    private static let startTimeFullCreditDeviation: TimeInterval = 45 * 60
+    private static let startTimeNoCreditDeviation: TimeInterval = 150 * 60
+    private static let vitalsBaselineDayCount = 14
+    private static let minimumVitalsBaselineCount = 5
+    private static let decompressionSteepness = 0.45
+    private static let fullCategoryPoints = 110
     private static let secondsPerDay: TimeInterval = 24 * 60 * 60
 }
 
