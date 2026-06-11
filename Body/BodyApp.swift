@@ -15,6 +15,7 @@ struct BodyApp: App {
     var body: some Scene {
         WindowGroup {
             MainTabView()
+                .bodyBaseInterfaceLevel()
                 .environmentObject(workoutStore)
                 .tint(selectedAccent.color)
                 .accentColor(selectedAccent.color)
