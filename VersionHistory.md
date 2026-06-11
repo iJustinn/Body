@@ -4,6 +4,8 @@
 
 - Today's date now stands out in the Workouts calendar and the Workout Calendar widget: its day number uses the primary label color (white in dark mode, black in light mode) instead of the muted gray shared by the other days.
 - Calendar workout icons, count markers, and day numbers now scale with the cell size so they keep their proportions on iPad's larger calendar instead of staying pinned to the iPhone point sizes.
+- Fixed the iPad windowed app (Stage Manager, Split View, and Slide Over) rendering its dashboard and cards a washed-out gray: iPadOS raises the window's trait collection to `.elevated`, which lightens every semantic system background one step, so the host window now pins its interface level back to `.base` to match the full-screen appearance.
+- The Sleep detail Sleep Stages chart now labels only the actual sleep start and end times on the x-axis instead of fixed two-hour ticks, with the first and last labels anchored to the chart edges so the end time no longer clips off the right side.
 - Updated the app, widget, and test bundle version to 0.9.2 build 2.
 
 ## 0.9.2 (build 1)
