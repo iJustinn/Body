@@ -1254,13 +1254,24 @@ final class HealthKitWorkoutStore: ObservableObject {
         let calendar = Calendar.bodyGregorian
         let keys = Self.recentMonthKeys(count: Self.recentChartMonthCount, from: date, calendar: calendar)
         let dashboardFetchSelection = BodyDashboardFetchSelection.load()
+        let includesWorkouts = permissionSelection.includes(.workouts)
+        if !includesWorkouts {
+            clearWorkoutSnapshots(calendar: calendar)
+        }
+
+        // Fetch the Workouts-tab months concurrently with source discovery and
+        // the dashboard below, so the visible Home dashboard no longer waits
+        // behind months of workout HR/effort fan-out. Workout queries are
+        // date-only and don't read the source map, so they're independent.
+        async let workoutRefresh: Void = {
+            guard includesWorkouts else { return }
+            try await self.refresh(monthKeys: keys, calendar: calendar)
+        }()
 
         do {
-            if permissionSelection.includes(.workouts) {
-                try await refresh(monthKeys: keys, calendar: calendar)
-            } else {
-                clearWorkoutSnapshots(calendar: calendar)
-            }
+            // Source discovery must finish before any dashboard query — the
+            // per-source predicate reads `healthSourcesByKind`, so racing it
+            // would silently fetch all-source data for custom-source users.
             await fetchHealthDataSourceOptions(calendar: calendar)
 
             let (fetchedHealthSummary, fetchedHealthTrends, fetchedActivityRingHistory) =
@@ -1274,6 +1285,12 @@ final class HealthKitWorkoutStore: ObservableObject {
                 trends: fetchedHealthTrends,
                 activityRingHistory: fetchedActivityRingHistory
             )
+
+            // Join the workout fetch. Its success gates the freshness timestamp:
+            // a workout failure must re-run the full refresh on the next
+            // activation instead of being skipped by the 5-minute warm-resume
+            // shortcut, so don't `markRefreshSucceeded` unless workouts landed.
+            try await workoutRefresh
             authorizationState = .authorized
             markRefreshSucceeded(date: date)
             updateCurrentMonthSnapshot(date: date, calendar: calendar)
@@ -1294,13 +1311,20 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         let key = BodyWorkoutMonthKey(month: month, year: year)
+        let includesWorkouts = permissionSelection.includes(.workouts)
+        if !includesWorkouts {
+            clearWorkoutSnapshots(calendar: calendar)
+        }
+
+        // Overlap the workout fetch with the dashboard fetch when one runs (the
+        // `updatesHealthSummary == false` warm path has no dashboard, so this
+        // just awaits the single month). See `refreshRecentMonths` for rationale.
+        async let workoutRefresh: Void = {
+            guard includesWorkouts else { return }
+            try await self.refresh(monthKeys: [key], calendar: calendar)
+        }()
 
         do {
-            if permissionSelection.includes(.workouts) {
-                try await refresh(monthKeys: [key], calendar: calendar)
-            } else {
-                clearWorkoutSnapshots(calendar: calendar)
-            }
             if updatesHealthSummary {
                 let dashboardFetchSelection = BodyDashboardFetchSelection.load()
                 await fetchHealthDataSourceOptions(calendar: calendar)
@@ -1317,6 +1341,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                     activityRingHistory: fetchedActivityRingHistory
                 )
             }
+            try await workoutRefresh
             authorizationState = .authorized
             markRefreshSucceeded(date: refreshDate)
             updateCurrentMonthSnapshot(date: refreshDate, calendar: calendar)

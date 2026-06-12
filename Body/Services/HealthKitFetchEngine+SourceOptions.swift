@@ -19,25 +19,56 @@ extension HealthKitFetchEngine {
             return nil
         }
 
-        var nextOptionsByKind: [HealthMetricKind: [BodyHealthDataSourceOption]] = [:]
-        var nextSourcesByKind: [HealthMetricKind: [String: [HKSource]]] = [:]
+        let kinds = HealthMetricKind.sourceSelectableKinds.filter { kind in
+            permissionSelection.includes(healthPermission(forSourceKind: kind))
+                && !healthSampleTypes(forSourceKind: kind).isEmpty
+        }
 
-        for kind in HealthMetricKind.sourceSelectableKinds {
-            guard permissionSelection.includes(healthPermission(forSourceKind: kind)),
-                  !healthSampleTypes(forSourceKind: kind).isEmpty else {
-                continue
+        // Fan the per-kind source queries out concurrently instead of awaiting
+        // them one kind at a time — on a first refresh this is ~13 serial
+        // `HKSourceQuery` round-trips that gate the dashboard fetch. Each child
+        // hops onto the actor and suspends in its query, so all queries are in
+        // flight at once; the (cheap, CPU-only) `sourceOptionsAndMap` assembly
+        // stays on the actor below.
+        let kindSources = await withTaskGroup(of: KindSources.self) { group in
+            for kind in kinds {
+                group.addTask { await self.fetchKindSources(for: kind) }
             }
 
-            let sources = await fetchHealthDataSources(for: healthSampleTypes(forSourceKind: kind))
-            let (options, sourcesByID) = sourceOptionsAndMap(from: sources)
+            var collected: [KindSources] = []
+            for await result in group {
+                collected.append(result)
+            }
+            return collected
+        }
 
-            nextOptionsByKind[kind] = options
-            nextSourcesByKind[kind] = sourcesByID
+        var nextOptionsByKind: [HealthMetricKind: [BodyHealthDataSourceOption]] = [:]
+        var nextSourcesByKind: [HealthMetricKind: [String: [HKSource]]] = [:]
+        for kindSource in kindSources {
+            let (options, sourcesByID) = sourceOptionsAndMap(from: kindSource.sources)
+            nextOptionsByKind[kindSource.kind] = options
+            nextSourcesByKind[kindSource.kind] = sourcesByID
         }
 
         healthSourcesByKind = nextSourcesByKind
         fetchedHealthDataSourcePermissionRawValue = permissionRawValue
         return nextOptionsByKind
+    }
+
+    private func fetchKindSources(for kind: HealthMetricKind) async -> KindSources {
+        KindSources(
+            kind: kind,
+            sources: await fetchHealthDataSources(for: healthSampleTypes(forSourceKind: kind))
+        )
+    }
+
+    /// One metric kind's discovered sources, carried out of the concurrent
+    /// fetch task group. `@unchecked Sendable` is sound because `HKSource` is
+    /// immutable metadata (read-only; never mutated after the query returns) —
+    /// HealthKit just doesn't annotate it `Sendable`.
+    private struct KindSources: @unchecked Sendable {
+        let kind: HealthMetricKind
+        let sources: [HKSource]
     }
 
     private func sourceOptionsAndMap(
