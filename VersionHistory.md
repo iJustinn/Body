@@ -1,5 +1,12 @@
 # Version History
 
+## 0.9.2 (build 6)
+
+- Performance: the Summary dashboard no longer waits on the Workouts tab during a warm launch or pull-to-refresh. The full refresh used to fetch three months of workouts (with their per-workout heart-rate and effort-score queries) before it even began loading the dashboard metrics, Activity Rings, and trend charts; the workout months now load concurrently with the dashboard, so the Summary cards fill in as soon as their own data lands instead of after the workout fetch finishes.
+- Performance: Apple Health source discovery (which apps and devices wrote each metric) now runs its per-metric queries concurrently instead of one metric at a time, collapsing a serial stretch that gated the first refresh of each app launch.
+- A failed workout fetch no longer blocks the dashboard from appearing, and the refresh is only marked fresh when the workouts also load — so a partial failure re-runs the full refresh on the next app entry instead of being skipped by the five-minute resume shortcut.
+- Updated the app, widget, and test bundle version to 0.9.2 build 6.
+
 ## 0.9.2 (build 3)
 
 - The Sleep Score was recalibrated after a 13-night comparison against WHOOP sleep scores showed every night landing 80–92: REM, start-time, vitals, and temperature were near-guaranteed points, and HRV was graded against a fixed 80 ms target. Pressure (HRV), sleeping heart rate, respiratory rate, and wrist temperature are now graded against the user's own 14-night overnight medians (falling back to the previous absolute bands below 5 nights of history), continuity and duration use steeper curves, deep/REM use floor-anchored one-sided ramps (high REM and long sleep are never penalized), and the total passes through a breadth-aware decompression map so only truly strong nights score 90+. Typical nights now read ~75–88, disturbed or crash nights drop to ~55–70, and a perfect night still reads 100; sleep scores users saw previously will drop — expected.
