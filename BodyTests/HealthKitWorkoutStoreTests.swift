@@ -771,6 +771,112 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         }
     }
 
+    func testEffortFetchCandidateIDsSkipCachedAndConfirmedWorkouts() {
+        let cached = UUID()
+        let confirmed = UUID()
+        let fresh = UUID()
+
+        let candidates = HealthKitFetchEngine.effortFetchCandidateIDs(
+            workoutIDs: [cached, confirmed, fresh],
+            cachedEffortIDs: [cached],
+            confirmedNoEffortIDs: [confirmed]
+        )
+
+        XCTAssertEqual(candidates, [fresh])
+    }
+
+    func testConfirmableNoEffortWorkoutIDsRequireAgeAndNoFoundScore() {
+        let now = Date()
+        let oldUnrated = UUID()
+        let recentUnrated = UUID()
+        let oldRated = UUID()
+        let queried: [(id: UUID, endDate: Date)] = [
+            (oldUnrated, now.addingTimeInterval(-49 * 60 * 60)),
+            (recentUnrated, now.addingTimeInterval(-2 * 60 * 60)),
+            (oldRated, now.addingTimeInterval(-72 * 60 * 60))
+        ]
+
+        let confirmed = HealthKitFetchEngine.confirmableNoEffortWorkoutIDs(
+            queried: queried,
+            foundIDs: [oldRated],
+            now: now
+        )
+
+        XCTAssertEqual(confirmed, [oldUnrated])
+    }
+
+    func testHeartRateReuseEligibilityRequiresMatchingFinishedCachedWorkout() {
+        let now = Date()
+        let duration: TimeInterval = 3_600
+        let finishedStart = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let recentStart = now.addingTimeInterval(-2 * 60 * 60)
+
+        func cachedSummary(id: UUID, startDate: Date, samples: [WorkoutHeartRateSample]) -> WorkoutSummary {
+            WorkoutSummary(
+                id: id,
+                type: .running,
+                startDate: startDate,
+                duration: duration,
+                heartRateSamples: samples
+            )
+        }
+
+        let sample = WorkoutHeartRateSample(date: finishedStart, beatsPerMinute: 140)
+        let eligible = UUID()
+        let dateMismatch = UUID()
+        let emptySamples = UUID()
+        let tooRecent = UUID()
+        let uncached = UUID()
+
+        let workouts: [(id: UUID, startDate: Date, duration: TimeInterval)] = [
+            (eligible, finishedStart, duration),
+            (dateMismatch, finishedStart, duration),
+            (emptySamples, finishedStart, duration),
+            (tooRecent, recentStart, duration),
+            (uncached, finishedStart, duration)
+        ]
+        let cachedSummaries: [UUID: WorkoutSummary] = [
+            eligible: cachedSummary(id: eligible, startDate: finishedStart, samples: [sample]),
+            dateMismatch: cachedSummary(id: dateMismatch, startDate: finishedStart.addingTimeInterval(5), samples: [sample]),
+            emptySamples: cachedSummary(id: emptySamples, startDate: finishedStart, samples: []),
+            tooRecent: cachedSummary(id: tooRecent, startDate: recentStart, samples: [sample])
+        ]
+
+        let eligibleIDs = HealthKitFetchEngine.heartRateReuseEligibleWorkoutIDs(
+            workouts: workouts,
+            cachedSummaries: cachedSummaries,
+            now: now
+        )
+
+        XCTAssertEqual(eligibleIDs, [eligible])
+    }
+
+    func testReusingHeartRateSummaryCopiesCachedHeartRateAndTakesFreshMetadata() throws {
+        let calendar = Calendar.bodyGregorian
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 1, hour: 8)))
+        let end = start.addingTimeInterval(1_800)
+        let workout = HKWorkout(activityType: .running, start: start, end: end)
+        let cached = WorkoutSummary(
+            id: workout.uuid,
+            type: .cycling,
+            startDate: start.addingTimeInterval(-60),
+            duration: 999,
+            averageHeartRateBeatsPerMinute: 142,
+            heartRateSamples: [WorkoutHeartRateSample(date: start, beatsPerMinute: 140)],
+            sourceName: "Cached Source"
+        )
+
+        let summary = HealthKitFetchEngine.summary(for: workout, reusingHeartRateFrom: cached, effortLevel: 7)
+
+        XCTAssertEqual(summary.id, workout.uuid)
+        XCTAssertEqual(summary.type, .running)
+        XCTAssertEqual(summary.startDate, start)
+        XCTAssertEqual(summary.duration, workout.duration)
+        XCTAssertEqual(summary.averageHeartRateBeatsPerMinute, 142)
+        XCTAssertEqual(summary.heartRateSamples, cached.heartRateSamples)
+        XCTAssertEqual(summary.effortLevel, 7)
+    }
+
     private func cachedHealthDashboardSnapshot() throws -> HealthDashboardSnapshot {
         let calendar = Calendar.bodyGregorian
         let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 10)))

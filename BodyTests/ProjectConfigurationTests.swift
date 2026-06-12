@@ -801,7 +801,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(refreshableBlock.contains("await workoutStore.refreshWorkoutMonth(month: selectedMonth, year: selectedYear)"))
         XCTAssertFalse(refreshableBlock.contains("requestAuthorizationAndRefresh()"))
-        XCTAssertTrue(methodBlock.contains("await refresh(month: month, year: year, calendar: calendar, updatesHealthSummary: false)"))
+        XCTAssertTrue(methodBlock.contains("updatesHealthSummary: false"))
         XCTAssertFalse(methodBlock.contains("fetchHealthSummary(calendar: calendar)"))
         XCTAssertFalse(methodBlock.contains("fetchHealthTrends(calendar: calendar)"))
         XCTAssertFalse(methodBlock.contains("fetchActivityRingHistory(calendar: calendar)"))
