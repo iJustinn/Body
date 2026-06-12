@@ -6,6 +6,15 @@
 import Foundation
 import HealthKit
 
+/// Outcome of scanning for ring data older than the already-probed months.
+/// `failed` (error) is distinct from `noOlderData` so a transient HealthKit
+/// failure never gets recorded as the permanent start of history.
+enum ActivityRingOlderHistoryProbe {
+    case found(ActivityRingHistorySnapshot)
+    case noOlderData
+    case failed
+}
+
 // Activity Rings summary (one day) and history (range of days, plus the
 // per-month-key overload that pages back through older months). The shared
 // `activityRingHistoryInterval` and `activityRingSummary` helpers live on
@@ -121,6 +130,61 @@ extension HealthKitFetchEngine {
                 .filteringDaysToLoadedMonths(calendar: calendar)
         } catch {
             return .empty
+        }
+    }
+
+    /// One wide scan for the most recent month with ring data strictly older
+    /// than `monthKey`, back to the Apple Watch era (rings cannot predate the
+    /// platform). Used when consecutive previous months come back empty so a
+    /// long no-watch gap is crossed in a single query, and a true history
+    /// start is detected exactly instead of guessed from an empty streak.
+    func probeOlderActivityRingHistory(
+        before monthKey: ActivityRingMonthKey,
+        calendar: Calendar
+    ) async -> ActivityRingOlderHistoryProbe {
+        guard permissionSelection.includes(.activityRings) else {
+            return .failed
+        }
+
+        guard
+            let eraStart = calendar.date(from: DateComponents(year: 2014, month: 9, day: 1)),
+            let monthStart = monthKey.startDate(calendar: calendar),
+            let end = calendar.date(byAdding: .day, value: -1, to: monthStart),
+            eraStart <= end
+        else {
+            return .noOlderData
+        }
+
+        let startComponents = Self.activityDateComponents(for: eraStart, calendar: calendar)
+        let endComponents = Self.activityDateComponents(for: end, calendar: calendar)
+        let predicate = HKQuery.predicate(forActivitySummariesBetweenStart: startComponents, end: endComponents)
+        let descriptor = HKActivitySummaryQueryDescriptor(predicate: predicate)
+
+        do {
+            let summaries = try await descriptor.result(for: healthStore)
+            let days = summaries.compactMap { summary -> ActivityRingDaySummary? in
+                let components = summary.dateComponents(for: calendar)
+                guard let date = calendar.date(from: components) else {
+                    return nil
+                }
+
+                return ActivityRingDaySummary(
+                    date: calendar.startOfDay(for: date),
+                    summary: Self.activityRingSummary(from: summary)
+                )
+            }
+
+            guard let latestDay = days.max(by: { $0.date < $1.date }) else {
+                return .noOlderData
+            }
+
+            let foundKey = ActivityRingMonthKey(date: latestDay.date, calendar: calendar)
+            let foundMonthDays = days.filter {
+                ActivityRingMonthKey(date: $0.date, calendar: calendar) == foundKey
+            }
+            return .found(ActivityRingHistorySnapshot(days: foundMonthDays, loadedMonthKeys: [foundKey]))
+        } catch {
+            return .failed
         }
     }
 

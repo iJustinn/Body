@@ -91,6 +91,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var lastSuccessfulRefreshDate: Date?
     @Published private(set) var loadingMonthKeys: Set<BodyWorkoutMonthKey> = []
     @Published private(set) var loadingActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
+    @Published private(set) var hasMoreActivityRingHistory = true
 
     /// Disk size of the three snapshot caches, refreshed off the main thread
     /// (`refreshCacheDiskSize`). `cacheStatus` reads this instead of running
@@ -108,6 +109,10 @@ final class HealthKitWorkoutStore: ObservableObject {
     private var loadedMonthKeys: Set<BodyWorkoutMonthKey> = []
     private var monthLoadOrder: [BodyWorkoutMonthKey] = []
     private var loadedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
+    /// Months probed for older ring history that came back with no data.
+    /// Session-only: never refetched this session, never persisted; cleared
+    /// whenever a refresh applies fresh dashboard ring history.
+    private var exhaustedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
     private var lastAppEntrySyncDate: Date?
     private var refreshCompletionContinuations: [CheckedContinuation<Void, Never>] = []
     private var monthLoadContinuations: [BodyWorkoutMonthKey: [CheckedContinuation<Void, Never>]] = [:]
@@ -197,10 +202,16 @@ final class HealthKitWorkoutStore: ObservableObject {
         } else {
             healthTrends = filteredHealthDashboardSnapshot.trends
         }
-        activityRingHistory = filteredHealthDashboardSnapshot.activityRingHistory.removingLikelyBoundaryTruncatedLoadedMonths(
-            date: date,
-            calendar: .bodyGregorian
-        )
+        activityRingHistory = filteredHealthDashboardSnapshot.activityRingHistory
+            .removingLikelyBoundaryTruncatedLoadedMonths(
+                date: date,
+                calendar: .bodyGregorian
+            )
+            .removingLoadedMonthsOlderThanEarliestData(
+                date: date,
+                calendar: .bodyGregorian,
+                keepingRecentMonthCount: Self.recentChartMonthCount
+            )
         loadedActivityRingMonthKeys = Set(activityRingHistory.loadedMonthKeySet(calendar: .bodyGregorian))
         // Restore the persisted last-successful-refresh timestamp so the
         // cold-start sync path applies the same tiered TTL as a warm resume.
@@ -932,6 +943,64 @@ final class HealthKitWorkoutStore: ObservableObject {
         return loadedMonthKeys.contains(key)
     }
 
+    /// Consecutive previous months to probe for older ring history, walking
+    /// back past months already loaded or already probed empty this session.
+    /// Seeds from `date`'s month when nothing is loaded yet, matching the
+    /// single-month walk this replaces.
+    nonisolated static func previousActivityRingMonthCandidates(
+        loadedKeys: Set<ActivityRingMonthKey>,
+        exhaustedKeys: Set<ActivityRingMonthKey>,
+        limit: Int,
+        date: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> [ActivityRingMonthKey] {
+        let knownKeys = loadedKeys.union(exhaustedKeys)
+        let referenceKey = knownKeys.sortedByDate.first ?? ActivityRingMonthKey(date: date, calendar: calendar)
+        guard var monthStart = referenceKey.startDate(calendar: calendar) else {
+            return []
+        }
+
+        var candidates: [ActivityRingMonthKey] = []
+        while candidates.count < limit {
+            guard let previousMonthStart = calendar.date(byAdding: .month, value: -1, to: monthStart) else {
+                break
+            }
+
+            monthStart = previousMonthStart
+            let key = ActivityRingMonthKey(date: previousMonthStart, calendar: calendar)
+            if !knownKeys.contains(key) {
+                candidates.append(key)
+            }
+        }
+
+        return candidates
+    }
+
+    /// Month keys strictly between two months, oldest first. Used to record
+    /// a confirmed-empty gap (no-watch stretch) as loaded so the calendar
+    /// stays continuous and the gap is never refetched.
+    nonisolated static func activityRingMonthKeys(
+        after startKey: ActivityRingMonthKey,
+        before endKey: ActivityRingMonthKey,
+        calendar: Calendar = .bodyGregorian
+    ) -> [ActivityRingMonthKey] {
+        guard
+            let startDate = startKey.startDate(calendar: calendar),
+            let endDate = endKey.startDate(calendar: calendar)
+        else {
+            return []
+        }
+
+        var keys: [ActivityRingMonthKey] = []
+        var cursor = startDate
+        while let next = calendar.date(byAdding: .month, value: 1, to: cursor), next < endDate {
+            keys.append(ActivityRingMonthKey(date: next, calendar: calendar))
+            cursor = next
+        }
+
+        return keys
+    }
+
     func loadPreviousActivityRingMonthIfNeeded(date: Date = Date()) async {
         await hydratePersistedDaySamplesIfNeeded()
         await awaitNextRefreshCompletion()
@@ -939,16 +1008,19 @@ final class HealthKitWorkoutStore: ObservableObject {
         guard permissionSelection.includes(.activityRings) else {
             activityRingHistory = .empty
             loadedActivityRingMonthKeys.removeAll()
+            exhaustedActivityRingMonthKeys.removeAll()
+            hasMoreActivityRingHistory = false
             return
         }
 
-        guard !Task.isCancelled, loadingActivityRingMonthKeys.isEmpty else {
+        guard !Task.isCancelled, loadingActivityRingMonthKeys.isEmpty, hasMoreActivityRingHistory else {
             return
         }
 
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
             healthDataNotice = "Apple Health is not available on this device."
+            hasMoreActivityRingHistory = false
             return
         }
 
@@ -957,47 +1029,132 @@ final class HealthKitWorkoutStore: ObservableObject {
             loadedActivityRingMonthKeys = Set(activityRingHistory.loadedMonthKeySet(calendar: calendar))
         }
 
-        let loadedKeys = loadedActivityRingMonthKeys.isEmpty
-            ? [ActivityRingMonthKey(date: date, calendar: calendar)]
-            : loadedActivityRingMonthKeys.sortedByDate
-        guard
-            let earliestLoadedMonth = loadedKeys.first,
-            let earliestMonthStart = earliestLoadedMonth.startDate(calendar: calendar),
-            let previousMonthDate = calendar.date(byAdding: .month, value: -1, to: earliestMonthStart)
-        else {
+        let candidates = Self.previousActivityRingMonthCandidates(
+            loadedKeys: loadedActivityRingMonthKeys,
+            exhaustedKeys: exhaustedActivityRingMonthKeys,
+            limit: 3,
+            date: date,
+            calendar: calendar
+        )
+        guard !candidates.isEmpty else {
             return
         }
-
-        let previousMonthKey = ActivityRingMonthKey(date: previousMonthDate, calendar: calendar)
-        guard !loadedActivityRingMonthKeys.contains(previousMonthKey) else {
-            return
-        }
-
-        loadingActivityRingMonthKeys.insert(previousMonthKey)
-        defer { loadingActivityRingMonthKeys.remove(previousMonthKey) }
 
         do {
             try await engine.requestAuthorization()
-            let previousHistory = await engine.fetchActivityRingHistory(monthKey: previousMonthKey, calendar: calendar)
-            guard !previousHistory.loadedMonthKeys.isEmpty else {
+
+            var mergedHistory: ActivityRingHistorySnapshot?
+            var emptyProbedKeys: [ActivityRingMonthKey] = []
+            for candidate in candidates {
+                loadingActivityRingMonthKeys.insert(candidate)
+                defer { loadingActivityRingMonthKeys.remove(candidate) }
+
+                let previousHistory = await engine.fetchActivityRingHistory(monthKey: candidate, calendar: calendar)
+                guard !previousHistory.loadedMonthKeys.isEmpty else {
+                    // The fetch errored (success always echoes the month key);
+                    // bail without marking the month exhausted or ending
+                    // pagination so a later scroll can retry.
+                    return
+                }
+
+                guard !previousHistory.days.isEmpty else {
+                    exhaustedActivityRingMonthKeys.insert(candidate)
+                    emptyProbedKeys.append(candidate)
+                    continue
+                }
+
+                // Confirmed-empty months above this data month persist with
+                // it so the calendar stays continuous (gap months render as
+                // empty grids) and they are never refetched.
+                mergedHistory = mergeOlderActivityRingHistory(
+                    previousHistory,
+                    gapKeys: emptyProbedKeys,
+                    calendar: calendar
+                )
+                break
+            }
+
+            if mergedHistory == nil, let earliestProbed = candidates.last {
+                // The whole batch was empty. Scan once for the next older
+                // month with data: jump a long no-watch gap in one gesture,
+                // or detect the true start of history exactly.
+                mergedHistory = await jumpActivityRingHistoryGap(
+                    before: earliestProbed,
+                    date: date,
+                    calendar: calendar
+                )
+            }
+
+            guard let mergedHistory else {
                 return
             }
 
-            let nextHistory = activityRingHistory.replacingLoadedMonths(with: previousHistory, calendar: calendar)
-            activityRingHistory = nextHistory
-            loadedActivityRingMonthKeys = Set(nextHistory.loadedMonthKeySet(calendar: calendar))
-            HealthDashboardSnapshotStore.save(
-                HealthDashboardSnapshot(
-                    summary: healthSummary,
-                    trends: healthTrends,
-                    activityRingHistory: nextHistory
-                )
+            let snapshotToSave = HealthDashboardSnapshot(
+                summary: healthSummary,
+                trends: healthTrends,
+                activityRingHistory: mergedHistory
             )
+            Task.detached(priority: .utility) {
+                HealthDashboardSnapshotStore.save(snapshotToSave)
+            }
             authorizationState = .authorized
             markRefreshSucceeded(date: Date())
             updateHealthDataNotice()
         } catch {
             handleRefreshError(error)
+        }
+    }
+
+    /// Merges one older month (plus any confirmed-empty gap months above it)
+    /// into the live history, re-read at call time — a concurrent refresh may
+    /// have published while a fetch was suspended.
+    private func mergeOlderActivityRingHistory(
+        _ olderHistory: ActivityRingHistorySnapshot,
+        gapKeys: [ActivityRingMonthKey],
+        calendar: Calendar
+    ) -> ActivityRingHistorySnapshot {
+        let gapFilledHistory = ActivityRingHistorySnapshot(
+            days: olderHistory.days,
+            loadedMonthKeys: olderHistory.loadedMonthKeys + gapKeys
+        )
+        let nextHistory = activityRingHistory.replacingLoadedMonths(with: gapFilledHistory, calendar: calendar)
+        activityRingHistory = nextHistory
+        loadedActivityRingMonthKeys = Set(nextHistory.loadedMonthKeySet(calendar: calendar))
+        return nextHistory
+    }
+
+    /// Wide-scan fallback when a probe batch is all empty. Merges the most
+    /// recent older month that has data (recording everything between it and
+    /// the loaded history as a confirmed-empty gap), marks the exact end of
+    /// history when nothing older exists, and leaves pagination retryable on
+    /// transient errors.
+    private func jumpActivityRingHistoryGap(
+        before earliestProbed: ActivityRingMonthKey,
+        date: Date,
+        calendar: Calendar
+    ) async -> ActivityRingHistorySnapshot? {
+        loadingActivityRingMonthKeys.insert(earliestProbed)
+        defer { loadingActivityRingMonthKeys.remove(earliestProbed) }
+
+        switch await engine.probeOlderActivityRingHistory(before: earliestProbed, calendar: calendar) {
+        case .found(let olderMonth):
+            guard let foundKey = olderMonth.loadedMonthKeys.first else {
+                return nil
+            }
+
+            let earliestLoaded = loadedActivityRingMonthKeys.sortedByDate.first
+                ?? ActivityRingMonthKey(date: date, calendar: calendar)
+            let gapKeys = Self.activityRingMonthKeys(
+                after: foundKey,
+                before: earliestLoaded,
+                calendar: calendar
+            )
+            return mergeOlderActivityRingHistory(olderMonth, gapKeys: gapKeys, calendar: calendar)
+        case .noOlderData:
+            hasMoreActivityRingHistory = false
+            return nil
+        case .failed:
+            return nil
         }
     }
 
@@ -1041,6 +1198,8 @@ final class HealthKitWorkoutStore: ObservableObject {
         loadedMonthKeys.removeAll()
         monthLoadOrder = [key]
         loadedActivityRingMonthKeys.removeAll()
+        exhaustedActivityRingMonthKeys.removeAll()
+        hasMoreActivityRingHistory = true
         loadingMonthKeys.removeAll()
         loadingActivityRingMonthKeys.removeAll()
         healthDataSourceOptionsByKind = [:]
@@ -1200,9 +1359,13 @@ final class HealthKitWorkoutStore: ObservableObject {
                     // empty and reappearing.
                     healthTrends = t.replacingMetric(.readiness, with: healthTrends)
                 case .rings(let r):
-                    fetchedActivityRingHistory = r
-                    activityRingHistory = r
-                    loadedActivityRingMonthKeys = Set(r.loadedMonthKeySet(calendar: calendar))
+                    // Merge instead of replace — replacing dropped any older
+                    // months the user had paged in (and the refresh's final
+                    // save then persisted that loss).
+                    let mergedRings = activityRingHistory.replacingLoadedMonths(with: r, calendar: calendar)
+                    fetchedActivityRingHistory = mergedRings
+                    activityRingHistory = mergedRings
+                    loadedActivityRingMonthKeys = Set(mergedRings.loadedMonthKeySet(calendar: calendar))
                 }
             }
         }
@@ -1391,6 +1554,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         healthTrends = filteredSnapshot.trends
         self.activityRingHistory = nextActivityRingHistory
         loadedActivityRingMonthKeys = Set(nextActivityRingHistory.loadedMonthKeySet(calendar: calendar))
+        // Fresh dashboard data may include backfilled months; let older-month
+        // pagination re-probe (at most a few cheap queries) instead of staying
+        // pinned at a previously detected history start.
+        exhaustedActivityRingMonthKeys.removeAll()
+        hasMoreActivityRingHistory = true
 
         let snapshotToSave = HealthDashboardSnapshot(
             summary: filteredSnapshot.summary,

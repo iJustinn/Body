@@ -271,6 +271,59 @@ struct ActivityRingHistorySnapshot: Codable, Equatable {
         )
     }
 
+    /// Loaded-month keys older than the earliest month with day data never
+    /// display (see `calendarMonths`), but they make older-month pagination
+    /// resume from however far back a previous session probed. Strips them;
+    /// gap months between data months are kept. With no day data at all,
+    /// keeps the recent dashboard window (current month and the prior
+    /// `keepingRecentMonthCount - 1`) so a legitimately empty fresh-install
+    /// cache isn't stripped and refetched.
+    func removingLoadedMonthsOlderThanEarliestData(
+        date: Date = Date(),
+        calendar: Calendar = .bodyGregorian,
+        keepingRecentMonthCount: Int = 3
+    ) -> ActivityRingHistorySnapshot {
+        guard !loadedMonthKeys.isEmpty else {
+            return self
+        }
+
+        let earliestKeptMonthStart: Date
+        if let earliestDayDate = days.first?.date {
+            guard let earliestDataMonthStart = calendar.dateInterval(of: .month, for: earliestDayDate)?.start else {
+                return self
+            }
+
+            earliestKeptMonthStart = earliestDataMonthStart
+        } else {
+            guard
+                let currentMonthStart = calendar.dateInterval(of: .month, for: date)?.start,
+                let windowStart = calendar.date(
+                    byAdding: .month,
+                    value: -(max(keepingRecentMonthCount, 1) - 1),
+                    to: currentMonthStart
+                )
+            else {
+                return self
+            }
+
+            earliestKeptMonthStart = windowStart
+        }
+
+        let keptKeys = loadedMonthKeys.filter { key in
+            guard let keyStart = key.startDate(calendar: calendar) else {
+                return false
+            }
+
+            return keyStart >= earliestKeptMonthStart
+        }
+
+        guard keptKeys.count != loadedMonthKeys.count else {
+            return self
+        }
+
+        return ActivityRingHistorySnapshot(days: days, loadedMonthKeys: keptKeys)
+    }
+
     func merging(
         _ other: ActivityRingHistorySnapshot,
         calendar: Calendar = .bodyGregorian
