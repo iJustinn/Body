@@ -859,8 +859,23 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
+    /// True until the app has any Health data to show: no successful refresh
+    /// recorded by this or any prior session, and nothing restored from the
+    /// snapshot cache. Presents the first-launch load overlay and keeps every
+    /// passive load idle — the app-entry sync, the workout-month lazy loads,
+    /// and older ring-history paging — so the first big load (including the
+    /// ten-year activity-ring backfill) only runs when the user starts it
+    /// from the overlay, a refresh gesture, or the Settings refresh button.
+    var needsInitialHealthDataLoad: Bool {
+        lastSuccessfulRefreshDate == nil && HealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: healthTrends,
+            activityRingHistory: activityRingHistory
+        ).isEmpty
+    }
+
     func syncWhenAppBecomesActive(date: Date = Date()) async {
-        guard !isRefreshing else {
+        guard !isRefreshing, !needsInitialHealthDataLoad else {
             return
         }
 
@@ -900,7 +915,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     func loadRecentWorkoutMonthsIfNeeded(date: Date = Date()) async {
-        guard !isRefreshing else {
+        guard !isRefreshing, !needsInitialHealthDataLoad else {
             return
         }
 
@@ -922,6 +937,10 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     @discardableResult
     func loadMonthIfNeeded(month: Int, year: Int) async -> Bool {
+        guard !needsInitialHealthDataLoad else {
+            return false
+        }
+
         let key = BodyWorkoutMonthKey(month: month, year: year)
         guard !loadedMonthKeys.contains(key) else {
             return true
@@ -1002,6 +1021,10 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     func loadPreviousActivityRingMonthIfNeeded(date: Date = Date()) async {
+        guard !needsInitialHealthDataLoad else {
+            return
+        }
+
         await hydratePersistedDaySamplesIfNeeded()
         await awaitNextRefreshCompletion()
 
@@ -1213,6 +1236,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         WorkoutSnapshotStore.deletePrevious()
         HealthDashboardSnapshotStore.delete()
         HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
+        HealthDashboardSnapshotStore.clearActivityRingBackfillCompleted()
         HealthWidgetSnapshotStore.delete()
         cacheDiskSizeBytes = 0
         BodyWidgetReloadCoalescer.shared.requestReload()
@@ -1323,6 +1347,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         var fetchedSummary = healthSummary
         var fetchedTrends = healthTrends
         var fetchedActivityRingHistory = activityRingHistory
+        let needsActivityRingBackfill = !HealthDashboardSnapshotStore.loadActivityRingBackfillCompleted()
 
         let engine = self.engine
         await withTaskGroup(of: DashboardFetchUnit.self) { group in
@@ -1339,7 +1364,12 @@ final class HealthKitWorkoutStore: ObservableObject {
                 )
             }
             group.addTask {
-                .rings(await engine.fetchDashboardActivityRingHistory(calendar: calendar, selection: selection))
+                if needsActivityRingBackfill {
+                    return .rings(
+                        await engine.fetchDashboardActivityRingBackfillHistory(calendar: calendar, selection: selection)
+                    )
+                }
+                return .rings(await engine.fetchDashboardActivityRingHistory(calendar: calendar, selection: selection))
             }
 
             for await unit in group {
@@ -1366,6 +1396,12 @@ final class HealthKitWorkoutStore: ObservableObject {
                     fetchedActivityRingHistory = mergedRings
                     activityRingHistory = mergedRings
                     loadedActivityRingMonthKeys = Set(mergedRings.loadedMonthKeySet(calendar: calendar))
+                    if needsActivityRingBackfill, !r.loadedMonthKeys.isEmpty {
+                        // Success always echoes month keys; an empty result
+                        // means the fetch errored or rings are excluded, so
+                        // the backfill stays pending for a later refresh.
+                        HealthDashboardSnapshotStore.saveActivityRingBackfillCompleted()
+                    }
                 }
             }
         }
@@ -1638,6 +1674,14 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         if !permissionSelection.includes(.workouts) {
             clearWorkoutSnapshots()
+        }
+
+        if !permissionSelection.includes(.activityRings) {
+            // The filtered save below purges the cached ring history, so the
+            // one-shot backfill marker must fall with it — otherwise
+            // re-enabling rings resumes recent-months-only fetches and the
+            // ten-year history never rebuilds.
+            HealthDashboardSnapshotStore.clearActivityRingBackfillCompleted()
         }
 
         Task.detached(priority: .utility) {

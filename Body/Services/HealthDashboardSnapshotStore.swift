@@ -22,6 +22,7 @@ enum HealthDashboardSnapshotStore {
     }
     static let secondarySelectionSignatureKey = "lastHealthDashboardSecondarySelectionSignature"
     static let lastSuccessfulRefreshDateKey = "lastHealthDashboardSuccessfulRefreshDate"
+    static let activityRingBackfillCompletedKey = "lastHealthDashboardActivityRingBackfillCompleted"
     private static let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "HealthDashboardSnapshotStore")
 
     static func saveSecondarySelectionSignature(_ signature: String, defaults: UserDefaults = .standard) {
@@ -48,6 +49,23 @@ enum HealthDashboardSnapshotStore {
 
     static func clearLastSuccessfulRefreshDate(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: lastSuccessfulRefreshDateKey)
+    }
+
+    /// One-shot marker for the first-load activity-ring backfill (up to ten
+    /// years in one scan). While unset, the dashboard refresh fetches the
+    /// full backfill window instead of the recent chart months; set only
+    /// once that fetch succeeds. Cleared with the cache so a wiped snapshot
+    /// gets backfilled again.
+    static func saveActivityRingBackfillCompleted(defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: activityRingBackfillCompletedKey)
+    }
+
+    static func loadActivityRingBackfillCompleted(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: activityRingBackfillCompletedKey)
+    }
+
+    static func clearActivityRingBackfillCompleted(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: activityRingBackfillCompletedKey)
     }
 
     static var snapshotFileURL: URL? {
