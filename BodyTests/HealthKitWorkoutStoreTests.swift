@@ -337,6 +337,127 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         ).isEmpty)
     }
 
+    func testActivityRingBackfillStartDateSpansTenYearsAndClampsToWatchEra() throws {
+        let calendar = Calendar.bodyGregorian
+
+        let recentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12)))
+        XCTAssertEqual(
+            HealthKitFetchEngine.activityRingBackfillStartDate(date: recentDate, calendar: calendar),
+            calendar.date(from: DateComponents(year: 2016, month: 6, day: 1))
+        )
+
+        let earlyDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2020, month: 1, day: 15)))
+        XCTAssertEqual(
+            HealthKitFetchEngine.activityRingBackfillStartDate(date: earlyDate, calendar: calendar),
+            calendar.date(from: DateComponents(year: 2014, month: 9, day: 1))
+        )
+    }
+
+    func testActivityRingMonthKeySpanIsInclusiveOnBothEnds() throws {
+        let calendar = Calendar.bodyGregorian
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2024, month: 11, day: 20)))
+        let end = try XCTUnwrap(calendar.date(from: DateComponents(year: 2025, month: 2, day: 3)))
+
+        XCTAssertEqual(
+            HealthKitFetchEngine.activityRingMonthKeySpan(from: start, to: end, calendar: calendar),
+            [
+                ActivityRingMonthKey(month: 11, year: 2024),
+                ActivityRingMonthKey(month: 12, year: 2024),
+                ActivityRingMonthKey(month: 1, year: 2025),
+                ActivityRingMonthKey(month: 2, year: 2025)
+            ]
+        )
+
+        XCTAssertEqual(
+            HealthKitFetchEngine.activityRingMonthKeySpan(from: end, to: end, calendar: calendar),
+            [ActivityRingMonthKey(month: 2, year: 2025)]
+        )
+
+        XCTAssertTrue(HealthKitFetchEngine.activityRingMonthKeySpan(from: end, to: start, calendar: calendar).isEmpty)
+    }
+
+    func testActivityRingBackfillCompletedFlagPersistsAndClears() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertFalse(HealthDashboardSnapshotStore.loadActivityRingBackfillCompleted(defaults: defaults))
+
+        HealthDashboardSnapshotStore.saveActivityRingBackfillCompleted(defaults: defaults)
+        XCTAssertTrue(HealthDashboardSnapshotStore.loadActivityRingBackfillCompleted(defaults: defaults))
+
+        HealthDashboardSnapshotStore.clearActivityRingBackfillCompleted(defaults: defaults)
+        XCTAssertFalse(HealthDashboardSnapshotStore.loadActivityRingBackfillCompleted(defaults: defaults))
+    }
+
+    @MainActor
+    func testNeedsInitialHealthDataLoadReflectsCacheAndRefreshState() throws {
+        // The store reads the persisted refresh timestamp from standard
+        // defaults at init; park it so a previous run on this host cannot
+        // mask the fresh-install state.
+        let preservedRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
+        HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
+        defer {
+            if let preservedRefreshDate {
+                HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(preservedRefreshDate)
+            }
+        }
+
+        let initialSnapshot = WorkoutMonthSnapshot.make(
+            month: 5,
+            year: 2026,
+            workouts: [],
+            calendar: .bodyGregorian
+        )
+
+        let emptyStore = HealthKitWorkoutStore(
+            initialSnapshot: initialSnapshot,
+            initialHealthDashboardSnapshot: .empty
+        )
+        XCTAssertTrue(emptyStore.needsInitialHealthDataLoad)
+
+        let cachedStore = HealthKitWorkoutStore(
+            initialSnapshot: initialSnapshot,
+            initialHealthDashboardSnapshot: try cachedHealthDashboardSnapshot()
+        )
+        XCTAssertFalse(cachedStore.needsInitialHealthDataLoad)
+    }
+
+    @MainActor
+    func testPassiveLoadsStayIdleUntilFirstHealthDataLoad() async throws {
+        let preservedRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
+        HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
+        defer {
+            if let preservedRefreshDate {
+                HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(preservedRefreshDate)
+            }
+        }
+
+        let store = HealthKitWorkoutStore(
+            initialSnapshot: WorkoutMonthSnapshot.make(
+                month: 5,
+                year: 2026,
+                workouts: [],
+                calendar: .bodyGregorian
+            ),
+            initialHealthDashboardSnapshot: .empty
+        )
+        XCTAssertTrue(store.needsInitialHealthDataLoad)
+
+        let didLoad = await store.loadMonthIfNeeded(month: 4, year: 2026)
+        XCTAssertFalse(didLoad)
+        XCTAssertFalse(store.hasLoadedSnapshot(month: 4, year: 2026))
+
+        await store.loadRecentWorkoutMonthsIfNeeded()
+        XCTAssertTrue(store.loadingMonthKeys.isEmpty)
+
+        await store.loadPreviousActivityRingMonthIfNeeded()
+        XCTAssertTrue(store.activityRingHistory.isEmpty)
+        XCTAssertTrue(store.loadingActivityRingMonthKeys.isEmpty)
+    }
+
     @MainActor
     func testWorkoutStoreInitStripsStaleLoadedMonthsOlderThanEarliestData() throws {
         let calendar = Calendar.bodyGregorian
