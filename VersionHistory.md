@@ -1,5 +1,12 @@
 # Version History
 
+## 0.9.2 (build 8)
+
+- Performance: workout effort scores are now cached for the app session. Effort needs one HealthKit query per workout, and every refresh re-asked it for the 180-day Training Load window and the current month (~100–300 queries for an active user); passive resumes now query only workouts without a cached answer, while any pull-to-refresh (Home, Workouts tab, Training Load detail) clears the cache first so re-rated workouts always reconcile.
+- Performance: automatic warm resumes reuse the heart-rate payload already fetched for finished workouts instead of re-downloading and re-downsampling every workout's raw samples in the month on each resume. Reuse only applies when the workout's identity and dates match exactly, its cached samples are non-empty, and it ended over 24 hours ago (so late or partial Apple Watch syncs always re-fetch); the workout list itself is still fetched fresh on every refresh, and user-initiated refreshes re-fetch all heart-rate data unconditionally.
+- Added child performance signposts (workout months, source discovery, dashboard summary/trends/rings, training-load fetch, readiness recompute) inside the existing RefreshRecentMonths interval so future optimization is measured in Instruments instead of guessed.
+- Updated the app, widget, and test bundle version to 0.9.2 build 8.
+
 ## 0.9.2 (build 7)
 
 - Performance: an automatic warm resume that finds the dashboard stale (foregrounding the app more than five minutes after the last refresh) now re-fetches only the current month of workouts instead of the full three-month window. Past months are effectively immutable, the Workouts tab still loads its three-month window on demand, and a pull-to-refresh still reconciles all three months — so this drops redundant heart-rate/effort fetching from the common "reopen to catch up" path without losing any data.
