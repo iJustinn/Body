@@ -7,6 +7,18 @@ import Foundation
 import HealthKit
 import WidgetKit
 
+/// How a refresh was triggered, which decides how much workout data is
+/// re-fetched eagerly and whether the engine's per-workout caches (effort
+/// scores, finished workouts' heart-rate payloads) may be reused.
+enum BodyWorkoutRefreshIntent {
+    /// Automatic warm resume: current month only, per-workout caches reused.
+    case passiveResume
+    /// Explicit gesture (pull-to-refresh, Settings, first load): full recent
+    /// window, per-workout caches cleared and bypassed so re-rated efforts and
+    /// edited workouts reconcile.
+    case userInitiated
+}
+
 struct BodyWorkoutMonthKey: Hashable {
     let month: Int
     let year: Int
@@ -296,11 +308,12 @@ final class HealthKitWorkoutStore: ObservableObject {
         cacheDiskSizeBytes = size
     }
 
-    /// `recentWorkoutMonthCount` is how many recent months of workouts to
-    /// (re)fetch eagerly. It defaults to the full chart window; the automatic
-    /// warm-resume path passes 1 (current month only) because past months are
-    /// effectively immutable and the Workouts tab lazy-loads the rest on demand.
-    func requestAuthorizationAndRefresh(recentWorkoutMonthCount: Int = HealthKitWorkoutStore.recentChartMonthCount) async {
+    /// `intent` decides the eager workout window (full chart window when user
+    /// initiated, current month on a passive resume — past months are
+    /// effectively immutable and the Workouts tab lazy-loads the rest on
+    /// demand) and the per-workout cache policy (cleared + bypassed when user
+    /// initiated so edits reconcile; reused on passive resumes).
+    func requestAuthorizationAndRefresh(intent: BodyWorkoutRefreshIntent = .userInitiated) async {
         guard !isRefreshing else {
             return
         }
@@ -319,7 +332,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         do {
             try await engine.requestAuthorization()
-            await refreshRecentMonths(recentWorkoutMonthCount: recentWorkoutMonthCount)
+            await refreshRecentMonths(intent: intent)
         } catch {
             handleRefreshError(error)
         }
@@ -345,6 +358,12 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         do {
             try await engine.requestAuthorization()
+            if kind == .trainingLoad {
+                // The detail pull is an explicit gesture: drop the per-workout
+                // effort cache so a re-rated workout reconciles into the
+                // 180-day training-load fetch.
+                await engine.clearWorkoutEffortCache()
+            }
             await fetchHealthDataSourceOptions(calendar: calendar)
             let existing = HealthDashboardSnapshot(
                 summary: healthSummary,
@@ -522,7 +541,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         healthTrends = trends
     }
 
-    func refreshWorkoutMonth(month: Int, year: Int) async {
+    func refreshWorkoutMonth(month: Int, year: Int, intent: BodyWorkoutRefreshIntent = .userInitiated) async {
         guard !isRefreshing else {
             return
         }
@@ -540,7 +559,16 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         do {
             try await engine.requestAuthorization()
-            await refresh(month: month, year: year, calendar: calendar, updatesHealthSummary: false)
+            if intent == .userInitiated {
+                await engine.clearWorkoutEffortCache()
+            }
+            await refresh(
+                month: month,
+                year: year,
+                calendar: calendar,
+                updatesHealthSummary: false,
+                reusesCachedWorkoutHeartRate: intent == .passiveResume
+            )
         } catch {
             handleRefreshError(error)
         }
@@ -895,7 +923,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             let calendar = Calendar.bodyGregorian
             let month = calendar.component(.month, from: date)
             let year = calendar.component(.year, from: date)
-            await refreshWorkoutMonth(month: month, year: year)
+            await refreshWorkoutMonth(month: month, year: year, intent: .passiveResume)
             return
         }
 
@@ -903,7 +931,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // re-fetch the current month of workouts — past months are effectively
         // immutable and the Workouts tab lazy-loads them on demand, so
         // re-pulling the full window on every warm resume is wasted work.
-        await requestAuthorizationAndRefresh(recentWorkoutMonthCount: 1)
+        await requestAuthorizationAndRefresh(intent: .passiveResume)
     }
 
     private static let shortResumeDebounceInterval: TimeInterval = 60
@@ -1234,7 +1262,14 @@ final class HealthKitWorkoutStore: ObservableObject {
         loadingMonthKeys.removeAll()
         loadingActivityRingMonthKeys.removeAll()
         healthDataSourceOptionsByKind = [:]
-        Task { [engine] in await engine.clearSourceCache() }
+        // Fire-and-forget is safe here: a cache wipe flips
+        // `needsInitialHealthDataLoad`, so the next refresh must come through
+        // the overlay's user-initiated path, which clears the effort cache
+        // again before fetching.
+        Task { [engine] in
+            await engine.clearSourceCache()
+            await engine.clearWorkoutEffortCache()
+        }
         persistedDaySamplesHydration = nil
         lastSuccessfulRefreshDate = nil
         authorizationState = .unknown
@@ -1252,7 +1287,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     /// Expects the caller to have set `isRefreshing` (and to call
     /// `finishRefresh()` when done) before the first suspension.
-    private func refreshRecentMonths(date: Date = Date(), recentWorkoutMonthCount: Int = HealthKitWorkoutStore.recentChartMonthCount) async {
+    private func refreshRecentMonths(date: Date = Date(), intent: BodyWorkoutRefreshIntent = .userInitiated) async {
         let signpostState = BodyPerformanceSignposts.signposter.beginInterval("RefreshRecentMonths")
         defer { BodyPerformanceSignposts.signposter.endInterval("RefreshRecentMonths", signpostState) }
 
@@ -1260,11 +1295,20 @@ final class HealthKitWorkoutStore: ObservableObject {
         await engine.setHealthTrendAnchorDate(date)
 
         let calendar = Calendar.bodyGregorian
-        let keys = Self.recentMonthKeys(count: recentWorkoutMonthCount, from: date, calendar: calendar)
+        let monthCount = intent == .passiveResume ? 1 : Self.recentChartMonthCount
+        let keys = Self.recentMonthKeys(count: monthCount, from: date, calendar: calendar)
         let dashboardFetchSelection = BodyDashboardFetchSelection.load()
         let includesWorkouts = permissionSelection.includes(.workouts)
         if !includesWorkouts {
             clearWorkoutSnapshots(calendar: calendar)
+        }
+
+        // Explicit refreshes reconcile everything: drop the per-workout
+        // effort/HR caches before any fetch starts so re-rated efforts and
+        // edited workouts re-query (this also makes the dashboard's 180-day
+        // training-load fetch re-ask effort for its whole window).
+        if intent == .userInitiated {
+            await engine.clearWorkoutEffortCache()
         }
 
         // Fetch the Workouts-tab months concurrently with source discovery and
@@ -1273,7 +1317,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         // date-only and don't read the source map, so they're independent.
         async let workoutRefresh: Void = {
             guard includesWorkouts else { return }
-            try await self.refresh(monthKeys: keys, calendar: calendar)
+            try await self.refresh(
+                monthKeys: keys,
+                calendar: calendar,
+                reusesCachedWorkoutHeartRate: intent == .passiveResume
+            )
         }()
 
         do {
@@ -1311,7 +1359,13 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     /// Expects the caller to have set `isRefreshing` (and to call
     /// `finishRefresh()` when done) before the first suspension.
-    private func refresh(month: Int, year: Int, calendar: Calendar, updatesHealthSummary: Bool) async {
+    private func refresh(
+        month: Int,
+        year: Int,
+        calendar: Calendar,
+        updatesHealthSummary: Bool,
+        reusesCachedWorkoutHeartRate: Bool = false
+    ) async {
         let refreshDate = Date()
         if updatesHealthSummary {
             await hydratePersistedDaySamplesIfNeeded()
@@ -1329,7 +1383,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         // just awaits the single month). See `refreshRecentMonths` for rationale.
         async let workoutRefresh: Void = {
             guard includesWorkouts else { return }
-            try await self.refresh(monthKeys: [key], calendar: calendar)
+            try await self.refresh(
+                monthKeys: [key],
+                calendar: calendar,
+                reusesCachedWorkoutHeartRate: reusesCachedWorkoutHeartRate
+            )
         }()
 
         do {
@@ -1385,10 +1443,14 @@ final class HealthKitWorkoutStore: ObservableObject {
         let engine = self.engine
         await withTaskGroup(of: DashboardFetchUnit.self) { group in
             group.addTask {
-                .summary(await engine.fetchHealthSummary(calendar: calendar, selection: selection))
+                let signpostState = BodyPerformanceSignposts.signposter.beginInterval("DashboardSummary")
+                defer { BodyPerformanceSignposts.signposter.endInterval("DashboardSummary", signpostState) }
+                return .summary(await engine.fetchHealthSummary(calendar: calendar, selection: selection))
             }
             group.addTask {
-                .trends(
+                let signpostState = BodyPerformanceSignposts.signposter.beginInterval("DashboardTrends")
+                defer { BodyPerformanceSignposts.signposter.endInterval("DashboardTrends", signpostState) }
+                return .trends(
                     await engine.fetchHealthTrends(
                         calendar: calendar,
                         cachedTrends: cachedTrendsAtStart,
@@ -1397,6 +1459,8 @@ final class HealthKitWorkoutStore: ObservableObject {
                 )
             }
             group.addTask {
+                let signpostState = BodyPerformanceSignposts.signposter.beginInterval("DashboardRings")
+                defer { BodyPerformanceSignposts.signposter.endInterval("DashboardRings", signpostState) }
                 if needsActivityRingBackfill {
                     return .rings(
                         await engine.fetchDashboardActivityRingBackfillHistory(calendar: calendar, selection: selection)
@@ -1489,19 +1553,44 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
-    private func refresh(monthKeys: Set<BodyWorkoutMonthKey>, calendar: Calendar) async throws {
+    private func refresh(
+        monthKeys: Set<BodyWorkoutMonthKey>,
+        calendar: Calendar,
+        reusesCachedWorkoutHeartRate: Bool = false
+    ) async throws {
         let orderedKeys = monthKeys.sortedByDate
         guard !orderedKeys.isEmpty else {
             return
         }
+
+        let signpostState = BodyPerformanceSignposts.signposter.beginInterval("WorkoutMonths")
+        defer { BodyPerformanceSignposts.signposter.endInterval("WorkoutMonths", signpostState) }
 
         let engine = self.engine
         try await withThrowingTaskGroup(
             of: (BodyWorkoutMonthKey, [WorkoutSummary]).self
         ) { group in
             for key in orderedKeys {
+                // Passive resumes hand the engine the month's cached summaries
+                // so finished workouts' HR payloads can be reused (eligibility
+                // is decided per workout in the engine); user-initiated paths
+                // pass nothing and re-fetch HR for the whole month.
+                let reusableSummariesByID: [UUID: WorkoutSummary]
+                if reusesCachedWorkoutHeartRate, let cachedDays = monthSnapshots[key]?.days {
+                    reusableSummariesByID = Dictionary(
+                        cachedDays.flatMap(\.workouts).map { ($0.id, $0) },
+                        uniquingKeysWith: { first, _ in first }
+                    )
+                } else {
+                    reusableSummariesByID = [:]
+                }
                 group.addTask {
-                    let workouts = try await engine.fetchWorkouts(month: key.month, year: key.year, calendar: calendar)
+                    let workouts = try await engine.fetchWorkouts(
+                        month: key.month,
+                        year: key.year,
+                        calendar: calendar,
+                        reusableSummariesByID: reusableSummariesByID
+                    )
                     return (key, workouts)
                 }
             }
@@ -1604,6 +1693,8 @@ final class HealthKitWorkoutStore: ObservableObject {
         // one), and skip entirely when the refreshed metric cannot change any
         // readiness input.
         let filteredSnapshot = await Task.detached(priority: .userInitiated) {
+            let signpostState = BodyPerformanceSignposts.signposter.beginInterval("ReadinessRecompute")
+            defer { BodyPerformanceSignposts.signposter.endInterval("ReadinessRecompute", signpostState) }
             let filtered = rawSnapshot.filteredWithoutReadinessRecompute(by: permissionSelection)
             guard recomputesReadiness else {
                 return filtered
@@ -1898,6 +1989,9 @@ final class HealthKitWorkoutStore: ObservableObject {
 
 
     private func fetchHealthDataSourceOptions(calendar: Calendar) async {
+        let signpostState = BodyPerformanceSignposts.signposter.beginInterval("SourceOptions")
+        defer { BodyPerformanceSignposts.signposter.endInterval("SourceOptions", signpostState) }
+
         if let nextOptionsByKind = await engine.fetchHealthDataSourceOptions(calendar: calendar) {
             healthDataSourceOptionsByKind = nextOptionsByKind
         }

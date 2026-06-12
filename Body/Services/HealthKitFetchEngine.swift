@@ -38,6 +38,21 @@ actor HealthKitFetchEngine {
     var sharedTrainingLoadWorkoutsTask: Task<[WorkoutSummary], Error>?
     var sharedTrainingLoadWorkoutsWindow: TrainingLoadWorkoutsWindow?
 
+    /// Process-lifetime cache for the per-workout effort-score fan-out
+    /// (`fetchEffortLevels`): effort needs one relationship-predicate query per
+    /// workout, and both the 180-day training-load fetch and the month
+    /// refreshes re-walk the same historical workouts every refresh. Found
+    /// scores are trusted for the process; workouts confirmed score-less are
+    /// only skipped once they ended over `effortConfirmationAge` ago (ratings
+    /// land right after a workout). User-initiated refreshes clear both via
+    /// `clearWorkoutEffortCache()` so a re-rated workout reconciles on any
+    /// pull-to-refresh; a cold launch always starts clean. Entries for
+    /// deleted workouts are just unused (bounded by workouts seen per process).
+    var effortLevelsByWorkoutID: [UUID: Double] = [:]
+    var confirmedNoEffortWorkoutIDs: Set<UUID> = []
+
+    nonisolated static let effortConfirmationAge: TimeInterval = 48 * 60 * 60
+
     struct TrainingLoadWorkoutsWindow: Equatable {
         let start: Date
         let end: Date
@@ -95,6 +110,11 @@ actor HealthKitFetchEngine {
     func clearSourceCache() {
         healthSourcesByKind = [:]
         fetchedHealthDataSourcePermissionRawValue = nil
+    }
+
+    func clearWorkoutEffortCache() {
+        effortLevelsByWorkoutID = [:]
+        confirmedNoEffortWorkoutIDs = []
     }
 
     // MARK: - Authorization
@@ -1047,20 +1067,27 @@ actor HealthKitFetchEngine {
 
     // MARK: - Workouts
 
-    func fetchWorkouts(month: Int, year: Int, calendar: Calendar) async throws -> [WorkoutSummary] {
+    func fetchWorkouts(
+        month: Int,
+        year: Int,
+        calendar: Calendar,
+        reusableSummariesByID: [UUID: WorkoutSummary] = [:]
+    ) async throws -> [WorkoutSummary] {
         let start = calendar.date(from: DateComponents(year: year, month: month, day: 1)) ?? Date()
         let end = calendar.date(byAdding: DateComponents(month: 1), to: start) ?? start
         return try await fetchWorkoutSummaries(
             startDate: start,
             endDate: end,
-            includesHeartRateSamples: true
+            includesHeartRateSamples: true,
+            reusableSummariesByID: reusableSummariesByID
         )
     }
 
     func fetchWorkoutSummaries(
         startDate: Date,
         endDate: Date,
-        includesHeartRateSamples: Bool
+        includesHeartRateSamples: Bool,
+        reusableSummariesByID: [UUID: WorkoutSummary] = [:]
     ) async throws -> [WorkoutSummary] {
         let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: [.strictStartDate])
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
@@ -1087,36 +1114,95 @@ actor HealthKitFetchEngine {
             return []
         }
 
+        // Finished workouts whose HR payload was already fetched this session
+        // skip the batched HR query — passive resumes only (user-initiated
+        // paths pass an empty reuse map, so every pull-to-refresh remains a
+        // full HR reconcile). The workout list above is always fetched fresh.
+        let reusedHeartRateIDs: Set<UUID>
+        if includesHeartRateSamples,
+           !reusableSummariesByID.isEmpty,
+           permissionSelection.includes(.heart) {
+            reusedHeartRateIDs = Self.heartRateReuseEligibleWorkoutIDs(
+                workouts: workouts.map { (id: $0.uuid, startDate: $0.startDate, duration: $0.duration) },
+                cachedSummaries: reusableSummariesByID,
+                now: Date()
+            )
+        } else {
+            reusedHeartRateIDs = []
+        }
+        let workoutsNeedingHeartRate = workouts.filter { !reusedHeartRateIDs.contains($0.uuid) }
+
         // Fan-out per-workout HK work: HR samples in a single batched query,
         // effort levels in parallel (HKWorkoutEffortScore is queried via a
         // per-workout relationship predicate, so it cannot be batched the same
         // way HR samples can).
         async let heartRateSamplesByWorkoutID: [UUID: [WorkoutHeartRateSample]] = {
-            guard includesHeartRateSamples else {
+            guard includesHeartRateSamples, !workoutsNeedingHeartRate.isEmpty else {
                 return [:]
             }
             return await fetchIfPermitted(.heart, default: [:]) {
-                await fetchHeartRateSamples(forWorkouts: workouts)
+                await fetchHeartRateSamples(forWorkouts: workoutsNeedingHeartRate)
             }
         }()
-        async let effortLevelsByWorkoutID = fetchEffortLevels(forWorkouts: workouts)
+        async let fetchedEffortLevels = fetchEffortLevels(forWorkouts: workouts)
 
         let resolvedHeartRateSamples = await heartRateSamplesByWorkoutID
-        let resolvedEffortLevels = await effortLevelsByWorkoutID
+        let resolvedEffortLevels = await fetchedEffortLevels
 
         var summaries: [WorkoutSummary] = []
         summaries.reserveCapacity(workouts.count)
         for workout in workouts {
-            summaries.append(
-                Self.summary(
-                    for: workout,
-                    heartRateSamples: resolvedHeartRateSamples[workout.uuid] ?? [],
-                    effortLevel: resolvedEffortLevels[workout.uuid]
+            if reusedHeartRateIDs.contains(workout.uuid),
+               let cached = reusableSummariesByID[workout.uuid] {
+                summaries.append(
+                    Self.summary(
+                        for: workout,
+                        reusingHeartRateFrom: cached,
+                        effortLevel: resolvedEffortLevels[workout.uuid]
+                    )
                 )
-            )
+            } else {
+                summaries.append(
+                    Self.summary(
+                        for: workout,
+                        heartRateSamples: resolvedHeartRateSamples[workout.uuid] ?? [],
+                        effortLevel: resolvedEffortLevels[workout.uuid]
+                    )
+                )
+            }
         }
 
         return summaries
+    }
+
+    nonisolated static let heartRateReuseMinimumAge: TimeInterval = 24 * 60 * 60
+
+    /// Workouts whose cached heart-rate payload can be reused on a passive
+    /// resume. All conditions must hold: identity + dates match the fresh
+    /// `HKWorkout` (small tolerance against float drift; an edited workout
+    /// falls out), the cached samples are non-empty (a workout that synced
+    /// before its HR samples did re-fetches), and the workout ended over
+    /// `heartRateReuseMinimumAge` ago — by then a partial Watch sync has
+    /// resolved, so the cached payload is complete and immutable.
+    nonisolated static func heartRateReuseEligibleWorkoutIDs(
+        workouts: [(id: UUID, startDate: Date, duration: TimeInterval)],
+        cachedSummaries: [UUID: WorkoutSummary],
+        now: Date,
+        dateTolerance: TimeInterval = 1
+    ) -> Set<UUID> {
+        var eligible: Set<UUID> = []
+        for workout in workouts {
+            let endDate = workout.startDate.addingTimeInterval(workout.duration)
+            guard let cached = cachedSummaries[workout.id],
+                  abs(cached.startDate.timeIntervalSince(workout.startDate)) <= dateTolerance,
+                  abs(cached.duration - workout.duration) <= dateTolerance,
+                  cached.heartRateSamples?.isEmpty == false,
+                  now.timeIntervalSince(endDate) > heartRateReuseMinimumAge else {
+                continue
+            }
+            eligible.insert(workout.id)
+        }
+        return eligible
     }
 
     /// Single HK query for the union of all workout time ranges; samples are
@@ -1211,10 +1297,44 @@ actor HealthKitFetchEngine {
         return low
     }
 
+    /// Workout IDs that still need an effort-score query: anything without a
+    /// cached score and not confirmed score-less. (The age policy applies on
+    /// the confirmation side — see `confirmableNoEffortWorkoutIDs`.)
+    nonisolated static func effortFetchCandidateIDs(
+        workoutIDs: [UUID],
+        cachedEffortIDs: Set<UUID>,
+        confirmedNoEffortIDs: Set<UUID>
+    ) -> Set<UUID> {
+        Set(workoutIDs).subtracting(cachedEffortIDs).subtracting(confirmedNoEffortIDs)
+    }
+
+    /// Queried workouts that came back score-less and are old enough
+    /// (`effortConfirmationAge`) that a rating is no longer expected — these
+    /// are confirmed score-less and skipped for the rest of the process.
+    /// Recent unrated workouts stay unconfirmed so the next refresh re-asks.
+    nonisolated static func confirmableNoEffortWorkoutIDs(
+        queried: [(id: UUID, endDate: Date)],
+        foundIDs: Set<UUID>,
+        now: Date
+    ) -> Set<UUID> {
+        Set(
+            queried
+                .filter { !foundIDs.contains($0.id) && now.timeIntervalSince($0.endDate) > effortConfirmationAge }
+                .map(\.id)
+        )
+    }
+
     private func fetchEffortLevels(forWorkouts workouts: [HKWorkout]) async -> [UUID: Double] {
         guard !workouts.isEmpty else {
             return [:]
         }
+
+        let candidateIDs = Self.effortFetchCandidateIDs(
+            workoutIDs: workouts.map(\.uuid),
+            cachedEffortIDs: Set(effortLevelsByWorkoutID.keys),
+            confirmedNoEffortIDs: confirmedNoEffortWorkoutIDs
+        )
+        let candidates = workouts.filter { candidateIDs.contains($0.uuid) }
 
         // HKWorkoutEffortScore needs one relationship-predicate query per
         // workout, so it can't be folded into a single OR-compound query the
@@ -1222,13 +1342,13 @@ actor HealthKitFetchEngine {
         // concurrency instead of one in-flight HK query per workout in the
         // month (multiple months refresh concurrently on top of this).
         let maxConcurrentQueries = 12
-        return await withTaskGroup(
+        let fetched = await withTaskGroup(
             of: (UUID, Double?).self,
             returning: [UUID: Double].self
         ) { group in
             var nextIndex = 0
-            while nextIndex < min(maxConcurrentQueries, workouts.count) {
-                let workout = workouts[nextIndex]
+            while nextIndex < min(maxConcurrentQueries, candidates.count) {
+                let workout = candidates[nextIndex]
                 group.addTask {
                     (workout.uuid, await self.fetchSavedEffortLevel(for: workout))
                 }
@@ -1240,8 +1360,8 @@ actor HealthKitFetchEngine {
                 if let effort {
                     results[id] = effort
                 }
-                if nextIndex < workouts.count {
-                    let workout = workouts[nextIndex]
+                if nextIndex < candidates.count {
+                    let workout = candidates[nextIndex]
                     group.addTask {
                         (workout.uuid, await self.fetchSavedEffortLevel(for: workout))
                     }
@@ -1250,6 +1370,26 @@ actor HealthKitFetchEngine {
             }
             return results
         }
+
+        // Single post-gather cache mutation: no mid-stream writes a concurrent
+        // refresh could observe half-applied.
+        effortLevelsByWorkoutID.merge(fetched) { _, fresh in fresh }
+        confirmedNoEffortWorkoutIDs.formUnion(
+            Self.confirmableNoEffortWorkoutIDs(
+                queried: candidates.map { (id: $0.uuid, endDate: $0.endDate) },
+                foundIDs: Set(fetched.keys),
+                now: Date()
+            )
+        )
+
+        var results: [UUID: Double] = [:]
+        results.reserveCapacity(workouts.count)
+        for workout in workouts {
+            if let effort = effortLevelsByWorkoutID[workout.uuid] {
+                results[workout.uuid] = effort
+            }
+        }
+        return results
     }
 
     private func fetchSavedEffortLevel(for workout: HKWorkout) async -> Double? {
