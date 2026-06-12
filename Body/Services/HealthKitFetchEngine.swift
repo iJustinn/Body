@@ -1312,6 +1312,9 @@ actor HealthKitFetchEngine {
     /// (`effortConfirmationAge`) that a rating is no longer expected — these
     /// are confirmed score-less and skipped for the rest of the process.
     /// Recent unrated workouts stay unconfirmed so the next refresh re-asks.
+    /// `queried` must contain only workouts whose effort query **completed
+    /// successfully** — an errored query proves nothing and must stay
+    /// retryable on the next refresh.
     nonisolated static func confirmableNoEffortWorkoutIDs(
         queried: [(id: UUID, endDate: Date)],
         foundIDs: Set<UUID>,
@@ -1342,9 +1345,9 @@ actor HealthKitFetchEngine {
         // concurrency instead of one in-flight HK query per workout in the
         // month (multiple months refresh concurrently on top of this).
         let maxConcurrentQueries = 12
-        let fetched = await withTaskGroup(
-            of: (UUID, Double?).self,
-            returning: [UUID: Double].self
+        let (fetched, completedIDs) = await withTaskGroup(
+            of: (UUID, EffortQueryOutcome).self,
+            returning: ([UUID: Double], Set<UUID>).self
         ) { group in
             var nextIndex = 0
             while nextIndex < min(maxConcurrentQueries, candidates.count) {
@@ -1356,9 +1359,16 @@ actor HealthKitFetchEngine {
             }
 
             var results: [UUID: Double] = [:]
-            for await (id, effort) in group {
-                if let effort {
+            var completed: Set<UUID> = []
+            for await (id, outcome) in group {
+                switch outcome {
+                case .found(let effort):
                     results[id] = effort
+                    completed.insert(id)
+                case .noSavedEffort:
+                    completed.insert(id)
+                case .failed:
+                    break
                 }
                 if nextIndex < candidates.count {
                     let workout = candidates[nextIndex]
@@ -1368,15 +1378,19 @@ actor HealthKitFetchEngine {
                     nextIndex += 1
                 }
             }
-            return results
+            return (results, completed)
         }
 
         // Single post-gather cache mutation: no mid-stream writes a concurrent
-        // refresh could observe half-applied.
+        // refresh could observe half-applied. Only successfully completed
+        // queries can confirm a workout score-less — an errored query stays
+        // uncached so the next refresh retries it.
         effortLevelsByWorkoutID.merge(fetched) { _, fresh in fresh }
         confirmedNoEffortWorkoutIDs.formUnion(
             Self.confirmableNoEffortWorkoutIDs(
-                queried: candidates.map { (id: $0.uuid, endDate: $0.endDate) },
+                queried: candidates
+                    .filter { completedIDs.contains($0.uuid) }
+                    .map { (id: $0.uuid, endDate: $0.endDate) },
                 foundIDs: Set(fetched.keys),
                 now: Date()
             )
@@ -1392,9 +1406,18 @@ actor HealthKitFetchEngine {
         return results
     }
 
-    private func fetchSavedEffortLevel(for workout: HKWorkout) async -> Double? {
+    /// Distinguishes "the query completed and there is no saved effort" from
+    /// "the query errored" — only the former may feed the score-less
+    /// confirmation cache; a failure must stay retryable.
+    private enum EffortQueryOutcome {
+        case found(Double)
+        case noSavedEffort
+        case failed
+    }
+
+    private func fetchSavedEffortLevel(for workout: HKWorkout) async -> EffortQueryOutcome {
         guard let effortType = HKObjectType.quantityType(forIdentifier: .workoutEffortScore) else {
-            return nil
+            return .failed
         }
 
         let predicate = HKQuery.predicateForWorkoutEffortSamplesRelated(workout: workout, activity: nil)
@@ -1406,13 +1429,22 @@ actor HealthKitFetchEngine {
                 predicate: predicate,
                 limit: 1,
                 sortDescriptors: [sort]
-            ) { _, samples, _ in
+            ) { _, samples, error in
+                guard error == nil else {
+                    continuation.resume(returning: .failed)
+                    return
+                }
+
                 let effort = (samples as? [HKQuantitySample] ?? [])
                     .first?
                     .quantity
                     .doubleValue(for: .appleEffortScore())
 
-                continuation.resume(returning: effort?.isFinite == true ? effort : nil)
+                if let effort, effort.isFinite {
+                    continuation.resume(returning: .found(effort))
+                } else {
+                    continuation.resume(returning: .noSavedEffort)
+                }
             }
 
             healthStore.execute(query)
