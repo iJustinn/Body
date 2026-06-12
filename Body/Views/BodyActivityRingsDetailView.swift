@@ -364,7 +364,7 @@ struct BodyActivityRingsDetailView: View {
             return ""
         }
 
-        return date.formatted(.dateTime.month(.abbreviated))
+        return "\(date.formatted(.dateTime.month(.abbreviated))), \(date.formatted(.dateTime.year()))"
     }
 }
 
