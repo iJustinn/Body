@@ -209,6 +209,179 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(store.activityRingHistory.loadedMonthKeys, [marchKey])
     }
 
+    func testActivityRingHistoryRemovesLoadedMonthsOlderThanEarliestDataKeepingGapMonths() throws {
+        let calendar = Calendar.bodyGregorian
+        let january5 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 5)))
+        let march8 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 8)))
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 10)))
+        let summary = ActivityRingSummary(
+            move: ActivityRingMetric(value: 500, goal: 500),
+            exercise: ActivityRingMetric(value: 30, goal: 30),
+            stand: ActivityRingMetric(value: 12, goal: 12)
+        )
+        let history = ActivityRingHistorySnapshot(
+            days: [
+                ActivityRingDaySummary(date: january5, summary: summary),
+                ActivityRingDaySummary(date: march8, summary: summary)
+            ],
+            loadedMonthKeys: [
+                ActivityRingMonthKey(month: 11, year: 2025),
+                ActivityRingMonthKey(month: 12, year: 2025),
+                ActivityRingMonthKey(month: 1, year: 2026),
+                ActivityRingMonthKey(month: 2, year: 2026),
+                ActivityRingMonthKey(month: 3, year: 2026)
+            ]
+        )
+
+        let repaired = history.removingLoadedMonthsOlderThanEarliestData(date: currentDate, calendar: calendar)
+
+        XCTAssertEqual(repaired.days, history.days)
+        XCTAssertEqual(repaired.loadedMonthKeys, [
+            ActivityRingMonthKey(month: 1, year: 2026),
+            ActivityRingMonthKey(month: 2, year: 2026),
+            ActivityRingMonthKey(month: 3, year: 2026)
+        ])
+    }
+
+    func testActivityRingHistoryRemovingOlderLoadedMonthsKeepsRecentWindowWhenNoData() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 15)))
+        let history = ActivityRingHistorySnapshot(
+            days: [],
+            loadedMonthKeys: [
+                ActivityRingMonthKey(month: 1, year: 2026),
+                ActivityRingMonthKey(month: 4, year: 2026),
+                ActivityRingMonthKey(month: 6, year: 2026)
+            ]
+        )
+
+        let repaired = history.removingLoadedMonthsOlderThanEarliestData(
+            date: currentDate,
+            calendar: calendar,
+            keepingRecentMonthCount: 3
+        )
+
+        XCTAssertEqual(repaired.loadedMonthKeys, [
+            ActivityRingMonthKey(month: 4, year: 2026),
+            ActivityRingMonthKey(month: 6, year: 2026)
+        ])
+    }
+
+    func testPreviousActivityRingMonthCandidatesWalksBackFromEarliestKnownKey() throws {
+        let calendar = Calendar.bodyGregorian
+
+        let candidates = HealthKitWorkoutStore.previousActivityRingMonthCandidates(
+            loadedKeys: [
+                ActivityRingMonthKey(month: 5, year: 2026),
+                ActivityRingMonthKey(month: 4, year: 2026)
+            ],
+            exhaustedKeys: [ActivityRingMonthKey(month: 3, year: 2026)],
+            limit: 3,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(candidates, [
+            ActivityRingMonthKey(month: 2, year: 2026),
+            ActivityRingMonthKey(month: 1, year: 2026),
+            ActivityRingMonthKey(month: 12, year: 2025)
+        ])
+    }
+
+    func testPreviousActivityRingMonthCandidatesSeedsFromDateWhenNothingIsKnown() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 11)))
+
+        let candidates = HealthKitWorkoutStore.previousActivityRingMonthCandidates(
+            loadedKeys: [],
+            exhaustedKeys: [],
+            limit: 2,
+            date: currentDate,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(candidates, [
+            ActivityRingMonthKey(month: 5, year: 2026),
+            ActivityRingMonthKey(month: 4, year: 2026)
+        ])
+    }
+
+    func testActivityRingMonthKeysBetweenReturnsExclusiveRangeOldestFirst() {
+        let calendar = Calendar.bodyGregorian
+
+        let keys = HealthKitWorkoutStore.activityRingMonthKeys(
+            after: ActivityRingMonthKey(month: 11, year: 2025),
+            before: ActivityRingMonthKey(month: 3, year: 2026),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(keys, [
+            ActivityRingMonthKey(month: 12, year: 2025),
+            ActivityRingMonthKey(month: 1, year: 2026),
+            ActivityRingMonthKey(month: 2, year: 2026)
+        ])
+    }
+
+    func testActivityRingMonthKeysBetweenAdjacentOrInvertedMonthsIsEmpty() {
+        let calendar = Calendar.bodyGregorian
+
+        XCTAssertTrue(HealthKitWorkoutStore.activityRingMonthKeys(
+            after: ActivityRingMonthKey(month: 4, year: 2026),
+            before: ActivityRingMonthKey(month: 5, year: 2026),
+            calendar: calendar
+        ).isEmpty)
+
+        XCTAssertTrue(HealthKitWorkoutStore.activityRingMonthKeys(
+            after: ActivityRingMonthKey(month: 5, year: 2026),
+            before: ActivityRingMonthKey(month: 1, year: 2026),
+            calendar: calendar
+        ).isEmpty)
+    }
+
+    @MainActor
+    func testWorkoutStoreInitStripsStaleLoadedMonthsOlderThanEarliestData() throws {
+        let calendar = Calendar.bodyGregorian
+        let marchKey = ActivityRingMonthKey(month: 3, year: 2026)
+        let march2 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 2)))
+        let march3 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 3)))
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 10)))
+        let summary = ActivityRingSummary(
+            move: ActivityRingMetric(value: 500, goal: 500),
+            exercise: ActivityRingMetric(value: 30, goal: 30),
+            stand: ActivityRingMetric(value: 12, goal: 12)
+        )
+        let pollutedHistory = ActivityRingHistorySnapshot(
+            days: [
+                ActivityRingDaySummary(date: march2, summary: summary),
+                ActivityRingDaySummary(date: march3, summary: summary)
+            ],
+            loadedMonthKeys: [
+                ActivityRingMonthKey(month: 1, year: 2024),
+                ActivityRingMonthKey(month: 2, year: 2024),
+                marchKey
+            ]
+        )
+        let dashboardSnapshot = HealthDashboardSnapshot(
+            summary: .empty,
+            trends: .empty,
+            activityRingHistory: pollutedHistory
+        )
+        let initialSnapshot = WorkoutMonthSnapshot.make(
+            month: 4,
+            year: 2026,
+            workouts: [],
+            calendar: calendar
+        )
+
+        let store = HealthKitWorkoutStore(
+            initialSnapshot: initialSnapshot,
+            initialHealthDashboardSnapshot: dashboardSnapshot,
+            date: currentDate
+        )
+
+        XCTAssertEqual(store.activityRingHistory.days.map(\.date), [march2, march3])
+        XCTAssertEqual(store.activityRingHistory.loadedMonthKeys, [marchKey])
+    }
+
     func testHealthKitWorkoutTypeMappingPreservesSpecificActivities() {
         let mappings: [(HKWorkoutActivityType, BodyWorkoutType)] = [
             (.running, .running),
