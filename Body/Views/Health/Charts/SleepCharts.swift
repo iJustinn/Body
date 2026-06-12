@@ -382,20 +382,43 @@ struct BodySleepConsistencyChart: View {
 
         ForEach(model.nights) { night in
             if let index = dayIndices[night.day] {
-                let topY = y(forOffsetHours: night.bedOffsetHours, plotHeight: plotHeight)
-                let bottomY = y(forOffsetHours: night.wakeOffsetHours, plotHeight: plotHeight)
+                ForEach(night.spans) { span in
+                    let topY = y(forOffsetHours: span.startOffsetHours, plotHeight: plotHeight)
+                    let bottomY = y(forOffsetHours: span.endOffsetHours, plotHeight: plotHeight)
+                    let isCut = span.isCutAtStart || span.isCutAtEnd
+                    let height = max(bottomY - topY, isCut ? 2 : barWidth)
 
-                SleepConsistencyNightBar(
-                    night: night,
-                    width: barWidth,
-                    height: max(bottomY - topY, barWidth)
-                )
-                .position(
-                    x: columnWidth * (CGFloat(index) + 0.5),
-                    y: (topY + bottomY) / 2
-                )
+                    SleepConsistencyNightBar(
+                        span: span,
+                        width: barWidth,
+                        height: height
+                    )
+                    .position(
+                        x: columnWidth * (CGFloat(index) + 0.5),
+                        y: barCenterY(for: span, topY: topY, bottomY: bottomY, height: height)
+                    )
+                }
             }
         }
+    }
+
+    // Cut spans stay pinned to the wrap boundary even when inflated to the
+    // minimum height; centering would push them past the plot edge.
+    private func barCenterY(
+        for span: SleepConsistencyNightSpan,
+        topY: CGFloat,
+        bottomY: CGFloat,
+        height: CGFloat
+    ) -> CGFloat {
+        if span.isCutAtEnd {
+            return bottomY - height / 2
+        }
+
+        if span.isCutAtStart {
+            return topY + height / 2
+        }
+
+        return (topY + bottomY) / 2
     }
 
     @ViewBuilder
@@ -489,16 +512,16 @@ struct BodySleepConsistencyChart: View {
 }
 
 private struct SleepConsistencyNightBar: View {
-    let night: SleepConsistencyNight
+    let span: SleepConsistencyNightSpan
     let width: CGFloat
     let height: CGFloat
 
     var body: some View {
         ZStack(alignment: .top) {
-            Capsule(style: .continuous)
+            barShape
                 .fill(SleepStage.core.bodyChartColor)
 
-            ForEach(night.slices) { slice in
+            ForEach(span.slices) { slice in
                 Rectangle()
                     .fill(slice.stage.bodyChartColor)
                     .frame(width: width, height: sliceHeight(for: slice))
@@ -506,16 +529,32 @@ private struct SleepConsistencyNightBar: View {
             }
         }
         .frame(width: width, height: height)
-        .clipShape(Capsule(style: .continuous))
+        .clipShape(barShape)
         .accessibilityHidden(true)
     }
 
+    // Capsule ends except where the bar is cut by the 18:00 wrap boundary,
+    // which sits flat on the plot edge.
+    private var barShape: UnevenRoundedRectangle {
+        let radius = min(width, height) / 2
+        let topRadius = span.isCutAtStart ? 0 : radius
+        let bottomRadius = span.isCutAtEnd ? 0 : radius
+
+        return UnevenRoundedRectangle(
+            topLeadingRadius: topRadius,
+            bottomLeadingRadius: bottomRadius,
+            bottomTrailingRadius: bottomRadius,
+            topTrailingRadius: topRadius,
+            style: .continuous
+        )
+    }
+
     private var spanHours: Double {
-        max(night.wakeOffsetHours - night.bedOffsetHours, 0.001)
+        max(span.endOffsetHours - span.startOffsetHours, 0.001)
     }
 
     private func sliceTop(for slice: SleepConsistencyNightSlice) -> CGFloat {
-        CGFloat((slice.startOffsetHours - night.bedOffsetHours) / spanHours) * height
+        CGFloat((slice.startOffsetHours - span.startOffsetHours) / spanHours) * height
     }
 
     private func sliceHeight(for slice: SleepConsistencyNightSlice) -> CGFloat {

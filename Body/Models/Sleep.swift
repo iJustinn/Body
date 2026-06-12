@@ -818,11 +818,23 @@ struct SleepConsistencyNightSlice: Equatable, Identifiable {
     }
 }
 
+struct SleepConsistencyNightSpan: Equatable, Identifiable {
+    var startOffsetHours: Double
+    var endOffsetHours: Double
+    var slices: [SleepConsistencyNightSlice]
+    var isCutAtStart: Bool
+    var isCutAtEnd: Bool
+
+    var id: String {
+        "\(startOffsetHours)-\(endOffsetHours)"
+    }
+}
+
 struct SleepConsistencyNight: Equatable, Identifiable {
     var day: Date
     var bedOffsetHours: Double
     var wakeOffsetHours: Double
-    var slices: [SleepConsistencyNightSlice]
+    var spans: [SleepConsistencyNightSpan]
 
     var id: Date {
         day
@@ -831,8 +843,13 @@ struct SleepConsistencyNight: Equatable, Identifiable {
 
 /// Day-by-day bed-to-wake bars positioned by time of day, with offsets
 /// expressed in hours relative to each wake day's midnight (pre-midnight
-/// bedtimes are negative). Offsets use elapsed time from midnight, so the
-/// pre-midnight portion of a DST-change night can drift by up to an hour.
+/// bedtimes are negative). Each night is canonicalized into the Apple-style
+/// sleep day spanning 18:00 to 18:00 (offsets -6..<18); a session crossing
+/// 18:00 wraps into a second span that re-enters from the top of the window.
+/// Offsets use elapsed time from midnight, so positions and the 18:00 cut can
+/// drift by up to an hour on a DST-change night. Columns stay keyed to the
+/// calendar day the sleep ended (matching the rest of the app), even when an
+/// evening-only session is drawn in the prior evening's band.
 struct SleepConsistencyChartModel: Equatable {
     var days: [Date]
     var nights: [SleepConsistencyNight]
@@ -854,13 +871,15 @@ struct SleepConsistencyChartModel: Equatable {
             }
 
             let dayStart = calendar.startOfDay(for: entry.day)
-            let bedOffset = interval.start.timeIntervalSince(dayStart) / 3_600
-            let wakeOffset = interval.end.timeIntervalSince(dayStart) / 3_600
+            let rawBedOffset = interval.start.timeIntervalSince(dayStart) / 3_600
+            let windowShift = 24 * ((rawBedOffset - sleepDayWindowHours.lowerBound) / 24).rounded(.down)
+            let bedOffset = rawBedOffset - windowShift
+            let wakeOffset = interval.end.timeIntervalSince(dayStart) / 3_600 - windowShift
             let slices = snapshot.segments
                 .sorted { $0.startDate < $1.startDate }
                 .compactMap { segment -> SleepConsistencyNightSlice? in
-                    let start = max(segment.startDate.timeIntervalSince(dayStart) / 3_600, bedOffset)
-                    let end = min(segment.endDate.timeIntervalSince(dayStart) / 3_600, wakeOffset)
+                    let start = max(segment.startDate.timeIntervalSince(dayStart) / 3_600 - windowShift, bedOffset)
+                    let end = min(segment.endDate.timeIntervalSince(dayStart) / 3_600 - windowShift, wakeOffset)
                     guard end > start else {
                         return nil
                     }
@@ -876,18 +895,28 @@ struct SleepConsistencyChartModel: Equatable {
                 day: entry.day,
                 bedOffsetHours: bedOffset,
                 wakeOffsetHours: wakeOffset,
-                slices: slices
+                spans: spans(bedOffset: bedOffset, wakeOffset: wakeOffset, slices: slices)
             )
         }
 
         let bedOffsets = nights.map(\.bedOffsetHours)
         let wakeOffsets = nights.map(\.wakeOffsetHours)
-        let averageBed = bedOffsets.isEmpty ? nil : bedOffsets.reduce(0, +) / Double(bedOffsets.count)
-        let averageWake = wakeOffsets.isEmpty ? nil : wakeOffsets.reduce(0, +) / Double(wakeOffsets.count)
+        let hideAverages = shouldHideAverages(for: nights)
+        let averageBed = bedOffsets.isEmpty || hideAverages
+            ? nil
+            : bedOffsets.reduce(0, +) / Double(bedOffsets.count)
+        let averageWake = wakeOffsets.isEmpty || hideAverages
+            ? nil
+            : wakeOffsets.reduce(0, +) / Double(wakeOffsets.count)
 
+        let allSpans = nights.flatMap(\.spans)
         let domain: ClosedRange<Double>
-        if let minBed = bedOffsets.min(), let maxWake = wakeOffsets.max(), maxWake > minBed {
-            domain = (minBed - domainPaddingHours)...(maxWake + domainPaddingHours)
+        if let minStart = allSpans.map(\.startOffsetHours).min(),
+           let maxEnd = allSpans.map(\.endOffsetHours).max(),
+           maxEnd > minStart {
+            let lower = max(minStart - domainPaddingHours, sleepDayWindowHours.lowerBound)
+            let upper = min(maxEnd + domainPaddingHours, sleepDayWindowHours.upperBound)
+            domain = lower...upper
         } else {
             domain = 0...1
         }
@@ -919,9 +948,87 @@ struct SleepConsistencyChartModel: Equatable {
         )
     }
 
+    /// Apple-style sleep day: 18:00 the prior evening through 18:00, in hours
+    /// from the wake day's midnight.
+    private static let sleepDayWindowHours: ClosedRange<Double> = -6...18
     private static let domainPaddingHours = 0.5
     private static let gridStepHours = 2.0
+    private static let wideGridStepHours = 4.0
+    private static let wideGridSpanThresholdHours = 16.0
     private static let gridSuppressionWindowHours = 0.6
+    private static let averageSpreadCutoffHours = 12.0
+
+    private static func spans(
+        bedOffset: Double,
+        wakeOffset: Double,
+        slices: [SleepConsistencyNightSlice]
+    ) -> [SleepConsistencyNightSpan] {
+        guard wakeOffset > sleepDayWindowHours.upperBound else {
+            return [SleepConsistencyNightSpan(
+                startOffsetHours: bedOffset,
+                endOffsetHours: wakeOffset,
+                slices: slices,
+                isCutAtStart: false,
+                isCutAtEnd: false
+            )]
+        }
+
+        let wrappedEnd = min(wakeOffset - 24, sleepDayWindowHours.upperBound)
+        return [
+            SleepConsistencyNightSpan(
+                startOffsetHours: bedOffset,
+                endOffsetHours: sleepDayWindowHours.upperBound,
+                slices: clippedSlices(slices, shiftedBy: 0, to: bedOffset...sleepDayWindowHours.upperBound),
+                isCutAtStart: false,
+                isCutAtEnd: true
+            ),
+            SleepConsistencyNightSpan(
+                startOffsetHours: sleepDayWindowHours.lowerBound,
+                endOffsetHours: wrappedEnd,
+                slices: clippedSlices(slices, shiftedBy: -24, to: sleepDayWindowHours.lowerBound...wrappedEnd),
+                isCutAtStart: true,
+                isCutAtEnd: false
+            )
+        ]
+    }
+
+    private static func clippedSlices(
+        _ slices: [SleepConsistencyNightSlice],
+        shiftedBy shift: Double,
+        to range: ClosedRange<Double>
+    ) -> [SleepConsistencyNightSlice] {
+        slices.compactMap { slice in
+            let start = max(slice.startOffsetHours + shift, range.lowerBound)
+            let end = min(slice.endOffsetHours + shift, range.upperBound)
+            guard end > start else {
+                return nil
+            }
+
+            return SleepConsistencyNightSlice(
+                stage: slice.stage,
+                startOffsetHours: start,
+                endOffsetHours: end
+            )
+        }
+    }
+
+    // Arithmetic averages stop meaning anything once a night wraps around the
+    // 18:00 boundary or bed/wake times scatter across most of the clock.
+    private static func shouldHideAverages(for nights: [SleepConsistencyNight]) -> Bool {
+        guard !nights.contains(where: { $0.spans.count > 1 }) else {
+            return true
+        }
+
+        let bedOffsets = nights.map(\.bedOffsetHours)
+        let wakeOffsets = nights.map(\.wakeOffsetHours)
+        guard let minBed = bedOffsets.min(), let maxBed = bedOffsets.max(),
+              let minWake = wakeOffsets.min(), let maxWake = wakeOffsets.max() else {
+            return false
+        }
+
+        return maxBed - minBed > averageSpreadCutoffHours
+            || maxWake - minWake > averageSpreadCutoffHours
+    }
 
     private static func gridHourOffsets(
         in domain: ClosedRange<Double>,
@@ -931,8 +1038,10 @@ struct SleepConsistencyChartModel: Equatable {
             return []
         }
 
-        let first = (domain.lowerBound / gridStepHours).rounded(.up) * gridStepHours
-        return stride(from: first, through: domain.upperBound, by: gridStepHours).filter { offset in
+        let span = domain.upperBound - domain.lowerBound
+        let step = span > wideGridSpanThresholdHours ? wideGridStepHours : gridStepHours
+        let first = (domain.lowerBound / step).rounded(.up) * step
+        return stride(from: first, through: domain.upperBound, by: step).filter { offset in
             averages.allSatisfy { abs(offset - $0) >= gridSuppressionWindowHours }
         }
     }
