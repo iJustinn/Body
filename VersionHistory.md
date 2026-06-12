@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.2 (build 7)
+
+- Performance: an automatic warm resume that finds the dashboard stale (foregrounding the app more than five minutes after the last refresh) now re-fetches only the current month of workouts instead of the full three-month window. Past months are effectively immutable, the Workouts tab still loads its three-month window on demand, and a pull-to-refresh still reconciles all three months — so this drops redundant heart-rate/effort fetching from the common "reopen to catch up" path without losing any data.
+- Updated the app, widget, and test bundle version to 0.9.2 build 7.
+
 ## 0.9.2 (build 6)
 
 - Performance: the Summary dashboard no longer waits on the Workouts tab during a warm launch or pull-to-refresh. The full refresh used to fetch three months of workouts (with their per-workout heart-rate and effort-score queries) before it even began loading the dashboard metrics, Activity Rings, and trend charts; the workout months now load concurrently with the dashboard, so the Summary cards fill in as soon as their own data lands instead of after the workout fetch finishes.
