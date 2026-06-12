@@ -296,7 +296,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         cacheDiskSizeBytes = size
     }
 
-    func requestAuthorizationAndRefresh() async {
+    /// `recentWorkoutMonthCount` is how many recent months of workouts to
+    /// (re)fetch eagerly. It defaults to the full chart window; the automatic
+    /// warm-resume path passes 1 (current month only) because past months are
+    /// effectively immutable and the Workouts tab lazy-loads the rest on demand.
+    func requestAuthorizationAndRefresh(recentWorkoutMonthCount: Int = HealthKitWorkoutStore.recentChartMonthCount) async {
         guard !isRefreshing else {
             return
         }
@@ -315,7 +319,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         do {
             try await engine.requestAuthorization()
-            await refreshRecentMonths()
+            await refreshRecentMonths(recentWorkoutMonthCount: recentWorkoutMonthCount)
         } catch {
             handleRefreshError(error)
         }
@@ -895,7 +899,11 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
 
-        await requestAuthorizationAndRefresh()
+        // Stale (>5 min) automatic resume: refresh the dashboard, but only
+        // re-fetch the current month of workouts — past months are effectively
+        // immutable and the Workouts tab lazy-loads them on demand, so
+        // re-pulling the full window on every warm resume is wasted work.
+        await requestAuthorizationAndRefresh(recentWorkoutMonthCount: 1)
     }
 
     private static let shortResumeDebounceInterval: TimeInterval = 60
@@ -1244,7 +1252,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     /// Expects the caller to have set `isRefreshing` (and to call
     /// `finishRefresh()` when done) before the first suspension.
-    private func refreshRecentMonths(date: Date = Date()) async {
+    private func refreshRecentMonths(date: Date = Date(), recentWorkoutMonthCount: Int = HealthKitWorkoutStore.recentChartMonthCount) async {
         let signpostState = BodyPerformanceSignposts.signposter.beginInterval("RefreshRecentMonths")
         defer { BodyPerformanceSignposts.signposter.endInterval("RefreshRecentMonths", signpostState) }
 
@@ -1252,7 +1260,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         await engine.setHealthTrendAnchorDate(date)
 
         let calendar = Calendar.bodyGregorian
-        let keys = Self.recentMonthKeys(count: Self.recentChartMonthCount, from: date, calendar: calendar)
+        let keys = Self.recentMonthKeys(count: recentWorkoutMonthCount, from: date, calendar: calendar)
         let dashboardFetchSelection = BodyDashboardFetchSelection.load()
         let includesWorkouts = permissionSelection.includes(.workouts)
         if !includesWorkouts {
