@@ -108,8 +108,8 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
             )
         case .wristTemperature:
             return HealthMetricDetailHelpText(
-                title: "About Wrist Temperature",
-                body: "Wrist Temperature shows changes captured during sleep from supported devices. It is most useful as a trend against your own baseline. Shifts can follow room temperature, illness, alcohol, menstrual cycle changes, travel, or wearable fit."
+                title: "About Skin Temperature",
+                body: "Skin Temperature shows changes captured during sleep from supported devices. It is most useful as a trend against your own baseline. Shifts can follow room temperature, illness, alcohol, menstrual cycle changes, travel, or wearable fit."
             )
         case .timeInDaylight:
             return HealthMetricDetailHelpText(
@@ -352,7 +352,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         activityRings = (try? container.decodeIfPresent(ActivityRingSummary.self, forKey: .activityRings)) ?? .empty
-        readiness = try container.decodeIfPresent(ReadinessSummary.self, forKey: .readiness) ?? .unavailable
+        readiness = (try? container.decodeIfPresent(ReadinessSummary.self, forKey: .readiness)) ?? .unavailable
         sleep = (try? container.decodeIfPresent(SleepSummary.self, forKey: .sleep)) ?? SleepSummary(duration: nil)
         heartRate = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .heartRate) ?? HealthMetricSummary(value: nil)
         restingHeartRate = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .restingHeartRate) ?? HealthMetricSummary(value: nil)

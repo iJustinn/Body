@@ -38,6 +38,9 @@ struct MainTabView: View {
                 }
                 .tag(BodyMainTab.settings)
         }
+        .overlay {
+            BodyFirstLaunchLoadOverlay()
+        }
     }
 
     /// Tab bar icons ignore SwiftUI font-weight modifiers, so bake the bold

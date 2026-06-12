@@ -51,7 +51,12 @@ enum WorkoutSnapshotStore {
 
         let data: Data
         do {
-            data = try JSONEncoder().encode(snapshot)
+            // `.sortedKeys` keeps the encoded bytes deterministic so the
+            // save-if-changed compare below actually dedupes writes;
+            // `JSONEncoder` randomizes key order between calls otherwise.
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            data = try encoder.encode(snapshot)
         } catch {
             logger.error("Snapshot encode failed: \(error.localizedDescription, privacy: .public)")
             return false
@@ -102,8 +107,17 @@ enum WorkoutSnapshotStore {
         }
     }
 
-    static func loadOrPlaceholder() -> WorkoutMonthSnapshot {
-        load() ?? .placeholder
+    /// Single launch-path read: returns the cached current-month snapshot,
+    /// seeding the preview placeholder on first launch so widgets have
+    /// content before HealthKit authorization. Replaces the separate seed +
+    /// load calls that decoded the same file twice at launch.
+    static func loadOrSeedPlaceholder() -> WorkoutMonthSnapshot {
+        if let snapshot = load() {
+            return snapshot
+        }
+
+        save(.placeholder)
+        return .placeholder
     }
 
     @discardableResult
@@ -162,10 +176,5 @@ enum WorkoutSnapshotStore {
 
     static func deletePrevious() {
         delete(fileURL: previousSnapshotFileURL)
-    }
-
-    static func seedPreviewSnapshotIfNeeded() {
-        guard load() == nil else { return }
-        save(.placeholder)
     }
 }

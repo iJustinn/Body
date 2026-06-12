@@ -778,6 +778,127 @@ struct HealthTrendSnapshot: Codable, Equatable {
         cleared.stepsDaySamplesSecondary = .empty
         return cleared
     }
+
+    /// The lazily loaded intraday sample series are by far the largest part of
+    /// the persisted snapshot (tens of thousands of raw points once a metric
+    /// detail view has been opened). `HealthDashboardSnapshotStore` persists
+    /// them in a sidecar file so the launch-critical main decode stays small;
+    /// the sidecar is decoded off the main actor after the first frame.
+    func strippingDaySamples() -> HealthTrendSnapshot {
+        var stripped = self
+        stripped.heartRateDaySamples = .empty
+        stripped.heartRateDaySamplesSecondary = .empty
+        stripped.restingHeartRateDaySamples = .empty
+        stripped.restingHeartRateDaySamplesSecondary = .empty
+        stripped.heartRateVariabilityDaySamples = .empty
+        stripped.heartRateVariabilityDaySamplesSecondary = .empty
+        stripped.respiratoryRateDaySamples = .empty
+        stripped.oxygenSaturationDaySamples = .empty
+        stripped.oxygenSaturationDaySamplesSecondary = .empty
+        stripped.activeEnergyDaySamples = .empty
+        stripped.activeEnergyDaySamplesSecondary = .empty
+        stripped.stepsDaySamples = .empty
+        stripped.stepsDaySamplesSecondary = .empty
+        return stripped
+    }
+
+    /// Fills only the `*DaySamples` fields that are still empty, so a sidecar
+    /// decoded after launch never overwrites samples a refresh or detail-view
+    /// lazy load has already fetched in this session.
+    func mergingMissingDaySamples(from daySamples: HealthTrendDaySampleSnapshot) -> HealthTrendSnapshot {
+        var merged = self
+        if merged.heartRateDaySamples.isEmpty {
+            merged.heartRateDaySamples = daySamples.heartRateDaySamples
+        }
+        if merged.heartRateDaySamplesSecondary.isEmpty {
+            merged.heartRateDaySamplesSecondary = daySamples.heartRateDaySamplesSecondary
+        }
+        if merged.restingHeartRateDaySamples.isEmpty {
+            merged.restingHeartRateDaySamples = daySamples.restingHeartRateDaySamples
+        }
+        if merged.restingHeartRateDaySamplesSecondary.isEmpty {
+            merged.restingHeartRateDaySamplesSecondary = daySamples.restingHeartRateDaySamplesSecondary
+        }
+        if merged.heartRateVariabilityDaySamples.isEmpty {
+            merged.heartRateVariabilityDaySamples = daySamples.heartRateVariabilityDaySamples
+        }
+        if merged.heartRateVariabilityDaySamplesSecondary.isEmpty {
+            merged.heartRateVariabilityDaySamplesSecondary = daySamples.heartRateVariabilityDaySamplesSecondary
+        }
+        if merged.respiratoryRateDaySamples.isEmpty {
+            merged.respiratoryRateDaySamples = daySamples.respiratoryRateDaySamples
+        }
+        if merged.oxygenSaturationDaySamples.isEmpty {
+            merged.oxygenSaturationDaySamples = daySamples.oxygenSaturationDaySamples
+        }
+        if merged.oxygenSaturationDaySamplesSecondary.isEmpty {
+            merged.oxygenSaturationDaySamplesSecondary = daySamples.oxygenSaturationDaySamplesSecondary
+        }
+        if merged.activeEnergyDaySamples.isEmpty {
+            merged.activeEnergyDaySamples = daySamples.activeEnergyDaySamples
+        }
+        if merged.activeEnergyDaySamplesSecondary.isEmpty {
+            merged.activeEnergyDaySamplesSecondary = daySamples.activeEnergyDaySamplesSecondary
+        }
+        if merged.stepsDaySamples.isEmpty {
+            merged.stepsDaySamples = daySamples.stepsDaySamples
+        }
+        if merged.stepsDaySamplesSecondary.isEmpty {
+            merged.stepsDaySamplesSecondary = daySamples.stepsDaySamplesSecondary
+        }
+        return merged
+    }
+}
+
+/// Sidecar payload holding the lazily loaded intraday sample series, persisted
+/// separately from `HealthDashboardSnapshot` so cold launch decodes only the
+/// small summary + daily-trend payload on the main thread.
+struct HealthTrendDaySampleSnapshot: Codable, Equatable {
+    var heartRateDaySamples: HealthTrendSeries
+    var heartRateDaySamplesSecondary: HealthTrendSeries
+    var restingHeartRateDaySamples: HealthTrendSeries
+    var restingHeartRateDaySamplesSecondary: HealthTrendSeries
+    var heartRateVariabilityDaySamples: HealthTrendSeries
+    var heartRateVariabilityDaySamplesSecondary: HealthTrendSeries
+    var respiratoryRateDaySamples: HealthTrendSeries
+    var oxygenSaturationDaySamples: HealthTrendSeries
+    var oxygenSaturationDaySamplesSecondary: HealthTrendSeries
+    var activeEnergyDaySamples: HealthTrendSeries
+    var activeEnergyDaySamplesSecondary: HealthTrendSeries
+    var stepsDaySamples: HealthTrendSeries
+    var stepsDaySamplesSecondary: HealthTrendSeries
+
+    init(trends: HealthTrendSnapshot) {
+        heartRateDaySamples = trends.heartRateDaySamples
+        heartRateDaySamplesSecondary = trends.heartRateDaySamplesSecondary
+        restingHeartRateDaySamples = trends.restingHeartRateDaySamples
+        restingHeartRateDaySamplesSecondary = trends.restingHeartRateDaySamplesSecondary
+        heartRateVariabilityDaySamples = trends.heartRateVariabilityDaySamples
+        heartRateVariabilityDaySamplesSecondary = trends.heartRateVariabilityDaySamplesSecondary
+        respiratoryRateDaySamples = trends.respiratoryRateDaySamples
+        oxygenSaturationDaySamples = trends.oxygenSaturationDaySamples
+        oxygenSaturationDaySamplesSecondary = trends.oxygenSaturationDaySamplesSecondary
+        activeEnergyDaySamples = trends.activeEnergyDaySamples
+        activeEnergyDaySamplesSecondary = trends.activeEnergyDaySamplesSecondary
+        stepsDaySamples = trends.stepsDaySamples
+        stepsDaySamplesSecondary = trends.stepsDaySamplesSecondary
+    }
+
+    var isEmpty: Bool {
+        heartRateDaySamples.isEmpty &&
+            heartRateDaySamplesSecondary.isEmpty &&
+            restingHeartRateDaySamples.isEmpty &&
+            restingHeartRateDaySamplesSecondary.isEmpty &&
+            heartRateVariabilityDaySamples.isEmpty &&
+            heartRateVariabilityDaySamplesSecondary.isEmpty &&
+            respiratoryRateDaySamples.isEmpty &&
+            oxygenSaturationDaySamples.isEmpty &&
+            oxygenSaturationDaySamplesSecondary.isEmpty &&
+            activeEnergyDaySamples.isEmpty &&
+            activeEnergyDaySamplesSecondary.isEmpty &&
+            stepsDaySamples.isEmpty &&
+            stepsDaySamplesSecondary.isEmpty
+    }
 }
 
 struct BasicsTrendSummary: Equatable {

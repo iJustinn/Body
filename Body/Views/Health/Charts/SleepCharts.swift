@@ -61,7 +61,7 @@ struct BodySleepStageChart: View {
                     .foregroundStyle(Color.secondary.opacity(0.18))
                 AxisTick()
                     .foregroundStyle(Color.secondary.opacity(0.28))
-                AxisValueLabel {
+                AxisValueLabel(anchor: xAxisLabelAnchor(for: value)) {
                     if let date = value.as(Date.self) {
                         Text(date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)))
                             .font(.system(.caption2, design: .rounded))
@@ -268,43 +268,28 @@ struct BodySleepStageChart: View {
     }
 
     private var xAxisValues: [Date] {
-        axisValues(strideHours: 2, minimumCount: 4)
+        guard let startDate = snapshot.segments.map(\.startDate).min(),
+              let endDate = snapshot.segments.map(\.endDate).max() else {
+            return []
+        }
+        return [startDate, endDate]
     }
 
-    private func axisValues(strideHours: Int, minimumCount: Int) -> [Date] {
-        let calendar = Calendar.bodyGregorian
-        let lowerBound = chartXDomain.lowerBound
-        let upperBound = chartXDomain.upperBound
-        var components = calendar.dateComponents([.year, .month, .day, .hour], from: lowerBound)
-        components.minute = 0
-        components.second = 0
-        components.nanosecond = 0
-
-        var current = calendar.date(from: components) ?? lowerBound
-        if current < lowerBound {
-            current = calendar.date(byAdding: .hour, value: 1, to: current) ?? lowerBound
-        }
-
-        var values: [Date] = []
-        while current <= upperBound {
-            values.append(current)
-            let next = calendar.date(byAdding: .hour, value: strideHours, to: current)
-                ?? current.addingTimeInterval(TimeInterval(strideHours) * 60 * 60)
-            guard next > current else {
-                break
-            }
-            current = next
-        }
-
-        if values.count < minimumCount && strideHours > 1 {
-            return axisValues(strideHours: 1, minimumCount: minimumCount)
-        }
-
-        return values
+    private func xAxisLabelAnchor(for value: AxisValue) -> UnitPoint {
+        guard let date = value.as(Date.self) else { return .top }
+        if date == xAxisValues.first { return .topLeading }
+        if date == xAxisValues.last { return .topTrailing }
+        return .top
     }
 
     private func color(for stage: SleepStage) -> Color {
-        switch stage {
+        stage.bodyChartColor
+    }
+}
+
+extension SleepStage {
+    var bodyChartColor: Color {
+        switch self {
         case .awake:
             return Color(red: 1.00, green: 0.31, blue: 0.22)
         case .rem:
@@ -314,6 +299,266 @@ struct BodySleepStageChart: View {
         case .deep:
             return Color(red: 0.25, green: 0.25, blue: 0.82)
         }
+    }
+}
+
+struct BodySleepConsistencyChart: View {
+    let model: SleepConsistencyChartModel
+    let selectedDay: Date
+    let onSelectDay: (Date) -> Void
+
+    private let gutterWidth: CGFloat = 50
+    private let dayLabelHeight: CGFloat = 30
+
+    var body: some View {
+        VStack(spacing: 8) {
+            GeometryReader { proxy in
+                let plotWidth = max(proxy.size.width - gutterWidth, 1)
+                let plotHeight = proxy.size.height
+
+                ZStack(alignment: .topLeading) {
+                    gridLines(plotWidth: plotWidth, plotHeight: plotHeight)
+                    averageLines(plotWidth: plotWidth, plotHeight: plotHeight)
+                    nightBars(plotWidth: plotWidth, plotHeight: plotHeight)
+                    dayTapTargets(plotWidth: plotWidth, plotHeight: plotHeight)
+                }
+            }
+
+            dayLabels
+                .frame(height: dayLabelHeight)
+                .padding(.trailing, gutterWidth)
+        }
+    }
+
+    @ViewBuilder
+    private func gridLines(plotWidth: CGFloat, plotHeight: CGFloat) -> some View {
+        ForEach(model.gridHourOffsets, id: \.self) { offset in
+            let lineY = y(forOffsetHours: offset, plotHeight: plotHeight)
+
+            horizontalLine(at: lineY, width: plotWidth)
+                .stroke(Color.secondary.opacity(0.22), style: StrokeStyle(lineWidth: 1, dash: [2, 4]))
+
+            Text(timeText(forOffsetHours: offset))
+                .font(.system(.caption2, design: .rounded))
+                .foregroundStyle(Color.secondary)
+                .position(x: plotWidth + gutterWidth / 2, y: lineY)
+        }
+    }
+
+    @ViewBuilder
+    private func averageLines(plotWidth: CGFloat, plotHeight: CGFloat) -> some View {
+        if let averageBed = model.averageBedOffsetHours {
+            averageLine(offsetHours: averageBed, plotWidth: plotWidth, plotHeight: plotHeight, dash: [])
+        }
+
+        if let averageWake = model.averageWakeOffsetHours {
+            averageLine(offsetHours: averageWake, plotWidth: plotWidth, plotHeight: plotHeight, dash: [4, 5])
+        }
+    }
+
+    @ViewBuilder
+    private func averageLine(
+        offsetHours: Double,
+        plotWidth: CGFloat,
+        plotHeight: CGFloat,
+        dash: [CGFloat]
+    ) -> some View {
+        let lineY = y(forOffsetHours: offsetHours, plotHeight: plotHeight)
+
+        horizontalLine(at: lineY, width: plotWidth)
+            .stroke(Color.primary.opacity(0.62), style: StrokeStyle(lineWidth: 1.5, dash: dash))
+
+        Text(timeText(forOffsetHours: offsetHours))
+            .font(.system(.caption2, design: .rounded))
+            .fontWeight(.bold)
+            .foregroundStyle(Color.primary)
+            .position(x: plotWidth + gutterWidth / 2, y: lineY)
+    }
+
+    @ViewBuilder
+    private func nightBars(plotWidth: CGFloat, plotHeight: CGFloat) -> some View {
+        let columnWidth = plotWidth / CGFloat(max(model.days.count, 1))
+        let barWidth = min(columnWidth * 0.55, 18)
+
+        ForEach(model.nights) { night in
+            if let index = dayIndices[night.day] {
+                ForEach(night.spans) { span in
+                    let topY = y(forOffsetHours: span.startOffsetHours, plotHeight: plotHeight)
+                    let bottomY = y(forOffsetHours: span.endOffsetHours, plotHeight: plotHeight)
+                    let isCut = span.isCutAtStart || span.isCutAtEnd
+                    let height = max(bottomY - topY, isCut ? 2 : barWidth)
+
+                    SleepConsistencyNightBar(
+                        span: span,
+                        width: barWidth,
+                        height: height
+                    )
+                    .position(
+                        x: columnWidth * (CGFloat(index) + 0.5),
+                        y: barCenterY(for: span, topY: topY, bottomY: bottomY, height: height)
+                    )
+                }
+            }
+        }
+    }
+
+    // Cut spans stay pinned to the wrap boundary even when inflated to the
+    // minimum height; centering would push them past the plot edge.
+    private func barCenterY(
+        for span: SleepConsistencyNightSpan,
+        topY: CGFloat,
+        bottomY: CGFloat,
+        height: CGFloat
+    ) -> CGFloat {
+        if span.isCutAtEnd {
+            return bottomY - height / 2
+        }
+
+        if span.isCutAtStart {
+            return topY + height / 2
+        }
+
+        return (topY + bottomY) / 2
+    }
+
+    @ViewBuilder
+    private func dayTapTargets(plotWidth: CGFloat, plotHeight: CGFloat) -> some View {
+        let columnWidth = plotWidth / CGFloat(max(model.days.count, 1))
+
+        ForEach(model.days, id: \.self) { day in
+            if let index = dayIndices[day] {
+                Color.clear
+                    .frame(width: columnWidth, height: plotHeight)
+                    .contentShape(Rectangle())
+                    .position(x: columnWidth * (CGFloat(index) + 0.5), y: plotHeight / 2)
+                    .onTapGesture {
+                        onSelectDay(day)
+                    }
+                    .accessibilityLabel(accessibilityLabel(for: day))
+                    .accessibilityAddTraits(isSelected(day) ? [.isButton, .isSelected] : .isButton)
+            }
+        }
+    }
+
+    private var dayLabels: some View {
+        HStack(spacing: 0) {
+            ForEach(model.days, id: \.self) { day in
+                let selected = isSelected(day)
+
+                VStack(spacing: 2) {
+                    Text(day.formatted(.dateTime.weekday(.narrow)))
+                        .font(.system(size: 10, weight: selected ? .heavy : .semibold, design: .rounded))
+
+                    Text(day.formatted(.dateTime.day()))
+                        .font(.system(size: 12, weight: selected ? .heavy : .semibold, design: .rounded))
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .foregroundColor(selected ? .primary : .secondary)
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onSelectDay(day)
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private var dayIndices: [Date: Int] {
+        Dictionary(uniqueKeysWithValues: model.days.enumerated().map { ($1, $0) })
+    }
+
+    private func isSelected(_ day: Date) -> Bool {
+        Calendar.bodyGregorian.isDate(day, inSameDayAs: selectedDay)
+    }
+
+    private func y(forOffsetHours offset: Double, plotHeight: CGFloat) -> CGFloat {
+        let domain = model.yDomainHours
+        let span = domain.upperBound - domain.lowerBound
+        guard span > 0 else {
+            return 0
+        }
+
+        return CGFloat((offset - domain.lowerBound) / span) * plotHeight
+    }
+
+    private func horizontalLine(at lineY: CGFloat, width: CGFloat) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: 0, y: lineY))
+        path.addLine(to: CGPoint(x: width, y: lineY))
+        return path
+    }
+
+    private func timeText(forOffsetHours offset: Double) -> String {
+        guard let referenceDay = model.days.last,
+              let date = SleepConsistencyChartModel.clockDate(forOffsetHours: offset, on: referenceDay) else {
+            return ""
+        }
+
+        return date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+    }
+
+    private func accessibilityLabel(for day: Date) -> String {
+        let dayText = day.formatted(.dateTime.weekday(.wide).month(.wide).day())
+        guard let night = model.nights.first(where: { $0.day == day }) else {
+            return "\(dayText): no sleep data"
+        }
+
+        let bedText = timeText(forOffsetHours: night.bedOffsetHours)
+        let wakeText = timeText(forOffsetHours: night.wakeOffsetHours)
+        return "\(dayText): asleep \(bedText) to \(wakeText)"
+    }
+}
+
+private struct SleepConsistencyNightBar: View {
+    let span: SleepConsistencyNightSpan
+    let width: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            barShape
+                .fill(SleepStage.core.bodyChartColor)
+
+            ForEach(span.slices) { slice in
+                Rectangle()
+                    .fill(slice.stage.bodyChartColor)
+                    .frame(width: width, height: sliceHeight(for: slice))
+                    .offset(y: sliceTop(for: slice))
+            }
+        }
+        .frame(width: width, height: height)
+        .clipShape(barShape)
+        .accessibilityHidden(true)
+    }
+
+    // Capsule ends except where the bar is cut by the 18:00 wrap boundary,
+    // which sits flat on the plot edge.
+    private var barShape: UnevenRoundedRectangle {
+        let radius = min(width, height) / 2
+        let topRadius = span.isCutAtStart ? 0 : radius
+        let bottomRadius = span.isCutAtEnd ? 0 : radius
+
+        return UnevenRoundedRectangle(
+            topLeadingRadius: topRadius,
+            bottomLeadingRadius: bottomRadius,
+            bottomTrailingRadius: bottomRadius,
+            topTrailingRadius: topRadius,
+            style: .continuous
+        )
+    }
+
+    private var spanHours: Double {
+        max(span.endOffsetHours - span.startOffsetHours, 0.001)
+    }
+
+    private func sliceTop(for slice: SleepConsistencyNightSlice) -> CGFloat {
+        CGFloat((slice.startOffsetHours - span.startOffsetHours) / spanHours) * height
+    }
+
+    private func sliceHeight(for slice: SleepConsistencyNightSlice) -> CGFloat {
+        CGFloat((slice.endOffsetHours - slice.startOffsetHours) / spanHours) * height
     }
 }
 

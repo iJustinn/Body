@@ -119,7 +119,8 @@ private struct WorkoutCalendarWidgetView: View {
     var body: some View {
         WorkoutCalendarView(
             snapshot: entry.snapshot,
-            style: .widgetLarge
+            style: .widgetLarge,
+            referenceDate: entry.date
         )
         .padding(14)
     }
@@ -139,7 +140,7 @@ private struct WorkoutTypeBreakdownWidgetView: View {
     }
 }
 
-private extension View {
+extension View {
     @ViewBuilder
     func bodyWidgetBackground(_ background: BodyWidgetBackgroundSelection) -> some View {
         switch background {

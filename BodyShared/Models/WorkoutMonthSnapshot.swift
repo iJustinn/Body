@@ -127,20 +127,26 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
     }
 
     var monthTitle: String {
-        let formatter = DateFormatter()
-        formatter.calendar = .bodyGregorian
-        formatter.locale = .current
-        formatter.dateFormat = "MMMM yyyy"
-
         guard let date = Calendar.bodyGregorian.date(from: DateComponents(year: year, month: month, day: 1)) else {
             return "\(month)/\(year)"
         }
 
-        return formatter.string(from: date)
+        return BodyDateFormatterCache.formatter(dateFormat: "MMMM yyyy").string(from: date)
     }
 
     func day(_ number: Int) -> WorkoutDaySummary? {
         days.first { $0.day == number }
+    }
+
+    /// Whether `reference` falls on `day` within this snapshot's month, used to
+    /// highlight "today" in the calendar grid. Returns `false` whenever the
+    /// snapshot is showing a different month or year than `reference`, so past
+    /// or future months never highlight a day.
+    func isToday(_ day: WorkoutDaySummary, reference: Date = Date(), calendar: Calendar = .bodyGregorian) -> Bool {
+        let components = calendar.dateComponents([.year, .month, .day], from: reference)
+        return components.year == year
+            && components.month == month
+            && components.day == day.day
     }
 
     static func make(
@@ -235,9 +241,7 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
 
 extension Calendar {
     func bodyRotatedVeryShortWeekdaySymbols(locale: Locale = .current) -> [String] {
-        let formatter = DateFormatter()
-        formatter.calendar = self
-        formatter.locale = locale
+        let formatter = BodyDateFormatterCache.formatter(dateFormat: "", calendar: self, locale: locale)
         let symbols = formatter.veryShortStandaloneWeekdaySymbols ?? []
         let fallback = ["S", "M", "T", "W", "T", "F", "S"]
         let source = symbols.isEmpty ? fallback : symbols

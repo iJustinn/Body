@@ -105,40 +105,180 @@ private struct BodyActivityRingCompletionStar: View {
 
 struct BodyActivityRingsDetailView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
-    @State private var canLoadOlderMonths = false
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var calendarMonths: [ActivityRingCalendarMonth] = []
+    @State private var topVisibleMonthID: String?
+    @State private var isNearTop = false
+    @State private var isUnderfilled = true
+    @State private var isLoadingOlderMonths = false
+    @State private var hasUserInteracted = false
+    @State private var scrollPhase: ScrollPhase = .idle
+    @State private var hasPendingCalendarRefresh = false
+    /// Hard cap on loads that aren't tied to a fresh touch. Every load
+    /// consumes one; a new touch refills (`onScrollPhaseChange`). This keeps
+    /// any layout/geometry feedback loop from paging in months unboundedly —
+    /// without it, scroll-anchor vs. LazyVStack estimation churn once chained
+    /// through years of history in one shot.
+    @State private var remainingAutomaticLoads = 4
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
     private let calendar = Calendar.bodyGregorian
+    /// Distance from the content top that counts as "near the top" for
+    /// paging in older months.
+    private let olderMonthLoadThreshold: CGFloat = 300
 
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 46) {
-                    ForEach(calendarMonths) { month in
-                        monthSection(month)
-                            .id(month.id)
-                    }
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 18)
-                .padding(.bottom, 36)
-            }
-            .task {
-                if let currentMonthID = calendarMonths.last?.id {
-                    proxy.scrollTo(currentMonthID, anchor: .bottom)
-                }
-                // Let initial LazyVStack layout settle before pagination can react to onAppear.
-                await Task.yield()
-                canLoadOlderMonths = true
-            }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
-            .navigationTitle("Activity Rings")
-            .navigationBarTitleDisplayMode(.inline)
-        }
+    private struct ScrollLoadSignals: Equatable {
+        var isNearTop: Bool
+        var isUnderfilled: Bool
     }
 
-    private var calendarMonths: [ActivityRingCalendarMonth] {
-        displayHistory.calendarMonths(calendar: calendar)
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 46) {
+                ForEach(displayedCalendarMonths) { month in
+                    monthSection(month)
+                }
+            }
+            .scrollTargetLayout()
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 36)
+            .readableContentColumn()
+        }
+        .defaultScrollAnchor(.bottom, for: .initialOffset)
+        .defaultScrollAnchor(.bottom, for: .alignment)
+        // Keeps the month the user is looking at in place when older months
+        // are inserted above it. UX-only: pagination stays bounded by the
+        // load budget even if this repositioning misses.
+        .scrollPosition(id: $topVisibleMonthID, anchor: .top)
+        .onScrollGeometryChange(for: ScrollLoadSignals.self) { geometry in
+            ScrollLoadSignals(
+                isNearTop: geometry.contentOffset.y + geometry.contentInsets.top < olderMonthLoadThreshold,
+                isUnderfilled: geometry.contentSize.height - geometry.containerSize.height < olderMonthLoadThreshold
+            )
+        } action: { _, signals in
+            if isNearTop != signals.isNearTop {
+                isNearTop = signals.isNearTop
+            }
+            if isUnderfilled != signals.isUnderfilled {
+                isUnderfilled = signals.isUnderfilled
+            }
+        }
+        .onScrollPhaseChange { _, newPhase in
+            scrollPhase = newPhase
+            if hasPendingCalendarRefresh, newPhase != .decelerating, newPhase != .animating {
+                refreshCalendarMonths()
+            }
+
+            guard newPhase == .tracking || newPhase == .interacting else {
+                return
+            }
+
+            hasUserInteracted = true
+            remainingAutomaticLoads = max(remainingAutomaticLoads, 3)
+            loadOlderMonthsIfNeeded()
+        }
+        .overlay(alignment: .top) {
+            // Outside the scroll content so showing/hiding it can't change
+            // the content size or perturb anchoring.
+            if isLoadingOlderMonths && workoutStore.hasMoreActivityRingHistory {
+                ProgressView()
+                    .padding(10)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .padding(.top, 8)
+                    .accessibilityLabel("Loading earlier months")
+            }
+        }
+        .task {
+            refreshCalendarMonths()
+            loadOlderMonthsIfNeeded()
+        }
+        .onChange(of: isNearTop) { _, nearTop in
+            if nearTop {
+                loadOlderMonthsIfNeeded()
+            }
+        }
+        .onChange(of: workoutStore.loadingActivityRingMonthKeys.isEmpty) { _, isIdle in
+            // Re-kick when a load that was in flight (possibly started by an
+            // earlier instance of this view) finishes — `.onAppear`-style
+            // triggers missing this transition was the old stall-at-top bug.
+            if isIdle {
+                loadOlderMonthsIfNeeded()
+            }
+        }
+        .onChange(of: workoutStore.activityRingHistory) { _, _ in
+            refreshCalendarMonths()
+        }
+        .onChange(of: workoutStore.healthSummary.activityRings) { _, _ in
+            guard workoutStore.activityRingHistory.days.isEmpty,
+                  workoutStore.activityRingHistory.loadedMonthKeys.isEmpty else {
+                return
+            }
+            refreshCalendarMonths()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            // The cached months bake in "today" (future-day dimming), so they
+            // must be rebuilt when the day rolls over while the screen is up.
+            refreshCalendarMonths()
+        }
+        .onChange(of: scenePhase) {
+            if scenePhase == .active {
+                refreshCalendarMonths()
+            }
+        }
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .navigationTitle("Activity Rings")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Falls back to a synchronous computation for the first frame so the
+    /// initial bottom anchor lays out against real content; the cache takes
+    /// over once `.task` runs.
+    private var displayedCalendarMonths: [ActivityRingCalendarMonth] {
+        calendarMonths.isEmpty ? displayHistory.calendarMonths(calendar: calendar) : calendarMonths
+    }
+
+    private func refreshCalendarMonths() {
+        // Mutating the list mid-flick forces a re-anchor against estimated
+        // row heights — the visible "jump" on fast scrolls. Fetch results
+        // wait out the deceleration and apply once the scroll settles.
+        guard scrollPhase != .decelerating, scrollPhase != .animating else {
+            hasPendingCalendarRefresh = true
+            return
+        }
+
+        hasPendingCalendarRefresh = false
+        calendarMonths = displayHistory.calendarMonths(calendar: calendar)
+    }
+
+    /// Single pagination funnel. A load runs only near the top of the
+    /// content, and only when the user has touched the scroll view (normal
+    /// paging) or the content cannot fill the screen yet (initial fill).
+    /// Progress chaining re-enters through the same guards, so every path
+    /// is bounded by `remainingAutomaticLoads`.
+    private func loadOlderMonthsIfNeeded() {
+        guard isNearTop,
+              !isLoadingOlderMonths,
+              hasUserInteracted || isUnderfilled,
+              remainingAutomaticLoads > 0,
+              workoutStore.hasMoreActivityRingHistory,
+              workoutStore.loadingActivityRingMonthKeys.isEmpty
+        else {
+            return
+        }
+
+        remainingAutomaticLoads -= 1
+        isLoadingOlderMonths = true
+        Task {
+            let historyBeforeLoad = workoutStore.activityRingHistory
+            await workoutStore.loadPreviousActivityRingMonthIfNeeded()
+            isLoadingOlderMonths = false
+            // Chain only when the load made progress; errors and end-of-data
+            // wait for a fresh scroll instead of retrying in a tight loop.
+            if workoutStore.activityRingHistory != historyBeforeLoad {
+                loadOlderMonthsIfNeeded()
+            }
+        }
     }
 
     private var displayHistory: ActivityRingHistorySnapshot {
@@ -190,9 +330,6 @@ struct BodyActivityRingsDetailView: View {
                 }
             }
         }
-        .onAppear {
-            loadPreviousMonthIfNeeded(for: month)
-        }
     }
 
     private var weekdayHeader: some View {
@@ -227,21 +364,7 @@ struct BodyActivityRingsDetailView: View {
             return ""
         }
 
-        return date.formatted(.dateTime.month(.abbreviated))
-    }
-
-    private func loadPreviousMonthIfNeeded(for month: ActivityRingCalendarMonth) {
-        guard
-            canLoadOlderMonths,
-            month.id == calendarMonths.first?.id,
-            workoutStore.loadingActivityRingMonthKeys.isEmpty
-        else {
-            return
-        }
-
-        Task {
-            await workoutStore.loadPreviousActivityRingMonthIfNeeded()
-        }
+        return "\(date.formatted(.dateTime.month(.abbreviated))), \(date.formatted(.dateTime.year()))"
     }
 }
 

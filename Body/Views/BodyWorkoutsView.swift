@@ -115,6 +115,7 @@ struct BodyWorkoutsView: View {
                         .allowsHitTesting(false)
                     }
                 }
+                .readableContentColumn()
             }
             .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing || pendingMonthSelection != nil)
             .sheet(isPresented: $showingSortSheet) {
@@ -196,11 +197,7 @@ struct BodyWorkoutsView: View {
             return "\(selectedMonth)"
         }
 
-        let formatter = DateFormatter()
-        formatter.calendar = .bodyGregorian
-        formatter.locale = .current
-        formatter.dateFormat = "MMMM"
-        return formatter.string(from: date)
+        return BodyDateFormatterCache.formatter(dateFormat: "MMMM").string(from: date)
     }
 
     private var searchAndControlsRow: some View {

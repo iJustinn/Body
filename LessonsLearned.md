@@ -4,6 +4,23 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 
 ## Entries
 
+### 2026-06-10 - `JSONEncoder` output is not byte-stable; save-if-changed compares need `.sortedKeys`
+- Context: All three snapshot stores (dashboard, workout, widget) dedupe disk writes by encoding and comparing bytes against the existing file, and gate widget reloads on that result (2026-05-18 "Save-if-changed" entry).
+- Symptom: A new test asserting `save(x); save(x) == false` failed reproducibly — two `JSONEncoder().encode(...)` calls on the *same value instance* returned equal-length but different bytes ("2542 bytes is not equal to 2542 bytes").
+- Cause: Foundation's `JSONEncoder` randomizes keyed-container key order between encode calls. The byte-compare therefore almost never matched, so every refresh rewrote every snapshot file and requested a widget reload — the dedupe had been silently broken since it was introduced.
+- Fix: The stores set `encoder.outputFormatting = [.sortedKeys]` (see `HealthDashboardSnapshotStore.makeSnapshotEncoder()`); `testSnapshotEncoderIsByteStableAcrossEncodes` guards the property.
+- Reuse: Any encode-and-compare or encode-and-hash scheme over `Codable` JSON must use `.sortedKeys` (and a fixed date strategy). Never assume encoder output is canonical.
+
+### 2026-06-10 - Persist large lazily-loaded series in a sidecar file so cold launch decodes stay small
+- Context: The intraday `*DaySamples` series (tens of thousands of raw points once a metric detail view has been opened) were persisted inside the main dashboard snapshot, which `HealthKitWorkoutStore.init` decodes synchronously on the main thread before the first frame.
+- Fix: `HealthDashboardSnapshotStore.save` strips day samples from the main file (`HealthTrendSnapshot.strippingDaySamples()`) and writes them to `lastHealthDashboardDaySamples.json`; `HealthKitWorkoutStore.hydratePersistedDaySamplesIfNeeded()` decodes the sidecar off-main and merges only still-empty fields. Every refresh/lazy-load entry point awaits the hydrate first so a save can't clobber the sidecar with empty series and the incremental fetch sees the cache. Legacy combined files still decode (`decodeIfPresent ?? .empty`).
+- Reuse: When a cache blob mixes launch-critical and lazily-consumed data, split the files rather than tuning the decoder. Merge policy must be fill-only-empty so background hydration never overwrites fresher in-session data, and saves must be ordered after hydration.
+
+### 2026-06-10 - Extend the OR-compound batching pattern to per-day vitals; recompute readiness at most once
+- Context: After the 2026-05-18 N+1 fixes, full-refresh sleep-vitals hydration still issued up to ~365 days × 5 per-night `HKSampleQuery`s (concurrency-bounded, total unchanged). Separately, `updateHealthDashboardSnapshot` chained `filtered(by:)` — which internally recomputes readiness — *and then* an anchored `recalculatingReadiness`, so every refresh paid the per-day readiness walk twice.
+- Fix: `fetchSleepVitals(forIntervals:)` runs ONE query per vital type with an OR-compound of the per-night predicates (so only in-night samples cross IPC) and partitions per night in memory (`averageVitalValues`, two-pointer over sorted samples). `updateHealthDashboardSnapshot` now uses `filteredWithoutReadinessRecompute` plus a single anchored recompute, skipped entirely when the refreshed metric is outside `readinessInputMetricKinds`. Heart-rate partitioning binary-searches each workout's first sample instead of rescanning the month, and effort-score fan-out is pumped at ≤12 in-flight queries.
+- Reuse: The OR-compound + in-memory partition pattern scales to hundreds of subpredicates; prefer it over bounding concurrency when the per-element predicate is a plain date window. When a transform chain hides a recompute inside a convenience method (`filtered(by:)`), call the explicit no-recompute variant and recompute once at the end.
+
 ### 2026-05-18 - Eliminate N+1 HK queries with OR'd predicates + bounded task groups
 - Context: After moving HK fetch orchestration off the main actor (engine refactor), per-workout and per-sleep-day fan-outs still serialized inside the engine. `fetchWorkoutSummaries` awaited `fetchHeartRateSamples(for: workout)` and `fetchSavedEffortLevel(for: workout)` once per workout in a `for` loop; `fetchDailySleepHistory` awaited `fetchSleepVitals(...)` once per sleep day in a `for` loop. With ~30 workouts/month × 3 months and up to ~365 sleep days, that's hundreds of sequential HK round-trips on every full refresh.
 - Symptom: ~8–10 s cold-launch dashboard refresh even after HK queries were already off-main.

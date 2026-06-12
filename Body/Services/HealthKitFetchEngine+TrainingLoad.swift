@@ -33,7 +33,9 @@ extension HealthKitFetchEngine {
         }
 
         let task = Task<[WorkoutSummary], Error> { [self] in
-            try await fetchWorkoutSummaries(
+            let signpostState = BodyPerformanceSignposts.signposter.beginInterval("TrainingLoadWorkouts")
+            defer { BodyPerformanceSignposts.signposter.endInterval("TrainingLoadWorkouts", signpostState) }
+            return try await fetchWorkoutSummaries(
                 startDate: window.start,
                 endDate: window.end,
                 includesHeartRateSamples: false

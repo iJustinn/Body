@@ -77,17 +77,20 @@ struct WorkoutCalendarView: View {
     let snapshot: WorkoutMonthSnapshot
     let style: WorkoutCalendarDisplayStyle
     let fillsAvailableHeight: Bool
+    let referenceDate: Date
     let onSelectDay: ((WorkoutDaySummary) -> Void)?
 
     init(
         snapshot: WorkoutMonthSnapshot,
         style: WorkoutCalendarDisplayStyle = .app,
         fillsAvailableHeight: Bool = true,
+        referenceDate: Date = Date(),
         onSelectDay: ((WorkoutDaySummary) -> Void)? = nil
     ) {
         self.snapshot = snapshot
         self.style = style
         self.fillsAvailableHeight = fillsAvailableHeight
+        self.referenceDate = referenceDate
         self.onSelectDay = onSelectDay
     }
 
@@ -103,8 +106,13 @@ struct WorkoutCalendarView: View {
 
             LazyVGrid(columns: columns, spacing: rowSpacing) {
                 ForEach(calendarCells.indices, id: \.self) { index in
-                    calendarCell(calendarCells[index])
-                        .aspectRatio(1, contentMode: .fit)
+                    GeometryReader { proxy in
+                        calendarCell(
+                            calendarCells[index],
+                            glyphScale: glyphScale(forCellSide: min(proxy.size.width, proxy.size.height))
+                        )
+                    }
+                    .aspectRatio(1, contentMode: .fit)
                 }
             }
         }
@@ -127,10 +135,10 @@ struct WorkoutCalendarView: View {
         }
     }
 
-    private func calendarCell(_ day: WorkoutDaySummary?) -> some View {
+    private func calendarCell(_ day: WorkoutDaySummary?, glyphScale: CGFloat) -> some View {
         Group {
             if let day {
-                calendarCellContent(day)
+                calendarCellContent(day, glyphScale: glyphScale)
                     .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                     .onTapGesture {
                         if WorkoutCalendarDaySelection.isSelectable(day, hasSelectionHandler: onSelectDay != nil) {
@@ -143,15 +151,17 @@ struct WorkoutCalendarView: View {
         }
     }
 
-    private func calendarCellContent(_ day: WorkoutDaySummary) -> some View {
-        ZStack {
+    private func calendarCellContent(_ day: WorkoutDaySummary, glyphScale: CGFloat) -> some View {
+        let markerRowHeight = 9 * glyphScale
+
+        return ZStack {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(cellFill(for: day))
 
-            VStack(spacing: 3) {
+            VStack(spacing: 3 * glyphScale) {
                 if let workoutType = day.primaryWorkoutType {
                     Image(systemName: workoutType.symbolName)
-                        .font(.system(size: workoutIconSize, weight: .bold))
+                        .font(.system(size: workoutIconSize * glyphScale, weight: .bold))
                         .symbolRenderingMode(.monochrome)
                         .foregroundColor(workoutType.calendarContentColor)
                         .lineLimit(1)
@@ -159,17 +169,18 @@ struct WorkoutCalendarView: View {
 
                     workoutMarkers(
                         count: day.workoutCount,
-                        color: workoutType.calendarContentColor
+                        color: workoutType.calendarContentColor,
+                        glyphScale: glyphScale
                     )
                 } else {
                     Text("\(day.day)")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 22 * glyphScale, weight: .bold, design: .rounded))
+                        .foregroundColor(snapshot.isToday(day, reference: referenceDate) ? .primary : .secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
 
                     Color.clear
-                        .frame(height: 9)
+                        .frame(height: markerRowHeight)
                 }
             }
         }
@@ -195,16 +206,16 @@ struct WorkoutCalendarView: View {
     }
 
     @ViewBuilder
-    private func workoutMarkers(count: Int, color: Color) -> some View {
-        HStack(spacing: 2) {
+    private func workoutMarkers(count: Int, color: Color, glyphScale: CGFloat) -> some View {
+        HStack(spacing: 2 * glyphScale) {
             ForEach(Array(WorkoutCalendarCountMarker.markers(for: count).enumerated()), id: \.offset) { _, marker in
                 Image(systemName: marker.symbolName)
-                    .font(.system(size: marker.fontSize, weight: .bold))
+                    .font(.system(size: marker.fontSize * glyphScale, weight: .bold))
                     .foregroundColor(color.opacity(marker.opacity))
             }
         }
-        .frame(height: 9)
-        .offset(y: -2)
+        .frame(height: 9 * glyphScale)
+        .offset(y: -2 * glyphScale)
     }
 
     private func accessibilityLabel(for day: WorkoutDaySummary) -> String {
@@ -239,5 +250,18 @@ struct WorkoutCalendarView: View {
         case .widgetMedium:
             return 16
         }
+    }
+
+    /// Calendar cells are square and grow with the available width (7 per row),
+    /// but the glyphs inside them used a fixed point size, so on an iPad's much
+    /// larger cells they looked tiny. Scale the in-cell glyphs proportionally to
+    /// the cell side, floored at 1× so iPhone and the widgets — whose cells sit
+    /// at or below this reference size — render exactly as before and only the
+    /// roomier iPad layout scales up.
+    private static let referenceCellSide: CGFloat = 50
+
+    private func glyphScale(forCellSide side: CGFloat) -> CGFloat {
+        guard side > Self.referenceCellSide else { return 1 }
+        return side / Self.referenceCellSide
     }
 }

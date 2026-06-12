@@ -318,6 +318,7 @@ struct BodyHealthMetricDetailView: View {
     @State private var isPullRefreshing = false
     @State private var activeReadinessTrendValue: Double?
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
+    @StateObject private var daySeriesCache = BodyMetricDaySeriesCache()
 
     init(
         model: BodyHealthMetricDetailModel,
@@ -372,6 +373,7 @@ struct BodyHealthMetricDetailView: View {
             .padding(.horizontal, 16)
             .padding(.top, 16)
             .padding(.bottom, 32)
+            .readableContentColumn()
         }
         .refreshable {
             let started = Date()
@@ -387,6 +389,8 @@ struct BodyHealthMetricDetailView: View {
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .navigationTitle(model.title)
         .navigationBarTitleDisplayMode(.inline)
+        .tint(model.symbolColor)
+        .accentColor(model.symbolColor)
         .sheet(item: $selectedSleepScoreDetails) { selection in
             SleepScoreDetailsSheet(selection: selection, accentColor: model.symbolColor)
                 .presentationDetents([.height(BodySleepScoreDetailsSheetLayout.sheetHeight), .large])
@@ -517,8 +521,11 @@ struct BodyHealthMetricDetailView: View {
         SleepHistorySnapshot.datePickerDates(dayCount: BodyHealthTrendRange.recentMonth.dayCount, futureDayCount: 1)
     }
 
+    // `points(on:)` scans the whole intraday series (tens of thousands of
+    // points for heart rate); these are read several times per render, so the
+    // day slice is memoized until the series or selected day changes.
     private var selectedMetricDaySeries: HealthTrendSeries {
-        liveDaySeries.points(on: selectedMetricDay)
+        daySeriesCache.daySeries(from: liveDaySeries, on: selectedMetricDay, slot: .primary)
     }
 
     private var selectedMetricSecondaryDaySeries: HealthTrendSeries {
@@ -526,7 +533,7 @@ struct BodyHealthMetricDetailView: View {
             return .empty
         }
 
-        return liveSecondaryDaySeries.points(on: selectedMetricDay)
+        return daySeriesCache.daySeries(from: liveSecondaryDaySeries, on: selectedMetricDay, slot: .secondary)
     }
 
     private var selectedMetricActivityAverages: [BodyMetricActivityAverage] {
@@ -638,6 +645,8 @@ struct BodyHealthMetricDetailView: View {
         } else {
             sleepStageCard(selectedSleepStageSnapshot)
         }
+
+        sleepConsistencyCard
     }
 
     @ViewBuilder
@@ -1482,7 +1491,7 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var dateSliderSelectionColor: Color {
-        Color.accentColor
+        model.symbolColor
     }
 
     private var sleepDateSliderBackground: Color {
@@ -1593,6 +1602,15 @@ struct BodyHealthMetricDetailView: View {
 
                 Spacer(minLength: 12)
 
+                if snapshot.asleepDuration > 0 {
+                    Text(BodyValueFormat.sleepDurationText(for: snapshot.asleepDuration))
+                        .font(.system(.caption, design: .rounded))
+                        .fontWeight(.bold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+
                 if let sourceName {
                     Text(sourceName)
                         .font(.system(.caption, design: .rounded))
@@ -1631,13 +1649,76 @@ struct BodyHealthMetricDetailView: View {
         return "\(dateIdentity)-\(segmentIdentity)"
     }
 
+    private var sleepConsistencyCard: some View {
+        let chartModel = sleepConsistencyChartModel
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Sleep Consistency")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                Spacer(minLength: 12)
+
+                Text(workoutStore.selectedHealthDataSourceOption(for: model.kind).name)
+                    .font(.system(.caption, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .multilineTextAlignment(.trailing)
+            }
+
+            if chartModel.nights.count < 2 {
+                Text("Not enough sleep data yet")
+                    .font(.system(.body, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 220)
+            } else {
+                BodySleepConsistencyChart(
+                    model: chartModel,
+                    selectedDay: selectedSleepDay,
+                    onSelectDay: { day in
+                        selectDate(day, for: .sleep)
+                    }
+                )
+                .frame(height: BodyHealthDetailChartLayout.sleepConsistencyHeight)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground()
+    }
+
+    // One pass over the history instead of 14 `sleepSummary(for:)` scans;
+    // same precedence as that helper (history first, live summary only for
+    // today's slot).
+    private var sleepConsistencyChartModel: SleepConsistencyChartModel {
+        let calendar = Calendar.bodyGregorian
+        let days = SleepHistorySnapshot.datePickerDates(dayCount: SleepConsistencyChartModel.dayCount)
+        let historyByDay = Dictionary(
+            model.sleepHistory.days.map { (calendar.startOfDay(for: $0.date), $0.summary) },
+            uniquingKeysWith: { _, newest in newest }
+        )
+        let today = calendar.startOfDay(for: Date())
+
+        return SleepConsistencyChartModel.make(
+            entries: days.map { day in
+                let summary = historyByDay[day] ?? (day == today ? currentSleepSummary(for: day) : nil)
+                return (day: day, snapshot: summary?.stageSnapshot)
+            },
+            calendar: calendar
+        )
+    }
+
     private var aboutSleepScoreCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("About Sleep Score")
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 
-            Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and wrist temperature. Missing sensors are skipped instead of counted as zero.")
+            Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines, and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero.")
                 .font(.system(.body, design: .rounded))
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
@@ -1732,7 +1813,7 @@ struct BodyHealthMetricDetailView: View {
                 temperatureUnitPreference: selectedTemperatureUnitPreference
             )
             rows.append(SleepVitalDisplayRow(
-                title: "Wrist Temperature",
+                title: "Skin Temperature",
                 value: display.value,
                 unit: display.unit,
                 symbolName: "thermometer.medium",
@@ -1953,5 +2034,42 @@ struct BodyHealthMetricDetailView: View {
             .foregroundColor(.secondary)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
+    }
+}
+
+/// Memoizes the day slice of the intraday sample series. Filtering is O(full
+/// series) — up to tens of thousands of points for heart rate — and the
+/// detail view reads the slice several times per render while the store
+/// publishes multiple progressive-refresh updates.
+@MainActor
+final class BodyMetricDaySeriesCache: ObservableObject {
+    enum Slot {
+        case primary
+        case secondary
+    }
+
+    private struct Key: Equatable {
+        let day: Date
+        let pointCount: Int
+        let firstDate: Date?
+        let lastDate: Date?
+    }
+
+    private var entriesBySlot: [Slot: (key: Key, series: HealthTrendSeries)] = [:]
+
+    func daySeries(from series: HealthTrendSeries, on day: Date, slot: Slot) -> HealthTrendSeries {
+        let key = Key(
+            day: day,
+            pointCount: series.points.count,
+            firstDate: series.points.first?.date,
+            lastDate: series.points.last?.date
+        )
+        if let entry = entriesBySlot[slot], entry.key == key {
+            return entry.series
+        }
+
+        let daySeries = series.points(on: day)
+        entriesBySlot[slot] = (key, daySeries)
+        return daySeries
     }
 }

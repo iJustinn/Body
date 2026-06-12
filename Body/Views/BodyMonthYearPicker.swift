@@ -16,11 +16,7 @@ struct BodyMonthYear: Identifiable, Equatable {
             return "\(month) \(year)"
         }
 
-        let formatter = DateFormatter()
-        formatter.calendar = .bodyGregorian
-        formatter.locale = .current
-        formatter.dateFormat = "MMMM yyyy"
-        return formatter.string(from: date)
+        return BodyDateFormatterCache.formatter(dateFormat: "MMMM yyyy").string(from: date)
     }
 
     func isFuture(relativeTo date: Date = Date(), calendar: Calendar = .bodyGregorian) -> Bool {
@@ -317,11 +313,7 @@ private struct BodyMonthYearCarouselItem: View {
             return "\(monthYear.month)"
         }
 
-        let formatter = DateFormatter()
-        formatter.calendar = .bodyGregorian
-        formatter.locale = .current
-        formatter.dateFormat = "MMMM"
-        return formatter.string(from: date)
+        return BodyDateFormatterCache.formatter(dateFormat: "MMMM").string(from: date)
     }
 
     private var clampedDistance: CGFloat {

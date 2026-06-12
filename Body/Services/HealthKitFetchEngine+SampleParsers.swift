@@ -224,6 +224,34 @@ extension HealthKitFetchEngine {
         )
     }
 
+    /// Summary for a workout whose heart-rate payload is reused from a cached
+    /// summary (passive resumes; eligibility decided by
+    /// `heartRateReuseEligibleWorkoutIDs`). Metadata comes fresh from the
+    /// `HKWorkout`; the cached average + samples are copied verbatim — the
+    /// cached average was computed from the raw samples *before* downsampling,
+    /// so re-deriving it from the stored ≤96 samples would drift.
+    nonisolated static func summary(
+        for workout: HKWorkout,
+        reusingHeartRateFrom cached: WorkoutSummary,
+        effortLevel: Double? = nil
+    ) -> WorkoutSummary {
+        let activeEnergy = activeEnergyKilocalories(for: workout)
+
+        return WorkoutSummary(
+            id: workout.uuid,
+            type: HealthKitWorkoutStore.workoutType(for: workout.workoutActivityType),
+            startDate: workout.startDate,
+            duration: workout.duration,
+            activeEnergyKilocalories: activeEnergy,
+            totalEnergyKilocalories: totalEnergyKilocalories(for: workout) ?? activeEnergy,
+            distanceMeters: workout.totalDistance?.doubleValue(for: .meter()),
+            averageHeartRateBeatsPerMinute: cached.averageHeartRateBeatsPerMinute,
+            effortLevel: effortLevel,
+            heartRateSamples: cached.heartRateSamples ?? [],
+            sourceName: workout.sourceRevision.source.name
+        )
+    }
+
     nonisolated private static func activeEnergyKilocalories(for workout: HKWorkout) -> Double? {
         guard let activeEnergyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) else {
             return nil

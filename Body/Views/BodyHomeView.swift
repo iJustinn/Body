@@ -89,10 +89,22 @@ func wristTemperatureBaselineValue(from finiteValues: [Double]) -> Double {
 }
 
 func wristTemperatureBaseline(from series: HealthTrendSeries) -> Double {
-    let points = series.lineChartCalendarPoints(to: .recentYear)
+    wristTemperatureBaselineIfAvailable(from: series) ?? 0
+}
+
+/// The chart-stable baseline median over the recent year, or `nil` when the
+/// series has no finite values. The compression inside
+/// `lineChartCalendarPoints` is the costly step — render paths should cache
+/// the result (see `BodyHomeTrendComputationCache.wristTemperatureBaseline`).
+func wristTemperatureBaselineIfAvailable(
+    from series: HealthTrendSeries,
+    calendar: Calendar = .bodyGregorian,
+    date: Date = Date()
+) -> Double? {
+    let points = series.lineChartCalendarPoints(to: .recentYear, calendar: calendar, date: date)
     let finiteValues = points.compactMap(\.value).filter(\.isFinite)
     guard !finiteValues.isEmpty else {
-        return 0
+        return nil
     }
 
     return wristTemperatureBaselineValue(from: finiteValues)
@@ -100,20 +112,33 @@ func wristTemperatureBaseline(from series: HealthTrendSeries) -> Double {
 
 func wristTemperatureBaselineDeviationDisplay(
     currentCelsius: Double?,
-    series: HealthTrendSeries
+    series: HealthTrendSeries,
+    temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
 ) -> BodyMetricDisplayValue {
-    let points = series.lineChartCalendarPoints(to: .recentYear)
-    let finiteValues = points.compactMap(\.value).filter(\.isFinite)
+    wristTemperatureBaselineDeviationDisplay(
+        currentCelsius: currentCelsius,
+        baseline: wristTemperatureBaselineIfAvailable(from: series),
+        temperatureUnitPreference: temperatureUnitPreference
+    )
+}
+
+func wristTemperatureBaselineDeviationDisplay(
+    currentCelsius: Double?,
+    baseline: Double?,
+    temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
+) -> BodyMetricDisplayValue {
     guard
-        !finiteValues.isEmpty,
+        let baseline,
         let current = currentCelsius,
         current.isFinite
     else {
         return BodyMetricDisplayValue(title: "Baseline", value: "--", unit: "")
     }
 
-    let baseline = wristTemperatureBaselineValue(from: finiteValues)
-    let diff = current - baseline
+    // A temperature delta converts by scale only (1 °C of change = 1.8 °F of
+    // change); the +32 offset of the absolute conversion must not be applied.
+    let diffCelsius = current - baseline
+    let diff = temperatureUnitPreference == .fahrenheit ? diffCelsius * 1.8 : diffCelsius
     let magnitude = BodyValueFormat.numberText(abs(diff), decimals: 1)
     let formattedValue: String
     if diff > 0.05 {
@@ -124,7 +149,11 @@ func wristTemperatureBaselineDeviationDisplay(
         formattedValue = magnitude
     }
 
-    return BodyMetricDisplayValue(title: "Baseline", value: formattedValue, unit: "C")
+    return BodyMetricDisplayValue(
+        title: "Baseline",
+        value: formattedValue,
+        unit: temperatureUnitPreference.unitLabel
+    )
 }
 
 func bodyChartSelectionDateText(startDate: Date, endDate: Date) -> String? {
@@ -235,7 +264,6 @@ extension View {
 
 struct BodyHomeView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
-    @AppStorage(BodyAppearancePreference.selectedAccentKey) private var selectedAccentRawValue = BodyAppAccent.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
@@ -246,6 +274,7 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var draggedHomeCard: BodyHomeCardKind?
     @State private var showsAllHomeTrends = false
     @State private var isPullRefreshing = false
@@ -265,29 +294,26 @@ struct BodyHomeView: View {
                             BodyHealthNoticeBanner(message: healthDataNotice)
                         }
 
-                        VStack(spacing: 14) {
-                            ForEach(homeCardRows) { row in
-                                HStack(spacing: 14) {
-                                    ForEach(row.cards) { card in
-                                        reorderableHomeCard(for: card, lookup: metricCardLookup)
-                                            .frame(maxWidth: .infinity)
-                                    }
+                        if horizontalSizeClass == .regular {
+                            HStack(alignment: .top, spacing: 14) {
+                                metricCardsGrid(lookup: metricCardLookup)
+                                    .frame(maxWidth: .infinity, alignment: .top)
 
-                                    if row.slotCount < 2 {
-                                        Color.clear
-                                            .frame(maxWidth: .infinity)
-                                            .accessibilityHidden(true)
-                                    }
+                                if hasHomeTrends {
+                                    homeTrendsContent
+                                        .frame(maxWidth: .infinity, alignment: .top)
                                 }
                             }
-                        }
-                        .animation(.spring(response: 0.25, dampingFraction: 0.85), value: homeCardOrder)
+                        } else {
+                            metricCardsGrid(lookup: metricCardLookup)
 
-                        homeTrendsSection
+                            homeTrendsSection
+                        }
                     }
                     .padding(.horizontal)
                     .padding(.top, 10)
                     .padding(.bottom, 110)
+                    .readableContentColumn(maxWidth: AppLayout.homeContentWidth)
                 }
                 .refreshable {
                     let started = Date()
@@ -315,6 +341,28 @@ struct BodyHomeView: View {
         BodyHomeCardKind.layoutRows(from: homeCardOrder, visibleIn: summaryCardSelection)
     }
 
+    /// The two-column grid of summary metric cards (identical on iPhone and iPad).
+    @ViewBuilder
+    private func metricCardsGrid(lookup: [HealthMetricKind: BodyHealthMetricCard.Model]) -> some View {
+        VStack(spacing: 14) {
+            ForEach(homeCardRows) { row in
+                HStack(spacing: 14) {
+                    ForEach(row.cards) { card in
+                        reorderableHomeCard(for: card, lookup: lookup)
+                            .frame(maxWidth: .infinity)
+                    }
+
+                    if row.slotCount < 2 {
+                        Color.clear
+                            .frame(maxWidth: .infinity)
+                            .accessibilityHidden(true)
+                    }
+                }
+            }
+        }
+        .animation(.spring(response: 0.25, dampingFraction: 0.85), value: homeCardOrder)
+    }
+
     private var summaryCardSelection: BodySummaryCardSelection {
         BodySummaryCardSelection.storedValue(from: summaryCardSelectionRawValue)
     }
@@ -331,24 +379,33 @@ struct BodyHomeView: View {
         BodyHomeTrendCardSelection.storedValue(from: homeTrendCardSelectionRawValue)
     }
 
+    private var hasHomeTrends: Bool {
+        !visibleHomeTrendCards.isEmpty
+    }
+
+    /// The trends list without the leading section divider, shared by the iPhone
+    /// (stacked below the metrics) and iPad (right-hand column) layouts.
     @ViewBuilder
-    private var homeTrendsSection: some View {
-        let allCards = allHomeTrendCards
-        let significantCards = showsAllHomeTrends ? allCards : significantHomeTrendCards
-        let visibleTrendCards = showsAllHomeTrends ? allCards : Array(significantCards.prefix(4))
-        let canToggleAll = showsAllHomeTrends || allCards.count > visibleTrendCards.count
-
-        if !visibleTrendCards.isEmpty {
-            BodyHomeSectionDivider()
-                .padding(.top, 8)
-
+    private var homeTrendsContent: some View {
+        if hasHomeTrends {
             BodyHomeTrendsSection(
-                cards: visibleTrendCards,
-                canToggleAll: canToggleAll,
+                cards: visibleHomeTrendCards,
+                canToggleAll: canToggleAllHomeTrends,
                 showsAllTrends: showsAllHomeTrends,
                 toggleAll: toggleAllHomeTrends
             )
-            .padding(.top, 8)
+        }
+    }
+
+    /// iPhone layout: trends stacked beneath the metrics with a divider separator.
+    @ViewBuilder
+    private var homeTrendsSection: some View {
+        if hasHomeTrends {
+            BodyHomeSectionDivider()
+                .padding(.top, 8)
+
+            homeTrendsContent
+                .padding(.top, 8)
         }
     }
 
@@ -521,10 +578,6 @@ struct BodyHomeView: View {
         )
     }
 
-    private var selectedAccent: BodyAppAccent {
-        BodyAppAccent.storedValue(from: selectedAccentRawValue)
-    }
-
     private var selectedWeightUnitPreference: BodyValueFormat.WeightUnitPreference {
         if followsSystemUnits {
             return BodyValueFormat.WeightUnitPreference.systemValue(locale: .current)
@@ -637,18 +690,19 @@ struct BodyHomeView: View {
             temperatureUnitPreference: selectedTemperatureUnitPreference
         ).unit
         let actualDisplay = BodyMetricDisplayValue(
-            title: "Wrist Temperature",
+            title: "Skin Temperature",
             value: display?.value ?? "--",
             unit: display?.unit ?? temperatureUnit
         )
         let deviationDisplay = wristTemperatureBaselineDeviationDisplay(
             currentCelsius: summary.wristTemperature.value,
-            series: chartPreview
+            baseline: trendComputationCache.wristTemperatureBaseline(from: chartPreview),
+            temperatureUnitPreference: selectedTemperatureUnitPreference
         )
 
         return BodyHealthMetricCard.Model(
             kind: .wristTemperature,
-            title: "Wrist Temp",
+            title: "Skin Temp",
             value: display?.value ?? "--",
             unit: display?.unit ?? temperatureUnit,
             symbolName: "thermometer.medium",
@@ -928,17 +982,18 @@ struct BodyHomeView: View {
                 temperatureUnitPreference: selectedTemperatureUnitPreference
             ).unit
             let actualDisplay = BodyMetricDisplayValue(
-                title: "Wrist Temperature",
+                title: "Skin Temperature",
                 value: display?.value ?? "--",
                 unit: display?.unit ?? temperatureUnit
             )
             let deviationDisplay = wristTemperatureBaselineDeviationDisplay(
                 currentCelsius: summary.wristTemperature.value,
-                series: trends.wristTemperature
+                series: trends.wristTemperature,
+                temperatureUnitPreference: selectedTemperatureUnitPreference
             )
             return BodyHealthMetricDetailModel(
                 kind: kind,
-                title: "Wrist Temperature",
+                title: "Skin Temperature",
                 value: display?.value ?? "--",
                 unit: display?.unit ?? temperatureUnit,
                 symbolName: "thermometer.medium",
@@ -1012,7 +1067,7 @@ struct BodyHomeView: View {
                 sleepHistory: trends.sleepHistory,
                 sleepHistorySecondary: trends.sleepHistorySecondary,
                 chartStyle: .line,
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + "h" },
+                valueFormatter: { BodyValueFormat.sleepDurationText(for: $0 * 60 * 60) },
                 secondaryValueFormatter: nil,
                 sourceLineComparisonTrend: workoutStore.sourceLineComparisonTrend(for: kind),
                 dataSourceText: kind.detailDataSourceText
@@ -1165,7 +1220,7 @@ struct BodyHomeView: View {
                 unit: "",
                 decimals: 1,
                 symbolName: "person.fill",
-                symbolColor: selectedAccent.color
+                symbolColor: Color(red: 0.00, green: 0.62, blue: 0.70)
             )
         case .activeEnergy:
             return metricDetail(
@@ -1292,9 +1347,14 @@ private struct BodyHomeCardDropDelegate: DropDelegate {
 enum BodyHomeMetricCardPreview {
     static let previewDayCount = 4
     static let compactPreviewDayCount = 3
+    static let regularPreviewDayCount = 5
     static let compactScreenMaximumWidth: CGFloat = 375
+    static let regularScreenMinimumWidth: CGFloat = 700
     static let linePreviewWidth: CGFloat = 42
     static let barPreviewWidth: CGFloat = 42
+    static let compactPreviewHeight: CGFloat = 42
+    static let regularPreviewWidth: CGFloat = 50
+    static let regularPreviewHeight: CGFloat = 50
     static let linePointDiameter: CGFloat = 6
     static let lineCurrentPointDiameter: CGFloat = 7
 
@@ -1318,7 +1378,33 @@ enum BodyHomeMetricCardPreview {
             return previewDayCount
         }
 
+        if screenWidth >= regularScreenMinimumWidth {
+            return regularPreviewDayCount
+        }
+
         return screenWidth <= compactScreenMaximumWidth ? compactPreviewDayCount : previewDayCount
+    }
+
+    /// iPad-class screens (same threshold as the larger preview point count) get a roomier preview chart.
+    static func isRegularPreviewWidth(_ screenWidth: CGFloat) -> Bool {
+        screenWidth.isFinite && screenWidth >= regularScreenMinimumWidth
+    }
+
+    static func previewWidth(for style: Style, screenWidth: CGFloat) -> CGFloat {
+        if isRegularPreviewWidth(screenWidth) {
+            return regularPreviewWidth
+        }
+
+        switch style {
+        case .line:
+            return linePreviewWidth
+        case .bar, .range:
+            return barPreviewWidth
+        }
+    }
+
+    static func previewHeight(forScreenWidth screenWidth: CGFloat) -> CGFloat {
+        isRegularPreviewWidth(screenWidth) ? regularPreviewHeight : compactPreviewHeight
     }
 
     static func calendarPoints(
@@ -1863,6 +1949,7 @@ final class BodyHomeTrendComputationCache: ObservableObject {
     }
 
     private var entries: [CacheKey: Entry] = [:]
+    private var wristTemperatureBaselineEntry: (fingerprint: Fingerprint, baseline: Double?)?
 
     func result(
         for kind: HealthMetricKind,
@@ -1871,14 +1958,7 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> BodyHomeTrendCardPresentation.WindowResult? {
-        let fingerprint = Fingerprint(
-            dayStart: calendar.startOfDay(for: date),
-            pointCount: series.points.count,
-            firstTimestamp: series.points.first?.date.timeIntervalSinceReferenceDate,
-            lastTimestamp: series.points.last?.date.timeIntervalSinceReferenceDate,
-            firstValue: series.points.first?.value,
-            lastValue: series.points.last?.value
-        )
+        let fingerprint = Self.fingerprint(for: series, dayStart: calendar.startOfDay(for: date))
         let key = CacheKey(kind: kind, includesStable: includesStable)
         if let entry = entries[key], entry.fingerprint == fingerprint {
             return entry.result
@@ -1891,5 +1971,34 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         )
         entries[key] = Entry(fingerprint: fingerprint, result: result)
         return result
+    }
+
+    /// Memoizes the Skin Temperature baseline median — its stable-line
+    /// compression is the most expensive per-render computation in the
+    /// metric-card build, and the series only changes when a refresh lands.
+    func wristTemperatureBaseline(
+        from series: HealthTrendSeries,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> Double? {
+        let fingerprint = Self.fingerprint(for: series, dayStart: calendar.startOfDay(for: date))
+        if let entry = wristTemperatureBaselineEntry, entry.fingerprint == fingerprint {
+            return entry.baseline
+        }
+
+        let baseline = wristTemperatureBaselineIfAvailable(from: series, calendar: calendar, date: date)
+        wristTemperatureBaselineEntry = (fingerprint, baseline)
+        return baseline
+    }
+
+    private static func fingerprint(for series: HealthTrendSeries, dayStart: Date) -> Fingerprint {
+        Fingerprint(
+            dayStart: dayStart,
+            pointCount: series.points.count,
+            firstTimestamp: series.points.first?.date.timeIntervalSinceReferenceDate,
+            lastTimestamp: series.points.last?.date.timeIntervalSinceReferenceDate,
+            firstValue: series.points.first?.value,
+            lastValue: series.points.last?.value
+        )
     }
 }

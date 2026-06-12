@@ -1,8 +1,75 @@
 # Version History
 
-## 1.0.0 (build 1)
+## 0.9.2 (build 8)
 
-- Updated the app, widget, and test bundle version to 1.0.0 build 1.
+- Performance: workout effort scores are now cached for the app session. Effort needs one HealthKit query per workout, and every refresh re-asked it for the 180-day Training Load window and the current month (~100–300 queries for an active user); passive resumes now query only workouts without a cached answer, while any pull-to-refresh (Home, Workouts tab, Training Load detail) clears the cache first so re-rated workouts always reconcile.
+- Performance: automatic warm resumes reuse the heart-rate payload already fetched for finished workouts instead of re-downloading and re-downsampling every workout's raw samples in the month on each resume. Reuse only applies when the workout's identity and dates match exactly, its cached samples are non-empty, and it ended over 24 hours ago (so late or partial Apple Watch syncs always re-fetch); the workout list itself is still fetched fresh on every refresh, and user-initiated refreshes re-fetch all heart-rate data unconditionally.
+- Added child performance signposts (workout months, source discovery, dashboard summary/trends/rings, training-load fetch, readiness recompute) inside the existing RefreshRecentMonths interval so future optimization is measured in Instruments instead of guessed.
+- Updated the app, widget, and test bundle version to 0.9.2 build 8.
+
+## 0.9.2 (build 7)
+
+- Performance: an automatic warm resume that finds the dashboard stale (foregrounding the app more than five minutes after the last refresh) now re-fetches only the current month of workouts instead of the full three-month window. Past months are effectively immutable, the Workouts tab still loads its three-month window on demand, and a pull-to-refresh still reconciles all three months — so this drops redundant heart-rate/effort fetching from the common "reopen to catch up" path without losing any data.
+- Updated the app, widget, and test bundle version to 0.9.2 build 7.
+
+## 0.9.2 (build 6)
+
+- Performance: the Summary dashboard no longer waits on the Workouts tab during a warm launch or pull-to-refresh. The full refresh used to fetch three months of workouts (with their per-workout heart-rate and effort-score queries) before it even began loading the dashboard metrics, Activity Rings, and trend charts; the workout months now load concurrently with the dashboard, so the Summary cards fill in as soon as their own data lands instead of after the workout fetch finishes.
+- Performance: Apple Health source discovery (which apps and devices wrote each metric) now runs its per-metric queries concurrently instead of one metric at a time, collapsing a serial stretch that gated the first refresh of each app launch.
+- A failed workout fetch no longer blocks the dashboard from appearing, and the refresh is only marked fresh when the workouts also load — so a partial failure re-runs the full refresh on the next app entry instead of being skipped by the five-minute resume shortcut.
+- Updated the app, widget, and test bundle version to 0.9.2 build 6.
+
+## 0.9.2 (build 3)
+
+- The Sleep Score was recalibrated after a 13-night comparison against WHOOP sleep scores showed every night landing 80–92: REM, start-time, vitals, and temperature were near-guaranteed points, and HRV was graded against a fixed 80 ms target. Pressure (HRV), sleeping heart rate, respiratory rate, and wrist temperature are now graded against the user's own 14-night overnight medians (falling back to the previous absolute bands below 5 nights of history), continuity and duration use steeper curves, deep/REM use floor-anchored one-sided ramps (high REM and long sleep are never penalized), and the total passes through a breadth-aware decompression map so only truly strong nights score 90+. Typical nights now read ~75–88, disturbed or crash nights drop to ~55–70, and a perfect night still reads 100; sleep scores users saw previously will drop — expected.
+- The Sleep Stages card now shows the night's total sleep time (hours and minutes, awake time excluded) in the header next to the source label, so the duration is visible without adding up stages — including per-source totals on the two-source comparison cards.
+- Sleep durations on the week, month, six-month, and year trend charts (axis labels, selection readouts, and average annotations) now display as hours and minutes ("7h 54m") instead of decimal hours ("7.9h"), matching the Sleep card and widget.
+- Updated the app, widget, and test bundle version to 0.9.2 build 3.
+
+## 0.9.2 (build 2)
+
+- Today's date now stands out in the Workouts calendar and the Workout Calendar widget: its day number uses the primary label color (white in dark mode, black in light mode) instead of the muted gray shared by the other days.
+- Calendar workout icons, count markers, and day numbers now scale with the cell size so they keep their proportions on iPad's larger calendar instead of staying pinned to the iPhone point sizes.
+- Fixed the iPad windowed app (Stage Manager, Split View, and Slide Over) rendering its dashboard and cards a washed-out gray: iPadOS raises the window's trait collection to `.elevated`, which lightens every semantic system background one step, so the host window now pins its interface level back to `.base` to match the full-screen appearance.
+- The Sleep detail Sleep Stages chart now labels only the actual sleep start and end times on the x-axis instead of fixed two-hour ticks, with the first and last labels anchored to the chart edges so the end time no longer clips off the right side.
+- Readiness was recalibrated to a recovery-anchored model after a 13-day comparison against WHOOP recovery showed the weighted average compressing real crash days into 76–95 "High": the autonomic core (HRV-led, with resting heart rate) now maps through a logistic curve and sleep, training load, and vitals anomalies apply bounded multiplicative penalties, so typical days read Moderate (~65–79), crash days drop into Low/Poor, and extreme breathing/temperature/blood-oxygen anomalies cap the score at 25.
+- Readiness now scores overnight (sleep-window) HRV, heart rate, respiratory rate, blood oxygen, and wrist temperature whenever at least 14 nights of hydrated sleep vitals exist in the 56-day baseline window — whole-day averages had masked overnight physiology (e.g. a daytime HRV average of 89 ms on a morning WHOOP scored 17) — with the HRV+heart-rate pair switching sources atomically and falling back to the previous whole-day behavior for users without sleep tracking. Historical readiness trend scores are recomputed wholesale under the new model.
+- Updated the app, widget, and test bundle version to 0.9.2 build 2.
+
+## 0.9.2 (build 1)
+
+- Performance: cold launch no longer decodes lazily loaded intraday chart samples on the main thread — they live in a sidecar cache hydrated in the background after the first frame, and the current-month workout snapshot is read once at launch instead of twice.
+- Performance: full refresh batches sleep-vitals hydration into five window-wide HealthKit queries partitioned per night in memory, replacing up to ~1,800 per-day queries.
+- Performance: workout heart-rate samples are partitioned per workout with binary search instead of rescanning the month's samples per workout, and effort-score fetches run with bounded concurrency.
+- Performance: metric-detail pull-to-refresh extends cached intraday samples incrementally instead of refetching the full trend window of raw samples, and metrics that do not feed Readiness skip the readiness recompute.
+- Performance: Summary metric cards precompute their preview points once per model update instead of regrouping the full trend series several times per render, metric detail views slice the intraday day series once per selected day instead of rescanning it on every render, calendar and workout text reuses cached date formatters, and the Settings cache row reads disk sizes off the main thread.
+- Performance: widget timeline reloads are coalesced to a single reload per refresh, and cached workout months are capped in memory.
+- Fixed the snapshot save-if-changed compare: `JSONEncoder` randomizes key order between encodes, so every refresh previously rewrote all snapshot caches and requested widget reloads even when nothing changed. Snapshot encoders now emit sorted keys, making the byte compare reliable.
+- Updated the app, widget, and test bundle version to 0.9.2 build 1.
+
+## 0.9.1 (build 3)
+
+- Fixed the Steps trend card icon to use the walking figure instead of the Active Energy flame.
+- Clear Cache now also deletes the shared health widget snapshot so the Health Metric, Health Trend, and Sleep Stages widgets empty out with the rest of the local cache, and the Settings cache size readout includes that file.
+- Skin Temperature baseline deviation now converts to the selected temperature unit on the Summary card, the detail header, and the Health Metric widget, matching the detail chart's annotation.
+- Refresh entry points now claim the refresh slot before requesting HealthKit authorization so concurrent triggers can no longer start overlapping full refreshes or dismiss the loading overlay early.
+- The small Health Metric widget now shows its empty state for metrics without chartable data instead of a blank chart with "--".
+- Cumulative metric summaries (Steps, Active Energy, Resting Energy, Exercise Minutes, Time In Daylight) now report only today's total instead of showing yesterday's full-day total under the Current label before today's first sample.
+- Hardened cached dashboard decoding so an unreadable readiness blob degrades to "Needs Data" instead of discarding the entire cached snapshot.
+- Removed an unused duplicate activity-ring month key helper from `HealthKitWorkoutStore` and refreshed stale "May 2026 seed" references in README/TestPlan plus the Health Trend widget's header comment.
+- Updated the app, widget, and test bundle version to 0.9.1 build 3.
+
+## 0.9.1 (build 2)
+
+- Added iPad support with a two-column dashboard, a side column for trends, larger preview charts, and readable width limits on the dashboard, workouts, settings, and metric detail screens.
+- Enabled landscape orientation on iPad.
+- Removed an unused Sign in with Apple entitlement from the widget extension so automatic signing succeeds.
+- Renamed the Wrist Temperature metric to Skin Temperature across the app, widgets, and the Health permission description.
+- Updated the app, widget, and test bundle version to 0.9.1 build 2.
+
+## 0.9.1 (build 1)
+
+- Updated the app, widget, and test bundle version to 0.9.1 build 1.
 
 ## 0.7.0 (build 2)
 
