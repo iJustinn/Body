@@ -101,6 +101,10 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var healthDataNotice: String?
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastSuccessfulRefreshDate: Date?
+    /// Date of the last refresh that re-fetched the dashboard vitals (not just
+    /// workouts or ring history). Carried in the watch snapshot so the watch's
+    /// staleness logic isn't reset by workout-only refreshes.
+    private var lastVitalsRefreshDate: Date?
     @Published private(set) var loadingMonthKeys: Set<BodyWorkoutMonthKey> = []
     @Published private(set) var loadingActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
     @Published private(set) var hasMoreActivityRingHistory = true
@@ -385,7 +389,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 recomputesReadiness: Self.readinessInputMetricKinds.contains(kind)
             )
             authorizationState = .authorized
-            markRefreshSucceeded(date: date)
+            markRefreshSucceeded(date: date, refreshedVitals: false)
             updateHealthDataNotice()
         } catch {
             handleRefreshError(error)
@@ -1157,7 +1161,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 HealthDashboardSnapshotStore.save(snapshotToSave)
             }
             authorizationState = .authorized
-            markRefreshSucceeded(date: Date())
+            markRefreshSucceeded(date: Date(), refreshedVitals: false)
             updateHealthDataNotice()
         } catch {
             handleRefreshError(error)
@@ -1348,7 +1352,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             // shortcut, so don't `markRefreshSucceeded` unless workouts landed.
             try await workoutRefresh
             authorizationState = .authorized
-            markRefreshSucceeded(date: date)
+            markRefreshSucceeded(date: date, refreshedVitals: true)
             updateCurrentMonthSnapshot(date: date, calendar: calendar)
             updateHealthDataNotice()
         } catch {
@@ -1409,7 +1413,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             }
             try await workoutRefresh
             authorizationState = .authorized
-            markRefreshSucceeded(date: refreshDate)
+            markRefreshSucceeded(date: refreshDate, refreshedVitals: updatesHealthSummary)
             updateCurrentMonthSnapshot(date: refreshDate, calendar: calendar)
             updateHealthDataNotice()
         } catch {
@@ -1546,7 +1550,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             try await engine.requestAuthorization()
             try await refresh(monthKeys: keysToLoad, calendar: .bodyGregorian)
             authorizationState = .authorized
-            markRefreshSucceeded(date: Date())
+            markRefreshSucceeded(date: Date(), refreshedVitals: false)
             updateHealthDataNotice()
         } catch {
             handleRefreshError(error)
@@ -1734,9 +1738,29 @@ final class HealthKitWorkoutStore: ObservableObject {
         saveHealthWidgetSnapshot()
     }
 
-    private func markRefreshSucceeded(date: Date) {
+    private func markRefreshSucceeded(date: Date, refreshedVitals: Bool) {
         lastSuccessfulRefreshDate = date
         HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(date)
+        if refreshedVitals {
+            lastVitalsRefreshDate = date
+        }
+        publishWatchSnapshot()
+    }
+
+    /// Pushes the latest metrics to the paired Apple Watch. Best-effort: the
+    /// build is pure and `send` never blocks the refresh. Publishing from the
+    /// common funnel (including workout-only paths) keeps the watch's values
+    /// current, but `lastRefreshDate` carries the last *vitals* refresh — a
+    /// workout-only refresh must not look fresh to the watch, or it would
+    /// suppress the watch's own stale-triggered live HR/HRV refresh.
+    private func publishWatchSnapshot() {
+        let snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: healthSummary,
+            trends: healthTrends,
+            lastRefreshDate: lastVitalsRefreshDate,
+            permissionSelection: permissionSelection
+        )
+        WatchConnectivityPublisher.shared.send(snapshot)
     }
 
     /// Builds the slim widget snapshot from the current trends, sleep stages,

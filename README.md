@@ -6,7 +6,7 @@
 
 Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, Readiness, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
-Current app version: **0.9.2 (build 3)**
+Current app version: **0.9.3 (build 1)**
 
 ## Screenshots
 
@@ -31,6 +31,7 @@ Current app version: **0.9.2 (build 3)**
 - **Sleep detail** - Today's sleep score, stage timeline, Apple-style Sleep Vitals chart, and range trend chart.
 - **Pull-to-refresh feedback** - Summary, metric detail, and Workouts each show a "Loading data..." overlay during pull-to-refresh that stays on screen until the underlying HealthKit refresh actually finishes, including waiting for any background sync already in flight.
 - **Widgets** - Large workout calendar widget (monthly tiles using SF workout icons, with star/moon/sun count markers) and large workout types widget (percentage-bar breakdown by type). System, Black, and White background choices.
+- **Apple Watch** - A companion watch app shows Readiness, Sleep, Heart Rate, HRV, Resting Heart Rate, Training Load, and Skin Temperature in the iOS card style, plus a ring-style complication for each metric (accessory circular and rectangular). Metrics are pushed from the iPhone over WatchConnectivity and cached on the watch for its complications; Heart Rate and HRV are refreshed directly on the watch when the pushed snapshot is stale. Complications refresh when the watch app is opened; snapshots pushed while it's closed are applied on next launch.
 - **Apple Health sync** - Read-only access to workouts, activity rings, sleep, heart, body measurements, energy, daylight, steps, exercise minutes, and skin temperature. Workout summaries and dashboard snapshots are written to App Group storage for widgets.
 - **Settings** - Appearance, Units, app icon selection, Data > Source defaults for Apple Health sources, Data > Permissions to hide categories from the dashboard, and About rows.
 - **Local-first** - Widgets read a cached JSON snapshot from the app group; they do not query HealthKit directly. A current-month preview snapshot keeps the UI useful before authorization. The dashboard cache invalidates stale secondary-source series automatically when the user changes a comparison source between launches.
@@ -38,6 +39,7 @@ Current app version: **0.9.2 (build 3)**
 ## Requirements
 
 - iOS 18.0+
+- watchOS 11.0+ (optional Apple Watch app)
 - Xcode 26.4+
 - Swift 5 language mode
 - Apple Health read permission

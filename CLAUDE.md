@@ -63,3 +63,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+---
+
+# Body — Project Instructions
+
+- Keep the project documentation in sync with code changes: whenever you change behavior, configuration, or the app version, update **README.md** (current version + feature descriptions), **VersionHistory.md** (add an entry, newest first, on each `MARKETING_VERSION`/build bump), and **TestPlan.md** (keep cases matching current code — versions, entitlements/App Group, HealthKit usage, Body Pro products, widget/watch features, feature flags — so stale assumptions don't cause false QA failures) as part of the same change. `BodyTests/ProjectConfigurationTests.swift` asserts these version/doc strings, so update those guards in the same change too.

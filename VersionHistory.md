@@ -1,5 +1,12 @@
 # Version History
 
+## 0.9.3 (build 1)
+
+- Added an Apple Watch app and ring-style complications. The watch app shows Readiness, Sleep, Heart Rate, HRV, Resting Heart Rate, Training Load, and Skin Temperature in the iOS card style, and ships a complication per metric (accessory circular and rectangular). The iPhone stays the source of truth: it builds a compact metrics snapshot at the end of each successful refresh and pushes it to the watch over WatchConnectivity, and the watch caches it for its complications. When that snapshot is stale, the watch refreshes Heart Rate and HRV directly from its own HealthKit so those stay live without re-running the Readiness or Training Load computation on-device.
+- Added two watchOS targets (`BodyWatch`, `BodyWatchWidgetExtension`) and a shared `BodyWatchShared` group; the watch app is embedded in the iOS app and the complication bundle is embedded in the watch app. The watch app reuses the iOS app icon.
+- Hardened the watch sync: the snapshot's freshness date now tracks the last vitals refresh (workout-only refreshes no longer mark the watch fresh), watch-measured HR/HRV carry per-metric freshness so an older phone push can't roll them back, the watch re-checks staleness when it returns to the foreground, the last pushed snapshot is adopted on cold start once the session activates, watch-local samples older than 4 hours are ignored, and snapshot decode failures are logged. The complication gallery previews sample rings instead of an empty state, live-refreshed values respect the device locale, and each metric's key, tint, and symbol are defined once in `BodyWatchShared` (pinned to the iOS widget styling by a configuration test). Known limitation: complications update when the watch app runs — snapshots pushed while it's closed are applied on next launch.
+- Updated the app, widget, watch, and test bundle version to 0.9.3 build 1.
+
 ## 0.9.2 (build 8)
 
 - Performance: workout effort scores are now cached for the app session. Effort needs one HealthKit query per workout, and every refresh re-asked it for the 180-day Training Load window and the current month (~100–300 queries for an active user); passive resumes now query only workouts without a cached answer, while any pull-to-refresh (Home, Workouts tab, Training Load detail) clears the cache first so re-rated workouts always reconcile.

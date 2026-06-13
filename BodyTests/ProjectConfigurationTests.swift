@@ -3,6 +3,8 @@
 //  BodyTests
 //
 
+import SwiftUI
+import UIKit
 import XCTest
 @testable import Body
 
@@ -877,9 +879,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(source.contains(#"Label("Summary", systemImage: "house.fill")"#))
     }
 
-    func testAppAndWidgetShareAppGroupEntitlement() throws {
+    func testAppWidgetAndWatchShareAppGroupEntitlement() throws {
         let appEntitlements = try propertyList(at: "Body/Body.entitlements")
         let widgetEntitlements = try propertyList(at: "BodyWidgetExtension.entitlements")
+        let watchEntitlements = try propertyList(at: "BodyWatch/BodyWatch.entitlements")
+        let watchWidgetEntitlements = try propertyList(at: "BodyWatchWidgetExtension/BodyWatchWidgetExtension.entitlements")
 
         XCTAssertEqual(
             appEntitlements["com.apple.security.application-groups"] as? [String],
@@ -889,12 +893,23 @@ final class ProjectConfigurationTests: XCTestCase {
             widgetEntitlements["com.apple.security.application-groups"] as? [String],
             ["group.com.zihengthedeveloper.Body"]
         )
+        XCTAssertEqual(
+            watchEntitlements["com.apple.security.application-groups"] as? [String],
+            ["group.com.zihengthedeveloper.Body"]
+        )
+        XCTAssertEqual(
+            watchWidgetEntitlements["com.apple.security.application-groups"] as? [String],
+            ["group.com.zihengthedeveloper.Body"]
+        )
     }
 
     func testAppDeclaresHealthKitEntitlement() throws {
         let appEntitlements = try propertyList(at: "Body/Body.entitlements")
+        let watchEntitlements = try propertyList(at: "BodyWatch/BodyWatch.entitlements")
 
         XCTAssertEqual(appEntitlements["com.apple.developer.healthkit"] as? Bool, true)
+        // The watch app runs its own HR/HRV HealthKit queries on the live path.
+        XCTAssertEqual(watchEntitlements["com.apple.developer.healthkit"] as? Bool, true)
     }
 
     func testPrivacyManifestsDeclareUserDefaultsAndNoTracking() throws {
@@ -921,6 +936,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.Body;"))
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.Body.BodyWidgetExtension;"))
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.BodyTests;"))
+        XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.Body.watchkitapp;"))
+        XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.Body.watchkitapp.WatchWidget;"))
         XCTAssertTrue(project.contains("ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = \"BodyBlack BodyBlackAlt BodyClassicAlt BodyGray BodyGrayAlt BodyPink BodyPinkAlt BodyPurple BodyPurpleAlt BodyWhite BodyWhiteAlt\";"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_NSHealthShareUsageDescription"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_NSHealthUpdateUsageDescription"))
@@ -930,9 +947,40 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.2;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.3;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
+        // All five targets (app, widget, tests, watch app, watch complications)
+        // × Debug/Release must move together on a version bump — `contains`
+        // alone would pass with a stale target left behind.
+        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.3;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 1;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
+    }
+
+    func testWatchMetricKindKeysMatchIOSWidgetStyling() throws {
+        let pairs: [(kind: String, widgetMetric: HealthWidgetMetric)] = [
+            (WatchMetricKindKey.readiness, .readiness),
+            (WatchMetricKindKey.sleep, .sleep),
+            (WatchMetricKindKey.heartRate, .heartRate),
+            (WatchMetricKindKey.heartRateVariability, .heartRateVariability),
+            (WatchMetricKindKey.restingHeartRate, .restingHeartRate),
+            (WatchMetricKindKey.trainingLoad, .trainingLoad),
+            (WatchMetricKindKey.wristTemperature, .wristTemperature)
+        ]
+
+        XCTAssertEqual(pairs.map(\.kind), WatchMetricKindKey.displayOrder)
+
+        for (kind, widgetMetric) in pairs {
+            XCTAssertEqual(kind, widgetMetric.rawValue)
+            XCTAssertEqual(WatchMetricKindKey.symbolName(forKind: kind), widgetMetric.symbolName, kind)
+
+            let tint = WatchMetricKindKey.tint(forKind: kind)
+            let components = UIColor(widgetMetric.tintColor).cgColor.components ?? []
+            XCTAssertGreaterThanOrEqual(components.count, 3, kind)
+            XCTAssertEqual(Double(components[0]), tint.red, accuracy: 0.001, kind)
+            XCTAssertEqual(Double(components[1]), tint.green, accuracy: 0.001, kind)
+            XCTAssertEqual(Double(components[2]), tint.blue, accuracy: 0.001, kind)
+        }
     }
 
     func testVersionDocumentationAndSettingsFallbackMatchCurrentRelease() throws {
@@ -940,7 +988,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.3 (build 1)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.3 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.3 build 1."))
         XCTAssertTrue(versionHistory.contains("## 0.9.2 (build 3)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.9.2 build 3."))
         XCTAssertTrue(versionHistory.contains("## 0.9.2 (build 2)"))
@@ -1005,7 +1056,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-v0.9.2`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.2 build 3"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.3 build 1"))
         XCTAssertFalse(testPlan.contains("app version 0.9.2 build 1"))
         XCTAssertFalse(testPlan.contains("app version 0.9.1 build 3"))
         XCTAssertFalse(testPlan.contains("app version 0.9.1 build 2"))
