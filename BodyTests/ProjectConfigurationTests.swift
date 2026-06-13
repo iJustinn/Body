@@ -960,6 +960,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = \"BodyBlack BodyBlackAlt BodyClassicAlt BodyGray BodyGrayAlt BodyPink BodyPinkAlt BodyPurple BodyPurpleAlt BodyWhite BodyWhiteAlt\";"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_NSHealthShareUsageDescription"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_NSHealthUpdateUsageDescription"))
+        // Every target that declares HealthKit read access (and carries the HealthKit
+        // entitlement) must also declare NSHealthUpdateUsageDescription, or App Store
+        // validation rejects the bundle. The watch app shipped Share without Update once.
+        XCTAssertEqual(
+            project.occurrenceCount(of: "INFOPLIST_KEY_NSHealthShareUsageDescription"),
+            project.occurrenceCount(of: "INFOPLIST_KEY_NSHealthUpdateUsageDescription")
+        )
         XCTAssertTrue(project.contains("INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;"))
         XCTAssertTrue(project.contains("IPHONEOS_DEPLOYMENT_TARGET = 18.0;"))
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = \"1,2\";"))

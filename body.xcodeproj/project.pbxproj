@@ -838,6 +838,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Body;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Body reads heart rate, HRV, resting heart rate, and skin temperature from Apple Health to show your stats on your watch.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Body does not write data to Apple Health.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKApplication = YES;
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.zihengthedeveloper.Body;
@@ -870,6 +871,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Body;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Body reads heart rate, HRV, resting heart rate, and skin temperature from Apple Health to show your stats on your watch.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Body does not write data to Apple Health.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKApplication = YES;
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.zihengthedeveloper.Body;

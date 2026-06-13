@@ -24,7 +24,7 @@ Generated 2026-06-10 against branch `body-v0.9.3` (app version 0.9.3 build 1).
 | A3 | High | Longest workout controls day marker | The longest-duration workout controls the icon and color when a day has multiple workouts |
 | A4 | Critical | Snapshot store round trip | Shared snapshot encodes and decodes through `UserDefaults` without data loss |
 | A5 | Critical | App and widget app group entitlements match | Both targets use `group.com.zihengthedeveloper.Body` |
-| A6 | Critical | App declares HealthKit entitlement and usage copy | Project has HealthKit entitlement and `NSHealthShareUsageDescription` |
+| A6 | Critical | App and watch declare HealthKit entitlement and usage copy | Body and watch targets carry the HealthKit entitlement and each declare both `NSHealthShareUsageDescription` and `NSHealthUpdateUsageDescription` (App Store rejects a HealthKit bundle missing the update string) |
 | A7 | Medium | Privacy manifests declare UserDefaults access | App and widget privacy manifests include `CA92.1` and no tracking |
 | A8 | Medium | Workout count indicators match Coin | Workout tiles render one star per workout, one moon per four workouts, and one sun for 13+ workouts |
 | A9 | High | Workout type breakdown aggregates duration | Monthly workout type totals are sorted by total duration and keep workout counts |
