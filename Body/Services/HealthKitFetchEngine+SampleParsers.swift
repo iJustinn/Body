@@ -71,7 +71,11 @@ extension HealthKitFetchEngine {
         }
     }
 
-    nonisolated static func sleepSummary(from samples: [HKCategorySample], date: Date) -> SleepSummary? {
+    nonisolated static func sleepSummary(
+        from samples: [HKCategorySample],
+        date: Date,
+        showsSubMinuteAwakeStages: Bool = true
+    ) -> SleepSummary? {
         let duration = HealthKitWorkoutStore.sleepDuration(from: samples)
         guard duration > 0 else {
             return nil
@@ -81,7 +85,10 @@ extension HealthKitFetchEngine {
             duration: duration,
             stageSnapshot: SleepStageSnapshot(
                 date: date,
-                segments: sleepStageSegments(from: samples)
+                segments: sleepStageSegments(
+                    from: samples,
+                    showsSubMinuteAwakeStages: showsSubMinuteAwakeStages
+                )
             )
         )
     }
@@ -99,9 +106,17 @@ extension HealthKitFetchEngine {
         }
     }
 
-    nonisolated static func sleepStageSegments(from samples: [HKCategorySample]) -> [SleepStageSegment] {
+    nonisolated static func sleepStageSegments(
+        from samples: [HKCategorySample],
+        showsSubMinuteAwakeStages: Bool = true
+    ) -> [SleepStageSegment] {
         let explicitSegments = samples.compactMap { sample -> SleepStageSegment? in
             guard let stage = sleepStage(for: sample, includeUnspecified: false) else {
+                return nil
+            }
+            if !showsSubMinuteAwakeStages,
+               stage == .awake,
+               sample.endDate.timeIntervalSince(sample.startDate) < 60 {
                 return nil
             }
 

@@ -790,6 +790,19 @@ enum SleepStage: String, CaseIterable, Codable, Equatable, Identifiable {
         }
     }
 
+    var axisLabel: String {
+        switch self {
+        case .awake:
+            return "A"
+        case .rem:
+            return "R"
+        case .core:
+            return "C"
+        case .deep:
+            return "D"
+        }
+    }
+
     var chartPosition: Double {
         switch self {
         case .awake:

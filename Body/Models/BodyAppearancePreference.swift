@@ -14,6 +14,7 @@ enum BodyAppearancePreference {
     static let selectedEnergyUnitKey = "selectedEnergyUnit"
     static let selectedTemperatureUnitKey = "selectedTemperatureUnit"
     static let sleepDurationGoalMinutesKey = "sleepDurationGoalMinutes"
+    static let showsSubMinuteAwakeSleepStagesKey = "showsSubMinuteAwakeSleepStages"
     static let showSleepScoreKey = "showSleepScore"
     static let homeCardOrderKey = "homeCardOrder"
     static let summaryCardSelectionKey = "summaryCardSelection"
@@ -53,6 +54,20 @@ enum BodySleepDurationGoal {
 
     static func displayText(for minutes: Int) -> String {
         BodyValueFormat.durationText(for: duration(from: minutes))
+    }
+}
+
+enum BodySleepStageDisplayPreference {
+    static let defaultShowsSubMinuteAwakeStages = true
+
+    static func showsSubMinuteAwakeStages(defaults: UserDefaults = .standard) -> Bool {
+        guard let storedValue = defaults.object(
+            forKey: BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey
+        ) as? Bool else {
+            return defaultShowsSubMinuteAwakeStages
+        }
+
+        return storedValue
     }
 }
 

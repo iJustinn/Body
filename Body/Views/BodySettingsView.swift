@@ -15,6 +15,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
+    @AppStorage(BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey) private var showsSubMinuteAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsSubMinuteAwakeStages
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
@@ -73,6 +74,11 @@ struct BodySettingsView: View {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(appIconErrorMessage)
+            }
+            .onChange(of: showsSubMinuteAwakeSleepStages) {
+                Task {
+                    await workoutStore.requestAuthorizationAndRefresh()
+                }
             }
         }
     }
@@ -217,7 +223,7 @@ struct BodySettingsView: View {
                 activeSheet = .sleepDurationGoal
             } label: {
                 BodySettingsRowLabel(
-                    title: "Sleep Goal",
+                    title: "Sleep",
                     value: sleepDurationGoalText,
                     iconName: "bed.double.fill",
                     tintColor: Color(red: 0.20, green: 0.72, blue: 1.00),
@@ -518,7 +524,10 @@ struct BodySettingsView: View {
         case .dayView:
             BodyMetricDayViewSettingsSheet(selection: metricDayViewSelection)
         case .sleepDurationGoal:
-            BodySleepDurationGoalSettingsSheet(goalMinutes: sleepDurationGoal)
+            BodySleepSettingsSheet(
+                goalMinutes: sleepDurationGoal,
+                showsSubMinuteAwakeStages: $showsSubMinuteAwakeSleepStages
+            )
         case .units:
             BodyUnitPreferencePickerSheet(
                 followsSystemUnits: followsSystemUnitsBinding,
@@ -836,11 +845,12 @@ extension BodyValueFormat.DistanceUnitPreference: BodyUnitPreferenceOption { }
 extension BodyValueFormat.EnergyUnitPreference: BodyUnitPreferenceOption { }
 extension BodyValueFormat.TemperatureUnitPreference: BodyUnitPreferenceOption { }
 
-private struct BodySleepDurationGoalSettingsSheet: View {
+private struct BodySleepSettingsSheet: View {
     @Binding var goalMinutes: Int
+    @Binding var showsSubMinuteAwakeStages: Bool
 
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Sleep Goal") {
+        BodySettingsAboutSheetScaffold(title: "Sleep") {
             BodySettingsCardSection("Goal") {
                 Stepper(
                     value: $goalMinutes,
@@ -855,6 +865,41 @@ private struct BodySleepDurationGoalSettingsSheet: View {
                     )
                 }
                 .padding(.trailing, 18)
+            }
+
+            BodySettingsCardSection("Sleep Stages") {
+                HStack(spacing: 14) {
+                    BodySettingsIconTile(
+                        iconName: "waveform.path.ecg",
+                        color: Color(red: 1.00, green: 0.31, blue: 0.22)
+                    )
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Show Awake Under 1 Min")
+                            .font(.system(.headline, design: .rounded))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+
+                        Text("Include very short Awake intervals in sleep stages")
+                            .font(.system(.subheadline, design: .rounded))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Toggle("Show Awake Under 1 Min", isOn: $showsSubMinuteAwakeStages)
+                        .labelsHidden()
+                        .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                        .accessibilityValue(showsSubMinuteAwakeStages ? "On" : "Off")
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
             }
         }
     }

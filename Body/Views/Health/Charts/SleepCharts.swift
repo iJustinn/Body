@@ -79,7 +79,7 @@ struct BodySleepStageChart: View {
                 AxisValueLabel {
                     if let position = value.as(Double.self),
                        let stage = SleepStage.stage(at: position) {
-                        Text(stage.displayName)
+                        Text(stage.axisLabel)
                             .font(.system(.caption2, design: .rounded))
                             .foregroundStyle(Color.secondary)
                     }
@@ -790,4 +790,3 @@ struct BodySleepVitalRegionLabels: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 }
-

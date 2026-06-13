@@ -25,6 +25,7 @@ extension HealthKitFetchEngine {
         let startDate = calendar.date(byAdding: .day, value: -14, to: endDate) ?? endDate.addingTimeInterval(-1_209_600)
         let predicate = combinedPredicate(startDate: startDate, endDate: endDate, sourceKind: .sleep)
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+        let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
 
         let summary: SleepSummary? = await withCheckedContinuation { continuation in
             let query = HKSampleQuery(
@@ -40,7 +41,11 @@ extension HealthKitFetchEngine {
                 }
 
                 let summaries = samplesByDay.compactMap { day, daySamples -> SleepSummary? in
-                    Self.sleepSummary(from: daySamples, date: day)
+                    Self.sleepSummary(
+                        from: daySamples,
+                        date: day,
+                        showsSubMinuteAwakeStages: showsSubMinuteAwakeStages
+                    )
                 }
 
                 continuation.resume(
@@ -85,6 +90,7 @@ extension HealthKitFetchEngine {
             sourceOption: sourceOption
         )
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+        let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
 
         let days: [SleepDaySummary] = await withCheckedContinuation { continuation in
             let query = HKSampleQuery(
@@ -100,7 +106,11 @@ extension HealthKitFetchEngine {
                 }
 
                 let days = samplesByDay.compactMap { day, daySamples -> SleepDaySummary? in
-                    guard let summary = Self.sleepSummary(from: daySamples, date: day) else {
+                    guard let summary = Self.sleepSummary(
+                        from: daySamples,
+                        date: day,
+                        showsSubMinuteAwakeStages: showsSubMinuteAwakeStages
+                    ) else {
                         return nil
                     }
 

@@ -1636,11 +1636,34 @@ struct BodyHealthMetricDetailView: View {
                         transaction.animation = nil
                     }
                     .frame(height: BodyHealthDetailChartLayout.standardHeight)
+
+                sleepStageDurationSummary(snapshot)
             }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .bodyCardBackground()
+    }
+
+    private func sleepStageDurationSummary(_ snapshot: SleepStageSnapshot) -> some View {
+        HStack(spacing: 10) {
+            ForEach(SleepStage.allCases) { stage in
+                VStack(alignment: .center, spacing: 7) {
+                    Rectangle()
+                        .fill(stage.bodyChartColor)
+                        .frame(width: 28, height: 3)
+
+                    Text(BodyValueFormat.durationText(for: snapshot.duration(for: stage)))
+                        .font(.system(.callout, design: .rounded))
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+        }
     }
 
     private func sleepStageChartIdentity(for snapshot: SleepStageSnapshot) -> String {
