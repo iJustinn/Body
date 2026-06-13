@@ -76,7 +76,10 @@ enum WatchMetricsSnapshotBuilder {
             fillFraction: score.map { Double($0) / 100 } ?? 0,
             rawValue: score.map(Double.init),
             rangeMin: 0,
-            rangeMax: 100
+            rangeMax: 100,
+            // Color the ring by readiness status band (prime → purple, …),
+            // matching the iOS readiness UI. nil score → kind's default tint.
+            tint: BodyReadinessStatusPresentation.watchTint(for: ReadinessStatus.status(for: score))
         )
     }
 

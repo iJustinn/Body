@@ -40,9 +40,9 @@ struct WatchComplicationView: View {
                     value: ringValue(metric),
                     unit: "",
                     symbolName: WatchMetricKindKey.symbolName(forKind: metric.kind),
-                    tint: WatchMetricKindKey.tint(forKind: metric.kind),
+                    tint: metric.resolvedTint,
                     showsUnit: false,
-                    showsGlyph: false
+                    showsGlyph: true
                 )
                 .padding(1)
             } else {
@@ -61,7 +61,7 @@ struct WatchComplicationView: View {
                     value: ringValue(metric),
                     unit: "",
                     symbolName: WatchMetricKindKey.symbolName(forKind: metric.kind),
-                    tint: WatchMetricKindKey.tint(forKind: metric.kind),
+                    tint: metric.resolvedTint,
                     showsUnit: false,
                     showsGlyph: false
                 )

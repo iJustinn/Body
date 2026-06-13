@@ -14,7 +14,7 @@ import SwiftUI
 struct WatchMetricCardView: View {
     let metric: WatchMetric
 
-    private var color: Color { Color(WatchMetricKindKey.tint(forKind: metric.kind)) }
+    private var color: Color { Color(metric.resolvedTint) }
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {

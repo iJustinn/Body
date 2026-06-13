@@ -3,7 +3,7 @@
 //  BodyWatchShared
 //
 //  The signature ring used by both the watch app cards and the complications:
-//  a ~290° open ring with a gradient stroke, the value centered, and the
+//  a ~270° open ring with a solid stroke, the value centered, and the
 //  metric's SF Symbol seated in the bottom gap.
 //
 //  Watch-only: not compiled into the iOS `Body` target.
@@ -21,7 +21,7 @@ struct WatchMetricRingView: View {
     var showsGlyph: Bool = true
 
     /// Fraction of the circle left open at the bottom (centered on 6 o'clock).
-    private let gap: Double = 0.20
+    private let gap: Double = 0.25
 
     private var clampedFill: Double { min(max(fillFraction, 0), 1) }
     private var color: Color { Color(tint) }
@@ -29,31 +29,30 @@ struct WatchMetricRingView: View {
     var body: some View {
         GeometryReader { geo in
             let side = min(geo.size.width, geo.size.height)
-            let lineWidth = max(side * 0.11, 3)
+            let lineWidth = max(side * 0.16, 4)
 
             ZStack {
-                // Track — gap rotated to the bottom.
+                // Track — gap rotated to the bottom. Inset by half the stroke so
+                // the thick round caps render in full (the circular complication
+                // clips to its bounds).
                 Circle()
+                    .inset(by: lineWidth / 2)
                     .trim(from: gap / 2, to: 1 - gap / 2)
                     .stroke(color.opacity(0.20), style: strokeStyle(lineWidth))
                     .rotationEffect(.degrees(90))
 
-                // Value arc.
+                // Value arc — solid color so the round caps read as clean,
+                // uniform dome tips (an angular gradient smears the cap).
                 Circle()
+                    .inset(by: lineWidth / 2)
                     .trim(from: gap / 2, to: gap / 2 + (1 - gap) * clampedFill)
-                    .stroke(
-                        AngularGradient(
-                            gradient: Gradient(colors: [color.opacity(0.55), color]),
-                            center: .center
-                        ),
-                        style: strokeStyle(lineWidth)
-                    )
+                    .stroke(color, style: strokeStyle(lineWidth))
                     .rotationEffect(.degrees(90))
 
                 // Centered value (+ optional unit).
                 VStack(spacing: 0) {
                     Text(value)
-                        .font(.system(size: side * 0.32, weight: .bold, design: .rounded))
+                        .font(.system(size: side * 0.40, weight: .bold, design: .rounded))
                         .minimumScaleFactor(0.4)
                         .lineLimit(1)
                     if showsUnit, !unit.isEmpty {
@@ -68,9 +67,10 @@ struct WatchMetricRingView: View {
                 // Glyph in the bottom gap.
                 if showsGlyph {
                     Image(systemName: symbolName)
-                        .font(.system(size: side * 0.15, weight: .bold))
+                        .font(.system(size: side * 0.22, weight: .bold))
                         .foregroundStyle(color)
                         .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, side * 0.05)
                 }
             }
             .frame(width: side, height: side)

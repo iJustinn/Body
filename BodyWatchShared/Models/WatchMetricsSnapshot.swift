@@ -78,9 +78,9 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// 0...100 score for score-style metrics (Readiness, Sleep). The ring shows
     /// this number when present; otherwise it shows `displayValue`.
     var score: Int?
-    /// 0...1 ring fill, precomputed on the iPhone. (Tint + symbol are not part
-    /// of the payload — the watch derives them from `kind` via
-    /// `WatchMetricKindKey`.)
+    /// 0...1 ring fill, precomputed on the iPhone. (The SF Symbol is derived
+    /// from `kind` via `WatchMetricKindKey`; the tint usually is too, unless a
+    /// score-dependent one is carried in `tint` — see `resolvedTint`.)
     var fillFraction: Double
     /// Current numeric value + recent-range bounds so the watch can recompute
     /// the fill for live-refreshed metrics (HR/HRV) without the iPhone.
@@ -92,7 +92,14 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// reading that's fresher than the vitals a later phone push carries.
     var liveUpdatedAt: Date? = nil
 
+    /// Tint that can't be derived from `kind` alone — Readiness carries its
+    /// status-band color here. `nil` ⇒ fall back to the kind's static tint.
+    var tint: WatchMetricColor? = nil
+
     var id: String { kind }
+
+    /// The tint to render: the carried dynamic `tint`, else the kind default.
+    var resolvedTint: WatchMetricColor { tint ?? WatchMetricKindKey.tint(forKind: kind) }
 }
 
 /// Schema evolution: the phone and watch can run different builds, so any new
