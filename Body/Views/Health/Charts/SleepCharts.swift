@@ -317,9 +317,13 @@ struct BodySleepConsistencyChart: View {
                 let plotHeight = proxy.size.height
 
                 ZStack(alignment: .topLeading) {
-                    gridLines(plotWidth: plotWidth, plotHeight: plotHeight)
-                    averageLines(plotWidth: plotWidth, plotHeight: plotHeight)
-                    nightBars(plotWidth: plotWidth, plotHeight: plotHeight)
+                    ZStack(alignment: .topLeading) {
+                        gridLines(plotWidth: plotWidth, plotHeight: plotHeight)
+                        averageLines(plotWidth: plotWidth, plotHeight: plotHeight)
+                        nightBars(plotWidth: plotWidth, plotHeight: plotHeight)
+                    }
+                    .drawingGroup()
+
                     dayTapTargets(plotWidth: plotWidth, plotHeight: plotHeight)
                 }
             }
