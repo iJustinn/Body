@@ -6,7 +6,7 @@
 
 Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, Readiness, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
-Current app version: **0.9.3 (build 1)**
+Current app version: **0.9.3 (build 2)**
 
 ## Screenshots
 
@@ -64,7 +64,7 @@ Body/
 
 ## Privacy
 
-Body reads Apple Health data only after permission is granted. Users can choose default Apple Health sources in Settings > Data > Source and hide categories in Settings > Data > Permissions without changing system-level authorization. Workout summaries are stored locally and mirrored to the widget through the app group's shared `UserDefaults`. Body does not collect tracking data.
+Body reads Apple Health data only after permission is granted. Users can choose default Apple Health sources in Settings > Data > Source and hide categories in Settings > Data > Permissions without changing system-level authorization. Workout summaries are stored locally and mirrored to the widget through the app group's shared `UserDefaults`. Body does not collect tracking data. The Privacy row in Settings > About opens Body's hosted privacy policy (https://docs.ijustinz.com/body/privacy) in an in-app browser.
 
 ## Documentation
 

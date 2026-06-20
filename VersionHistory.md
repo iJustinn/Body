@@ -1,5 +1,13 @@
 # Version History
 
+## 0.9.3 (build 2)
+
+- Reorganized Settings > About into How to Use, Privacy, More, and Version. Feedback, Disclaimer, and Copyright now live together on a single More page (Feedback Email as a row, Disclaimer and Copyright inline).
+- Privacy now opens Body's hosted privacy policy (https://docs.ijustinz.com/body/privacy) in an in-app browser instead of a bundled in-app page.
+- About row icons are now gray.
+- Performance: the Sleep detail page no longer stutters while the Sleep Consistency chart is on screen. The chart's static layers (grid, average lines, and night bars) are flattened into a single GPU-rendered layer, so scrolling composites one cached texture instead of dozens of continuous-corner clip masks; the 14-day chart model is also memoized so it isn't rebuilt on every re-render.
+- Updated the app, widget, watch, and test bundle version to 0.9.3 build 2.
+
 ## 0.9.3 (build 1)
 
 - Added an Apple Watch app and ring-style complications. The watch app shows Readiness, Sleep, Heart Rate, HRV, Resting Heart Rate, Training Load, and Skin Temperature in the iOS card style, and ships a complication per metric (accessory circular and rectangular). The iPhone stays the source of truth: it builds a compact metrics snapshot at the end of each successful refresh and pushes it to the watch over WatchConnectivity, and the watch caches it for its complications. When that snapshot is stale, the watch refreshes Heart Rate and HRV directly from its own HealthKit so those stay live without re-running the Readiness or Training Load computation on-device.

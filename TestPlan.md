@@ -1,6 +1,6 @@
 # Body Test Plan
 
-Generated 2026-06-10 against branch `body-v0.9.3` (app version 0.9.3 build 1).
+Generated 2026-06-10 against branch `body-v0.9.3` (app version 0.9.3 build 2).
 
 > Apple Watch targets (`BodyWatch`, `BodyWatchWidgetExtension`) and the shared `BodyWatchShared` group are new in 0.9.3. `ProjectConfigurationTests` asserts their configuration (bundle identifiers, versions, App Group + HealthKit entitlements); behavior is not yet covered by automated cases. Manual watch verification is pending: iPhone→watch metric sync over WatchConnectivity, the live HR/HRV refresh when the snapshot is stale (including that a workout-only iPhone refresh does not mark the watch fresh, and that returning the watch app to the foreground re-checks staleness), and the ring complications (accessory circular + rectangular) for each metric. Known limitation: complications update when the watch app runs — snapshots pushed while it's closed are applied on next launch.
 
@@ -83,6 +83,7 @@ Generated 2026-06-10 against branch `body-v0.9.3` (app version 0.9.3 build 1).
 | M36 | Medium | Workouts pending-month load | In Workouts, tap a month with no cached snapshot | A "Loading [Month]" banner appears below the picker; the calendar and list keep showing the previous month; when the snapshot loads, the new month renders; if HealthKit hangs, the banner clears after 15 seconds |
 | M37 | High | Readiness card and detail | Open Summary after refreshing Health data with sleep, heart, workout, respiratory, blood oxygen, and skin temperature permissions enabled | Readiness appears near the top of Summary, shows a 0-100% score with Prime/High/Moderate/Low/Poor status, opens a detail screen with confidence, trend chart, days-by-status chart, and an About section listing exact status ranges with short explanations; scrubbing the trend moves the Current label to the selected interval; Settings > Metrics > Summary Cards labels Readiness as Beta; disabling individual permissions lowers confidence or removes related drivers without crashing |
 | M38 | High | Settings Data source defaults | Open Settings > Data > Source, toggle Combine Sources with Same Name, choose Primary Data Source and Secondary Data Source, then open supported metric details and change an individual source picker | Duplicate source names collapse only when the toggle is on; primary applies as the default source for source-selectable metrics including non-comparison metrics; secondary applies as the default comparison source for comparable metrics; metric detail choices override the global defaults without changing the defaults |
+| M39 | High | Sleep Consistency chart scroll performance | Open Sleep detail with at least two nights of sleep data and scroll the Sleep Consistency chart in and out of view repeatedly | Scrolling stays smooth while the chart is on screen with no per-frame stutter; grid lines, average lines, night bars, and day labels render correctly, and tapping a day still updates the selection highlight and stage detail |
 
 ## 4. Deferred Coverage
 
