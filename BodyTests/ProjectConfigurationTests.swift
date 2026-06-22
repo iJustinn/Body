@@ -639,7 +639,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let sleepChartStart = try XCTUnwrap(homeSource.range(of: "struct BodySleepStageChart")?.lowerBound)
         let sleepChartBlock = String(homeSource[sleepChartStart...].prefix(4_000))
         XCTAssertTrue(sleepChartBlock.contains("Text(stage.axisLabel)"))
-        XCTAssertTrue(sleepStageCardBlock.contains("sleepStageDurationSummary(snapshot)"))
+        // The summary call now lives inside the tap-to-toggle Button (durations <-> optimal
+        // ranges), a little deeper in the card body, so widen the inspected window.
+        XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("sleepStageDurationSummary(snapshot)"))
         XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("HStack(spacing: 10)"))
         XCTAssertFalse(sleepStageCardAndSummaryBlock.contains("LazyVGrid"))
         XCTAssertFalse(sleepStageCardAndSummaryBlock.contains("GridItem(.flexible(), spacing: 10)"))
@@ -651,6 +653,51 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("BodyValueFormat.durationText(for: snapshot.duration(for: stage))"))
         XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("VStack(alignment: .center, spacing: 7)"))
         XCTAssertTrue(sleepStageCardAndSummaryBlock.contains(".frame(maxWidth: .infinity, alignment: .center)"))
+    }
+
+    func testSleepStageBreakdownTogglesToOptimalRangeChart() throws {
+        let source = try bodyHomeViewText()
+        let appearanceSource = try text(at: "Body/Models/BodyAppearancePreference.swift")
+        let cardStart = try XCTUnwrap(source.range(of: "private func sleepStageCard")?.lowerBound)
+        let cardEnd = try XCTUnwrap(
+            source.range(of: "private func sleepStageDurationSummary", range: cardStart..<source.endIndex)?.lowerBound
+        )
+        let cardBlock = String(source[cardStart..<cardEnd])
+
+        // Persisted toggle key + property (defaults to the existing duration summary).
+        XCTAssertTrue(appearanceSource.contains(#"static let sleepStageBreakdownShowsOptimalRangesKey = "sleepStageBreakdownShowsOptimalRanges""#))
+        XCTAssertTrue(source.contains("@AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = false"))
+
+        // Tap-to-swap wiring lives inside sleepStageCard (durations <-> optimal ranges).
+        XCTAssertTrue(cardBlock.contains("if sleepStageShowsOptimalRanges {"))
+        XCTAssertTrue(cardBlock.contains("BodySleepStageOptimalRangeChart(snapshot: snapshot)"))
+        XCTAssertTrue(cardBlock.contains("sleepStageDurationSummary(snapshot)"))
+        XCTAssertTrue(cardBlock.contains("sleepStageShowsOptimalRanges.toggle()"))
+        XCTAssertTrue(cardBlock.contains(".contentShape(Rectangle())"))
+        XCTAssertTrue(cardBlock.contains(".buttonStyle(.plain)"))
+
+        // The collapsed Button keeps the per-stage values readable to VoiceOver via a spelled-out label.
+        XCTAssertTrue(cardBlock.contains(".accessibilityLabel(sleepStageBreakdownAccessibilityLabel(snapshot))"))
+        XCTAssertTrue(source.contains("private func sleepStageBreakdownAccessibilityLabel"))
+        XCTAssertFalse(cardBlock.contains(#".accessibilityLabel(sleepStageShowsOptimalRanges ? "Stage optimal ranges""#))
+
+        // New chart + display-only optimal bands (percent of time in bed).
+        XCTAssertTrue(source.contains("struct BodySleepStageOptimalRangeChart: View"))
+        XCTAssertTrue(source.contains("var optimalPercentageRange: ClosedRange<Double>"))
+        XCTAssertTrue(source.contains("return 0.00...0.05"))
+        XCTAssertTrue(source.contains("return 0.20...0.25"))
+        XCTAssertTrue(source.contains("return 0.45...0.55"))
+        XCTAssertTrue(source.contains("return 0.13...0.23"))
+        XCTAssertTrue(source.contains(#"Text("Optimal Range")"#))
+
+        // Bars grow/shrink when the selected day changes, gated on reduce-motion.
+        let chartStart = try XCTUnwrap(source.range(of: "struct BodySleepStageOptimalRangeChart")?.lowerBound)
+        let chartEnd = try XCTUnwrap(
+            source.range(of: "struct BodySleepConsistencyChart", range: chartStart..<source.endIndex)?.lowerBound
+        )
+        let chartBlock = String(source[chartStart..<chartEnd])
+        XCTAssertTrue(chartBlock.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
+        XCTAssertTrue(chartBlock.contains(".animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: fraction)"))
     }
 
     func testSourceSelectableDayChartsUsePrimarySecondaryComparisonLines() throws {
@@ -969,12 +1016,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.3;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.3;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 2;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 3;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1009,9 +1056,12 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.3 (build 2)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.3 (build 3)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.3 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.3 build 3."))
         XCTAssertTrue(versionHistory.contains("## 0.9.3 (build 2)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.3 build 2."))
         XCTAssertTrue(versionHistory.contains("## 0.9.3 (build 1)"))
@@ -1079,8 +1129,9 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-v0.9.2`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.3 build 2"))
+        XCTAssertTrue(testPlan.contains("branch `body-v0.9.3`"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.3 build 3"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.3 build 2"))
         XCTAssertFalse(testPlan.contains("app version 0.9.3 build 1"))
         XCTAssertFalse(testPlan.contains("app version 0.9.2 build 1"))
         XCTAssertFalse(testPlan.contains("app version 0.9.1 build 3"))
@@ -1373,7 +1424,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testHowToUseGuideCoversCurrentSettingsAndDataFeatures() throws {
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
         let howToUseStart = try XCTUnwrap(settingsSource.range(of: "private struct BodyHowToUseSettingsSheet")?.lowerBound)
-        let howToUseBlock = String(settingsSource[howToUseStart...].prefix(5_500))
+        let howToUseBlock = String(settingsSource[howToUseStart...].prefix(8_000))
 
         XCTAssertTrue(howToUseBlock.contains(#"title: "Connect Apple Health""#))
         XCTAssertTrue(howToUseBlock.contains("Open Data > Source to set default primary and secondary Apple Health sources or combine duplicate source names."))
@@ -1386,6 +1437,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(howToUseBlock.contains("Use Data > Source for app-wide primary and secondary defaults, or tap the source picker on a metric detail to override that metric."))
         XCTAssertTrue(howToUseBlock.contains("Use Data > Cache to review cached dashboard, workout, and Activity Ring data."))
         XCTAssertTrue(howToUseBlock.contains("Clear Cache removes local snapshots; Rebuild Cache refreshes Apple Health and rebuilds the local files."))
+        XCTAssertTrue(howToUseBlock.contains("Summary shows Activity Rings, Readiness, Sleep, Basics, Training Load"))
+        XCTAssertTrue(howToUseBlock.contains("Tap the stage breakdown beneath the timeline to switch between per-stage durations and the optimal-range chart"))
+        XCTAssertTrue(howToUseBlock.contains(#"title: "Apple Watch""#))
+        XCTAssertTrue(howToUseBlock.contains("every metric has an accessory circular and rectangular ring complication"))
         XCTAssertFalse(howToUseBlock.contains("Use Settings to change appearance, app accent, icon, and measurement units."))
     }
 

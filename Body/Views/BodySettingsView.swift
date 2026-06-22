@@ -2275,7 +2275,7 @@ private struct BodyHowToUseSettingsSheet: View {
             iconName: "rectangle.grid.2x2.fill",
             tintColor: .blue,
             steps: [
-                "Summary shows Activity Rings, Sleep, Basics, Training Load, heart, respiratory, energy, daylight, steps, and body metric cards.",
+                "Summary shows Activity Rings, Readiness, Sleep, Basics, Training Load, heart, respiratory, energy, daylight, steps, and body metric cards.",
                 "Tap a card to open details with trend ranges, day views when available, and metric-specific context.",
                 "Pull down on Summary after new Health data is recorded to refresh the dashboard. A Loading data overlay stays on screen until the refresh finishes so you know work is in progress."
             ]
@@ -2297,7 +2297,8 @@ private struct BodyHowToUseSettingsSheet: View {
             steps: [
                 "Use the Sleep date slider to choose the day you want to inspect.",
                 "Tap the Sleep Score card to see the score breakdown.",
-                "Press the Sleep Stages chart to inspect a stage segment's duration and start/end time."
+                "Press the Sleep Stages chart to inspect a stage segment's duration and start/end time.",
+                "Tap the stage breakdown beneath the timeline to switch between per-stage durations and the optimal-range chart — each stage's share of the night with a healthy reference band — and your choice is remembered."
             ]
         ),
         BodyHowToUseGuideSection(
@@ -2331,6 +2332,17 @@ private struct BodyHowToUseSettingsSheet: View {
                 "Tap a workout to view duration, calories, heart rate, distance when available, effort, and source.",
                 "Use the month controls to inspect older workout history.",
                 "Pull down to refresh the selected month; the Loading data overlay stays until the refresh finishes."
+            ]
+        ),
+        BodyHowToUseGuideSection(
+            title: "Apple Watch",
+            iconName: "applewatch",
+            tintColor: .green,
+            steps: [
+                "Install the Body watch app from the Watch app on your iPhone. It mirrors your Readiness, Sleep, Heart Rate, HRV, Resting Heart Rate, Training Load, and Skin Temperature cards.",
+                "Add a Body complication to your watch face — every metric has an accessory circular and rectangular ring complication.",
+                "The iPhone stays the source of truth: it pushes a metrics snapshot to the watch after each successful refresh, so open and refresh Body on iPhone to keep the watch current.",
+                "When that snapshot is stale, the watch refreshes Heart Rate and HRV from its own Health data. Complications update when the watch app runs; snapshots pushed while it is closed apply on next launch."
             ]
         ),
         BodyHowToUseGuideSection(

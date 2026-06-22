@@ -1,5 +1,11 @@
 # Version History
 
+## 0.9.3 (build 3)
+
+- The Sleep Stages card's breakdown below the timeline is now tappable. Tap it to switch between the per-stage durations (the existing summary) and a new optimal-range bar chart: each stage shows its percentage of total time in bed, its duration, and an overlaid healthy reference band (Awake 0–5%, REM 20–25%, Core 45–55%, Deep 13–23%). The choice persists until you tap again (including across the two-source comparison cards and app relaunches). Changing the selected day animates the bars to their new lengths (respecting Reduce Motion). The bands are an illustrative reference and are independent of the sleep-score grading, which judges Deep/REM one-sided against asleep time — so a stage's chart percentage can differ slightly from the score card's, by design.
+- Refreshed the in-app How to Use guide (Settings > About): the Sleep Details section now covers the tap-to-toggle stage breakdown, Readiness is named in the Summary card list, and a new Apple Watch section explains the companion app and its ring complications.
+- Updated the app, widget, watch, and test bundle version to 0.9.3 build 3.
+
 ## 0.9.3 (build 2)
 
 - Reorganized Settings > About into How to Use, Privacy, More, and Version. Feedback, Disclaimer, and Copyright now live together on a single More page (Feedback Email as a row, Disclaimer and Copyright inline).

@@ -6,7 +6,7 @@
 
 Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, Readiness, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
-Current app version: **0.9.3 (build 2)**
+Current app version: **0.9.3 (build 3)**
 
 ## Screenshots
 
@@ -28,7 +28,7 @@ Current app version: **0.9.3 (build 2)**
 - **Readiness** - Readiness score based on personal baselines for sleep, heart, training load, respiratory, blood oxygen, and skin temperature signals, with status bands, component scores, confidence, and driver explanations.
 - **Two-source comparison** - Supported metrics (Sleep, Heart Rate, Resting Heart Rate, HRV, Blood Oxygen, Steps, Active Energy, Resting Energy, Exercise Minutes) can overlay a secondary Apple Health source alongside the primary. Primary and secondary share x-axis buckets, the legend lists each source's average, and the picker hides whichever source is already in use as the other slot to prevent duplicate series.
 - **Workouts tab** - Searchable workout history with month browsing, sort, type filters, summary totals, an in-app workout calendar, and a workout type breakdown with monthly totals.
-- **Sleep detail** - Today's sleep score, stage timeline, Apple-style Sleep Vitals chart, and range trend chart.
+- **Sleep detail** - Today's sleep score, stage timeline, and a tappable stage breakdown that flips between per-stage durations and an optimal-range bar chart (each stage's percentage of time in bed and duration, with a healthy reference band), plus the Apple-style Sleep Vitals chart and range trend chart. The breakdown choice persists until you tap again.
 - **Pull-to-refresh feedback** - Summary, metric detail, and Workouts each show a "Loading data..." overlay during pull-to-refresh that stays on screen until the underlying HealthKit refresh actually finishes, including waiting for any background sync already in flight.
 - **Widgets** - Large workout calendar widget (monthly tiles using SF workout icons, with star/moon/sun count markers) and large workout types widget (percentage-bar breakdown by type). System, Black, and White background choices.
 - **Apple Watch** - A companion watch app shows Readiness, Sleep, Heart Rate, HRV, Resting Heart Rate, Training Load, and Skin Temperature in the iOS card style, plus a ring-style complication for each metric (accessory circular and rectangular). Metrics are pushed from the iPhone over WatchConnectivity and cached on the watch for its complications; Heart Rate and HRV are refreshed directly on the watch when the pushed snapshot is stale. Complications refresh when the watch app is opened; snapshots pushed while it's closed are applied on next launch.

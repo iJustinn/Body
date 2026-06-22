@@ -309,6 +309,7 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
+    @AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = false
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @State private var selectedTrendRange: BodyHealthTrendRange
     @State private var selectedSleepDate: Date?
@@ -1638,7 +1639,24 @@ struct BodyHealthMetricDetailView: View {
                     }
                     .frame(height: BodyHealthDetailChartLayout.standardHeight)
 
-                sleepStageDurationSummary(snapshot)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        sleepStageShowsOptimalRanges.toggle()
+                    }
+                } label: {
+                    Group {
+                        if sleepStageShowsOptimalRanges {
+                            BodySleepStageOptimalRangeChart(snapshot: snapshot)
+                        } else {
+                            sleepStageDurationSummary(snapshot)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(sleepStageBreakdownAccessibilityLabel(snapshot))
+                .accessibilityValue(sleepStageShowsOptimalRanges ? "Showing optimal ranges" : "Showing durations")
+                .accessibilityHint("Switches between stage durations and optimal ranges")
             }
         }
         .padding(18)
@@ -1665,6 +1683,18 @@ struct BodyHealthMetricDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
             }
         }
+    }
+
+    // The toggle Button collapses its content into a single VoiceOver element, so spell out each
+    // stage's share and duration here — otherwise the chart's per-stage values are unreadable.
+    private func sleepStageBreakdownAccessibilityLabel(_ snapshot: SleepStageSnapshot) -> String {
+        let total = SleepStage.allCases.reduce(0) { $0 + snapshot.duration(for: $1) }
+        let descriptions = SleepStage.allCases.map { stage -> String in
+            let duration = snapshot.duration(for: stage)
+            let percent = total > 0 ? Int((duration / total * 100).rounded()) : 0
+            return "\(stage.displayName) \(percent) percent, \(BodyValueFormat.durationText(for: duration))"
+        }
+        return "Sleep stage breakdown. " + descriptions.joined(separator: ". ") + "."
     }
 
     private func sleepStageChartIdentity(for snapshot: SleepStageSnapshot) -> String {
