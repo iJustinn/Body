@@ -593,6 +593,12 @@ final class HealthKitWorkoutStore: ObservableObject {
             await requestAuthorizationAndRefresh()
         } else {
             updateHealthDataNotice()
+            // The enable branch republishes via the refresh funnel; the disable
+            // branch otherwise wouldn't, so the watch's standalone compute would
+            // keep reading the hidden category. healthSummary/healthTrends were
+            // just filtered by applyPermissionSelectionToCachedData(), and the
+            // synced selection rides the push's context.
+            publishWatchSnapshot()
         }
     }
 
@@ -1753,13 +1759,17 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// current, but `lastRefreshDate` carries the last *vitals* refresh — a
     /// workout-only refresh must not look fresh to the watch, or it would
     /// suppress the watch's own stale-triggered live HR/HRV refresh.
-    private func publishWatchSnapshot() {
-        let snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
+    func publishWatchSnapshot() {
+        var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
             summary: healthSummary,
             trends: healthTrends,
             lastRefreshDate: lastVitalsRefreshDate,
-            permissionSelection: permissionSelection
+            permissionSelection: permissionSelection,
+            temperatureUnitPreference: HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference(),
+            idealSleepDuration: Self.storedIdealSleepDuration(),
+            showSleepScore: HealthWidgetSnapshotBuilder.storedShowSleepScore()
         )
+        snapshot.source = "phone"
         WatchConnectivityPublisher.shared.send(snapshot)
     }
 
@@ -1947,68 +1957,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     nonisolated static func readObjectTypes(
         for selection: BodyHealthPermissionSelection = .defaultValue
     ) -> Set<HKObjectType> {
-        var types: Set<HKObjectType> = []
-
-        if selection.includes(.activityRings) {
-            types.insert(HKObjectType.activitySummaryType())
-        }
-        if selection.includes(.workouts) {
-            types.insert(HKObjectType.workoutType())
-            if let effortType = HKObjectType.quantityType(forIdentifier: .workoutEffortScore) {
-                types.insert(effortType)
-            }
-        }
-
-        var quantityIdentifiers: [HKQuantityTypeIdentifier] = []
-        if selection.includes(.heart) {
-            quantityIdentifiers += [
-                .restingHeartRate,
-                .heartRate,
-                .heartRateVariabilitySDNN
-            ]
-        }
-        if selection.includes(.basics) {
-            quantityIdentifiers += [
-                .bodyMass,
-                .bodyFatPercentage,
-                .bodyMassIndex
-            ]
-        }
-        if selection.includes(.respiratory) {
-            quantityIdentifiers.append(.respiratoryRate)
-        }
-        if selection.includes(.bloodOxygen) {
-            quantityIdentifiers.append(.oxygenSaturation)
-        }
-        if selection.includes(.energy) {
-            quantityIdentifiers += [
-                .activeEnergyBurned,
-                .basalEnergyBurned
-            ]
-        }
-        if selection.includes(.exerciseMinutes) {
-            quantityIdentifiers.append(.appleExerciseTime)
-        }
-        if selection.includes(.wristTemperature) {
-            quantityIdentifiers.append(.appleSleepingWristTemperature)
-        }
-        if selection.includes(.timeInDaylight) {
-            quantityIdentifiers.append(.timeInDaylight)
-        }
-        if selection.includes(.steps) {
-            quantityIdentifiers.append(.stepCount)
-        }
-
-        quantityIdentifiers
-            .compactMap { HKObjectType.quantityType(forIdentifier: $0) }
-            .forEach { types.insert($0) }
-
-        if selection.includes(.sleep),
-           let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) {
-            types.insert(sleepType)
-        }
-
-        return types
+        BodyHealthReadTypes.readObjectTypes(for: selection)
     }
 
 

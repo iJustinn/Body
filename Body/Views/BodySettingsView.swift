@@ -16,6 +16,9 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
+    // Observed here (its toggle lives in a sub-view sharing this key) so a change
+    // re-publishes the phone-owned watch prefs immediately.
+    @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey) private var showsSubMinuteAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsSubMinuteAwakeStages
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
@@ -23,6 +26,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @AppStorage(BodyAppearancePreference.creatorSurpriseIconsUnlockedKey) private var creatorSurpriseIconsUnlocked = false
+    @AppStorage(BodyAppearancePreference.standaloneWatchComputeKey) private var standaloneWatchCompute = true
     @State private var activeSheet: BodySettingsSheet?
     @State private var selectedAppIconName: String?
     @State private var showingAppIconError = false
@@ -44,6 +48,7 @@ struct BodySettingsView: View {
                         appearanceSection
                         metricsSection
                         dataSection
+                        appleWatchSection
                         aboutSection
                         bodyProEntryCard
                     }
@@ -90,6 +95,12 @@ struct BodySettingsView: View {
                     await workoutStore.requestAuthorizationAndRefresh()
                 }
             }
+            // Push phone-owned compute prefs to the watch immediately so standalone
+            // compute/rendering doesn't run on stale values until the next refresh.
+            .onChange(of: sleepDurationGoalMinutes) { workoutStore.publishWatchSnapshot() }
+            .onChange(of: selectedTemperatureUnitRawValue) { workoutStore.publishWatchSnapshot() }
+            .onChange(of: followsSystemUnits) { workoutStore.publishWatchSnapshot() }
+            .onChange(of: showSleepScore) { workoutStore.publishWatchSnapshot() }
         }
     }
 
@@ -182,6 +193,48 @@ struct BodySettingsView: View {
                     settingsDivider
                 }
             }
+        }
+    }
+
+    private var appleWatchSection: some View {
+        BodySettingsCardSection("Apple Watch") {
+            HStack(spacing: 14) {
+                BodySettingsIconTile(
+                    iconName: "applewatch",
+                    color: Color(red: 0.12, green: 0.68, blue: 0.55)
+                )
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Standalone Compute")
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+
+                    Text("Compute readiness, sleep, training load, and vitals on the watch so they refresh without opening this app")
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                Toggle("Standalone Compute", isOn: Binding {
+                    standaloneWatchCompute
+                } set: { enabled in
+                    let revision = StandaloneComputePreference.setLocal(enabled: enabled)
+                    WatchConnectivityPublisher.shared.sendStandalonePreference(enabled: enabled, revision: revision)
+                })
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(standaloneWatchCompute ? "On" : "Off")
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
         }
     }
 

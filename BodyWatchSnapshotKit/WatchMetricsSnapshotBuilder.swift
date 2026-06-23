@@ -20,9 +20,12 @@ enum WatchMetricsSnapshotBuilder {
         trends: HealthTrendSnapshot,
         lastRefreshDate: Date?,
         permissionSelection: BodyHealthPermissionSelection,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
+        idealSleepDuration: TimeInterval,
+        showSleepScore: Bool = true,
         now: Date = Date()
     ) -> WatchMetricsSnapshot {
-        let tempPref = temperatureUnitPreference()
+        let tempPref = temperatureUnitPreference
 
         // Mirror the iPhone's Data > Permissions: omit hidden categories entirely
         // so the watch (and its live HR/HRV refresh) can't surface data the user
@@ -30,7 +33,12 @@ enum WatchMetricsSnapshotBuilder {
         var metrics: [WatchMetric] = [readinessMetric(summary.readiness)]
 
         if permissionSelection.includes(.sleep) {
-            metrics.append(sleepMetric(summary.sleep))
+            metrics.append(sleepMetric(
+                summary.sleep,
+                recentSleepHistory: trends.sleepHistory,
+                idealSleepDuration: idealSleepDuration,
+                showScore: showSleepScore
+            ))
         }
         if permissionSelection.includes(.heart) {
             metrics.append(rangeMetric(
@@ -60,7 +68,12 @@ enum WatchMetricsSnapshotBuilder {
             ))
         }
 
-        return WatchMetricsSnapshot(generatedAt: now, lastRefreshDate: lastRefreshDate, metrics: metrics)
+        let stamped = metrics.map { metric -> WatchMetric in
+            var stampedMetric = metric
+            stampedMetric.computedAt = lastRefreshDate
+            return stampedMetric
+        }
+        return WatchMetricsSnapshot(generatedAt: now, lastRefreshDate: lastRefreshDate, metrics: stamped)
     }
 
     // MARK: - Per-metric builders
@@ -79,12 +92,29 @@ enum WatchMetricsSnapshotBuilder {
             rangeMax: 100,
             // Color the ring by readiness status band (prime → purple, …),
             // matching the iOS readiness UI. nil score → kind's default tint.
-            tint: BodyReadinessStatusPresentation.watchTint(for: ReadinessStatus.status(for: score))
+            tint: ReadinessStatus.status(for: score).watchTintComponents
         )
     }
 
-    private static func sleepMetric(_ sleep: SleepSummary) -> WatchMetric {
-        let total = sleep.score?.total
+    private static func sleepMetric(
+        _ sleep: SleepSummary,
+        recentSleepHistory: SleepHistorySnapshot,
+        idealSleepDuration: TimeInterval,
+        showScore: Bool
+    ) -> WatchMetric {
+        // Honor the phone's "Show Sleep Score" toggle: when off, omit the score
+        // so the watch (and complications, which read `metric.score`) don't show it.
+        // Compute the score with the user's sleep-duration goal + recent history
+        // for vitals baselines, matching the iPhone (the bare `sleep.score` would
+        // use the 8h default + empty history and diverge from the phone).
+        let total = showScore
+            ? SleepScoreSummary(
+                sleep: sleep,
+                idealSleepDuration: idealSleepDuration,
+                recentSleepHistory: recentSleepHistory,
+                on: sleep.stageSnapshot.date
+            )?.total
+            : nil
         return WatchMetric(
             kind: WatchMetricKindKey.sleep,
             title: "Sleep",
@@ -168,9 +198,4 @@ enum WatchMetricsSnapshotBuilder {
         return invert ? 1 - normalized : normalized
     }
 
-    private static func temperatureUnitPreference() -> BodyValueFormat.TemperatureUnitPreference {
-        // Reuse the widget/home resolution so "follow system units" is honored
-        // (otherwise the watch shows Celsius while the phone shows Fahrenheit).
-        HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference()
-    }
 }

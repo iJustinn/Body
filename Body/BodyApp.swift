@@ -11,6 +11,13 @@ struct BodyApp: App {
     @StateObject private var workoutStore = HealthKitWorkoutStore()
     @AppStorage(BodyAppearancePreference.selectedThemeKey) private var selectedThemeRawValue = BodyAppTheme.defaultValue.rawValue
 
+    init() {
+        // Activate WatchConnectivity at startup so the watch→phone toggle receiver is
+        // installed and any queued transfer drains on launch, not only after the phone
+        // next sends a snapshot.
+        WatchConnectivityPublisher.shared.activate()
+    }
+
     var body: some Scene {
         WindowGroup {
             MainTabView()

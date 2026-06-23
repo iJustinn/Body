@@ -34,6 +34,15 @@ struct WatchDashboardView: View {
                 }
             }
             .navigationTitle("Body")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        WatchSettingsView()
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                }
+            }
         }
         .onAppear { model.onAppear() }
     }

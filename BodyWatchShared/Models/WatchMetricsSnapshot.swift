@@ -92,11 +92,22 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// reading that's fresher than the vitals a later phone push carries.
     var liveUpdatedAt: Date? = nil
 
+    /// When this metric's underlying data was computed/measured (set by the
+    /// snapshot builder). Provenance alongside `WatchMetricsSnapshot.source`.
+    var computedAt: Date? = nil
+
     /// Tint that can't be derived from `kind` alone — Readiness carries its
     /// status-band color here. `nil` ⇒ fall back to the kind's static tint.
     var tint: WatchMetricColor? = nil
 
     var id: String { kind }
+
+    /// Whether this metric carries a real reading (vs. a `--` placeholder). Used
+    /// by the watch merge so an empty value never overwrites a good one. The
+    /// sleep metric can have a real duration `displayValue` with no `rawValue`
+    /// (its score hidden by the phone's "Show Sleep Score" toggle), so the
+    /// placeholder `displayValue` — not just a nil `rawValue` — defines "no value."
+    var hasValue: Bool { rawValue != nil || displayValue != "--" }
 
     /// The tint to render: the carried dynamic `tint`, else the kind default.
     var resolvedTint: WatchMetricColor { tint ?? WatchMetricKindKey.tint(forKind: kind) }
@@ -109,6 +120,9 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     var generatedAt: Date
     var lastRefreshDate: Date?
     var metrics: [WatchMetric]
+    /// "phone" or "watch" — which device produced this snapshot. Provenance for
+    /// telemetry/debug; the merge decides by recency + value presence.
+    var source: String? = nil
 
     /// Pushed data older than this is stale: the watch app live-refreshes
     /// HR/HRV past it, and the complication timeline re-checks on the same
