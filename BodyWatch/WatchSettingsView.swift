@@ -26,7 +26,27 @@ struct WatchSettingsView: View {
             } footer: {
                 Text("Compute readiness, sleep, training load, and vitals on your watch so they update without opening the iPhone app.")
             }
+
+            Section {
+                VStack(spacing: 2) {
+                    Text("Body")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text(appVersionDisplay)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
+            }
         }
         .navigationTitle("Settings")
+    }
+
+    private var appVersionDisplay: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
+        return "\(version) (build \(build))"
     }
 }
