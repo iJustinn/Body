@@ -2,11 +2,9 @@
 //  BodyWorkoutEffortFetcher.swift
 //  BodyWatchSnapshotKit
 //
-//  Shared `workoutEffortScore` lookup so the iOS engine and the watch's
-//  standalone fetcher resolve per-workout effort the same way (one
-//  relationship-predicate query per workout). Lives in a Body + BodyWatch group
-//  (both link HealthKit). The iOS `HealthKitFetchEngine` keeps its caching layer
-//  on top of this; the watch caches its own results.
+//  Shared `workoutEffortScore` lookup (one relationship-predicate query per
+//  workout) used by the iOS engine to resolve per-workout effort. The iOS
+//  `HealthKitFetchEngine` keeps its caching layer on top of this.
 //
 
 import Foundation

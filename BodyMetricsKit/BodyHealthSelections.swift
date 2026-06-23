@@ -3,9 +3,9 @@
 //  BodyMetricsKit
 //
 //  Foundation/SwiftUI-only health selection + range types shared by the iOS
-//  app and the watch standalone-compute target. Extracted from
-//  BodyAppearancePreference.swift so the watch can compile the metric
-//  calculators (which depend on these) without the iOS-only appearance code.
+//  app and the watch app. Extracted from BodyAppearancePreference.swift so the
+//  watch can compile the metric calculators (which depend on these) without the
+//  iOS-only appearance code.
 //
 
 import SwiftUI
@@ -33,19 +33,9 @@ enum BodyAppearancePreference {
     static let combinesHealthDataSourcesByNameKey = "combinesHealthDataSourcesByName"
     static let bodyProIconShowsBackKey = "bodyProIconShowsBack"
     static let creatorSurpriseIconsUnlockedKey = "creatorSurpriseIconsUnlocked"
-    static let standaloneWatchComputeKey = "standaloneWatchCompute"
-    static let standaloneWatchComputeRevisionKey = "standaloneWatchComputeRevision"
 
     static func bodyProIconAssetName(showsBack: Bool) -> String {
         showsBack ? "BodyProIconBack" : "BodyProIcon"
-    }
-
-    /// Shared reader for the sub-minute-awake sleep-stage display preference, so
-    /// the watch's standalone sleep parsing applies the same rule as iOS. The
-    /// phone pushes this key over WatchConnectivity; default matches the iOS
-    /// `BodySleepStageDisplayPreference.defaultShowsSubMinuteAwakeStages`.
-    static func showsSubMinuteAwakeSleepStages(defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: showsSubMinuteAwakeSleepStagesKey) as? Bool ?? true
     }
 }
 

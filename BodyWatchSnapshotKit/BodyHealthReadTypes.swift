@@ -2,10 +2,10 @@
 //  BodyHealthReadTypes.swift
 //  BodyWatchSnapshotKit
 //
-//  Single source of truth for the HealthKit read set, shared by the iOS
-//  `HealthKitWorkoutStore` and the watch's standalone authorization so the two
-//  can't drift. Lives in a Body + BodyWatch group (both link HealthKit); the
-//  widget extensions, which read cached snapshots, don't compile it.
+//  Single source of truth for the HealthKit read set the iOS
+//  `HealthKitWorkoutStore` requests. Lives in a Body + BodyWatch group (both
+//  link HealthKit); the widget extensions, which read cached snapshots, don't
+//  compile it.
 //
 
 import Foundation
@@ -67,54 +67,6 @@ enum BodyHealthReadTypes {
         }
         if selection.includes(.steps) {
             quantityIdentifiers.append(.stepCount)
-        }
-
-        quantityIdentifiers
-            .compactMap { HKObjectType.quantityType(forIdentifier: $0) }
-            .forEach { types.insert($0) }
-
-        if selection.includes(.sleep),
-           let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) {
-            types.insert(sleepType)
-        }
-
-        return types
-    }
-
-    /// The narrower read set the watch's standalone fetcher actually consumes —
-    /// heart (HR/HRV/RHR), sleep, workouts + per-workout effort, and the
-    /// overnight sleep vitals (respiratory, blood oxygen, wrist temperature).
-    /// Excludes the iPhone-only inputs (activity rings, body basics, energy,
-    /// exercise minutes, daylight, steps) the watch never reads, so a watch
-    /// install never prompts for Health data it won't use.
-    nonisolated static func watchReadObjectTypes(
-        for selection: BodyHealthPermissionSelection = .defaultValue
-    ) -> Set<HKObjectType> {
-        var types: Set<HKObjectType> = []
-
-        if selection.includes(.workouts) {
-            types.insert(HKObjectType.workoutType())
-            if let effortType = HKObjectType.quantityType(forIdentifier: .workoutEffortScore) {
-                types.insert(effortType)
-            }
-        }
-
-        var quantityIdentifiers: [HKQuantityTypeIdentifier] = []
-        if selection.includes(.heart) {
-            quantityIdentifiers += [
-                .restingHeartRate,
-                .heartRate,
-                .heartRateVariabilitySDNN
-            ]
-        }
-        if selection.includes(.respiratory) {
-            quantityIdentifiers.append(.respiratoryRate)
-        }
-        if selection.includes(.bloodOxygen) {
-            quantityIdentifiers.append(.oxygenSaturation)
-        }
-        if selection.includes(.wristTemperature) {
-            quantityIdentifiers.append(.appleSleepingWristTemperature)
         }
 
         quantityIdentifiers

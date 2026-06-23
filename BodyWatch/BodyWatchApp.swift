@@ -3,6 +3,7 @@
 //  BodyWatch
 //
 
+import HealthKit
 import SwiftUI
 import WatchKit
 
@@ -19,17 +20,9 @@ struct BodyWatchApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             // `onAppear` doesn't reliably re-fire when watchOS returns the app
-            // to the foreground, so re-check staleness here too.
-            switch phase {
-            case .active:
-                Task {
-                    await model.refreshLiveMetricsIfStale()
-                    await model.recomputeStandalone()
-                }
-            case .background:
-                WatchBackgroundScheduler.scheduleNextRefreshIfEnabled()
-            default:
-                break
+            // to the foreground, so re-check live HR/HRV staleness here too.
+            if phase == .active {
+                Task { await model.refreshLiveMetricsIfStale() }
             }
         }
     }
@@ -40,26 +33,31 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
         MainActor.assumeIsolated {
             WatchMetricsModel.shared.activate()
         }
-        // `startIfEnabled()` is async (it authorizes before registering), so it
-        // can't run inside the synchronous `assumeIsolated` block.
-        Task { @MainActor in
-            await WatchHealthObserver.shared.startIfEnabled()
-        }
-        WatchBackgroundScheduler.scheduleNextRefreshIfEnabled()
+        disableLegacyStandaloneBackgroundDelivery()
     }
 
-    /// Handles the scheduled background refresh: recompute standalone, reschedule
-    /// the next refresh, then mark the task complete. Other task kinds are
-    /// completed immediately — the app doesn't use them.
+    /// One-time cleanup for installs upgraded from a build that ran standalone
+    /// compute: that feature enabled HealthKit background delivery for its
+    /// observers (now removed). Disable any lingering registrations so watchOS
+    /// stops waking the app for samples nothing consumes anymore.
+    private func disableLegacyStandaloneBackgroundDelivery() {
+        let key = "didDisableStandaloneBackgroundDelivery"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        guard HKHealthStore.isHealthDataAvailable() else { return }
+        HKHealthStore().disableAllBackgroundDelivery { success, _ in
+            // Latch only on success so a failed first attempt retries on the next
+            // launch instead of leaving legacy registrations active forever.
+            guard success else { return }
+            UserDefaults.standard.set(true, forKey: key)
+        }
+    }
+
+    /// Holds WatchConnectivity background-refresh tasks open until the session
+    /// delivers the pushed content (see `handleConnectivityBackgroundTask`);
+    /// other task kinds are completed immediately — the app doesn't use them.
     func handle(_ backgroundTasks: Set<WKRefreshBackgroundTask>) {
         for task in backgroundTasks {
-            if let refreshTask = task as? WKApplicationRefreshBackgroundTask {
-                Task { @MainActor in
-                    await WatchMetricsModel.shared.recomputeStandalone()
-                    WatchBackgroundScheduler.scheduleNextRefreshIfEnabled()
-                    refreshTask.setTaskCompletedWithSnapshot(false)
-                }
-            } else if let wcTask = task as? WKWatchConnectivityRefreshBackgroundTask {
+            if let wcTask = task as? WKWatchConnectivityRefreshBackgroundTask {
                 // Hold open until WCSession delivers the pushed context/userInfo;
                 // completing now would let watchOS suspend before the delegate
                 // drains it, dropping background phone updates.

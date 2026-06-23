@@ -12,9 +12,8 @@ struct BodyApp: App {
     @AppStorage(BodyAppearancePreference.selectedThemeKey) private var selectedThemeRawValue = BodyAppTheme.defaultValue.rawValue
 
     init() {
-        // Activate WatchConnectivity at startup so the watch→phone toggle receiver is
-        // installed and any queued transfer drains on launch, not only after the phone
-        // next sends a snapshot.
+        // Activate WatchConnectivity at startup so the session is ready and the
+        // first snapshot push doesn't have to wait for activation.
         WatchConnectivityPublisher.shared.activate()
     }
 

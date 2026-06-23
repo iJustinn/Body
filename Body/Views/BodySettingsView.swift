@@ -26,7 +26,6 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @AppStorage(BodyAppearancePreference.creatorSurpriseIconsUnlockedKey) private var creatorSurpriseIconsUnlocked = false
-    @AppStorage(BodyAppearancePreference.standaloneWatchComputeKey) private var standaloneWatchCompute = false
     @State private var activeSheet: BodySettingsSheet?
     @State private var selectedAppIconName: String?
     @State private var showingAppIconError = false
@@ -48,7 +47,6 @@ struct BodySettingsView: View {
                         appearanceSection
                         metricsSection
                         dataSection
-                        appleWatchSection
                         aboutSection
                         bodyProEntryCard
                     }
@@ -95,8 +93,8 @@ struct BodySettingsView: View {
                     await workoutStore.requestAuthorizationAndRefresh()
                 }
             }
-            // Push phone-owned compute prefs to the watch immediately so standalone
-            // compute/rendering doesn't run on stale values until the next refresh.
+            // Re-publish the watch snapshot when a display pref changes so the
+            // watch reflects it without waiting for the next refresh.
             .onChange(of: sleepDurationGoalMinutes) { workoutStore.publishWatchSnapshot() }
             .onChange(of: selectedTemperatureUnitRawValue) { workoutStore.publishWatchSnapshot() }
             .onChange(of: followsSystemUnits) { workoutStore.publishWatchSnapshot() }
@@ -193,23 +191,6 @@ struct BodySettingsView: View {
                     settingsDivider
                 }
             }
-        }
-    }
-
-    private var appleWatchSection: some View {
-        BodySettingsCardSection("Apple Watch") {
-            Button {
-                activeSheet = .appleWatch
-            } label: {
-                BodySettingsRowLabel(
-                    title: "Standalone Compute",
-                    value: standaloneWatchCompute ? "On" : "Off",
-                    iconName: "applewatch",
-                    tintColor: Color(red: 0.12, green: 0.68, blue: 0.55),
-                    accessory: .chevron
-                )
-            }
-            .buttonStyle(.plain)
         }
     }
 
@@ -537,15 +518,6 @@ struct BodySettingsView: View {
         }
     }
 
-    private var standaloneWatchComputeBinding: Binding<Bool> {
-        Binding {
-            standaloneWatchCompute
-        } set: { enabled in
-            let revision = StandaloneComputePreference.setLocal(enabled: enabled)
-            WatchConnectivityPublisher.shared.sendStandalonePreference(enabled: enabled, revision: revision)
-        }
-    }
-
     @ViewBuilder
     private func settingsSheet(for sheet: BodySettingsSheet) -> some View {
         switch sheet {
@@ -586,8 +558,6 @@ struct BodySettingsView: View {
             BodyHealthSyncStatusSettingsSheet(workoutStore: workoutStore)
         case .cache:
             BodyCacheSettingsSheet(workoutStore: workoutStore)
-        case .appleWatch:
-            BodyAppleWatchSettingsSheet(standaloneWatchCompute: standaloneWatchComputeBinding)
         case .howToUse:
             BodyHowToUseSettingsSheet()
         case .more:
@@ -670,7 +640,6 @@ enum BodySettingsSheet: String, Identifiable {
     case permissions
     case syncStatus
     case cache
-    case appleWatch
     case howToUse
     case more
 
@@ -907,57 +876,6 @@ private struct BodySleepSettingsSheet: View {
                 .padding(.horizontal, 18)
                 .padding(.vertical, 14)
                 .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
-            }
-        }
-    }
-}
-
-private struct BodyAppleWatchSettingsSheet: View {
-    @Binding var standaloneWatchCompute: Bool
-
-    var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Apple Watch") {
-            VStack(alignment: .leading, spacing: 10) {
-                VStack(spacing: 0) {
-                    HStack(spacing: 14) {
-                        BodySettingsIconTile(
-                            iconName: "applewatch",
-                            color: Color(red: 0.12, green: 0.68, blue: 0.55)
-                        )
-
-                        Text("Standalone Compute")
-                            .font(.system(.headline, design: .rounded))
-                            .fontWeight(.semibold)
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-
-                        Spacer(minLength: 12)
-
-                        Toggle("Standalone Compute", isOn: $standaloneWatchCompute)
-                            .labelsHidden()
-                            .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
-                            .accessibilityValue(standaloneWatchCompute ? "On" : "Off")
-                    }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
-                }
-                .bodyCardBackground()
-
-                Text("Compute readiness, sleep, training load, and vitals on the watch so they refresh without opening this app")
-                    .font(.system(.subheadline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 6)
-
-                Text("While this is on, the watch reads all Apple Health sources. If you've chosen a non-default Primary or Secondary source for a metric in Data > Source, the watch's readiness and sleep can differ from this iPhone.")
-                    .font(.system(.subheadline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 6)
             }
         }
     }

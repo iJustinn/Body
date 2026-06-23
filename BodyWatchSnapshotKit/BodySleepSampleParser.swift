@@ -3,11 +3,9 @@
 //  BodyWatchSnapshotKit
 //
 //  Single source of truth for turning raw HealthKit sleep samples into the
-//  `SleepSummary` / `SleepStageSnapshot` the shared scorers consume. Lives in a
-//  Body + BodyWatch group (both link HealthKit) so the iOS engine and the
-//  watch's standalone fetcher build byte-identical sleep inputs and can't drift.
-//  The iOS `HealthKitFetchEngine` / `HealthKitWorkoutStore` static helpers now
-//  forward here; `WatchHealthFetcher` calls it directly.
+//  `SleepSummary` / `SleepStageSnapshot` the shared scorers consume, so sleep
+//  parsing has one implementation that can't drift. The iOS
+//  `HealthKitFetchEngine` / `HealthKitWorkoutStore` static helpers forward here.
 //
 
 import Foundation

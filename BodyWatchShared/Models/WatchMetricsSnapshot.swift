@@ -120,8 +120,9 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     var generatedAt: Date
     var lastRefreshDate: Date?
     var metrics: [WatchMetric]
-    /// "phone" or "watch" — which device produced this snapshot. Provenance for
-    /// telemetry/debug; the merge decides by recency + value presence.
+    /// Which device produced this snapshot — now always "phone" (the watch no
+    /// longer computes its own). Kept for schema compatibility with older
+    /// snapshots; the merge decides by recency + value presence.
     var source: String? = nil
 
     /// Pushed data older than this is stale: the watch app live-refreshes

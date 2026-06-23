@@ -638,10 +638,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         } else {
             updateHealthDataNotice()
             // The enable branch republishes via the refresh funnel; the disable
-            // branch otherwise wouldn't, so the watch's standalone compute would
-            // keep reading the hidden category. healthSummary/healthTrends were
-            // just filtered by applyPermissionSelectionToCachedData(), and the
-            // synced selection rides the push's context.
+            // branch otherwise wouldn't, so the watch would keep showing the
+            // hidden category (and its live HR/HRV path could keep reading it).
+            // healthSummary/healthTrends were just filtered by
+            // applyPermissionSelectionToCachedData(), and the synced selection
+            // rides the push's context.
             publishWatchSnapshot()
         }
     }

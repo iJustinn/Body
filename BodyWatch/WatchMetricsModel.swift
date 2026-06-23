@@ -21,8 +21,6 @@ final class WatchMetricsModel: NSObject, ObservableObject {
 
     private let healthStore = WatchHealthStore()
     private var hasRequestedLiveAuthorization = false
-    private var hasRequestedStandaloneAuthorization = false
-    private var pendingPreference: (enabled: Bool, revision: Int)?
     private var pendingConnectivityTasks: [WKWatchConnectivityRefreshBackgroundTask] = []
 
     private override init() {
@@ -47,128 +45,71 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     // MARK: - WatchConnectivity intake
 
     private func applyReceivedContext(_ context: [String: Any]) {
-        // Mirror phone-owned compute preferences into the watch's own defaults
-        // (independent of snapshot freshness) so the next standalone recompute
-        // uses the same inputs as the phone.
-        adoptRemoteComputeSettings(context)
-
-        // Standalone toggle: latest-state repair for a watch that missed the
-        // transferUserInfo (or re-paired). Apply before the permission adopt so
-        // an incoming `off` short-circuits the permission reconcile's heavy work.
-        if let parsed = StandaloneComputePreference.parse(context),
-           StandaloneComputePreference.applyRemote(enabled: parsed.enabled, revision: parsed.revision, preferIncomingOnTie: true) {
-            reconcileStandalone(enabled: parsed.enabled)
-        }
-
         // Permission selection — independent of snapshot freshness, so a
         // permission-only change (or a same-/older-generation snapshot) applies.
+        // This also opens the live-read gate: the watch's HR/HRV path reads
+        // HealthKit only after the phone's selection has synced at least once.
         if let rawSelection = context[BodyAppearancePreference.healthPermissionSelectionKey] as? String {
             adoptRemotePermissionSelection(rawSelection)
         }
         guard let data = context["snapshot"] as? Data,
               let received = WatchMetricsSnapshot.decoded(from: data),
               received.generatedAt > snapshot.generatedAt else { return }
-        apply(merging(received, preserveMissing: false))
-    }
-
-    /// Write-through phone-owned compute preferences (sleep goal, temperature
-    /// unit, sleep-score visibility, sub-minute awake stages) into the watch's
-    /// own defaults. No reconcile needed — the next standalone recompute reads
-    /// them, and the phone snapshot pushed alongside already shows correct values.
-    private func adoptRemoteComputeSettings(_ context: [String: Any]) {
-        let defaults = UserDefaults.standard
-        if let minutes = context[BodyAppearancePreference.sleepDurationGoalMinutesKey] as? Int {
-            defaults.set(minutes, forKey: BodyAppearancePreference.sleepDurationGoalMinutesKey)
-        }
-        if let followsSystem = context[BodyAppearancePreference.followsSystemUnitsKey] as? Bool {
-            defaults.set(followsSystem, forKey: BodyAppearancePreference.followsSystemUnitsKey)
-        }
-        if let unit = context[BodyAppearancePreference.selectedTemperatureUnitKey] as? String {
-            defaults.set(unit, forKey: BodyAppearancePreference.selectedTemperatureUnitKey)
-        }
-        if let showSleepScore = context[BodyAppearancePreference.showSleepScoreKey] as? Bool {
-            defaults.set(showSleepScore, forKey: BodyAppearancePreference.showSleepScoreKey)
-        }
-        if let showsSubMinuteAwake = context[BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey] as? Bool {
-            defaults.set(showsSubMinuteAwake, forKey: BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey)
-        }
+        apply(merging(received))
     }
 
     /// Adopts the phone's health-permission selection (phone-authoritative,
-    /// one-way, synced on every push). On a real change: re-request
-    /// authorization — the auth latches would otherwise skip newly-enabled
-    /// types — and, when standalone compute is on, restart
-    /// the observers and recompute so the change lands without a relaunch.
-    /// Persisting alone covers the standalone-off case: the phone pushes a
-    /// freshly-filtered snapshot alongside this.
+    /// one-way, synced on every push). On a real change, reset the live-auth
+    /// latch so a newly-enabled Heart type is re-requested on the next live
+    /// HR/HRV refresh. Persisting also opens the live-read gate
+    /// (`hasSyncedPermissionSelection`): until the phone's selection has synced
+    /// at least once the watch must not read HealthKit, since
+    /// `BodyHealthPermissionSelection.load()` would otherwise fall back to
+    /// all-enabled and could read categories the user hid on the phone.
     private func adoptRemotePermissionSelection(_ rawValue: String) {
         let key = BodyAppearancePreference.healthPermissionSelectionKey
         guard UserDefaults.standard.string(forKey: key) != rawValue else { return }
         UserDefaults.standard.set(rawValue, forKey: key)
-
         hasRequestedLiveAuthorization = false
-        hasRequestedStandaloneAuthorization = false
-        guard WatchStandaloneCompute.isEnabled() else { return }
-        // Arm closed-app refresh now that the permission selection has synced —
-        // a foregrounded first sync followed by a kill (no background transition)
-        // would otherwise leave it unscheduled.
-        WatchBackgroundScheduler.scheduleNextRefreshIfEnabled()
-        WatchHealthObserver.shared.stop()
-        Task {
-            // Effort edits made while the observer was stopped (or under the
-            // prior permission set) weren't seen, so the effort cache may be
-            // stale — drop it before this recompute re-resolves training load.
-            await WatchComputeCoordinator.shared.invalidateEffortCache()
-            await recomputeStandalone()
-            await WatchHealthObserver.shared.startIfEnabled()
-        }
     }
 
-    /// Keep locally-measured metrics (live HR/HRV) over the incoming value when
-    /// they're still the freshest reading — a workout-only phone refresh re-sends
-    /// old vitals, and a watch recompute returns daily-average HR/HRV, neither of
-    /// which must roll back a live reading.
-    private func merging(_ received: WatchMetricsSnapshot, preserveMissing: Bool) -> WatchMetricsSnapshot {
+    /// The live HR/HRV path reads HealthKit only after the phone's permission
+    /// selection has synced at least once (see `adoptRemotePermissionSelection`).
+    private static func hasSyncedPermissionSelection(defaults: UserDefaults = .standard) -> Bool {
+        defaults.string(forKey: BodyAppearancePreference.healthPermissionSelectionKey) != nil
+    }
+
+    /// Keep a locally-measured live reading (HR/HRV) over the incoming value
+    /// when it's still the freshest — a workout-only phone refresh re-sends old
+    /// vitals, which must not roll back a live reading.
+    private func merging(_ received: WatchMetricsSnapshot) -> WatchMetricsSnapshot {
         let receivedVitalsDate = received.lastRefreshDate ?? .distantPast
-        let now = Date()
         var merged = received
         merged.metrics = received.metrics.map { metric in
             guard let local = snapshot.metric(forKind: metric.kind) else { return metric }
 
-            // Preserve a locally-measured live reading (HR/HRV) over the
-            // incoming value. On a phone push, keep it when it's newer than the
-            // vitals the phone snapshot was built from. On a watch recompute
-            // (`preserveMissing`), HR/HRV come back as daily AVERAGES stamped
-            // `now` — which would always outrank a live reading by timestamp —
-            // so keep a still-fresh live reading (within the stale window)
-            // instead of regressing the card to a daily average.
-            if let liveUpdatedAt = local.liveUpdatedAt {
-                let liveWins = preserveMissing
-                    ? now.timeIntervalSince(liveUpdatedAt) < WatchMetricsSnapshot.staleInterval
-                    : liveUpdatedAt > receivedVitalsDate
-                if liveWins {
-                    var kept = metric
-                    kept.displayValue = local.displayValue
-                    kept.unit = local.unit
-                    kept.rawValue = local.rawValue
-                    kept.fillFraction = local.fillFraction
-                    kept.liveUpdatedAt = local.liveUpdatedAt
-                    return kept
-                }
+            // Preserve a locally-measured live reading (HR/HRV) over the incoming
+            // value when it's newer than the vitals the phone snapshot was built
+            // from.
+            if let liveUpdatedAt = local.liveUpdatedAt, liveUpdatedAt > receivedVitalsDate {
+                var kept = metric
+                kept.displayValue = local.displayValue
+                kept.unit = local.unit
+                kept.rawValue = local.rawValue
+                kept.fillFraction = local.fillFraction
+                kept.liveUpdatedAt = local.liveUpdatedAt
+                return kept
             }
 
             // Don't downgrade a good local value when the incoming metric is
-            // blank. Always applies to a watch recompute (`preserveMissing`) —
-            // the watch's own gaps must not blank good phone data. For a phone
-            // push it applies to every metric EXCEPT readiness: a phone "--"
-            // for a fetch-disabled card (BodyDashboardFetchSelection) is not an
+            // blank — for every metric EXCEPT readiness: a phone "--" for a
+            // fetch-disabled card (BodyDashboardFetchSelection) is not an
             // authoritative clear, whereas readiness is always computed when
             // possible, so a phone readiness "--" means genuinely uncomputable
             // (e.g. Heart revoked) and must clear the stale score instead of
             // resurrecting it. (A revoked permission omits its metric entirely,
             // so readiness — the only always-present metric — is the sole case.)
-            let keepWhenBlank = preserveMissing || metric.kind != WatchMetricKindKey.readiness
-            if keepWhenBlank, !metric.hasValue, local.hasValue {
+            if metric.kind != WatchMetricKindKey.readiness, !metric.hasValue, local.hasValue {
                 return local
             }
 
@@ -187,11 +128,11 @@ final class WatchMetricsModel: NSObject, ObservableObject {
 
     private var isStale: Bool {
         // The live path refreshes HR/HRV, so staleness tracks THOSE metrics'
-        // freshness — a standalone recompute that preserves an old HR/HRV (no
-        // auth / no samples) advances the snapshot's `lastRefreshDate` but not
-        // the preserved metric's own `computedAt`, so a snapshot-level check
-        // would let a stale reading masquerade as fresh and suppress this
-        // refresh indefinitely under repeated recomputes.
+        // freshness (their `liveUpdatedAt`, else the value's `computedAt`) rather
+        // than the snapshot-level `lastRefreshDate`: a phone push can carry an
+        // older HR/HRV under a fresh snapshot timestamp, and a snapshot-level
+        // check would then suppress this refresh while the vitals on screen are
+        // stale.
         let liveFreshness = [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability]
             .compactMap { snapshot.metric(forKind: $0) }
             .compactMap { $0.liveUpdatedAt ?? $0.computedAt }
@@ -200,12 +141,10 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         return Date().timeIntervalSince(freshness) > WatchMetricsSnapshot.staleInterval
     }
 
-    /// Manual dashboard refresh (top-left button): recompute on-watch metrics
-    /// — a no-op unless standalone compute is on and the permission selection
-    /// has synced — then force a live HR/HRV reading so the tap always lands,
-    /// even when the snapshot hasn't crossed the stale window yet.
+    /// Manual dashboard refresh (top-left button): force a live HR/HRV reading
+    /// so the tap always lands, even when the snapshot hasn't crossed the stale
+    /// window yet. Readiness / Sleep / Training Load come from the iPhone push.
     func refresh() async {
-        await recomputeStandalone()
         await refreshLiveMetrics(force: true)
     }
 
@@ -220,7 +159,7 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         // HealthKit read grants persist, so a synced watch with Heart disabled
         // (or an unsynced watch defaulting to all-enabled) would otherwise read
         // data the user hid on the phone.
-        guard WatchStandaloneCompute.hasSyncedPermissionSelection(),
+        guard Self.hasSyncedPermissionSelection(),
               BodyHealthPermissionSelection.load().includes(.heart),
               force || isStale, !snapshot.metrics.isEmpty else { return }
 
@@ -261,76 +200,6 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         metric.liveUpdatedAt = Date()
         result[index] = metric
         return result
-    }
-
-    // MARK: - Standalone compute
-
-    /// Runs the full on-watch recompute (when the toggle is enabled) from the
-    /// watch's own HealthKit and applies the result. Invoked on foreground, by
-    /// the scheduled background refresh, and by the HealthKit observers.
-    func recomputeStandalone() async {
-        guard WatchStandaloneCompute.isEnabled(),
-              WatchStandaloneCompute.hasSyncedPermissionSelection() else { return }
-        if !hasRequestedStandaloneAuthorization {
-            hasRequestedStandaloneAuthorization = true
-            await healthStore.requestAuthorization()
-        }
-        guard let computed = await WatchComputeCoordinator.shared.recompute() else { return }
-        // The toggle may have flipped off while the recompute was in flight;
-        // don't let a late watch result stomp the phone snapshot.
-        guard WatchStandaloneCompute.isEnabled() else { return }
-        applyComputed(computed)
-    }
-
-    private func applyComputed(_ computed: WatchMetricsSnapshot) {
-        // The freshly computed snapshot supersedes anything older; a newer phone
-        // push (higher generatedAt) still wins on its next delivery. Merge so a
-        // metric the watch couldn't compute keeps its prior value and a fresher
-        // live HR/HRV reading is preserved.
-        guard computed.generatedAt >= snapshot.generatedAt else { return }
-        apply(merging(computed, preserveMissing: true))
-    }
-
-    // MARK: - Standalone toggle sync
-
-    func sendStandalonePreference(enabled: Bool, revision: Int) {
-        let session = WCSession.default
-        // Mirror the phone publisher: ensure the delegate is set so
-        // `activationDidCompleteWith` fires (and flushes the queue) even when
-        // this is the first WatchConnectivity call, before `activate()`.
-        if session.delegate == nil { session.delegate = self }
-        guard session.activationState == .activated else {
-            // `transferUserInfo` needs an activated session; queue and flush
-            // from `activationDidCompleteWith`. A bare send here is dropped, and
-            // since the local revision was already bumped, the phone's older
-            // contexts would then be ignored — leaving the devices out of sync.
-            pendingPreference = (enabled, revision)
-            if session.activationState == .notActivated { session.activate() }
-            return
-        }
-        session.transferUserInfo([
-            StandaloneComputePreference.messageKey: enabled,
-            StandaloneComputePreference.revisionMessageKey: revision
-        ])
-    }
-
-    /// Brings the background machinery in line with the toggle: start observers +
-    /// scheduling and recompute once when on; tear them down when off.
-    func reconcileStandalone(enabled: Bool) {
-        if enabled {
-            WatchBackgroundScheduler.scheduleNextRefreshIfEnabled()
-            // Recompute first (it authorizes), then start observers — observer
-            // setup also authorizes, so this keeps the prompt single and ordered.
-            Task {
-                // Effort edits made while compute was off weren't observed, so the
-                // effort cache may be stale — drop it before the first recompute.
-                await WatchComputeCoordinator.shared.invalidateEffortCache()
-                await recomputeStandalone()
-                await WatchHealthObserver.shared.startIfEnabled()
-            }
-        } else {
-            WatchHealthObserver.shared.stop()
-        }
     }
 
     // MARK: - WatchConnectivity background tasks
@@ -393,22 +262,8 @@ extension WatchMetricsModel: WCSessionDelegate {
                 self.finishAllConnectivityTasks()
                 return
             }
-            // Flush a toggle queued before activation (clear first so a re-send
-            // that re-checks activation can't double-send).
-            if let pendingPreference = self.pendingPreference {
-                self.pendingPreference = nil
-                self.sendStandalonePreference(enabled: pendingPreference.enabled, revision: pendingPreference.revision)
-            }
             self.applyReceivedContext(WCSession.default.receivedApplicationContext)
             self.completePendingConnectivityTasksIfDrained()
-
-            // Cold-launch standalone recompute, AFTER adopting the phone's context so it
-            // reads synced settings and its fresh `generatedAt` legitimately supersedes —
-            // instead of racing `activate()` and rejecting the just-applied phone snapshot.
-            // `onChange(of: scenePhase)` misses the initial `.active` and the HK observer
-            // only fires on NEW samples, so this is the reliable initial-launch trigger.
-            // Self-gates to a no-op pre-sync / when disabled.
-            Task { await self.recomputeStandalone() }
         }
     }
 
@@ -420,13 +275,9 @@ extension WatchMetricsModel: WCSessionDelegate {
     }
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        // The phone no longer sends userInfo, but any delivered payload still
+        // counts as content, so a held WC background task must complete.
         Task { @MainActor in
-            if let parsed = StandaloneComputePreference.parse(userInfo),
-               StandaloneComputePreference.applyRemote(enabled: parsed.enabled, revision: parsed.revision, preferIncomingOnTie: true) {
-                self.reconcileStandalone(enabled: parsed.enabled)
-            }
-            // Drain regardless: even an unparseable/stale userInfo is delivered
-            // content, so the held WC task must still complete.
             self.completePendingConnectivityTasksIfDrained()
         }
     }
