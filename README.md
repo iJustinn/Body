@@ -6,7 +6,7 @@
 
 Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, Readiness, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
-Current app version: **0.9.3 (build 5)**
+Current app version: **0.9.3 (build 6)**
 
 ## Screenshots
 
@@ -25,14 +25,16 @@ Current app version: **0.9.3 (build 5)**
 ## Features
 
 - **Summary tab** - Activity Rings card plus health cards for Readiness, Exercise Minutes, Skin Temperature, Daylight, Steps, Sleep, Basics (body fat/weight/BMI), heart rate, Training Load, HRV, blood oxygen, respiratory rate, and energy. Each card includes a four-day preview chart and an About explainer. Detail screens support Week/Month/6 Months/Year ranges.
+- **Add measurements** - The Basics detail screen has an Add (+) button that opens a sheet to log a new weight and/or body-fat reading — chosen with wheel pickers that start from your latest values, with a date/time and an include checkbox per measurement so you can log either or both — saved straight to Apple Health.
+- **Rate workout effort** - Tap the Effort card on a workout's detail screen and it expands in place (no popup) to reveal Cancel/Save on the left and − / + buttons on the right; set the rating 1–10 (Easy → All Out) and the bar meter animates. Body saves it to Apple Health, relates it to that workout, and recomputes Training Load.
 - **Readiness** - Readiness score based on personal baselines for sleep, heart, training load, respiratory, blood oxygen, and skin temperature signals, with status bands, component scores, confidence, and driver explanations.
 - **Two-source comparison** - Supported metrics (Sleep, Heart Rate, Resting Heart Rate, HRV, Blood Oxygen, Steps, Active Energy, Resting Energy, Exercise Minutes) can overlay a secondary Apple Health source alongside the primary. Primary and secondary share x-axis buckets, the legend lists each source's average, and the picker hides whichever source is already in use as the other slot to prevent duplicate series.
 - **Workouts tab** - Searchable workout history with month browsing, sort, type filters, summary totals, an in-app workout calendar, and a workout type breakdown with monthly totals.
 - **Sleep detail** - Today's sleep score, stage timeline, and a tappable stage breakdown that flips between per-stage durations and an optimal-range bar chart (each stage's percentage of time in bed and duration, with a healthy reference band), plus the Apple-style Sleep Vitals chart and range trend chart. The breakdown choice persists until you tap again.
 - **Pull-to-refresh feedback** - Summary, metric detail, and Workouts each show a "Loading data..." overlay during pull-to-refresh that stays on screen until the underlying HealthKit refresh actually finishes, including waiting for any background sync already in flight.
 - **Widgets** - Large workout calendar widget (monthly tiles using SF workout icons, with star/moon/sun count markers) and large workout types widget (percentage-bar breakdown by type). System, Black, and White background choices.
-- **Apple Watch** - A companion watch app shows Readiness, Sleep, Heart Rate, HRV, Resting Heart Rate, Training Load, and Skin Temperature in the iOS card style, plus a ring-style complication for each metric (accessory circular and rectangular). Metrics are pushed from the iPhone over WatchConnectivity and cached on the watch for its complications; Heart Rate and HRV are refreshed directly on the watch when the pushed snapshot is stale, and a refresh button on the top-left of the watch home screen re-pulls metrics on demand. Complications refresh when the watch app is opened; snapshots pushed while it's closed are applied on next launch.
-- **Apple Health sync** - Read-only access to workouts, activity rings, sleep, heart, body measurements, energy, daylight, steps, exercise minutes, and skin temperature. Workout summaries and dashboard snapshots are written to App Group storage for widgets.
+- **Apple Watch** - A companion watch app shows Readiness, Sleep, Heart Rate, HRV, Resting Heart Rate, Training Load, and Skin Temperature in the iOS card style, plus a ring-style complication for each metric (accessory circular and rectangular). Metrics are pushed from the iPhone over WatchConnectivity and cached on the watch for its complications; Heart Rate and HRV are refreshed directly on the watch when the pushed snapshot is stale, and a refresh button on the top-left of the watch home screen re-pulls metrics on demand. Complications refresh when the watch app is opened; snapshots pushed while it's closed are applied on next launch. When Standalone Compute is enabled the watch computes Readiness and Sleep from its own HealthKit, and now matches the iPhone's results — fetching each workout's real effort, sharing the iPhone's sleep-stage parsing and training-load window, and honoring the same sub-minute-awake setting synced from the phone. (Picking a non-default Apple Health source for a metric can still make the two differ.)
+- **Apple Health sync** - Reads workouts, activity rings, sleep, heart, body measurements, energy, daylight, steps, exercise minutes, and skin temperature. The Basics detail can also write the weight and body-fat measurements you enter, and a workout's effort rating, back to Apple Health — the only data Body writes there. Workout summaries and dashboard snapshots are written to App Group storage for widgets.
 - **Settings** - Appearance, Units, app icon selection, Data > Source defaults for Apple Health sources, Data > Permissions to hide categories from the dashboard, and About rows.
 - **Local-first** - Widgets read a cached JSON snapshot from the app group; they do not query HealthKit directly. A current-month preview snapshot keeps the UI useful before authorization. The dashboard cache invalidates stale secondary-source series automatically when the user changes a comparison source between launches.
 
@@ -64,7 +66,7 @@ Body/
 
 ## Privacy
 
-Body reads Apple Health data only after permission is granted. Users can choose default Apple Health sources in Settings > Data > Source and hide categories in Settings > Data > Permissions without changing system-level authorization. Workout summaries are stored locally and mirrored to the widget through the app group's shared `UserDefaults`. Body does not collect tracking data. The Privacy row in Settings > About opens Body's hosted privacy policy (https://docs.ijustinz.com/body/privacy) in an in-app browser.
+Body reads Apple Health data only after permission is granted. Users can choose default Apple Health sources in Settings > Data > Source and hide categories in Settings > Data > Permissions without changing system-level authorization. Workout summaries are stored locally and mirrored to the widget through the app group's shared `UserDefaults`. Body does not collect tracking data. The only data Body writes to Apple Health is the weight and body-fat measurements you add in the Basics detail and the effort ratings you set on a workout. The Privacy row in Settings > About opens Body's hosted privacy policy (https://docs.ijustinz.com/body/privacy) in an in-app browser.
 
 ## Documentation
 

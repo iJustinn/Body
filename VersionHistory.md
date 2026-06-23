@@ -1,5 +1,14 @@
 # Version History
 
+## 0.9.3 (build 6)
+
+- Aligned the Apple Watch standalone Readiness and Sleep computation with the iPhone so both produce the same result from the same Apple Health data. The watch now fetches each workout's real effort score (instead of assuming a default), shares the iPhone's exact sleep-stage parsing and 180-day training-load window through new shared code, and honors the iPhone's "show sub-minute awake stages" setting (synced over WatchConnectivity). An effort edit on the phone now also wakes the watch to recompute.
+- Added a note on the Settings > Apple Watch (Standalone Compute) page explaining that, with Standalone Compute on, choosing a non-default Apple Health source for a metric can make the watch's numbers differ from the iPhone (the watch reads all sources).
+- Standalone Compute now defaults to off (it previously defaulted on). Turn it on from Settings > Apple Watch to compute Readiness and Sleep on the watch; with it off, the watch keeps showing the iPhone-pushed metrics.
+- Added an Add (+) button to the top-right of the Basics detail screen. It opens a sheet to log a new weight and body-fat measurement — both on one page, chosen with wheel pickers that start from your latest values, with a date/time picker and an include checkbox on each so you can log just weight, just body fat, or both — and saves the enabled values to Apple Health. This is the first data Body writes to Apple Health, so the Health write-permission prompt appears the first time you save.
+- Made the Effort card on a workout's detail screen tappable to add or change that workout's effort rating. The card expands in place (no popup) to reveal Cancel/Save on the left and − / + buttons on the right; adjust 1–10 (Easy → All Out) and the bar meter animates as it changes. Body saves it to Apple Health, relates it to the workout, and recomputes Training Load (which effort feeds) so the trend — and the Apple Watch snapshot pushed on the next refresh — pick up the change.
+- Updated the app, widget, watch, and test bundle version to 0.9.3 build 6.
+
 ## 0.9.3 (build 5)
 
 - Settings > Apple Watch now matches the other settings groups: the Standalone Compute control is a tappable row (showing its On/Off state) that opens a popup page containing the toggle, instead of sitting inline in the settings list.
