@@ -11,23 +11,30 @@ struct WatchDashboardView: View {
     @EnvironmentObject private var model: WatchMetricsModel
     @State private var isRefreshing = false
 
-    private var orderedMetrics: [WatchMetric] {
-        WatchMetricKindKey.displayOrder.compactMap { model.snapshot.metric(forKind: $0) }
+    private var visibleMetrics: [WatchMetric] {
+        model.snapshot.orderedMetrics.filter { model.isMetricVisible($0.kind) }
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                if orderedMetrics.isEmpty {
+                if model.snapshot.orderedMetrics.isEmpty {
                     ContentUnavailableView(
                         "No Data Yet",
                         systemImage: "applewatch",
                         description: Text("Open Body on your iPhone to sync your metrics.")
                     )
                     .padding(.top, 20)
+                } else if visibleMetrics.isEmpty {
+                    ContentUnavailableView(
+                        "All Metrics Hidden",
+                        systemImage: "eye.slash",
+                        description: Text("Turn metrics back on in Settings.")
+                    )
+                    .padding(.top, 20)
                 } else {
                     VStack(spacing: 8) {
-                        ForEach(orderedMetrics) { metric in
+                        ForEach(visibleMetrics) { metric in
                             WatchMetricCardView(metric: metric)
                         }
                     }

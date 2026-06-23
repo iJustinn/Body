@@ -18,6 +18,9 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     static let shared = WatchMetricsModel()
 
     @Published private(set) var snapshot: WatchMetricsSnapshot
+    /// Metric kinds the user hid from the watch dashboard (a watch-local display
+    /// preference — see the visibility section below).
+    @Published private(set) var hiddenMetricKinds: Set<String>
 
     private let healthStore = WatchHealthStore()
     private var hasRequestedLiveAuthorization = false
@@ -25,6 +28,7 @@ final class WatchMetricsModel: NSObject, ObservableObject {
 
     private override init() {
         snapshot = WatchMetricsSnapshotStore.load() ?? .empty
+        hiddenMetricKinds = Self.loadHiddenMetricKinds()
         super.init()
     }
 
@@ -122,6 +126,34 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         snapshot = newSnapshot
         WatchMetricsSnapshotStore.save(newSnapshot)
         WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    // MARK: - Dashboard metric visibility (watch-local)
+
+    private static let hiddenMetricKindsKey = "watchHiddenMetricKinds"
+
+    /// Whether a metric kind is shown on the watch dashboard. Visibility is a
+    /// watch-local display preference and never touches the pushed snapshot, so a
+    /// hidden metric stays in `snapshot` and can be turned back on.
+    func isMetricVisible(_ kind: String) -> Bool {
+        !hiddenMetricKinds.contains(kind)
+    }
+
+    func setMetric(_ kind: String, visible: Bool) {
+        if visible {
+            hiddenMetricKinds.remove(kind)
+        } else {
+            hiddenMetricKinds.insert(kind)
+        }
+        UserDefaults.standard.set(
+            hiddenMetricKinds.sorted().joined(separator: ","),
+            forKey: Self.hiddenMetricKindsKey
+        )
+    }
+
+    private static func loadHiddenMetricKinds(defaults: UserDefaults = .standard) -> Set<String> {
+        guard let raw = defaults.string(forKey: hiddenMetricKindsKey), !raw.isEmpty else { return [] }
+        return Set(raw.split(separator: ",").map(String.init))
     }
 
     // MARK: - Hybrid live refresh
