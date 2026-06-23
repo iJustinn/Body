@@ -62,7 +62,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testReadinessDailySeriesUsesCachedBaselineContext() throws {
-        let source = try text(at: "Body/Models/Readiness/ReadinessScoreCalculator.swift")
+        let source = try text(at: "BodyMetricsKit/ReadinessScoreCalculator.swift")
         let dailySeriesStart = try XCTUnwrap(source.range(of: "static func dailySeries(")?.lowerBound)
         let nextDeclaration = try XCTUnwrap(source[dailySeriesStart...].range(of: "private static func autonomicReadings(")?.lowerBound)
         let dailySeriesBlock = String(source[dailySeriesStart..<nextDeclaration])
@@ -657,7 +657,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testSleepStageBreakdownTogglesToOptimalRangeChart() throws {
         let source = try bodyHomeViewText()
-        let appearanceSource = try text(at: "Body/Models/BodyAppearancePreference.swift")
+        let appearanceSource = try text(at: "BodyMetricsKit/BodyHealthSelections.swift")
         let cardStart = try XCTUnwrap(source.range(of: "private func sleepStageCard")?.lowerBound)
         let cardEnd = try XCTUnwrap(
             source.range(of: "private func sleepStageDurationSummary", range: cardStart..<source.endIndex)?.lowerBound
@@ -935,9 +935,9 @@ final class ProjectConfigurationTests: XCTestCase {
     func testSummaryTabUsesHealthDashboardIcon() throws {
         let source = try text(at: "Body/Views/MainTabView.swift")
 
-        XCTAssertTrue(source.contains(#"boldTabIcon("waveform.path.ecg.text")"#))
-        XCTAssertTrue(source.contains(#".accessibilityLabel("Summary")"#))
-        XCTAssertFalse(source.contains(#"Label("Summary", systemImage: "house.fill")"#))
+        XCTAssertTrue(source.contains(#"case .summary: "waveform.path.ecg.text""#))
+        XCTAssertTrue(source.contains(#"case .summary: "Summary""#))
+        XCTAssertFalse(source.contains(#""house.fill""#))
     }
 
     func testAppWidgetAndWatchShareAppGroupEntitlement() throws {
@@ -1349,8 +1349,8 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testSettingsUnitsPageHasSystemToggleAndIndependentUnitControls() throws {
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
-        let appearanceSource = try text(at: "Body/Models/BodyAppearancePreference.swift")
-        let formatterSource = try text(at: "BodyShared/Models/WorkoutSummary.swift")
+        let appearanceSource = try text(at: "BodyMetricsKit/BodyHealthSelections.swift")
+        let formatterSource = try text(at: "BodyMetricsKit/WorkoutSummary.swift")
 
         let unitSheetStart = try XCTUnwrap(settingsSource.range(of: "private struct BodyUnitPreferencePickerSheet")?.lowerBound)
         let unitSheetBlock = String(settingsSource[unitSheetStart...].prefix(8_000))
@@ -1557,12 +1557,12 @@ final class ProjectConfigurationTests: XCTestCase {
     /// look across all of them, not just the main file.
     private func healthSummarySnapshotText() throws -> String {
         let files = [
-            "Body/Models/HealthSummarySnapshot.swift",
-            "Body/Models/ActivityRings.swift",
-            "Body/Models/Sleep.swift",
+            "BodyMetricsKit/HealthSummarySnapshot.swift",
+            "BodyMetricsKit/ActivityRings.swift",
+            "BodyMetricsKit/Sleep.swift",
             "Body/Models/SourceComparison.swift",
-            "Body/Models/TrainingLoadCalculator.swift",
-            "Body/Models/HealthTrend.swift"
+            "BodyMetricsKit/TrainingLoadCalculator.swift",
+            "BodyMetricsKit/HealthTrend.swift"
         ]
         return try files.map { try text(at: $0) }.joined(separator: "\n")
     }
