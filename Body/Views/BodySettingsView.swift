@@ -2349,7 +2349,7 @@ private struct BodyHowToUseSettingsSheet: View {
             tintColor: .green,
             steps: [
                 "Install the Body watch app from the Watch app on your iPhone. It mirrors your Readiness, Sleep, Heart Rate, HRV, Resting Heart Rate, Training Load, and Skin Temperature cards.",
-                "Add a Body complication to your watch face — every metric has an accessory circular and rectangular ring complication.",
+                "Add a Body complication to your watch face — every metric has an accessory circular, rectangular, and corner ring complication.",
                 "The iPhone stays the source of truth: it pushes a metrics snapshot to the watch after each successful refresh, so open and refresh Body on iPhone to keep the watch current.",
                 "When that snapshot is stale, the watch refreshes Heart Rate and HRV from its own Health data. Complications update when the watch app runs; snapshots pushed while it is closed apply on next launch."
             ]

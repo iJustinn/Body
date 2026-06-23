@@ -3,6 +3,8 @@
 ## 0.9.3 (build 7)
 
 - Removed the Apple Watch "Standalone Compute" feature. The watch no longer computes Readiness, Sleep, or Training Load on-device; it always shows the metrics the iPhone computes and pushes over WatchConnectivity. It still refreshes Heart Rate and HRV directly from its own HealthKit when the pushed snapshot is stale (and via the home-screen refresh button), exactly as the original watch app did. The Settings > Apple Watch page and the on-watch toggle are gone, the watch's HealthKit background-delivery entitlement was dropped (only foreground HR/HRV reads remain), and its Apple Health permission prompt now reflects that narrower access.
+- Added an accessory **corner** complication for every Apple Watch metric — a curved gauge that hugs the bezel on corner-style watch faces (e.g. Infograph), showing the metric's value with a tinted fill arc. Also slightly reduced the value text in the circular ring complication.
+- The Apple Watch home screen now leads with **Training Load**, and the watch Settings screen adds a show/hide toggle for each metric so you can choose which cards appear on the watch. Visibility is a watch-local preference — hidden metrics stay in the synced snapshot and can be turned back on, and the home screen shows an "All Metrics Hidden" state if you turn them all off.
 - Updated the app, widget, watch, and test bundle version to 0.9.3 build 7.
 
 ## 0.9.3 (build 6)

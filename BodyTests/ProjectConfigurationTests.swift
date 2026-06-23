@@ -1027,12 +1027,12 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testWatchMetricKindKeysMatchIOSWidgetStyling() throws {
         let pairs: [(kind: String, widgetMetric: HealthWidgetMetric)] = [
+            (WatchMetricKindKey.trainingLoad, .trainingLoad),
             (WatchMetricKindKey.readiness, .readiness),
             (WatchMetricKindKey.sleep, .sleep),
             (WatchMetricKindKey.heartRate, .heartRate),
             (WatchMetricKindKey.heartRateVariability, .heartRateVariability),
             (WatchMetricKindKey.restingHeartRate, .restingHeartRate),
-            (WatchMetricKindKey.trainingLoad, .trainingLoad),
             (WatchMetricKindKey.wristTemperature, .wristTemperature)
         ]
 
@@ -1452,7 +1452,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(howToUseBlock.contains("Summary shows Activity Rings, Readiness, Sleep, Basics, Training Load"))
         XCTAssertTrue(howToUseBlock.contains("Tap the stage breakdown beneath the timeline to switch between per-stage durations and the optimal-range chart"))
         XCTAssertTrue(howToUseBlock.contains(#"title: "Apple Watch""#))
-        XCTAssertTrue(howToUseBlock.contains("every metric has an accessory circular and rectangular ring complication"))
+        XCTAssertTrue(howToUseBlock.contains("every metric has an accessory circular, rectangular, and corner ring complication"))
         XCTAssertFalse(howToUseBlock.contains("Use Settings to change appearance, app accent, icon, and measurement units."))
     }
 
