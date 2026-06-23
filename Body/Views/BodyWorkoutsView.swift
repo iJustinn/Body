@@ -131,6 +131,7 @@ struct BodyWorkoutsView: View {
             }
             .sheet(item: $selectedWorkoutForDetails) { workout in
                 BodyWorkoutDetailSheet(workout: workout)
+                    .environmentObject(workoutStore)
             }
             .sheet(item: $selectedWorkoutListSelection) { selection in
                 BodyWorkoutListSheet(selection: selection)
@@ -679,6 +680,11 @@ private struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
+    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @State private var isEditingEffort = false
+    @State private var editingScore = 5
+    @State private var isSavingEffort = false
+    @State private var effortError: String?
     let workout: WorkoutSummary
 
     private let metricColumns = [
@@ -776,11 +782,45 @@ private struct BodyWorkoutDetailSheet: View {
         .bodyCardBackground(cornerRadius: 30)
     }
 
-    private var effortCard: some View {
-        let effortPresentation = presentation.effortPresentation
-        let effortColor = effortPresentation?.intensity.tintColor ?? Color.secondary
+    /// The effort to display — a rating the user just saved this session (kept on
+    /// the store) wins over the snapshot's baked-in value so an edit shows at once.
+    private var effortLevel: Double? {
+        workoutStore.workoutEffortOverrides[workout.id] ?? workout.effortLevel
+    }
 
-        return HStack(spacing: 16) {
+    /// While editing, the in-progress value drives the header so the meter and
+    /// number update live; otherwise the saved value (override-aware) is shown.
+    private var displayedEffortLevel: Double? {
+        isEditingEffort ? Double(editingScore) : effortLevel
+    }
+
+    /// Tapping the card expands it in place to reveal the editing controls — no
+    /// separate sheet. Cancel/Save sit on the left, the −/+ steppers on the right.
+    private var effortCard: some View {
+        let presentation = displayedEffortLevel.flatMap { WorkoutEffortPresentation(score: $0) }
+        let effortColor = presentation?.intensity.tintColor ?? Color.secondary
+
+        return VStack(alignment: .leading, spacing: 18) {
+            effortHeader(presentation: presentation, color: effortColor)
+
+            if isEditingEffort {
+                effortEditingControls(color: effortColor)
+                    .transition(.opacity)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity)
+        .bodyCardBackground(cornerRadius: 30)
+        .alert("Couldn't Save", isPresented: effortErrorBinding) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(effortError ?? "")
+        }
+    }
+
+    private func effortHeader(presentation: WorkoutEffortPresentation?, color: Color) -> some View {
+        HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Text("Effort")
@@ -792,17 +832,17 @@ private struct BodyWorkoutDetailSheet: View {
                         .foregroundColor(.secondary)
                 }
 
-                if let effortPresentation {
+                if let presentation {
                     HStack(spacing: 12) {
-                        Text(effortPresentation.valueText)
+                        Text(presentation.valueText)
                             .font(.system(size: 20, weight: .bold, design: .rounded))
-                            .foregroundColor(effortColor)
+                            .foregroundColor(color)
                             .frame(width: 40, height: 40)
-                            .background(Circle().fill(effortColor.opacity(0.2)))
+                            .background(Circle().fill(color.opacity(0.2)))
 
-                        Text(effortPresentation.descriptor)
+                        Text(presentation.descriptor)
                             .font(.system(size: 30, weight: .bold, design: .rounded))
-                            .foregroundColor(effortColor)
+                            .foregroundColor(color)
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
                     }
@@ -817,14 +857,127 @@ private struct BodyWorkoutDetailSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             BodyWorkoutEffortBars(
-                segmentFills: effortPresentation?.segmentFills ?? [0, 0, 0, 0, 0],
-                tintColor: effortColor
+                segmentFills: presentation?.segmentFills ?? [0, 0, 0, 0, 0],
+                tintColor: color
             )
-                .accessibilityHidden(true)
+            .accessibilityHidden(true)
+            .animation(.snappy(duration: 0.3), value: displayedEffortLevel)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 18)
-        .bodyCardBackground(cornerRadius: 30)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if !isEditingEffort {
+                beginEditingEffort()
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isEditingEffort ? [] : .isButton)
+        .accessibilityHint(isEditingEffort ? "" : "Edit effort")
+    }
+
+    private func effortEditingControls(color: Color) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                cancelEditingEffort()
+            } label: {
+                Text("Cancel")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.horizontal, 16)
+                    .frame(height: 40)
+                    .frame(minWidth: 80)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.secondary.opacity(0.15))
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(isSavingEffort)
+
+            Button {
+                saveEditingEffort()
+            } label: {
+                Group {
+                    if isSavingEffort {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Text("Save")
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .frame(height: 40)
+                .frame(minWidth: 72)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(color)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isSavingEffort)
+
+            Spacer(minLength: 10)
+
+            effortStepButton(systemName: "minus", color: color, isEnabled: editingScore > 1 && !isSavingEffort) {
+                withAnimation(.snappy(duration: 0.28)) { editingScore = max(editingScore - 1, 1) }
+            }
+            effortStepButton(systemName: "plus", color: color, isEnabled: editingScore < 10 && !isSavingEffort) {
+                withAnimation(.snappy(duration: 0.28)) { editingScore = min(editingScore + 1, 10) }
+            }
+        }
+    }
+
+    private func effortStepButton(systemName: String, color: Color, isEnabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(isEnabled ? color : Color.secondary.opacity(0.4))
+                .frame(width: 46, height: 40)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.secondary.opacity(0.15))
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .accessibilityLabel(systemName == "plus" ? "Increase effort" : "Decrease effort")
+    }
+
+    private var effortErrorBinding: Binding<Bool> {
+        Binding(
+            get: { effortError != nil },
+            set: { if !$0 { effortError = nil } }
+        )
+    }
+
+    private func beginEditingEffort() {
+        editingScore = effortLevel.map { min(max(Int($0.rounded()), 1), 10) } ?? 5
+        withAnimation(.snappy(duration: 0.3)) { isEditingEffort = true }
+    }
+
+    private func cancelEditingEffort() {
+        withAnimation(.snappy(duration: 0.3)) { isEditingEffort = false }
+    }
+
+    private func saveEditingEffort() {
+        isSavingEffort = true
+        let value = Double(editingScore)
+        Task {
+            do {
+                try await workoutStore.saveWorkoutEffort(workoutID: workout.id, score: value)
+                isSavingEffort = false
+                withAnimation(.snappy(duration: 0.3)) { isEditingEffort = false }
+            } catch {
+                isSavingEffort = false
+                effortError = "Body couldn't save the effort rating to Apple Health. Make sure Body is allowed to update Workouts in Settings › Health › Data Access & Devices."
+            }
+        }
     }
 
     private var heartRateSection: some View {
@@ -915,29 +1068,35 @@ private struct BodyWorkoutDetailMetricTile: View {
 private struct BodyWorkoutEffortBars: View {
     let segmentFills: [Double]
     let tintColor: Color
+    /// Multiplies every dimension. Defaults to 1 (the compact size on the
+    /// workout detail card); the effort editor passes a larger value.
+    var scale: CGFloat = 1
 
-    private let barHeights: [CGFloat] = [14, 22, 30, 38, 46]
+    private let baseBarHeights: [CGFloat] = [14, 22, 30, 38, 46]
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 5) {
-            ForEach(barHeights.indices, id: \.self) { index in
-                let barHeight = barHeights[index]
+        let barWidth = 11 * scale
+        let radius = 4 * scale
+
+        HStack(alignment: .bottom, spacing: 5 * scale) {
+            ForEach(baseBarHeights.indices, id: \.self) { index in
+                let barHeight = baseBarHeights[index] * scale
                 let fill = segmentFill(at: index)
 
                 ZStack(alignment: .bottom) {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
                         .fill(Color.secondary.opacity(0.18))
-                        .frame(width: 11, height: barHeight)
+                        .frame(width: barWidth, height: barHeight)
 
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
                         .fill(tintColor)
-                        .frame(width: 11, height: max(barHeight * fill, fill > 0 ? 4 : 0))
+                        .frame(width: barWidth, height: max(barHeight * fill, fill > 0 ? 4 * scale : 0))
                 }
-                .frame(width: 11, height: barHeight, alignment: .bottom)
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .frame(width: barWidth, height: barHeight, alignment: .bottom)
+                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             }
         }
-        .frame(width: 88, height: 54, alignment: .trailing)
+        .frame(width: 88 * scale, height: 54 * scale, alignment: .trailing)
     }
 
     private func segmentFill(at index: Int) -> CGFloat {

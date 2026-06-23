@@ -316,6 +316,7 @@ struct BodyHealthMetricDetailView: View {
     @State private var selectedMetricDate: Date?
     @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
     @State private var showsDataSourcePicker = false
+    @State private var showsAddMeasurementSheet = false
     @State private var isPullRefreshing = false
     @State private var activeReadinessTrendValue: Double?
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
@@ -393,6 +394,18 @@ struct BodyHealthMetricDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .tint(model.symbolColor)
         .accentColor(model.symbolColor)
+        .toolbar {
+            if isBasicsDetail {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showsAddMeasurementSheet = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Add Measurement")
+                }
+            }
+        }
         .sheet(item: $selectedSleepScoreDetails) { selection in
             SleepScoreDetailsSheet(selection: selection, accentColor: model.symbolColor)
                 .presentationDetents([.height(BodySleepScoreDetailsSheetLayout.sheetHeight), .large])
@@ -405,6 +418,14 @@ struct BodyHealthMetricDetailView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(Color(.systemGroupedBackground))
+        }
+        .sheet(isPresented: $showsAddMeasurementSheet) {
+            BodyAddBasicsMeasurementSheet(
+                accentColor: model.symbolColor,
+                initialWeightKilograms: workoutStore.healthSummary.bodyMass.value,
+                initialBodyFatPercent: workoutStore.healthSummary.bodyFatPercentage.value
+            )
+            .environmentObject(workoutStore)
         }
     }
 

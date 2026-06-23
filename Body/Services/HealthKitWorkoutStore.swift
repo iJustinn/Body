@@ -90,6 +90,11 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var authorizationState: AuthorizationState = .unknown
     @Published private(set) var snapshot: WorkoutMonthSnapshot
     @Published private(set) var monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot]
+    /// Session-scoped manual effort ratings the user just saved from the workout
+    /// detail screen, keyed by workout UUID. The detail card prefers these over
+    /// the cached snapshot value so an edit shows immediately; the snapshot's
+    /// baked-in effort catches up on the next workout refresh.
+    @Published private(set) var workoutEffortOverrides: [UUID: Double] = [:]
     @Published private(set) var healthSummary: HealthSummarySnapshot = .empty
     @Published private(set) var healthTrends: HealthTrendSnapshot = .empty
     @Published private(set) var activityRingHistory: ActivityRingHistorySnapshot = .empty
@@ -395,6 +400,45 @@ final class HealthKitWorkoutStore: ObservableObject {
             handleRefreshError(error)
         }
         await engine.setHealthTrendAnchorDate(nil)
+    }
+
+    /// Runs a post-write refresh for `kind`, first waiting for any in-flight
+    /// refresh to finish. `refreshHealthMetric` bails out when `isRefreshing` is
+    /// already set, so a measurement or effort saved during launch or
+    /// pull-to-refresh would otherwise never flow into the dashboard until the
+    /// next manual refresh.
+    private func refreshAfterWrite(_ kind: HealthMetricKind) async {
+        await awaitNextRefreshCompletion()
+        await refreshHealthMetric(kind)
+    }
+
+    /// Writes a manually-entered weight and/or body-fat measurement to Apple
+    /// Health, then refreshes the Basics metric so the new sample flows through
+    /// the existing read pipeline into `healthSummary`/`healthTrends` and the
+    /// Basics card and detail charts update. `weightKilograms` is already in kg;
+    /// `bodyFatPercent` is a 0–100 percentage (converted to a fraction on save).
+    /// Throws if the user denies write access or HealthKit rejects the save, so
+    /// the entry sheet can surface the failure.
+    func saveBodyComposition(weightKilograms: Double?, bodyFatPercent: Double?, date: Date) async throws {
+        try await engine.requestBodyCompositionWriteAuthorization()
+        try await engine.saveBodyComposition(
+            weightKilograms: weightKilograms,
+            bodyFatPercent: bodyFatPercent,
+            date: date
+        )
+        await refreshAfterWrite(.basics)
+    }
+
+    /// Saves a manual workout-effort rating (1–10) to Apple Health, reflects it
+    /// immediately on the workout detail card via `workoutEffortOverrides`, then
+    /// recomputes Training Load (which effort feeds) in the background so the
+    /// trend — and the Apple Watch snapshot pushed on refresh success — pick up
+    /// the change. Throws if the user denies write access or the save fails.
+    func saveWorkoutEffort(workoutID: UUID, score: Double) async throws {
+        try await engine.requestWorkoutEffortWriteAuthorization()
+        try await engine.saveWorkoutEffort(workoutID: workoutID, score: score)
+        workoutEffortOverrides[workoutID] = score
+        Task { await refreshAfterWrite(.trainingLoad) }
     }
 
     /// Loads the intraday day-sample sidecar (split out of the launch-critical
@@ -1971,45 +2015,15 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
 
+    // Forward to the shared `BodySleepSampleParser` (Body + BodyWatch) so the
+    // watch and iOS compute sleep duration identically. Signatures kept for
+    // existing callers + tests.
     nonisolated static func mergedSleepDuration(intervals: [(start: Date, end: Date)]) -> TimeInterval {
-        let sortedIntervals = intervals
-            .filter { $0.end > $0.start }
-            .sorted { $0.start < $1.start }
-
-        guard var current = sortedIntervals.first else {
-            return 0
-        }
-
-        var duration: TimeInterval = 0
-
-        for interval in sortedIntervals.dropFirst() {
-            if interval.start <= current.end {
-                current.end = max(current.end, interval.end)
-            } else {
-                duration += current.end.timeIntervalSince(current.start)
-                current = interval
-            }
-        }
-
-        duration += current.end.timeIntervalSince(current.start)
-        return duration
+        BodySleepSampleParser.mergedSleepDuration(intervals: intervals)
     }
 
     nonisolated static func sleepDuration(from samples: [HKCategorySample]) -> TimeInterval {
-        mergedSleepDuration(
-            intervals: samples
-                .filter(Self.isAsleep)
-                .map { ($0.startDate, $0.endDate) }
-        )
-    }
-
-    nonisolated private static func isAsleep(_ sample: HKCategorySample) -> Bool {
-        switch HKCategoryValueSleepAnalysis(rawValue: sample.value) {
-        case .asleep, .asleepCore, .asleepDeep, .asleepREM, .asleepUnspecified:
-            return true
-        default:
-            return false
-        }
+        BodySleepSampleParser.sleepDuration(from: samples)
     }
 
 
@@ -2220,6 +2234,8 @@ private extension Array where Element == ActivityRingMonthKey {
 enum HealthKitWorkoutError: LocalizedError {
     case authorizationDenied
     case authorizationStatusUnknown
+    case workoutNotFound
+    case workoutEffortUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -2227,6 +2243,10 @@ enum HealthKitWorkoutError: LocalizedError {
             return "Apple Health access was not granted."
         case .authorizationStatusUnknown:
             return "Apple Health access could not be confirmed."
+        case .workoutNotFound:
+            return "That workout could not be found in Apple Health."
+        case .workoutEffortUnavailable:
+            return "Workout effort isn't available on this device."
         }
     }
 }
