@@ -198,43 +198,18 @@ struct BodySettingsView: View {
 
     private var appleWatchSection: some View {
         BodySettingsCardSection("Apple Watch") {
-            HStack(spacing: 14) {
-                BodySettingsIconTile(
+            Button {
+                activeSheet = .appleWatch
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Standalone Compute",
+                    value: standaloneWatchCompute ? "On" : "Off",
                     iconName: "applewatch",
-                    color: Color(red: 0.12, green: 0.68, blue: 0.55)
+                    tintColor: Color(red: 0.12, green: 0.68, blue: 0.55),
+                    accessory: .chevron
                 )
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Standalone Compute")
-                        .font(.system(.headline, design: .rounded))
-                        .fontWeight(.semibold)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-
-                    Text("Compute readiness, sleep, training load, and vitals on the watch so they refresh without opening this app")
-                        .font(.system(.subheadline, design: .rounded))
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 12)
-
-                Toggle("Standalone Compute", isOn: Binding {
-                    standaloneWatchCompute
-                } set: { enabled in
-                    let revision = StandaloneComputePreference.setLocal(enabled: enabled)
-                    WatchConnectivityPublisher.shared.sendStandalonePreference(enabled: enabled, revision: revision)
-                })
-                .labelsHidden()
-                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
-                .accessibilityValue(standaloneWatchCompute ? "On" : "Off")
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+            .buttonStyle(.plain)
         }
     }
 
@@ -562,6 +537,15 @@ struct BodySettingsView: View {
         }
     }
 
+    private var standaloneWatchComputeBinding: Binding<Bool> {
+        Binding {
+            standaloneWatchCompute
+        } set: { enabled in
+            let revision = StandaloneComputePreference.setLocal(enabled: enabled)
+            WatchConnectivityPublisher.shared.sendStandalonePreference(enabled: enabled, revision: revision)
+        }
+    }
+
     @ViewBuilder
     private func settingsSheet(for sheet: BodySettingsSheet) -> some View {
         switch sheet {
@@ -602,6 +586,8 @@ struct BodySettingsView: View {
             BodyHealthSyncStatusSettingsSheet(workoutStore: workoutStore)
         case .cache:
             BodyCacheSettingsSheet(workoutStore: workoutStore)
+        case .appleWatch:
+            BodyAppleWatchSettingsSheet(standaloneWatchCompute: standaloneWatchComputeBinding)
         case .howToUse:
             BodyHowToUseSettingsSheet()
         case .more:
@@ -684,6 +670,7 @@ enum BodySettingsSheet: String, Identifiable {
     case permissions
     case syncStatus
     case cache
+    case appleWatch
     case howToUse
     case more
 
@@ -920,6 +907,50 @@ private struct BodySleepSettingsSheet: View {
                 .padding(.horizontal, 18)
                 .padding(.vertical, 14)
                 .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+            }
+        }
+    }
+}
+
+private struct BodyAppleWatchSettingsSheet: View {
+    @Binding var standaloneWatchCompute: Bool
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Apple Watch") {
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(spacing: 0) {
+                    HStack(spacing: 14) {
+                        BodySettingsIconTile(
+                            iconName: "applewatch",
+                            color: Color(red: 0.12, green: 0.68, blue: 0.55)
+                        )
+
+                        Text("Standalone Compute")
+                            .font(.system(.headline, design: .rounded))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+
+                        Spacer(minLength: 12)
+
+                        Toggle("Standalone Compute", isOn: $standaloneWatchCompute)
+                            .labelsHidden()
+                            .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                            .accessibilityValue(standaloneWatchCompute ? "On" : "Off")
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+                }
+                .bodyCardBackground()
+
+                Text("Compute readiness, sleep, training load, and vitals on the watch so they refresh without opening this app")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 6)
             }
         }
     }
