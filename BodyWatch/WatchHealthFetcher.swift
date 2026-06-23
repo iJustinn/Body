@@ -204,12 +204,13 @@ actor WatchHealthFetcher {
             }
             guard !segments.isEmpty else { return nil }
 
-            let asleepDuration = segments
-                .filter { $0.stage != .awake }
-                .reduce(0) { $0 + max(0, $1.endDate.timeIntervalSince($1.startDate)) }
+            let snapshot = SleepStageSnapshot(date: night, segments: segments)
+            // Merge overlapping asleep samples into their union, matching the
+            // iPhone's `mergedSleepDuration`. A raw segment sum double-counts
+            // overlapping multi-source/aggregate samples (inflated 26h nights).
+            let asleepDuration = snapshot.mergedAsleepDuration
             guard asleepDuration > 0 else { return nil }
 
-            let snapshot = SleepStageSnapshot(date: night, segments: segments)
             return SleepDaySummary(
                 date: night,
                 summary: SleepSummary(duration: asleepDuration, stageSnapshot: snapshot, vitals: .empty)

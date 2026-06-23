@@ -222,6 +222,31 @@ struct SleepStageSnapshot: Codable, Equatable {
         }
     }
 
+    /// Total asleep time with overlapping segments merged into their union
+    /// (matches the iPhone's `HealthKitWorkoutStore.mergedSleepDuration`). Use
+    /// this for the displayed/headline duration; `asleepDuration` sums each
+    /// stage separately and double-counts when sources write overlapping
+    /// samples (e.g. an aggregate `asleep` sample plus detailed stages).
+    var mergedAsleepDuration: TimeInterval {
+        let intervals = segments
+            .filter { SleepStage.sleepStages.contains($0.stage) }
+            .map { (start: $0.startDate, end: $0.endDate) }
+            .filter { $0.end > $0.start }
+            .sorted { $0.start < $1.start }
+        guard var current = intervals.first else { return 0 }
+        var total: TimeInterval = 0
+        for interval in intervals.dropFirst() {
+            if interval.start <= current.end {
+                current.end = max(current.end, interval.end)
+            } else {
+                total += current.end.timeIntervalSince(current.start)
+                current = interval
+            }
+        }
+        total += current.end.timeIntervalSince(current.start)
+        return total
+    }
+
     var sleepStartDate: Date? {
         segments
             .filter { SleepStage.sleepStages.contains($0.stage) }
