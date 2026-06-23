@@ -34,10 +34,11 @@ enum WatchMetricKindKey {
     static let trainingLoad = "trainingLoad"
     static let wristTemperature = "wristTemperature"
 
-    /// Dashboard / complication ordering.
+    /// Dashboard ordering — Training Load leads. The watch complications are
+    /// independent widgets and don't read this.
     static let displayOrder: [String] = [
-        readiness, sleep, heartRate, heartRateVariability,
-        restingHeartRate, trainingLoad, wristTemperature
+        trainingLoad, readiness, sleep, heartRate,
+        heartRateVariability, restingHeartRate, wristTemperature
     ]
 
     /// Card/ring tints mirroring the iOS dashboard (`HealthWidgetMetric.tintColor`).
@@ -87,6 +88,12 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     var rawValue: Double?
     var rangeMin: Double?
     var rangeMax: Double?
+    /// For banded metrics (Readiness, Training Load): the min/max of the value's
+    /// CURRENT status band, so the watch corner gauge spans just that band (e.g.
+    /// High 80–94) instead of the full range. nil for unbanded metrics; the band
+    /// color rides on `tint`.
+    var levelMin: Double? = nil
+    var levelMax: Double? = nil
     /// Set on the watch when this metric was refreshed from watch-local
     /// HealthKit; never set by the iPhone builder. Lets the watch keep a live
     /// reading that's fresher than the vitals a later phone push carries.
@@ -142,18 +149,24 @@ struct WatchMetricsSnapshot: Codable, Equatable {
         generatedAt: .distantPast,
         lastRefreshDate: nil,
         metrics: [
-            WatchMetric(kind: WatchMetricKindKey.readiness, title: "Readiness", displayValue: "78", unit: "%", score: 78, fillFraction: 0.78, rawValue: 78, rangeMin: 0, rangeMax: 100),
+            WatchMetric(kind: WatchMetricKindKey.readiness, title: "Readiness", displayValue: "78", unit: "%", score: 78, fillFraction: 0.78, rawValue: 78, rangeMin: 0, rangeMax: 100, levelMin: 65, levelMax: 79, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)),
             WatchMetric(kind: WatchMetricKindKey.sleep, title: "Sleep", displayValue: "7h 32m", unit: "", score: 85, fillFraction: 0.85, rawValue: 85, rangeMin: 0, rangeMax: 100),
             WatchMetric(kind: WatchMetricKindKey.heartRate, title: "Heart Rate", displayValue: "62", unit: "bpm", score: nil, fillFraction: 0.45, rawValue: 62, rangeMin: 54, rangeMax: 72),
             WatchMetric(kind: WatchMetricKindKey.heartRateVariability, title: "HRV", displayValue: "48", unit: "ms", score: nil, fillFraction: 0.60, rawValue: 48, rangeMin: 30, rangeMax: 60),
             WatchMetric(kind: WatchMetricKindKey.restingHeartRate, title: "Resting HR", displayValue: "56", unit: "bpm", score: nil, fillFraction: 0.70, rawValue: 56, rangeMin: 52, rangeMax: 64),
-            WatchMetric(kind: WatchMetricKindKey.trainingLoad, title: "Training Load", displayValue: "1.05", unit: "", score: nil, fillFraction: 0.53, rawValue: 1.05, rangeMin: 0, rangeMax: 2),
+            WatchMetric(kind: WatchMetricKindKey.trainingLoad, title: "Training Load", displayValue: "1.05", unit: "", score: nil, fillFraction: 0.53, rawValue: 1.05, rangeMin: 0, rangeMax: 2, levelMin: 0.8, levelMax: 1.3, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)),
             WatchMetric(kind: WatchMetricKindKey.wristTemperature, title: "Skin Temp", displayValue: "93.4", unit: "°F", score: nil, fillFraction: 0.50, rawValue: 34.1, rangeMin: 33.8, rangeMax: 34.4)
         ]
     )
 
     func metric(forKind kind: String) -> WatchMetric? {
         metrics.first { $0.kind == kind }
+    }
+
+    /// Metrics in dashboard display order, skipping any kind absent from this
+    /// snapshot. Shared by the watch dashboard and its settings list.
+    var orderedMetrics: [WatchMetric] {
+        WatchMetricKindKey.displayOrder.compactMap { metric(forKind: $0) }
     }
 }
 

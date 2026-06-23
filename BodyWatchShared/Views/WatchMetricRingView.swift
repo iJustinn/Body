@@ -19,6 +19,7 @@ struct WatchMetricRingView: View {
     let tint: WatchMetricColor
     var showsUnit: Bool = true
     var showsGlyph: Bool = true
+    var valueFontScale: Double = 0.40
 
     /// Fraction of the circle left open at the bottom (centered on 6 o'clock).
     private let gap: Double = 0.25
@@ -52,7 +53,7 @@ struct WatchMetricRingView: View {
                 // Centered value (+ optional unit).
                 VStack(spacing: 0) {
                     Text(value)
-                        .font(.system(size: side * 0.40, weight: .bold, design: .rounded))
+                        .font(.system(size: side * valueFontScale, weight: .bold, design: .rounded))
                         .minimumScaleFactor(0.4)
                         .lineLimit(1)
                     if showsUnit, !unit.isEmpty {

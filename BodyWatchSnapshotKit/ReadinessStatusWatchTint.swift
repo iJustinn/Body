@@ -31,3 +31,26 @@ extension ReadinessStatus {
         }
     }
 }
+
+extension TrainingLoadInterval {
+    /// Status-band tint as raw RGB, mirroring `BodyTrainingLoadIntervalPresentation`
+    /// on iOS so the watch corner gauge matches the iOS training-load colors.
+    var watchTintComponents: WatchMetricColor {
+        switch self {
+        case .stopTraining:
+            return WatchMetricColor(red: 0.00, green: 0.88, blue: 0.82)
+        case .optimal:
+            return WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)
+        case .mediumInjuryRisk:
+            return WatchMetricColor(red: 1.00, green: 0.46, blue: 0.10)
+        case .highInjuryRisk:
+            return WatchMetricColor(red: 1.00, green: 0.17, blue: 0.16)
+        }
+    }
+
+    /// Corner-gauge [min, max] for this band, closing the open ends: Resting
+    /// starts at 0; High Injury Risk caps at 2.0 (matching the full-range fill).
+    var watchGaugeBounds: (min: Double, max: Double) {
+        (min: lowerBound ?? 0, max: upperBound ?? 2.0)
+    }
+}

@@ -4,7 +4,7 @@
 //
 //  One ring-style complication per metric (matches the existing iOS
 //  BodyWidgetExtensionBundle's static-per-widget pattern). Each supports the
-//  circular ring and the rectangular row.
+//  circular ring, the rectangular row, and the corner gauge.
 //
 //  Note: full magenta renders in the Smart Stack and full-color faces; in
 //  tinted watch-face accessory slots the system recolors the ring to the face
@@ -27,7 +27,7 @@ struct BodyWatchComplicationsBundle: WidgetBundle {
     }
 }
 
-private let complicationFamilies: [WidgetFamily] = [.accessoryCircular, .accessoryRectangular]
+private let complicationFamilies: [WidgetFamily] = [.accessoryCircular, .accessoryRectangular, .accessoryCorner]
 
 /// Shared configuration for the per-metric complications. WidgetKit needs a
 /// distinct `Widget` type per kind; only these parameters differ.

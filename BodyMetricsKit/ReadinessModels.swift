@@ -34,6 +34,19 @@ enum ReadinessStatus: String, Codable, Equatable {
         }
     }
 
+    /// Numeric [min, max] of this band's score range, for the watch corner gauge.
+    /// nil for `.unavailable`.
+    var scoreBounds: (min: Double, max: Double)? {
+        switch self {
+        case .prime: return (95, 100)
+        case .high: return (80, 94)
+        case .moderate: return (65, 79)
+        case .low: return (30, 64)
+        case .poor: return (0, 29)
+        case .unavailable: return nil
+        }
+    }
+
     var title: String {
         switch self {
         case .prime:

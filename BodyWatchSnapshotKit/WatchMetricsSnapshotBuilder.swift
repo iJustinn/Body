@@ -80,6 +80,7 @@ enum WatchMetricsSnapshotBuilder {
 
     private static func readinessMetric(_ readiness: ReadinessSummary) -> WatchMetric {
         let score = readiness.score
+        let status = ReadinessStatus.status(for: score)
         return WatchMetric(
             kind: WatchMetricKindKey.readiness,
             title: "Readiness",
@@ -90,9 +91,12 @@ enum WatchMetricsSnapshotBuilder {
             rawValue: score.map(Double.init),
             rangeMin: 0,
             rangeMax: 100,
+            // Corner gauge spans the current status band (e.g. High 80–94).
+            levelMin: status.scoreBounds?.min,
+            levelMax: status.scoreBounds?.max,
             // Color the ring by readiness status band (prime → purple, …),
             // matching the iOS readiness UI. nil score → kind's default tint.
-            tint: ReadinessStatus.status(for: score).watchTintComponents
+            tint: status.watchTintComponents
         )
     }
 
@@ -151,7 +155,8 @@ enum WatchMetricsSnapshotBuilder {
     }
 
     private static func trainingLoadMetric(_ value: Double?) -> WatchMetric {
-        WatchMetric(
+        let interval = TrainingLoadInterval.interval(for: value)
+        return WatchMetric(
             kind: WatchMetricKindKey.trainingLoad,
             title: "Training Load",
             displayValue: value.map { BodyValueFormat.numberText($0, decimals: 2) } ?? "--",
@@ -161,7 +166,11 @@ enum WatchMetricsSnapshotBuilder {
             fillFraction: value.map { min(max($0 / 2.0, 0), 1) } ?? 0,
             rawValue: value,
             rangeMin: 0,
-            rangeMax: 2
+            rangeMax: 2,
+            // Corner gauge spans the current load band; tint matches it.
+            levelMin: interval?.watchGaugeBounds.min,
+            levelMax: interval?.watchGaugeBounds.max,
+            tint: interval?.watchTintComponents
         )
     }
 
