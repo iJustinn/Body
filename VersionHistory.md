@@ -3,6 +3,8 @@
 ## 0.9.3 (build 5)
 
 - Settings > Apple Watch now matches the other settings groups: the Standalone Compute control is a tappable row (showing its On/Off state) that opens a popup page containing the toggle, instead of sitting inline in the settings list.
+- Fixed the Apple Watch app reporting an inflated Sleep duration (e.g. 26h) when Apple Health holds overlapping sleep samples (an aggregate "asleep" sample plus detailed Core/REM/Deep stages, or multiple sources). The watch now merges overlapping asleep samples into their union — matching the iPhone's calculation — instead of summing them, so on-watch Sleep, the Sleep score, and the Readiness they feed line up with the phone.
+- Added a refresh button to the top-left of the Apple Watch home screen. Tapping it recomputes the on-watch metrics (when Standalone Compute is on) and pulls a fresh Heart Rate / HRV reading, showing a spinner while it works.
 - Updated the app, widget, watch, and test bundle version to 0.9.3 build 5.
 
 ## 0.9.3 (build 3)
