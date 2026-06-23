@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.3 (build 5)
+
+- Settings > Apple Watch now matches the other settings groups: the Standalone Compute control is a tappable row (showing its On/Off state) that opens a popup page containing the toggle, instead of sitting inline in the settings list.
+- Updated the app, widget, watch, and test bundle version to 0.9.3 build 5.
+
 ## 0.9.3 (build 3)
 
 - The Sleep Stages card's breakdown below the timeline is now tappable. Tap it to switch between the per-stage durations (the existing summary) and a new optimal-range bar chart: each stage shows its percentage of total time in bed, its duration, and an overlaid healthy reference band (Awake 0–5%, REM 20–25%, Core 45–55%, Deep 13–23%). The choice persists until you tap again (including across the two-source comparison cards and app relaunches). Changing the selected day animates the bars to their new lengths (respecting Reduce Motion). The bands are an illustrative reference and are independent of the sleep-score grading, which judges Deep/REM one-sided against asleep time — so a stage's chart percentage can differ slightly from the score card's, by design.

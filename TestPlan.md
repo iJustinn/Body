@@ -1,6 +1,6 @@
 # Body Test Plan
 
-Generated 2026-06-10 against branch `body-v0.9.3` (app version 0.9.3 build 3).
+Generated 2026-06-10 against branch `body-v0.9.3` (app version 0.9.3 build 5).
 
 > Apple Watch targets (`BodyWatch`, `BodyWatchWidgetExtension`) and the shared `BodyWatchShared` group are new in 0.9.3. `ProjectConfigurationTests` asserts their configuration (bundle identifiers, versions, App Group + HealthKit entitlements); behavior is not yet covered by automated cases. Manual watch verification is pending: iPhone→watch metric sync over WatchConnectivity, the live HR/HRV refresh when the snapshot is stale (including that a workout-only iPhone refresh does not mark the watch fresh, and that returning the watch app to the foreground re-checks staleness), and the ring complications (accessory circular + rectangular) for each metric. Known limitation: complications update when the watch app runs — snapshots pushed while it's closed are applied on next launch.
 
