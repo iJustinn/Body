@@ -26,30 +26,10 @@ enum BodyReadinessStatusPresentation {
     }
 
     static func color(for status: ReadinessStatus) -> Color {
-        guard let rgb = watchTint(for: status) else {
+        guard let rgb = status.watchTintComponents else {
             return Color.secondary
         }
         return Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
-    }
-
-    /// Raw RGB for each readiness status band, shared as the watch ring's
-    /// readiness tint (see `WatchMetricsSnapshotBuilder`) so the complication
-    /// matches the iOS status color exactly. `nil` for `.unavailable`.
-    static func watchTint(for status: ReadinessStatus) -> WatchMetricColor? {
-        switch status {
-        case .prime:
-            return WatchMetricColor(red: 0.84, green: 0.08, blue: 0.92)
-        case .high:
-            return WatchMetricColor(red: 0.20, green: 0.74, blue: 1.00)
-        case .moderate:
-            return WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)
-        case .low:
-            return WatchMetricColor(red: 1.00, green: 0.75, blue: 0.15)
-        case .poor:
-            return WatchMetricColor(red: 1.00, green: 0.25, blue: 0.12)
-        case .unavailable:
-            return nil
-        }
     }
 }
 
