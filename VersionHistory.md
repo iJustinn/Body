@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.3 (build 7)
+
+- Removed the Apple Watch "Standalone Compute" feature. The watch no longer computes Readiness, Sleep, or Training Load on-device; it always shows the metrics the iPhone computes and pushes over WatchConnectivity. It still refreshes Heart Rate and HRV directly from its own HealthKit when the pushed snapshot is stale (and via the home-screen refresh button), exactly as the original watch app did. The Settings > Apple Watch page and the on-watch toggle are gone, the watch's HealthKit background-delivery entitlement was dropped (only foreground HR/HRV reads remain), and its Apple Health permission prompt now reflects that narrower access.
+- Updated the app, widget, watch, and test bundle version to 0.9.3 build 7.
+
 ## 0.9.3 (build 6)
 
 - Aligned the Apple Watch standalone Readiness and Sleep computation with the iPhone so both produce the same result from the same Apple Health data. The watch now fetches each workout's real effort score (instead of assuming a default), shares the iPhone's exact sleep-stage parsing and 180-day training-load window through new shared code, and honors the iPhone's "show sub-minute awake stages" setting (synced over WatchConnectivity). An effort edit on the phone now also wakes the watch to recompute.
