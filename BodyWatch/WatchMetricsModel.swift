@@ -193,16 +193,29 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         return Date().timeIntervalSince(freshness) > WatchMetricsSnapshot.staleInterval
     }
 
+    /// Manual dashboard refresh (top-left button): recompute on-watch metrics
+    /// — a no-op unless standalone compute is on and the permission selection
+    /// has synced — then force a live HR/HRV reading so the tap always lands,
+    /// even when the snapshot hasn't crossed the stale window yet.
+    func refresh() async {
+        await recomputeStandalone()
+        await refreshLiveMetrics(force: true)
+    }
+
     /// When the pushed snapshot is stale, refresh the watch-measurable metrics
     /// (HR, HRV) directly and recompute their fill against the carried range.
     func refreshLiveMetricsIfStale() async {
+        await refreshLiveMetrics(force: false)
+    }
+
+    private func refreshLiveMetrics(force: Bool) async {
         // Gate on sync + Heart: the live path reads HR/HRV directly, and
         // HealthKit read grants persist, so a synced watch with Heart disabled
         // (or an unsynced watch defaulting to all-enabled) would otherwise read
         // data the user hid on the phone.
         guard WatchStandaloneCompute.hasSyncedPermissionSelection(),
               BodyHealthPermissionSelection.load().includes(.heart),
-              isStale, !snapshot.metrics.isEmpty else { return }
+              force || isStale, !snapshot.metrics.isEmpty else { return }
 
         if !hasRequestedLiveAuthorization {
             hasRequestedLiveAuthorization = true

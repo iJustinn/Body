@@ -9,6 +9,7 @@ import SwiftUI
 
 struct WatchDashboardView: View {
     @EnvironmentObject private var model: WatchMetricsModel
+    @State private var isRefreshing = false
 
     private var orderedMetrics: [WatchMetric] {
         WatchMetricKindKey.displayOrder.compactMap { model.snapshot.metric(forKind: $0) }
@@ -35,6 +36,23 @@ struct WatchDashboardView: View {
             }
             .navigationTitle("Body")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        guard !isRefreshing else { return }
+                        isRefreshing = true
+                        Task {
+                            await model.refresh()
+                            isRefreshing = false
+                        }
+                    } label: {
+                        if isRefreshing {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
+                    .disabled(isRefreshing)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
                         WatchSettingsView()
