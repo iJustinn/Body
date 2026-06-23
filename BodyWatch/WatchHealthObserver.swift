@@ -41,6 +41,11 @@ final class WatchHealthObserver {
         }
         if selection.includes(.workouts) {
             types.append(HKObjectType.workoutType())
+            // A workout's saved effort feeds training load, so an effort edit
+            // must also trigger a recompute (else it lags to the scheduled refresh).
+            if let effort = HKObjectType.quantityType(forIdentifier: .workoutEffortScore) {
+                types.append(effort)
+            }
         }
         return types
     }
@@ -76,6 +81,9 @@ final class WatchHealthObserver {
         isObserving = true
 
         for type in types {
+            // An effort-score change must clear the fetcher's per-process effort
+            // cache before the recompute, or training load reuses the stale value.
+            let invalidatesEffortCache = type.identifier == HKQuantityTypeIdentifier.workoutEffortScore.rawValue
             let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completionHandler, error in
                 if let error {
                     self?.logger.error("Observer error: \(error.localizedDescription, privacy: .public)")
@@ -86,6 +94,9 @@ final class WatchHealthObserver {
                 // delivering. The recompute is intentionally cheap (short windows,
                 // no intraday samples) to fit the background budget.
                 Task { @MainActor in
+                    if invalidatesEffortCache {
+                        await WatchComputeCoordinator.shared.invalidateEffortCache()
+                    }
                     await WatchMetricsModel.shared.recomputeStandalone()
                     completionHandler()
                 }

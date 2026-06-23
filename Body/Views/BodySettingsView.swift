@@ -26,7 +26,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @AppStorage(BodyAppearancePreference.creatorSurpriseIconsUnlockedKey) private var creatorSurpriseIconsUnlocked = false
-    @AppStorage(BodyAppearancePreference.standaloneWatchComputeKey) private var standaloneWatchCompute = true
+    @AppStorage(BodyAppearancePreference.standaloneWatchComputeKey) private var standaloneWatchCompute = false
     @State private var activeSheet: BodySettingsSheet?
     @State private var selectedAppIconName: String?
     @State private var showingAppIconError = false
@@ -946,6 +946,13 @@ private struct BodyAppleWatchSettingsSheet: View {
                 .bodyCardBackground()
 
                 Text("Compute readiness, sleep, training load, and vitals on the watch so they refresh without opening this app")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 6)
+
+                Text("While this is on, the watch reads all Apple Health sources. If you've chosen a non-default Primary or Secondary source for a metric in Data > Source, the watch's readiness and sleep can differ from this iPhone.")
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)

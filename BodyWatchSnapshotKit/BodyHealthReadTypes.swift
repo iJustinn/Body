@@ -82,12 +82,11 @@ enum BodyHealthReadTypes {
     }
 
     /// The narrower read set the watch's standalone fetcher actually consumes —
-    /// heart (HR/HRV/RHR), sleep, workouts, and the overnight sleep vitals
-    /// (respiratory, blood oxygen, wrist temperature). Excludes the iPhone-only
-    /// inputs (activity rings, body basics, energy, exercise minutes, daylight,
-    /// steps, per-workout effort) the watch never reads, so a watch install
-    /// never prompts for Health data it won't use. Add `.workoutEffortScore`
-    /// here only when on-watch effort fetching lands.
+    /// heart (HR/HRV/RHR), sleep, workouts + per-workout effort, and the
+    /// overnight sleep vitals (respiratory, blood oxygen, wrist temperature).
+    /// Excludes the iPhone-only inputs (activity rings, body basics, energy,
+    /// exercise minutes, daylight, steps) the watch never reads, so a watch
+    /// install never prompts for Health data it won't use.
     nonisolated static func watchReadObjectTypes(
         for selection: BodyHealthPermissionSelection = .defaultValue
     ) -> Set<HKObjectType> {
@@ -95,6 +94,9 @@ enum BodyHealthReadTypes {
 
         if selection.includes(.workouts) {
             types.insert(HKObjectType.workoutType())
+            if let effortType = HKObjectType.quantityType(forIdentifier: .workoutEffortScore) {
+                types.insert(effortType)
+            }
         }
 
         var quantityIdentifiers: [HKQuantityTypeIdentifier] = []

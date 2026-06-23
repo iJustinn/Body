@@ -72,9 +72,9 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     }
 
     /// Write-through phone-owned compute preferences (sleep goal, temperature
-    /// unit, sleep-score visibility) into the watch's own defaults. No reconcile
-    /// needed — the next standalone recompute reads them, and the phone snapshot
-    /// pushed alongside already shows correct values.
+    /// unit, sleep-score visibility, sub-minute awake stages) into the watch's
+    /// own defaults. No reconcile needed — the next standalone recompute reads
+    /// them, and the phone snapshot pushed alongside already shows correct values.
     private func adoptRemoteComputeSettings(_ context: [String: Any]) {
         let defaults = UserDefaults.standard
         if let minutes = context[BodyAppearancePreference.sleepDurationGoalMinutesKey] as? Int {
@@ -88,6 +88,9 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         }
         if let showSleepScore = context[BodyAppearancePreference.showSleepScoreKey] as? Bool {
             defaults.set(showSleepScore, forKey: BodyAppearancePreference.showSleepScoreKey)
+        }
+        if let showsSubMinuteAwake = context[BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey] as? Bool {
+            defaults.set(showsSubMinuteAwake, forKey: BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey)
         }
     }
 
@@ -112,6 +115,10 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         WatchBackgroundScheduler.scheduleNextRefreshIfEnabled()
         WatchHealthObserver.shared.stop()
         Task {
+            // Effort edits made while the observer was stopped (or under the
+            // prior permission set) weren't seen, so the effort cache may be
+            // stale — drop it before this recompute re-resolves training load.
+            await WatchComputeCoordinator.shared.invalidateEffortCache()
             await recomputeStandalone()
             await WatchHealthObserver.shared.startIfEnabled()
         }
@@ -315,6 +322,9 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             // Recompute first (it authorizes), then start observers — observer
             // setup also authorizes, so this keeps the prompt single and ordered.
             Task {
+                // Effort edits made while compute was off weren't observed, so the
+                // effort cache may be stale — drop it before the first recompute.
+                await WatchComputeCoordinator.shared.invalidateEffortCache()
                 await recomputeStandalone()
                 await WatchHealthObserver.shared.startIfEnabled()
             }

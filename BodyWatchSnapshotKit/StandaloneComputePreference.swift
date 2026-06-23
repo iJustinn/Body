@@ -20,7 +20,7 @@ enum StandaloneComputePreference {
     static let revisionMessageKey = "standaloneWatchComputeRevision"
 
     static func isEnabled(_ defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: BodyAppearancePreference.standaloneWatchComputeKey) as? Bool ?? true
+        defaults.object(forKey: BodyAppearancePreference.standaloneWatchComputeKey) as? Bool ?? false
     }
 
     static func revision(_ defaults: UserDefaults = .standard) -> Int {

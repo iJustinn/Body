@@ -58,7 +58,7 @@ actor HealthKitFetchEngine {
         let end: Date
     }
 
-    static let trainingLoadSummaryDayCount = 180
+    static let trainingLoadSummaryDayCount = TrainingLoadCalculator.summaryWindowDayCount
 
     init(
         permission: BodyHealthPermissionSelection,
@@ -1346,7 +1346,7 @@ actor HealthKitFetchEngine {
         // month (multiple months refresh concurrently on top of this).
         let maxConcurrentQueries = 12
         let (fetched, completedIDs) = await withTaskGroup(
-            of: (UUID, EffortQueryOutcome).self,
+            of: (UUID, BodyWorkoutEffortOutcome).self,
             returning: ([UUID: Double], Set<UUID>).self
         ) { group in
             var nextIndex = 0
@@ -1406,49 +1406,8 @@ actor HealthKitFetchEngine {
         return results
     }
 
-    /// Distinguishes "the query completed and there is no saved effort" from
-    /// "the query errored" — only the former may feed the score-less
-    /// confirmation cache; a failure must stay retryable.
-    private enum EffortQueryOutcome {
-        case found(Double)
-        case noSavedEffort
-        case failed
-    }
-
-    private func fetchSavedEffortLevel(for workout: HKWorkout) async -> EffortQueryOutcome {
-        guard let effortType = HKObjectType.quantityType(forIdentifier: .workoutEffortScore) else {
-            return .failed
-        }
-
-        let predicate = HKQuery.predicateForWorkoutEffortSamplesRelated(workout: workout, activity: nil)
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
-
-        return await withCheckedContinuation { continuation in
-            let query = HKSampleQuery(
-                sampleType: effortType,
-                predicate: predicate,
-                limit: 1,
-                sortDescriptors: [sort]
-            ) { _, samples, error in
-                guard error == nil else {
-                    continuation.resume(returning: .failed)
-                    return
-                }
-
-                let effort = (samples as? [HKQuantitySample] ?? [])
-                    .first?
-                    .quantity
-                    .doubleValue(for: .appleEffortScore())
-
-                if let effort, effort.isFinite {
-                    continuation.resume(returning: .found(effort))
-                } else {
-                    continuation.resume(returning: .noSavedEffort)
-                }
-            }
-
-            healthStore.execute(query)
-        }
+    private func fetchSavedEffortLevel(for workout: HKWorkout) async -> BodyWorkoutEffortOutcome {
+        await BodyWorkoutEffortFetcher.savedEffortOutcome(for: workout, store: healthStore)
     }
 
     // Sleep summary + history + per-day vitals hydration live in

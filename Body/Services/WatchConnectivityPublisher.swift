@@ -75,6 +75,7 @@ final class WatchConnectivityPublisher: NSObject {
                 BodyAppearancePreference.followsSystemUnitsKey: false,
                 BodyAppearancePreference.selectedTemperatureUnitKey: HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference().rawValue,
                 BodyAppearancePreference.showSleepScoreKey: HealthWidgetSnapshotBuilder.storedShowSleepScore(),
+                BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
                 StandaloneComputePreference.messageKey: StandaloneComputePreference.isEnabled(),
                 StandaloneComputePreference.revisionMessageKey: StandaloneComputePreference.revision()
             ])

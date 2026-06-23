@@ -8,21 +8,22 @@
 //  short window, with no intraday day-samples and no source comparison — so it
 //  fits a watchOS background budget.
 //
-//  Fidelity notes (watch values track the phone closely but aren't identical):
+//  Fidelity notes (watch inputs match the phone given the same HealthKit data,
+//  at the default all-sources setting):
 //   • Readiness hydrates per-night overnight sleep vitals (sleeping HR, HRV,
 //     respiratory, blood oxygen, skin temperature) into `sleepHistory`, so its
 //     baselines match the iPhone's overnight path; whole-day series stay the
-//     fallback when a night lacks enough history. Sleep stage segmentation uses
-//     a simpler per-sample mapping than the iPhone (no uncovered-interval fill),
-//     and duration sums non-awake segments rather than merging overlaps, so
-//     stage %/duration can differ slightly — the night *interval* still matches,
-//     so the overnight vital averages line up.
-//   • Training load uses workout duration with the calculator's default effort
-//     (per-workout effort scores aren't fetched on-watch yet).
+//     fallback when a night lacks enough history. Sleep stages + duration come
+//     from the shared `BodySleepSampleParser` (same uncovered-interval fill and
+//     sub-minute-awake preference the iPhone uses).
+//   • Training load fetches each workout's real `workoutEffortScore` (shared
+//     `BodyWorkoutEffortFetcher`) over the same window the phone uses.
 //   • Every fetch is gated by the synced permission selection, mirroring the
 //     iPhone's `fetchIfPermitted`: a category disabled on the phone is never
 //     read on the watch. (HealthKit read grants persist after a permission is
 //     turned off, so scoping authorization alone would not be enough.)
+//   • Residual: the watch reads all sources; if the user picks a non-default
+//     primary/secondary source for a metric on the phone, values can differ.
 //
 
 import Foundation
@@ -34,10 +35,26 @@ actor WatchHealthFetcher {
     /// ~90 days: covers the 56-day readiness baseline + 3-day recent exclusion
     /// + margin while staying cheap for a background fetch.
     static let trendWindowDays = 90
-    /// ~120 days covers the 42-day chronic training-load EWA with margin.
-    static let workoutWindowDays = 120
+    /// Matches the iPhone's training-load look-back so both seed the acute/
+    /// chronic EWA from the same start → identical ratios.
+    static let workoutWindowDays = TrainingLoadCalculator.summaryWindowDayCount
+
+    /// A score-less workout is only confirmed (and skipped for the rest of the
+    /// process) once it ended this long ago — ratings land right after a
+    /// workout, so a recent unrated workout stays retryable and a rating that
+    /// syncs in later is still picked up on the next recompute. Mirrors the
+    /// iPhone's `HealthKitFetchEngine.effortConfirmationAge`.
+    private static let effortConfirmationAge: TimeInterval = 48 * 60 * 60
 
     private let bpm = HKUnit.count().unitDivided(by: .minute())
+
+    /// Per-process effort cache: a later recompute reuses efforts an earlier one
+    /// resolved (foreground + coalesced observer fires share the long-lived
+    /// `WatchComputeCoordinator`), so a background refresh only queries workouts
+    /// it hasn't seen. Effort for past workouts rarely changes; the bounded
+    /// fan-out backstops a cold launch.
+    private var effortByWorkoutID: [UUID: Double] = [:]
+    private var confirmedNoEffortWorkoutIDs: Set<UUID> = []
 
     init(store: HKHealthStore = HKHealthStore()) {
         self.store = store
@@ -198,23 +215,16 @@ actor WatchHealthFetcher {
         // readiness recognizes the current night.
         let samplesByNight = Dictionary(grouping: samples) { calendar.startOfDay(for: $0.endDate) }
         var nights: [SleepDaySummary] = samplesByNight.compactMap { night, nightSamples in
-            let segments: [SleepStageSegment] = nightSamples.compactMap { sample in
-                guard let stage = Self.sleepStage(for: sample.value) else { return nil }
-                return SleepStageSegment(stage: stage, startDate: sample.startDate, endDate: sample.endDate)
-            }
-            guard !segments.isEmpty else { return nil }
-
-            let snapshot = SleepStageSnapshot(date: night, segments: segments)
-            // Merge overlapping asleep samples into their union, matching the
-            // iPhone's `mergedSleepDuration`. A raw segment sum double-counts
-            // overlapping multi-source/aggregate samples (inflated 26h nights).
-            let asleepDuration = snapshot.mergedAsleepDuration
-            guard asleepDuration > 0 else { return nil }
-
-            return SleepDaySummary(
+            // Build the night via the shared parser so the watch and iPhone
+            // produce identical stages + merged asleep duration (uncovered-
+            // interval fill, sub-minute-awake preference). Vitals hydrated below.
+            guard let summary = BodySleepSampleParser.sleepSummary(
+                from: nightSamples,
                 date: night,
-                summary: SleepSummary(duration: asleepDuration, stageSnapshot: snapshot, vitals: .empty)
-            )
+                showsSubMinuteAwakeStages: BodyAppearancePreference.showsSubMinuteAwakeSleepStages()
+            ) else { return nil }
+
+            return SleepDaySummary(date: night, summary: summary)
         }
         .sorted { $0.date < $1.date }
         guard !nights.isEmpty else { return (nil, .empty) }
@@ -251,19 +261,6 @@ actor WatchHealthFetcher {
         }
 
         return (nights.last?.summary, SleepHistorySnapshot(days: nights))
-    }
-
-    private static func sleepStage(for rawValue: Int) -> SleepStage? {
-        switch HKCategoryValueSleepAnalysis(rawValue: rawValue) {
-        case .asleepREM: return .rem
-        case .asleepDeep: return .deep
-        // `.asleep` is the legacy aggregate value (older watchOS / third-party
-        // apps); fold it in with unspecified so those nights aren't dropped and
-        // the night interval still spans every asleep sample.
-        case .asleep, .asleepCore, .asleepUnspecified: return .core
-        case .awake: return .awake
-        default: return nil // .inBed and anything unknown aren't stages
-        }
     }
 
     /// One transformed quantity sample inside the batched sleep-vitals window.
@@ -358,7 +355,7 @@ actor WatchHealthFetcher {
         let start = calendar.date(byAdding: .day, value: -Self.workoutWindowDays, to: dayStart) ?? dayStart
         let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: [])
 
-        let workouts: [WorkoutSummary] = await withCheckedContinuation { continuation in
+        let hkWorkouts: [HKWorkout] = await withCheckedContinuation { continuation in
             let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
             let query = HKSampleQuery(
                 sampleType: .workoutType(),
@@ -366,24 +363,111 @@ actor WatchHealthFetcher {
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [sort]
             ) { _, results, _ in
-                let summaries = (results as? [HKWorkout])?.map { workout in
-                    WorkoutSummary(
-                        id: workout.uuid,
-                        type: .other,
-                        startDate: workout.startDate,
-                        duration: workout.duration,
-                        effortLevel: nil,
-                        sourceName: workout.sourceRevision.source.name
-                    )
-                } ?? []
-                continuation.resume(returning: summaries)
+                continuation.resume(returning: (results as? [HKWorkout]) ?? [])
             }
             store.execute(query)
         }
+        guard !hkWorkouts.isEmpty else { return (nil, .empty) }
 
-        guard !workouts.isEmpty else { return (nil, .empty) }
+        // Resolve each workout's real effort so the watch's training load matches
+        // the iPhone (the calculator otherwise defaults effort to 5.0).
+        let effortByID = await resolveEffortLevels(for: hkWorkouts)
+        let workouts = hkWorkouts.map { workout in
+            WorkoutSummary(
+                id: workout.uuid,
+                type: .other,
+                startDate: workout.startDate,
+                duration: workout.duration,
+                effortLevel: effortByID[workout.uuid],
+                sourceName: workout.sourceRevision.source.name
+            )
+        }
+
         let summary = TrainingLoadCalculator.summary(on: now, from: workouts, startDate: start, calendar: calendar)
         let series = TrainingLoadCalculator.dailySeries(from: workouts, startDate: start, endDate: now, calendar: calendar)
         return (summary, series)
+    }
+
+    /// Per-workout `workoutEffortScore`, cached per process. Queries only the
+    /// workouts not already resolved (or confirmed score-less), bounded to a
+    /// handful of concurrent relationship queries — mirroring the iPhone's
+    /// `fetchEffortLevels`. Effort can't be folded into one OR-compound query.
+    private func resolveEffortLevels(for workouts: [HKWorkout]) async -> [UUID: Double] {
+        let candidates = workouts.filter {
+            effortByWorkoutID[$0.uuid] == nil && !confirmedNoEffortWorkoutIDs.contains($0.uuid)
+        }
+
+        if !candidates.isEmpty {
+            let maxConcurrentQueries = 12
+            let outcomes = await withTaskGroup(
+                of: (UUID, BodyWorkoutEffortOutcome).self,
+                returning: [(UUID, BodyWorkoutEffortOutcome)].self
+            ) { group in
+                var nextIndex = 0
+                while nextIndex < min(maxConcurrentQueries, candidates.count) {
+                    let workout = candidates[nextIndex]
+                    group.addTask { (workout.uuid, await self.savedEffortOutcome(for: workout)) }
+                    nextIndex += 1
+                }
+
+                var collected: [(UUID, BodyWorkoutEffortOutcome)] = []
+                for await result in group {
+                    collected.append(result)
+                    if nextIndex < candidates.count {
+                        let workout = candidates[nextIndex]
+                        group.addTask { (workout.uuid, await self.savedEffortOutcome(for: workout)) }
+                        nextIndex += 1
+                    }
+                }
+                return collected
+            }
+
+            // End dates for the age gate below (mirrors the iPhone): only a
+            // workout that ended over `effortConfirmationAge` ago is confirmed
+            // score-less. A recent unrated workout stays unconfirmed so the next
+            // recompute re-queries it — otherwise a rating that syncs in later,
+            // without the `workoutEffortScore` observer firing, would be ignored
+            // and watch Training Load would diverge from the phone.
+            let now = Date()
+            let endDateByID = Dictionary(
+                candidates.map { ($0.uuid, $0.endDate) },
+                uniquingKeysWith: { first, _ in first }
+            )
+
+            for (id, outcome) in outcomes {
+                switch outcome {
+                case .found(let effort):
+                    effortByWorkoutID[id] = effort
+                case .noSavedEffort:
+                    if let endDate = endDateByID[id],
+                       now.timeIntervalSince(endDate) > Self.effortConfirmationAge {
+                        confirmedNoEffortWorkoutIDs.insert(id)
+                    }
+                case .failed:
+                    break
+                }
+            }
+        }
+
+        return workouts.reduce(into: [UUID: Double]()) { result, workout in
+            if let effort = effortByWorkoutID[workout.uuid] {
+                result[workout.uuid] = effort
+            }
+        }
+    }
+
+    /// Actor-isolated wrapper so the task-group closures stay `Sendable` (capture
+    /// `self` + the workout, like the iPhone) instead of the `HKHealthStore`.
+    private func savedEffortOutcome(for workout: HKWorkout) async -> BodyWorkoutEffortOutcome {
+        await BodyWorkoutEffortFetcher.savedEffortOutcome(for: workout, store: store)
+    }
+
+    /// Drops the per-process effort cache so the next recompute re-queries every
+    /// workout's effort. Called when the `workoutEffortScore` observer fires — an
+    /// effort was added/changed/removed and we don't know which workout, so the
+    /// cache must not keep serving the stale (or defaulted) value.
+    func invalidateEffortCache() {
+        effortByWorkoutID.removeAll()
+        confirmedNoEffortWorkoutIDs.removeAll()
     }
 }

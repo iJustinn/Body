@@ -11,7 +11,7 @@ import SwiftUI
 
 struct WatchSettingsView: View {
     @EnvironmentObject private var model: WatchMetricsModel
-    @AppStorage(BodyAppearancePreference.standaloneWatchComputeKey) private var standaloneEnabled = true
+    @AppStorage(BodyAppearancePreference.standaloneWatchComputeKey) private var standaloneEnabled = false
 
     var body: some View {
         Form {

@@ -39,6 +39,14 @@ enum BodyAppearancePreference {
     static func bodyProIconAssetName(showsBack: Bool) -> String {
         showsBack ? "BodyProIconBack" : "BodyProIcon"
     }
+
+    /// Shared reader for the sub-minute-awake sleep-stage display preference, so
+    /// the watch's standalone sleep parsing applies the same rule as iOS. The
+    /// phone pushes this key over WatchConnectivity; default matches the iOS
+    /// `BodySleepStageDisplayPreference.defaultShowsSubMinuteAwakeStages`.
+    static func showsSubMinuteAwakeSleepStages(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: showsSubMinuteAwakeSleepStagesKey) as? Bool ?? true
+    }
 }
 
 enum BodySleepDurationGoal {

@@ -37,6 +37,13 @@ actor WatchComputeCoordinator {
         return result
     }
 
+    /// Clears the fetcher's effort cache. Called when a `workoutEffortScore`
+    /// observer fires so the recompute it triggers re-resolves training load
+    /// instead of reusing a now-stale cached effort.
+    func invalidateEffortCache() async {
+        await fetcher.invalidateEffortCache()
+    }
+
     private func performRecompute(now: Date) async -> WatchMetricsSnapshot? {
         let calendar = Calendar.bodyGregorian
         let permission = BodyHealthPermissionSelection.load(defaults: .standard)
@@ -76,7 +83,7 @@ actor WatchComputeCoordinator {
     }
 }
 
-/// The standalone-compute toggle, synced from the phone (default ON). When OFF
+/// The standalone-compute toggle, synced from the phone (default OFF). When OFF
 /// the watch reverts to display + live HR/HRV only — no recompute, no observers,
 /// no scheduled background refresh.
 enum WatchStandaloneCompute {

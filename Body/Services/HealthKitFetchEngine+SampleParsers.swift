@@ -71,149 +71,33 @@ extension HealthKitFetchEngine {
         }
     }
 
+    // Sleep-sample parsing now lives in the shared `BodySleepSampleParser`
+    // (Body + BodyWatch) so iOS and the watch build identical sleep inputs.
+    // These keep their signatures as thin forwarders for callers + tests.
     nonisolated static func sleepSummary(
         from samples: [HKCategorySample],
         date: Date,
         showsSubMinuteAwakeStages: Bool = true
     ) -> SleepSummary? {
-        let duration = HealthKitWorkoutStore.sleepDuration(from: samples)
-        guard duration > 0 else {
-            return nil
-        }
-
-        return SleepSummary(
-            duration: duration,
-            stageSnapshot: SleepStageSnapshot(
-                date: date,
-                segments: sleepStageSegments(
-                    from: samples,
-                    showsSubMinuteAwakeStages: showsSubMinuteAwakeStages
-                )
-            )
+        BodySleepSampleParser.sleepSummary(
+            from: samples,
+            date: date,
+            showsSubMinuteAwakeStages: showsSubMinuteAwakeStages
         )
     }
 
     nonisolated static func isSleepTimelineSample(_ sample: HKCategorySample) -> Bool {
-        isAsleep(sample) || sleepStage(for: sample, includeUnspecified: false) == .awake
-    }
-
-    nonisolated private static func isAsleep(_ sample: HKCategorySample) -> Bool {
-        switch HKCategoryValueSleepAnalysis(rawValue: sample.value) {
-        case .asleep, .asleepCore, .asleepDeep, .asleepREM, .asleepUnspecified:
-            return true
-        default:
-            return false
-        }
+        BodySleepSampleParser.isSleepTimelineSample(sample)
     }
 
     nonisolated static func sleepStageSegments(
         from samples: [HKCategorySample],
         showsSubMinuteAwakeStages: Bool = true
     ) -> [SleepStageSegment] {
-        let explicitSegments = samples.compactMap { sample -> SleepStageSegment? in
-            guard let stage = sleepStage(for: sample, includeUnspecified: false) else {
-                return nil
-            }
-            if !showsSubMinuteAwakeStages,
-               stage == .awake,
-               sample.endDate.timeIntervalSince(sample.startDate) < 60 {
-                return nil
-            }
-
-            return SleepStageSegment(
-                stage: stage,
-                startDate: sample.startDate,
-                endDate: sample.endDate
-            )
-        }
-        let explicitIntervals = explicitSegments.map { segment in
-            (start: segment.startDate, end: segment.endDate)
-        }
-        let unspecifiedSegments = samples.flatMap { sample -> [SleepStageSegment] in
-            guard isUnspecifiedSleep(sample) else {
-                return []
-            }
-
-            return uncoveredSleepIntervals(
-                in: (start: sample.startDate, end: sample.endDate),
-                coveredBy: explicitIntervals
-            )
-            .map { interval in
-                SleepStageSegment(stage: .core, startDate: interval.start, endDate: interval.end)
-            }
-        }
-
-        return (explicitSegments + unspecifiedSegments).sorted { $0.startDate < $1.startDate }
-    }
-
-    nonisolated private static func isUnspecifiedSleep(_ sample: HKCategorySample) -> Bool {
-        switch HKCategoryValueSleepAnalysis(rawValue: sample.value) {
-        case .asleep, .asleepUnspecified:
-            return true
-        default:
-            return false
-        }
-    }
-
-    nonisolated private static func uncoveredSleepIntervals(
-        in interval: (start: Date, end: Date),
-        coveredBy coverageIntervals: [(start: Date, end: Date)]
-    ) -> [(start: Date, end: Date)] {
-        guard interval.end > interval.start else {
-            return []
-        }
-
-        var uncoveredIntervals = [interval]
-        let sortedCoverageIntervals = coverageIntervals
-            .filter { $0.end > $0.start }
-            .sorted { $0.start < $1.start }
-
-        for coverageInterval in sortedCoverageIntervals {
-            uncoveredIntervals = uncoveredIntervals.flatMap { uncoveredInterval in
-                guard coverageInterval.start < uncoveredInterval.end,
-                      coverageInterval.end > uncoveredInterval.start else {
-                    return [uncoveredInterval]
-                }
-
-                var nextIntervals: [(start: Date, end: Date)] = []
-                if coverageInterval.start > uncoveredInterval.start {
-                    nextIntervals.append((
-                        start: uncoveredInterval.start,
-                        end: min(coverageInterval.start, uncoveredInterval.end)
-                    ))
-                }
-                if coverageInterval.end < uncoveredInterval.end {
-                    nextIntervals.append((
-                        start: max(coverageInterval.end, uncoveredInterval.start),
-                        end: uncoveredInterval.end
-                    ))
-                }
-                return nextIntervals.filter { $0.end > $0.start }
-            }
-
-            if uncoveredIntervals.isEmpty {
-                return []
-            }
-        }
-
-        return uncoveredIntervals
-    }
-
-    nonisolated private static func sleepStage(for sample: HKCategorySample, includeUnspecified: Bool) -> SleepStage? {
-        switch HKCategoryValueSleepAnalysis(rawValue: sample.value) {
-        case .awake:
-            return .awake
-        case .asleepREM:
-            return .rem
-        case .asleepCore:
-            return .core
-        case .asleepDeep:
-            return .deep
-        case .asleep, .asleepUnspecified:
-            return includeUnspecified ? .core : nil
-        default:
-            return nil
-        }
+        BodySleepSampleParser.sleepStageSegments(
+            from: samples,
+            showsSubMinuteAwakeStages: showsSubMinuteAwakeStages
+        )
     }
 
     nonisolated static func summary(
