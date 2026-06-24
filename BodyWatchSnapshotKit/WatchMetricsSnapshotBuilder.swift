@@ -68,9 +68,30 @@ enum WatchMetricsSnapshotBuilder {
             ))
         }
 
+        // Last 7 daily values per metric (oldest → today), in each metric's
+        // display unit, for the watch metric-detail sparkline. Reuses the iPhone
+        // "Week" chart's daily aggregation so the two match exactly.
+        func weeklyValues(forKind kind: String) -> [Double?]? {
+            switch kind {
+            case WatchMetricKindKey.readiness: return weekly(trends.readiness, now: now)
+            case WatchMetricKindKey.sleep: return weekly(trends.sleepHistory.durationSeries, now: now)
+            case WatchMetricKindKey.heartRate: return weekly(trends.heartRate, now: now)
+            case WatchMetricKindKey.heartRateVariability: return weekly(trends.heartRateVariability, now: now)
+            case WatchMetricKindKey.restingHeartRate: return weekly(trends.restingHeartRate, now: now)
+            case WatchMetricKindKey.trainingLoad: return weekly(trends.trainingLoad, now: now)
+            case WatchMetricKindKey.wristTemperature:
+                // Match the card's display unit so the detail stats agree.
+                return weekly(trends.wristTemperature, now: now).map { day in
+                    day.map { BodyValueFormat.temperatureValue(celsius: $0, temperatureUnitPreference: tempPref).value }
+                }
+            default: return nil
+            }
+        }
+
         let stamped = metrics.map { metric -> WatchMetric in
             var stampedMetric = metric
             stampedMetric.computedAt = lastRefreshDate
+            stampedMetric.weekly = weeklyValues(forKind: metric.kind)
             return stampedMetric
         }
         return WatchMetricsSnapshot(generatedAt: now, lastRefreshDate: lastRefreshDate, metrics: stamped)
@@ -96,7 +117,14 @@ enum WatchMetricsSnapshotBuilder {
             levelMax: status.scoreBounds?.max,
             // Color the ring by readiness status band (prime → purple, …),
             // matching the iOS readiness UI. nil score → kind's default tint.
-            tint: status.watchTintComponents
+            tint: status.watchTintComponents,
+            // Highlight today's status band on the detail chart (chart bounds,
+            // open-ended at the extremes) — mirrors `BodyReadinessStatusPresentation`.
+            statusBand: status == .unavailable
+                ? nil
+                : WatchStatusBand(
+                    min: status.lowerBound, max: status.upperBound,
+                    label: status.title)
         )
     }
 
@@ -170,7 +198,14 @@ enum WatchMetricsSnapshotBuilder {
             // Corner gauge spans the current load band; tint matches it.
             levelMin: interval?.watchGaugeBounds.min,
             levelMax: interval?.watchGaugeBounds.max,
-            tint: interval?.watchTintComponents
+            tint: interval?.watchTintComponents,
+            // Highlight today's load band on the detail chart (chart bounds,
+            // open-ended at the extremes) — mirrors `BodyTrainingLoadIntervalPresentation`.
+            statusBand: interval.map {
+                WatchStatusBand(
+                    min: $0.lowerBound, max: $0.upperBound,
+                    label: $0.title)
+            }
         )
     }
 
@@ -197,6 +232,12 @@ enum WatchMetricsSnapshotBuilder {
 
     private static func values(_ series: HealthTrendSeries) -> [Double] {
         series.points.map(\.value).filter(\.isFinite)
+    }
+
+    /// The recent week as 7 daily values (oldest → today; `nil` for a day with no
+    /// reading), using the same daily aggregation as the iPhone "Week" trend chart.
+    private static func weekly(_ series: HealthTrendSeries, now: Date) -> [Double?] {
+        series.calendarPoints(to: .recentWeek, date: now).map(\.value)
     }
 
     /// Position of `value` within `[min, max]` of the recent series, clamped to

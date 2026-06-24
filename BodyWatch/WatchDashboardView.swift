@@ -3,12 +3,21 @@
 //  BodyWatch
 //
 //  Scrollable list of metric cards, in the iOS dashboard's visual language.
+//  Tapping a card — or a metric complication on the watch face — opens that
+//  metric's detail page in a vertical-paging carousel.
 //
 
 import SwiftUI
 
 struct WatchDashboardView: View {
     @EnvironmentObject private var model: WatchMetricsModel
+    @State private var path: [String] = []
+    /// Bumped on every complication deep-link, folded into the detail pager's
+    /// `.id`. Re-tapping the complication for the metric already on screen sets
+    /// `path` to its current value — a no-op that wouldn't rebuild the pager — so
+    /// without this token a repeat tap would leave the user on whatever metric
+    /// they'd swiped to instead of the tapped one.
+    @State private var deepLinkToken = 0
     @State private var isRefreshing = false
 
     private var visibleMetrics: [WatchMetric] {
@@ -16,7 +25,7 @@ struct WatchDashboardView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollView {
                 if model.snapshot.orderedMetrics.isEmpty {
                     ContentUnavailableView(
@@ -35,13 +44,25 @@ struct WatchDashboardView: View {
                 } else {
                     VStack(spacing: 8) {
                         ForEach(visibleMetrics) { metric in
-                            WatchMetricCardView(metric: metric)
+                            NavigationLink(value: metric.kind) {
+                                WatchMetricCardView(metric: metric)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 4)
                 }
             }
             .navigationTitle("Body")
+            .navigationDestination(for: String.self) { kind in
+                // Key the pager on the metric *and* the deep-link token, so opening
+                // a different metric — or re-tapping the same metric's complication
+                // while its pager is already open — makes a fresh pager that
+                // re-positions onto it (vs. reusing one stuck on the page the user
+                // last swiped to).
+                WatchMetricDetailPager(initialKind: kind)
+                    .id("\(kind)#\(deepLinkToken)")
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -70,5 +91,15 @@ struct WatchDashboardView: View {
             }
         }
         .onAppear { model.onAppear() }
+        .onOpenURL { url in
+            // A metric complication deep-links straight to its detail page. Bump
+            // the token first so re-tapping the metric already on screen still
+            // rebuilds the pager onto it (setting `path` to its current value is a
+            // no-op on its own).
+            if let kind = WatchMetricDeepLink.kind(from: url) {
+                deepLinkToken += 1
+                path = [kind]
+            }
+        }
     }
 }

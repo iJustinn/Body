@@ -39,6 +39,8 @@ private func metricComplication(
 ) -> some WidgetConfiguration {
     StaticConfiguration(kind: widgetKind, provider: WatchMetricProvider()) { entry in
         WatchComplicationView(metricKind: metricKind, entry: entry)
+            // Tapping the complication opens this metric's detail page directly.
+            .widgetURL(WatchMetricDeepLink.url(forKind: metricKind))
     }
     .configurationDisplayName(displayName)
     .description(description)

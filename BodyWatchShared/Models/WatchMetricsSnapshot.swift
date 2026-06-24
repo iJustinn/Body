@@ -21,6 +21,18 @@ struct WatchMetricColor: Codable, Equatable {
     var blue: Double
 }
 
+/// Status band to highlight behind a metric's recent-week chart (Readiness,
+/// Training Load) — the value range of TODAY's status, mirroring the iPhone
+/// trend chart's highlighted range. A `nil` bound is open-ended (the band fills
+/// to that chart edge); the band's color rides on `WatchMetric.tint`.
+struct WatchStatusBand: Codable, Equatable {
+    var min: Double?
+    var max: Double?
+    /// Status level name shown beside the value on the detail page (e.g.
+    /// "Optimal"). Optional so older snapshots still decode.
+    var label: String? = nil
+}
+
 /// String keys matching `HealthMetricKind.rawValue` on the iOS side, plus the
 /// per-kind look (tint + SF Symbol) shared by the watch app, the complications,
 /// and the iOS snapshot builder — one source of truth so the sides can't drift.
@@ -68,6 +80,24 @@ enum WatchMetricKindKey {
     }
 }
 
+/// Deep-link scheme shared by the watch complications (`widgetURL`) and the
+/// watch app (`onOpenURL`), so tapping a metric complication opens that metric's
+/// detail page directly instead of the dashboard.
+enum WatchMetricDeepLink {
+    static let scheme = "body"
+    static let host = "metric"
+
+    static func url(forKind kind: String) -> URL? {
+        URL(string: "\(scheme)://\(host)/\(kind)")
+    }
+
+    static func kind(from url: URL) -> String? {
+        guard url.scheme == scheme, url.host == host else { return nil }
+        let kind = url.lastPathComponent
+        return kind.isEmpty || kind == "/" ? nil : kind
+    }
+}
+
 struct WatchMetric: Codable, Equatable, Identifiable {
     /// `HealthMetricKind.rawValue` from the iOS app. That enum is iOS-target
     /// bound, so the shared payload carries the raw string instead.
@@ -106,6 +136,17 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// Tint that can't be derived from `kind` alone — Readiness carries its
     /// status-band color here. `nil` ⇒ fall back to the kind's static tint.
     var tint: WatchMetricColor? = nil
+
+    /// Last 7 daily values (oldest → today; `nil` for a day with no reading), in
+    /// the same unit as `displayValue`, feeding the watch metric-detail
+    /// sparkline. Optional/defaulted per the schema-evolution note below so an
+    /// older phone (omits it) or older watch (ignores it) still decodes.
+    var weekly: [Double?]? = nil
+
+    /// Status band to highlight behind the recent-week chart for banded metrics
+    /// (Readiness, Training Load) — TODAY's status range, in the same unit as
+    /// `weekly`. `nil` for unbanded metrics. See `WatchStatusBand`.
+    var statusBand: WatchStatusBand? = nil
 
     var id: String { kind }
 
