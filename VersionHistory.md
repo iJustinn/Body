@@ -1,5 +1,9 @@
 # Version History
 
+## 0.9.5 (build 1)
+
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 1.
+
 ## 0.9.3 (build 8)
 
 - Added Apple Watch **metric detail pages**: tapping a metric card — or a metric complication on the watch face — opens a full-screen detail view for that metric, and you can swipe up/down (or turn the Digital Crown) to page between every metric's detail directly, the page's color sliding smoothly as you go. Each page is washed in the metric's color — the title sits top-right, the last 7 days plot as a line chart (a tinted line with a ringed dot per day and a solid dot for today when today has a reading, faint per-day gridlines, and weekday labels), and the current value reads large at the bottom-left, with Readiness and Training Load showing today's status level beside it ("85 · HIGH"). Those two also highlight today's status band — the colored value range with top/bottom edge stripes — behind the line, matching the iPhone chart. The 7-day series, band, and status are computed on the iPhone and carried in the pushed snapshot, so the watch stays display-only. A snapshot from an older iPhone build (no weekly data) shows a "No recent data yet" state.
