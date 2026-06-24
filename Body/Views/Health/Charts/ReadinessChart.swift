@@ -26,20 +26,10 @@ enum BodyReadinessStatusPresentation {
     }
 
     static func color(for status: ReadinessStatus) -> Color {
-        switch status {
-        case .prime:
-            return Color(red: 0.84, green: 0.08, blue: 0.92)
-        case .high:
-            return Color(red: 0.20, green: 0.74, blue: 1.00)
-        case .moderate:
-            return Color(red: 0.10, green: 0.82, blue: 0.20)
-        case .low:
-            return Color(red: 1.00, green: 0.75, blue: 0.15)
-        case .poor:
-            return Color(red: 1.00, green: 0.25, blue: 0.12)
-        case .unavailable:
+        guard let rgb = status.watchTintComponents else {
             return Color.secondary
         }
+        return Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
     }
 }
 

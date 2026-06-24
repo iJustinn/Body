@@ -79,7 +79,7 @@ struct BodySleepStageChart: View {
                 AxisValueLabel {
                     if let position = value.as(Double.self),
                        let stage = SleepStage.stage(at: position) {
-                        Text(stage.displayName)
+                        Text(stage.axisLabel)
                             .font(.system(.caption2, design: .rounded))
                             .foregroundStyle(Color.secondary)
                     }
@@ -300,6 +300,157 @@ extension SleepStage {
             return Color(red: 0.25, green: 0.25, blue: 0.82)
         }
     }
+
+    /// Display-only "healthy night" reference band, as a fraction of total time in
+    /// bed (all four stages). Independent of the sleep-score grading, which judges
+    /// Deep/REM one-sided against asleep time.
+    var optimalPercentageRange: ClosedRange<Double> {
+        switch self {
+        case .awake:
+            return 0.00...0.05
+        case .rem:
+            return 0.20...0.25
+        case .core:
+            return 0.45...0.55
+        case .deep:
+            return 0.13...0.23
+        }
+    }
+}
+
+/// Per-stage breakdown bars with each stage's percentage of total time in bed, its
+/// duration, and an overlaid optimal-range band. Shown in place of the duration
+/// summary on the Sleep Stages card when the user taps to switch views.
+struct BodySleepStageOptimalRangeChart: View {
+    let snapshot: SleepStageSnapshot
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let stageLabelWidth: CGFloat = 52
+    private let percentColumnWidth: CGFloat = 44
+    private let durationColumnWidth: CGFloat = 68
+    private let columnSpacing: CGFloat = 12
+    private let trackHeight: CGFloat = 22
+    private let barHeight: CGFloat = 14
+
+    private var totalDuration: TimeInterval {
+        SleepStage.allCases.reduce(0) { $0 + snapshot.duration(for: $1) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            ForEach(SleepStage.allCases) { stage in
+                row(for: stage)
+            }
+            legend
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: columnSpacing) {
+            Text("Stage")
+                .frame(width: stageLabelWidth, alignment: .leading)
+            Spacer(minLength: 0)
+            Text("Pct.")
+                .frame(width: percentColumnWidth, alignment: .trailing)
+            Text("Duration")
+                .frame(width: durationColumnWidth, alignment: .trailing)
+        }
+        .font(.system(.caption, design: .rounded))
+        .fontWeight(.semibold)
+        .foregroundColor(.secondary)
+    }
+
+    private func row(for stage: SleepStage) -> some View {
+        let stageDuration = snapshot.duration(for: stage)
+        let fraction = totalDuration > 0 ? stageDuration / totalDuration : 0
+
+        return HStack(spacing: columnSpacing) {
+            Text(stage.displayName)
+                .font(.system(.callout, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+                .frame(width: stageLabelWidth, alignment: .leading)
+
+            track(for: stage, fraction: fraction)
+                .frame(maxWidth: .infinity)
+                .frame(height: trackHeight)
+
+            Text("\(Int((fraction * 100).rounded()))%")
+                .font(.system(.callout, design: .rounded))
+                .fontWeight(.bold)
+                .foregroundColor(.primary)
+                .frame(width: percentColumnWidth, alignment: .trailing)
+
+            Text(BodyValueFormat.durationText(for: stageDuration))
+                .font(.system(.callout, design: .rounded))
+                .fontWeight(.bold)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(width: durationColumnWidth, alignment: .trailing)
+        }
+    }
+
+    private func track(for stage: SleepStage, fraction: Double) -> some View {
+        let range = stage.optimalPercentageRange
+
+        return GeometryReader { proxy in
+            let width = proxy.size.width
+            let bandWidth = max(0, CGFloat(range.upperBound - range.lowerBound) * width)
+            let bandOffset = CGFloat(range.lowerBound) * width
+            let fillWidth = CGFloat(min(1, max(0, fraction))) * width
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.secondary.opacity(0.16))
+                    .frame(height: barHeight)
+
+                Capsule()
+                    .fill(stage.bodyChartColor)
+                    .frame(width: fillWidth, height: barHeight)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: fraction)
+
+                optimalBand
+                    .frame(width: bandWidth, height: trackHeight)
+                    .offset(x: bandOffset)
+            }
+            .frame(height: trackHeight)
+        }
+    }
+
+    private var optimalBand: some View {
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .fill(Color.secondary.opacity(0.12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .strokeBorder(
+                        Color.secondary.opacity(0.7),
+                        style: StrokeStyle(lineWidth: 1, dash: [2, 2])
+                    )
+            )
+    }
+
+    private var legend: some View {
+        HStack(spacing: 8) {
+            optimalBand
+                .frame(width: 22, height: 14)
+
+            Text("Optimal Range")
+                .font(.system(.caption, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+
+            Spacer(minLength: 0)
+
+            Text("Percent of time in bed")
+                .font(.system(.caption2, design: .rounded))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+    }
 }
 
 struct BodySleepConsistencyChart: View {
@@ -317,9 +468,13 @@ struct BodySleepConsistencyChart: View {
                 let plotHeight = proxy.size.height
 
                 ZStack(alignment: .topLeading) {
-                    gridLines(plotWidth: plotWidth, plotHeight: plotHeight)
-                    averageLines(plotWidth: plotWidth, plotHeight: plotHeight)
-                    nightBars(plotWidth: plotWidth, plotHeight: plotHeight)
+                    ZStack(alignment: .topLeading) {
+                        gridLines(plotWidth: plotWidth, plotHeight: plotHeight)
+                        averageLines(plotWidth: plotWidth, plotHeight: plotHeight)
+                        nightBars(plotWidth: plotWidth, plotHeight: plotHeight)
+                    }
+                    .drawingGroup()
+
                     dayTapTargets(plotWidth: plotWidth, plotHeight: plotHeight)
                 }
             }
@@ -790,4 +945,3 @@ struct BodySleepVitalRegionLabels: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 }
-

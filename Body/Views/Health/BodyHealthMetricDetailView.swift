@@ -309,16 +309,19 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
+    @AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = false
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @State private var selectedTrendRange: BodyHealthTrendRange
     @State private var selectedSleepDate: Date?
     @State private var selectedMetricDate: Date?
     @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
     @State private var showsDataSourcePicker = false
+    @State private var showsAddMeasurementSheet = false
     @State private var isPullRefreshing = false
     @State private var activeReadinessTrendValue: Double?
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     @StateObject private var daySeriesCache = BodyMetricDaySeriesCache()
+    @StateObject private var sleepConsistencyCache = BodySleepConsistencyChartCache()
 
     init(
         model: BodyHealthMetricDetailModel,
@@ -391,6 +394,18 @@ struct BodyHealthMetricDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .tint(model.symbolColor)
         .accentColor(model.symbolColor)
+        .toolbar {
+            if isBasicsDetail {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showsAddMeasurementSheet = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Add Measurement")
+                }
+            }
+        }
         .sheet(item: $selectedSleepScoreDetails) { selection in
             SleepScoreDetailsSheet(selection: selection, accentColor: model.symbolColor)
                 .presentationDetents([.height(BodySleepScoreDetailsSheetLayout.sheetHeight), .large])
@@ -403,6 +418,14 @@ struct BodyHealthMetricDetailView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(Color(.systemGroupedBackground))
+        }
+        .sheet(isPresented: $showsAddMeasurementSheet) {
+            BodyAddBasicsMeasurementSheet(
+                accentColor: model.symbolColor,
+                initialWeightKilograms: workoutStore.healthSummary.bodyMass.value,
+                initialBodyFatPercent: workoutStore.healthSummary.bodyFatPercentage.value
+            )
+            .environmentObject(workoutStore)
         }
     }
 
@@ -1636,11 +1659,63 @@ struct BodyHealthMetricDetailView: View {
                         transaction.animation = nil
                     }
                     .frame(height: BodyHealthDetailChartLayout.standardHeight)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        sleepStageShowsOptimalRanges.toggle()
+                    }
+                } label: {
+                    Group {
+                        if sleepStageShowsOptimalRanges {
+                            BodySleepStageOptimalRangeChart(snapshot: snapshot)
+                        } else {
+                            sleepStageDurationSummary(snapshot)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(sleepStageBreakdownAccessibilityLabel(snapshot))
+                .accessibilityValue(sleepStageShowsOptimalRanges ? "Showing optimal ranges" : "Showing durations")
+                .accessibilityHint("Switches between stage durations and optimal ranges")
             }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .bodyCardBackground()
+    }
+
+    private func sleepStageDurationSummary(_ snapshot: SleepStageSnapshot) -> some View {
+        HStack(spacing: 10) {
+            ForEach(SleepStage.allCases) { stage in
+                VStack(alignment: .center, spacing: 7) {
+                    Rectangle()
+                        .fill(stage.bodyChartColor)
+                        .frame(width: 28, height: 3)
+
+                    Text(BodyValueFormat.durationText(for: snapshot.duration(for: stage)))
+                        .font(.system(.callout, design: .rounded))
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+        }
+    }
+
+    // The toggle Button collapses its content into a single VoiceOver element, so spell out each
+    // stage's share and duration here — otherwise the chart's per-stage values are unreadable.
+    private func sleepStageBreakdownAccessibilityLabel(_ snapshot: SleepStageSnapshot) -> String {
+        let total = SleepStage.allCases.reduce(0) { $0 + snapshot.duration(for: $1) }
+        let descriptions = SleepStage.allCases.map { stage -> String in
+            let duration = snapshot.duration(for: stage)
+            let percent = total > 0 ? Int((duration / total * 100).rounded()) : 0
+            return "\(stage.displayName) \(percent) percent, \(BodyValueFormat.durationText(for: duration))"
+        }
+        return "Sleep stage breakdown. " + descriptions.joined(separator: ". ") + "."
     }
 
     private func sleepStageChartIdentity(for snapshot: SleepStageSnapshot) -> String {
@@ -1693,23 +1768,23 @@ struct BodyHealthMetricDetailView: View {
 
     // One pass over the history instead of 14 `sleepSummary(for:)` scans;
     // same precedence as that helper (history first, live summary only for
-    // today's slot).
+    // today's slot). The resulting 14 entries are the cache key, so re-renders
+    // only rebuild the model when a displayed night actually changes.
     private var sleepConsistencyChartModel: SleepConsistencyChartModel {
         let calendar = Calendar.bodyGregorian
+        let today = calendar.startOfDay(for: Date())
         let days = SleepHistorySnapshot.datePickerDates(dayCount: SleepConsistencyChartModel.dayCount)
         let historyByDay = Dictionary(
             model.sleepHistory.days.map { (calendar.startOfDay(for: $0.date), $0.summary) },
             uniquingKeysWith: { _, newest in newest }
         )
-        let today = calendar.startOfDay(for: Date())
+        let currentSummary = currentSleepSummary(for: today)
+        let entries = days.map { day in
+            let summary = historyByDay[day] ?? (day == today ? currentSummary : nil)
+            return (day: day, snapshot: summary?.stageSnapshot)
+        }
 
-        return SleepConsistencyChartModel.make(
-            entries: days.map { day in
-                let summary = historyByDay[day] ?? (day == today ? currentSleepSummary(for: day) : nil)
-                return (day: day, snapshot: summary?.stageSnapshot)
-            },
-            calendar: calendar
-        )
+        return sleepConsistencyCache.model(entries: entries, calendar: calendar)
     }
 
     private var aboutSleepScoreCard: some View {
@@ -2071,5 +2146,34 @@ final class BodyMetricDaySeriesCache: ObservableObject {
         let daySeries = series.points(on: day)
         entriesBySlot[slot] = (key, daySeries)
         return daySeries
+    }
+}
+
+/// Memoizes the 14-day sleep-consistency model. `make()` is cheap, but the
+/// detail view rebuilds it on every `body` evaluation (each day selection or
+/// progressive-refresh tick). Keyed only on the 14 displayed (day, stage
+/// snapshot) pairs the chart actually reads, so the comparison stays bounded to
+/// the window instead of deep-checking the full sleep history.
+@MainActor
+final class BodySleepConsistencyChartCache: ObservableObject {
+    private struct Entry: Equatable {
+        let day: Date
+        let snapshot: SleepStageSnapshot?
+    }
+
+    private var cached: (key: [Entry], model: SleepConsistencyChartModel)?
+
+    func model(
+        entries: [(day: Date, snapshot: SleepStageSnapshot?)],
+        calendar: Calendar = .bodyGregorian
+    ) -> SleepConsistencyChartModel {
+        let key = entries.map { Entry(day: $0.day, snapshot: $0.snapshot) }
+        if let cached, cached.key == key {
+            return cached.model
+        }
+
+        let model = SleepConsistencyChartModel.make(entries: entries, calendar: calendar)
+        cached = (key, model)
+        return model
     }
 }

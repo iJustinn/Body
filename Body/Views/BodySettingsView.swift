@@ -3,6 +3,7 @@
 //  Body
 //
 
+import SafariServices
 import SwiftUI
 import UIKit
 
@@ -15,6 +16,10 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
+    // Observed here (its toggle lives in a sub-view sharing this key) so a change
+    // re-publishes the phone-owned watch prefs immediately.
+    @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
+    @AppStorage(BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey) private var showsSubMinuteAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsSubMinuteAwakeStages
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
@@ -27,6 +32,9 @@ struct BodySettingsView: View {
     @State private var appIconErrorMessage = ""
     @State private var versionTapCount = 0
     @State private var showingCreatorSurprise = false
+    @State private var showingPrivacyBrowser = false
+
+    private let privacyPolicyURLString = "https://docs.ijustinz.com/body/privacy"
 
     var body: some View {
         NavigationStack {
@@ -69,11 +77,28 @@ struct BodySettingsView: View {
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
             }
+            .sheet(isPresented: $showingPrivacyBrowser) {
+                if let url = URL(string: privacyPolicyURLString) {
+                    SafariView(url: url)
+                        .ignoresSafeArea()
+                }
+            }
             .alert("Couldn't Change Icon", isPresented: $showingAppIconError) {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(appIconErrorMessage)
             }
+            .onChange(of: showsSubMinuteAwakeSleepStages) {
+                Task {
+                    await workoutStore.requestAuthorizationAndRefresh()
+                }
+            }
+            // Re-publish the watch snapshot when a display pref changes so the
+            // watch reflects it without waiting for the next refresh.
+            .onChange(of: sleepDurationGoalMinutes) { workoutStore.publishWatchSnapshot() }
+            .onChange(of: selectedTemperatureUnitRawValue) { workoutStore.publishWatchSnapshot() }
+            .onChange(of: followsSystemUnits) { workoutStore.publishWatchSnapshot() }
+            .onChange(of: showSleepScore) { workoutStore.publishWatchSnapshot() }
         }
     }
 
@@ -183,32 +208,27 @@ struct BodySettingsView: View {
 
     @ViewBuilder
     private func aboutRow(for tab: BodySettingsAboutTab) -> some View {
-        if let sheet = tab.sheet {
-            Button {
-                activeSheet = sheet
-            } label: {
-                BodySettingsRowLabel(
-                    title: tab.title,
-                    value: nil,
-                    iconName: tab.iconName,
-                    tintColor: tab.tintColor,
-                    accessory: .chevron
-                )
-            }
-            .buttonStyle(.plain)
-        } else {
-            Button {
+        Button {
+            switch tab {
+            case .privacy:
+                showingPrivacyBrowser = true
+            case .version:
                 handleVersionCardTap()
-            } label: {
-                BodySettingsRowLabel(
-                    title: tab.title,
-                    value: appVersionDisplay,
-                    iconName: tab.iconName,
-                    tintColor: tab.tintColor
-                )
+            default:
+                if let sheet = tab.sheet {
+                    activeSheet = sheet
+                }
             }
-            .buttonStyle(.plain)
+        } label: {
+            BodySettingsRowLabel(
+                title: tab.title,
+                value: tab == .version ? appVersionDisplay : nil,
+                iconName: tab.iconName,
+                tintColor: tab.tintColor,
+                accessory: tab == .version ? .none : .chevron
+            )
         }
+        .buttonStyle(.plain)
     }
 
     private var metricsSection: some View {
@@ -217,7 +237,7 @@ struct BodySettingsView: View {
                 activeSheet = .sleepDurationGoal
             } label: {
                 BodySettingsRowLabel(
-                    title: "Sleep Goal",
+                    title: "Sleep",
                     value: sleepDurationGoalText,
                     iconName: "bed.double.fill",
                     tintColor: Color(red: 0.20, green: 0.72, blue: 1.00),
@@ -518,7 +538,10 @@ struct BodySettingsView: View {
         case .dayView:
             BodyMetricDayViewSettingsSheet(selection: metricDayViewSelection)
         case .sleepDurationGoal:
-            BodySleepDurationGoalSettingsSheet(goalMinutes: sleepDurationGoal)
+            BodySleepSettingsSheet(
+                goalMinutes: sleepDurationGoal,
+                showsSubMinuteAwakeStages: $showsSubMinuteAwakeSleepStages
+            )
         case .units:
             BodyUnitPreferencePickerSheet(
                 followsSystemUnits: followsSystemUnitsBinding,
@@ -537,14 +560,8 @@ struct BodySettingsView: View {
             BodyCacheSettingsSheet(workoutStore: workoutStore)
         case .howToUse:
             BodyHowToUseSettingsSheet()
-        case .feedback:
-            BodyFeedbackSettingsSheet()
-        case .privacy:
-            BodyPrivacySettingsSheet()
-        case .disclaimer:
-            BodyDisclaimerSettingsSheet()
-        case .copyright:
-            BodyCopyrightSettingsSheet()
+        case .more:
+            BodyMoreSettingsSheet()
         }
     }
 
@@ -624,10 +641,7 @@ enum BodySettingsSheet: String, Identifiable {
     case syncStatus
     case cache
     case howToUse
-    case feedback
-    case privacy
-    case disclaimer
-    case copyright
+    case more
 
     var id: String {
         rawValue
@@ -699,10 +713,8 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
 
 enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
     case howToUse
-    case feedback
     case privacy
-    case disclaimer
-    case copyright
+    case more
     case version
 
     var id: String {
@@ -713,14 +725,10 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
         switch self {
         case .howToUse:
             return "How to Use"
-        case .feedback:
-            return "Feedback"
         case .privacy:
             return "Privacy"
-        case .disclaimer:
-            return "Disclaimer"
-        case .copyright:
-            return "Copyright"
+        case .more:
+            return "More"
         case .version:
             return "Version"
         }
@@ -730,34 +738,17 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
         switch self {
         case .howToUse:
             return "questionmark.circle.fill"
-        case .feedback:
-            return "bubble.left.and.bubble.right.fill"
         case .privacy:
             return "hand.raised.fill"
-        case .disclaimer:
-            return "exclamationmark.triangle.fill"
-        case .copyright:
-            return "c.circle.fill"
+        case .more:
+            return "ellipsis.circle.fill"
         case .version:
             return "info.circle.fill"
         }
     }
 
     var tintColor: Color {
-        switch self {
-        case .howToUse:
-            return .teal
-        case .feedback:
-            return .blue
-        case .privacy:
-            return .green
-        case .disclaimer:
-            return .yellow
-        case .copyright:
-            return .purple
-        case .version:
-            return .gray
-        }
+        .gray
     }
 
     var opensSheet: Bool {
@@ -768,15 +759,9 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
         switch self {
         case .howToUse:
             return .howToUse
-        case .feedback:
-            return .feedback
-        case .privacy:
-            return .privacy
-        case .disclaimer:
-            return .disclaimer
-        case .copyright:
-            return .copyright
-        case .version:
+        case .more:
+            return .more
+        case .privacy, .version:
             return nil
         }
     }
@@ -836,11 +821,12 @@ extension BodyValueFormat.DistanceUnitPreference: BodyUnitPreferenceOption { }
 extension BodyValueFormat.EnergyUnitPreference: BodyUnitPreferenceOption { }
 extension BodyValueFormat.TemperatureUnitPreference: BodyUnitPreferenceOption { }
 
-private struct BodySleepDurationGoalSettingsSheet: View {
+private struct BodySleepSettingsSheet: View {
     @Binding var goalMinutes: Int
+    @Binding var showsSubMinuteAwakeStages: Bool
 
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Sleep Goal") {
+        BodySettingsAboutSheetScaffold(title: "Sleep") {
             BodySettingsCardSection("Goal") {
                 Stepper(
                     value: $goalMinutes,
@@ -855,6 +841,41 @@ private struct BodySleepDurationGoalSettingsSheet: View {
                     )
                 }
                 .padding(.trailing, 18)
+            }
+
+            BodySettingsCardSection("Sleep Stages") {
+                HStack(spacing: 14) {
+                    BodySettingsIconTile(
+                        iconName: "waveform.path.ecg",
+                        color: Color(red: 1.00, green: 0.31, blue: 0.22)
+                    )
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Show Awake Under 1 Min")
+                            .font(.system(.headline, design: .rounded))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+
+                        Text("Include very short Awake intervals in sleep stages")
+                            .font(.system(.subheadline, design: .rounded))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Toggle("Show Awake Under 1 Min", isOn: $showsSubMinuteAwakeStages)
+                        .labelsHidden()
+                        .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                        .accessibilityValue(showsSubMinuteAwakeStages ? "On" : "Off")
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
             }
         }
     }
@@ -2263,7 +2284,7 @@ private struct BodyHowToUseSettingsSheet: View {
             iconName: "rectangle.grid.2x2.fill",
             tintColor: .blue,
             steps: [
-                "Summary shows Activity Rings, Sleep, Basics, Training Load, heart, respiratory, energy, daylight, steps, and body metric cards.",
+                "Summary shows Activity Rings, Readiness, Sleep, Basics, Training Load, heart, respiratory, energy, daylight, steps, and body metric cards.",
                 "Tap a card to open details with trend ranges, day views when available, and metric-specific context.",
                 "Pull down on Summary after new Health data is recorded to refresh the dashboard. A Loading data overlay stays on screen until the refresh finishes so you know work is in progress."
             ]
@@ -2285,7 +2306,8 @@ private struct BodyHowToUseSettingsSheet: View {
             steps: [
                 "Use the Sleep date slider to choose the day you want to inspect.",
                 "Tap the Sleep Score card to see the score breakdown.",
-                "Press the Sleep Stages chart to inspect a stage segment's duration and start/end time."
+                "Press the Sleep Stages chart to inspect a stage segment's duration and start/end time.",
+                "Tap the stage breakdown beneath the timeline to switch between per-stage durations and the optimal-range chart — each stage's share of the night with a healthy reference band — and your choice is remembered."
             ]
         ),
         BodyHowToUseGuideSection(
@@ -2322,6 +2344,17 @@ private struct BodyHowToUseSettingsSheet: View {
             ]
         ),
         BodyHowToUseGuideSection(
+            title: "Apple Watch",
+            iconName: "applewatch",
+            tintColor: .green,
+            steps: [
+                "Install the Body watch app from the Watch app on your iPhone. It mirrors your Readiness, Sleep, Heart Rate, HRV, Resting Heart Rate, Training Load, and Skin Temperature cards.",
+                "Add a Body complication to your watch face — every metric has an accessory circular, rectangular, and corner ring complication.",
+                "The iPhone stays the source of truth: it pushes a metrics snapshot to the watch after each successful refresh, so open and refresh Body on iPhone to keep the watch current.",
+                "When that snapshot is stale, the watch refreshes Heart Rate and HRV from its own Health data. Complications update when the watch app runs; snapshots pushed while it is closed apply on next launch."
+            ]
+        ),
+        BodyHowToUseGuideSection(
             title: "Manage Cache",
             iconName: "internaldrive.fill",
             tintColor: .purple,
@@ -2345,49 +2378,72 @@ private struct BodyHowToUseSettingsSheet: View {
     }
 }
 
-private struct BodyFeedbackSettingsSheet: View {
+private struct BodyMoreSettingsSheet: View {
     @Environment(\.openURL) private var openURL
 
     private let supportEmailAddress = "zihengthedeveloper@gmail.com"
 
+    private let disclaimerSection = BodySettingsInfoSection(
+        title: "Disclaimer",
+        iconName: "exclamationmark.triangle.fill",
+        tintColor: .gray,
+        details: [
+            "Body is for personal health awareness and visualization.",
+            "Body does not provide medical diagnosis, treatment, fitness prescriptions, or professional health advice.",
+            "Sleep scores, trends, charts, and summaries are estimates based on available Apple Health data. Talk with a qualified clinician for health concerns or unusual changes."
+        ]
+    )
+
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Feedback") {
+        BodySettingsAboutSheetScaffold(title: "More") {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(spacing: 0) {
                     BodySettingsPopupActionRow(
-                        title: "Email",
+                        title: "Feedback Email",
                         subtitle: supportEmailAddress,
                         iconName: "envelope.fill",
-                        tintColor: .blue
+                        tintColor: .gray
                     ) {
                         openSupportEmail()
                     }
                 }
                 .bodyCardBackground()
 
-                VStack(spacing: 0) {
-                    BodySettingsPopupActionRow(
-                        title: "Follow on IG",
-                        subtitle: "Coming soon",
-                        iconName: "camera.fill",
-                        tintColor: .pink,
-                        isEnabled: false
-                    ) { }
-                }
-                .bodyCardBackground()
+                BodySettingsInfoCard(section: disclaimerSection)
 
-                VStack(spacing: 0) {
-                    BodySettingsPopupActionRow(
-                        title: "Follow on Red",
-                        subtitle: "Coming soon",
-                        iconName: "heart.fill",
-                        tintColor: .red,
-                        isEnabled: false
-                    ) { }
-                }
-                .bodyCardBackground()
+                copyrightCard
             }
         }
+    }
+
+    private var copyrightCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                BodySettingsIconTile(iconName: "c.circle.fill", color: .gray)
+
+                Text("Copyright")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.bold)
+                    .foregroundColor(.primary)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Copyright (c) 2026 Ziheng Zhong. All rights reserved.")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("Body reads Apple Health data locally to power the app and widgets.")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground()
     }
 
     private func openSupportEmail() {
@@ -2428,123 +2484,14 @@ private struct BodyFeedbackSettingsSheet: View {
     }
 }
 
-private struct BodyPrivacySettingsSheet: View {
-    private let sections: [BodySettingsInfoSection] = [
-        BodySettingsInfoSection(
-            title: "Apple Health Access",
-            iconName: "heart.text.square.fill",
-            tintColor: .red,
-            details: [
-                "Body requests read-only access to workouts, Activity Rings, exercise, steps, daylight, sleep, heart, respiratory, blood oxygen, body measurement, and energy data.",
-                "Body does not write health samples back to Apple Health."
-            ]
-        ),
-        BodySettingsInfoSection(
-            title: "Local-First Data",
-            iconName: "iphone",
-            tintColor: .green,
-            details: [
-                "Health summaries, workout snapshots, widget snapshots, appearance choices, unit preferences, and app icon choices stay on this device.",
-                "Widgets read a cached snapshot from the shared app group. Widgets do not query HealthKit directly."
-            ]
-        ),
-        BodySettingsInfoSection(
-            title: "Network Access",
-            iconName: "network",
-            tintColor: .blue,
-            details: [
-                "Body does not send Apple Health data to external analytics, advertising, tracking, or AI services.",
-                "Feedback email is optional. If you choose Feedback, your email app prepares a message with app version, device, system, locale, and time zone details so you can review it before sending."
-            ]
-        ),
-        BodySettingsInfoSection(
-            title: "Your Control",
-            iconName: "hand.raised.fill",
-            tintColor: .orange,
-            details: [
-                "You can change Body's Health permissions in the Health app or iOS Settings.",
-                "Deleting Body removes the app's local cache and settings from the device."
-            ]
-        ),
-        BodySettingsInfoSection(
-            title: "App Store Privacy",
-            iconName: "doc.text.fill",
-            tintColor: .gray,
-            details: [
-                "A public Privacy Policy URL is required for App Store distribution.",
-                "The App Store privacy details should match this app behavior and any future services added to Body."
-            ]
-        )
-    ]
+private struct SafariView: UIViewControllerRepresentable {
+    let url: URL
 
-    var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Privacy") {
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(sections) { section in
-                    BodySettingsInfoCard(section: section)
-                }
-            }
-        }
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        SFSafariViewController(url: url)
     }
-}
 
-private struct BodyDisclaimerSettingsSheet: View {
-    private let section = BodySettingsInfoSection(
-        title: "Disclaimer",
-        iconName: "exclamationmark.triangle.fill",
-        tintColor: .yellow,
-        details: [
-            "Body is for personal health awareness and visualization.",
-            "Body does not provide medical diagnosis, treatment, fitness prescriptions, or professional health advice.",
-            "Sleep scores, trends, charts, and summaries are estimates based on available Apple Health data. Talk with a qualified clinician for health concerns or unusual changes."
-        ]
-    )
-
-    var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Disclaimer") {
-            BodySettingsInfoCard(section: section)
-        }
-    }
-}
-
-private struct BodyCopyrightSettingsSheet: View {
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Copyright")
-                                .font(.system(size: BodySettingsTypography.sectionTitleFontSize, weight: .bold, design: .rounded))
-                                .foregroundColor(.primary)
-
-                            Text("Copyright (c) 2026 Ziheng Zhong. All rights reserved.")
-                                .font(.system(.headline, design: .rounded))
-                                .fontWeight(.semibold)
-                                .foregroundColor(.primary)
-                                .fixedSize(horizontal: false, vertical: true)
-
-                            Text("Body reads Apple Health data locally to power the app and widgets.")
-                                .font(.system(.subheadline, design: .rounded))
-                                .fontWeight(.semibold)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(20)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .bodyCardBackground()
-                    }
-                    .padding()
-                    .padding(.bottom, 24)
-                }
-            }
-            .navigationTitle("Copyright")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-    }
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) { }
 }
 
 private struct BodySettingsAboutSheetScaffold<Content: View>: View {

@@ -1,5 +1,54 @@
 # Version History
 
+## 0.9.3 (build 8)
+
+- Added Apple Watch **metric detail pages**: tapping a metric card — or a metric complication on the watch face — opens a full-screen detail view for that metric, and you can swipe up/down (or turn the Digital Crown) to page between every metric's detail directly, the page's color sliding smoothly as you go. Each page is washed in the metric's color — the title sits top-right, the last 7 days plot as a line chart (a tinted line with a ringed dot per day and a solid dot for today when today has a reading, faint per-day gridlines, and weekday labels), and the current value reads large at the bottom-left, with Readiness and Training Load showing today's status level beside it ("85 · HIGH"). Those two also highlight today's status band — the colored value range with top/bottom edge stripes — behind the line, matching the iPhone chart. The 7-day series, band, and status are computed on the iPhone and carried in the pushed snapshot, so the watch stays display-only. A snapshot from an older iPhone build (no weekly data) shows a "No recent data yet" state.
+- Updated the app, widget, watch, and test bundle version to 0.9.3 build 8.
+
+## 0.9.3 (build 7)
+
+- Removed the Apple Watch "Standalone Compute" feature. The watch no longer computes Readiness, Sleep, or Training Load on-device; it always shows the metrics the iPhone computes and pushes over WatchConnectivity. It still refreshes Heart Rate and HRV directly from its own HealthKit when the pushed snapshot is stale (and via the home-screen refresh button), exactly as the original watch app did. The Settings > Apple Watch page and the on-watch toggle are gone, the watch's HealthKit background-delivery entitlement was dropped (only foreground HR/HRV reads remain), and its Apple Health permission prompt now reflects that narrower access.
+- Added an accessory **corner** complication for every Apple Watch metric — a curved gauge that hugs the bezel on corner-style watch faces (e.g. Infograph), showing the metric's value with a tinted fill arc. Also slightly reduced the value text in the circular ring complication.
+- The Apple Watch home screen now leads with **Training Load**, and the watch Settings screen adds a show/hide toggle for each metric so you can choose which cards appear on the watch. Visibility is a watch-local preference — hidden metrics stay in the synced snapshot and can be turned back on, and the home screen shows an "All Metrics Hidden" state if you turn them all off.
+- Updated the app, widget, watch, and test bundle version to 0.9.3 build 7.
+
+## 0.9.3 (build 6)
+
+- Aligned the Apple Watch standalone Readiness and Sleep computation with the iPhone so both produce the same result from the same Apple Health data. The watch now fetches each workout's real effort score (instead of assuming a default), shares the iPhone's exact sleep-stage parsing and 180-day training-load window through new shared code, and honors the iPhone's "show sub-minute awake stages" setting (synced over WatchConnectivity). An effort edit on the phone now also wakes the watch to recompute.
+- Added a note on the Settings > Apple Watch (Standalone Compute) page explaining that, with Standalone Compute on, choosing a non-default Apple Health source for a metric can make the watch's numbers differ from the iPhone (the watch reads all sources).
+- Standalone Compute now defaults to off (it previously defaulted on). Turn it on from Settings > Apple Watch to compute Readiness and Sleep on the watch; with it off, the watch keeps showing the iPhone-pushed metrics.
+- Added an Add (+) button to the top-right of the Basics detail screen. It opens a sheet to log a new weight and body-fat measurement — both on one page, chosen with wheel pickers that start from your latest values, with a date/time picker and an include checkbox on each so you can log just weight, just body fat, or both — and saves the enabled values to Apple Health. This is the first data Body writes to Apple Health, so the Health write-permission prompt appears the first time you save.
+- Made the Effort card on a workout's detail screen tappable to add or change that workout's effort rating. The card expands in place (no popup) to reveal Cancel/Save on the left and − / + buttons on the right; adjust 1–10 (Easy → All Out) and the bar meter animates as it changes. Body saves it to Apple Health, relates it to the workout, and recomputes Training Load (which effort feeds) so the trend — and the Apple Watch snapshot pushed on the next refresh — pick up the change.
+- Updated the app, widget, watch, and test bundle version to 0.9.3 build 6.
+
+## 0.9.3 (build 5)
+
+- Settings > Apple Watch now matches the other settings groups: the Standalone Compute control is a tappable row (showing its On/Off state) that opens a popup page containing the toggle, instead of sitting inline in the settings list.
+- Fixed the Apple Watch app reporting an inflated Sleep duration (e.g. 26h) when Apple Health holds overlapping sleep samples (an aggregate "asleep" sample plus detailed Core/REM/Deep stages, or multiple sources). The watch now merges overlapping asleep samples into their union — matching the iPhone's calculation — instead of summing them, so on-watch Sleep, the Sleep score, and the Readiness they feed line up with the phone.
+- Added a refresh button to the top-left of the Apple Watch home screen. Tapping it recomputes the on-watch metrics (when Standalone Compute is on) and pulls a fresh Heart Rate / HRV reading, showing a spinner while it works.
+- Updated the app, widget, watch, and test bundle version to 0.9.3 build 5.
+
+## 0.9.3 (build 3)
+
+- The Sleep Stages card's breakdown below the timeline is now tappable. Tap it to switch between the per-stage durations (the existing summary) and a new optimal-range bar chart: each stage shows its percentage of total time in bed, its duration, and an overlaid healthy reference band (Awake 0–5%, REM 20–25%, Core 45–55%, Deep 13–23%). The choice persists until you tap again (including across the two-source comparison cards and app relaunches). Changing the selected day animates the bars to their new lengths (respecting Reduce Motion). The bands are an illustrative reference and are independent of the sleep-score grading, which judges Deep/REM one-sided against asleep time — so a stage's chart percentage can differ slightly from the score card's, by design.
+- Refreshed the in-app How to Use guide (Settings > About): the Sleep Details section now covers the tap-to-toggle stage breakdown, Readiness is named in the Summary card list, and a new Apple Watch section explains the companion app and its ring complications.
+- Updated the app, widget, watch, and test bundle version to 0.9.3 build 3.
+
+## 0.9.3 (build 2)
+
+- Reorganized Settings > About into How to Use, Privacy, More, and Version. Feedback, Disclaimer, and Copyright now live together on a single More page (Feedback Email as a row, Disclaimer and Copyright inline).
+- Privacy now opens Body's hosted privacy policy (https://docs.ijustinz.com/body/privacy) in an in-app browser instead of a bundled in-app page.
+- About row icons are now gray.
+- Performance: the Sleep detail page no longer stutters while the Sleep Consistency chart is on screen. The chart's static layers (grid, average lines, and night bars) are flattened into a single GPU-rendered layer, so scrolling composites one cached texture instead of dozens of continuous-corner clip masks; the 14-day chart model is also memoized so it isn't rebuilt on every re-render.
+- Updated the app, widget, watch, and test bundle version to 0.9.3 build 2.
+
+## 0.9.3 (build 1)
+
+- Added an Apple Watch app and ring-style complications. The watch app shows Readiness, Sleep, Heart Rate, HRV, Resting Heart Rate, Training Load, and Skin Temperature in the iOS card style, and ships a complication per metric (accessory circular and rectangular). The iPhone stays the source of truth: it builds a compact metrics snapshot at the end of each successful refresh and pushes it to the watch over WatchConnectivity, and the watch caches it for its complications. When that snapshot is stale, the watch refreshes Heart Rate and HRV directly from its own HealthKit so those stay live without re-running the Readiness or Training Load computation on-device.
+- Added two watchOS targets (`BodyWatch`, `BodyWatchWidgetExtension`) and a shared `BodyWatchShared` group; the watch app is embedded in the iOS app and the complication bundle is embedded in the watch app. The watch app reuses the iOS app icon.
+- Hardened the watch sync: the snapshot's freshness date now tracks the last vitals refresh (workout-only refreshes no longer mark the watch fresh), watch-measured HR/HRV carry per-metric freshness so an older phone push can't roll them back, the watch re-checks staleness when it returns to the foreground, the last pushed snapshot is adopted on cold start once the session activates, watch-local samples older than 4 hours are ignored, and snapshot decode failures are logged. The complication gallery previews sample rings instead of an empty state, live-refreshed values respect the device locale, and each metric's key, tint, and symbol are defined once in `BodyWatchShared` (pinned to the iOS widget styling by a configuration test). Known limitation: complications update when the watch app runs — snapshots pushed while it's closed are applied on next launch.
+- Updated the app, widget, watch, and test bundle version to 0.9.3 build 1.
+
 ## 0.9.2 (build 8)
 
 - Performance: workout effort scores are now cached for the app session. Effort needs one HealthKit query per workout, and every refresh re-asked it for the 180-day Training Load window and the current month (~100–300 queries for an active user); passive resumes now query only workouts without a cached answer, while any pull-to-refresh (Home, Workouts tab, Training Load detail) clears the cache first so re-rated workouts always reconcile.

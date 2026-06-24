@@ -489,6 +489,24 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(BodySleepDurationGoal.displayText(for: 8 * 60), "8h")
     }
 
+    func testSleepStageDisplayPreferenceDefaultsToShowingSubMinuteAwakeStages() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertEqual(BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey, "showsSubMinuteAwakeSleepStages")
+        XCTAssertTrue(BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(defaults: defaults))
+
+        defaults.set(false, forKey: BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey)
+        XCTAssertFalse(BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(defaults: defaults))
+    }
+
+    func testSleepStageAxisLabelsUseSingleLetterAbbreviations() {
+        XCTAssertEqual(SleepStage.allCases.map(\.axisLabel), ["A", "R", "C", "D"])
+    }
+
     func testReadinessStatusMapsScoresToBands() {
         XCTAssertEqual(ReadinessStatus.status(for: nil), .unavailable)
         XCTAssertEqual(ReadinessStatus.status(for: 100), .prime)

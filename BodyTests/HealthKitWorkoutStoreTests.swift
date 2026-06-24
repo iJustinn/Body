@@ -580,6 +580,59 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(duration, 17_100)
     }
 
+    func testSleepStageSegmentsShowSubMinuteAwakeSamplesByDefault() throws {
+        let calendar = Calendar.bodyGregorian
+        let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))
+        let coreStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 1)))
+        let coreEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 4)))
+        let subMinuteAwakeStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 4, minute: 10)))
+        let subMinuteAwakeEnd = subMinuteAwakeStart.addingTimeInterval(45)
+        let minuteAwakeStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 5, minute: 20)))
+        let minuteAwakeEnd = minuteAwakeStart.addingTimeInterval(60)
+
+        let segments = HealthKitFetchEngine.sleepStageSegments(
+            from: [
+                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.awake.rawValue, start: subMinuteAwakeStart, end: subMinuteAwakeEnd),
+                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.asleepCore.rawValue, start: coreStart, end: coreEnd),
+                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.awake.rawValue, start: minuteAwakeStart, end: minuteAwakeEnd)
+            ]
+        )
+
+        XCTAssertEqual(segments.map(\.stage), [SleepStage.core, .awake, .awake])
+        XCTAssertEqual(segments[0].startDate, coreStart)
+        XCTAssertEqual(segments[0].endDate, coreEnd)
+        XCTAssertEqual(segments[1].startDate, subMinuteAwakeStart)
+        XCTAssertEqual(segments[1].endDate, subMinuteAwakeEnd)
+        XCTAssertEqual(segments[2].startDate, minuteAwakeStart)
+        XCTAssertEqual(segments[2].endDate, minuteAwakeEnd)
+    }
+
+    func testSleepStageSegmentsCanHideSubMinuteAwakeSamples() throws {
+        let calendar = Calendar.bodyGregorian
+        let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))
+        let coreStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 1)))
+        let coreEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 4)))
+        let subMinuteAwakeStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 4, minute: 10)))
+        let subMinuteAwakeEnd = subMinuteAwakeStart.addingTimeInterval(45)
+        let minuteAwakeStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 5, minute: 20)))
+        let minuteAwakeEnd = minuteAwakeStart.addingTimeInterval(60)
+
+        let segments = HealthKitFetchEngine.sleepStageSegments(
+            from: [
+                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.awake.rawValue, start: subMinuteAwakeStart, end: subMinuteAwakeEnd),
+                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.asleepCore.rawValue, start: coreStart, end: coreEnd),
+                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.awake.rawValue, start: minuteAwakeStart, end: minuteAwakeEnd)
+            ],
+            showsSubMinuteAwakeStages: false
+        )
+
+        XCTAssertEqual(segments.map(\.stage), [SleepStage.core, .awake])
+        XCTAssertEqual(segments[0].startDate, coreStart)
+        XCTAssertEqual(segments[0].endDate, coreEnd)
+        XCTAssertEqual(segments[1].startDate, minuteAwakeStart)
+        XCTAssertEqual(segments[1].endDate, minuteAwakeEnd)
+    }
+
     func testSleepStageSegmentsPreserveUnspecifiedSamplesThatAddCoverage() throws {
         let calendar = Calendar.bodyGregorian
         let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))

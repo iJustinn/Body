@@ -90,6 +90,11 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var authorizationState: AuthorizationState = .unknown
     @Published private(set) var snapshot: WorkoutMonthSnapshot
     @Published private(set) var monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot]
+    /// Session-scoped manual effort ratings the user just saved from the workout
+    /// detail screen, keyed by workout UUID. The detail card prefers these over
+    /// the cached snapshot value so an edit shows immediately; the snapshot's
+    /// baked-in effort catches up on the next workout refresh.
+    @Published private(set) var workoutEffortOverrides: [UUID: Double] = [:]
     @Published private(set) var healthSummary: HealthSummarySnapshot = .empty
     @Published private(set) var healthTrends: HealthTrendSnapshot = .empty
     @Published private(set) var activityRingHistory: ActivityRingHistorySnapshot = .empty
@@ -101,6 +106,10 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var healthDataNotice: String?
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastSuccessfulRefreshDate: Date?
+    /// Date of the last refresh that re-fetched the dashboard vitals (not just
+    /// workouts or ring history). Carried in the watch snapshot so the watch's
+    /// staleness logic isn't reset by workout-only refreshes.
+    private var lastVitalsRefreshDate: Date?
     @Published private(set) var loadingMonthKeys: Set<BodyWorkoutMonthKey> = []
     @Published private(set) var loadingActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
     @Published private(set) var hasMoreActivityRingHistory = true
@@ -385,12 +394,51 @@ final class HealthKitWorkoutStore: ObservableObject {
                 recomputesReadiness: Self.readinessInputMetricKinds.contains(kind)
             )
             authorizationState = .authorized
-            markRefreshSucceeded(date: date)
+            markRefreshSucceeded(date: date, refreshedVitals: false)
             updateHealthDataNotice()
         } catch {
             handleRefreshError(error)
         }
         await engine.setHealthTrendAnchorDate(nil)
+    }
+
+    /// Runs a post-write refresh for `kind`, first waiting for any in-flight
+    /// refresh to finish. `refreshHealthMetric` bails out when `isRefreshing` is
+    /// already set, so a measurement or effort saved during launch or
+    /// pull-to-refresh would otherwise never flow into the dashboard until the
+    /// next manual refresh.
+    private func refreshAfterWrite(_ kind: HealthMetricKind) async {
+        await awaitNextRefreshCompletion()
+        await refreshHealthMetric(kind)
+    }
+
+    /// Writes a manually-entered weight and/or body-fat measurement to Apple
+    /// Health, then refreshes the Basics metric so the new sample flows through
+    /// the existing read pipeline into `healthSummary`/`healthTrends` and the
+    /// Basics card and detail charts update. `weightKilograms` is already in kg;
+    /// `bodyFatPercent` is a 0–100 percentage (converted to a fraction on save).
+    /// Throws if the user denies write access or HealthKit rejects the save, so
+    /// the entry sheet can surface the failure.
+    func saveBodyComposition(weightKilograms: Double?, bodyFatPercent: Double?, date: Date) async throws {
+        try await engine.requestBodyCompositionWriteAuthorization()
+        try await engine.saveBodyComposition(
+            weightKilograms: weightKilograms,
+            bodyFatPercent: bodyFatPercent,
+            date: date
+        )
+        await refreshAfterWrite(.basics)
+    }
+
+    /// Saves a manual workout-effort rating (1–10) to Apple Health, reflects it
+    /// immediately on the workout detail card via `workoutEffortOverrides`, then
+    /// recomputes Training Load (which effort feeds) in the background so the
+    /// trend — and the Apple Watch snapshot pushed on refresh success — pick up
+    /// the change. Throws if the user denies write access or the save fails.
+    func saveWorkoutEffort(workoutID: UUID, score: Double) async throws {
+        try await engine.requestWorkoutEffortWriteAuthorization()
+        try await engine.saveWorkoutEffort(workoutID: workoutID, score: score)
+        workoutEffortOverrides[workoutID] = score
+        Task { await refreshAfterWrite(.trainingLoad) }
     }
 
     /// Loads the intraday day-sample sidecar (split out of the launch-critical
@@ -589,6 +637,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             await requestAuthorizationAndRefresh()
         } else {
             updateHealthDataNotice()
+            // The enable branch republishes via the refresh funnel; the disable
+            // branch otherwise wouldn't, so the watch would keep showing the
+            // hidden category (and its live HR/HRV path could keep reading it).
+            // healthSummary/healthTrends were just filtered by
+            // applyPermissionSelectionToCachedData(), and the synced selection
+            // rides the push's context.
+            publishWatchSnapshot()
         }
     }
 
@@ -1157,7 +1212,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 HealthDashboardSnapshotStore.save(snapshotToSave)
             }
             authorizationState = .authorized
-            markRefreshSucceeded(date: Date())
+            markRefreshSucceeded(date: Date(), refreshedVitals: false)
             updateHealthDataNotice()
         } catch {
             handleRefreshError(error)
@@ -1348,7 +1403,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             // shortcut, so don't `markRefreshSucceeded` unless workouts landed.
             try await workoutRefresh
             authorizationState = .authorized
-            markRefreshSucceeded(date: date)
+            markRefreshSucceeded(date: date, refreshedVitals: true)
             updateCurrentMonthSnapshot(date: date, calendar: calendar)
             updateHealthDataNotice()
         } catch {
@@ -1409,7 +1464,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             }
             try await workoutRefresh
             authorizationState = .authorized
-            markRefreshSucceeded(date: refreshDate)
+            markRefreshSucceeded(date: refreshDate, refreshedVitals: updatesHealthSummary)
             updateCurrentMonthSnapshot(date: refreshDate, calendar: calendar)
             updateHealthDataNotice()
         } catch {
@@ -1546,7 +1601,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             try await engine.requestAuthorization()
             try await refresh(monthKeys: keysToLoad, calendar: .bodyGregorian)
             authorizationState = .authorized
-            markRefreshSucceeded(date: Date())
+            markRefreshSucceeded(date: Date(), refreshedVitals: false)
             updateHealthDataNotice()
         } catch {
             handleRefreshError(error)
@@ -1734,9 +1789,33 @@ final class HealthKitWorkoutStore: ObservableObject {
         saveHealthWidgetSnapshot()
     }
 
-    private func markRefreshSucceeded(date: Date) {
+    private func markRefreshSucceeded(date: Date, refreshedVitals: Bool) {
         lastSuccessfulRefreshDate = date
         HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(date)
+        if refreshedVitals {
+            lastVitalsRefreshDate = date
+        }
+        publishWatchSnapshot()
+    }
+
+    /// Pushes the latest metrics to the paired Apple Watch. Best-effort: the
+    /// build is pure and `send` never blocks the refresh. Publishing from the
+    /// common funnel (including workout-only paths) keeps the watch's values
+    /// current, but `lastRefreshDate` carries the last *vitals* refresh — a
+    /// workout-only refresh must not look fresh to the watch, or it would
+    /// suppress the watch's own stale-triggered live HR/HRV refresh.
+    func publishWatchSnapshot() {
+        var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: healthSummary,
+            trends: healthTrends,
+            lastRefreshDate: lastVitalsRefreshDate,
+            permissionSelection: permissionSelection,
+            temperatureUnitPreference: HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference(),
+            idealSleepDuration: Self.storedIdealSleepDuration(),
+            showSleepScore: HealthWidgetSnapshotBuilder.storedShowSleepScore()
+        )
+        snapshot.source = "phone"
+        WatchConnectivityPublisher.shared.send(snapshot)
     }
 
     /// Builds the slim widget snapshot from the current trends, sleep stages,
@@ -1923,68 +2002,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     nonisolated static func readObjectTypes(
         for selection: BodyHealthPermissionSelection = .defaultValue
     ) -> Set<HKObjectType> {
-        var types: Set<HKObjectType> = []
-
-        if selection.includes(.activityRings) {
-            types.insert(HKObjectType.activitySummaryType())
-        }
-        if selection.includes(.workouts) {
-            types.insert(HKObjectType.workoutType())
-            if let effortType = HKObjectType.quantityType(forIdentifier: .workoutEffortScore) {
-                types.insert(effortType)
-            }
-        }
-
-        var quantityIdentifiers: [HKQuantityTypeIdentifier] = []
-        if selection.includes(.heart) {
-            quantityIdentifiers += [
-                .restingHeartRate,
-                .heartRate,
-                .heartRateVariabilitySDNN
-            ]
-        }
-        if selection.includes(.basics) {
-            quantityIdentifiers += [
-                .bodyMass,
-                .bodyFatPercentage,
-                .bodyMassIndex
-            ]
-        }
-        if selection.includes(.respiratory) {
-            quantityIdentifiers.append(.respiratoryRate)
-        }
-        if selection.includes(.bloodOxygen) {
-            quantityIdentifiers.append(.oxygenSaturation)
-        }
-        if selection.includes(.energy) {
-            quantityIdentifiers += [
-                .activeEnergyBurned,
-                .basalEnergyBurned
-            ]
-        }
-        if selection.includes(.exerciseMinutes) {
-            quantityIdentifiers.append(.appleExerciseTime)
-        }
-        if selection.includes(.wristTemperature) {
-            quantityIdentifiers.append(.appleSleepingWristTemperature)
-        }
-        if selection.includes(.timeInDaylight) {
-            quantityIdentifiers.append(.timeInDaylight)
-        }
-        if selection.includes(.steps) {
-            quantityIdentifiers.append(.stepCount)
-        }
-
-        quantityIdentifiers
-            .compactMap { HKObjectType.quantityType(forIdentifier: $0) }
-            .forEach { types.insert($0) }
-
-        if selection.includes(.sleep),
-           let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) {
-            types.insert(sleepType)
-        }
-
-        return types
+        BodyHealthReadTypes.readObjectTypes(for: selection)
     }
 
 
@@ -1998,45 +2016,15 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
 
+    // Forward to the shared `BodySleepSampleParser` (Body + BodyWatch) so the
+    // watch and iOS compute sleep duration identically. Signatures kept for
+    // existing callers + tests.
     nonisolated static func mergedSleepDuration(intervals: [(start: Date, end: Date)]) -> TimeInterval {
-        let sortedIntervals = intervals
-            .filter { $0.end > $0.start }
-            .sorted { $0.start < $1.start }
-
-        guard var current = sortedIntervals.first else {
-            return 0
-        }
-
-        var duration: TimeInterval = 0
-
-        for interval in sortedIntervals.dropFirst() {
-            if interval.start <= current.end {
-                current.end = max(current.end, interval.end)
-            } else {
-                duration += current.end.timeIntervalSince(current.start)
-                current = interval
-            }
-        }
-
-        duration += current.end.timeIntervalSince(current.start)
-        return duration
+        BodySleepSampleParser.mergedSleepDuration(intervals: intervals)
     }
 
     nonisolated static func sleepDuration(from samples: [HKCategorySample]) -> TimeInterval {
-        mergedSleepDuration(
-            intervals: samples
-                .filter(Self.isAsleep)
-                .map { ($0.startDate, $0.endDate) }
-        )
-    }
-
-    nonisolated private static func isAsleep(_ sample: HKCategorySample) -> Bool {
-        switch HKCategoryValueSleepAnalysis(rawValue: sample.value) {
-        case .asleep, .asleepCore, .asleepDeep, .asleepREM, .asleepUnspecified:
-            return true
-        default:
-            return false
-        }
+        BodySleepSampleParser.sleepDuration(from: samples)
     }
 
 
@@ -2247,6 +2235,8 @@ private extension Array where Element == ActivityRingMonthKey {
 enum HealthKitWorkoutError: LocalizedError {
     case authorizationDenied
     case authorizationStatusUnknown
+    case workoutNotFound
+    case workoutEffortUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -2254,6 +2244,10 @@ enum HealthKitWorkoutError: LocalizedError {
             return "Apple Health access was not granted."
         case .authorizationStatusUnknown:
             return "Apple Health access could not be confirmed."
+        case .workoutNotFound:
+            return "That workout could not be found in Apple Health."
+        case .workoutEffortUnavailable:
+            return "Workout effort isn't available on this device."
         }
     }
 }

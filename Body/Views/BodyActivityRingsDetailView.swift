@@ -107,7 +107,8 @@ struct BodyActivityRingsDetailView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var calendarMonths: [ActivityRingCalendarMonth] = []
-    @State private var topVisibleMonthID: String?
+    @State private var scrollPosition = ScrollPosition(idType: String.self)
+    @State private var isAwayFromToday = false
     @State private var isNearTop = false
     @State private var isUnderfilled = true
     @State private var isLoadingOlderMonths = false
@@ -126,10 +127,14 @@ struct BodyActivityRingsDetailView: View {
     /// Distance from the content top that counts as "near the top" for
     /// paging in older months.
     private let olderMonthLoadThreshold: CGFloat = 300
+    /// Distance scrolled up from today (the content bottom) past which the
+    /// "Today" toolbar button fades in.
+    private let awayFromTodayThreshold: CGFloat = 240
 
     private struct ScrollLoadSignals: Equatable {
         var isNearTop: Bool
         var isUnderfilled: Bool
+        var isAwayFromToday: Bool
     }
 
     var body: some View {
@@ -150,11 +155,12 @@ struct BodyActivityRingsDetailView: View {
         // Keeps the month the user is looking at in place when older months
         // are inserted above it. UX-only: pagination stays bounded by the
         // load budget even if this repositioning misses.
-        .scrollPosition(id: $topVisibleMonthID, anchor: .top)
+        .scrollPosition($scrollPosition, anchor: .top)
         .onScrollGeometryChange(for: ScrollLoadSignals.self) { geometry in
             ScrollLoadSignals(
                 isNearTop: geometry.contentOffset.y + geometry.contentInsets.top < olderMonthLoadThreshold,
-                isUnderfilled: geometry.contentSize.height - geometry.containerSize.height < olderMonthLoadThreshold
+                isUnderfilled: geometry.contentSize.height - geometry.containerSize.height < olderMonthLoadThreshold,
+                isAwayFromToday: geometry.contentSize.height - geometry.containerSize.height - geometry.contentOffset.y > awayFromTodayThreshold
             )
         } action: { _, signals in
             if isNearTop != signals.isNearTop {
@@ -162,6 +168,11 @@ struct BodyActivityRingsDetailView: View {
             }
             if isUnderfilled != signals.isUnderfilled {
                 isUnderfilled = signals.isUnderfilled
+            }
+            if isAwayFromToday != signals.isAwayFromToday {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isAwayFromToday = signals.isAwayFromToday
+                }
             }
         }
         .onScrollPhaseChange { _, newPhase in
@@ -229,6 +240,24 @@ struct BodyActivityRingsDetailView: View {
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .navigationTitle("Activity Rings")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if isAwayFromToday {
+                ToolbarItem(placement: .topBarTrailing) {
+                    todayToolbarButton
+                }
+            }
+        }
+    }
+
+    private var todayToolbarButton: some View {
+        Button {
+            withAnimation(.smooth) {
+                scrollPosition.scrollTo(edge: .bottom)
+            }
+        } label: {
+            Text("Today")
+        }
+        .accessibilityLabel("Scroll to today")
     }
 
     /// Falls back to a synchronous computation for the first frame so the

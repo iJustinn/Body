@@ -3,6 +3,8 @@
 //  BodyTests
 //
 
+import SwiftUI
+import UIKit
 import XCTest
 @testable import Body
 
@@ -12,10 +14,8 @@ final class ProjectConfigurationTests: XCTestCase {
             BodySettingsAboutTab.allCases.map(\.title),
             [
                 "How to Use",
-                "Feedback",
                 "Privacy",
-                "Disclaimer",
-                "Copyright",
+                "More",
                 "Version"
             ]
         )
@@ -23,10 +23,7 @@ final class ProjectConfigurationTests: XCTestCase {
             BodySettingsAboutTab.allCases.filter(\.opensSheet).map(\.title),
             [
                 "How to Use",
-                "Feedback",
-                "Privacy",
-                "Disclaimer",
-                "Copyright"
+                "More"
             ]
         )
     }
@@ -65,7 +62,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testReadinessDailySeriesUsesCachedBaselineContext() throws {
-        let source = try text(at: "Body/Models/Readiness/ReadinessScoreCalculator.swift")
+        let source = try text(at: "BodyMetricsKit/ReadinessScoreCalculator.swift")
         let dailySeriesStart = try XCTUnwrap(source.range(of: "static func dailySeries(")?.lowerBound)
         let nextDeclaration = try XCTUnwrap(source[dailySeriesStart...].range(of: "private static func autonomicReadings(")?.lowerBound)
         let dailySeriesBlock = String(source[dailySeriesStart..<nextDeclaration])
@@ -480,7 +477,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testSupportedMetricDetailScreensExposeSwitchableDataSources() throws {
         let source = try bodyHomeViewText()
         let detailViewStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricDetailView")?.lowerBound)
-        let detailViewBlock = String(source[detailViewStart...].prefix(18_000))
+        let detailViewBlock = String(source[detailViewStart...].prefix(20_000))
         let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
         let pickerBlock = String(source[pickerStart...].prefix(8_000))
 
@@ -626,6 +623,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let selectedSleepCardsBlock = String(homeSource[selectedSleepCardsStart...].prefix(2_500))
         let sleepStageCardStart = try XCTUnwrap(homeSource.range(of: "private func sleepStageCard")?.lowerBound)
         let sleepStageCardBlock = String(homeSource[sleepStageCardStart...].prefix(2_500))
+        let sleepStageCardAndSummaryBlock = String(homeSource[sleepStageCardStart...].prefix(5_500))
 
         XCTAssertTrue(selectedSleepCardsBlock.contains("sourceName: sourceLineComparisonTrend.primary.sourceName"))
         XCTAssertTrue(selectedSleepCardsBlock.contains("sourceName: sourceLineComparisonTrend.secondary.sourceName"))
@@ -637,6 +635,69 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(sleepStageCardBlock.contains("Text(sourceName)"))
         XCTAssertTrue(sleepStageCardBlock.contains(".font(.system(.caption, design: .rounded))"))
         XCTAssertTrue(sleepStageCardBlock.contains(".foregroundColor(.secondary)"))
+
+        let sleepChartStart = try XCTUnwrap(homeSource.range(of: "struct BodySleepStageChart")?.lowerBound)
+        let sleepChartBlock = String(homeSource[sleepChartStart...].prefix(4_000))
+        XCTAssertTrue(sleepChartBlock.contains("Text(stage.axisLabel)"))
+        // The summary call now lives inside the tap-to-toggle Button (durations <-> optimal
+        // ranges), a little deeper in the card body, so widen the inspected window.
+        XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("sleepStageDurationSummary(snapshot)"))
+        XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("HStack(spacing: 10)"))
+        XCTAssertFalse(sleepStageCardAndSummaryBlock.contains("LazyVGrid"))
+        XCTAssertFalse(sleepStageCardAndSummaryBlock.contains("GridItem(.flexible(), spacing: 10)"))
+        XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("ForEach(SleepStage.allCases)"))
+        XCTAssertFalse(sleepStageCardAndSummaryBlock.contains("Text(stage.displayName)"))
+        XCTAssertFalse(sleepStageCardAndSummaryBlock.contains("Circle()"))
+        XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("Rectangle()"))
+        XCTAssertTrue(sleepStageCardAndSummaryBlock.contains(".frame(width: 28, height: 3)"))
+        XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("BodyValueFormat.durationText(for: snapshot.duration(for: stage))"))
+        XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("VStack(alignment: .center, spacing: 7)"))
+        XCTAssertTrue(sleepStageCardAndSummaryBlock.contains(".frame(maxWidth: .infinity, alignment: .center)"))
+    }
+
+    func testSleepStageBreakdownTogglesToOptimalRangeChart() throws {
+        let source = try bodyHomeViewText()
+        let appearanceSource = try text(at: "BodyMetricsKit/BodyHealthSelections.swift")
+        let cardStart = try XCTUnwrap(source.range(of: "private func sleepStageCard")?.lowerBound)
+        let cardEnd = try XCTUnwrap(
+            source.range(of: "private func sleepStageDurationSummary", range: cardStart..<source.endIndex)?.lowerBound
+        )
+        let cardBlock = String(source[cardStart..<cardEnd])
+
+        // Persisted toggle key + property (defaults to the existing duration summary).
+        XCTAssertTrue(appearanceSource.contains(#"static let sleepStageBreakdownShowsOptimalRangesKey = "sleepStageBreakdownShowsOptimalRanges""#))
+        XCTAssertTrue(source.contains("@AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = false"))
+
+        // Tap-to-swap wiring lives inside sleepStageCard (durations <-> optimal ranges).
+        XCTAssertTrue(cardBlock.contains("if sleepStageShowsOptimalRanges {"))
+        XCTAssertTrue(cardBlock.contains("BodySleepStageOptimalRangeChart(snapshot: snapshot)"))
+        XCTAssertTrue(cardBlock.contains("sleepStageDurationSummary(snapshot)"))
+        XCTAssertTrue(cardBlock.contains("sleepStageShowsOptimalRanges.toggle()"))
+        XCTAssertTrue(cardBlock.contains(".contentShape(Rectangle())"))
+        XCTAssertTrue(cardBlock.contains(".buttonStyle(.plain)"))
+
+        // The collapsed Button keeps the per-stage values readable to VoiceOver via a spelled-out label.
+        XCTAssertTrue(cardBlock.contains(".accessibilityLabel(sleepStageBreakdownAccessibilityLabel(snapshot))"))
+        XCTAssertTrue(source.contains("private func sleepStageBreakdownAccessibilityLabel"))
+        XCTAssertFalse(cardBlock.contains(#".accessibilityLabel(sleepStageShowsOptimalRanges ? "Stage optimal ranges""#))
+
+        // New chart + display-only optimal bands (percent of time in bed).
+        XCTAssertTrue(source.contains("struct BodySleepStageOptimalRangeChart: View"))
+        XCTAssertTrue(source.contains("var optimalPercentageRange: ClosedRange<Double>"))
+        XCTAssertTrue(source.contains("return 0.00...0.05"))
+        XCTAssertTrue(source.contains("return 0.20...0.25"))
+        XCTAssertTrue(source.contains("return 0.45...0.55"))
+        XCTAssertTrue(source.contains("return 0.13...0.23"))
+        XCTAssertTrue(source.contains(#"Text("Optimal Range")"#))
+
+        // Bars grow/shrink when the selected day changes, gated on reduce-motion.
+        let chartStart = try XCTUnwrap(source.range(of: "struct BodySleepStageOptimalRangeChart")?.lowerBound)
+        let chartEnd = try XCTUnwrap(
+            source.range(of: "struct BodySleepConsistencyChart", range: chartStart..<source.endIndex)?.lowerBound
+        )
+        let chartBlock = String(source[chartStart..<chartEnd])
+        XCTAssertTrue(chartBlock.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
+        XCTAssertTrue(chartBlock.contains(".animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: fraction)"))
     }
 
     func testSourceSelectableDayChartsUsePrimarySecondaryComparisonLines() throws {
@@ -769,6 +830,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(fetchSleepHistoryBlock.contains("hydrateVitals: Bool = true"))
         XCTAssertTrue(fetchSleepHistoryBlock.contains("guard hydrateVitals else {"))
         XCTAssertTrue(fetchSleepHistoryBlock.contains("return SleepHistorySnapshot(days: days)"))
+        XCTAssertTrue(sleepSource.contains("BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()"))
+        XCTAssertTrue(sleepSource.contains("showsSubMinuteAwakeStages: showsSubMinuteAwakeStages"))
         XCTAssertTrue(fetchSecondarySleepBlock.contains("hydrateVitals: false"))
     }
 
@@ -776,7 +839,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let homeSource = try bodyHomeViewText()
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
         let detailViewStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthMetricDetailView")?.lowerBound)
-        let detailViewBlock = String(homeSource[detailViewStart...].prefix(4_200))
+        let detailViewBlock = String(homeSource[detailViewStart...].prefix(5_000))
         let refreshStart = try XCTUnwrap(storeSource.range(of: "func refreshHealthMetric(_ kind: HealthMetricKind")?.lowerBound)
         let refreshBlock = String(storeSource[refreshStart...].prefix(8_000))
 
@@ -872,14 +935,16 @@ final class ProjectConfigurationTests: XCTestCase {
     func testSummaryTabUsesHealthDashboardIcon() throws {
         let source = try text(at: "Body/Views/MainTabView.swift")
 
-        XCTAssertTrue(source.contains(#"boldTabIcon("waveform.path.ecg.text")"#))
-        XCTAssertTrue(source.contains(#".accessibilityLabel("Summary")"#))
-        XCTAssertFalse(source.contains(#"Label("Summary", systemImage: "house.fill")"#))
+        XCTAssertTrue(source.contains(#"case .summary: "waveform.path.ecg.text""#))
+        XCTAssertTrue(source.contains(#"case .summary: "Summary""#))
+        XCTAssertFalse(source.contains(#""house.fill""#))
     }
 
-    func testAppAndWidgetShareAppGroupEntitlement() throws {
+    func testAppWidgetAndWatchShareAppGroupEntitlement() throws {
         let appEntitlements = try propertyList(at: "Body/Body.entitlements")
         let widgetEntitlements = try propertyList(at: "BodyWidgetExtension.entitlements")
+        let watchEntitlements = try propertyList(at: "BodyWatch/BodyWatch.entitlements")
+        let watchWidgetEntitlements = try propertyList(at: "BodyWatchWidgetExtension/BodyWatchWidgetExtension.entitlements")
 
         XCTAssertEqual(
             appEntitlements["com.apple.security.application-groups"] as? [String],
@@ -889,12 +954,23 @@ final class ProjectConfigurationTests: XCTestCase {
             widgetEntitlements["com.apple.security.application-groups"] as? [String],
             ["group.com.zihengthedeveloper.Body"]
         )
+        XCTAssertEqual(
+            watchEntitlements["com.apple.security.application-groups"] as? [String],
+            ["group.com.zihengthedeveloper.Body"]
+        )
+        XCTAssertEqual(
+            watchWidgetEntitlements["com.apple.security.application-groups"] as? [String],
+            ["group.com.zihengthedeveloper.Body"]
+        )
     }
 
     func testAppDeclaresHealthKitEntitlement() throws {
         let appEntitlements = try propertyList(at: "Body/Body.entitlements")
+        let watchEntitlements = try propertyList(at: "BodyWatch/BodyWatch.entitlements")
 
         XCTAssertEqual(appEntitlements["com.apple.developer.healthkit"] as? Bool, true)
+        // The watch app runs its own HR/HRV HealthKit queries on the live path.
+        XCTAssertEqual(watchEntitlements["com.apple.developer.healthkit"] as? Bool, true)
     }
 
     func testPrivacyManifestsDeclareUserDefaultsAndNoTracking() throws {
@@ -921,18 +997,58 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.Body;"))
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.Body.BodyWidgetExtension;"))
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.BodyTests;"))
+        XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.Body.watchkitapp;"))
+        XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.Body.watchkitapp.WatchWidget;"))
         XCTAssertTrue(project.contains("ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = \"BodyBlack BodyBlackAlt BodyClassicAlt BodyGray BodyGrayAlt BodyPink BodyPinkAlt BodyPurple BodyPurpleAlt BodyWhite BodyWhiteAlt\";"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_NSHealthShareUsageDescription"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_NSHealthUpdateUsageDescription"))
+        // Every target that declares HealthKit read access (and carries the HealthKit
+        // entitlement) must also declare NSHealthUpdateUsageDescription, or App Store
+        // validation rejects the bundle. The watch app shipped Share without Update once.
+        XCTAssertEqual(
+            project.occurrenceCount(of: "INFOPLIST_KEY_NSHealthShareUsageDescription"),
+            project.occurrenceCount(of: "INFOPLIST_KEY_NSHealthUpdateUsageDescription")
+        )
         XCTAssertTrue(project.contains("INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;"))
         XCTAssertTrue(project.contains("IPHONEOS_DEPLOYMENT_TARGET = 18.0;"))
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = \"1,2\";"))
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.2;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.3;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 8;"))
+        // All five targets (app, widget, tests, watch app, watch complications)
+        // × Debug/Release must move together on a version bump — `contains`
+        // alone would pass with a stale target left behind.
+        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.3;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 8;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
+    }
+
+    func testWatchMetricKindKeysMatchIOSWidgetStyling() throws {
+        let pairs: [(kind: String, widgetMetric: HealthWidgetMetric)] = [
+            (WatchMetricKindKey.trainingLoad, .trainingLoad),
+            (WatchMetricKindKey.readiness, .readiness),
+            (WatchMetricKindKey.sleep, .sleep),
+            (WatchMetricKindKey.heartRate, .heartRate),
+            (WatchMetricKindKey.heartRateVariability, .heartRateVariability),
+            (WatchMetricKindKey.restingHeartRate, .restingHeartRate),
+            (WatchMetricKindKey.wristTemperature, .wristTemperature)
+        ]
+
+        XCTAssertEqual(pairs.map(\.kind), WatchMetricKindKey.displayOrder)
+
+        for (kind, widgetMetric) in pairs {
+            XCTAssertEqual(kind, widgetMetric.rawValue)
+            XCTAssertEqual(WatchMetricKindKey.symbolName(forKind: kind), widgetMetric.symbolName, kind)
+
+            let tint = WatchMetricKindKey.tint(forKind: kind)
+            let components = UIColor(widgetMetric.tintColor).cgColor.components ?? []
+            XCTAssertGreaterThanOrEqual(components.count, 3, kind)
+            XCTAssertEqual(Double(components[0]), tint.red, accuracy: 0.001, kind)
+            XCTAssertEqual(Double(components[1]), tint.green, accuracy: 0.001, kind)
+            XCTAssertEqual(Double(components[2]), tint.blue, accuracy: 0.001, kind)
+        }
     }
 
     func testVersionDocumentationAndSettingsFallbackMatchCurrentRelease() throws {
@@ -940,7 +1056,28 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.3 (build 8)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 7)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 6)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 5)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 3)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.3 (build 8)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.3 build 8."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.3 (build 7)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.3 build 7."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.3 (build 6)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.3 build 6."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.3 (build 5)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.3 build 5."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.3 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.3 build 3."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.3 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.3 build 2."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.3 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.3 build 1."))
         XCTAssertTrue(versionHistory.contains("## 0.9.2 (build 3)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, and test bundle version to 0.9.2 build 3."))
         XCTAssertTrue(versionHistory.contains("## 0.9.2 (build 2)"))
@@ -1004,8 +1141,14 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-v0.9.2`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.2 build 3"))
+        XCTAssertTrue(testPlan.contains("branch `body-v0.9.3`"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.3 build 8"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.3 build 7"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.3 build 6"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.3 build 5"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.3 build 3"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.3 build 2"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.3 build 1"))
         XCTAssertFalse(testPlan.contains("app version 0.9.2 build 1"))
         XCTAssertFalse(testPlan.contains("app version 0.9.1 build 3"))
         XCTAssertFalse(testPlan.contains("app version 0.9.1 build 2"))
@@ -1161,7 +1304,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let metricsSectionRange = try XCTUnwrap(settingsStack.range(of: "metricsSection"))
         let dataSectionRange = try XCTUnwrap(settingsStack.range(of: "dataSection"))
         let iconRange = try XCTUnwrap(appearanceBlock.range(of: #"title: "Icon""#))
-        let sleepGoalRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Sleep Goal""#))
+        let sleepRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Sleep""#))
         let unitsRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Units""#))
         let summaryCardsRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Summary Cards""#))
         let chartsRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Charts Range""#))
@@ -1170,10 +1313,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertLessThan(appearanceSectionRange.lowerBound, metricsSectionRange.lowerBound)
         XCTAssertLessThan(metricsSectionRange.lowerBound, dataSectionRange.lowerBound)
         XCTAssertTrue(metricsBlock.contains(#"BodySettingsCardSection("Metrics")"#))
-        XCTAssertLessThan(sleepGoalRange.lowerBound, unitsRange.lowerBound)
+        XCTAssertLessThan(sleepRange.lowerBound, unitsRange.lowerBound)
         XCTAssertLessThan(unitsRange.lowerBound, chartsRange.lowerBound)
         XCTAssertLessThan(chartsRange.lowerBound, summaryCardsRange.lowerBound)
         XCTAssertLessThan(summaryCardsRange.lowerBound, trendCardsRange.lowerBound)
+        XCTAssertFalse(metricsBlock.contains(#"title: "Sleep Goal""#))
         XCTAssertFalse(appearanceBlock.contains(#"title: "Summary Cards""#))
         XCTAssertFalse(appearanceBlock.contains(#"title: "Charts Range""#))
         XCTAssertFalse(appearanceBlock.contains(#"title: "Trend Cards""#))
@@ -1186,13 +1330,19 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertLessThan(iconRange.lowerBound, appearanceBlock.endIndex)
         XCTAssertTrue(settingsSource.contains("@AppStorage(BodyAppearancePreference.summaryCardSelectionKey)"))
         XCTAssertTrue(settingsSource.contains("@AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey)"))
+        XCTAssertTrue(settingsSource.contains("@AppStorage(BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey)"))
         XCTAssertTrue(settingsSource.contains("@AppStorage(BodyAppearancePreference.defaultTrendRangeKey)"))
         XCTAssertTrue(settingsSource.contains("@AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey)"))
         XCTAssertTrue(settingsSource.contains("case .sleepDurationGoal:"))
         XCTAssertTrue(settingsSource.contains("case .summaryCards:"))
         XCTAssertTrue(settingsSource.contains("case .defaultTrendRange:"))
         XCTAssertTrue(settingsSource.contains("case .homeTrendCards:"))
-        XCTAssertTrue(settingsSource.contains("BodySleepDurationGoalSettingsSheet("))
+        XCTAssertTrue(settingsSource.contains("BodySleepSettingsSheet("))
+        XCTAssertTrue(settingsSource.contains(#"BodySettingsAboutSheetScaffold(title: "Sleep")"#))
+        XCTAssertTrue(settingsSource.contains(#"BodySettingsCardSection("Sleep Stages")"#))
+        XCTAssertTrue(settingsSource.contains(#"Text("Show Awake Under 1 Min")"#))
+        XCTAssertTrue(settingsSource.contains("Toggle(\"Show Awake Under 1 Min\""))
+        XCTAssertTrue(settingsSource.contains(".onChange(of: showsSubMinuteAwakeSleepStages)"))
         XCTAssertTrue(settingsSource.contains("BodySummaryCardsSettingsSheet("))
         XCTAssertTrue(settingsSource.contains("BodyDefaultTrendRangePickerSheet("))
         XCTAssertTrue(settingsSource.contains("BodyHomeTrendCardsSettingsSheet("))
@@ -1215,8 +1365,8 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testSettingsUnitsPageHasSystemToggleAndIndependentUnitControls() throws {
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
-        let appearanceSource = try text(at: "Body/Models/BodyAppearancePreference.swift")
-        let formatterSource = try text(at: "BodyShared/Models/WorkoutSummary.swift")
+        let appearanceSource = try text(at: "BodyMetricsKit/BodyHealthSelections.swift")
+        let formatterSource = try text(at: "BodyMetricsKit/WorkoutSummary.swift")
 
         let unitSheetStart = try XCTUnwrap(settingsSource.range(of: "private struct BodyUnitPreferencePickerSheet")?.lowerBound)
         let unitSheetBlock = String(settingsSource[unitSheetStart...].prefix(8_000))
@@ -1290,7 +1440,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testHowToUseGuideCoversCurrentSettingsAndDataFeatures() throws {
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
         let howToUseStart = try XCTUnwrap(settingsSource.range(of: "private struct BodyHowToUseSettingsSheet")?.lowerBound)
-        let howToUseBlock = String(settingsSource[howToUseStart...].prefix(5_500))
+        let howToUseBlock = String(settingsSource[howToUseStart...].prefix(8_000))
 
         XCTAssertTrue(howToUseBlock.contains(#"title: "Connect Apple Health""#))
         XCTAssertTrue(howToUseBlock.contains("Open Data > Source to set default primary and secondary Apple Health sources or combine duplicate source names."))
@@ -1303,6 +1453,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(howToUseBlock.contains("Use Data > Source for app-wide primary and secondary defaults, or tap the source picker on a metric detail to override that metric."))
         XCTAssertTrue(howToUseBlock.contains("Use Data > Cache to review cached dashboard, workout, and Activity Ring data."))
         XCTAssertTrue(howToUseBlock.contains("Clear Cache removes local snapshots; Rebuild Cache refreshes Apple Health and rebuilds the local files."))
+        XCTAssertTrue(howToUseBlock.contains("Summary shows Activity Rings, Readiness, Sleep, Basics, Training Load"))
+        XCTAssertTrue(howToUseBlock.contains("Tap the stage breakdown beneath the timeline to switch between per-stage durations and the optimal-range chart"))
+        XCTAssertTrue(howToUseBlock.contains(#"title: "Apple Watch""#))
+        XCTAssertTrue(howToUseBlock.contains("every metric has an accessory circular, rectangular, and corner ring complication"))
         XCTAssertFalse(howToUseBlock.contains("Use Settings to change appearance, app accent, icon, and measurement units."))
     }
 
@@ -1419,12 +1573,12 @@ final class ProjectConfigurationTests: XCTestCase {
     /// look across all of them, not just the main file.
     private func healthSummarySnapshotText() throws -> String {
         let files = [
-            "Body/Models/HealthSummarySnapshot.swift",
-            "Body/Models/ActivityRings.swift",
-            "Body/Models/Sleep.swift",
+            "BodyMetricsKit/HealthSummarySnapshot.swift",
+            "BodyMetricsKit/ActivityRings.swift",
+            "BodyMetricsKit/Sleep.swift",
             "Body/Models/SourceComparison.swift",
-            "Body/Models/TrainingLoadCalculator.swift",
-            "Body/Models/HealthTrend.swift"
+            "BodyMetricsKit/TrainingLoadCalculator.swift",
+            "BodyMetricsKit/HealthTrend.swift"
         ]
         return try files.map { try text(at: $0) }.joined(separator: "\n")
     }
