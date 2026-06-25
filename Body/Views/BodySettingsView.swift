@@ -32,8 +32,10 @@ struct BodySettingsView: View {
     @State private var appIconErrorMessage = ""
     @State private var versionTapCount = 0
     @State private var showingCreatorSurprise = false
+    @State private var showingHowToUseBrowser = false
     @State private var showingPrivacyBrowser = false
 
+    private let howToUseURLString = "https://docs.ijustinz.com/body/how-to-use"
     private let privacyPolicyURLString = "https://docs.ijustinz.com/body/privacy"
 
     var body: some View {
@@ -79,6 +81,12 @@ struct BodySettingsView: View {
             }
             .sheet(isPresented: $showingPrivacyBrowser) {
                 if let url = URL(string: privacyPolicyURLString) {
+                    SafariView(url: url)
+                        .ignoresSafeArea()
+                }
+            }
+            .sheet(isPresented: $showingHowToUseBrowser) {
+                if let url = URL(string: howToUseURLString) {
                     SafariView(url: url)
                         .ignoresSafeArea()
                 }
@@ -210,11 +218,13 @@ struct BodySettingsView: View {
     private func aboutRow(for tab: BodySettingsAboutTab) -> some View {
         Button {
             switch tab {
+            case .howToUse:
+                showingHowToUseBrowser = true
             case .privacy:
                 showingPrivacyBrowser = true
             case .version:
                 handleVersionCardTap()
-            default:
+            case .more:
                 if let sheet = tab.sheet {
                     activeSheet = sheet
                 }
@@ -225,10 +235,21 @@ struct BodySettingsView: View {
                 value: tab == .version ? appVersionDisplay : nil,
                 iconName: tab.iconName,
                 tintColor: tab.tintColor,
-                accessory: tab == .version ? .none : .chevron
+                accessory: aboutAccessory(for: tab)
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private func aboutAccessory(for tab: BodySettingsAboutTab) -> BodySettingsRowAccessory {
+        switch tab {
+        case .howToUse, .privacy:
+            return .externalLink
+        case .more:
+            return .chevron
+        case .version:
+            return .none
+        }
     }
 
     private var metricsSection: some View {
@@ -558,8 +579,6 @@ struct BodySettingsView: View {
             BodyHealthSyncStatusSettingsSheet(workoutStore: workoutStore)
         case .cache:
             BodyCacheSettingsSheet(workoutStore: workoutStore)
-        case .howToUse:
-            BodyHowToUseSettingsSheet()
         case .more:
             BodyMoreSettingsSheet()
         }
@@ -640,7 +659,6 @@ enum BodySettingsSheet: String, Identifiable {
     case permissions
     case syncStatus
     case cache
-    case howToUse
     case more
 
     var id: String {
@@ -757,11 +775,9 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
 
     var sheet: BodySettingsSheet? {
         switch self {
-        case .howToUse:
-            return .howToUse
         case .more:
             return .more
-        case .privacy, .version:
+        case .howToUse, .privacy, .version:
             return nil
         }
     }
@@ -1981,6 +1997,10 @@ private struct BodySettingsRowLabel: View {
             Image(systemName: "chevron.right")
                 .font(.system(.caption, weight: .bold))
                 .foregroundColor(.secondary.opacity(0.7))
+        case .externalLink:
+            Image(systemName: "arrow.up.right")
+                .font(.system(.caption, weight: .bold))
+                .foregroundColor(.secondary.opacity(0.7))
         }
     }
 }
@@ -1988,6 +2008,7 @@ private struct BodySettingsRowLabel: View {
 private enum BodySettingsRowAccessory {
     case none
     case chevron
+    case externalLink
 }
 
 private struct BodySettingsIconTile: View {
@@ -2266,118 +2287,6 @@ private struct BodyCreatorRibbon: Identifiable {
     }()
 }
 
-private struct BodyHowToUseSettingsSheet: View {
-    private let sections: [BodyHowToUseGuideSection] = [
-        BodyHowToUseGuideSection(
-            title: "Connect Apple Health",
-            iconName: "heart.text.square.fill",
-            tintColor: .red,
-            steps: [
-                "Grant read permission when Body asks for Apple Health access. Use a real device for complete Health data.",
-                "Open Data > Source to set default primary and secondary Apple Health sources or combine duplicate source names.",
-                "Open Data > Permissions to choose which Apple Health categories Body uses inside the app.",
-                "Open Data > Data Refresh to see the last refresh time or run Refresh Now."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Read Summary",
-            iconName: "rectangle.grid.2x2.fill",
-            tintColor: .blue,
-            steps: [
-                "Summary shows Activity Rings, Readiness, Sleep, Basics, Training Load, heart, respiratory, energy, daylight, steps, and body metric cards.",
-                "Tap a card to open details with trend ranges, day views when available, and metric-specific context.",
-                "Pull down on Summary after new Health data is recorded to refresh the dashboard. A Loading data overlay stays on screen until the refresh finishes so you know work is in progress."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Customize Metrics",
-            iconName: "slider.horizontal.3",
-            tintColor: .teal,
-            steps: [
-                "Use Metrics > Units to follow the system or choose weight, distance, energy, and temperature units manually.",
-                "Use Metrics > Summary Cards, Charts Range, and Trend Cards to decide what appears on Summary and which default range charts open with.",
-                "Use Appearance to change theme and icon separately from metric behavior."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Sleep Details",
-            iconName: "bed.double.fill",
-            tintColor: Color(red: 0.20, green: 0.72, blue: 1.00),
-            steps: [
-                "Use the Sleep date slider to choose the day you want to inspect.",
-                "Tap the Sleep Score card to see the score breakdown.",
-                "Press the Sleep Stages chart to inspect a stage segment's duration and start/end time.",
-                "Tap the stage breakdown beneath the timeline to switch between per-stage durations and the optimal-range chart — each stage's share of the night with a healthy reference band — and your choice is remembered."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Day Views",
-            iconName: "chart.xyaxis.line",
-            tintColor: .indigo,
-            steps: [
-                "Heart Rate, Resting Heart Rate, HRV, Respiratory Rate, and Blood Oxygen include a Day View below the range trend.",
-                "Choose a day with the date slider.",
-                "Heart Rate also overlays sleep and workout windows; press the chart to reveal the raw readings behind each hourly point.",
-                "The legend shows just the average when a single source is active and switches to a per-source breakdown when a secondary source is selected."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Compare Two Sources",
-            iconName: "rectangle.split.2x1.fill",
-            tintColor: .pink,
-            steps: [
-                "Open a supported metric detail (Sleep, Heart Rate, Resting Heart Rate, HRV, Blood Oxygen, Steps, Active Energy, Resting Energy, Exercise Minutes).",
-                "Use Data > Source for app-wide primary and secondary defaults, or tap the source picker on a metric detail to override that metric.",
-                "Primary and secondary share the same x-axis buckets so bars and lines line up. The legend lists each source with its average across the selected range.",
-                "Changing the secondary source triggers a focused refresh of that metric; the Loading data overlay stays until the new comparison data is ready."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Workouts",
-            iconName: "figure.run",
-            tintColor: .orange,
-            steps: [
-                "Open Workouts to browse, search, sort, and filter your Apple Health workout history.",
-                "Tap a workout to view duration, calories, heart rate, distance when available, effort, and source.",
-                "Use the month controls to inspect older workout history.",
-                "Pull down to refresh the selected month; the Loading data overlay stays until the refresh finishes."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Apple Watch",
-            iconName: "applewatch",
-            tintColor: .green,
-            steps: [
-                "Install the Body watch app from the Watch app on your iPhone. It mirrors your Readiness, Sleep, Heart Rate, HRV, Resting Heart Rate, Training Load, and Skin Temperature cards.",
-                "Add a Body complication to your watch face — every metric has an accessory circular, rectangular, and corner ring complication.",
-                "The iPhone stays the source of truth: it pushes a metrics snapshot to the watch after each successful refresh, so open and refresh Body on iPhone to keep the watch current.",
-                "When that snapshot is stale, the watch refreshes Heart Rate and HRV from its own Health data. Complications update when the watch app runs; snapshots pushed while it is closed apply on next launch."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Manage Cache",
-            iconName: "internaldrive.fill",
-            tintColor: .purple,
-            steps: [
-                "Use Data > Cache to review cached dashboard, workout, and Activity Ring data.",
-                "Clear Cache removes local snapshots; Rebuild Cache refreshes Apple Health and rebuilds the local files.",
-                "Workout widgets read Body's shared cached snapshot, so open the app and refresh when widget data looks stale.",
-                "Widget backgrounds can use System, Black, or White styling."
-            ]
-        )
-    ]
-
-    var body: some View {
-        BodySettingsAboutSheetScaffold(title: "How to Use") {
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(sections) { section in
-                    BodyHowToUseGuideCard(section: section)
-                }
-            }
-        }
-    }
-}
-
 private struct BodyMoreSettingsSheet: View {
     @Environment(\.openURL) private var openURL
 
@@ -2544,59 +2453,6 @@ private struct BodySettingsPopupActionRow: View {
         .disabled(!isEnabled)
         .buttonStyle(.plain)
         .opacity(isEnabled ? 1 : 0.65)
-    }
-}
-
-private struct BodyHowToUseGuideSection: Identifiable {
-    let title: String
-    let iconName: String
-    let tintColor: Color
-    let steps: [String]
-
-    var id: String {
-        title
-    }
-}
-
-private struct BodyHowToUseGuideCard: View {
-    let section: BodyHowToUseGuideSection
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 14) {
-                BodySettingsIconTile(iconName: section.iconName, color: section.tintColor)
-
-                Text(section.title)
-                    .font(.system(.headline, design: .rounded))
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(section.steps.enumerated()), id: \.offset) { index, step in
-                    HStack(alignment: .top, spacing: 10) {
-                        Text("\(index + 1)")
-                            .font(.system(.caption, design: .rounded))
-                            .fontWeight(.bold)
-                            .foregroundColor(section.tintColor)
-                            .frame(width: 22, height: 22)
-                            .background(Circle().fill(section.tintColor.opacity(0.14)))
-
-                        Text(step)
-                            .font(.system(.subheadline, design: .rounded))
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
     }
 }
 

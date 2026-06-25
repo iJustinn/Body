@@ -22,10 +22,23 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(
             BodySettingsAboutTab.allCases.filter(\.opensSheet).map(\.title),
             [
-                "How to Use",
                 "More"
             ]
         )
+    }
+
+    func testSettingsAboutDocumentationTabsOpenExternalLinks() throws {
+        let source = try text(at: "Body/Views/BodySettingsView.swift")
+
+        XCTAssertTrue(source.contains(#"@State private var showingHowToUseBrowser = false"#))
+        XCTAssertTrue(source.contains(#"private let howToUseURLString = "https://docs.ijustinz.com/body/how-to-use""#))
+        XCTAssertTrue(source.contains(#"private let privacyPolicyURLString = "https://docs.ijustinz.com/body/privacy""#))
+        XCTAssertTrue(source.contains("showingHowToUseBrowser = true"))
+        XCTAssertTrue(source.contains("showingPrivacyBrowser = true"))
+        XCTAssertTrue(source.contains("case .externalLink:"))
+        XCTAssertTrue(source.contains(#"Image(systemName: "arrow.up.right")"#))
+        XCTAssertFalse(source.contains("BodyHowToUseSettingsSheet()"))
+        XCTAssertFalse(source.contains("private struct BodyHowToUseSettingsSheet"))
     }
 
     func testSettingsDataTabsExposePermissions() {
@@ -1440,27 +1453,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(statusTextBlock.contains("date.formatted(date: .abbreviated, time: .shortened)"))
     }
 
-    func testHowToUseGuideCoversCurrentSettingsAndDataFeatures() throws {
+    func testHowToUseGuideMovedOutOfSettings() throws {
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
-        let howToUseStart = try XCTUnwrap(settingsSource.range(of: "private struct BodyHowToUseSettingsSheet")?.lowerBound)
-        let howToUseBlock = String(settingsSource[howToUseStart...].prefix(8_000))
 
-        XCTAssertTrue(howToUseBlock.contains(#"title: "Connect Apple Health""#))
-        XCTAssertTrue(howToUseBlock.contains("Open Data > Source to set default primary and secondary Apple Health sources or combine duplicate source names."))
-        XCTAssertTrue(howToUseBlock.contains("Open Data > Permissions to choose which Apple Health categories Body uses inside the app."))
-        XCTAssertTrue(howToUseBlock.contains("Open Data > Data Refresh to see the last refresh time or run Refresh Now."))
-        XCTAssertTrue(howToUseBlock.contains(#"title: "Customize Metrics""#))
-        XCTAssertTrue(howToUseBlock.contains("Use Metrics > Units to follow the system or choose weight, distance, energy, and temperature units manually."))
-        XCTAssertTrue(howToUseBlock.contains("Use Metrics > Summary Cards, Charts Range, and Trend Cards to decide what appears on Summary and which default range charts open with."))
-        XCTAssertTrue(howToUseBlock.contains(#"title: "Manage Cache""#))
-        XCTAssertTrue(howToUseBlock.contains("Use Data > Source for app-wide primary and secondary defaults, or tap the source picker on a metric detail to override that metric."))
-        XCTAssertTrue(howToUseBlock.contains("Use Data > Cache to review cached dashboard, workout, and Activity Ring data."))
-        XCTAssertTrue(howToUseBlock.contains("Clear Cache removes local snapshots; Rebuild Cache refreshes Apple Health and rebuilds the local files."))
-        XCTAssertTrue(howToUseBlock.contains("Summary shows Activity Rings, Readiness, Sleep, Basics, Training Load"))
-        XCTAssertTrue(howToUseBlock.contains("Tap the stage breakdown beneath the timeline to switch between per-stage durations and the optimal-range chart"))
-        XCTAssertTrue(howToUseBlock.contains(#"title: "Apple Watch""#))
-        XCTAssertTrue(howToUseBlock.contains("every metric has an accessory circular, rectangular, and corner ring complication"))
-        XCTAssertFalse(howToUseBlock.contains("Use Settings to change appearance, app accent, icon, and measurement units."))
+        XCTAssertTrue(settingsSource.contains(#"private let howToUseURLString = "https://docs.ijustinz.com/body/how-to-use""#))
+        XCTAssertFalse(settingsSource.contains("BodyHowToUseGuideSection"))
+        XCTAssertFalse(settingsSource.contains("BodyHowToUseGuideCard"))
+        XCTAssertFalse(settingsSource.contains(#"title: "Connect Apple Health""#))
     }
 
     func testBodyProPageUsesCoinStyleSettingsEntryAndIconAssets() throws {
