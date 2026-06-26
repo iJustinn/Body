@@ -16,11 +16,10 @@ Use this order:
 1. Read relevant code with `rg` and narrow file reads.
 2. Check `LessonsLearned.md` before touching HealthKit, workout aggregation,
    charts, widgets, app icons, build settings, formatting, or persistence.
-3. For code changes, follow `.agents/skills/body-rtk-tdd/SKILL.md`.
-4. Make the smallest coherent edit.
-5. Verify with focused XCTest first when practical, then the strongest relevant
+3. Make the smallest coherent edit.
+4. Verify with focused XCTest first when practical, then the strongest relevant
    `rtk xcodebuild` gate.
-6. Summarize changed files, verification, and any blocked checks.
+5. Summarize changed files, verification, and any blocked checks.
 
 ## Project Shape
 

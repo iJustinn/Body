@@ -1,7 +1,5 @@
 # Readiness Metrics Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `body-rtk-tdd` for every code-changing task in this repository. If delegating work, use `subagent-driven-development`; otherwise use `executing-plans`. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Add a Readiness Summary card and detail view that score near-term readiness from the user's own Apple Health baselines.
 
 **Architecture:** Keep HealthKit fetching focused on raw health data. Add dedicated Readiness models and a pure `ReadinessScoreCalculator` that transforms existing `HealthSummarySnapshot`, `HealthTrendSnapshot`, and `SleepHistorySnapshot` data into a score, components, confidence, and drivers. Wire the result into existing Summary card ordering, dashboard caching, metric detail routing, and tests.
@@ -15,7 +13,7 @@
 - Run all shell commands through `rtk`.
 - Do not commit unless the user explicitly asks for a commit.
 - Keep Readiness non-diagnostic. Use phrases like "above baseline", "below baseline", and "needs more data"; avoid illness diagnosis and injury prediction.
-- Use Red-Green-Refactor: failing XCTest first, smallest code to pass, refactor only after green.
+- Verify changes with focused XCTest or the strongest relevant `xcodebuild` build gate when practical.
 - Preserve existing Summary card rhythm. Readiness should behave like the other health cards, not introduce a new landing page.
 
 ## Score Definition
@@ -1489,7 +1487,6 @@ Expected: build succeeds.
 
 Report:
 
-- RTK path used.
 - Files changed.
 - Tests run and exact result.
 - Any Simulator/system-service failure separated from real compile or assertion failures.

@@ -9,4 +9,4 @@ The canonical Body guidelines live at `skills/karpathy-guidelines/SKILL.md`.
 
 When this skill triggers, read that file and follow it. This `.agents/skills`
 shim exists so the Body project exposes the skill through the same project-local
-discovery path as `body-rtk-tdd` and `project-issue-review`.
+discovery path as `project-issue-review`.
