@@ -21,7 +21,6 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey) private var showsSubMinuteAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsSubMinuteAwakeStages
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
-    @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
@@ -170,7 +169,7 @@ struct BodySettingsView: View {
                     title: "Icon",
                     value: currentAppIconOption.displayName,
                     iconName: "app.fill",
-                    tintColor: .indigo,
+                    tintColor: .gray,
                     accessory: .chevron
                 )
             }
@@ -275,23 +274,8 @@ struct BodySettingsView: View {
                 BodySettingsRowLabel(
                     title: "Units",
                     value: unitsSummaryText,
-                    iconName: "ruler.fill",
-                    tintColor: .teal,
-                    accessory: .chevron
-                )
-            }
-            .buttonStyle(.plain)
-
-            settingsDivider
-
-            Button {
-                activeSheet = .defaultTrendRange
-            } label: {
-                BodySettingsRowLabel(
-                    title: "Charts Range",
-                    value: currentDefaultTrendRange.displayName,
-                    iconName: currentDefaultTrendRange.iconName,
-                    tintColor: currentDefaultTrendRange.tintColor,
+                    iconName: "pencil.and.ruler.fill",
+                    tintColor: .blue,
                     accessory: .chevron
                 )
             }
@@ -305,7 +289,7 @@ struct BodySettingsView: View {
                 BodySettingsRowLabel(
                     title: "Summary Cards",
                     value: summaryCardsSummaryText,
-                    iconName: "rectangle.grid.2x2.fill",
+                    iconName: "square.grid.2x2",
                     tintColor: .pink,
                     accessory: .chevron
                 )
@@ -320,8 +304,8 @@ struct BodySettingsView: View {
                 BodySettingsRowLabel(
                     title: "Day View",
                     value: dayViewSummaryText,
-                    iconName: "clock.fill",
-                    tintColor: .indigo,
+                    iconName: "chart.line.flattrend.xyaxis",
+                    tintColor: .orange,
                     accessory: .chevron
                 )
             }
@@ -439,10 +423,6 @@ struct BodySettingsView: View {
         BodySummaryCardSelection.storedValue(from: summaryCardSelectionRawValue)
     }
 
-    private var currentDefaultTrendRange: BodyHealthTrendRange {
-        BodyHealthTrendRange.storedValue(from: defaultTrendRangeRawValue)
-    }
-
     private var currentHomeTrendCardSelection: BodyHomeTrendCardSelection {
         BodyHomeTrendCardSelection.storedValue(from: homeTrendCardSelectionRawValue)
     }
@@ -515,14 +495,6 @@ struct BodySettingsView: View {
         }
     }
 
-    private var defaultTrendRange: Binding<BodyHealthTrendRange> {
-        Binding {
-            currentDefaultTrendRange
-        } set: { range in
-            defaultTrendRangeRawValue = range.rawValue
-        }
-    }
-
     private var homeTrendCardSelection: Binding<BodyHomeTrendCardSelection> {
         Binding {
             currentHomeTrendCardSelection
@@ -552,8 +524,6 @@ struct BodySettingsView: View {
             )
         case .summaryCards:
             BodySummaryCardsSettingsSheet(selection: summaryCardSelection)
-        case .defaultTrendRange:
-            BodyDefaultTrendRangePickerSheet(selectedRange: defaultTrendRange)
         case .homeTrendCards:
             BodyHomeTrendCardsSettingsSheet(selection: homeTrendCardSelection)
         case .dayView:
@@ -651,7 +621,6 @@ enum BodySettingsSheet: String, Identifiable {
     case appIcon
     case sleepDurationGoal
     case summaryCards
-    case defaultTrendRange
     case homeTrendCards
     case dayView
     case units
@@ -705,13 +674,13 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
     var tintColor: Color {
         switch self {
         case .source:
-            return .cyan
+            return .green
         case .permissions:
             return .green
         case .syncStatus:
-            return .blue
+            return .gray
         case .cache:
-            return .orange
+            return .gray
         }
     }
 
@@ -916,7 +885,7 @@ private struct BodyUnitPreferencePickerSheet: View {
                             Toggle("Follow System", isOn: $followsSystemUnits)
                                 .font(.system(.headline, design: .rounded))
                                 .fontWeight(.semibold)
-                                .tint(.teal)
+                                .tint(.blue)
                                 .padding(.horizontal, 18)
                                 .padding(.vertical, 16)
                                 .frame(minHeight: 70)
@@ -1069,49 +1038,6 @@ private struct BodyUnitChoiceButton: View {
                 .stroke(effectiveTintColor.opacity(isSelected ? 0.9 : 0.24), lineWidth: 1.5)
         )
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-}
-
-private struct BodyDefaultTrendRangePickerSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Binding var selectedRange: BodyHealthTrendRange
-
-    private let columns = [
-        GridItem(.flexible()),
-        GridItem(.flexible())
-    ]
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(BodyHealthTrendRange.allCases) { range in
-                            Button {
-                                selectedRange = range
-                                dismiss()
-                            } label: {
-                                BodySymbolSelectionTile(
-                                    title: range.displayName,
-                                    subtitle: range.selectionSubtitle,
-                                    iconName: range.iconName,
-                                    tintColor: range.tintColor,
-                                    isSelected: selectedRange == range
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding()
-                    .padding(.bottom, 24)
-                }
-            }
-            .navigationTitle("Charts Range")
-            .navigationBarTitleDisplayMode(.inline)
-        }
     }
 }
 
