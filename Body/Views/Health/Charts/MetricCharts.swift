@@ -19,6 +19,10 @@ struct BodyHealthMetricTrendChart: View {
     let baselineValue: Double?
     let baselineDeviationFormatter: ((Double) -> String)?
     let chartIdentity: String
+    /// When true the chart blends into the sleep hero's gradient: the Y axis is
+    /// hidden (Watch-style, label-free) while the X day labels stay. Default
+    /// `false` keeps every other caller's chart unchanged.
+    let immersive: Bool
 
     private let visibleCalendarPoints: [HealthTrendCalendarPoint]
     private let visibleFinitePoints: [HealthTrendCalendarPoint]
@@ -44,6 +48,7 @@ struct BodyHealthMetricTrendChart: View {
         isSleepDetail: Bool,
         baselineValue: Double? = nil,
         baselineDeviationFormatter: ((Double) -> String)? = nil,
+        immersive: Bool = false,
         chartIdentity: String
     ) {
         self.title = title
@@ -57,6 +62,7 @@ struct BodyHealthMetricTrendChart: View {
         self.isSleepDetail = isSleepDetail
         self.baselineValue = baselineValue
         self.baselineDeviationFormatter = baselineDeviationFormatter
+        self.immersive = immersive
         self.chartIdentity = chartIdentity
 
         let calendarPoints: [HealthTrendCalendarPoint]
@@ -80,7 +86,7 @@ struct BodyHealthMetricTrendChart: View {
         self.chartYDomain = yDomain
 
         let domainDates = series.calendarPoints(to: selectedRange).map(\.date)
-        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
+        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive)
 
         self.latestVisibleCalendarDate = calendarPoints.last { $0.value?.isFinite == true }?.date
 
@@ -253,16 +259,18 @@ struct BodyHealthMetricTrendChart: View {
                 }
             }
             .chartYAxis {
-                AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
-                    AxisGridLine()
-                        .foregroundStyle(Color.secondary.opacity(0.18))
-                    AxisTick()
-                        .foregroundStyle(Color.secondary.opacity(0.28))
-                    AxisValueLabel {
-                        if let yValue = value.as(Double.self) {
-                            Text(valueFormatter(yValue))
-                                .font(.system(.caption2, design: .rounded))
-                                .foregroundStyle(Color.secondary)
+                if !immersive {
+                    AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
+                        AxisGridLine()
+                            .foregroundStyle(Color.secondary.opacity(0.18))
+                        AxisTick()
+                            .foregroundStyle(Color.secondary.opacity(0.28))
+                        AxisValueLabel {
+                            if let yValue = value.as(Double.self) {
+                                Text(valueFormatter(yValue))
+                                    .font(.system(.caption2, design: .rounded))
+                                    .foregroundStyle(Color.secondary)
+                            }
                         }
                     }
                 }

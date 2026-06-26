@@ -20,15 +20,39 @@ func bodyHealthDetailChartTrailingDatePadding(for selectedRange: BodyHealthTrend
     return max(bodyHealthDetailChartMinimumTrailingDatePadding, rangeScaledPadding)
 }
 
-func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange) -> ClosedRange<Date> {
-    let trailingDatePadding = bodyHealthDetailChartTrailingDatePadding(for: selectedRange)
+func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange, immersive: Bool = false, immersivePairedBars: Bool = false) -> ClosedRange<Date> {
+    // Immersive charts hide the Y axis and fill the plot width. Pad each edge by about
+    // half a data bucket so the first/last bar (or point) sits fully inside the plot
+    // without clipping and no empty day appears. Non-immersive charts keep the small
+    // leading padding and the larger right-side breathing room (room for the trailing
+    // axis label).
+    let leadingDatePadding: TimeInterval
+    let trailingDatePadding: TimeInterval
+    if immersive {
+        let bucketSeconds = Double(selectedRange.chartAggregationDayCount) * 24 * 60 * 60
+        if selectedRange == .recentWeek && !immersivePairedBars {
+            // Week single-mark charts bias hard to the left: a little space on the left,
+            // a bit more than a full day of breathing room on the right. Paired-bar
+            // comparison charts keep symmetric padding — their two offset bars already
+            // sit asymmetrically within the day.
+            leadingDatePadding = 2 * 60 * 60
+            trailingDatePadding = 26 * 60 * 60
+        } else {
+            let halfBucketPadding = bucketSeconds * 0.5
+            leadingDatePadding = halfBucketPadding
+            trailingDatePadding = halfBucketPadding
+        }
+    } else {
+        leadingDatePadding = bodyHealthDetailChartLeadingDatePadding
+        trailingDatePadding = bodyHealthDetailChartTrailingDatePadding(for: selectedRange)
+    }
 
     guard let startDate = dates.min(), let endDate = dates.max() else {
         let now = Date()
-        return now.addingTimeInterval(-bodyHealthDetailChartLeadingDatePadding)...now.addingTimeInterval(trailingDatePadding)
+        return now.addingTimeInterval(-leadingDatePadding)...now.addingTimeInterval(trailingDatePadding)
     }
 
-    return startDate.addingTimeInterval(-bodyHealthDetailChartLeadingDatePadding)...endDate.addingTimeInterval(trailingDatePadding)
+    return startDate.addingTimeInterval(-leadingDatePadding)...endDate.addingTimeInterval(trailingDatePadding)
 }
 
 // Symbol area for a PointMark that renders a circle whose diameter matches a

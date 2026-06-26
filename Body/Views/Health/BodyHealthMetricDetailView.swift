@@ -34,7 +34,6 @@ struct BodyHealthMetricDetailModel {
     let sourceRangeComparisonTrend: BodyHealthSourceRangeComparisonTrend?
     let sourceLineComparisonTrend: BodyHealthSourceComparisonTrend?
     let headerMetrics: [BodyMetricDisplayValue]
-    let headerSecondaryText: String?
     let helpText: HealthMetricDetailHelpText?
     let dataSourceText: HealthMetricDetailDataSourceText?
 
@@ -66,7 +65,6 @@ struct BodyHealthMetricDetailModel {
         sourceRangeComparisonTrend: BodyHealthSourceRangeComparisonTrend? = nil,
         sourceLineComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
         headerMetrics: [BodyMetricDisplayValue] = [],
-        headerSecondaryText: String? = nil,
         helpText: HealthMetricDetailHelpText? = nil,
         dataSourceText: HealthMetricDetailDataSourceText? = nil
     ) {
@@ -97,7 +95,6 @@ struct BodyHealthMetricDetailModel {
         self.sourceRangeComparisonTrend = sourceRangeComparisonTrend
         self.sourceLineComparisonTrend = sourceLineComparisonTrend
         self.headerMetrics = headerMetrics
-        self.headerSecondaryText = headerSecondaryText
         self.helpText = helpText ?? kind.detailHelpText
         self.dataSourceText = dataSourceText
     }
@@ -337,46 +334,15 @@ struct BodyHealthMetricDetailView: View {
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 16) {
-                headerCard
-                if isSleepDetail {
-                    BodyHealthTrendRangeSelector(selectedRange: $selectedTrendRange)
-                    trendCard
-                    sleepDatePicker
-                    selectedSleepCards
-                    detailTrendComparisonCard
-                    if showSleepScore {
-                        aboutSleepScoreCard
-                    }
-                    dataSourceFooter
-                } else {
-                    BodyHealthTrendRangeSelector(selectedRange: $selectedTrendRange)
-                    if isBasicsDetail {
-                        basicsRangeCard
-                    }
-                    trendCard
-                    if supportsMetricDayView {
-                        metricDatePicker
-                        metricDayChartCard
-                        metricActivityAveragesCard
-                        detailTrendComparisonCard
-                    } else {
-                        if model.kind == .readiness, let readiness = model.readiness {
-                            readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
-                        }
-                        detailTrendComparisonCard
-                    }
-                    if isBasicsDetail {
-                        bodyMassIndexTrendCard
-                    }
-                    helpTextCard
-                    dataSourceFooter
+            VStack(spacing: 16) {
+                metricHero
+                VStack(alignment: .leading, spacing: 16) {
+                    metricDetailCards
                 }
+                .padding(.horizontal, 16)
+                .readableContentColumn()
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
             .padding(.bottom, 32)
-            .readableContentColumn()
         }
         .refreshable {
             let started = Date()
@@ -389,7 +355,19 @@ struct BodyHealthMetricDetailView: View {
             await workoutStore.loadIntradayMetricSamplesIfNeeded(model.kind)
         }
         .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background {
+            // Fixed (non-scrolling) backdrop for every metric detail: the metric tint
+            // at the very top — behind the transparent nav bar — easing into the page
+            // background by mid-screen. The hero content and cards scroll over this;
+            // the nav bar stays clear over the tint at rest and picks up its standard
+            // material as cards scroll beneath it.
+            LinearGradient(
+                colors: [model.symbolColor.opacity(0.45), Color(.systemGroupedBackground)],
+                startPoint: .top,
+                endPoint: UnitPoint(x: 0.5, y: 0.5)
+            )
+            .ignoresSafeArea()
+        }
         .navigationTitle(model.title)
         .navigationBarTitleDisplayMode(.inline)
         .tint(model.symbolColor)
@@ -469,10 +447,6 @@ struct BodyHealthMetricDetailView: View {
 
     private var isBasicsDetail: Bool {
         model.kind == .basics
-    }
-
-    private var trendHeaderAlignment: VerticalAlignment {
-        isBasicsDetail ? .top : .firstTextBaseline
     }
 
     private var supportsMetricDayView: Bool {
@@ -807,236 +781,270 @@ struct BodyHealthMetricDetailView: View {
         return "\(primaryName) vs \(secondaryOption.name)"
     }
 
-    private var headerCard: some View {
-        HStack(spacing: 16) {
-            Image(systemName: model.symbolName)
-                .font(.system(size: 26, weight: .semibold))
-                .foregroundColor(model.symbolColor)
-                .frame(width: 58, height: 58)
-                .background(model.symbolColor.opacity(0.16))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .accessibilityHidden(true)
+    // Apple Watch–style immersive header, shared by every metric. The metric-tint→
+    // page-color gradient is a fixed, non-scrolling backdrop (set on `body`), so it
+    // stays put behind the nav bar while the cards scroll over it. This hero is just
+    // the transparent content laid on top: the range tabs as floating pills, the
+    // metric's chart blended in (Y-axis hidden), and the current value reading large
+    // at the bottom-left.
+    private var metricHero: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            BodyHealthTrendRangeSelector(
+                selectedRange: $selectedTrendRange,
+                appearance: .onGradient
+            )
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text(model.title)
-                    .font(.system(.title3, design: .rounded))
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
+            metricTrendChart(immersive: true)
 
-                Text("Current")
-                    .font(.system(.subheadline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-            }
+            metricHeroValueRow
 
-            Spacer(minLength: 10)
-
-            headerValues
+            metricBreakdownChart
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 94)
-        .bodyCardBackground()
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // The per-metric cards that scroll below the hero (unchanged from the prior
+    // layout, minus the header/selector/trend-card now folded into the hero).
+    @ViewBuilder
+    private var metricDetailCards: some View {
+        if isSleepDetail {
+            sleepDatePicker
+            selectedSleepCards
+            detailTrendComparisonCard
+            if showSleepScore {
+                aboutSleepScoreCard
+            }
+            dataSourceFooter
+        } else {
+            if isBasicsDetail {
+                basicsRangeCard
+            }
+            if supportsMetricDayView {
+                metricDatePicker
+                metricDayChartCard
+                metricActivityAveragesCard
+                detailTrendComparisonCard
+            } else {
+                if model.kind == .readiness, let readiness = model.readiness {
+                    readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
+                }
+                detailTrendComparisonCard
+            }
+            if isBasicsDetail {
+                bodyMassIndexTrendCard
+            }
+            helpTextCard
+            dataSourceFooter
+        }
+    }
+
+    private var metricHeroValueRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            heroValueLeading
+            Spacer(minLength: 8)
+            heroValueTrailing
+        }
     }
 
     @ViewBuilder
-    private var headerValues: some View {
-        if model.headerMetrics.isEmpty {
-            VStack(alignment: .trailing, spacing: 3) {
-                headerValueRow(BodyMetricDisplayValue(title: model.title, value: model.value, unit: model.unit))
-
-                if let headerSecondaryText = model.headerSecondaryText {
-                    Text(headerSecondaryText)
-                        .font(.system(.caption, design: .rounded))
-                        .fontWeight(.bold)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                }
-            }
-        } else {
-            VStack(alignment: .trailing, spacing: 0) {
-                ForEach(model.headerMetrics) { display in
-                    headerValueRow(display)
-                }
-            }
+    private var heroValueLeading: some View {
+        if !model.value.isEmpty {
+            heroBigValue(model.value, unit: model.unit)
+        } else if let firstMetric = model.headerMetrics.first {
+            heroBigValue(firstMetric.value, unit: firstMetric.unit)
         }
     }
 
-    private func headerValueRow(_ display: BodyMetricDisplayValue) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
+    private func heroBigValue(_ value: String, unit: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             BodyAnimatedMetricValueText(
-                value: display.value,
-                fontSize: 30,
+                value: value,
+                fontSize: 44,
                 color: .primary,
-                minimumScaleFactor: 0.6
+                minimumScaleFactor: 0.5
             )
 
-            if !display.unit.isEmpty {
-                Text(display.unit)
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
+            if !unit.isEmpty {
+                Text(unit)
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
             }
         }
     }
 
-    private var trendCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: trendHeaderAlignment) {
-                Text(selectedTrendRange.chartTitle)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
-
-                Spacer(minLength: 12)
-
-                if model.kind == .basics {
-                    BodyBasicsTrendLegend(
-                        weightColor: model.symbolColor,
-                        bodyFatColor: basicsBodyFatColor,
-                        weightAverageText: basicsWeightAverageText,
-                        bodyFatAverageText: basicsBodyFatAverageText
-                    )
-                } else if let sourceComparisonTrend = model.sourceComparisonTrend {
-                    BodyHealthSourceLegend(
-                        items: comparisonLegendItems(for: sourceComparisonTrend),
-                        valueFormatter: model.valueFormatter
-                    )
-                } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend {
-                    BodyHealthSourceLegend(
-                        items: rangeComparisonLegendItems(for: sourceRangeComparisonTrend),
-                        valueFormatter: model.valueFormatter
-                    )
-                } else if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
-                    BodyHealthSourceLegend(
-                        items: comparisonLegendItems(for: sourceLineComparisonTrend),
-                        valueFormatter: model.valueFormatter
-                    )
-                } else if usesRangeTrendChart, let metricRangeHeaderText {
-                    averageHeaderText(metricRangeHeaderText, prefix: "Range")
-                } else if let averageTrendText {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        averageHeaderText(averageTrendText)
-                        if wristTemperatureTrendBaseline != nil {
-                            BodyChartBaselineLegend()
-                        }
-                    }
+    // Metric-specific legend or average, relocated from the old trend-card header to
+    // the hero's value row.
+    @ViewBuilder
+    private var heroValueTrailing: some View {
+        if model.kind == .basics {
+            BodyBasicsTrendLegend(
+                weightColor: model.symbolColor,
+                bodyFatColor: basicsBodyFatColor,
+                weightAverageText: basicsWeightAverageText,
+                bodyFatAverageText: basicsBodyFatAverageText
+            )
+        } else if let sourceComparisonTrend = model.sourceComparisonTrend {
+            BodyHealthSourceLegend(
+                items: comparisonLegendItems(for: sourceComparisonTrend),
+                valueFormatter: model.valueFormatter
+            )
+        } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend {
+            BodyHealthSourceLegend(
+                items: rangeComparisonLegendItems(for: sourceRangeComparisonTrend),
+                valueFormatter: model.valueFormatter
+            )
+        } else if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
+            BodyHealthSourceLegend(
+                items: comparisonLegendItems(for: sourceLineComparisonTrend),
+                valueFormatter: model.valueFormatter
+            )
+        } else if usesRangeTrendChart, let metricRangeHeaderText {
+            averageHeaderText(metricRangeHeaderText, prefix: "Range")
+        } else if let averageTrendText {
+            VStack(alignment: .trailing, spacing: 4) {
+                averageHeaderText(averageTrendText)
+                if wristTemperatureTrendBaseline != nil {
+                    BodyChartBaselineLegend()
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if let visibleBasicsTrend {
-                BodyBasicsTrendChart(
-                    trend: visibleBasicsTrend,
-                    selectedRange: selectedTrendRange,
-                    weightColor: model.symbolColor,
-                    bodyFatColor: basicsBodyFatColor,
-                    weightFormatter: model.valueFormatter,
-                    bodyFatFormatter: model.secondaryValueFormatter ?? {
-                        BodyValueFormat.numberText($0, decimals: 1) + "%"
-                    }
-                )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
-            } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend,
-                      model.kind.usesSourceComparisonRangeBandLineChart {
-                BodyHeartRateRangeTrendChart(
-                    title: model.title,
-                    selectedRange: selectedTrendRange,
-                    rangeSeries: sourceRangeComparisonTrend.primary.series,
-                    secondaryRangeSeries: sourceRangeComparisonTrend.secondary.series,
-                    primarySourceName: sourceRangeComparisonTrend.primary.sourceName,
-                    secondarySourceName: sourceRangeComparisonTrend.secondary.sourceName,
-                    symbolColor: model.symbolColor,
-                    secondaryColor: sourceComparisonSecondaryColor,
-                    valueFormatter: model.valueFormatter,
-                    showsAverageLineOverlay: true,
-                    yDomain: metricRangeYDomain
-                )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
-            } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend {
-                BodyHealthSourceComparisonRangeChart(
-                    title: model.title,
-                    comparison: sourceRangeComparisonTrend,
-                    selectedRange: selectedTrendRange,
-                    primaryColor: model.symbolColor,
-                    secondaryColor: sourceComparisonSecondaryColor,
-                    valueFormatter: model.valueFormatter,
-                    yDomain: metricRangeYDomain,
-                    chartIdentity: "\(model.kind.rawValue)-source-range-comparison-\(selectedTrendRange.rawValue)"
-                )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
-            } else if usesRangeTrendChart, let visibleMetricRangeSeries {
-                BodyHeartRateRangeTrendChart(
-                    title: model.title,
-                    selectedRange: selectedTrendRange,
-                    rangeSeries: visibleMetricRangeSeries,
-                    symbolColor: model.symbolColor,
-                    valueFormatter: model.valueFormatter,
-                    showsAverageLineOverlay: model.kind == .heartRate || model.kind == .heartRateVariability,
-                    yDomain: metricRangeYDomain
-                )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
-            } else if let sourceComparisonTrend = model.sourceComparisonTrend {
-                BodyHealthSourceComparisonBarChart(
-                    title: model.title,
-                    comparison: sourceComparisonTrend,
-                    selectedRange: selectedTrendRange,
-                    primaryColor: model.symbolColor,
-                    secondaryColor: sourceComparisonSecondaryColor,
-                    valueFormatter: model.valueFormatter,
-                    chartIdentity: "\(model.kind.rawValue)-source-comparison-\(selectedTrendRange.rawValue)"
-                )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
-            } else if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
-                BodyHealthSourceComparisonLineChart(
-                    title: model.title,
-                    comparison: sourceLineComparisonTrend,
-                    selectedRange: selectedTrendRange,
-                    primaryColor: model.symbolColor,
-                    secondaryColor: sourceComparisonSecondaryColor,
-                    valueFormatter: model.valueFormatter,
-                    isSleepDetail: isSleepDetail,
-                    chartIdentity: "\(model.kind.rawValue)-source-line-comparison-\(selectedTrendRange.rawValue)"
-                )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
-            } else {
-                BodyHealthMetricTrendChart(
-                    title: model.title,
-                    chartStyle: model.chartStyle,
-                    symbolColor: model.symbolColor,
-                    selectedRange: selectedTrendRange,
-                    series: model.series,
-                    valueFormatter: model.valueFormatter,
-                    highlightedRange: model.highlightedRange,
-                    highlightedRangeResolver: model.highlightedRangeResolver,
-                    activeHighlightedValue: model.kind == .readiness ? $activeReadinessTrendValue : nil,
-                    isSleepDetail: isSleepDetail,
-                    baselineValue: wristTemperatureTrendBaseline,
-                    baselineDeviationFormatter: wristTemperatureTrendBaselineDeviationFormatter,
-                    chartIdentity: "\(model.kind.rawValue)-\(selectedTrendRange.rawValue)"
-                )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
-
-                if model.kind == .trainingLoad {
-                    BodyTrainingLoadIntervalBreakdownChart(
-                        series: model.series,
-                        selectedRange: selectedTrendRange
-                    )
-                    .padding(.top, 4)
-                }
-
-                if model.kind == .readiness {
-                    BodyReadinessStatusBreakdownChart(
-                        series: model.series,
-                        selectedRange: selectedTrendRange
-                    )
-                    .padding(.top, 4)
-                }
+            .alignmentGuide(.firstTextBaseline) { dimensions in
+                dimensions[.lastTextBaseline]
             }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+    }
+
+    // The metric's trend chart, blended into the hero (no card, Y-axis hidden when
+    // `immersive`). Each branch preserves that metric's chart: range bars for
+    // heart-rate-style metrics, primary/secondary comparison charts, the dual-line
+    // basics chart, and the highlight strips on the line chart. The training-load /
+    // readiness day breakdowns render separately in `metricBreakdownChart`, below the
+    // hero value row.
+    @ViewBuilder
+    private func metricTrendChart(immersive: Bool) -> some View {
+        if let visibleBasicsTrend {
+            BodyBasicsTrendChart(
+                trend: visibleBasicsTrend,
+                selectedRange: selectedTrendRange,
+                weightColor: model.symbolColor,
+                bodyFatColor: basicsBodyFatColor,
+                weightFormatter: model.valueFormatter,
+                bodyFatFormatter: model.secondaryValueFormatter ?? {
+                    BodyValueFormat.numberText($0, decimals: 1) + "%"
+                },
+                immersive: immersive
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend,
+                  model.kind.usesSourceComparisonRangeBandLineChart {
+            BodyHeartRateRangeTrendChart(
+                title: model.title,
+                selectedRange: selectedTrendRange,
+                rangeSeries: sourceRangeComparisonTrend.primary.series,
+                secondaryRangeSeries: sourceRangeComparisonTrend.secondary.series,
+                primarySourceName: sourceRangeComparisonTrend.primary.sourceName,
+                secondarySourceName: sourceRangeComparisonTrend.secondary.sourceName,
+                symbolColor: model.symbolColor,
+                secondaryColor: sourceComparisonSecondaryColor,
+                valueFormatter: model.valueFormatter,
+                showsAverageLineOverlay: true,
+                immersive: immersive,
+                yDomain: metricRangeYDomain
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend {
+            BodyHealthSourceComparisonRangeChart(
+                title: model.title,
+                comparison: sourceRangeComparisonTrend,
+                selectedRange: selectedTrendRange,
+                primaryColor: model.symbolColor,
+                secondaryColor: sourceComparisonSecondaryColor,
+                valueFormatter: model.valueFormatter,
+                yDomain: metricRangeYDomain,
+                immersive: immersive,
+                chartIdentity: "\(model.kind.rawValue)-source-range-comparison-\(selectedTrendRange.rawValue)"
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        } else if usesRangeTrendChart, let visibleMetricRangeSeries {
+            BodyHeartRateRangeTrendChart(
+                title: model.title,
+                selectedRange: selectedTrendRange,
+                rangeSeries: visibleMetricRangeSeries,
+                symbolColor: model.symbolColor,
+                valueFormatter: model.valueFormatter,
+                showsAverageLineOverlay: model.kind == .heartRate || model.kind == .heartRateVariability,
+                immersive: immersive,
+                yDomain: metricRangeYDomain
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        } else if let sourceComparisonTrend = model.sourceComparisonTrend {
+            BodyHealthSourceComparisonBarChart(
+                title: model.title,
+                comparison: sourceComparisonTrend,
+                selectedRange: selectedTrendRange,
+                primaryColor: model.symbolColor,
+                secondaryColor: sourceComparisonSecondaryColor,
+                valueFormatter: model.valueFormatter,
+                immersive: immersive,
+                chartIdentity: "\(model.kind.rawValue)-source-comparison-\(selectedTrendRange.rawValue)"
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        } else if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
+            BodyHealthSourceComparisonLineChart(
+                title: model.title,
+                comparison: sourceLineComparisonTrend,
+                selectedRange: selectedTrendRange,
+                primaryColor: model.symbolColor,
+                secondaryColor: sourceComparisonSecondaryColor,
+                valueFormatter: model.valueFormatter,
+                isSleepDetail: isSleepDetail,
+                immersive: immersive,
+                chartIdentity: "\(model.kind.rawValue)-source-line-comparison-\(selectedTrendRange.rawValue)"
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        } else {
+            BodyHealthMetricTrendChart(
+                title: model.title,
+                chartStyle: model.chartStyle,
+                symbolColor: model.symbolColor,
+                selectedRange: selectedTrendRange,
+                series: model.series,
+                valueFormatter: model.valueFormatter,
+                highlightedRange: model.highlightedRange,
+                highlightedRangeResolver: model.highlightedRangeResolver,
+                activeHighlightedValue: model.kind == .readiness ? $activeReadinessTrendValue : nil,
+                isSleepDetail: isSleepDetail,
+                baselineValue: wristTemperatureTrendBaseline,
+                baselineDeviationFormatter: wristTemperatureTrendBaselineDeviationFormatter,
+                immersive: immersive,
+                chartIdentity: "\(model.kind.rawValue)-\(selectedTrendRange.rawValue)"
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        }
+    }
+
+    // Readiness/training-load day breakdown bars, rendered below the hero value row so
+    // the big current value reads directly beneath the line chart and the
+    // day-by-status/interval bars sit under it.
+    @ViewBuilder
+    private var metricBreakdownChart: some View {
+        if model.kind == .trainingLoad {
+            BodyTrainingLoadIntervalBreakdownChart(
+                series: model.series,
+                selectedRange: selectedTrendRange
+            )
+            .padding(.top, 4)
+        }
+
+        if model.kind == .readiness {
+            BodyReadinessStatusBreakdownChart(
+                series: model.series,
+                selectedRange: selectedTrendRange
+            )
+            .padding(.top, 4)
+        }
     }
 
     private var basicsRangeCard: some View {

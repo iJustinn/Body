@@ -117,7 +117,7 @@ struct BodyHealthDataSourcePickerSheet: View {
     ) -> some View {
         let isSelected = selectedOption.id == option.id
         let isThisRowUpdating = updatingSelection == PendingSelection(role: role, optionID: option.id)
-        let isSectionLocked = updatingSelection?.role == role
+        let isSelectionLocked = updatingSelection != nil
         return Button {
             updateSelection(option, role: role)
         } label: {
@@ -154,7 +154,7 @@ struct BodyHealthDataSourcePickerSheet: View {
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(isSelected || isSectionLocked)
+        .disabled(isSelected || isSelectionLocked)
     }
 
     private func optionIconName(for role: SourceRole) -> String {
@@ -176,10 +176,7 @@ struct BodyHealthDataSourcePickerSheet: View {
                 await workoutStore.updateHealthDataSource(for: kind, option: option)
             }
             updatingSelection = nil
-            dismiss()
         }
     }
 }
-
-
 

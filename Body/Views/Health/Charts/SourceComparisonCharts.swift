@@ -42,6 +42,9 @@ struct BodyHealthSourceLegend: View {
                 }
             }
             .frame(maxWidth: 180, alignment: .trailing)
+            .alignmentGuide(.firstTextBaseline) { dimensions in
+                dimensions[.lastTextBaseline]
+            }
         } else if let item = items.first {
             Text("Avg \(averageText(for: item.averageValue))")
                 .font(.system(.subheadline, design: .rounded))
@@ -69,6 +72,7 @@ struct BodyHealthSourceComparisonLineChart: View {
     let secondaryColor: Color
     let valueFormatter: (Double) -> String
     let isSleepDetail: Bool
+    let immersive: Bool
     let chartIdentity: String
 
     private let entries: [BodyHealthSourceComparisonLineEntry]
@@ -92,6 +96,7 @@ struct BodyHealthSourceComparisonLineChart: View {
         secondaryColor: Color,
         valueFormatter: @escaping (Double) -> String,
         isSleepDetail: Bool,
+        immersive: Bool = false,
         chartIdentity: String
     ) {
         self.title = title
@@ -101,6 +106,7 @@ struct BodyHealthSourceComparisonLineChart: View {
         self.secondaryColor = secondaryColor
         self.valueFormatter = valueFormatter
         self.isSleepDetail = isSleepDetail
+        self.immersive = immersive
         self.chartIdentity = chartIdentity
 
         let primaryPoints = comparison.primary.series.lineChartCalendarPoints(to: selectedRange)
@@ -131,7 +137,7 @@ struct BodyHealthSourceComparisonLineChart: View {
         self.latestPrimaryDate = primaryEntries.last { $0.value?.isFinite == true }?.date
         self.latestSecondaryDate = secondaryEntries.last { $0.value?.isFinite == true }?.date
         let domainDates = primaryEntries.map(\.date) + secondaryEntries.map(\.date)
-        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
+        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive)
         self.chartYDomain = BodyHealthMetricTrendChart.computeYDomain(
             from: allEntries.compactMap(\.value).filter(\.isFinite),
             chartStyle: .line
@@ -224,16 +230,18 @@ struct BodyHealthSourceComparisonLineChart: View {
             }
         }
         .chartYAxis {
-            AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
-                AxisGridLine()
-                    .foregroundStyle(Color.secondary.opacity(0.18))
-                AxisTick()
-                    .foregroundStyle(Color.secondary.opacity(0.28))
-                AxisValueLabel {
-                    if let yValue = value.as(Double.self) {
-                        Text(valueFormatter(yValue))
-                            .font(.system(.caption2, design: .rounded))
-                            .foregroundStyle(Color.secondary)
+            if !immersive {
+                AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
+                    AxisGridLine()
+                        .foregroundStyle(Color.secondary.opacity(0.18))
+                    AxisTick()
+                        .foregroundStyle(Color.secondary.opacity(0.28))
+                    AxisValueLabel {
+                        if let yValue = value.as(Double.self) {
+                            Text(valueFormatter(yValue))
+                                .font(.system(.caption2, design: .rounded))
+                                .foregroundStyle(Color.secondary)
+                        }
                     }
                 }
             }
@@ -339,6 +347,7 @@ struct BodyHealthSourceComparisonBarChart: View {
     let primaryColor: Color
     let secondaryColor: Color
     let valueFormatter: (Double) -> String
+    let immersive: Bool
     let chartIdentity: String
 
     private let entries: [BodyHealthSourceComparisonBarEntry]
@@ -357,6 +366,7 @@ struct BodyHealthSourceComparisonBarChart: View {
         primaryColor: Color,
         secondaryColor: Color,
         valueFormatter: @escaping (Double) -> String,
+        immersive: Bool = false,
         chartIdentity: String
     ) {
         self.title = title
@@ -365,17 +375,24 @@ struct BodyHealthSourceComparisonBarChart: View {
         self.primaryColor = primaryColor
         self.secondaryColor = secondaryColor
         self.valueFormatter = valueFormatter
+        self.immersive = immersive
         self.chartIdentity = chartIdentity
 
         let primaryPoints = comparison.primary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
         let secondaryPoints = comparison.secondary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
         let dateOffset = selectedRange.sourceComparisonChartDateOffset
+        // For Week, `point.date` is the day start (the midnight gridline), so the raw
+        // ±offset pair straddles it and the primary bar lands in the previous day's
+        // column. Shift the Week pair fully into the day's own column. Aggregated ranges
+        // keep `point.date` (the bucket end, which never aligns with the weekly/monthly
+        // gridlines) and read fine as-is.
+        let pairShift: TimeInterval = selectedRange.sourceComparisonChartAggregationDayCount == 1 ? dateOffset * 2 : 0
         let primaryEntries = primaryPoints.map { point in
             BodyHealthSourceComparisonBarEntry(
                 sourceName: comparison.primary.sourceName,
                 sourceRole: .primary,
                 point: point,
-                chartDate: point.date.addingTimeInterval(-dateOffset)
+                chartDate: point.date.addingTimeInterval(pairShift - dateOffset)
             )
         }
         let secondaryEntries = secondaryPoints.map { point in
@@ -383,7 +400,7 @@ struct BodyHealthSourceComparisonBarChart: View {
                 sourceName: comparison.secondary.sourceName,
                 sourceRole: .secondary,
                 point: point,
-                chartDate: point.date.addingTimeInterval(dateOffset)
+                chartDate: point.date.addingTimeInterval(pairShift + dateOffset)
             )
         }
         let allEntries = primaryEntries + secondaryEntries
@@ -391,7 +408,7 @@ struct BodyHealthSourceComparisonBarChart: View {
         self.finiteEntries = allEntries.filter { $0.value?.isFinite == true }
 
         let domainDates = allEntries.map(\.chartDate)
-        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
+        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive, immersivePairedBars: true)
         self.chartYDomain = BodyHealthMetricTrendChart.computeYDomain(
             from: finiteEntries.compactMap(\.value),
             chartStyle: .bar
@@ -456,16 +473,18 @@ struct BodyHealthSourceComparisonBarChart: View {
                 }
             }
             .chartYAxis {
-                AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
-                    AxisGridLine()
-                        .foregroundStyle(Color.secondary.opacity(0.18))
-                    AxisTick()
-                        .foregroundStyle(Color.secondary.opacity(0.28))
-                    AxisValueLabel {
-                        if let yValue = value.as(Double.self) {
-                            Text(valueFormatter(yValue))
-                                .font(.system(.caption2, design: .rounded))
-                                .foregroundStyle(Color.secondary)
+                if !immersive {
+                    AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
+                        AxisGridLine()
+                            .foregroundStyle(Color.secondary.opacity(0.18))
+                        AxisTick()
+                            .foregroundStyle(Color.secondary.opacity(0.28))
+                        AxisValueLabel {
+                            if let yValue = value.as(Double.self) {
+                                Text(valueFormatter(yValue))
+                                    .font(.system(.caption2, design: .rounded))
+                                    .foregroundStyle(Color.secondary)
+                            }
                         }
                     }
                 }
@@ -550,6 +569,7 @@ struct BodyHealthSourceComparisonRangeChart: View {
     let primaryColor: Color
     let secondaryColor: Color
     let valueFormatter: (Double) -> String
+    let immersive: Bool
     let chartIdentity: String
 
     private let entries: [BodyHealthSourceComparisonRangeEntry]
@@ -569,6 +589,7 @@ struct BodyHealthSourceComparisonRangeChart: View {
         secondaryColor: Color,
         valueFormatter: @escaping (Double) -> String,
         yDomain: (([Double]) -> ClosedRange<Double>)? = nil,
+        immersive: Bool = false,
         chartIdentity: String
     ) {
         self.title = title
@@ -577,17 +598,24 @@ struct BodyHealthSourceComparisonRangeChart: View {
         self.primaryColor = primaryColor
         self.secondaryColor = secondaryColor
         self.valueFormatter = valueFormatter
+        self.immersive = immersive
         self.chartIdentity = chartIdentity
 
         let primaryPoints = comparison.primary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
         let secondaryPoints = comparison.secondary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
         let dateOffset = selectedRange.sourceComparisonChartDateOffset
+        // For Week, `point.date` is the day start (the midnight gridline), so the raw
+        // ±offset pair straddles it and the primary bar lands in the previous day's
+        // column. Shift the Week pair fully into the day's own column. Aggregated ranges
+        // keep `point.date` (the bucket end, which never aligns with the weekly/monthly
+        // gridlines) and read fine as-is.
+        let pairShift: TimeInterval = selectedRange.sourceComparisonChartAggregationDayCount == 1 ? dateOffset * 2 : 0
         let primaryEntries = primaryPoints.map { point in
             BodyHealthSourceComparisonRangeEntry(
                 sourceName: comparison.primary.sourceName,
                 sourceRole: .primary,
                 point: point,
-                chartDate: point.date.addingTimeInterval(-dateOffset)
+                chartDate: point.date.addingTimeInterval(pairShift - dateOffset)
             )
         }
         let secondaryEntries = secondaryPoints.map { point in
@@ -595,7 +623,7 @@ struct BodyHealthSourceComparisonRangeChart: View {
                 sourceName: comparison.secondary.sourceName,
                 sourceRole: .secondary,
                 point: point,
-                chartDate: point.date.addingTimeInterval(dateOffset)
+                chartDate: point.date.addingTimeInterval(pairShift + dateOffset)
             )
         }
         let allEntries = primaryEntries + secondaryEntries
@@ -603,7 +631,7 @@ struct BodyHealthSourceComparisonRangeChart: View {
         self.finiteEntries = allEntries.filter(\.hasValue)
 
         let domainDates = allEntries.map(\.chartDate)
-        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
+        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive, immersivePairedBars: true)
         let domainValues = allEntries.flatMap { entry -> [Double] in
             guard let low = entry.lowValue, let high = entry.highValue else {
                 return []
@@ -682,16 +710,18 @@ struct BodyHealthSourceComparisonRangeChart: View {
                 }
             }
             .chartYAxis {
-                AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
-                    AxisGridLine()
-                        .foregroundStyle(Color.secondary.opacity(0.18))
-                    AxisTick()
-                        .foregroundStyle(Color.secondary.opacity(0.28))
-                    AxisValueLabel {
-                        if let yValue = value.as(Double.self) {
-                            Text(valueFormatter(yValue))
-                                .font(.system(.caption2, design: .rounded))
-                                .foregroundStyle(Color.secondary)
+                if !immersive {
+                    AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
+                        AxisGridLine()
+                            .foregroundStyle(Color.secondary.opacity(0.18))
+                        AxisTick()
+                            .foregroundStyle(Color.secondary.opacity(0.28))
+                        AxisValueLabel {
+                            if let yValue = value.as(Double.self) {
+                                Text(valueFormatter(yValue))
+                                    .font(.system(.caption2, design: .rounded))
+                                    .foregroundStyle(Color.secondary)
+                            }
                         }
                     }
                 }
@@ -787,4 +817,3 @@ struct BodyHealthSourceComparisonRangeEntry: Identifiable {
         point.hasValue
     }
 }
-

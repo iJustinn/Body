@@ -7,8 +7,16 @@ import Charts
 import SwiftUI
 
 struct BodyHealthTrendRangeSelector: View {
+    /// Standard grouped-background pills, or translucent "glass" pills for the
+    /// metric gradient hero where the selector floats over the gradient wash.
+    enum Appearance {
+        case standard
+        case onGradient
+    }
+
     @Environment(\.colorScheme) private var colorScheme
     @Binding var selectedRange: BodyHealthTrendRange
+    var appearance: Appearance = .standard
 
     var body: some View {
         HStack(spacing: 8) {
@@ -18,22 +26,40 @@ struct BodyHealthTrendRangeSelector: View {
                         selectedRange = range
                     }
                 } label: {
-                    Text(range.displayName)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundColor(selectedRange == range ? .accentColor : .primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
-                        .frame(maxWidth: .infinity, minHeight: 42)
-                        .bodyTrendRangeTabBackground(
-                            isSelected: selectedRange == range,
-                            colorScheme: colorScheme
-                        )
+                    pillLabel(for: range)
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(selectedRange == range ? .isSelected : [])
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func pillLabel(for range: BodyHealthTrendRange) -> some View {
+        let isSelected = selectedRange == range
+        let label = Text(range.displayName)
+            .font(.system(size: 15, weight: .semibold, design: .rounded))
+            .foregroundColor(textColor(isSelected: isSelected))
+            .lineLimit(1)
+            .minimumScaleFactor(0.78)
+            .frame(maxWidth: .infinity, minHeight: 42)
+
+        switch appearance {
+        case .standard:
+            label.bodyTrendRangeTabBackground(isSelected: isSelected, colorScheme: colorScheme)
+        case .onGradient:
+            label.bodyTrendRangeTabBackgroundOnGradient(isSelected: isSelected)
+        }
+    }
+
+    private func textColor(isSelected: Bool) -> Color {
+        switch appearance {
+        case .standard:
+            return isSelected ? .accentColor : .primary
+        case .onGradient:
+            return isSelected ? .primary : .primary.opacity(0.6)
+        }
     }
 }
 
@@ -79,6 +105,9 @@ struct BodyBasicsTrendLegend: View {
             legendItem(title: "Weight", valueText: weightAverageText, color: weightColor)
         }
         .frame(maxWidth: 180, alignment: .trailing)
+        .alignmentGuide(.firstTextBaseline) { dimensions in
+            dimensions[.lastTextBaseline]
+        }
     }
 
     private func legendItem(title: String, valueText: String?, color: Color) -> some View {
@@ -278,4 +307,3 @@ struct BodyHealthMetricTrendHighlightedRange {
         min(upperBound ?? domain.upperBound, domain.upperBound)
     }
 }
-

@@ -58,4 +58,19 @@ extension View {
                 )
         )
     }
+
+    /// Translucent "glass" pills that float over the metric hero gradient, used by
+    /// the `.onGradient` appearance of `BodyHealthTrendRangeSelector`. Built on
+    /// `.primary` so they adapt: faint dark pills on the light-mode wash, faint
+    /// light pills on the dark-mode wash.
+    func bodyTrendRangeTabBackgroundOnGradient(isSelected: Bool) -> some View {
+        background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.primary.opacity(isSelected ? 0.16 : 0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.primary.opacity(isSelected ? 0.24 : 0.10), lineWidth: 1)
+        )
+    }
 }

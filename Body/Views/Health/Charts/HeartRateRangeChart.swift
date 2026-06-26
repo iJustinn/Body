@@ -13,6 +13,7 @@ struct BodyHeartRateRangeTrendChart: View {
     let secondaryColor: Color
     let valueFormatter: (Double) -> String
     let showsAverageLineOverlay: Bool
+    let immersive: Bool
 
     private let rangePoints: [HealthTrendRangeCalendarPoint]
     private let secondaryRangePoints: [HealthTrendRangeCalendarPoint]
@@ -40,6 +41,7 @@ struct BodyHeartRateRangeTrendChart: View {
         secondaryColor: Color = Color(red: 0.58, green: 0.36, blue: 0.98),
         valueFormatter: @escaping (Double) -> String,
         showsAverageLineOverlay: Bool = false,
+        immersive: Bool = false,
         yDomain: (([Double]) -> ClosedRange<Double>)? = nil
     ) {
         self.title = title
@@ -48,6 +50,7 @@ struct BodyHeartRateRangeTrendChart: View {
         self.secondaryColor = secondaryColor
         self.valueFormatter = valueFormatter
         self.showsAverageLineOverlay = showsAverageLineOverlay
+        self.immersive = immersive
         self.primarySourceName = primarySourceName
         self.secondarySourceName = secondarySourceName
 
@@ -78,7 +81,7 @@ struct BodyHeartRateRangeTrendChart: View {
         self.chartYDomain = yDomain?(domainValues) ?? Self.computeYDomain(from: domainValues)
         let domainDates = rangeSeries.calendarPoints(to: selectedRange).map(\.date)
             + (secondaryRangeSeries?.calendarPoints(to: selectedRange).map(\.date) ?? [])
-        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
+        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive)
     }
 
     var body: some View {
@@ -154,16 +157,18 @@ struct BodyHeartRateRangeTrendChart: View {
                 }
             }
             .chartYAxis {
-                AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
-                    AxisGridLine()
-                        .foregroundStyle(Color.secondary.opacity(0.18))
-                    AxisTick()
-                        .foregroundStyle(Color.secondary.opacity(0.28))
-                    AxisValueLabel {
-                        if let yValue = value.as(Double.self) {
-                            Text(valueFormatter(yValue))
-                                .font(.system(.caption2, design: .rounded))
-                                .foregroundStyle(Color.secondary)
+                if !immersive {
+                    AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
+                        AxisGridLine()
+                            .foregroundStyle(Color.secondary.opacity(0.18))
+                        AxisTick()
+                            .foregroundStyle(Color.secondary.opacity(0.28))
+                        AxisValueLabel {
+                            if let yValue = value.as(Double.self) {
+                                Text(valueFormatter(yValue))
+                                    .font(.system(.caption2, design: .rounded))
+                                    .foregroundStyle(Color.secondary)
+                            }
                         }
                     }
                 }

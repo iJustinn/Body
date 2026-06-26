@@ -114,14 +114,75 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("func bodyHealthDetailChartTrailingDatePadding(for selectedRange: BodyHealthTrendRange) -> TimeInterval"))
         XCTAssertTrue(source.contains("let rangeScaledPadding = Double(selectedRange.axisStrideDayCount) * 24 * 60 * 60 * 0.55"))
         XCTAssertTrue(source.contains("return max(bodyHealthDetailChartMinimumTrailingDatePadding, rangeScaledPadding)"))
-        XCTAssertTrue(source.contains("func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange) -> ClosedRange<Date>"))
+        XCTAssertTrue(source.contains("func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange, immersive: Bool = false, immersivePairedBars: Bool = false) -> ClosedRange<Date>"))
+        // Immersive charts (Y axis hidden) pad each edge by ~half a data bucket so the
+        // first/last bar or point fits without clipping and no empty day appears. Week
+        // single-mark charts bias slightly right (less space left, more right); paired-
+        // bar comparison charts stay symmetric. Non-immersive charts keep the small
+        // leading padding and favor right-side padding (room for the trailing label).
+        XCTAssertTrue(source.contains("let bucketSeconds = Double(selectedRange.chartAggregationDayCount) * 24 * 60 * 60"))
+        XCTAssertTrue(source.contains("if selectedRange == .recentWeek && !immersivePairedBars {"))
+        XCTAssertTrue(source.contains("leadingDatePadding = 2 * 60 * 60"))
+        XCTAssertTrue(source.contains("trailingDatePadding = 26 * 60 * 60"))
+        XCTAssertTrue(source.contains("let halfBucketPadding = bucketSeconds * 0.5"))
+        XCTAssertTrue(source.contains("leadingDatePadding = bodyHealthDetailChartLeadingDatePadding"))
+        XCTAssertTrue(source.contains("trailingDatePadding = bodyHealthDetailChartTrailingDatePadding(for: selectedRange)"))
         XCTAssertEqual(
-            source.occurrenceCount(of: "self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)"),
+            source.occurrenceCount(of: "self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive:"),
             7
+        )
+        XCTAssertEqual(
+            source.occurrenceCount(of: "bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive)"),
+            4
+        )
+        XCTAssertEqual(
+            source.occurrenceCount(of: "immersive: immersive, immersivePairedBars: true)"),
+            2
         )
         XCTAssertFalse(source.contains("bodyHealthDetailChartTrailingDatePadding: TimeInterval = 36 * 60 * 60"))
         XCTAssertFalse(source.contains("let leadingPadding: TimeInterval = 6 * 60 * 60"))
         XCTAssertFalse(source.contains("let trailingPadding: TimeInterval = 18 * 60 * 60"))
+    }
+
+    func testHealthMetricChartXDomainComputesExpectedPadding() {
+        let hour: TimeInterval = 60 * 60
+        let day: TimeInterval = 24 * hour
+        let startDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let endDate = startDate.addingTimeInterval(3 * day)
+        let dates = [endDate, startDate]
+
+        let standardMonthDomain = bodyHealthDetailChartXDomain(for: dates, selectedRange: .recentMonth)
+        XCTAssertEqual(standardMonthDomain.lowerBound.timeIntervalSince(startDate), -2 * hour, accuracy: 0.001)
+        XCTAssertEqual(standardMonthDomain.upperBound.timeIntervalSince(endDate), 7 * day * 0.55, accuracy: 0.001)
+
+        let immersiveWeekDomain = bodyHealthDetailChartXDomain(for: dates, selectedRange: .recentWeek, immersive: true)
+        XCTAssertEqual(immersiveWeekDomain.lowerBound.timeIntervalSince(startDate), -2 * hour, accuracy: 0.001)
+        XCTAssertEqual(immersiveWeekDomain.upperBound.timeIntervalSince(endDate), 26 * hour, accuracy: 0.001)
+
+        let immersivePairedWeekDomain = bodyHealthDetailChartXDomain(
+            for: dates,
+            selectedRange: .recentWeek,
+            immersive: true,
+            immersivePairedBars: true
+        )
+        XCTAssertEqual(immersivePairedWeekDomain.lowerBound.timeIntervalSince(startDate), -12 * hour, accuracy: 0.001)
+        XCTAssertEqual(immersivePairedWeekDomain.upperBound.timeIntervalSince(endDate), 12 * hour, accuracy: 0.001)
+
+        let immersiveSixMonthDomain = bodyHealthDetailChartXDomain(
+            for: dates,
+            selectedRange: .recentSixMonths,
+            immersive: true
+        )
+        XCTAssertEqual(immersiveSixMonthDomain.lowerBound.timeIntervalSince(startDate), -3 * day, accuracy: 0.001)
+        XCTAssertEqual(immersiveSixMonthDomain.upperBound.timeIntervalSince(endDate), 3 * day, accuracy: 0.001)
+
+        let emptyDateDomain = bodyHealthDetailChartXDomain(
+            for: [],
+            selectedRange: .recentWeek,
+            immersive: true,
+            immersivePairedBars: true
+        )
+        XCTAssertEqual(emptyDateDomain.upperBound.timeIntervalSince(emptyDateDomain.lowerBound), day, accuracy: 0.001)
     }
 
     func testHealthDashboardUpdatesRecalculateReadinessBeforeSaving() throws {
@@ -171,30 +232,28 @@ final class ProjectConfigurationTests: XCTestCase {
         let cardIconStart = try XCTUnwrap(source.range(of: "Image(systemName: metric.symbolName)")?.lowerBound)
         let cardIconEnd = try XCTUnwrap(source.range(of: "private var valueRow", range: cardIconStart..<source.endIndex)?.lowerBound)
         let cardIconBlock = String(source[cardIconStart..<cardIconEnd])
-        let headerStart = try XCTUnwrap(source.range(of: "private var headerCard: some View")?.lowerBound)
-        let headerEnd = try XCTUnwrap(source.range(of: "@ViewBuilder\n    private var headerValues", range: headerStart..<source.endIndex)?.lowerBound)
-        let headerBlock = String(source[headerStart..<headerEnd])
 
+        // The metric detail page no longer shows a header icon card — its current
+        // value now reads large in the gradient hero — so only the home metric card
+        // icon tint treatment is asserted here.
         XCTAssertTrue(cardIconBlock.contains(".foregroundColor(metric.symbolColor)"))
         XCTAssertTrue(cardIconBlock.contains(".fill(metric.symbolColor.opacity(0.16))"))
-        XCTAssertTrue(headerBlock.contains(".foregroundColor(model.symbolColor)"))
-        XCTAssertTrue(headerBlock.contains(".background(model.symbolColor.opacity(0.16))"))
-        XCTAssertFalse(headerBlock.contains(".symbolRenderingMode(.hierarchical)"))
-        XCTAssertFalse(headerBlock.contains(".foregroundStyle(model.symbolColor)"))
-        XCTAssertFalse(headerBlock.contains(".background(model.symbolColor.opacity(0.14))"))
     }
 
     func testMetricDetailPagesUseRequestedCardOrdering() throws {
         let source = try bodyHomeViewText()
-        let detailStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricDetailView")?.lowerBound)
-        let detailEnd = try XCTUnwrap(source.range(of: "private var selectedTemperatureUnitPreference", range: detailStart..<source.endIndex)?.lowerBound)
-        let detailBodyBlock = String(source[detailStart..<detailEnd])
+        // The header/selector/trend-card now live in the gradient hero; the cards
+        // that scroll below it (and their ordering) live in `metricDetailCards`.
+        let cardsStart = try XCTUnwrap(source.range(of: "private var metricDetailCards: some View")?.lowerBound)
+        let cardsEnd = try XCTUnwrap(
+            source.range(of: "private var metricHeroValueRow", range: cardsStart..<source.endIndex)?.lowerBound
+        )
+        let detailBodyBlock = String(source[cardsStart..<cardsEnd])
         let sleepSelectedCardsStart = try XCTUnwrap(detailBodyBlock.range(of: "selectedSleepCards")?.lowerBound)
         let sleepTrendCardStart = try XCTUnwrap(
             detailBodyBlock.range(of: "detailTrendComparisonCard", range: sleepSelectedCardsStart..<detailBodyBlock.endIndex)?.lowerBound
         )
         let sleepAboutStart = try XCTUnwrap(detailBodyBlock.range(of: "aboutSleepScoreCard")?.lowerBound)
-        let trendCardStart = try XCTUnwrap(detailBodyBlock.range(of: "trendCard", range: sleepAboutStart..<detailBodyBlock.endIndex)?.lowerBound)
         let dayViewStart = try XCTUnwrap(detailBodyBlock.range(of: "if supportsMetricDayView")?.lowerBound)
         let metricDayChartStart = try XCTUnwrap(
             detailBodyBlock.range(of: "metricDayChartCard", range: dayViewStart..<detailBodyBlock.endIndex)?.lowerBound
@@ -216,7 +275,6 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertLessThan(sleepSelectedCardsStart, sleepTrendCardStart)
         XCTAssertLessThan(sleepTrendCardStart, sleepAboutStart)
-        XCTAssertLessThan(trendCardStart, dayViewStart)
         XCTAssertLessThan(metricDayChartStart, dayViewTrendCardStart)
         XCTAssertLessThan(metricDayChartStart, metricActivityAveragesStart)
         XCTAssertLessThan(metricActivityAveragesStart, dayViewTrendCardStart)
@@ -441,15 +499,28 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testTrainingLoadDetailShowsIntervalDayBreakdownBelowLineChart() throws {
         let source = try bodyHomeViewText()
-        let trendCardStart = try XCTUnwrap(source.range(of: "private var trendCard")?.lowerBound)
-        let trendCardBlock = String(source[trendCardStart...].prefix(8_000))
+        // The day breakdown renders in `metricBreakdownChart`, placed below the hero
+        // value row (which sits below the line chart) — so the big current value reads
+        // directly under the line chart and the breakdown bars sit beneath it.
+        let breakdownContainerStart = try XCTUnwrap(source.range(of: "private var metricBreakdownChart")?.lowerBound)
+        let breakdownContainerBlock = String(source[breakdownContainerStart...].prefix(1_200))
         let breakdownStart = try XCTUnwrap(source.range(of: "struct BodyTrainingLoadIntervalBreakdownChart")?.lowerBound)
         let breakdownBlock = String(source[breakdownStart...].prefix(4_500))
 
-        XCTAssertTrue(trendCardBlock.contains("if model.kind == .trainingLoad {"))
-        XCTAssertTrue(trendCardBlock.contains("BodyTrainingLoadIntervalBreakdownChart("))
-        XCTAssertTrue(trendCardBlock.contains("series: model.series"))
-        XCTAssertTrue(trendCardBlock.contains("selectedRange: selectedTrendRange"))
+        // Within the hero, the value row precedes the breakdown bars.
+        let heroStart = try XCTUnwrap(source.range(of: "private var metricHero: some View")?.lowerBound)
+        let heroEnd = try XCTUnwrap(
+            source.range(of: "private var metricDetailCards", range: heroStart..<source.endIndex)?.lowerBound
+        )
+        let heroBlock = String(source[heroStart..<heroEnd])
+        let valueRowIndex = try XCTUnwrap(heroBlock.range(of: "metricHeroValueRow")?.lowerBound)
+        let breakdownIndex = try XCTUnwrap(heroBlock.range(of: "metricBreakdownChart")?.lowerBound)
+        XCTAssertLessThan(valueRowIndex, breakdownIndex)
+
+        XCTAssertTrue(breakdownContainerBlock.contains("if model.kind == .trainingLoad {"))
+        XCTAssertTrue(breakdownContainerBlock.contains("BodyTrainingLoadIntervalBreakdownChart("))
+        XCTAssertTrue(breakdownContainerBlock.contains("series: model.series"))
+        XCTAssertTrue(breakdownContainerBlock.contains("selectedRange: selectedTrendRange"))
         XCTAssertTrue(breakdownBlock.contains("TrainingLoadIntervalBreakdown.entries("))
         XCTAssertTrue(breakdownBlock.contains("GeometryReader { geometry in"))
         XCTAssertTrue(breakdownBlock.contains("RoundedRectangle(cornerRadius: barCornerRadius"))
@@ -522,14 +593,28 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(pickerBlock.contains("private struct PendingSelection: Equatable"))
         XCTAssertTrue(pickerBlock.contains("@State private var updatingSelection: PendingSelection?"))
         XCTAssertTrue(pickerBlock.contains("role: SourceRole"))
-        XCTAssertTrue(pickerBlock.contains("let isSectionLocked = updatingSelection?.role == role"))
-        XCTAssertTrue(pickerBlock.contains(".disabled(isSelected || isSectionLocked)"))
+        XCTAssertTrue(pickerBlock.contains("let isSelectionLocked = updatingSelection != nil"))
+        XCTAssertTrue(pickerBlock.contains(".disabled(isSelected || isSelectionLocked)"))
         XCTAssertTrue(pickerBlock.contains("case .secondary:"))
 
         XCTAssertFalse(pickerBlock.contains("role: String"))
         XCTAssertFalse(pickerBlock.contains("updatingSelectionID"))
         XCTAssertFalse(pickerBlock.contains(".disabled(updatingSelectionID != nil || isSelected)"))
+        XCTAssertFalse(pickerBlock.contains("let isSectionLocked = updatingSelection?.role == role"))
         XCTAssertFalse(pickerBlock.contains("role == \"secondary\""))
+    }
+
+    func testHealthDataSourcePickerStaysOpenAfterChangingSelection() throws {
+        let source = try bodyHomeViewText()
+        let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
+        let pickerBlock = String(source[pickerStart...].prefix(8_000))
+        let updateStart = try XCTUnwrap(pickerBlock.range(of: "private func updateSelection")?.lowerBound)
+        let updateBlock = String(pickerBlock[updateStart...].prefix(1_200))
+
+        XCTAssertTrue(pickerBlock.contains("Button(\"Done\")"))
+        XCTAssertTrue(pickerBlock.contains("dismiss()"))
+        XCTAssertTrue(updateBlock.contains("updatingSelection = nil"))
+        XCTAssertFalse(updateBlock.contains("dismiss()"))
     }
 
     func testHealthKitFetchesApplySourcePreferencesToRequestedMetrics() throws {
@@ -574,16 +659,18 @@ final class ProjectConfigurationTests: XCTestCase {
         let homeSource = try bodyHomeViewText()
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
         let appearanceSource = try text(at: "Body/Models/BodyAppearancePreference.swift")
-        let trendCardStart = try XCTUnwrap(homeSource.range(of: "private var trendCard: some View")?.lowerBound)
+        let trendCardStart = try XCTUnwrap(homeSource.range(of: "private func metricTrendChart")?.lowerBound)
         let trendCardBlock = String(homeSource[trendCardStart...].prefix(10_000))
         let comparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonBarChart")?.lowerBound)
-        let comparisonChartBlock = String(homeSource[comparisonChartStart...].prefix(8_000))
+        let comparisonChartBlock = String(homeSource[comparisonChartStart...].prefix(8_500))
         let rangeComparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonRangeChart")?.lowerBound)
         let rangeComparisonChartBlock = String(homeSource[rangeComparisonChartStart...].prefix(8_000))
         let rangeBandChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHeartRateRangeTrendChart")?.lowerBound)
         let rangeBandChartBlock = String(homeSource[rangeBandChartStart...].prefix(14_000))
 
-        XCTAssertTrue(trendCardBlock.contains("BodyHealthSourceLegend("))
+        // The source legend moved from the trend-card header to the hero value row
+        // (`heroValueTrailing`); the comparison charts stay in `metricTrendChart`.
+        XCTAssertTrue(homeSource.contains("BodyHealthSourceLegend("))
         XCTAssertTrue(trendCardBlock.contains("BodyHealthSourceComparisonBarChart("))
         XCTAssertTrue(trendCardBlock.contains("BodyHealthSourceComparisonRangeChart("))
         XCTAssertTrue(trendCardBlock.contains("model.kind.usesSourceComparisonRangeBandLineChart"))
@@ -593,6 +680,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(homeSource.contains("Color(red: 0.58, green: 0.36, blue: 0.98)"))
         XCTAssertTrue(appearanceSource.contains("var usesSourceComparisonRangeBandLineChart: Bool"))
         XCTAssertTrue(comparisonChartBlock.contains("chartDate: point.date.addingTimeInterval"))
+        // The Week pair is nudged fully into the day's column (both bars right of the
+        // midnight gridline) instead of straddling it.
+        XCTAssertTrue(comparisonChartBlock.contains("let pairShift: TimeInterval = selectedRange.sourceComparisonChartAggregationDayCount == 1 ? dateOffset * 2 : 0"))
+        XCTAssertTrue(comparisonChartBlock.contains("chartDate: point.date.addingTimeInterval(pairShift - dateOffset)"))
+        XCTAssertTrue(rangeComparisonChartBlock.contains("let pairShift: TimeInterval = selectedRange.sourceComparisonChartAggregationDayCount == 1 ? dateOffset * 2 : 0"))
         XCTAssertTrue(comparisonChartBlock.contains("x: .value(\"Date\", entry.chartDate)"))
         XCTAssertFalse(comparisonChartBlock.contains(".position(by: .value(\"Source\", entry.sourceRole.rawValue), axis: .horizontal)"))
         XCTAssertTrue(comparisonChartBlock.contains("sourceComparisonChartBarWidth(forAvailableWidth:"))
@@ -613,7 +705,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let homeSource = try bodyHomeViewText()
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
         let appearanceSource = try text(at: "Body/Models/BodyAppearancePreference.swift")
-        let trendCardStart = try XCTUnwrap(homeSource.range(of: "private var trendCard: some View")?.lowerBound)
+        let trendCardStart = try XCTUnwrap(homeSource.range(of: "private func metricTrendChart")?.lowerBound)
         let trendCardBlock = String(homeSource[trendCardStart...].prefix(9_000))
         let lineComparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonLineChart")?.lowerBound)
         let lineComparisonChartBlock = String(homeSource[lineComparisonChartStart...].prefix(10_000))
@@ -741,18 +833,14 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testChartLegendHeadersFillAvailableWidth() throws {
         let source = try bodyHomeViewText()
-        let trendCardStart = try XCTUnwrap(source.range(of: "private var trendCard: some View")?.lowerBound)
-        let trendChartStart = try XCTUnwrap(
-            source.range(of: "if let visibleBasicsTrend", range: trendCardStart..<source.endIndex)?.lowerBound
-        )
-        let trendHeaderBlock = String(source[trendCardStart..<trendChartStart])
+        // The trend chart's "Last 7 Days" header was removed when it folded into the
+        // gradient hero; only the metric day-chart card still carries a legend header.
         let dayChartCardStart = try XCTUnwrap(source.range(of: "private var metricDayChartCard: some View")?.lowerBound)
         let dayChartStart = try XCTUnwrap(
             source.range(of: "if selectedMetricDaySeries.isEmpty", range: dayChartCardStart..<source.endIndex)?.lowerBound
         )
         let dayHeaderBlock = String(source[dayChartCardStart..<dayChartStart])
 
-        XCTAssertTrue(trendHeaderBlock.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
         XCTAssertTrue(dayHeaderBlock.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
     }
 
@@ -768,6 +856,41 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(legendBlock.contains(".frame(maxWidth: 180, alignment: .trailing)"))
         XCTAssertFalse(legendBlock.contains("VStack(alignment: .leading, spacing: 7)"))
         XCTAssertFalse(legendBlock.contains(".frame(maxWidth: 180, alignment: .leading)"))
+    }
+
+    func testTwoLineHeroLegendsUseBottomRowAnchoring() throws {
+        let source = try bodyHomeViewText()
+        let sourceLegendStart = try XCTUnwrap(source.range(of: "struct BodyHealthSourceLegend: View")?.lowerBound)
+        let sourceLegendEnd = try XCTUnwrap(
+            source.range(of: "struct BodyHealthSourceComparisonLineChart", range: sourceLegendStart..<source.endIndex)?.lowerBound
+        )
+        let sourceLegendBlock = String(source[sourceLegendStart..<sourceLegendEnd])
+        let basicsLegendStart = try XCTUnwrap(source.range(of: "struct BodyBasicsTrendLegend: View")?.lowerBound)
+        let basicsLegendEnd = try XCTUnwrap(
+            source.range(of: "struct BodyChartSelectionValue", range: basicsLegendStart..<source.endIndex)?.lowerBound
+        )
+        let basicsLegendBlock = String(source[basicsLegendStart..<basicsLegendEnd])
+        let heroTrailingStart = try XCTUnwrap(source.range(of: "private var heroValueTrailing: some View")?.lowerBound)
+        let heroTrailingEnd = try XCTUnwrap(
+            source.range(of: "private func metricTrendChart", range: heroTrailingStart..<source.endIndex)?.lowerBound
+        )
+        let heroTrailingBlock = String(source[heroTrailingStart..<heroTrailingEnd])
+
+        XCTAssertTrue(sourceLegendBlock.contains("ForEach(items)"))
+        XCTAssertFalse(sourceLegendBlock.contains("ForEach(orderedItems)"))
+        XCTAssertTrue(sourceLegendBlock.contains(".alignmentGuide(.firstTextBaseline) { dimensions in"))
+        XCTAssertTrue(sourceLegendBlock.contains("dimensions[.lastTextBaseline]"))
+        XCTAssertFalse(sourceLegendBlock.contains("dimensions[.firstTextBaseline]"))
+        XCTAssertTrue(basicsLegendBlock.contains(".alignmentGuide(.firstTextBaseline) { dimensions in"))
+        XCTAssertTrue(basicsLegendBlock.contains("dimensions[.lastTextBaseline]"))
+        XCTAssertTrue(heroTrailingBlock.contains("BodyChartBaselineLegend()"))
+        XCTAssertTrue(heroTrailingBlock.contains(".alignmentGuide(.firstTextBaseline) { dimensions in"))
+        XCTAssertTrue(heroTrailingBlock.contains("dimensions[.lastTextBaseline]"))
+        XCTAssertFalse(source.contains("sourceLabelSortOrder"))
+        XCTAssertEqual(
+            source.occurrenceCount(of: ".sorted { $0.sourceRole.rawValue < $1.sourceRole.rawValue }"),
+            3
+        )
     }
 
     func testBasicsLegendMatchesTrailingSourceLegendStyle() throws {
@@ -1157,8 +1280,10 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-v0.9.3`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.3 build 8"))
+        XCTAssertTrue(testPlan.contains("branch `body-v0.9.5`"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.5 build 1"))
+        XCTAssertFalse(testPlan.contains("branch `body-v0.9.3`"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.3 build 8"))
         XCTAssertFalse(testPlan.contains("app version 0.9.3 build 7"))
         XCTAssertFalse(testPlan.contains("app version 0.9.3 build 6"))
         XCTAssertFalse(testPlan.contains("app version 0.9.3 build 5"))
