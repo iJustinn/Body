@@ -781,9 +781,7 @@ struct BodyHealthMetricDayAnnotation: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .shadow(color: Color.black.opacity(0.10), radius: 8, y: 4)
+        .bodyChartSelectionAnnotationBackground()
     }
 
     private var sampleWindows: [HealthTrendHourlySampleWindow] {

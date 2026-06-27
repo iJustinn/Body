@@ -25,6 +25,6 @@ struct BodyHealthNoticeBanner: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground(cornerRadius: 22)
+        .bodyCardBackground(cornerRadius: 22, translucent: true, translucentFillOpacity: 0.09)
     }
 }

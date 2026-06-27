@@ -189,8 +189,24 @@ struct BodyChartSelectionAnnotation: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .bodyChartSelectionAnnotationBackground()
+    }
+}
+
+private enum BodyChartSelectionAnnotationStyle {
+    static let cornerRadius: CGFloat = 8
+    static let fillOpacity = 0.82
+}
+
+extension View {
+    func bodyChartSelectionAnnotationBackground() -> some View {
+        background {
+            RoundedRectangle(cornerRadius: BodyChartSelectionAnnotationStyle.cornerRadius, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground).opacity(BodyChartSelectionAnnotationStyle.fillOpacity))
+        }
+        .clipShape(
+            RoundedRectangle(cornerRadius: BodyChartSelectionAnnotationStyle.cornerRadius, style: .continuous)
+        )
         .shadow(color: Color.black.opacity(0.10), radius: 8, y: 4)
     }
 }
