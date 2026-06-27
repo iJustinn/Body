@@ -2057,6 +2057,32 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
     }
 
+    func testDashboardFetchSelectionStarredReadinessForcesDependencies() {
+        // The Readiness star hero shows regardless of the Summary/Trend toggles, so its
+        // inputs must be fetched whenever it's starred — even with no readiness card shown.
+        let selection = BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection(selectedCards: [.steps]),
+            trendCards: BodyHomeTrendCardSelection(selectedCards: []),
+            starredMetric: .readiness
+        )
+
+        XCTAssertTrue(selection.includes(.readiness))
+        XCTAssertTrue(selection.includes(.sleep))
+        XCTAssertTrue(selection.includes(.heartRateVariability))
+        XCTAssertTrue(selection.includes(.restingHeartRate))
+        XCTAssertTrue(selection.includes(.trainingLoad))
+    }
+
+    func testStarredMetricParsingHonorsEligibility() {
+        XCTAssertEqual(BodyHomeCardKind.starredMetric(from: BodyHomeCardKind.readiness.rawValue), .readiness)
+        XCTAssertNil(BodyHomeCardKind.starredMetric(from: ""))
+        XCTAssertNil(BodyHomeCardKind.starredMetric(from: "not-a-kind"))
+        // Real card kinds that aren't star-eligible must not parse as a star metric
+        // (Readiness is currently the only eligible metric).
+        XCTAssertNil(BodyHomeCardKind.starredMetric(from: BodyHomeCardKind.activityRings.rawValue))
+        XCTAssertNil(BodyHomeCardKind.starredMetric(from: BodyHomeCardKind.sleep.rawValue))
+    }
+
     func testDashboardFetchSelectionIncludesVisibleSummaryAndTrendCards() {
         let selection = BodyDashboardFetchSelection(
             summaryCards: BodySummaryCardSelection(selectedCards: [.activityRings, .steps]),
