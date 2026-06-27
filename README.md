@@ -6,7 +6,7 @@
 
 Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, Readiness, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
-Current app version: **0.9.5 (build 1)**
+Current app version: **0.9.5 (build 2)**
 
 ## Screenshots
 
@@ -24,7 +24,7 @@ Current app version: **0.9.5 (build 1)**
 
 ## Features
 
-- **Summary tab** - Activity Rings card plus health cards for Readiness, Exercise Minutes, Skin Temperature, Daylight, Steps, Sleep, Basics (body fat/weight/BMI), heart rate, Training Load, HRV, blood oxygen, respiratory rate, and energy. Each card includes a four-day preview chart and an About explainer. Detail screens support Week/Month/6 Months/Year ranges.
+- **Summary tab** - A **Star Metric** hero leads the tab — one metric pinned to the top and rendered chrome-free (no card) on a full-bleed backdrop that bleeds behind the status bar; v1 defaults to **Readiness**, rendering today's readiness score on a wave-fill tinted by the readiness band that fills left-to-right to the score and melts into the page — the big score flips up from zero and the whole hero taps through to the Readiness detail. Choose the star metric, or turn it off, in Settings > Metrics > Star Metric (a new gold row); while Readiness is starred the custom Home Background is auto-disabled (the hero supplies the color). Below the hero, drag-to-reorder health cards for Activity Rings, Exercise Minutes, Skin Temperature, Daylight, Steps, Sleep, Basics (body fat/weight/BMI), heart rate, Training Load, HRV, blood oxygen, respiratory rate, and energy — the starred metric is lifted out of this grid. Each card includes a four-day preview chart and an About explainer. Detail screens support Week/Month/6 Months/Year ranges.
 - **Add measurements** - The Basics detail screen has an Add (+) button that opens a sheet to log a new weight and/or body-fat reading — chosen with wheel pickers that start from your latest values, with a date/time and an include checkbox per measurement so you can log either or both — saved straight to Apple Health.
 - **Rate workout effort** - Tap the Effort card on a workout's detail screen and it expands in place (no popup) to reveal Cancel/Save on the left and − / + buttons on the right; set the rating 1–10 (Easy → All Out) and the bar meter animates. Body saves it to Apple Health, relates it to that workout, and recomputes Training Load.
 - **Readiness** - Readiness score based on personal baselines for sleep, heart, training load, respiratory, blood oxygen, and skin temperature signals, with status bands, component scores, confidence, and driver explanations.

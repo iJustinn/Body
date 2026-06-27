@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.5 (build 2)
+
+- Added a **Star Metric** to the Summary tab: one metric is pinned to the top of the home screen as a full-bleed hero (no card) and lifted out of the drag-to-reorder grid. v1 ships **Readiness** as the default star metric — today's readiness score sits on a wave-fill tinted by the readiness band that fills left-to-right to the score, bleeds behind the status bar, and melts into the page; the score flips up from zero (and rolls to each new value) and the whole hero taps through to the Readiness detail. Pick the star metric, or turn it off (which returns the Readiness card to the grid), under Settings > Metrics > Star Metric, a new gold row at the bottom of the Metrics section. While Readiness is starred the custom Home Background is auto-disabled (the hero supplies the color); the remaining cards still drag-to-reorder, and Readiness keeps fetching its inputs even when it's hidden in Summary Cards.
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 2.
+
 ## 0.9.5 (build 1)
 
 - Updated the app, widget, watch, and test bundle version to 0.9.5 build 1.
