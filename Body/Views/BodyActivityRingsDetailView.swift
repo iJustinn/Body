@@ -33,6 +33,27 @@ extension Color {
 }
 
 /// The customizable color mix + per-color widths behind the Home hero background.
+/// The app-wide custom background: the user's saved color mix when the Background setting
+/// is on, otherwise the plain grouped background. Used as-is on Workouts and Settings, which
+/// always show it. Home composes the mix directly instead (so it can suppress it while a star
+/// metric supplies the hero backdrop).
+struct BodyAppBackground: View {
+    @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var enabled = true
+    @AppStorage(BodyAppearancePreference.homeBackgroundColorsKey) private var colorsRawValue = ""
+    @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var separatorsRawValue = ""
+
+    var body: some View {
+        if enabled {
+            BodyActivityRingsCard.heroBackground(
+                colors: BodyHomeBackground.colors(from: colorsRawValue),
+                separators: BodyHomeBackground.separators(from: separatorsRawValue)
+            )
+        } else {
+            Color(.systemGroupedBackground)
+        }
+    }
+}
+
 /// Defaults to the three activity-ring colors split into uneven thirds; users can
 /// override the colors and the dividers between them.
 enum BodyHomeBackground {
@@ -639,7 +660,7 @@ struct BodyActivityRingsCard: View {
         // Each color sits at the center of its band and blends smoothly into its
         // neighbors; the dividers set the band widths (how much area each color takes).
         let stops = mix.enumerated().map { index, color in
-            Gradient.Stop(color: color.opacity(0.6), location: (bounds[index] + bounds[index + 1]) / 2)
+            Gradient.Stop(color: color.opacity(0.3), location: (bounds[index] + bounds[index + 1]) / 2)
         }
 
         return ZStack {
