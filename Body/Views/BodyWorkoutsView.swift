@@ -680,25 +680,80 @@ private struct BodyWorkoutDetailSheet: View {
     @State private var editingScore = 5
     @State private var isSavingEffort = false
     @State private var effortError: String?
-    @State private var selectedDetent: PresentationDetent = .fraction(0.7)
+    @State private var selectedDetent: PresentationDetent
+    @State private var route: WorkoutRoute?
+    @State private var scrollOffset: CGFloat = 0
     let workout: WorkoutSummary
+
+    init(workout: WorkoutSummary) {
+        self.workout = workout
+        _selectedDetent = State(initialValue: .fraction(0.7))
+    }
 
     private let metricColumns = [
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12)
     ]
 
+    /// Height of the fixed route-map background that the content scrolls over.
+    private let mapHeight: CGFloat = 510
+
+    /// How far the floating content overlaps up onto the map's faded lower edge,
+    /// so the header sits a little higher over the map rather than below it.
+    private let contentTopOverlap: CGFloat = 110
+
     var body: some View {
-        ZStack {
-            sheetBackdrop
+        ZStack(alignment: .top) {
+            if let route {
+                // The map is the page background: pure black with the route map
+                // pinned to the top, blending into the black. Content floats over
+                // it with no backing of its own (like the home and detail pages).
+                Color.black.ignoresSafeArea()
+
+                BodyWorkoutRouteMapHero(route: route, tint: workout.type.color)
+                    .frame(height: mapHeight)
+                    .overlay {
+                        // Dim the map as the content floats up over it.
+                        Color.black
+                            .opacity(mapDimOpacity)
+                            .allowsHitTesting(false)
+                    }
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .allowsHitTesting(false)
+            } else {
+                sheetBackdrop
+            }
 
             ScrollView(.vertical, showsIndicators: false) {
                 compactWorkoutContent
             }
             .scrollDismissesKeyboard(.interactively)
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.contentOffset.y
+            } action: { _, offset in
+                scrollOffset = offset
+            }
         }
         .presentationDetents([.fraction(0.7), .large], selection: $selectedDetent)
         .presentationDragIndicator(.visible)
+        .task {
+            let loadedRoute = await workoutStore.loadWorkoutRoute(for: workout)
+            route = loadedRoute
+            if loadedRoute != nil {
+                selectedDetent = .large
+            }
+        }
+    }
+
+    /// The fixed route map sits behind the scroll content; as the content slides
+    /// up over it the map dims toward black so the sheet reads as one surface
+    /// lifting off the map instead of a banner scrolling away.
+    private var mapDimOpacity: Double {
+        guard route != nil else {
+            return 0
+        }
+        let progress = min(max(scrollOffset / mapHeight, 0), 1)
+        return progress * 0.95
     }
 
     @ViewBuilder
@@ -726,27 +781,35 @@ private struct BodyWorkoutDetailSheet: View {
     }
 
     private var compactWorkoutContent: some View {
-        VStack(spacing: 18) {
-            topEntryPanel
-            workoutDetailsCard
-            effortCard
-            heartRateSection
-            sourceFooter
+        VStack(spacing: 0) {
+            if route != nil {
+                // Transparent gap that reveals the map background above; the
+                // content below floats over it with no backing of its own.
+                Color.clear.frame(height: mapHeight - contentTopOverlap)
+            }
+
+            VStack(spacing: 18) {
+                topEntryPanel
+                workoutDetailsCard
+                effortCard
+                heartRateSection
+                sourceFooter
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, route == nil ? 18 : 24)
+            .padding(.bottom, 22)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 18)
-        .padding(.bottom, 22)
     }
 
     private var topEntryPanel: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .bottom, spacing: 16) {
             VStack(alignment: .leading, spacing: 12) {
                 Image(systemName: workout.type.symbolName)
                     .font(.system(size: 34, weight: .semibold))
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(workout.type.color)
                     .frame(width: 68, height: 68)
-                    .background(workout.type.color.opacity(0.14))
+                    .background(workout.type.color.opacity(0.25))
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -755,6 +818,19 @@ private struct BodyWorkoutDetailSheet: View {
                         .foregroundColor(.primary)
                         .lineLimit(2)
                         .minimumScaleFactor(0.7)
+
+                    if let locality = route?.locality {
+                        HStack(spacing: 5) {
+                            Image(systemName: "location.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(workout.type.color)
+                            Text(locality)
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.72)
+                        }
+                    }
 
                     Text("\(presentation.dateTitle) - \(presentation.timeRangeText)")
                         .font(.system(size: 17, weight: .semibold, design: .rounded))
@@ -782,7 +858,7 @@ private struct BodyWorkoutDetailSheet: View {
 
     private var workoutDetailsCard: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Workout Details")
+            Text("Details")
                 .font(.system(size: 28, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 

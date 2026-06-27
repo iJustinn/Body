@@ -127,6 +127,12 @@ final class HealthKitWorkoutStore: ObservableObject {
     nonisolated static let maximumCachedMonthSnapshots = 12
 
     private let engine: HealthKitFetchEngine
+    /// Session cache of resolved workout routes keyed by workout UUID. A cached
+    /// `.some(nil)` means "confirmed no readable route", so non-route workouts
+    /// aren't re-queried and the city label isn't re-geocoded when a detail
+    /// sheet is reopened. HealthKit read access is opaque, so authorization gates
+    /// clear the cache before any stale positive or negative route result sticks.
+    private var routeCache: [UUID: WorkoutRoute?] = [:]
     private var loadedMonthKeys: Set<BodyWorkoutMonthKey> = []
     private var monthLoadOrder: [BodyWorkoutMonthKey] = []
     private var loadedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
@@ -340,7 +346,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         defer { finishRefresh() }
 
         do {
-            try await engine.requestAuthorization()
+            try await requestHealthKitAuthorization()
             await refreshRecentMonths(intent: intent)
         } catch {
             handleRefreshError(error)
@@ -366,7 +372,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         let calendar = Calendar.bodyGregorian
 
         do {
-            try await engine.requestAuthorization()
+            try await requestHealthKitAuthorization()
             if kind == .trainingLoad {
                 // The detail pull is an explicit gesture: drop the per-workout
                 // effort cache so a re-rated workout reconciles into the
@@ -441,6 +447,31 @@ final class HealthKitWorkoutStore: ObservableObject {
         Task { await refreshAfterWrite(.trainingLoad) }
     }
 
+    /// Loads the GPS route + city label for a workout's detail map hero, or `nil`
+    /// when the workout has no readable route. Cached per session (including the
+    /// no-route result), so it's safe to call on every detail-sheet open.
+    func loadWorkoutRoute(for workout: WorkoutSummary) async -> WorkoutRoute? {
+        if let cached = routeCache[workout.id] {
+            return cached
+        }
+
+        let coordinates = await engine.workoutRouteCoordinates(workoutID: workout.id)
+        guard coordinates.count >= 2 else {
+            routeCache[workout.id] = .some(nil)
+            return nil
+        }
+
+        let locality = await BodyReverseGeocoder.locality(for: coordinates)
+        let route = WorkoutRoute(coordinates: coordinates, locality: locality)
+        routeCache[workout.id] = .some(route)
+        return route
+    }
+
+    private func requestHealthKitAuthorization() async throws {
+        try await engine.requestAuthorization()
+        routeCache.removeAll()
+    }
+
     /// Loads the intraday day-sample sidecar (split out of the launch-critical
     /// snapshot decode) off the main actor and merges it into any still-empty
     /// `*DaySamples` fields. Refresh and lazy-load entry points await this
@@ -497,7 +528,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         do {
-            try await engine.requestAuthorization()
+            try await requestHealthKitAuthorization()
         } catch {
             return
         }
@@ -606,7 +637,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         let calendar = Calendar.bodyGregorian
 
         do {
-            try await engine.requestAuthorization()
+            try await requestHealthKitAuthorization()
             if intent == .userInitiated {
                 await engine.clearWorkoutEffortCache()
             }
@@ -631,6 +662,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         permissionSelection = nextSelection
         nextSelection.save()
         await engine.setPermissionSelection(nextSelection)
+        if permission == .workouts {
+            routeCache.removeAll()
+        }
         await applyPermissionSelectionToCachedData()
 
         if isEnabled {
@@ -1155,7 +1189,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         do {
-            try await engine.requestAuthorization()
+            try await requestHealthKitAuthorization()
 
             var mergedHistory: ActivityRingHistorySnapshot?
             var emptyProbedKeys: [ActivityRingMonthKey] = []
@@ -1598,7 +1632,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         do {
-            try await engine.requestAuthorization()
+            try await requestHealthKitAuthorization()
             try await refresh(monthKeys: keysToLoad, calendar: .bodyGregorian)
             authorizationState = .authorized
             markRefreshSucceeded(date: Date(), refreshedVitals: false)

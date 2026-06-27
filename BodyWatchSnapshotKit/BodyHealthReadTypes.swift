@@ -24,6 +24,10 @@ enum BodyHealthReadTypes {
         }
         if selection.includes(.workouts) {
             types.insert(HKObjectType.workoutType())
+            // GPS route for the workout-detail map hero. Folded into the standard
+            // request so existing users are re-prompted on the next refresh; read
+            // authorization stays opaque, so an absent route just yields no hero.
+            types.insert(HKSeriesType.workoutRoute())
             if let effortType = HKObjectType.quantityType(forIdentifier: .workoutEffortScore) {
                 types.insert(effortType)
             }

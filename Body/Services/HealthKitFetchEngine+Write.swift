@@ -165,7 +165,9 @@ extension HealthKitFetchEngine {
         await deleteEffortSamples(staleEffortSamples)
     }
 
-    private func fetchWorkout(id: UUID) async -> HKWorkout? {
+    // Internal (not private) so the peer `+Route` extension can resolve a
+    // workout by UUID before querying its `HKWorkoutRoute`.
+    func fetchWorkout(id: UUID) async -> HKWorkout? {
         await withCheckedContinuation { (continuation: CheckedContinuation<HKWorkout?, Never>) in
             let query = HKSampleQuery(
                 sampleType: HKObjectType.workoutType(),
