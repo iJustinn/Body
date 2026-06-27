@@ -330,6 +330,16 @@ private struct BodyHomeBackgroundScrollDim: View {
     }
 }
 
+/// Navigation route for Home → detail pushes. The section (`metric` grid/hero vs
+/// `trend`) is part of the value so a grid card and a trend card of the same
+/// `HealthMetricKind` — frequently both on screen — get distinct
+/// `matchedTransitionSource` ids and each detail page zooms from its own card.
+enum HomeMetricRoute: Hashable {
+    case metric(HealthMetricKind)   // grid card or the readiness star hero
+    case trend(HealthMetricKind)    // home trends section card
+    case activityRings              // activity rings card
+}
+
 struct BodyHomeView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
@@ -347,6 +357,7 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.summaryReselectCount) private var summaryReselectCount
     @State private var draggedHomeCard: BodyHomeCardKind?
     @State private var showsAllHomeTrends = false
     @State private var isPullRefreshing = false
@@ -355,6 +366,13 @@ struct BodyHomeView: View {
     // card model on each evaluation.
     @State private var scrollState = BodyHomeScrollState()
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
+    /// Shared namespace for the card → detail zoom transition (matchedTransitionSource +
+    /// `.navigationTransition(.zoom)`). Threaded into `BodyHomeTrendsSection` for trends.
+    @Namespace private var metricZoom
+    /// Drives the Readiness star's detail presentation. The full-bleed hero has no card
+    /// edges for a zoom to read cleanly from, so it cross-fades in/out as an overlay
+    /// instead of pushing — see `readinessDetailOverlay`.
+    @State private var readinessDetailPresented = false
 
     var body: some View {
         let metricCardLookup = metricCardsByKind
@@ -410,11 +428,36 @@ struct BodyHomeView: View {
                 }
             }
             .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
-            .navigationDestination(for: HealthMetricKind.self) { kind in
-                BodyHealthMetricDetailView(
-                    model: detailModel(for: kind),
-                    initialTrendRange: defaultTrendRange
-                )
+            .navigationDestination(for: HomeMetricRoute.self) { route in
+                switch route {
+                case .metric(let kind), .trend(let kind):
+                    BodyHealthMetricDetailView(
+                        model: detailModel(for: kind),
+                        initialTrendRange: defaultTrendRange
+                    )
+                    .navigationTransition(.zoom(sourceID: route, in: metricZoom))
+                case .activityRings:
+                    BodyActivityRingsDetailView()
+                        .navigationTransition(.zoom(sourceID: route, in: metricZoom))
+                }
+            }
+        }
+        // Readiness star: cross-fade its detail in/out over Home as an overlay instead of a
+        // navigation push (SwiftUI has no fade push transition, and the full-bleed hero has
+        // no card edges for a zoom to read cleanly from).
+        .overlay {
+            if readinessDetailPresented {
+                readinessDetailOverlay
+                    .transition(.opacity)
+            }
+        }
+        // Re-tapping the Summary tab dismisses the Readiness overlay, mirroring how the
+        // system pops a pushed detail to root (the overlay lives outside the nav stack).
+        .onChange(of: summaryReselectCount) { _, _ in
+            if readinessDetailPresented {
+                withAnimation(.easeInOut(duration: 0.28)) {
+                    readinessDetailPresented = false
+                }
             }
         }
     }
@@ -447,13 +490,43 @@ struct BodyHomeView: View {
             // scrolling re-renders only it, not this body. Reading the offset here would
             // rebuild every metric card model on each scroll frame.
             BodyReadinessHeroScrollFade(scrollState: scrollState) {
-                NavigationLink(value: HealthMetricKind.readiness) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.28)) {
+                        readinessDetailPresented = true
+                    }
+                } label: {
                     BodyReadinessHeroLabel(readiness: workoutStore.healthSummary.readiness)
                 }
                 .buttonStyle(.plain)
             }
         default:
             EmptyView()
+        }
+    }
+
+    /// The Readiness star's detail, presented as a full-screen cross-fade overlay rather
+    /// than a navigation push (so it fades instead of zooming/sliding). Wrapped in its own
+    /// NavigationStack for the title bar; a tap Back button dismisses — there is no
+    /// swipe-from-edge back gesture in this mode.
+    private var readinessDetailOverlay: some View {
+        NavigationStack {
+            BodyHealthMetricDetailView(
+                model: detailModel(for: .readiness),
+                initialTrendRange: defaultTrendRange
+            )
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.28)) {
+                            readinessDetailPresented = false
+                        }
+                    } label: {
+                        Image(systemName: "chevron.backward")
+                            .fontWeight(.semibold)
+                    }
+                    .accessibilityLabel("Back")
+                }
+            }
         }
     }
 
@@ -528,7 +601,8 @@ struct BodyHomeView: View {
                 cards: visibleHomeTrendCards,
                 canToggleAll: canToggleAllHomeTrends,
                 showsAllTrends: showsAllHomeTrends,
-                toggleAll: toggleAllHomeTrends
+                toggleAll: toggleAllHomeTrends,
+                zoomNamespace: metricZoom
             )
         }
     }
@@ -977,17 +1051,21 @@ struct BodyHomeView: View {
     ) -> some View {
         switch card {
         case .activityRings:
-            NavigationLink {
-                BodyActivityRingsDetailView()
-            } label: {
+            NavigationLink(value: HomeMetricRoute.activityRings) {
                 BodyActivityRingsCard(summary: workoutStore.healthSummary.activityRings)
+                    .matchedTransitionSource(id: HomeMetricRoute.activityRings, in: metricZoom) {
+                        $0.clipShape(.rect(cornerRadius: 28, style: .continuous))
+                    }
             }
             .buttonStyle(.plain)
         default:
             if let metricKind = card.healthMetricKind,
                let metric = lookup[metricKind] {
-                NavigationLink(value: metric.kind) {
+                NavigationLink(value: HomeMetricRoute.metric(metric.kind)) {
                     BodyHealthMetricCard(metric: metric)
+                        .matchedTransitionSource(id: HomeMetricRoute.metric(metric.kind), in: metricZoom) {
+                            $0.clipShape(.rect(cornerRadius: 28, style: .continuous))
+                        }
                 }
                 .buttonStyle(.plain)
             }

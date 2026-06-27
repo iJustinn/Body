@@ -200,7 +200,7 @@ private struct BodyReadinessWaveFill: View {
                         endPoint: .trailing
                     )
                 )
-                .animation(.interpolatingSpring(stiffness: 52, damping: 10), value: target)
+                .animation(.interpolatingSpring(stiffness: 55, damping: 8.25), value: target)
 
                 // Concentrate the color up top and melt the lower portion into the page
                 // background — mirroring how the metric detail hero eases its tint into

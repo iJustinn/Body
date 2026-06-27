@@ -38,9 +38,25 @@ enum BodyMainTab: Hashable, CaseIterable {
 
 struct MainTabView: View {
     @State private var selectedTab: BodyMainTab = .summary
+    @State private var summaryReselectCount = 0
+
+    /// Wraps the tab selection so re-tapping the already-active Summary tab bumps
+    /// `summaryReselectCount`. Both the native tab bar and the custom pill bar route
+    /// selection through this; the selection itself still updates normally.
+    private var tabSelection: Binding<BodyMainTab> {
+        Binding {
+            selectedTab
+        } set: { newValue in
+            if newValue == .summary && selectedTab == .summary {
+                summaryReselectCount += 1
+            }
+            selectedTab = newValue
+        }
+    }
 
     var body: some View {
         content
+            .environment(\.summaryReselectCount, summaryReselectCount)
             .overlay {
                 BodyFirstLaunchLoadOverlay()
             }
@@ -51,7 +67,7 @@ struct MainTabView: View {
         if #available(iOS 26.0, *) {
             // iOS 26+ already renders TabView as the native Liquid Glass pill
             // bar, so leave it untouched and only style the icons.
-            TabView(selection: $selectedTab) {
+            TabView(selection: tabSelection) {
                 ForEach(BodyMainTab.allCases, id: \.self) { tab in
                     tab.destination
                         .tabItem {
@@ -64,7 +80,7 @@ struct MainTabView: View {
         } else {
             // iOS 18: hide the legacy tab bar and float a custom pill bar that
             // imitates the iOS 26 look.
-            TabView(selection: $selectedTab) {
+            TabView(selection: tabSelection) {
                 ForEach(BodyMainTab.allCases, id: \.self) { tab in
                     tab.destination
                         .tag(tab)
@@ -75,7 +91,7 @@ struct MainTabView: View {
                 Color.clear.frame(height: 64)
             }
             .overlay(alignment: .bottom) {
-                BodyPillTabBar(selection: $selectedTab)
+                BodyPillTabBar(selection: tabSelection)
             }
         }
     }
@@ -84,4 +100,18 @@ struct MainTabView: View {
 #Preview {
     MainTabView()
         .environmentObject(HealthKitWorkoutStore())
+}
+
+private struct SummaryReselectCountKey: EnvironmentKey {
+    static let defaultValue = 0
+}
+
+extension EnvironmentValues {
+    /// Increments each time the already-selected Summary tab is tapped again, so views in
+    /// the Summary tab can mirror the system's tap-to-pop-to-root — e.g. dismiss an overlay
+    /// that lives outside the navigation stack.
+    var summaryReselectCount: Int {
+        get { self[SummaryReselectCountKey.self] }
+        set { self[SummaryReselectCountKey.self] = newValue }
+    }
 }

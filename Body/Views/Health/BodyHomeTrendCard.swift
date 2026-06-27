@@ -21,13 +21,18 @@ struct BodyHomeTrendsSection: View {
     let canToggleAll: Bool
     let showsAllTrends: Bool
     let toggleAll: () -> Void
+    /// Shared with `BodyHomeView` so each trend card is a zoom source for its detail push.
+    let zoomNamespace: Namespace.ID
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(spacing: 14) {
                 ForEach(cards) { card in
-                    NavigationLink(value: card.presentation.kind) {
+                    NavigationLink(value: HomeMetricRoute.trend(card.presentation.kind)) {
                         BodyHomeTrendCard(model: card, translucentFillOpacity: 0.09)
+                            .matchedTransitionSource(id: HomeMetricRoute.trend(card.presentation.kind), in: zoomNamespace) {
+                                $0.clipShape(.rect(cornerRadius: 28, style: .continuous))
+                            }
                     }
                     .buttonStyle(.plain)
                 }
