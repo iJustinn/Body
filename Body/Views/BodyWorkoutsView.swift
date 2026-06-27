@@ -680,6 +680,7 @@ private struct BodyWorkoutDetailSheet: View {
     @State private var editingScore = 5
     @State private var isSavingEffort = false
     @State private var effortError: String?
+    @State private var selectedDetent: PresentationDetent = .fraction(0.7)
     let workout: WorkoutSummary
 
     private let metricColumns = [
@@ -689,20 +690,39 @@ private struct BodyWorkoutDetailSheet: View {
 
     var body: some View {
         ZStack {
-            // On iOS 26+ the sheet's default Liquid Glass background shows through;
-            // older systems keep the opaque grouped background.
-            if #unavailable(iOS 26.0) {
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
-            }
+            sheetBackdrop
 
             ScrollView(.vertical, showsIndicators: false) {
                 compactWorkoutContent
             }
             .scrollDismissesKeyboard(.interactively)
         }
-        .presentationDetents([.fraction(0.7), .large])
+        .presentationDetents([.fraction(0.7), .large], selection: $selectedDetent)
         .presentationDragIndicator(.visible)
+    }
+
+    @ViewBuilder
+    private var sheetBackdrop: some View {
+        // Pre-iOS-26 has no Liquid Glass, so the sheet always needs an opaque
+        // backing; on iOS 26 the partial-detent glass shows through instead.
+        if #unavailable(iOS 26.0) {
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea()
+        }
+
+        // Expanded to full height the sheet renders opaque (iOS 26 Liquid Glass
+        // only applies to partial detents), so fade in the same workout-tint →
+        // black backdrop as the metric detail page. Cross-fading the opacity as
+        // the sheet settles on .large smooths the hand-off from the partial
+        // detent's Liquid Glass rather than swapping it abruptly.
+        LinearGradient(
+            colors: [workout.type.color.opacity(0.45), Color.black],
+            startPoint: .top,
+            endPoint: UnitPoint(x: 0.5, y: 0.5)
+        )
+        .ignoresSafeArea()
+        .opacity(selectedDetent == .large ? 1 : 0)
+        .animation(.easeInOut(duration: 0.35), value: selectedDetent)
     }
 
     private var compactWorkoutContent: some View {
