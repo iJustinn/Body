@@ -71,7 +71,7 @@ struct BodyProView: View {
 
                 BodyProFutureUpdatesNote()
             }
-            .bodyCardBackground(cornerRadius: 26)
+            .bodyCardBackground(cornerRadius: 26, translucent: true)
         }
     }
 
@@ -284,7 +284,7 @@ private struct BodyProPurchaseOptionCard: View {
             .accessibilityLabel("Choose Lifetime")
         }
         .padding(16)
-        .bodyCardBackground(cornerRadius: 24)
+        .bodyCardBackground(cornerRadius: 24, translucent: true)
     }
 }
 

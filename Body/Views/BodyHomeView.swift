@@ -243,21 +243,17 @@ struct BodyDataLoadingOverlay: View {
                 ProgressView()
                     .progressViewStyle(.circular)
                     .controlSize(.regular)
-                    .tint(.white)
+                    .tint(.primary)
 
                 Text(message)
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                     .multilineTextAlignment(.center)
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 22)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(white: 0.18))
-            )
-            .shadow(color: Color.black.opacity(0.28), radius: 18, x: 0, y: 8)
+            .bodyCardBackground(cornerRadius: 16, translucent: true, translucentFillOpacity: 0.12)
         }
         .transition(.opacity)
         .accessibilityElement(children: .combine)
@@ -461,7 +457,7 @@ struct BodyHomeView: View {
         }
     }
 
-    /// Fixed full-bleed backdrop behind the scroll view: the custom Home Background
+    /// Fixed full-bleed backdrop behind the scroll view: the custom Background
     /// color mix when enabled, otherwise the plain grouped background. The mix is
     /// auto-suppressed while Readiness is starred — that hero is colored by today's
     /// readiness level, so a separate background tint would clash.
