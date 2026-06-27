@@ -149,18 +149,15 @@ struct BodySettingsView: View {
 
     private var appearanceSection: some View {
         BodySettingsCardSection("Appearance") {
-            Button {
-                activeSheet = .theme
-            } label: {
-                BodySettingsRowLabel(
-                    title: "Theme",
-                    value: currentTheme.displayName,
-                    iconName: currentTheme.iconName,
-                    tintColor: currentTheme.tintColor,
-                    accessory: .chevron
-                )
-            }
-            .buttonStyle(.plain)
+            BodySettingsRowLabel(
+                title: "Theme",
+                value: currentTheme.displayName,
+                iconName: currentTheme.iconName,
+                tintColor: .gray,
+                accessory: .none
+            )
+            .opacity(0.55)
+            .accessibilityHint("Theme selection is disabled")
 
             settingsDivider
 
@@ -479,14 +476,6 @@ struct BodySettingsView: View {
         BodyMetricDayViewSelection.storedValue(from: metricDayViewSelectionRawValue)
     }
 
-    private var selectedTheme: Binding<BodyAppTheme> {
-        Binding {
-            currentTheme
-        } set: { theme in
-            selectedThemeRawValue = theme.rawValue
-        }
-    }
-
     private var followsSystemUnitsBinding: Binding<Bool> {
         Binding {
             followsSystemUnits
@@ -562,8 +551,6 @@ struct BodySettingsView: View {
     @ViewBuilder
     private func settingsSheet(for sheet: BodySettingsSheet) -> some View {
         switch sheet {
-        case .theme:
-            BodyThemePickerSheet(selectedTheme: selectedTheme)
         case .homeBackground:
             BodyHomeBackgroundSheet()
         case .appIcon:
@@ -669,7 +656,6 @@ struct BodySettingsView: View {
 }
 
 enum BodySettingsSheet: String, Identifiable {
-    case theme
     case homeBackground
     case appIcon
     case sleepDurationGoal
@@ -802,54 +788,6 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
             return .more
         case .howToUse, .privacy, .version:
             return nil
-        }
-    }
-}
-
-private struct BodyThemePickerSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Binding var selectedTheme: BodyAppTheme
-
-    private let columns = [
-        GridItem(.flexible()),
-        GridItem(.flexible()),
-        GridItem(.flexible())
-    ]
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                // On iOS 26+ the sheet's default Liquid Glass background shows through;
-                // older systems keep the opaque grouped background.
-                if #unavailable(iOS 26.0) {
-                    Color(.systemGroupedBackground)
-                        .ignoresSafeArea()
-                }
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(BodyAppTheme.allCases) { theme in
-                            Button {
-                                selectedTheme = theme
-                                dismiss()
-                            } label: {
-                                BodySymbolSelectionTile(
-                                    title: theme.displayName,
-                                    subtitle: theme.selectionSubtitle,
-                                    iconName: theme.iconName,
-                                    tintColor: theme.tintColor,
-                                    isSelected: selectedTheme == theme
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding()
-                    .padding(.bottom, 24)
-                }
-            }
-            .navigationTitle("Theme")
-            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }

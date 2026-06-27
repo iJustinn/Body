@@ -479,6 +479,14 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(BodyHealthTrendRange.recentYear.iconName, "calendar")
     }
 
+    func testAppThemeDefaultsToDarkAndGatesLightMode() {
+        XCTAssertEqual(BodyAppTheme.defaultValue, .dark)
+        XCTAssertEqual(BodyAppTheme.storedValue(from: BodyAppTheme.dark.rawValue), .dark)
+        XCTAssertEqual(BodyAppTheme.storedValue(from: BodyAppTheme.light.rawValue), .dark)
+        XCTAssertEqual(BodyAppTheme.storedValue(from: BodyAppTheme.system.rawValue), .dark)
+        XCTAssertEqual(BodyAppTheme.storedValue(from: "unknown"), .dark)
+    }
+
     func testSleepDurationGoalDefaultsToEightHoursAndClampsStoredMinutes() {
         XCTAssertEqual(BodyAppearancePreference.sleepDurationGoalMinutesKey, "sleepDurationGoalMinutes")
         XCTAssertEqual(BodySleepDurationGoal.defaultMinutes, 8 * 60)
@@ -777,7 +785,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(series.points.allSatisfy { (0...100).contains($0.value) })
     }
 
-    func testBodyHomeCardKindIncludesReadinessAfterActivityRings() throws {
+    func testBodyHomeCardKindIncludesReadinessBeforeExerciseMinutes() throws {
         XCTAssertEqual(BodyHomeCardKind.readiness.healthMetricKind, .readiness)
         XCTAssertTrue(BodyHomeCardKind.defaultOrder.contains(.readiness))
         XCTAssertLessThan(
@@ -1909,6 +1917,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             .timeInDaylight,
             .sleep
         ])
+        XCTAssertEqual(migratedOrder.last, .steps)
         XCTAssertEqual(Set(order), Set(BodyHomeCardKind.defaultOrder))
         XCTAssertEqual(order.count, BodyHomeCardKind.defaultOrder.count)
         XCTAssertTrue(order.contains(.activityRings))
@@ -1920,8 +1929,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(order.contains(.heartRate))
         XCTAssertEqual(
             Array(BodyHomeCardKind.defaultOrder.prefix(6)),
-            [.activityRings, .sleep, .basics, .heartRate, .heartRateVariability, .trainingLoad]
+            [.sleep, .basics, .heartRate, .heartRateVariability, .trainingLoad, .readiness]
         )
+        XCTAssertEqual(BodyHomeCardKind.defaultOrder.last, .activityRings)
         XCTAssertLessThan(
             BodyHomeCardKind.defaultOrder.firstIndex(of: .heartRate) ?? .max,
             BodyHomeCardKind.defaultOrder.firstIndex(of: .restingHeartRate) ?? .max
@@ -1934,16 +1944,18 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let movedDown = BodyHomeCardKind.reordered(order, moving: .sleep, to: .basics)
         XCTAssertEqual(
             Array(movedDown.prefix(9)),
-            [.activityRings, .basics, .sleep, .heartRate, .heartRateVariability, .trainingLoad, .readiness, .activeEnergy, .restingEnergy]
+            [.basics, .sleep, .heartRate, .heartRateVariability, .trainingLoad, .readiness, .activeEnergy, .restingEnergy, .wristTemperature]
         )
+        XCTAssertEqual(movedDown.last, .activityRings)
         XCTAssertEqual(Set(movedDown), Set(order))
         XCTAssertEqual(movedDown.count, order.count)
 
         let movedUp = BodyHomeCardKind.reordered(order, moving: .activeEnergy, to: .sleep)
         XCTAssertEqual(
             Array(movedUp.prefix(9)),
-            [.activityRings, .activeEnergy, .sleep, .basics, .heartRate, .heartRateVariability, .trainingLoad, .readiness, .restingEnergy]
+            [.activeEnergy, .sleep, .basics, .heartRate, .heartRateVariability, .trainingLoad, .readiness, .restingEnergy, .wristTemperature]
         )
+        XCTAssertEqual(movedUp.last, .activityRings)
         XCTAssertEqual(Set(movedUp), Set(order))
         XCTAssertEqual(movedUp.count, order.count)
     }
@@ -1965,23 +1977,23 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
     func testSummaryCardSelectionStoresVisibleCardsWithoutChangingOrder() {
         let selection = BodySummaryCardSelection(selectedCards: [.activityRings, .sleep, .heartRate])
 
-        XCTAssertEqual(selection.rawValue, "activityRings,sleep,heartRate")
+        XCTAssertEqual(selection.rawValue, "sleep,heartRate,activityRings")
         XCTAssertEqual(selection.enabledCount, 3)
         XCTAssertTrue(selection.includes(.activityRings))
         XCTAssertTrue(selection.includes(.sleep))
         XCTAssertFalse(selection.includes(.steps))
         XCTAssertEqual(
             selection.setting(.steps, isEnabled: true).rawValue,
-            "activityRings,sleep,heartRate,steps"
+            "sleep,heartRate,steps,activityRings"
         )
         XCTAssertEqual(
             selection.setting(.sleep, isEnabled: false).rawValue,
-            "activityRings,heartRate"
+            "heartRate,activityRings"
         )
 
         XCTAssertEqual(
             BodySummaryCardSelection.storedValue(from: "activityRings,unknown,steps").rawValue,
-            "activityRings,steps"
+            "steps,activityRings"
         )
         XCTAssertEqual(
             BodySummaryCardSelection.storedValue(from: "").rawValue,

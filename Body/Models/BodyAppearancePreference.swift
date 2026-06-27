@@ -943,7 +943,6 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     case restingEnergy
 
     static let defaultOrder: [BodyHomeCardKind] = [
-        .activityRings,
         .sleep,
         .basics,
         .heartRate,
@@ -958,7 +957,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         .respiratoryRate,
         .exerciseMinutes,
         .steps,
-        .timeInDaylight
+        .timeInDaylight,
+        .activityRings
     ]
 
     static var defaultRawValue: String {
@@ -1299,7 +1299,7 @@ enum BodyAppTheme: String, CaseIterable, Identifiable {
     case light
     case dark
 
-    static let defaultValue: BodyAppTheme = .system
+    static let defaultValue: BodyAppTheme = .dark
 
     var id: String {
         rawValue
@@ -1361,6 +1361,10 @@ enum BodyAppTheme: String, CaseIterable, Identifiable {
     }
 
     static func storedValue(from rawValue: String) -> BodyAppTheme {
-        BodyAppTheme(rawValue: rawValue) ?? defaultValue
+        if BodyAppTheme(rawValue: rawValue) == .dark {
+            return .dark
+        }
+
+        return defaultValue
     }
 }
