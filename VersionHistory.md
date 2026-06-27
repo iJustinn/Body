@@ -1,5 +1,13 @@
 # Version History
 
+## 0.9.5 (build 3)
+
+- Workouts recorded with GPS now show a **route map** behind the top of the workout detail sheet: the route is drawn fit-to-bounds and **colored by pace** (red slow → green fast) with a green start marker and a red end marker, and the city (e.g. "New York, NY") is shown below the workout title. The map is a static snapshot (no panning) that sits as a fixed background and dims as the workout details scroll up over it; indoor or route-less workouts show no map and are otherwise unchanged. Reading routes adds a one-time Apple Health permission prompt the next time you refresh.
+- Tapping a metric on the Home screen now **zooms the detail page out of the card you tapped** instead of sliding it in from the screen edge. The grid metric cards, the trend cards, and the Activity Rings card all use the new transition — each detail page collapses back into its own card on dismiss. The morph is clipped to the cards' rounded corners, and when a grid card and a trend card for the same metric are both on screen, each animates from its own position. Built on iOS 18's zoom navigation transition, which falls back to a cross-fade under Reduce Motion. The full-bleed Readiness star hero instead **cross-fades its detail in and out** (dismissed with a Back button) — a fade reads better for a hero with no card edges to grow from.
+- Sleep detail now shows a 14-day Sleep Consistency percentage in the card header instead of the selected Apple Health source name.
+- Dark theme is now the app default; Settings keeps the Theme row visible but disabled while Light/System theme selection is gated.
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 3.
+
 ## 0.9.5 (build 2)
 
 - Added a **Star Metric** to the Summary tab: one metric is pinned to the top of the home screen as a full-bleed hero (no card) and lifted out of the drag-to-reorder grid. v1 ships **Readiness** as the default star metric — today's readiness score sits on a wave-fill tinted by the readiness band that fills left-to-right to the score, bleeds behind the status bar, and melts into the page; the score flips up from zero (and rolls to each new value) and the whole hero taps through to the Readiness detail. Pick the star metric, or turn it off (which returns the Readiness card to the grid), under Settings > Metrics > Star Metric, a new gold row at the bottom of the Metrics section. While Readiness is starred the custom Home Background is auto-disabled (the hero supplies the color); the remaining cards still drag-to-reorder, and Readiness keeps fetching its inputs even when it's hidden in Summary Cards.
