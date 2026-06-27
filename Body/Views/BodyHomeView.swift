@@ -316,6 +316,24 @@ private struct BodyReadinessHeroScrollFade<Content: View>: View {
     }
 }
 
+/// Dims the fixed full-bleed star-hero backdrop as the page scrolls up — in step with the
+/// hero number/text fade — so the translucent cards scrolling over it stay readable. Reads
+/// `scrollState.offset` itself so only this layer re-renders per scroll frame, not all of
+/// `BodyHomeView`.
+private struct BodyHomeBackgroundScrollDim: View {
+    let scrollState: BodyHomeScrollState
+
+    private var opacity: Double {
+        min(1, max(0, Double(scrollState.offset) / 130)) * 0.8
+    }
+
+    var body: some View {
+        Color(.systemGroupedBackground)
+            .opacity(opacity)
+            .allowsHitTesting(false)
+    }
+}
+
 struct BodyHomeView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
@@ -348,6 +366,9 @@ struct BodyHomeView: View {
         return NavigationStack {
             ZStack {
                 homeBackground
+                    .ignoresSafeArea()
+
+                BodyHomeBackgroundScrollDim(scrollState: scrollState)
                     .ignoresSafeArea()
 
                 ScrollView(.vertical, showsIndicators: false) {
