@@ -108,7 +108,13 @@ struct BodyWorkoutListSheet: View {
                 .padding(.top, 14)
                 .padding(.bottom, 24)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background {
+                // On iOS 26+ the sheet's default Liquid Glass background shows through;
+                // older systems keep the opaque grouped background.
+                if #unavailable(iOS 26.0) {
+                    Color(.systemGroupedBackground).ignoresSafeArea()
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {
@@ -159,7 +165,7 @@ struct BodyWorkoutListSheet: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity, minHeight: 94)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private var emptyState: some View {
@@ -169,7 +175,7 @@ struct BodyWorkoutListSheet: View {
             .foregroundColor(.secondary)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.vertical, 28)
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
     }
 
     private var selectedEnergyUnitPreference: BodyValueFormat.EnergyUnitPreference {
@@ -238,7 +244,7 @@ private struct BodyWorkoutRecordRow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, minHeight: 88)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private var workoutDetailText: String {

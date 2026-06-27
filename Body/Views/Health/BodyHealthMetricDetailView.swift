@@ -388,14 +388,12 @@ struct BodyHealthMetricDetailView: View {
             SleepScoreDetailsSheet(selection: selection, accentColor: model.symbolColor)
                 .presentationDetents([.height(BodySleepScoreDetailsSheetLayout.sheetHeight), .large])
                 .presentationDragIndicator(.visible)
-                .presentationBackground(Color(.systemBackground))
         }
         .sheet(isPresented: $showsDataSourcePicker) {
             BodyHealthDataSourcePickerSheet(kind: model.kind, accentColor: model.symbolColor)
                 .environmentObject(workoutStore)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
-                .presentationBackground(Color(.systemGroupedBackground))
         }
         .sheet(isPresented: $showsAddMeasurementSheet) {
             BodyAddBasicsMeasurementSheet(

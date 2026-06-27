@@ -71,7 +71,13 @@ struct BodyAddBasicsMeasurementSheet: View {
             .padding(.horizontal, 16)
             .padding(.top, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background {
+                // On iOS 26+ the sheet's default Liquid Glass background shows through;
+                // older systems keep the opaque grouped background.
+                if #unavailable(iOS 26.0) {
+                    Color(.systemGroupedBackground).ignoresSafeArea()
+                }
+            }
             .navigationTitle("Add Measurement")
             .navigationBarTitleDisplayMode(.inline)
             .tint(accentColor)
@@ -97,7 +103,6 @@ struct BodyAddBasicsMeasurementSheet: View {
         }
         .presentationDetents([.height(370)])
         .presentationDragIndicator(.visible)
-        .presentationBackground(Color(.systemGroupedBackground))
         .onAppear(perform: seedIfNeeded)
     }
 
@@ -134,7 +139,7 @@ struct BodyAddBasicsMeasurementSheet: View {
         .padding(.vertical, 14)
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private var dateCard: some View {
@@ -149,7 +154,7 @@ struct BodyAddBasicsMeasurementSheet: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private var weightUnit: BodyValueFormat.WeightUnitPreference {
