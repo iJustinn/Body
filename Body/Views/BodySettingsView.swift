@@ -42,7 +42,7 @@ struct BodySettingsView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground)
+                BodyAppBackground()
                     .ignoresSafeArea()
 
                 ScrollView(.vertical, showsIndicators: false) {
@@ -142,7 +142,7 @@ struct BodySettingsView: View {
             }
             .padding(18)
             .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
-            .bodyCardBackground(cornerRadius: 28)
+            .bodyCardBackground(cornerRadius: 28, translucent: true)
         }
         .buttonStyle(.plain)
     }
@@ -168,7 +168,7 @@ struct BodySettingsView: View {
                 activeSheet = .homeBackground
             } label: {
                 BodySettingsRowLabel(
-                    title: "Home Background",
+                    title: "Background",
                     value: homeBackgroundSummaryText,
                     iconName: "paintpalette.fill",
                     tintColor: .teal,
@@ -176,7 +176,6 @@ struct BodySettingsView: View {
                 )
             }
             .buttonStyle(.plain)
-            .disabled(isReadinessStarred)
 
             settingsDivider
 
@@ -373,18 +372,8 @@ struct BodySettingsView: View {
         BodyHomeCardKind.starredMetric(from: starredMetricRawValue)?.title ?? "None"
     }
 
-    /// While Readiness is the star metric the hero is colored by today's readiness
-    /// level, so the custom Home Background is auto-suppressed (the user's stored
-    /// colors/toggle are preserved and return when another metric is starred).
-    private var isReadinessStarred: Bool {
-        BodyHomeCardKind.starredMetric(from: starredMetricRawValue) == .readiness
-    }
-
     private var homeBackgroundSummaryText: String {
-        if isReadinessStarred {
-            return "Auto"
-        }
-        return homeBackgroundEnabled ? "On" : "Off"
+        homeBackgroundEnabled ? "On" : "Off"
     }
 
     private var settingsDivider: some View {
@@ -830,8 +819,12 @@ private struct BodyThemePickerSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
+                // On iOS 26+ the sheet's default Liquid Glass background shows through;
+                // older systems keep the opaque grouped background.
+                if #unavailable(iOS 26.0) {
+                    Color(.systemGroupedBackground)
+                        .ignoresSafeArea()
+                }
 
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVGrid(columns: columns, spacing: 12) {
@@ -941,8 +934,12 @@ private struct BodyUnitPreferencePickerSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
+                // On iOS 26+ the sheet's default Liquid Glass background shows through;
+                // older systems keep the opaque grouped background.
+                if #unavailable(iOS 26.0) {
+                    Color(.systemGroupedBackground)
+                        .ignoresSafeArea()
+                }
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 18) {
@@ -1136,7 +1133,7 @@ private struct BodySummaryCardsSettingsSheet: View {
                     }
                 }
             }
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
     }
 }
@@ -1172,7 +1169,7 @@ private struct BodyStarMetricPickerSheet: View {
                     }
                 }
             }
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
     }
 }
@@ -1206,7 +1203,7 @@ private struct BodyHomeBackgroundSheet: View {
     }
 
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Home Background") {
+        BodySettingsAboutSheetScaffold(title: "Background") {
             VStack(spacing: 20) {
                 showToggleRow
 
@@ -1235,12 +1232,12 @@ private struct BodyHomeBackgroundSheet: View {
             BodySettingsIconTile(iconName: "paintpalette.fill", color: .teal)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Show on Home")
+                Text("Show Background")
                     .font(.system(.headline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
 
-                Text("Independent of the star metric")
+                Text("Shown on Home, Workouts, and Settings")
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -1250,14 +1247,14 @@ private struct BodyHomeBackgroundSheet: View {
 
             Spacer(minLength: 12)
 
-            Toggle("Show on Home", isOn: $enabled)
+            Toggle("Show Background", isOn: $enabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 }
 
@@ -1557,7 +1554,7 @@ private struct BodyHomeTrendCardsSettingsSheet: View {
                     }
                 }
             }
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
     }
 }
@@ -1622,7 +1619,7 @@ private struct BodyMetricDayViewSettingsSheet: View {
                     }
                 }
             }
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
     }
 }
@@ -1866,7 +1863,7 @@ private struct BodyHealthPermissionsSettingsSheet: View {
                     }
                 }
             }
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
     }
 }
@@ -1935,7 +1932,7 @@ private struct BodyHealthSyncStatusSettingsSheet: View {
                     .buttonStyle(.plain)
                     .opacity(workoutStore.isRefreshing ? 0.65 : 1)
                 }
-                .bodyCardBackground()
+                .bodyCardBackground(translucent: true)
             }
         }
     }
@@ -1999,7 +1996,7 @@ private struct BodyCacheSettingsSheet: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .bodyCardBackground()
+                .bodyCardBackground(translucent: true)
             }
         }
     }
@@ -2089,7 +2086,7 @@ private struct BodySymbolSelectionTile: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, minHeight: 132)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
         .scaleEffect(isSelected ? 1.03 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.78), value: isSelected)
     }
@@ -2232,7 +2229,7 @@ private struct BodySettingsCardSection<Content: View>: View {
             VStack(spacing: 0) {
                 content
             }
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
     }
 }
@@ -2339,8 +2336,12 @@ private struct BodyAppIconPickerSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
+                // On iOS 26+ the sheet's default Liquid Glass background shows through;
+                // older systems keep the opaque grouped background.
+                if #unavailable(iOS 26.0) {
+                    Color(.systemGroupedBackground)
+                        .ignoresSafeArea()
+                }
 
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVGrid(columns: columns, spacing: 12) {
@@ -2411,7 +2412,7 @@ private struct BodyAppIconSelectionTile: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, minHeight: 142)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
         .scaleEffect(isSelected ? 1.03 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.78), value: isSelected)
     }
@@ -2603,7 +2604,7 @@ private struct BodyMoreSettingsSheet: View {
                         openSupportEmail()
                     }
                 }
-                .bodyCardBackground()
+                .bodyCardBackground(translucent: true)
 
                 BodySettingsInfoCard(section: disclaimerSection)
 
@@ -2639,7 +2640,7 @@ private struct BodyMoreSettingsSheet: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private func openSupportEmail() {
@@ -2702,8 +2703,12 @@ private struct BodySettingsAboutSheetScaffold<Content: View>: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
+                // On iOS 26+ the sheet's default Liquid Glass background shows through;
+                // older systems keep the opaque grouped background.
+                if #unavailable(iOS 26.0) {
+                    Color(.systemGroupedBackground)
+                        .ignoresSafeArea()
+                }
 
                 ScrollView(.vertical, showsIndicators: false) {
                     content
@@ -2789,7 +2794,7 @@ private struct BodySettingsInfoCard: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 }
 
