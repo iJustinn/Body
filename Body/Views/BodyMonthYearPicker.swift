@@ -95,12 +95,13 @@ struct BodyMonthYearPicker: View {
             }
             .frame(width: width, height: pickerHeight)
             .clipped()
+            .mask(monthCarouselEdgeMask(width: width))
             .contentShape(Rectangle())
             .overlay(alignment: .leading) {
-                monthPreviewTapZone(direction: -1, isLeading: true, width: width * 0.34)
+                monthPreviewTapZone(direction: -1, width: width * 0.34)
             }
             .overlay(alignment: .trailing) {
-                monthPreviewTapZone(direction: 1, isLeading: false, width: width * 0.34)
+                monthPreviewTapZone(direction: 1, width: width * 0.34)
             }
             .gesture(monthDragGesture(sideSpacing: sideSpacing))
         }
@@ -248,19 +249,8 @@ struct BodyMonthYearPicker: View {
         return offset
     }
 
-    private func monthPreviewTapZone(direction: Int, isLeading: Bool, width: CGFloat) -> some View {
+    private func monthPreviewTapZone(direction: Int, width: CGFloat) -> some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color(.systemGroupedBackground),
-                    Color(.systemGroupedBackground).opacity(0)
-                ],
-                startPoint: isLeading ? .leading : .trailing,
-                endPoint: isLeading ? .trailing : .leading
-            )
-            .frame(width: width)
-            .allowsHitTesting(false)
-
             if monthYearList.indices.contains(selectedIndex + direction) {
                 Button {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
@@ -276,6 +266,19 @@ struct BodyMonthYearPicker: View {
             }
         }
         .frame(width: width, height: pickerHeight)
+    }
+
+    /// Fades the carousel's off-center months to transparent at both edges (background-agnostic),
+    /// replacing the previous opaque-background gradient so the page background shows through.
+    private func monthCarouselEdgeMask(width: CGFloat) -> some View {
+        let fade = width * 0.26
+        return HStack(spacing: 0) {
+            LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                .frame(width: fade)
+            Rectangle().fill(Color.black)
+            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                .frame(width: fade)
+        }
     }
 
     private func moveToMonthIndex(_ index: Int) {

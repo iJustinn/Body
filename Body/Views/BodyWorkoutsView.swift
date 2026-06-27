@@ -7,13 +7,11 @@ import SwiftUI
 
 struct BodyWorkoutsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedMonth = Calendar.bodyGregorian.component(.month, from: Date())
     @State private var selectedYear = Calendar.bodyGregorian.component(.year, from: Date())
     @State private var pendingMonthSelection: BodyMonthYear?
     @State private var searchText = ""
-    @State private var showingSortSheet = false
     @State private var showingFilterSheet = false
     @State private var selectedSortOption: BodyWorkoutListSortOption = .dateDescending
     @State private var selectedWorkoutTypes = Set(BodyWorkoutType.allCases)
@@ -35,7 +33,7 @@ struct BodyWorkoutsView: View {
 
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground)
+                BodyAppBackground()
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
@@ -102,26 +100,20 @@ struct BodyWorkoutsView: View {
                     .opacity(isListLoaded ? 1 : 0)
                     .animation(.easeIn(duration: 0.3), value: isListLoaded)
                     .animation(.easeInOut(duration: 0.2), value: selectedSortOption)
-                    .overlay(alignment: .top) {
-                        LinearGradient(
-                            colors: [
-                                Color(.systemGroupedBackground),
-                                Color(.systemGroupedBackground).opacity(0)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .frame(height: 24)
-                        .allowsHitTesting(false)
-                    }
+                    .mask(
+                        VStack(spacing: 0) {
+                            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                                .frame(height: 24)
+                            Rectangle().fill(Color.black)
+                        }
+                    )
                 }
                 .readableContentColumn()
+                // Let the list scroll under the floating tab bar so the Liquid Glass bar
+                // refracts content instead of the background's plain lower region.
+                .ignoresSafeArea(.container, edges: .bottom)
             }
             .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing || pendingMonthSelection != nil)
-            .sheet(isPresented: $showingSortSheet) {
-                BodyWorkoutSortView(selectedSortOption: $selectedSortOption)
-                    .presentationDetents([.medium])
-            }
             .sheet(isPresented: $showingFilterSheet) {
                 BodyWorkoutFilterView(
                     selectedWorkoutTypes: $selectedWorkoutTypes,
@@ -135,7 +127,7 @@ struct BodyWorkoutsView: View {
             }
             .sheet(item: $selectedWorkoutListSelection) { selection in
                 BodyWorkoutListSheet(selection: selection)
-                    .presentationDetents([.medium, .large])
+                    .presentationDetents([.fraction(0.6), .large])
                     .presentationDragIndicator(.visible)
             }
             .task {
@@ -203,12 +195,15 @@ struct BodyWorkoutsView: View {
 
     private var searchAndControlsRow: some View {
         HStack(spacing: 10) {
-            Button {
-                showingSortSheet = true
+            Menu {
+                Picker("Sort by", selection: $selectedSortOption) {
+                    ForEach(BodyWorkoutListSortOption.allCases) { option in
+                        Text(option.displayName).tag(option)
+                    }
+                }
             } label: {
                 searchControlCard(iconName: "arrow.up.arrow.down", size: 18)
             }
-            .buttonStyle(.plain)
             .accessibilityLabel("Sort workouts")
 
             Button {
@@ -241,7 +236,7 @@ struct BodyWorkoutsView: View {
             }
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity, minHeight: 46)
-            .bodyWorkoutsToolbarCardBackground(colorScheme: colorScheme)
+            .bodyWorkoutsToolbarCardBackground()
         }
         .frame(height: 46)
     }
@@ -256,7 +251,7 @@ struct BodyWorkoutsView: View {
             }
         )
         .padding(14)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private func searchControlCard(iconName: String, size: CGFloat) -> some View {
@@ -264,7 +259,7 @@ struct BodyWorkoutsView: View {
             .font(.system(size: size, weight: .semibold))
             .foregroundColor(.accentColor)
             .frame(width: 46, height: 46)
-            .bodyWorkoutsToolbarCardBackground(colorScheme: colorScheme)
+            .bodyWorkoutsToolbarCardBackground()
     }
 
     private func workoutTypeSummaryCard(workouts: [WorkoutSummary]) -> some View {
@@ -286,7 +281,7 @@ struct BodyWorkoutsView: View {
             )
         }
         .padding(18)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private func monthlySummaryHeader(workouts: [WorkoutSummary]) -> some View {
@@ -634,7 +629,7 @@ private struct BodyWorkoutExpenseStyleRow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity, minHeight: 104)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private var formattedCompactDateTime: String {
@@ -694,15 +689,19 @@ private struct BodyWorkoutDetailSheet: View {
 
     var body: some View {
         ZStack {
-            Color(.systemGroupedBackground)
-                .ignoresSafeArea()
+            // On iOS 26+ the sheet's default Liquid Glass background shows through;
+            // older systems keep the opaque grouped background.
+            if #unavailable(iOS 26.0) {
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
+            }
 
             ScrollView(.vertical, showsIndicators: false) {
                 compactWorkoutContent
             }
             .scrollDismissesKeyboard(.interactively)
         }
-        .presentationDetents([.large])
+        .presentationDetents([.fraction(0.7), .large])
         .presentationDragIndicator(.visible)
     }
 
@@ -779,7 +778,7 @@ private struct BodyWorkoutDetailSheet: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 20)
-        .bodyCardBackground(cornerRadius: 30)
+        .bodyCardBackground(cornerRadius: 30, translucent: true)
     }
 
     /// The effort to display — a rating the user just saved this session (kept on
@@ -811,7 +810,7 @@ private struct BodyWorkoutDetailSheet: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity)
-        .bodyCardBackground(cornerRadius: 30)
+        .bodyCardBackground(cornerRadius: 30, translucent: true)
         .alert("Couldn't Save", isPresented: effortErrorBinding) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -1138,7 +1137,7 @@ private struct BodyWorkoutHeartRateChartCard: View {
         .padding(.horizontal, 18)
         .padding(.top, 16)
         .padding(.bottom, 18)
-        .bodyCardBackground(cornerRadius: 30)
+        .bodyCardBackground(cornerRadius: 30, translucent: true)
     }
 
     private func header(metrics: BodyWorkoutHeartRateChartMetrics?) -> some View {
@@ -1567,51 +1566,6 @@ private struct BodyWorkoutHeartRateTimeMark: Identifiable {
     }
 }
 
-private struct BodyWorkoutSortView: View {
-    @Binding var selectedSortOption: BodyWorkoutListSortOption
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    ForEach(BodyWorkoutListSortOption.allCases) { option in
-                        HStack {
-                            Text(option.displayName)
-                                .font(.system(.title3, design: .rounded))
-                                .fontWeight(.medium)
-
-                            Spacer()
-
-                            if selectedSortOption == option {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(.accentColor)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            selectedSortOption = option
-                            dismiss()
-                        }
-                    }
-                } header: {
-                    Text("Sort by")
-                }
-            }
-            .scrollIndicators(.hidden)
-            .navigationTitle("Sort")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
-}
-
 private struct BodyWorkoutFilterView: View {
     @Binding var selectedWorkoutTypes: Set<BodyWorkoutType>
     let workoutTypes: [BodyWorkoutType]
@@ -1662,6 +1616,7 @@ private struct BodyWorkoutFilterView: View {
                                 .onTapGesture {
                                     toggleWorkoutType(workoutType)
                                 }
+                                .listRowBackground(Color.clear)
                             }
                         }
                     } header: {
@@ -1697,6 +1652,7 @@ private struct BodyWorkoutFilterView: View {
                         }
                     }
                 }
+                .scrollContentBackground(.hidden)
                 .scrollIndicators(.hidden)
             }
             .navigationTitle("Filter")
@@ -1724,20 +1680,14 @@ private struct BodyWorkoutFilterView: View {
 }
 
 private extension View {
-    func bodyWorkoutsToolbarCardBackground(colorScheme: ColorScheme) -> some View {
+    func bodyWorkoutsToolbarCardBackground() -> some View {
         background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(colorScheme == .light ? Color(.systemBackground) : Color(.secondarySystemBackground))
-                .shadow(
-                    color: Color.black.opacity(colorScheme == .light ? 0.025 : 0),
-                    radius: 4,
-                    x: 0,
-                    y: 1
-                )
+                .fill(Color.primary.opacity(0.06))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.primary.opacity(colorScheme == .light ? 0.05 : 0), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.10), lineWidth: 1)
         )
     }
 }
