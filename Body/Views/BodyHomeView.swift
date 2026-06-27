@@ -709,6 +709,7 @@ struct BodyHomeView: View {
             selection: homeTrendCardSelection,
             temperatureUnitPreference: selectedTemperatureUnitPreference,
             energyUnitPreference: selectedEnergyUnitPreference,
+            weightUnitPreference: selectedWeightUnitPreference,
             includesStable: includesStable,
             cache: trendComputationCache
         )
@@ -2077,6 +2078,10 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         let lastTimestamp: TimeInterval?
         let firstValue: Double?
         let lastValue: Double?
+        // Hash over every point so a backdated edit to a non-edge day (manually
+        // editable Basics metrics: weight/body fat) invalidates the cache instead
+        // of colliding on the count + first/last fields above.
+        let contentHash: Int
     }
 
     private struct Entry {
@@ -2128,13 +2133,19 @@ final class BodyHomeTrendComputationCache: ObservableObject {
     }
 
     private static func fingerprint(for series: HealthTrendSeries, dayStart: Date) -> Fingerprint {
-        Fingerprint(
+        var hasher = Hasher()
+        for point in series.points {
+            hasher.combine(point.date)
+            hasher.combine(point.value)
+        }
+        return Fingerprint(
             dayStart: dayStart,
             pointCount: series.points.count,
             firstTimestamp: series.points.first?.date.timeIntervalSinceReferenceDate,
             lastTimestamp: series.points.last?.date.timeIntervalSinceReferenceDate,
             firstValue: series.points.first?.value,
-            lastValue: series.points.last?.value
+            lastValue: series.points.last?.value,
+            contentHash: hasher.finalize()
         )
     }
 }

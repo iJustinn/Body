@@ -304,6 +304,7 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = false
@@ -421,12 +422,21 @@ struct BodyHealthMetricDetailView: View {
         return BodyValueFormat.TemperatureUnitPreference.storedValue(from: selectedTemperatureUnitRawValue)
     }
 
+    private var selectedWeightUnitPreference: BodyValueFormat.WeightUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.WeightUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.WeightUnitPreference.storedValue(from: selectedWeightUnitRawValue)
+    }
+
     private var detailTrendComparisonModel: BodyHomeTrendCard.Model? {
         BodyHomeTrendCardFactory.card(
             for: model.kind,
             trends: workoutStore.healthTrends,
             temperatureUnitPreference: selectedTemperatureUnitPreference,
             energyUnitPreference: selectedEnergyUnitPreference,
+            weightUnitPreference: selectedWeightUnitPreference,
             includesStable: true,
             cache: trendComputationCache
         )
@@ -436,6 +446,28 @@ struct BodyHealthMetricDetailView: View {
     private var detailTrendComparisonCard: some View {
         if let card = detailTrendComparisonModel {
             BodyHomeTrendCard(model: card, showsNavigationIndicator: false)
+        }
+    }
+
+    // The combined Basics page has no trend card of its own (the `.basics` kind maps
+    // to no `BodyHomeTrendCardKind`), so surface the standalone Weight and Body Fat
+    // trend cards here. Tapping pushes that metric's focused detail via the stack's
+    // HealthMetricKind navigationDestination.
+    @ViewBuilder
+    private func basicsMetricTrendCard(for kind: HealthMetricKind) -> some View {
+        if let card = BodyHomeTrendCardFactory.card(
+            for: kind,
+            trends: workoutStore.healthTrends,
+            temperatureUnitPreference: selectedTemperatureUnitPreference,
+            energyUnitPreference: selectedEnergyUnitPreference,
+            weightUnitPreference: selectedWeightUnitPreference,
+            includesStable: true,
+            cache: trendComputationCache
+        ) {
+            NavigationLink(value: kind) {
+                BodyHomeTrendCard(model: card)
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -837,6 +869,8 @@ struct BodyHealthMetricDetailView: View {
             }
             if isBasicsDetail {
                 bodyMassIndexTrendCard
+                basicsMetricTrendCard(for: .bodyMass)
+                basicsMetricTrendCard(for: .bodyFatPercentage)
             }
             helpTextCard
             dataSourceFooter

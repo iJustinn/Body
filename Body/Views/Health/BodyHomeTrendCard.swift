@@ -180,6 +180,7 @@ enum BodyHomeTrendCardFactory {
         selection: BodyHomeTrendCardSelection? = nil,
         temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference,
         includesStable: Bool,
         cache: BodyHomeTrendComputationCache
     ) -> [BodyHomeTrendCard.Model] {
@@ -193,6 +194,7 @@ enum BodyHomeTrendCardFactory {
                 trends: trends,
                 temperatureUnitPreference: temperatureUnitPreference,
                 energyUnitPreference: energyUnitPreference,
+                weightUnitPreference: weightUnitPreference,
                 includesStable: includesStable,
                 cache: cache
             )
@@ -204,6 +206,7 @@ enum BodyHomeTrendCardFactory {
         trends: HealthTrendSnapshot,
         temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference,
         includesStable: Bool,
         cache: BodyHomeTrendComputationCache
     ) -> BodyHomeTrendCard.Model? {
@@ -216,6 +219,7 @@ enum BodyHomeTrendCardFactory {
             trends: trends,
             temperatureUnitPreference: temperatureUnitPreference,
             energyUnitPreference: energyUnitPreference,
+            weightUnitPreference: weightUnitPreference,
             includesStable: includesStable,
             cache: cache
         )
@@ -226,6 +230,7 @@ enum BodyHomeTrendCardFactory {
         trends: HealthTrendSnapshot,
         temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference,
         includesStable: Bool,
         cache: BodyHomeTrendComputationCache
     ) -> BodyHomeTrendCard.Model? {
@@ -233,7 +238,8 @@ enum BodyHomeTrendCardFactory {
             for: trendKind,
             trends: trends,
             temperatureUnitPreference: temperatureUnitPreference,
-            energyUnitPreference: energyUnitPreference
+            energyUnitPreference: energyUnitPreference,
+            weightUnitPreference: weightUnitPreference
         )
         guard let result = cache.result(
             for: configuration.kind,
@@ -263,7 +269,8 @@ enum BodyHomeTrendCardFactory {
         for trendKind: BodyHomeTrendCardKind,
         trends: HealthTrendSnapshot,
         temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
-        energyUnitPreference: BodyValueFormat.EnergyUnitPreference
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference
     ) -> Configuration {
         let temperatureUnit = BodyValueFormat.temperatureDisplay(
             celsius: 0,
@@ -440,6 +447,37 @@ enum BodyHomeTrendCardFactory {
                 symbolColor: Color(red: 0.10, green: 0.58, blue: 1.00),
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " min" },
                 messageStyle: .quantity(subject: "Your time in daylight")
+            )
+        case .bodyMass:
+            let massUnit = BodyValueFormat.massValue(
+                kilograms: 0,
+                weightUnitPreference: weightUnitPreference
+            ).unit
+            return Configuration(
+                kind: .bodyMass,
+                title: "Weight",
+                series: trends.series(for: .bodyMass).mapValues {
+                    BodyValueFormat.massValue(
+                        kilograms: $0,
+                        weightUnitPreference: weightUnitPreference
+                    ).value
+                },
+                chartStyle: .line,
+                symbolName: "scalemass.fill",
+                symbolColor: Color(red: 0.50, green: 0.34, blue: 1.00),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + " " + massUnit },
+                messageStyle: .average(subject: "your weight")
+            )
+        case .bodyFatPercentage:
+            return Configuration(
+                kind: .bodyFatPercentage,
+                title: "Body Fat",
+                series: trends.series(for: .bodyFatPercentage),
+                chartStyle: .line,
+                symbolName: "percent",
+                symbolColor: Color(red: 1.00, green: 0.68, blue: 0.08),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + "%" },
+                messageStyle: .average(subject: "your body fat")
             )
         }
     }

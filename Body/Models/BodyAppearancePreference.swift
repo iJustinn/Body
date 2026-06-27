@@ -749,6 +749,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
     case exerciseMinutes
     case trainingLoad
     case timeInDaylight
+    case bodyMass
+    case bodyFatPercentage
 
     static let defaultOrder: [BodyHomeTrendCardKind] = [
         .readiness,
@@ -764,7 +766,9 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
         .restingEnergy,
         .exerciseMinutes,
         .trainingLoad,
-        .timeInDaylight
+        .timeInDaylight,
+        .bodyMass,
+        .bodyFatPercentage
     ]
 
     init?(metricKind: HealthMetricKind) {
@@ -809,6 +813,10 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return "Training Load"
         case .timeInDaylight:
             return "Time In Daylight"
+        case .bodyMass:
+            return "Weight"
+        case .bodyFatPercentage:
+            return "Body Fat"
         }
     }
 
@@ -842,6 +850,10 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return "Workout strain trend"
         case .timeInDaylight:
             return "Outdoor daylight trend"
+        case .bodyMass:
+            return "Body weight trend"
+        case .bodyFatPercentage:
+            return "Body fat trend"
         }
     }
 
@@ -874,6 +886,10 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return "figure.strengthtraining.traditional"
         case .timeInDaylight:
             return "sun.max.fill"
+        case .bodyMass:
+            return "scalemass.fill"
+        case .bodyFatPercentage:
+            return "percent"
         }
     }
 
@@ -900,6 +916,10 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return Color(red: 0.14, green: 0.72, blue: 0.42)
         case .timeInDaylight:
             return Color(red: 0.10, green: 0.58, blue: 1.00)
+        case .bodyMass:
+            return Color(red: 0.50, green: 0.34, blue: 1.00)
+        case .bodyFatPercentage:
+            return Color(red: 1.00, green: 0.68, blue: 0.08)
         }
     }
 }
