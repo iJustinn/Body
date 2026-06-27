@@ -4,6 +4,7 @@
 //
 
 import Charts
+import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -286,6 +287,35 @@ extension View {
     }
 }
 
+/// Holds the home page's live scroll offset. Kept as a standalone `@Observable` so writing
+/// it on each scroll frame only invalidates the views that actually read `offset` (the
+/// readiness hero fade) instead of all of `BodyHomeView`, whose body rebuilds every metric
+/// card model on every evaluation.
+@Observable
+private final class BodyHomeScrollState {
+    var offset: CGFloat = 0
+}
+
+/// Applies the readiness hero's scroll fade and pin. It reads `scrollState.offset`, so this
+/// small view re-renders as the page scrolls while `BodyHomeView`'s body does not.
+private struct BodyReadinessHeroScrollFade<Content: View>: View {
+    let scrollState: BodyHomeScrollState
+    @ViewBuilder var content: Content
+
+    private var opacity: Double {
+        max(0, 1 - Double(scrollState.offset) / 130)
+    }
+
+    var body: some View {
+        content
+            // Stay put and fade out as the page scrolls up; fade back in at the top — it
+            // pins via offset rather than scrolling away with the content.
+            .opacity(opacity)
+            .offset(y: min(scrollState.offset, 160))
+            .allowsHitTesting(opacity > 0.1)
+    }
+}
+
 struct BodyHomeView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
@@ -296,12 +326,20 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.homeCardOrderKey) private var homeCardOrderRawValue = BodyHomeCardKind.defaultRawValue
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
+    @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var homeBackgroundEnabled = true
+    @AppStorage(BodyAppearancePreference.homeBackgroundColorsKey) private var homeBackgroundColorsRawValue = ""
+    @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var homeBackgroundSeparatorsRawValue = ""
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var draggedHomeCard: BodyHomeCardKind?
     @State private var showsAllHomeTrends = false
     @State private var isPullRefreshing = false
+    // Scroll offset lives in an @Observable so per-frame scroll updates only re-render the
+    // hero fade wrapper that reads it — not this whole body, which rebuilds every metric
+    // card model on each evaluation.
+    @State private var scrollState = BodyHomeScrollState()
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
 
     var body: some View {
@@ -309,7 +347,7 @@ struct BodyHomeView: View {
 
         return NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground)
+                homeBackground
                     .ignoresSafeArea()
 
                 ScrollView(.vertical, showsIndicators: false) {
@@ -317,6 +355,8 @@ struct BodyHomeView: View {
                         if let healthDataNotice = workoutStore.healthDataNotice {
                             BodyHealthNoticeBanner(message: healthDataNotice)
                         }
+
+                        starMetricHero
 
                         if horizontalSizeClass == .regular {
                             HStack(alignment: .top, spacing: 14) {
@@ -346,6 +386,11 @@ struct BodyHomeView: View {
                     await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
                     isPullRefreshing = false
                 }
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.contentOffset.y + geometry.contentInsets.top
+                } action: { _, offset in
+                    scrollState.offset = max(0, offset)
+                }
             }
             .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
             .navigationDestination(for: HealthMetricKind.self) { kind in
@@ -361,8 +406,58 @@ struct BodyHomeView: View {
         BodyHomeCardKind.storedOrder(from: homeCardOrderRawValue)
     }
 
+    private var starredHomeCard: BodyHomeCardKind? {
+        BodyHomeCardKind.starredMetric(from: starredMetricRawValue)
+    }
+
     private var homeCardRows: [BodyHomeCardLayoutRow] {
-        BodyHomeCardKind.layoutRows(from: homeCardOrder, visibleIn: summaryCardSelection)
+        // The starred metric is shown as the top hero, so exclude it from the grid via
+        // an effective selection. Filtering the order won't work — `layoutRows` repairs
+        // missing cards back in. The persisted order is untouched, so reordering the
+        // remaining cards is unaffected and the card returns to its slot when un-starred.
+        let gridSelection = starredHomeCard.map { summaryCardSelection.setting($0, isEnabled: false) } ?? summaryCardSelection
+        return BodyHomeCardKind.layoutRows(from: homeCardOrder, visibleIn: gridSelection)
+    }
+
+    /// The home-page star hero promoted above the grid. Readiness shows its score text
+    /// here, over the full-bleed color backdrop supplied by `homeBackground` (which
+    /// bleeds behind the status bar). Readiness is the only star-eligible metric.
+    @ViewBuilder
+    private var starMetricHero: some View {
+        switch starredHomeCard {
+        case .readiness:
+            // The scroll fade/pin lives in the wrapper (which reads scrollState.offset) so
+            // scrolling re-renders only it, not this body. Reading the offset here would
+            // rebuild every metric card model on each scroll frame.
+            BodyReadinessHeroScrollFade(scrollState: scrollState) {
+                NavigationLink(value: HealthMetricKind.readiness) {
+                    BodyReadinessHeroLabel(readiness: workoutStore.healthSummary.readiness)
+                }
+                .buttonStyle(.plain)
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    /// Fixed full-bleed backdrop behind the scroll view: the custom Home Background
+    /// color mix when enabled, otherwise the plain grouped background. The mix is
+    /// auto-suppressed while Readiness is starred — that hero is colored by today's
+    /// readiness level, so a separate background tint would clash.
+    @ViewBuilder
+    private var homeBackground: some View {
+        if starredHomeCard == .readiness {
+            // Readiness colors the top of Home directly — fixed, bleeding behind the
+            // status bar, melting into the page — so it replaces the custom mix here.
+            BodyReadinessHeroBackdrop(readiness: workoutStore.healthSummary.readiness)
+        } else if homeBackgroundEnabled {
+            BodyActivityRingsCard.heroBackground(
+                colors: BodyHomeBackground.colors(from: homeBackgroundColorsRawValue),
+                separators: BodyHomeBackground.separators(from: homeBackgroundSeparatorsRawValue)
+            )
+        } else {
+            Color(.systemGroupedBackground)
+        }
     }
 
     /// The two-column grid of summary metric cards (identical on iPhone and iPad).

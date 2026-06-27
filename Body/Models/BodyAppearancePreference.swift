@@ -682,11 +682,24 @@ struct BodyDashboardFetchSelection: Equatable {
     let includesActivityRings: Bool
     private let metricKinds: Set<HealthMetricKind>
 
-    init(summaryCards: BodySummaryCardSelection, trendCards: BodyHomeTrendCardSelection) {
-        includesActivityRings = summaryCards.includes(.activityRings)
+    init(
+        summaryCards: BodySummaryCardSelection,
+        trendCards: BodyHomeTrendCardSelection,
+        starredMetric: BodyHomeCardKind? = nil
+    ) {
+        // The star-metric hero shows Activity Rings regardless of the Summary Cards
+        // toggle, so its HealthKit data must be fetched whenever it's starred.
+        includesActivityRings = summaryCards.includes(.activityRings) || starredMetric == .activityRings
 
         var metrics = Set(summaryCards.selectedCards.compactMap(\.healthMetricKind))
         metrics.formUnion(trendCards.selectedCards.map(\.metricKind))
+
+        // The starred hero shows its metric regardless of the Summary Cards toggle, so
+        // its HealthKit data (and any derived dependencies, e.g. readiness's inputs
+        // below) must be fetched whenever it's starred.
+        if let starredMetricKind = starredMetric?.healthMetricKind {
+            metrics.insert(starredMetricKind)
+        }
 
         if metrics.contains(.basics) {
             metrics.formUnion(Self.basicsMetricKinds)
@@ -712,6 +725,10 @@ struct BodyDashboardFetchSelection: Equatable {
             trendCards: BodyHomeTrendCardSelection.storedValue(
                 from: defaults.string(forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
                     ?? BodyHomeTrendCardSelection.defaultRawValue
+            ),
+            starredMetric: BodyHomeCardKind.starredMetric(
+                from: defaults.string(forKey: BodyAppearancePreference.starredMetricKey)
+                    ?? BodyHomeCardKind.readiness.rawValue
             )
         )
     }
@@ -926,6 +943,19 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
 
     static var defaultRawValue: String {
         rawValue(from: defaultOrder)
+    }
+
+    /// Metrics eligible to be promoted to the home-page "star" hero. Grows as more
+    /// metrics get a hero treatment; today only Readiness qualifies.
+    static let starEligible: [BodyHomeCardKind] = [.readiness]
+
+    /// Parses the stored star-metric preference. Returns the kind only when it both
+    /// parses and is currently star-eligible; empty / unknown / ineligible -> nil (None).
+    static func starredMetric(from rawValue: String) -> BodyHomeCardKind? {
+        guard let kind = BodyHomeCardKind(rawValue: rawValue), starEligible.contains(kind) else {
+            return nil
+        }
+        return kind
     }
 
     var id: String {

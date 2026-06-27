@@ -21,6 +21,8 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey) private var showsSubMinuteAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsSubMinuteAwakeStages
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
+    @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var homeBackgroundEnabled = true
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
@@ -159,6 +161,22 @@ struct BodySettingsView: View {
                 )
             }
             .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
+                activeSheet = .homeBackground
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Home Background",
+                    value: homeBackgroundSummaryText,
+                    iconName: "paintpalette.fill",
+                    tintColor: .teal,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isReadinessStarred)
 
             settingsDivider
 
@@ -325,7 +343,48 @@ struct BodySettingsView: View {
                 )
             }
             .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
+                activeSheet = .starMetric
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Star Metric",
+                    value: starredMetricSummaryText,
+                    iconName: "star.fill",
+                    tintColor: Color(red: 1.0, green: 0.84, blue: 0.0),
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
         }
+    }
+
+    private var starredMetric: Binding<BodyHomeCardKind?> {
+        Binding {
+            BodyHomeCardKind.starredMetric(from: starredMetricRawValue)
+        } set: { newValue in
+            starredMetricRawValue = newValue?.rawValue ?? ""
+        }
+    }
+
+    private var starredMetricSummaryText: String {
+        BodyHomeCardKind.starredMetric(from: starredMetricRawValue)?.title ?? "None"
+    }
+
+    /// While Readiness is the star metric the hero is colored by today's readiness
+    /// level, so the custom Home Background is auto-suppressed (the user's stored
+    /// colors/toggle are preserved and return when another metric is starred).
+    private var isReadinessStarred: Bool {
+        BodyHomeCardKind.starredMetric(from: starredMetricRawValue) == .readiness
+    }
+
+    private var homeBackgroundSummaryText: String {
+        if isReadinessStarred {
+            return "Auto"
+        }
+        return homeBackgroundEnabled ? "On" : "Off"
     }
 
     private var settingsDivider: some View {
@@ -516,6 +575,8 @@ struct BodySettingsView: View {
         switch sheet {
         case .theme:
             BodyThemePickerSheet(selectedTheme: selectedTheme)
+        case .homeBackground:
+            BodyHomeBackgroundSheet()
         case .appIcon:
             BodyAppIconPickerSheet(
                 selectedIconName: selectedAppIconName,
@@ -526,6 +587,8 @@ struct BodySettingsView: View {
             BodySummaryCardsSettingsSheet(selection: summaryCardSelection)
         case .homeTrendCards:
             BodyHomeTrendCardsSettingsSheet(selection: homeTrendCardSelection)
+        case .starMetric:
+            BodyStarMetricPickerSheet(selection: starredMetric)
         case .dayView:
             BodyMetricDayViewSettingsSheet(selection: metricDayViewSelection)
         case .sleepDurationGoal:
@@ -618,10 +681,12 @@ struct BodySettingsView: View {
 
 enum BodySettingsSheet: String, Identifiable {
     case theme
+    case homeBackground
     case appIcon
     case sleepDurationGoal
     case summaryCards
     case homeTrendCards
+    case starMetric
     case dayView
     case units
     case source
@@ -1073,6 +1138,302 @@ private struct BodySummaryCardsSettingsSheet: View {
             }
             .bodyCardBackground()
         }
+    }
+}
+
+private struct BodyStarMetricPickerSheet: View {
+    @Binding var selection: BodyHomeCardKind?
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Star Metric") {
+            VStack(spacing: 0) {
+                BodyStarMetricOptionRow(
+                    title: "None",
+                    subtitle: "No metric pinned to the top of Home",
+                    iconName: "circle.slash",
+                    tintColor: .secondary,
+                    isSelected: selection == nil
+                ) {
+                    selection = nil
+                }
+
+                ForEach(BodyHomeCardKind.starEligible) { card in
+                    Divider()
+                        .padding(.leading, 76)
+
+                    BodyStarMetricOptionRow(
+                        title: card.title,
+                        subtitle: card.subtitle,
+                        iconName: card.iconName,
+                        tintColor: card.tintColor,
+                        isSelected: selection == card
+                    ) {
+                        selection = card
+                    }
+                }
+            }
+            .bodyCardBackground()
+        }
+    }
+}
+
+private struct BodyHomeBackgroundSheet: View {
+    @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var enabled = true
+    @AppStorage(BodyAppearancePreference.homeBackgroundColorsKey) private var colorsRawValue = ""
+    @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var separatorsRawValue = ""
+
+    private var colors: Binding<[Color]> {
+        Binding {
+            var parsed = BodyHomeBackground.colors(from: colorsRawValue)
+            while parsed.count < 3 {
+                parsed.append(BodyHomeBackground.defaultColors[parsed.count])
+            }
+            return Array(parsed.prefix(3))
+        } set: {
+            colorsRawValue = BodyHomeBackground.rawValue(from: $0)
+        }
+    }
+
+    private var separators: Binding<[Double]> {
+        Binding {
+            BodyHomeBackground.normalizedSeparators(
+                BodyHomeBackground.separators(from: separatorsRawValue),
+                count: 3
+            )
+        } set: {
+            separatorsRawValue = BodyHomeBackground.rawValue(fromSeparators: $0)
+        }
+    }
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Home Background") {
+            VStack(spacing: 20) {
+                showToggleRow
+
+                BodyHomeBackgroundPreview(colors: colors.wrappedValue, separators: separators)
+                    .frame(height: 180)
+                    .opacity(enabled ? 1 : 0.35)
+                    .allowsHitTesting(enabled)
+
+                Text("Drag a color around the spectrum to recolor it, or drag a divider on the preview to change how much space each color takes.")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                BodyHomeBackgroundColorWheel(colors: colors)
+                    .frame(height: 300)
+                    .opacity(enabled ? 1 : 0.35)
+                    .allowsHitTesting(enabled)
+            }
+        }
+    }
+
+    private var showToggleRow: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: "paintpalette.fill", color: .teal)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Show on Home")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+
+                Text("Independent of the star metric")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Show on Home", isOn: $enabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+        .bodyCardBackground()
+    }
+}
+
+private struct BodyHomeBackgroundPreview: View {
+    let colors: [Color]
+    @Binding var separators: [Double]
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+
+            ZStack(alignment: .topLeading) {
+                BodyActivityRingsCard.heroBackground(colors: colors, separators: separators)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                ForEach(separators.indices, id: \.self) { index in
+                    BodyHomeBackgroundSeparatorHandle()
+                        .frame(width: 30, height: geo.size.height)
+                        .contentShape(Rectangle())
+                        .position(x: CGFloat(separators[index]) * width, y: geo.size.height / 2)
+                        .gesture(
+                            DragGesture(minimumDistance: 0, coordinateSpace: .named("bgPreview"))
+                                .onChanged { value in
+                                    guard width > 0 else { return }
+                                    let raw = Double(value.location.x / width)
+                                    let lower = index > 0 ? separators[index - 1] + 0.06 : 0.06
+                                    let upper = index < separators.count - 1 ? separators[index + 1] - 0.06 : 0.94
+                                    separators[index] = min(max(raw, lower), upper)
+                                }
+                        )
+                }
+            }
+            .coordinateSpace(name: "bgPreview")
+        }
+    }
+}
+
+private struct BodyHomeBackgroundSeparatorHandle: View {
+    var body: some View {
+        ZStack {
+            Capsule()
+                .fill(.white)
+                .frame(width: 3)
+                .shadow(color: .black.opacity(0.3), radius: 2)
+
+            Circle()
+                .fill(.white)
+                .frame(width: 22, height: 22)
+                .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                .overlay(
+                    Image(systemName: "arrow.left.and.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.secondary)
+                )
+        }
+    }
+}
+
+/// A circular HSV spectrum with one draggable bubble per mix color. Dragging a bubble
+/// sets that color's hue from the angle and saturation from the distance to the center.
+private struct BodyHomeBackgroundColorWheel: View {
+    @Binding var colors: [Color]
+
+    private let bubbleSizes: [CGFloat] = [66, 50, 58]
+
+    var body: some View {
+        GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height)
+            let radius = side / 2
+            let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+
+            ZStack {
+                ZStack {
+                    AngularGradient(gradient: Gradient(colors: Self.hueRing), center: .center)
+                    RadialGradient(
+                        gradient: Gradient(colors: [.white, .white.opacity(0)]),
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: radius
+                    )
+                }
+                .frame(width: side, height: side)
+                .clipShape(Circle())
+                .position(center)
+
+                ForEach(colors.indices, id: \.self) { index in
+                    Circle()
+                        .fill(colors[index])
+                        .overlay(Circle().strokeBorder(.white, lineWidth: 4))
+                        .frame(width: bubbleSize(index), height: bubbleSize(index))
+                        .shadow(color: .black.opacity(0.25), radius: 3, y: 2)
+                        .position(position(for: colors[index], center: center, radius: radius))
+                        .gesture(
+                            DragGesture(minimumDistance: 0, coordinateSpace: .named("colorWheel"))
+                                .onChanged { value in
+                                    colors[index] = Self.color(at: value.location, center: center, radius: radius)
+                                }
+                        )
+                }
+            }
+            .coordinateSpace(name: "colorWheel")
+        }
+    }
+
+    private static let hueRing: [Color] = stride(from: 0.0, through: 1.0, by: 1.0 / 12.0)
+        .map { Color(hue: $0, saturation: 1, brightness: 1) }
+
+    private func bubbleSize(_ index: Int) -> CGFloat {
+        bubbleSizes.indices.contains(index) ? bubbleSizes[index] : 56
+    }
+
+    private func position(for color: Color, center: CGPoint, radius: CGFloat) -> CGPoint {
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(color).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        let angle = Double(h) * 2 * .pi
+        let dist = Double(min(s, 1)) * Double(radius)
+        return CGPoint(
+            x: center.x + CGFloat(cos(angle) * dist),
+            y: center.y + CGFloat(sin(angle) * dist)
+        )
+    }
+
+    private static func color(at point: CGPoint, center: CGPoint, radius: CGFloat) -> Color {
+        let dx = Double(point.x - center.x)
+        let dy = Double(point.y - center.y)
+        let dist = min((dx * dx + dy * dy).squareRoot(), Double(radius))
+        var angle = atan2(dy, dx) / (2 * .pi)
+        if angle < 0 { angle += 1 }
+        let saturation = radius > 0 ? dist / Double(radius) : 0
+        return Color(hue: angle, saturation: saturation, brightness: 1)
+    }
+}
+
+private struct BodyStarMetricOptionRow: View {
+    let title: String
+    let subtitle: String
+    let iconName: String
+    let tintColor: Color
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                BodySettingsIconTile(iconName: iconName, color: tintColor)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    Text(subtitle)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundColor(tintColor)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
