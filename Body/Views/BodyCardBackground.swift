@@ -8,14 +8,41 @@ import SwiftUI
 struct BodyCardBackgroundModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     let cornerRadius: CGFloat
+    /// Renders the translucent "glass" fill used by the trend-range pills
+    /// (`bodyTrendRangeTabBackgroundOnGradient`) instead of the solid card fill.
+    var translucent: Bool = false
+    /// Fill opacity for the translucent variant. Home preview cards use a higher value so
+    /// they read against the colored home backdrop; detail cards keep the default.
+    var translucentFillOpacity: Double = 0.06
+
+    private var fillColor: Color {
+        if translucent {
+            return Color.primary.opacity(translucentFillOpacity)
+        }
+        return colorScheme == .light ? Color(.systemBackground) : Color(.secondarySystemBackground)
+    }
+
+    private var shadowColor: Color {
+        if translucent {
+            return .clear
+        }
+        return Color.black.opacity(colorScheme == .light ? 0.07 : 0)
+    }
+
+    private var strokeColor: Color {
+        if translucent {
+            return Color.primary.opacity(translucentFillOpacity + 0.04)
+        }
+        return Color.primary.opacity(colorScheme == .light ? 0.04 : 0)
+    }
 
     func body(content: Content) -> some View {
         content
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(colorScheme == .light ? Color(.systemBackground) : Color(.secondarySystemBackground))
+                    .fill(fillColor)
                     .shadow(
-                        color: Color.black.opacity(colorScheme == .light ? 0.07 : 0),
+                        color: shadowColor,
                         radius: 14,
                         x: 0,
                         y: 6
@@ -23,14 +50,14 @@ struct BodyCardBackgroundModifier: ViewModifier {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Color.primary.opacity(colorScheme == .light ? 0.04 : 0), lineWidth: 1)
+                    .stroke(strokeColor, lineWidth: 1)
             )
     }
 }
 
 extension View {
-    func bodyCardBackground(cornerRadius: CGFloat = 30) -> some View {
-        modifier(BodyCardBackgroundModifier(cornerRadius: cornerRadius))
+    func bodyCardBackground(cornerRadius: CGFloat = 30, translucent: Bool = false, translucentFillOpacity: Double = 0.06) -> some View {
+        modifier(BodyCardBackgroundModifier(cornerRadius: cornerRadius, translucent: translucent, translucentFillOpacity: translucentFillOpacity))
     }
 
     func bodyTrendRangeTabBackground(isSelected: Bool, colorScheme: ColorScheme) -> some View {

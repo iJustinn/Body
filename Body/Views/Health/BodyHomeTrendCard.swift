@@ -27,7 +27,7 @@ struct BodyHomeTrendsSection: View {
             VStack(spacing: 14) {
                 ForEach(cards) { card in
                     NavigationLink(value: card.presentation.kind) {
-                        BodyHomeTrendCard(model: card)
+                        BodyHomeTrendCard(model: card, translucentFillOpacity: 0.09)
                     }
                     .buttonStyle(.plain)
                 }
@@ -64,10 +64,14 @@ struct BodyHomeTrendCard: View {
 
     let model: Model
     let showsNavigationIndicator: Bool
+    let translucent: Bool
+    let translucentFillOpacity: Double
 
-    init(model: Model, showsNavigationIndicator: Bool = true) {
+    init(model: Model, showsNavigationIndicator: Bool = true, translucent: Bool = true, translucentFillOpacity: Double = 0.06) {
         self.model = model
         self.showsNavigationIndicator = showsNavigationIndicator
+        self.translucent = translucent
+        self.translucentFillOpacity = translucentFillOpacity
     }
 
     var body: some View {
@@ -95,7 +99,7 @@ struct BodyHomeTrendCard: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground(cornerRadius: 28)
+        .bodyCardBackground(cornerRadius: 28, translucent: translucent, translucentFillOpacity: translucentFillOpacity)
     }
 
     private var header: some View {

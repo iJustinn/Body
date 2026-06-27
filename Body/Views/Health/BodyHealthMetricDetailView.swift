@@ -619,7 +619,7 @@ struct BodyHealthMetricDetailView: View {
     }
 
     @ViewBuilder
-    private var selectedSleepCards: some View {
+    private var sleepScoreSummaryCard: some View {
         if showSleepScore {
             if let sleepScore = selectedSleepScore {
                 sleepScoreCard(sleepScore)
@@ -627,7 +627,10 @@ struct BodyHealthMetricDetailView: View {
                 unavailableSleepScoreCard
             }
         }
+    }
 
+    @ViewBuilder
+    private var selectedSleepCards: some View {
         if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
             sleepStageCard(
                 selectedSleepStageSnapshot,
@@ -662,7 +665,7 @@ struct BodyHealthMetricDetailView: View {
             }
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
     }
 
@@ -683,7 +686,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private func readinessStatusExplanationRow(status: ReadinessStatus, isCurrent: Bool) -> some View {
@@ -811,6 +814,7 @@ struct BodyHealthMetricDetailView: View {
     @ViewBuilder
     private var metricDetailCards: some View {
         if isSleepDetail {
+            sleepScoreSummaryCard
             sleepDatePicker
             selectedSleepCards
             detailTrendComparisonCard
@@ -1091,7 +1095,7 @@ struct BodyHealthMetricDetailView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private var bodyMassIndexTrendCard: some View {
@@ -1118,7 +1122,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private var wristTemperatureTrendBaseline: Double? {
@@ -1169,22 +1173,20 @@ struct BodyHealthMetricDetailView: View {
 
     private func datePicker(_ picker: BodyMetricDetailDatePicker) -> some View {
         ScrollViewReader { proxy in
-            ZStack {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(recentDatePickerDates, id: \.self) { date in
-                            dateTile(for: date, picker: picker)
-                                .id(date)
-                        }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(recentDatePickerDates, id: \.self) { date in
+                        dateTile(for: date, picker: picker)
+                            .id(date)
                     }
-                    .padding(.horizontal, 2)
-                    .padding(.vertical, 1)
                 }
-
-                sleepDateSliderEdgeShade
-                    .allowsHitTesting(false)
+                .padding(.horizontal, 2)
+                .padding(.vertical, 1)
             }
-            .background(sleepDateSliderBackground)
+            // Fade the scroll ends by masking the tiles to transparent (not a colored
+            // overlay), so the edges blend into whatever is behind — including the
+            // tinted page gradient — with no dark wedge.
+            .mask(sleepDateSliderEdgeMask)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .task(id: recentDatePickerDates.last) {
                 let calendar = Calendar.bodyGregorian
@@ -1249,7 +1251,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     @ViewBuilder
@@ -1283,7 +1285,7 @@ struct BodyHealthMetricDetailView: View {
             }
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
     }
 
@@ -1427,6 +1429,10 @@ struct BodyHealthMetricDetailView: View {
         let isSelected = calendar.isDate(dayStart, inSameDayAs: selectedDay(for: picker))
         let isFuture = dayStart > today
         let primaryText = BodyDateSliderTileLabel.primaryText(for: dayStart, today: today, calendar: calendar)
+        let tileFill = Color.primary.opacity(isFuture ? 0.03 : 0.06)
+        let tileStroke: Color = isSelected
+            ? dateSliderSelectionColor
+            : Color.primary.opacity(isFuture ? 0.06 : 0.10)
 
         return Button {
             guard !isFuture else {
@@ -1450,16 +1456,12 @@ struct BodyHealthMetricDetailView: View {
             .frame(width: 58, height: 74)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isFuture ? sleepDateTileBackground.opacity(0.62) : sleepDateTileBackground)
+                    .fill(tileFill)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(
-                        isSelected ? dateSliderSelectionColor : dateTileStrokeColor(isFuture: isFuture),
-                        lineWidth: isSelected ? 2.5 : 1
-                    )
+                    .stroke(tileStroke, lineWidth: isSelected ? 2.5 : 1)
             )
-            .shadow(color: Color.black.opacity(0.08), radius: 5, x: 0, y: 2)
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .animation(.easeInOut(duration: 0.16), value: isSelected)
         }
@@ -1501,19 +1503,19 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
-    private var sleepDateSliderEdgeShade: some View {
+    private var sleepDateSliderEdgeMask: some View {
         HStack(spacing: 0) {
             LinearGradient(
-                colors: [sleepDateSliderBackground, sleepDateSliderBackground.opacity(0)],
+                colors: [.clear, .black],
                 startPoint: .leading,
                 endPoint: .trailing
             )
             .frame(width: 28)
 
-            Spacer(minLength: 0)
+            Rectangle().fill(Color.black)
 
             LinearGradient(
-                colors: [sleepDateSliderBackground.opacity(0), sleepDateSliderBackground],
+                colors: [.black, .clear],
                 startPoint: .leading,
                 endPoint: .trailing
             )
@@ -1525,28 +1527,11 @@ struct BodyHealthMetricDetailView: View {
         model.symbolColor
     }
 
-    private var sleepDateSliderBackground: Color {
-        colorScheme == .dark
-            ? Color(red: 0.02, green: 0.02, blue: 0.025)
-            : Color(red: 0.91, green: 0.91, blue: 0.93)
-    }
-
-    private var sleepDateTileBackground: Color {
-        colorScheme == .dark
-            ? Color(red: 0.07, green: 0.07, blue: 0.08)
-            : Color.white
-    }
-
     private func dateTileForegroundColor(isFuture: Bool) -> Color {
         if colorScheme == .dark {
             return isFuture ? Color.white.opacity(0.34) : .white
         }
         return isFuture ? Color.black.opacity(0.32) : .black
-    }
-
-    private func dateTileStrokeColor(isFuture: Bool) -> Color {
-        let base: Color = colorScheme == .dark ? .white : .black
-        return base.opacity(isFuture ? 0.08 : 0.16)
     }
 
     private func sleepScoreCard(_ score: SleepScoreSummary) -> some View {
@@ -1586,7 +1571,7 @@ struct BodyHealthMetricDetailView: View {
             }
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
         .buttonStyle(.plain)
         .accessibilityHint("Shows detailed sleep score scoring")
@@ -1616,7 +1601,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private func sleepStageCard(
@@ -1690,7 +1675,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private func sleepStageDurationSummary(_ snapshot: SleepStageSnapshot) -> some View {
@@ -1771,7 +1756,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     // One pass over the history instead of 14 `sleepSummary(for:)` scans;
@@ -1809,7 +1794,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private func sleepVitalsCard(_ vitals: SleepVitalsSummary, duration: TimeInterval?) -> some View {
@@ -1848,7 +1833,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private func sleepVitalRows(for vitals: SleepVitalsSummary, duration: TimeInterval?) -> [SleepVitalDisplayRow] {

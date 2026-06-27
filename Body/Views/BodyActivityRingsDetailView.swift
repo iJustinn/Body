@@ -624,7 +624,7 @@ struct BodyActivityRingsCard: View {
                 .shadow(color: .black, radius: 3)
                 .shadow(color: .black, radius: 3)
         } else {
-            card.bodyCardBackground(cornerRadius: 28)
+            card.bodyCardBackground(cornerRadius: 28, translucent: true, translucentFillOpacity: 0.09)
         }
     }
 
