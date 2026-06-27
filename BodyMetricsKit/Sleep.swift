@@ -893,6 +893,7 @@ struct SleepConsistencyChartModel: Equatable {
     var nights: [SleepConsistencyNight]
     var averageBedOffsetHours: Double?
     var averageWakeOffsetHours: Double?
+    var consistencyPercentage: Int?
     var yDomainHours: ClosedRange<Double>
     var gridHourOffsets: [Double]
 
@@ -964,6 +965,7 @@ struct SleepConsistencyChartModel: Equatable {
             nights: nights,
             averageBedOffsetHours: averageBed,
             averageWakeOffsetHours: averageWake,
+            consistencyPercentage: consistencyPercentage(for: nights),
             yDomainHours: domain,
             gridHourOffsets: gridHourOffsets(
                 in: domain,
@@ -995,6 +997,8 @@ struct SleepConsistencyChartModel: Equatable {
     private static let wideGridSpanThresholdHours = 16.0
     private static let gridSuppressionWindowHours = 0.6
     private static let averageSpreadCutoffHours = 12.0
+    private static let consistencyFullCreditDeviationHours = 0.5
+    private static let consistencyNoCreditDeviationHours = 3.0
 
     private static func spans(
         bedOffset: Double,
@@ -1066,6 +1070,68 @@ struct SleepConsistencyChartModel: Equatable {
 
         return maxBed - minBed > averageSpreadCutoffHours
             || maxWake - minWake > averageSpreadCutoffHours
+    }
+
+    private static func consistencyPercentage(for nights: [SleepConsistencyNight]) -> Int? {
+        guard nights.count >= 2,
+              let bedDeviation = circularStandardDeviationHours(nights.map(\.bedOffsetHours)),
+              let wakeDeviation = circularStandardDeviationHours(nights.map(\.wakeOffsetHours)) else {
+            return nil
+        }
+
+        let deviation = (bedDeviation + wakeDeviation) / 2
+        if deviation <= consistencyFullCreditDeviationHours {
+            return 100
+        }
+
+        if deviation >= consistencyNoCreditDeviationHours {
+            return 0
+        }
+
+        let progress = 1 - (
+            (deviation - consistencyFullCreditDeviationHours) /
+            (consistencyNoCreditDeviationHours - consistencyFullCreditDeviationHours)
+        )
+        return min(max(Int((progress * 100).rounded()), 0), 100)
+    }
+
+    private static func circularStandardDeviationHours(_ offsets: [Double]) -> Double? {
+        guard !offsets.isEmpty else {
+            return nil
+        }
+
+        guard let average = circularAverageHours(offsets) else {
+            return consistencyNoCreditDeviationHours
+        }
+
+        let meanSquaredDeviation = offsets.reduce(0.0) {
+            let deviation = circularDeviationHours(from: $1, to: average)
+            return $0 + deviation * deviation
+        } / Double(offsets.count)
+        return sqrt(meanSquaredDeviation)
+    }
+
+    private static func circularAverageHours(_ offsets: [Double]) -> Double? {
+        let angles = offsets.map { normalizedClockHours($0) / 24 * 2 * Double.pi }
+        let averageX = angles.reduce(0) { $0 + cos($1) } / Double(angles.count)
+        let averageY = angles.reduce(0) { $0 + sin($1) } / Double(angles.count)
+        guard averageX.isFinite, averageY.isFinite, abs(averageX) + abs(averageY) > 0.000001 else {
+            return nil
+        }
+
+        let angle = atan2(averageY, averageX)
+        let normalizedAngle = angle >= 0 ? angle : angle + 2 * Double.pi
+        return normalizedAngle / (2 * Double.pi) * 24
+    }
+
+    private static func circularDeviationHours(from lhs: Double, to rhs: Double) -> Double {
+        let difference = abs(normalizedClockHours(lhs) - normalizedClockHours(rhs))
+        return min(difference, 24 - difference)
+    }
+
+    private static func normalizedClockHours(_ offsetHours: Double) -> Double {
+        let normalized = offsetHours.truncatingRemainder(dividingBy: 24)
+        return normalized < 0 ? normalized + 24 : normalized
     }
 
     private static func gridHourOffsets(

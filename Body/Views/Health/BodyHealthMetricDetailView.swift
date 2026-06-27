@@ -1652,8 +1652,7 @@ struct BodyHealthMetricDetailView: View {
 
                 if snapshot.asleepDuration > 0 {
                     Text(BodyValueFormat.sleepDurationText(for: snapshot.asleepDuration))
-                        .font(.system(.caption, design: .rounded))
-                        .fontWeight(.bold)
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
@@ -1760,13 +1759,14 @@ struct BodyHealthMetricDetailView: View {
 
                 Spacer(minLength: 12)
 
-                Text(workoutStore.selectedHealthDataSourceOption(for: model.kind).name)
-                    .font(.system(.caption, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .multilineTextAlignment(.trailing)
+                if let consistencyPercentage = chartModel.consistencyPercentage {
+                    Text("\(consistencyPercentage)%")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .multilineTextAlignment(.trailing)
+                }
             }
 
             if chartModel.nights.count < 2 {
