@@ -2027,7 +2027,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 .restingEnergy,
                 .exerciseMinutes,
                 .trainingLoad,
-                .timeInDaylight
+                .timeInDaylight,
+                .bodyMass,
+                .bodyFatPercentage
             ]
         )
         XCTAssertEqual(selection.rawValue, "heartRate,sleep,steps")
@@ -2055,6 +2057,58 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             BodyHomeTrendCardSelection.storedValue(from: "none").enabledCount,
             0
         )
+    }
+
+    @MainActor
+    func testHomeTrendCardFactoryBuildsWeightAndBodyFatCardsWithUnitConversion() throws {
+        let calendar = Calendar.bodyGregorian
+        let today = calendar.startOfDay(for: Date())
+        // Older 21 days vs. recent 7 days (same shape the resting-heart-rate test
+        // proves resolves to a 7-day recent window).
+        let weightPoints = try (-27...0).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: today))
+            return HealthTrendDataPoint(date: date, value: offset < -6 ? 72.0 : 69.0) // kilograms
+        }
+        let bodyFatPoints = try (-27...0).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: today))
+            return HealthTrendDataPoint(date: date, value: offset < -6 ? 25.0 : 20.0) // already 0–100
+        }
+
+        var trends = HealthTrendSnapshot.empty
+        trends.bodyMass = HealthTrendSeries(points: weightPoints)
+        trends.bodyFatPercentage = HealthTrendSeries(points: bodyFatPoints)
+
+        let cards = BodyHomeTrendCardFactory.cards(
+            trends: trends,
+            selection: BodyHomeTrendCardSelection(selectedCards: [.bodyMass, .bodyFatPercentage]),
+            temperatureUnitPreference: .defaultValue,
+            energyUnitPreference: .defaultValue,
+            weightUnitPreference: .pounds,
+            includesStable: true,
+            cache: BodyHomeTrendComputationCache()
+        )
+
+        XCTAssertEqual(cards.count, 2)
+        XCTAssertEqual(cards.map(\.presentation.kind), [.bodyMass, .bodyFatPercentage])
+
+        let weightCard = try XCTUnwrap(cards.first { $0.presentation.kind == .bodyMass })
+        XCTAssertEqual(weightCard.presentation.title, "Weight")
+        XCTAssertEqual(weightCard.symbolName, "scalemass.fill")
+        XCTAssertEqual(weightCard.presentation.chartStyle, .line)
+        XCTAssertTrue(weightCard.presentation.recentAverageText.hasSuffix("lb"))
+        // 69–72 kg converts to ~152–159 lb; a value > 100 proves kg→lb ran before presentation.
+        XCTAssertGreaterThan(weightCard.presentation.recentAverage, 100)
+        XCTAssertGreaterThan(weightCard.presentation.baselineAverage, 100)
+        XCTAssertTrue(weightCard.presentation.messageText.contains("your weight"))
+
+        let bodyFatCard = try XCTUnwrap(cards.first { $0.presentation.kind == .bodyFatPercentage })
+        XCTAssertEqual(bodyFatCard.presentation.title, "Body Fat")
+        XCTAssertEqual(bodyFatCard.symbolName, "percent")
+        XCTAssertEqual(bodyFatCard.presentation.chartStyle, .line)
+        XCTAssertTrue(bodyFatCard.presentation.recentAverageText.hasSuffix("%"))
+        // Series is already 0–100; a value > 1 proves no extra 0–1 scaling is applied.
+        XCTAssertGreaterThan(bodyFatCard.presentation.recentAverage, 1)
+        XCTAssertTrue(bodyFatCard.presentation.messageText.contains("your body fat"))
     }
 
     func testDashboardFetchSelectionStarredReadinessForcesDependencies() {
