@@ -51,6 +51,8 @@ struct BodyReadinessHeroBackdrop: View {
 /// The readiness score + status text that scrolls over `BodyReadinessHeroBackdrop`.
 /// Transparent — the color comes entirely from the backdrop behind it.
 struct BodyReadinessHeroLabel: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let readiness: ReadinessSummary
 
     /// Animated score for the big number — counts up from 0 on launch and rolls to each
@@ -65,6 +67,14 @@ struct BodyReadinessHeroLabel: View {
 
     private var headline: String {
         status == .unavailable ? "Readiness" : "\(status.title) Readiness"
+    }
+
+    private var statusTextAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.28)
+    }
+
+    private var statusTextTransition: AnyTransition {
+        .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.28))
     }
 
     var body: some View {
@@ -89,17 +99,12 @@ struct BodyReadinessHeroLabel: View {
 
             Spacer().frame(height: 35)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(headline)
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-
-                Text(status.explanation)
-                    .font(.system(size: 15, weight: .medium, design: .rounded))
-                    .opacity(0.92)
-                    .fixedSize(horizontal: false, vertical: true)
+            ZStack(alignment: .leading) {
+                statusText
+                    .id(status)
+                    .transition(statusTextTransition)
             }
+            .animation(statusTextAnimation, value: status)
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer(minLength: 6)
@@ -125,6 +130,20 @@ struct BodyReadinessHeroLabel: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var statusText: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(headline)
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+
+            Text(status.explanation)
+                .font(.system(size: 15, weight: .medium, design: .rounded))
+                .opacity(0.92)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var accessibilityLabel: String {

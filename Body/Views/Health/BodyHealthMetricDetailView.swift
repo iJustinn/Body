@@ -1651,11 +1651,12 @@ struct BodyHealthMetricDetailView: View {
                 Spacer(minLength: 12)
 
                 if snapshot.asleepDuration > 0 {
-                    Text(BodyValueFormat.sleepDurationText(for: snapshot.asleepDuration))
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+                    BodyAnimatedMetricValueText(
+                        value: BodyValueFormat.sleepDurationText(for: snapshot.asleepDuration),
+                        fontSize: 22,
+                        color: .secondary,
+                        minimumScaleFactor: 0.75
+                    )
                 }
 
                 if let sourceName {
@@ -1760,11 +1761,12 @@ struct BodyHealthMetricDetailView: View {
                 Spacer(minLength: 12)
 
                 if let consistencyPercentage = chartModel.consistencyPercentage {
-                    Text("\(consistencyPercentage)%")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+                    BodyAnimatedMetricValueText(
+                        value: "\(consistencyPercentage)%",
+                        fontSize: 22,
+                        color: .secondary,
+                        minimumScaleFactor: 0.75
+                    )
                         .multilineTextAlignment(.trailing)
                 }
             }

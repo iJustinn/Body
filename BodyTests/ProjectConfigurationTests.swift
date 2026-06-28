@@ -800,6 +800,25 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(sleepStageCardAndSummaryBlock.contains(".frame(maxWidth: .infinity, alignment: .center)"))
     }
 
+    func testSleepDetailHeaderValuesUseNumericTransitions() throws {
+        let source = try bodyHomeViewText()
+        let sleepStageCardStart = try XCTUnwrap(source.range(of: "private func sleepStageCard")?.lowerBound)
+        let sleepStageCardEnd = try XCTUnwrap(
+            source.range(of: "private func sleepStageDurationSummary", range: sleepStageCardStart..<source.endIndex)?.lowerBound
+        )
+        let sleepStageCardBlock = String(source[sleepStageCardStart..<sleepStageCardEnd])
+        let sleepConsistencyCardStart = try XCTUnwrap(source.range(of: "private var sleepConsistencyCard")?.lowerBound)
+        let sleepConsistencyCardEnd = try XCTUnwrap(
+            source.range(of: "private var sleepConsistencyChartModel", range: sleepConsistencyCardStart..<source.endIndex)?.lowerBound
+        )
+        let sleepConsistencyCardBlock = String(source[sleepConsistencyCardStart..<sleepConsistencyCardEnd])
+
+        XCTAssertTrue(sleepStageCardBlock.contains("BodyAnimatedMetricValueText("))
+        XCTAssertTrue(sleepStageCardBlock.contains("value: BodyValueFormat.sleepDurationText(for: snapshot.asleepDuration)"))
+        XCTAssertTrue(sleepConsistencyCardBlock.contains("BodyAnimatedMetricValueText("))
+        XCTAssertTrue(sleepConsistencyCardBlock.contains(#"value: "\(consistencyPercentage)%""#))
+    }
+
     func testSleepStageBreakdownTogglesToOptimalRangeChart() throws {
         let source = try bodyHomeViewText()
         let appearanceSource = try text(at: "BodyMetricsKit/BodyHealthSelections.swift")
