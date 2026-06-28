@@ -1,5 +1,11 @@
 # Version History
 
+## 0.9.5 (build 6)
+
+- The colored **workout calendar squares** and **type-breakdown bars** now use a flat, slightly translucent fill so the backdrop shows through, matching the app's flat glass surfaces — no heavy material frost or specular sheen. The **breakdown bars** add a thin white edge rim; the **calendar squares** have no border. Empty calendar day cells are unchanged.
+- Workout cards now **zoom into their detail the same way Summary cards do**: tapping a workout on the Workouts list morphs the card open into a full-bleed detail page (the morph clipped to the card's rounded corners) that collapses back into the card when you close it with a top-right **Liquid Glass ✕** button — replacing the old partial-height detail sheet. The detail opens as a navigation push, so the **bottom tab bar stays visible**, and the route map now extends to the very top of the screen (under the status bar). The same morphing detail also opens from the **calendar-day** and **workout-type** popups — their rows are now tappable, and those popups dropped their **Done** button (swipe down to dismiss). Built on iOS 18's zoom transition, which falls back to a cross-fade under Reduce Motion.
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 6.
+
 ## 0.9.5 (build 5)
 
 - Sleep detail card header values now use the same number-flipping transition as the Summary metric values: the Sleep Stages duration and Sleep Consistency percentage animate when the selected day changes, while respecting Reduce Motion.

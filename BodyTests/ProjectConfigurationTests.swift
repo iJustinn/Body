@@ -1211,12 +1211,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.5;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 5;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 6;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.5;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 5;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 6;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1251,7 +1251,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.5 (build 5)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.5 (build 6)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 1)**"))
@@ -1263,6 +1264,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.5 (build 6)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.5 build 6."))
         XCTAssertTrue(versionHistory.contains("## 0.9.5 (build 5)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.5 build 5."))
         XCTAssertTrue(versionHistory.contains("## 0.9.5 (build 3)"))
@@ -1361,24 +1364,50 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(storeSource.contains("if permission == .workouts"))
     }
 
-    func testWorkoutRouteSheetOnlyExpandsAfterRouteLoads() throws {
+    func testWorkoutDetailPresentsFullScreenWithCloseButton() throws {
         let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
-        let sheetStart = try XCTUnwrap(workoutsSource.range(of: "private struct BodyWorkoutDetailSheet")?.lowerBound)
+        let sheetStart = try XCTUnwrap(workoutsSource.range(of: "struct BodyWorkoutDetailSheet")?.lowerBound)
         let sheetBlock = String(workoutsSource[sheetStart...].prefix(6_000))
 
-        XCTAssertTrue(sheetBlock.contains("_selectedDetent = State(initialValue: .fraction(0.7))"))
+        // Workout details open as a full-bleed navigation push (so the tab bar stays
+        // visible), the map bleeds under the status bar, the nav bar is hidden, and a
+        // Liquid Glass close button dismisses it — no full-screen cover, no detents.
+        XCTAssertTrue(workoutsSource.contains(".navigationDestination(item: $selectedWorkoutForDetails) { workout in"))
+        XCTAssertTrue(workoutsSource.contains(".navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))"))
+        XCTAssertTrue(workoutsSource.contains("route = await workoutStore.loadWorkoutRoute(for: workout)"))
+        XCTAssertTrue(workoutsSource.contains(".ignoresSafeArea(edges: .top)"))
+        XCTAssertTrue(workoutsSource.contains(".toolbar(.hidden, for: .navigationBar)"))
+        XCTAssertTrue(workoutsSource.contains(".buttonStyle(.glass)"))
+        XCTAssertTrue(workoutsSource.contains(#"Image(systemName: "xmark")"#))
+        XCTAssertTrue(sheetBlock.contains("@Environment(\\.dismiss) private var dismiss"))
         XCTAssertFalse(sheetBlock.contains("distanceMeters ?? 0"))
-        XCTAssertTrue(sheetBlock.contains("let loadedRoute = await workoutStore.loadWorkoutRoute(for: workout)"))
-        XCTAssertTrue(sheetBlock.contains("route = loadedRoute"))
-        XCTAssertTrue(sheetBlock.contains("if loadedRoute != nil"))
-        XCTAssertTrue(sheetBlock.contains("selectedDetent = .large"))
+        XCTAssertFalse(workoutsSource.contains(".fullScreenCover(item: $selectedWorkoutForDetails)"))
+        XCTAssertFalse(workoutsSource.contains("selectedDetent"))
+        XCTAssertFalse(sheetBlock.contains(".presentationDetents"))
+    }
+
+    func testWorkoutListSheetRowsOpenFullScreenDetail() throws {
+        let source = try text(at: "Body/Views/BodyWorkoutListSheet.swift")
+
+        // The calendar-day / workout-type list popups make their rows tappable into
+        // the same full-screen workout detail used by the Workouts list.
+        XCTAssertTrue(source.contains("@State private var selectedWorkout: WorkoutSummary?"))
+        XCTAssertTrue(source.contains("selectedWorkout = workout"))
+        XCTAssertTrue(source.contains(".matchedTransitionSource(id: workout.id, in: workoutZoom)"))
+        XCTAssertTrue(source.contains(".fullScreenCover(item: $selectedWorkout) { workout in"))
+        XCTAssertTrue(source.contains("BodyWorkoutDetailSheet(workout: workout)"))
+        XCTAssertTrue(source.contains(".navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))"))
+        // The Done button was removed; the popups dismiss via the sheet grabber.
+        XCTAssertFalse(source.contains(#"Button("Done")"#))
+        XCTAssertTrue(source.contains(".toolbar(.hidden, for: .navigationBar)"))
     }
 
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-v0.9.5`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.5 build 5"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.5 build 6"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 5"))
         XCTAssertFalse(testPlan.contains("app version 0.9.5 build 3"))
         XCTAssertFalse(testPlan.contains("app version 0.9.5 build 2"))
         XCTAssertFalse(testPlan.contains("app version 0.9.5 build 1"))
