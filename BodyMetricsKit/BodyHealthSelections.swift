@@ -28,6 +28,7 @@ enum BodyAppearancePreference {
     static let homeBackgroundColorsKey = "homeBackgroundColors"
     static let homeBackgroundSeparatorsKey = "homeBackgroundSeparators"
     static let homeBackgroundEnabledKey = "homeBackgroundEnabled"
+    static let homeBackgroundProfilesKey = "homeBackgroundProfiles"
     static let defaultTrendRangeKey = "defaultTrendRange"
     static let homeTrendCardSelectionKey = "homeTrendCardSelection"
     static let metricDayViewSelectionKey = "metricDayViewSelection"

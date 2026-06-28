@@ -54,15 +54,19 @@ struct BodyAppBackground: View {
     }
 }
 
-/// Defaults to the three activity-ring colors split into uneven thirds; users can
+/// Defaults to three neighboring blue tones split into uneven thirds; users can
 /// override the colors and the dividers between them.
 enum BodyHomeBackground {
     static var defaultColors: [Color] {
-        [BodyActivityRingPalette.move, BodyActivityRingPalette.exercise, BodyActivityRingPalette.stand]
+        [
+            Color(red: 0.19, green: 0.71, blue: 1.00),
+            Color(red: 0.04, green: 0.52, blue: 1.00),
+            Color(red: 0.00, green: 0.34, blue: 0.85)
+        ]
     }
 
     /// Internal divider positions for the default 3-color mix (two gates → three bands).
-    static var defaultSeparators: [Double] { [0.42, 0.74] }
+    static var defaultSeparators: [Double] { [0.33, 0.67] }
 
     static func colors(from rawValue: String) -> [Color] {
         let parsed = rawValue
@@ -98,6 +102,134 @@ enum BodyHomeBackground {
             return Array(defaultSeparators.prefix(needed))
         }
         return cleaned
+    }
+}
+
+struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
+    static let appDefaultID = "app-default"
+
+    let id: String
+    let colorsRawValue: String
+    let separatorsRawValue: String
+    var name: String? = nil
+
+    static var appDefault: BodyHomeBackgroundProfile {
+        BodyHomeBackgroundProfile(
+            id: appDefaultID,
+            colorsRawValue: BodyHomeBackground.rawValue(from: BodyHomeBackground.defaultColors),
+            separatorsRawValue: BodyHomeBackground.rawValue(fromSeparators: BodyHomeBackground.defaultSeparators)
+        )
+    }
+
+    static func custom(name: String, colors: [Color], separators: [Double]) -> BodyHomeBackgroundProfile {
+        BodyHomeBackgroundProfile(
+            id: UUID().uuidString,
+            colorsRawValue: BodyHomeBackground.rawValue(from: colors),
+            separatorsRawValue: BodyHomeBackground.rawValue(
+                fromSeparators: BodyHomeBackground.normalizedSeparators(separators, count: 3)
+            ),
+            name: Self.sanitizedName(name)
+        )
+    }
+
+    var colors: [Color] {
+        BodyHomeBackground.colors(from: colorsRawValue)
+    }
+
+    var separators: [Double] {
+        BodyHomeBackground.normalizedSeparators(BodyHomeBackground.separators(from: separatorsRawValue), count: 3)
+    }
+
+    var fingerprint: String {
+        Self.fingerprint(colorsRawValue: colorsRawValue, separatorsRawValue: separatorsRawValue)
+    }
+
+    var segmentSummary: String {
+        let bounds = [0.0] + separators + [1.0]
+        return zip(bounds, bounds.dropFirst())
+            .map { Int((($1 - $0) * 100).rounded()) }
+            .map { "\($0)%" }
+            .joined(separator: " / ")
+    }
+
+    func displayName(defaultName: String) -> String {
+        Self.sanitizedName(name ?? "") ?? defaultName
+    }
+
+    func renamed(_ name: String) -> BodyHomeBackgroundProfile {
+        BodyHomeBackgroundProfile(
+            id: id,
+            colorsRawValue: colorsRawValue,
+            separatorsRawValue: separatorsRawValue,
+            name: Self.sanitizedName(name)
+        )
+    }
+
+    static func sanitizedName(_ name: String) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func fingerprint(colors: [Color], separators: [Double]) -> String {
+        fingerprint(
+            colorsRawValue: BodyHomeBackground.rawValue(from: colors),
+            separatorsRawValue: BodyHomeBackground.rawValue(
+                fromSeparators: BodyHomeBackground.normalizedSeparators(separators, count: 3)
+            )
+        )
+    }
+
+    static func fingerprint(colorsRawValue: String, separatorsRawValue: String) -> String {
+        let colorsRawValue = BodyHomeBackground.rawValue(from: BodyHomeBackground.colors(from: colorsRawValue))
+        let separatorsRawValue = BodyHomeBackground.rawValue(
+            fromSeparators: BodyHomeBackground.normalizedSeparators(
+                BodyHomeBackground.separators(from: separatorsRawValue),
+                count: 3
+            )
+        )
+        return "\(colorsRawValue)|\(separatorsRawValue)"
+    }
+}
+
+enum BodyHomeBackgroundProfileStore {
+    static let maximumProfileCount = 5
+    static var maximumCustomProfileCount: Int { maximumProfileCount - 1 }
+
+    static func allProfiles(from rawValue: String) -> [BodyHomeBackgroundProfile] {
+        [BodyHomeBackgroundProfile.appDefault] + customProfiles(from: rawValue)
+    }
+
+    static func customProfiles(from rawValue: String) -> [BodyHomeBackgroundProfile] {
+        guard
+            let data = rawValue.data(using: .utf8),
+            let decoded = try? JSONDecoder().decode([BodyHomeBackgroundProfile].self, from: data)
+        else {
+            return []
+        }
+
+        return Array(
+            decoded
+                .filter { $0.id != BodyHomeBackgroundProfile.appDefaultID }
+                .prefix(maximumCustomProfileCount)
+        )
+    }
+
+    static func rawValue(from profiles: [BodyHomeBackgroundProfile]) -> String {
+        let profiles = Array(
+            profiles
+                .filter { $0.id != BodyHomeBackgroundProfile.appDefaultID }
+                .prefix(maximumCustomProfileCount)
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard
+            let data = try? encoder.encode(profiles),
+            let rawValue = String(data: data, encoding: .utf8)
+        else {
+            return ""
+        }
+        return rawValue
     }
 }
 

@@ -1116,6 +1116,11 @@ private struct BodyHomeBackgroundSheet: View {
     @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var enabled = true
     @AppStorage(BodyAppearancePreference.homeBackgroundColorsKey) private var colorsRawValue = ""
     @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var separatorsRawValue = ""
+    @AppStorage(BodyAppearancePreference.homeBackgroundProfilesKey) private var profilesRawValue = ""
+    @State private var profileBeingRenamed: BodyHomeBackgroundProfile?
+    @State private var renameProfileName = ""
+    @State private var profileBeingDeleted: BodyHomeBackgroundProfile?
+    @State private var deleteProfileName = ""
 
     private var colors: Binding<[Color]> {
         Binding {
@@ -1140,6 +1145,23 @@ private struct BodyHomeBackgroundSheet: View {
         }
     }
 
+    private var customProfiles: [BodyHomeBackgroundProfile] {
+        BodyHomeBackgroundProfileStore.customProfiles(from: profilesRawValue)
+    }
+
+    private var profiles: [BodyHomeBackgroundProfile] {
+        BodyHomeBackgroundProfileStore.allProfiles(from: profilesRawValue)
+    }
+
+    private var currentProfileFingerprint: String {
+        BodyHomeBackgroundProfile.fingerprint(colors: colors.wrappedValue, separators: separators.wrappedValue)
+    }
+
+    private var canSaveCurrentProfile: Bool {
+        !profiles.contains { $0.fingerprint == currentProfileFingerprint }
+            && customProfiles.count < BodyHomeBackgroundProfileStore.maximumCustomProfileCount
+    }
+
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Background") {
             VStack(spacing: 20) {
@@ -1150,18 +1172,98 @@ private struct BodyHomeBackgroundSheet: View {
                     .opacity(enabled ? 1 : 0.35)
                     .allowsHitTesting(enabled)
 
+                BodyHomeBackgroundColorWheel(colors: colors)
+                    .frame(height: 300)
+                    .opacity(enabled ? 1 : 0.35)
+                    .allowsHitTesting(enabled)
+
+                profilesSection
+                    .opacity(enabled ? 1 : 0.35)
+                    .allowsHitTesting(enabled)
+
                 Text("Drag a color around the spectrum to recolor it, or drag a divider on the preview to change how much space each color takes.")
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.medium)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-
-                BodyHomeBackgroundColorWheel(colors: colors)
-                    .frame(height: 300)
-                    .opacity(enabled ? 1 : 0.35)
-                    .allowsHitTesting(enabled)
             }
+        }
+        .alert("Rename Profile", isPresented: isRenamingProfile) {
+            TextField("Profile Name", text: $renameProfileName)
+
+            Button("Save", action: commitProfileRename)
+
+            Button(role: .cancel, action: discardProfileRename) {
+                Text("Cancel")
+            }
+        }
+        .alert("Delete \"\(deleteProfileName)\"?", isPresented: isConfirmingDelete) {
+            Button("Delete", role: .destructive, action: confirmProfileDeletion)
+
+            Button("Cancel", role: .cancel, action: discardProfileDeletion)
+        } message: {
+            Text("This profile will be removed.")
+        }
+    }
+
+    private var profilesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Text("Profiles")
+                    .font(.system(size: BodySettingsTypography.sectionTitleFontSize, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                Spacer(minLength: 12)
+
+                Button(action: saveCurrentProfile) {
+                    Label("Save Current", systemImage: "plus.circle.fill")
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(canSaveCurrentProfile ? .blue : .secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill((canSaveCurrentProfile ? Color.blue : Color.secondary).opacity(0.14))
+                )
+                .disabled(!canSaveCurrentProfile)
+            }
+
+            VStack(spacing: 0) {
+                ForEach(Array(profiles.enumerated()), id: \.element.id) { index, profile in
+                    let defaultTitle = profile.id == BodyHomeBackgroundProfile.appDefaultID ? "App Default" : "Saved \(index)"
+                    let title = profile.displayName(defaultName: defaultTitle)
+                    let canEditProfile = profile.id != BodyHomeBackgroundProfile.appDefaultID
+
+                    BodyHomeBackgroundProfileRow(
+                        profile: profile,
+                        title: title,
+                        isSelected: profile.fingerprint == currentProfileFingerprint,
+                        canEdit: canEditProfile,
+                        onSelect: {
+                            applyProfile(profile)
+                        },
+                        onRename: {
+                            beginRenamingProfile(profile, defaultName: defaultTitle)
+                        },
+                        onDelete: {
+                            beginDeletingProfile(profile, name: title)
+                        }
+                    )
+
+                    if index < profiles.count - 1 {
+                        Divider()
+                            .padding(.leading, 86)
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .bodyCardBackground(translucent: true)
         }
     }
 
@@ -1193,6 +1295,271 @@ private struct BodyHomeBackgroundSheet: View {
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
         .bodyCardBackground(translucent: true)
+    }
+
+    private var isRenamingProfile: Binding<Bool> {
+        Binding {
+            profileBeingRenamed != nil
+        } set: { isPresented in
+            if !isPresented {
+                discardProfileRename()
+            }
+        }
+    }
+
+    private var isConfirmingDelete: Binding<Bool> {
+        Binding {
+            profileBeingDeleted != nil
+        } set: { isPresented in
+            if !isPresented {
+                discardProfileDeletion()
+            }
+        }
+    }
+
+    private func saveCurrentProfile() {
+        guard canSaveCurrentProfile else { return }
+        let defaultName = "Saved \(customProfiles.count + 1)"
+        let nextProfile = BodyHomeBackgroundProfile.custom(
+            name: defaultName,
+            colors: colors.wrappedValue,
+            separators: separators.wrappedValue
+        )
+        storeCustomProfiles(customProfiles + [nextProfile])
+    }
+
+    private func applyProfile(_ profile: BodyHomeBackgroundProfile) {
+        if profile.id == BodyHomeBackgroundProfile.appDefaultID {
+            colorsRawValue = ""
+            separatorsRawValue = ""
+        } else {
+            colorsRawValue = profile.colorsRawValue
+            separatorsRawValue = profile.separatorsRawValue
+        }
+    }
+
+    private func beginDeletingProfile(_ profile: BodyHomeBackgroundProfile, name: String) {
+        guard profile.id != BodyHomeBackgroundProfile.appDefaultID else { return }
+        profileBeingDeleted = profile
+        deleteProfileName = name
+    }
+
+    private func confirmProfileDeletion() {
+        guard let profileBeingDeleted else { return }
+        storeCustomProfiles(customProfiles.filter { $0.id != profileBeingDeleted.id })
+        discardProfileDeletion()
+    }
+
+    private func discardProfileDeletion() {
+        profileBeingDeleted = nil
+        deleteProfileName = ""
+    }
+
+    private func beginRenamingProfile(_ profile: BodyHomeBackgroundProfile, defaultName: String) {
+        guard profile.id != BodyHomeBackgroundProfile.appDefaultID else { return }
+        profileBeingRenamed = profile
+        renameProfileName = profile.displayName(defaultName: defaultName)
+    }
+
+    private func commitProfileRename() {
+        guard let profileBeingRenamed else { return }
+        storeCustomProfiles(
+            customProfiles.map { profile in
+                profile.id == profileBeingRenamed.id ? profile.renamed(renameProfileName) : profile
+            }
+        )
+        discardProfileRename()
+    }
+
+    private func discardProfileRename() {
+        profileBeingRenamed = nil
+        renameProfileName = ""
+    }
+
+    private func storeCustomProfiles(_ profiles: [BodyHomeBackgroundProfile]) {
+        profilesRawValue = BodyHomeBackgroundProfileStore.rawValue(from: profiles)
+    }
+}
+
+private struct BodyHomeBackgroundProfileRow: View {
+    let profile: BodyHomeBackgroundProfile
+    let title: String
+    let isSelected: Bool
+    let canEdit: Bool
+    let onSelect: () -> Void
+    let onRename: () -> Void
+    let onDelete: () -> Void
+    @State private var revealsDelete = false
+    @State private var dragWidth: CGFloat = 0
+    @State private var didSwipe = false
+
+    private let deleteActionWidth: CGFloat = 82
+
+    private var contentOffset: CGFloat {
+        let settled: CGFloat = revealsDelete ? -deleteActionWidth : 0
+        return max(-deleteActionWidth, min(0, settled + dragWidth))
+    }
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            if canEdit {
+                Button(role: .destructive) {
+                    closeDelete()
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(.body, design: .rounded))
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.red)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Delete \(title)")
+                .frame(width: max(0, -contentOffset), alignment: .trailing)
+                .clipped()
+            }
+
+            rowContent
+                .offset(x: contentOffset)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 10)
+                        .onChanged { value in
+                            guard canEdit else { return }
+                            // Only follow horizontal swipes so vertical scrolling still works.
+                            guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                            didSwipe = true
+                            dragWidth = value.translation.width
+                        }
+                        .onEnded { value in
+                            guard canEdit else { return }
+                            let settled: CGFloat = revealsDelete ? -deleteActionWidth : 0
+                            let projected = settled + value.predictedEndTranslation.width
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                revealsDelete = projected < -deleteActionWidth / 2
+                                dragWidth = 0
+                            }
+                        }
+                )
+        }
+        .clipped()
+    }
+
+    private var rowContent: some View {
+        ZStack(alignment: .leading) {
+            Button(action: selectOrCloseDelete) {
+                Color.clear
+                    .frame(maxWidth: .infinity, minHeight: 72)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            HStack(spacing: 14) {
+                BodyHomeBackgroundProfileSwatch(colors: profile.colors, separators: profile.separators)
+
+                profileText
+
+                Spacer(minLength: 12)
+
+                if isSelected, !revealsDelete {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundColor(.blue)
+                }
+            }
+            .allowsHitTesting(false)
+
+            if canEdit, !revealsDelete {
+                // Mirror the row's leading layout (hidden swatch + hidden summary)
+                // so the tappable title lands exactly on the real title line above
+                // the summary, instead of relying on hard-coded offsets.
+                HStack(spacing: 14) {
+                    BodyHomeBackgroundProfileSwatch(colors: profile.colors, separators: profile.separators)
+                        .hidden()
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Button(action: onRename) {
+                            Text(title)
+                                .font(.system(.headline, design: .rounded))
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Rename \(title)")
+
+                        Text(profile.segmentSummary)
+                            .font(.system(.subheadline, design: .rounded))
+                            .fontWeight(.semibold)
+                            .hidden()
+                    }
+
+                    Spacer(minLength: 12)
+                }
+            }
+        }
+        .padding(.leading, 14)
+        .padding(.vertical, 12)
+        .padding(.trailing, 14)
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+        .contentShape(Rectangle())
+        .background(Color.clear)
+    }
+
+    private func selectOrCloseDelete() {
+        // The full-row button fires on release of a swipe; ignore that tap so it
+        // doesn't immediately re-close the delete action the swipe just revealed.
+        if didSwipe {
+            didSwipe = false
+            return
+        }
+        if revealsDelete {
+            closeDelete()
+        } else {
+            onSelect()
+        }
+    }
+
+    private func closeDelete() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            revealsDelete = false
+            dragWidth = 0
+        }
+    }
+
+    private var profileText: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(.headline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .opacity(canEdit && !revealsDelete ? 0 : 1)
+
+            Text(profile.segmentSummary)
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+        }
+    }
+}
+
+private struct BodyHomeBackgroundProfileSwatch: View {
+    let colors: [Color]
+    let separators: [Double]
+
+    var body: some View {
+        BodyActivityRingsCard.heroBackground(colors: colors, separators: separators)
+            .frame(width: 58, height: 42)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(.white.opacity(0.22), lineWidth: 1)
+            )
     }
 }
 

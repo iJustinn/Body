@@ -56,6 +56,46 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(source.contains(#"Button("Done")"#))
     }
 
+    func testHomeBackgroundDefaultUsesBalancedBlueProfile() {
+        XCTAssertEqual(BodyHomeBackground.rawValue(from: BodyHomeBackground.defaultColors), "30B5FF,0A85FF,0057D9")
+        XCTAssertEqual(BodyHomeBackground.defaultSeparators[0], 0.33, accuracy: 0.0001)
+        XCTAssertEqual(BodyHomeBackground.defaultSeparators[1], 0.67, accuracy: 0.0001)
+        XCTAssertEqual(BodyHomeBackgroundProfile.appDefault.segmentSummary, "33% / 34% / 33%")
+    }
+
+    func testHomeBackgroundProfileStoreKeepsFixedDefaultAndCapsCustomProfiles() {
+        let profiles = (0..<6).map { index in
+            BodyHomeBackgroundProfile(
+                id: "custom-\(index)",
+                colorsRawValue: "30B5FF,0A85FF,0057D9",
+                separatorsRawValue: "0.3300,0.6700"
+            )
+        }
+
+        let rawValue = BodyHomeBackgroundProfileStore.rawValue(from: profiles)
+        let customProfiles = BodyHomeBackgroundProfileStore.customProfiles(from: rawValue)
+        let allProfiles = BodyHomeBackgroundProfileStore.allProfiles(from: rawValue)
+
+        XCTAssertEqual(customProfiles.count, 4)
+        XCTAssertEqual(allProfiles.count, 5)
+        XCTAssertEqual(allProfiles.first?.id, BodyHomeBackgroundProfile.appDefaultID)
+        XCTAssertFalse(customProfiles.contains { $0.id == BodyHomeBackgroundProfile.appDefaultID })
+    }
+
+    func testHomeBackgroundCustomProfileNamesArePersistedAndEditable() throws {
+        let profile = BodyHomeBackgroundProfile.custom(
+            name: "  Evening Blue  ",
+            colors: BodyHomeBackground.defaultColors,
+            separators: BodyHomeBackground.defaultSeparators
+        )
+        let rawValue = BodyHomeBackgroundProfileStore.rawValue(from: [profile])
+        let decodedProfile = try XCTUnwrap(BodyHomeBackgroundProfileStore.customProfiles(from: rawValue).first)
+
+        XCTAssertEqual(decodedProfile.displayName(defaultName: "Saved 1"), "Evening Blue")
+        XCTAssertEqual(decodedProfile.renamed("  Ocean  ").displayName(defaultName: "Saved 1"), "Ocean")
+        XCTAssertEqual(decodedProfile.renamed("   ").displayName(defaultName: "Saved 1"), "Saved 1")
+    }
+
     func testSettingsSourceSheetExposesGlobalDefaultsAndCombineToggle() throws {
         let source = try text(at: "Body/Views/BodySettingsView.swift")
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
