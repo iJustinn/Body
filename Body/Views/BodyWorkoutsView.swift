@@ -19,6 +19,7 @@ struct BodyWorkoutsView: View {
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
     @State private var isPullRefreshing = false
+    @Namespace private var workoutZoom
 
     private var monthSwitchTransition: AnyTransition {
         .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -72,6 +73,9 @@ struct BodyWorkoutsView: View {
                                                     metadataFontSize: 15,
                                                     amountFontSize: 26
                                                 )
+                                                .matchedTransitionSource(id: workout.id, in: workoutZoom) {
+                                                    $0.clipShape(.rect(cornerRadius: 30, style: .continuous))
+                                                }
                                             }
                                             .buttonStyle(.plain)
                                             .accessibilityHint("Shows workout details")
@@ -121,12 +125,14 @@ struct BodyWorkoutsView: View {
                 )
                 .presentationDetents([.medium, .large])
             }
-            .sheet(item: $selectedWorkoutForDetails) { workout in
+            .navigationDestination(item: $selectedWorkoutForDetails) { workout in
                 BodyWorkoutDetailSheet(workout: workout)
                     .environmentObject(workoutStore)
+                    .navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))
             }
             .sheet(item: $selectedWorkoutListSelection) { selection in
                 BodyWorkoutListSheet(selection: selection)
+                    .environmentObject(workoutStore)
                     .presentationDetents([.fraction(0.6), .large])
                     .presentationDragIndicator(.visible)
             }
@@ -671,7 +677,7 @@ private struct BodyWorkoutExpenseStyleRow: View {
     }
 }
 
-private struct BodyWorkoutDetailSheet: View {
+struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
@@ -680,14 +686,13 @@ private struct BodyWorkoutDetailSheet: View {
     @State private var editingScore = 5
     @State private var isSavingEffort = false
     @State private var effortError: String?
-    @State private var selectedDetent: PresentationDetent
     @State private var route: WorkoutRoute?
     @State private var scrollOffset: CGFloat = 0
+    @Environment(\.dismiss) private var dismiss
     let workout: WorkoutSummary
 
     init(workout: WorkoutSummary) {
         self.workout = workout
-        _selectedDetent = State(initialValue: .fraction(0.7))
     }
 
     private let metricColumns = [
@@ -700,7 +705,7 @@ private struct BodyWorkoutDetailSheet: View {
 
     /// How far the floating content overlaps up onto the map's faded lower edge,
     /// so the header sits a little higher over the map rather than below it.
-    private let contentTopOverlap: CGFloat = 110
+    private let contentTopOverlap: CGFloat = 150
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -719,6 +724,7 @@ private struct BodyWorkoutDetailSheet: View {
                             .allowsHitTesting(false)
                     }
                     .frame(maxHeight: .infinity, alignment: .top)
+                    .ignoresSafeArea(edges: .top)
                     .allowsHitTesting(false)
             } else {
                 sheetBackdrop
@@ -734,14 +740,44 @@ private struct BodyWorkoutDetailSheet: View {
                 scrollOffset = offset
             }
         }
-        .presentationDetents([.fraction(0.7), .large], selection: $selectedDetent)
-        .presentationDragIndicator(.visible)
+        .overlay(alignment: .topTrailing) {
+            closeButton
+                .padding(.top, 8)
+                .padding(.trailing, 20)
+        }
+        .toolbar(.hidden, for: .navigationBar)
         .task {
-            let loadedRoute = await workoutStore.loadWorkoutRoute(for: workout)
-            route = loadedRoute
-            if loadedRoute != nil {
-                selectedDetent = .large
+            route = await workoutStore.loadWorkoutRoute(for: workout)
+        }
+    }
+
+    @ViewBuilder
+    private var closeButton: some View {
+        if #available(iOS 26.0, *) {
+            // System Liquid Glass circular close button.
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 30, height: 30)
             }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+            .accessibilityLabel("Close")
+        } else {
+            // Pre-Liquid-Glass fallback: a frosted material circle.
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 34, height: 34)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
         }
     }
 
@@ -758,26 +794,21 @@ private struct BodyWorkoutDetailSheet: View {
 
     @ViewBuilder
     private var sheetBackdrop: some View {
-        // Pre-iOS-26 has no Liquid Glass, so the sheet always needs an opaque
-        // backing; on iOS 26 the partial-detent glass shows through instead.
+        // Pre-iOS-26 has no Liquid Glass, so the detail uses an opaque base
+        // behind the workout-tinted background.
         if #unavailable(iOS 26.0) {
             Color(.systemGroupedBackground)
                 .ignoresSafeArea()
         }
 
-        // Expanded to full height the sheet renders opaque (iOS 26 Liquid Glass
-        // only applies to partial detents), so fade in the same workout-tint →
-        // black backdrop as the metric detail page. Cross-fading the opacity as
-        // the sheet settles on .large smooths the hand-off from the partial
-        // detent's Liquid Glass rather than swapping it abruptly.
+        // When there is no route map, use the same workout-tint-to-black
+        // backdrop as the metric detail page.
         LinearGradient(
             colors: [workout.type.color.opacity(0.45), Color.black],
             startPoint: .top,
             endPoint: UnitPoint(x: 0.5, y: 0.5)
         )
         .ignoresSafeArea()
-        .opacity(selectedDetent == .large ? 1 : 0)
-        .animation(.easeInOut(duration: 0.35), value: selectedDetent)
     }
 
     private var compactWorkoutContent: some View {
@@ -841,16 +872,16 @@ private struct BodyWorkoutDetailSheet: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .trailing, spacing: 12) {
-                Text("Duration")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                    .foregroundColor(.secondary)
-
+            VStack(alignment: .trailing, spacing: -2) {
                 Text(presentation.durationClockText)
                     .font(.system(size: 44, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.45)
+
+                Text("Duration")
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundColor(.secondary)
             }
             .frame(width: 152, alignment: .trailing)
         }

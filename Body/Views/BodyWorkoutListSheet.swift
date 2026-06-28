@@ -80,9 +80,11 @@ enum BodyWorkoutListSelection: Identifiable {
 }
 
 struct BodyWorkoutListSheet: View {
-    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
+    @State private var selectedWorkout: WorkoutSummary?
+    @Namespace private var workoutZoom
     let selection: BodyWorkoutListSelection
 
     var body: some View {
@@ -100,7 +102,16 @@ struct BodyWorkoutListSheet: View {
                         emptyState
                     } else {
                         ForEach(selection.workouts) { workout in
-                            BodyWorkoutRecordRow(workout: workout)
+                            Button {
+                                selectedWorkout = workout
+                            } label: {
+                                BodyWorkoutRecordRow(workout: workout)
+                                    .matchedTransitionSource(id: workout.id, in: workoutZoom) {
+                                        $0.clipShape(.rect(cornerRadius: 30, style: .continuous))
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Shows workout details")
                         }
                     }
                 }
@@ -115,12 +126,11 @@ struct BodyWorkoutListSheet: View {
                     Color(.systemGroupedBackground).ignoresSafeArea()
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
+            .toolbar(.hidden, for: .navigationBar)
+            .fullScreenCover(item: $selectedWorkout) { workout in
+                BodyWorkoutDetailSheet(workout: workout)
+                    .environmentObject(workoutStore)
+                    .navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))
             }
         }
     }

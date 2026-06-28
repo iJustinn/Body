@@ -5,7 +5,7 @@
 
 import Foundation
 
-struct WorkoutHeartRateSample: Codable, Equatable, Identifiable {
+struct WorkoutHeartRateSample: Codable, Equatable, Hashable, Identifiable {
     let date: Date
     let beatsPerMinute: Double
 
@@ -14,7 +14,7 @@ struct WorkoutHeartRateSample: Codable, Equatable, Identifiable {
     }
 }
 
-struct WorkoutSummary: Codable, Equatable, Identifiable {
+struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     let id: UUID
     let type: BodyWorkoutType
     let startDate: Date
