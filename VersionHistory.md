@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.5 (build 5)
+
+- Sleep detail card header values now use the same number-flipping transition as the Summary metric values: the Sleep Stages duration and Sleep Consistency percentage animate when the selected day changes, while respecting Reduce Motion.
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 5.
+
 ## 0.9.5 (build 3)
 
 - Workouts recorded with GPS now show a **route map** behind the top of the workout detail sheet: the route is drawn fit-to-bounds and **colored by pace** (red slow → green fast) with a green start marker and a red end marker, and the city (e.g. "New York, NY") is shown below the workout title. The map is a static snapshot (no panning) that sits as a fixed background and dims as the workout details scroll up over it; indoor or route-less workouts show no map and are otherwise unchanged. Reading routes adds a one-time Apple Health permission prompt the next time you refresh.
