@@ -9,7 +9,6 @@ import UIKit
 
 struct BodySettingsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
-    @AppStorage(BodyAppearancePreference.selectedThemeKey) private var selectedThemeRawValue = BodyAppTheme.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
@@ -149,18 +148,6 @@ struct BodySettingsView: View {
 
     private var appearanceSection: some View {
         BodySettingsCardSection("Appearance") {
-            BodySettingsRowLabel(
-                title: "Theme",
-                value: currentTheme.displayName,
-                iconName: currentTheme.iconName,
-                tintColor: .gray,
-                accessory: .none
-            )
-            .opacity(0.55)
-            .accessibilityHint("Theme selection is disabled")
-
-            settingsDivider
-
             Button {
                 activeSheet = .homeBackground
             } label: {
@@ -415,10 +402,6 @@ struct BodySettingsView: View {
 
     private var currentAppIconOption: BodyAppIconOption {
         BodyAppIconOption.option(named: selectedAppIconName)
-    }
-
-    private var currentTheme: BodyAppTheme {
-        BodyAppTheme.storedValue(from: selectedThemeRawValue)
     }
 
     private var currentWeightUnit: BodyValueFormat.WeightUnitPreference {

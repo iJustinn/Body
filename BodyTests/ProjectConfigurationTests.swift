@@ -1575,17 +1575,19 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(homeSource.contains("selection: homeTrendCardSelection"))
     }
 
-    func testSettingsThemeRowIsDisabledForDarkThemeGate() throws {
+    func testSettingsThemeRowIsRemovedForDarkThemeGate() throws {
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
         let appearanceStart = try XCTUnwrap(settingsSource.range(of: "private var appearanceSection: some View")?.lowerBound)
         let appearanceBlock = String(settingsSource[appearanceStart...].prefix(2_000))
-        let themeRange = try XCTUnwrap(appearanceBlock.range(of: #"title: "Theme""#))
         let backgroundRange = try XCTUnwrap(appearanceBlock.range(of: #"title: "Background""#))
 
-        XCTAssertLessThan(themeRange.lowerBound, backgroundRange.lowerBound)
-        XCTAssertTrue(appearanceBlock.contains("tintColor: .gray"))
-        XCTAssertTrue(appearanceBlock.contains("accessory: .none"))
-        XCTAssertTrue(appearanceBlock.contains(#".accessibilityHint("Theme selection is disabled")"#))
+        let firstRowRange = try XCTUnwrap(appearanceBlock.range(of: #"BodySettingsRowLabel("#))
+        XCTAssertLessThan(firstRowRange.lowerBound, backgroundRange.lowerBound)
+        XCTAssertFalse(appearanceBlock.contains(#"title: "Theme""#))
+        XCTAssertFalse(appearanceBlock.contains("currentTheme"))
+        XCTAssertFalse(settingsSource.contains("selectedThemeRawValue"))
+        XCTAssertFalse(settingsSource.contains("BodyAppTheme"))
+        XCTAssertFalse(appearanceBlock.contains("Theme selection is disabled"))
         XCTAssertFalse(appearanceBlock.contains("activeSheet = .theme"))
         XCTAssertFalse(settingsSource.contains("BodyThemePickerSheet"))
         XCTAssertFalse(settingsSource.contains("case theme"))
