@@ -41,12 +41,14 @@ struct BodyAppBackground: View {
     @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var enabled = true
     @AppStorage(BodyAppearancePreference.homeBackgroundColorsKey) private var colorsRawValue = ""
     @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var separatorsRawValue = ""
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
 
     var body: some View {
         if enabled {
+            let isPro = proStore?.isPro ?? false
             BodyActivityRingsCard.heroBackground(
-                colors: BodyHomeBackground.colors(from: colorsRawValue),
-                separators: BodyHomeBackground.separators(from: separatorsRawValue)
+                colors: BodyHomeBackground.proGatedColors(from: colorsRawValue, isProUnlocked: isPro),
+                separators: BodyHomeBackground.proGatedSeparators(from: separatorsRawValue, isProUnlocked: isPro)
             )
         } else {
             Color(.systemGroupedBackground)
@@ -86,6 +88,16 @@ enum BodyHomeBackground {
             .filter { $0 > 0 && $0 < 1 }
             .sorted()
         return parsed.isEmpty ? defaultSeparators : parsed
+    }
+
+    /// Custom background colors are a Body Pro feature; non-Pro users always render the
+    /// app-default mix regardless of any stored customization.
+    static func proGatedColors(from rawValue: String, isProUnlocked: Bool) -> [Color] {
+        isProUnlocked ? colors(from: rawValue) : defaultColors
+    }
+
+    static func proGatedSeparators(from rawValue: String, isProUnlocked: Bool) -> [Double] {
+        isProUnlocked ? separators(from: rawValue) : defaultSeparators
     }
 
     static func rawValue(fromSeparators separators: [Double]) -> String {

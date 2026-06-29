@@ -13,6 +13,14 @@ struct BodyHealthDataSourcePickerSheet: View {
     let accentColor: Color
 
     @State private var updatingSelection: PendingSelection?
+    @State private var showBodyProPaywall = false
+
+    // Read the cached entitlement directly (not the environment store) since this is a
+    // sheet; it stays reactive because the view observes `workoutStore`, which re-renders
+    // on the entitlement-change notification.
+    private var isSecondaryLocked: Bool {
+        !BodyProEntitlement.isUnlocked
+    }
 
     private enum SourceRole: Equatable {
         case primary
@@ -84,6 +92,9 @@ struct BodyHealthDataSourcePickerSheet: View {
                     .fontWeight(.semibold)
                 }
             }
+            .sheet(isPresented: $showBodyProPaywall) {
+                NavigationStack { BodyProView() }
+            }
         }
     }
 
@@ -124,6 +135,7 @@ struct BodyHealthDataSourcePickerSheet: View {
         let isSelected = selectedOption.id == option.id
         let isThisRowUpdating = updatingSelection == PendingSelection(role: role, optionID: option.id)
         let isSelectionLocked = updatingSelection != nil
+        let isProLocked = role == .secondary && isSecondaryLocked
         return Button {
             updateSelection(option, role: role)
         } label: {
@@ -151,6 +163,10 @@ struct BodyHealthDataSourcePickerSheet: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 21, weight: .semibold))
                         .foregroundColor(accentColor)
+                } else if isProLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.secondary)
                 }
             }
             .padding(14)
@@ -173,6 +189,10 @@ struct BodyHealthDataSourcePickerSheet: View {
     }
 
     private func updateSelection(_ option: BodyHealthDataSourceOption, role: SourceRole) {
+        if role == .secondary, isSecondaryLocked {
+            showBodyProPaywall = true
+            return
+        }
         updatingSelection = PendingSelection(role: role, optionID: option.id)
         Task {
             switch role {

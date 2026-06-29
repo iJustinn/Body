@@ -829,6 +829,7 @@ struct BodyWorkoutDetailSheet: View {
             .padding(.horizontal, 20)
             .padding(.top, route == nil ? 18 : 24)
             .padding(.bottom, 22)
+            .readableContentColumn()
         }
     }
 

@@ -358,6 +358,7 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.summaryReselectCount) private var summaryReselectCount
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @State private var draggedHomeCard: BodyHomeCardKind?
     @State private var showsAllHomeTrends = false
     @State private var isPullRefreshing = false
@@ -541,9 +542,10 @@ struct BodyHomeView: View {
             // status bar, melting into the page — so it replaces the custom mix here.
             BodyReadinessHeroBackdrop(readiness: workoutStore.healthSummary.readiness)
         } else if homeBackgroundEnabled {
+            let isPro = proStore?.isPro ?? false
             BodyActivityRingsCard.heroBackground(
-                colors: BodyHomeBackground.colors(from: homeBackgroundColorsRawValue),
-                separators: BodyHomeBackground.separators(from: homeBackgroundSeparatorsRawValue)
+                colors: BodyHomeBackground.proGatedColors(from: homeBackgroundColorsRawValue, isProUnlocked: isPro),
+                separators: BodyHomeBackground.proGatedSeparators(from: homeBackgroundSeparatorsRawValue, isProUnlocked: isPro)
             )
         } else {
             Color(.systemGroupedBackground)

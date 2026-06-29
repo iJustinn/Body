@@ -309,7 +309,9 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = false
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
-    @State private var selectedTrendRange: BodyHealthTrendRange
+    @State private var selectedTrendRangeSelection: BodyHealthTrendRange
+    @State private var showBodyProPaywall = false
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @State private var selectedSleepDate: Date?
     @State private var selectedMetricDate: Date?
     @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
@@ -326,7 +328,46 @@ struct BodyHealthMetricDetailView: View {
         initialTrendRange: BodyHealthTrendRange = BodyHealthTrendRange.defaultValue
     ) {
         self.model = model
-        _selectedTrendRange = State(initialValue: initialTrendRange)
+        _selectedTrendRangeSelection = State(initialValue: initialTrendRange)
+    }
+
+    private var isBodyProUnlocked: Bool {
+        proStore?.isPro ?? false
+    }
+
+    /// The raw range-picker selection, clamped to the free `.recentWeek` for non-Pro
+    /// users. Every chart, data slice, legend average, and chart identity below reads
+    /// this (not the raw selection), so longer ranges never render without Body Pro.
+    private var selectedTrendRange: BodyHealthTrendRange {
+        isBodyProUnlocked ? selectedTrendRangeSelection : .recentWeek
+    }
+
+    /// Free users can browse the 3 most recent days in every metric day-picker; older
+    /// days are a Body Pro feature.
+    private static let freeDatePickerDayCount = 3
+
+    /// The oldest day a non-Pro user may select, or `nil` for Pro (no day limit).
+    private var oldestUnlockedDatePickerDay: Date? {
+        guard !isBodyProUnlocked else { return nil }
+        let calendar = Calendar.bodyGregorian
+        let today = calendar.startOfDay(for: Date())
+        return calendar.date(byAdding: .day, value: -(Self.freeDatePickerDayCount - 1), to: today)
+    }
+
+    private func isDatePickerDateLocked(_ date: Date) -> Bool {
+        guard let oldestUnlockedDatePickerDay else { return false }
+        return Calendar.bodyGregorian.startOfDay(for: date) < oldestUnlockedDatePickerDay
+    }
+
+    /// Clamps a picker selection up into the free window for non-Pro users, so a locked
+    /// day can never be the effective selection that the day charts read.
+    private func clampedDatePickerDay(_ date: Date?) -> Date {
+        let calendar = Calendar.bodyGregorian
+        let dayStart = calendar.startOfDay(for: date ?? Date())
+        if let oldestUnlockedDatePickerDay, dayStart < oldestUnlockedDatePickerDay {
+            return oldestUnlockedDatePickerDay
+        }
+        return dayStart
     }
 
     private var dayChartTransition: AnyTransition {
@@ -341,9 +382,9 @@ struct BodyHealthMetricDetailView: View {
                     metricDetailCards
                 }
                 .padding(.horizontal, 16)
-                .readableContentColumn()
             }
             .padding(.bottom, 32)
+            .readableContentColumn()
         }
         .refreshable {
             let started = Date()
@@ -515,13 +556,11 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var selectedSleepDay: Date {
-        let calendar = Calendar.bodyGregorian
-        return calendar.startOfDay(for: selectedSleepDate ?? Date())
+        clampedDatePickerDay(selectedSleepDate)
     }
 
     private var selectedMetricDay: Date {
-        let calendar = Calendar.bodyGregorian
-        return calendar.startOfDay(for: selectedMetricDate ?? Date())
+        clampedDatePickerDay(selectedMetricDate)
     }
 
     private var selectedMetricDayInterval: DateInterval {
@@ -556,7 +595,9 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var selectedMetricSecondaryDaySeries: HealthTrendSeries {
-        guard model.kind.usesSourceComparisonDayLineChart else {
+        // Day-line comparison reads the cached secondary series directly, bypassing the
+        // store's secondary-source chokepoint — so gate it on Body Pro here too.
+        guard isBodyProUnlocked, model.kind.usesSourceComparisonDayLineChart else {
             return .empty
         }
 
@@ -823,9 +864,19 @@ struct BodyHealthMetricDetailView: View {
     private var metricHero: some View {
         VStack(alignment: .leading, spacing: 14) {
             BodyHealthTrendRangeSelector(
-                selectedRange: $selectedTrendRange,
-                appearance: .onGradient
+                // Bind to the effective (clamped) range, not the raw selection, so a
+                // locked pill can't appear selected while the chart renders Week.
+                selectedRange: Binding(
+                    get: { selectedTrendRange },
+                    set: { selectedTrendRangeSelection = $0 }
+                ),
+                appearance: .onGradient,
+                isProUnlocked: isBodyProUnlocked,
+                onLockedRangeTap: { showBodyProPaywall = true }
             )
+            .sheet(isPresented: $showBodyProPaywall) {
+                NavigationStack { BodyProView() }
+            }
 
             metricTrendChart(immersive: true)
 
@@ -1460,6 +1511,9 @@ struct BodyHealthMetricDetailView: View {
         let today = calendar.startOfDay(for: Date())
         let isSelected = calendar.isDate(dayStart, inSameDayAs: selectedDay(for: picker))
         let isFuture = dayStart > today
+        // Days older than the free window are a Body Pro feature: the tile dims, shows a
+        // lock badge, and routes a tap to the paywall instead of changing the selection.
+        let isLocked = isDatePickerDateLocked(dayStart)
         let primaryText = BodyDateSliderTileLabel.primaryText(for: dayStart, today: today, calendar: calendar)
         let tileFill = Color.primary.opacity(isFuture ? 0.03 : 0.06)
         let tileStroke: Color = isSelected
@@ -1471,7 +1525,7 @@ struct BodyHealthMetricDetailView: View {
                 return
             }
 
-            selectDate(dayStart, for: picker)
+            selectDatePickerDay(dayStart, for: picker)
         } label: {
             VStack(spacing: 6) {
                 Text(primaryText)
@@ -1484,7 +1538,7 @@ struct BodyHealthMetricDetailView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
             }
-            .foregroundColor(dateTileForegroundColor(isFuture: isFuture))
+            .foregroundColor(dateTileForegroundColor(isFuture: isFuture || isLocked))
             .frame(width: 58, height: 74)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -1494,13 +1548,21 @@ struct BodyHealthMetricDetailView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(tileStroke, lineWidth: isSelected ? 2.5 : 1)
             )
+            .overlay(alignment: .topTrailing) {
+                if isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .padding(5)
+                }
+            }
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .animation(.easeInOut(duration: 0.16), value: isSelected)
         }
         .buttonStyle(.plain)
         .disabled(isFuture)
         .accessibilityLabel(dayStart.formatted(.dateTime.weekday(.wide).month(.wide).day()))
-        .accessibilityHint(isFuture ? "Future date is not selectable" : "")
+        .accessibilityHint(isFuture ? "Future date is not selectable" : (isLocked ? "Requires Body Pro" : ""))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
@@ -1520,6 +1582,18 @@ struct BodyHealthMetricDetailView: View {
         case .metric:
             selectedMetricDate = date
         }
+    }
+
+    /// Shared selection entry point for every day-picker surface (the date tiles and the
+    /// Sleep Consistency chart): a locked day opens the paywall instead of silently
+    /// clamping. Callers still gate out future days themselves where applicable.
+    private func selectDatePickerDay(_ date: Date, for picker: BodyMetricDetailDatePicker) {
+        if isDatePickerDateLocked(date) {
+            showBodyProPaywall = true
+            return
+        }
+
+        selectDate(date, for: picker)
     }
 
     private func setInitialDateIfNeeded(_ date: Date, for picker: BodyMetricDetailDatePicker) {
@@ -1782,7 +1856,7 @@ struct BodyHealthMetricDetailView: View {
                     model: chartModel,
                     selectedDay: selectedSleepDay,
                     onSelectDay: { day in
-                        selectDate(day, for: .sleep)
+                        selectDatePickerDay(day, for: .sleep)
                     }
                 )
                 .frame(height: BodyHealthDetailChartLayout.sleepConsistencyHeight)

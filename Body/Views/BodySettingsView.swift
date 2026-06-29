@@ -9,6 +9,7 @@ import UIKit
 
 struct BodySettingsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
@@ -27,6 +28,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @AppStorage(BodyAppearancePreference.creatorSurpriseIconsUnlockedKey) private var creatorSurpriseIconsUnlocked = false
     @State private var activeSheet: BodySettingsSheet?
+    @State private var showBodyProPaywall = false
     @State private var selectedAppIconName: String?
     @State private var showingAppIconError = false
     @State private var appIconErrorMessage = ""
@@ -78,6 +80,9 @@ struct BodySettingsView: View {
                 settingsSheet(for: sheet)
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showBodyProPaywall) {
+                NavigationStack { BodyProView() }
             }
             .sheet(isPresented: $showingPrivacyBrowser) {
                 if let url = URL(string: privacyPolicyURLString) {
@@ -149,7 +154,11 @@ struct BodySettingsView: View {
     private var appearanceSection: some View {
         BodySettingsCardSection("Appearance") {
             Button {
-                activeSheet = .homeBackground
+                if proStore?.isPro ?? false {
+                    activeSheet = .homeBackground
+                } else {
+                    showBodyProPaywall = true
+                }
             } label: {
                 BodySettingsRowLabel(
                     title: "Background",
@@ -1957,6 +1966,12 @@ private struct BodyMetricDayViewToggleRow: View {
 private struct BodySourceSettingsSheet: View {
     @ObservedObject var workoutStore: HealthKitWorkoutStore
     @State private var updatingSelection: PendingSelection?
+    @State private var showBodyProPaywall = false
+
+    // Cached entitlement read (this is a sheet); reactive via the observed `workoutStore`.
+    private var isSecondaryLocked: Bool {
+        !BodyProEntitlement.isUnlocked
+    }
 
     fileprivate enum Role: String, Equatable {
         case primary
@@ -1986,11 +2001,16 @@ private struct BodySourceSettingsSheet: View {
                 sourceOptionSection(
                     title: "Secondary Data Source",
                     options: workoutStore.secondaryHealthDataSourceDefaultOptions(),
-                    selectedOption: workoutStore.defaultSecondaryHealthDataSourceOption,
+                    // While locked, the effective secondary is No Comparison — show the
+                    // checkmark there, not on the (still-persisted) paid source.
+                    selectedOption: isSecondaryLocked ? .noComparison : workoutStore.defaultSecondaryHealthDataSourceOption,
                     role: .secondary,
                     tintColor: .purple
                 )
             }
+        }
+        .sheet(isPresented: $showBodyProPaywall) {
+            NavigationStack { BodyProView() }
         }
     }
 
@@ -2067,6 +2087,7 @@ private struct BodySourceSettingsSheet: View {
         // Lock only the rows in the same section while a selection in that
         // section is in flight — the other role's rows stay tappable.
         let isSectionLocked = updatingSelection?.role == role
+        let isProLocked = role == .secondary && isSecondaryLocked
         return Button {
             updateSelection(option, role: role)
         } label: {
@@ -2089,6 +2110,10 @@ private struct BodySourceSettingsSheet: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 21, weight: .semibold))
                         .foregroundColor(tintColor)
+                } else if isProLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.secondary)
                 }
             }
             .padding(.horizontal, 18)
@@ -2114,6 +2139,10 @@ private struct BodySourceSettingsSheet: View {
     }
 
     private func updateSelection(_ option: BodyHealthDataSourceOption, role: Role) {
+        if role == .secondary, isSecondaryLocked {
+            showBodyProPaywall = true
+            return
+        }
         updatingSelection = PendingSelection(role: role, optionID: option.id)
         Task {
             switch role {
@@ -3022,13 +3051,37 @@ private struct BodySettingsPopupActionRow: View {
         Button {
             action()
         } label: {
-            BodySettingsRowLabel(
-                title: title,
-                value: subtitle,
-                iconName: iconName,
-                tintColor: tintColor,
-                accessory: isEnabled ? .chevron : .none
-            )
+            HStack(spacing: 14) {
+                BodySettingsIconTile(iconName: iconName, color: tintColor)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    Text(subtitle)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+
+                Spacer(minLength: 12)
+
+                if isEnabled {
+                    Image(systemName: "chevron.right")
+                        .font(.system(.caption, weight: .bold))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .disabled(!isEnabled)
         .buttonStyle(.plain)

@@ -17,33 +17,53 @@ struct BodyHealthTrendRangeSelector: View {
     @Environment(\.colorScheme) private var colorScheme
     @Binding var selectedRange: BodyHealthTrendRange
     var appearance: Appearance = .standard
+    /// When false, every range but the free `.recentWeek` is locked: its pill shows a
+    /// lock and a tap routes to `onLockedRangeTap` (the paywall) instead of selecting.
+    var isProUnlocked: Bool = true
+    var onLockedRangeTap: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 8) {
             ForEach(BodyHealthTrendRange.allCases) { range in
                 Button {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                        selectedRange = range
+                    if isLocked(range) {
+                        onLockedRangeTap()
+                    } else {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                            selectedRange = range
+                        }
                     }
                 } label: {
                     pillLabel(for: range)
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(selectedRange == range ? .isSelected : [])
+                .accessibilityHint(isLocked(range) ? "Requires Body Pro" : "")
             }
         }
         .frame(maxWidth: .infinity)
     }
 
+    private func isLocked(_ range: BodyHealthTrendRange) -> Bool {
+        !isProUnlocked && range != .recentWeek
+    }
+
     @ViewBuilder
     private func pillLabel(for range: BodyHealthTrendRange) -> some View {
         let isSelected = selectedRange == range
-        let label = Text(range.displayName)
-            .font(.system(size: 15, weight: .semibold, design: .rounded))
-            .foregroundColor(textColor(isSelected: isSelected))
-            .lineLimit(1)
-            .minimumScaleFactor(0.78)
-            .frame(maxWidth: .infinity, minHeight: 42)
+        let locked = isLocked(range)
+        let label = HStack(spacing: 3) {
+            Text(range.displayName)
+            if locked {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+            }
+        }
+        .font(.system(size: 15, weight: .semibold, design: .rounded))
+        .foregroundColor(textColor(isSelected: isSelected, locked: locked))
+        .lineLimit(1)
+        .minimumScaleFactor(0.78)
+        .frame(maxWidth: .infinity, minHeight: 42)
 
         switch appearance {
         case .standard:
@@ -53,11 +73,13 @@ struct BodyHealthTrendRangeSelector: View {
         }
     }
 
-    private func textColor(isSelected: Bool) -> Color {
+    private func textColor(isSelected: Bool, locked: Bool) -> Color {
         switch appearance {
         case .standard:
+            if locked { return .secondary }
             return isSelected ? .accentColor : .primary
         case .onGradient:
+            if locked { return .primary.opacity(0.4) }
             return isSelected ? .primary : .primary.opacity(0.6)
         }
     }

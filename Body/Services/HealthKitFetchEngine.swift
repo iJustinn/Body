@@ -443,6 +443,13 @@ actor HealthKitFetchEngine {
     }
 
     func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
+        // Body Pro gate at the fetch chokepoint: every secondary fetch (trend, range,
+        // day samples, sleep history) guards on `.isNoComparison`, so non-Pro never
+        // fetches a secondary series that the render gate would only hide afterward.
+        guard BodyProEntitlement.isUnlocked else {
+            return .noComparison
+        }
+
         let option = resolvedSecondaryHealthDataSourceOption(
             secondaryHealthDataSourceSelection.option(for: kind),
             for: kind

@@ -3,6 +3,7 @@
 //  Body
 //
 
+import StoreKit
 import SwiftUI
 import UIKit
 
@@ -11,28 +12,59 @@ private enum BodyProPalette {
 }
 
 struct BodyProView: View {
-    @State private var statusMessage: String?
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
+    @State private var showRedeemSheet = false
 
     private let features = BodyProFeature.defaultFeatures
 
+    private var isPro: Bool { proStore?.isPro ?? false }
+    private var displayPrice: String { proStore?.displayPrice ?? "$9.99" }
+    private var purchaseState: BodyProStore.PurchaseState { proStore?.purchaseState ?? .idle }
+
+    /// `false` only during the first entitlement resolve. Until it flips, the purchase
+    /// section shows a "checking" state so an existing purchaser never sees a buy card
+    /// before their entitlement loads. Treated as resolved when there is no store.
+    private var hasResolved: Bool { proStore?.hasResolved ?? true }
+
+    /// A purchase, restore, or pending approval is in flight — purchase/restore/redeem
+    /// are disabled so the actions can't overlap.
+    private var isPurchaseFlowActive: Bool {
+        switch purchaseState {
+        case .purchasing, .restoring, .pending:
+            return true
+        case .idle, .failed:
+            return false
+        }
+    }
+
+    private var statusText: String? {
+        switch purchaseState {
+        case .pending:
+            return "Your purchase is pending approval. Body Pro unlocks once it's approved."
+        case .failed(let message):
+            return message
+        default:
+            return nil
+        }
+    }
+
     var body: some View {
-        ZStack {
-            Color(.systemGroupedBackground)
-                .ignoresSafeArea()
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 22) {
+                BodyProHeroView()
+                    .padding(.bottom, 12)
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 22) {
-                    BodyProHeroView()
-                        .padding(.bottom, 12)
-
-                    purchaseOptions
-                    featureList
-                    restoreSection
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 14)
-                .padding(.bottom, 34)
+                purchaseOptions
+                featureList
+                restoreSection
             }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+            .padding(.bottom, 34)
+            .readableContentColumn()
+        }
+        .background {
+            Color.black.ignoresSafeArea()
         }
         .navigationTitle("Body Pro")
         .navigationBarTitleDisplayMode(.inline)
@@ -44,8 +76,18 @@ struct BodyProView: View {
                 .font(.system(size: 24, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 
-            BodyProPurchaseOptionCard {
-                statusMessage = "Body Pro lifetime purchases are not available in this build."
+            if isPro {
+                BodyProOwnedCard()
+            } else if !hasResolved {
+                BodyProCheckingCard()
+            } else {
+                BodyProPurchaseOptionCard(
+                    price: displayPrice,
+                    isPurchasing: purchaseState == .purchasing,
+                    isDisabled: isPurchaseFlowActive
+                ) {
+                    Task { await proStore?.purchase() }
+                }
             }
         }
     }
@@ -77,8 +119,8 @@ struct BodyProView: View {
 
     private var restoreSection: some View {
         VStack(spacing: 12) {
-            if let statusMessage {
-                Text(statusMessage)
+            if let statusText {
+                Text(statusText)
                     .font(.system(.footnote, design: .rounded))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -86,7 +128,7 @@ struct BodyProView: View {
             }
 
             Button {
-                statusMessage = "Redeem Body Pro is not available in this build."
+                showRedeemSheet = true
             } label: {
                 Text("Redeem Pro")
                     .font(.system(.headline, design: .rounded))
@@ -96,9 +138,10 @@ struct BodyProView: View {
             .buttonStyle(.bordered)
             .buttonBorderShape(.roundedRectangle(radius: 16))
             .tint(BodyProPalette.gold)
+            .disabled(isPurchaseFlowActive)
 
             Button {
-                statusMessage = "Restore purchases is not available in this build."
+                Task { await proStore?.restore() }
             } label: {
                 Text("Restore Purchases")
                     .font(.system(.headline, design: .rounded))
@@ -108,6 +151,11 @@ struct BodyProView: View {
             .buttonStyle(.bordered)
             .buttonBorderShape(.roundedRectangle(radius: 16))
             .tint(BodyProPalette.gold)
+            .disabled(isPurchaseFlowActive)
+        }
+        .offerCodeRedemption(isPresented: $showRedeemSheet) { _ in
+            // Redemptions also arrive via Transaction.updates; refresh proactively.
+            Task { await proStore?.refreshEntitlement() }
         }
     }
 }
@@ -250,6 +298,9 @@ private struct BodyProConfetti: View {
 }
 
 private struct BodyProPurchaseOptionCard: View {
+    let price: String
+    var isPurchasing = false
+    var isDisabled = false
     let onChoose: () -> Void
 
     var body: some View {
@@ -266,7 +317,7 @@ private struct BodyProPurchaseOptionCard: View {
 
             Spacer(minLength: 8)
 
-            Text("$5.99")
+            Text(price)
                 .font(.system(size: 23, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
                 .lineLimit(1)
@@ -274,14 +325,63 @@ private struct BodyProPurchaseOptionCard: View {
                 .frame(minWidth: 66, alignment: .trailing)
 
             Button(action: onChoose) {
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 17, weight: .bold))
-                    .frame(width: 36, height: 36)
+                Group {
+                    if isPurchasing {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 17, weight: .bold))
+                    }
+                }
+                .frame(width: 36, height: 36)
             }
             .buttonStyle(.plain)
+            .disabled(isPurchasing || isDisabled)
             .foregroundColor(BodyProPalette.gold)
             .background(Circle().fill(BodyProPalette.gold.opacity(0.14)))
             .accessibilityLabel("Choose Lifetime")
+        }
+        .padding(16)
+        .bodyCardBackground(cornerRadius: 24, translucent: true)
+    }
+}
+
+private struct BodyProCheckingCard: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            ProgressView()
+
+            Text("Checking your purchases…")
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+
+            Spacer(minLength: 8)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(cornerRadius: 24, translucent: true)
+    }
+}
+
+private struct BodyProOwnedCard: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 30, weight: .bold))
+                .foregroundColor(BodyProPalette.gold)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("You have Body Pro")
+                    .font(.system(size: 19, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                Text("Thanks for your support. All Pro features are unlocked.")
+                    .font(.system(.subheadline, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
         }
         .padding(16)
         .bodyCardBackground(cornerRadius: 24, translucent: true)
@@ -348,10 +448,28 @@ private struct BodyProFeature: Identifiable {
 
     static let defaultFeatures = [
         BodyProFeature(
-            id: "six-month-year-charts",
-            title: "Six-Month and Year Charts",
-            detail: "Open six-month and year views for metrics charts.",
+            id: "longer-range-charts",
+            title: "Longer-Range Charts",
+            detail: "Open month, six-month, and year views for metric charts.",
             iconName: "chart.line.uptrend.xyaxis"
+        ),
+        BodyProFeature(
+            id: "full-day-history",
+            title: "Full Day History",
+            detail: "Open any past day in the metric and sleep day views, beyond the most recent three.",
+            iconName: "calendar"
+        ),
+        BodyProFeature(
+            id: "custom-backgrounds",
+            title: "Custom Backgrounds",
+            detail: "Personalize the app background with your own color mixes and saved profiles.",
+            iconName: "paintpalette.fill"
+        ),
+        BodyProFeature(
+            id: "secondary-source",
+            title: "Secondary Data Source",
+            detail: "Compare a secondary data source on your metric charts.",
+            iconName: "square.stack.3d.up.fill"
         ),
         BodyProFeature(
             id: "body-widgets",
@@ -392,4 +510,5 @@ private struct BodyProFutureUpdatesNote: View {
     NavigationStack {
         BodyProView()
     }
+    .environment(BodyProStore())
 }

@@ -1,0 +1,38 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "BodyPro",
+  "nonRenewingSubscriptions" : [],
+  "products" : [
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : false,
+      "internalID" : "BodyProLifetime",
+      "localizations" : [
+        {
+          "description" : "Unlock all Body Pro features for life with a single purchase.",
+          "displayName" : "Body Pro Lifetime",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.zihengthedeveloper.body.pro.lifetime",
+      "referenceName" : "Body Pro Lifetime",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+  },
+  "subscriptionGroups" : [],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

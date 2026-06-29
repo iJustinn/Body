@@ -144,6 +144,10 @@ final class HealthKitWorkoutStore: ObservableObject {
     private var refreshCompletionContinuations: [CheckedContinuation<Void, Never>] = []
     private var monthLoadContinuations: [BodyWorkoutMonthKey: [CheckedContinuation<Void, Never>]] = [:]
     private var persistedDaySamplesHydration: Task<HealthTrendDaySampleSnapshot?, Never>?
+    /// Retains the Body Pro entitlement observer so secondary-source gating (which this
+    /// store resolves from `BodyProEntitlement`, not the SwiftUI environment) recomputes
+    /// when the entitlement flips.
+    private var proEntitlementObserver: NSObjectProtocol?
 
     private func finishRefresh() {
         isRefreshing = false
@@ -244,6 +248,20 @@ final class HealthKitWorkoutStore: ObservableObject {
         // cold-start sync path applies the same tiered TTL as a warm resume.
         lastSuccessfulRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
         Task { await self.refreshCacheDiskSize() }
+
+        // When Body Pro unlocks (or is revoked/refunded), re-fetch so the secondary-source
+        // comparison — gated deep in this store and the fetch engine, beyond SwiftUI's
+        // reach — recomputes for the now-current entitlement. `setUnlocked` only posts on
+        // an actual flip, so this never fires on a steady-state launch.
+        proEntitlementObserver = NotificationCenter.default.addObserver(
+            forName: BodyProEntitlement.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.objectWillChange.send()
+            Task { await self.requestAuthorizationAndRefresh() }
+        }
     }
 
     var healthSyncStatusSummaryText: String {
@@ -726,6 +744,13 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
+        // Secondary-source comparison is a Body Pro feature. Collapsing to .noComparison
+        // here neutralizes every comparison renderer (bars, range bars, line, title) that
+        // reads this single chokepoint, even if a selection was persisted while Pro.
+        guard BodyProEntitlement.isUnlocked else {
+            return .noComparison
+        }
+
         let option = resolvedSecondaryHealthDataSourceOption(
             secondaryHealthDataSourceSelection.option(for: kind),
             for: kind
