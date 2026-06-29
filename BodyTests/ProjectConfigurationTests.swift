@@ -601,8 +601,11 @@ final class ProjectConfigurationTests: XCTestCase {
     func testSupportedMetricDetailScreensExposeSwitchableDataSources() throws {
         let source = try bodyHomeViewText()
         let detailViewStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricDetailView")?.lowerBound)
-        let detailViewBlock = String(source[detailViewStart...].prefix(20_000))
         let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
+        // The detail view file is concatenated immediately before the picker sheet, so
+        // bound the block by the picker declaration rather than a fixed char window the
+        // ever-growing detail view keeps outrunning.
+        let detailViewBlock = String(source[detailViewStart..<pickerStart])
         let pickerBlock = String(source[pickerStart...].prefix(8_000))
 
         XCTAssertTrue(detailViewBlock.contains("model.kind.supportsHealthDataSourceSelection"))
@@ -610,6 +613,38 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(detailViewBlock.contains("BodyHealthDataSourcePickerSheet("))
         XCTAssertTrue(pickerBlock.contains("workoutStore.healthDataSourceOptions(for: kind)"))
         XCTAssertTrue(pickerBlock.contains("workoutStore.updateHealthDataSource(for: kind, option: option)"))
+    }
+
+    func testMetricDetailViewGatesProRangesAndDays() throws {
+        let source = try text(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+
+        // Chart-range gate: non-Pro is clamped to Week, and the selector binds to that
+        // effective range so a locked pill can't appear selected; locked taps route to
+        // the paywall, not the binding.
+        XCTAssertTrue(source.contains("isBodyProUnlocked ? selectedTrendRangeSelection : .recentWeek"))
+        XCTAssertTrue(source.contains("get: { selectedTrendRange }"))
+        XCTAssertTrue(source.contains("isProUnlocked: isBodyProUnlocked"))
+        XCTAssertTrue(source.contains("onLockedRangeTap: { showBodyProPaywall = true }"))
+
+        // Day-picker gate: a 3-day free window, and the effective selected day is clamped
+        // so a locked day never renders.
+        XCTAssertTrue(source.contains("static let freeDatePickerDayCount = 3"))
+        XCTAssertTrue(source.contains("func isDatePickerDateLocked"))
+        XCTAssertTrue(source.contains("func clampedDatePickerDay"))
+        XCTAssertTrue(source.contains("clampedDatePickerDay(selectedMetricDate)"))
+        XCTAssertTrue(source.contains("clampedDatePickerDay(selectedSleepDate)"))
+
+        // Every day-selection surface routes through the shared guard, which opens the
+        // paywall for a locked day *before* it can reach selectDate.
+        let guardStart = try XCTUnwrap(source.range(of: "private func selectDatePickerDay")?.upperBound)
+        let guardBlock = String(source[guardStart...].prefix(400))
+        let paywallInGuard = try XCTUnwrap(guardBlock.range(of: "showBodyProPaywall = true"))
+        let selectInGuard = try XCTUnwrap(guardBlock.range(of: "selectDate(date, for: picker)"))
+        XCTAssertTrue(guardBlock.contains("isDatePickerDateLocked(date)"))
+        XCTAssertLessThan(paywallInGuard.lowerBound, selectInGuard.lowerBound)
+        // Both the date tiles and the Sleep Consistency chart call the guard, not selectDate.
+        XCTAssertTrue(source.contains("selectDatePickerDay(dayStart, for: picker)"))
+        XCTAssertTrue(source.contains("selectDatePickerDay(day, for: .sleep)"))
     }
 
     func testHealthDataSourcePickerRowsShowSourceNamesOnly() throws {
@@ -1211,12 +1246,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.5;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 6;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 8;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.5;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 6;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 8;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1251,7 +1286,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.5 (build 6)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.5 (build 8)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 7)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 2)**"))
@@ -1264,6 +1301,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.5 (build 8)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.5 build 8."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.5 (build 7)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.5 build 7."))
         XCTAssertTrue(versionHistory.contains("## 0.9.5 (build 6)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.5 build 6."))
         XCTAssertTrue(versionHistory.contains("## 0.9.5 (build 5)"))
@@ -1406,7 +1447,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-v0.9.5`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.5 build 6"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.5 build 8"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 7"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 6"))
         XCTAssertFalse(testPlan.contains("app version 0.9.5 build 5"))
         XCTAssertFalse(testPlan.contains("app version 0.9.5 build 3"))
         XCTAssertFalse(testPlan.contains("app version 0.9.5 build 2"))
@@ -1760,11 +1803,26 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(bodyProSource.contains("HStack(alignment: .top, spacing: 14)"))
         XCTAssertFalse(bodyProSource.contains(".padding(.top, 2)"))
         XCTAssertFalse(bodyProSource.contains(".padding(.top, 8)"))
-        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 2)
-        XCTAssertTrue(bodyProSource.contains("Six-Month and Year Charts"))
+        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 5)
+        XCTAssertTrue(bodyProSource.contains("Longer-Range Charts"))
+        XCTAssertTrue(bodyProSource.contains("Full Day History"))
+        XCTAssertTrue(bodyProSource.contains("Custom Backgrounds"))
+        XCTAssertTrue(bodyProSource.contains("Secondary Data Source"))
+        XCTAssertFalse(bodyProSource.contains("Six-Month and Year Charts"))
         XCTAssertTrue(bodyProSource.contains("Body Widgets"))
+        // StoreKit purchase wiring replaced the placeholder stubs.
+        XCTAssertTrue(bodyProSource.contains("BodyProStore"))
+        XCTAssertTrue(bodyProSource.contains("proStore?.purchase()"))
+        XCTAssertTrue(bodyProSource.contains("proStore?.restore()"))
+        XCTAssertTrue(bodyProSource.contains("offerCodeRedemption"))
+        // Resolve-gating: a checking state shows until entitlement resolves, and
+        // purchase/restore/redeem are disabled while a purchase flow is active.
+        XCTAssertTrue(bodyProSource.contains("hasResolved"))
+        XCTAssertTrue(bodyProSource.contains("BodyProCheckingCard"))
+        XCTAssertTrue(bodyProSource.contains("isPurchaseFlowActive"))
+        XCTAssertFalse(bodyProSource.contains("not available in this build"))
         XCTAssertTrue(bodyProSource.contains("Future Pro Updates"))
-        XCTAssertTrue(bodyProSource.contains("$5.99"))
+        XCTAssertTrue(bodyProSource.contains("$9.99"))
         XCTAssertFalse(bodyProSource.contains("$0.89"))
         XCTAssertFalse(bodyProSource.contains("$2.59"))
         XCTAssertFalse(bodyProSource.contains("$8.99"))
@@ -1779,6 +1837,44 @@ final class ProjectConfigurationTests: XCTestCase {
             let data = try Data(contentsOf: projectRoot.appendingPathComponent(path))
             XCTAssertGreaterThan(data.count, 0, path)
         }
+    }
+
+    /// Pins the StoreKit monetization wiring that can't be exercised without StoreKitTest
+    /// and a running store: the product id, verified/non-revoked entitlement filtering,
+    /// pending (Ask-to-Buy) handling, and the shared App Group flag. The persistence and
+    /// change-notification behavior of that flag is exercised at runtime in
+    /// `BodyProEntitlementTests`.
+    func testBodyProStoreStoreKitWiringIsGuarded() throws {
+        let storeSource = try text(at: "Body/Services/BodyProStore.swift")
+        let entitlementSource = try text(at: "BodyShared/Services/BodyProEntitlement.swift")
+        let widgetSource = try text(at: "BodyWidgetExtension/HealthMetricWidget.swift")
+
+        // Product id / config path: the single non-consumable that unlocks Pro.
+        XCTAssertTrue(storeSource.contains(#"static let lifetimeProductID = "com.zihengthedeveloper.body.pro.lifetime""#))
+
+        // Revocation handling: only a verified, non-revoked transaction for our product
+        // counts as unlocked.
+        XCTAssertTrue(storeSource.contains("transaction.productID == Self.lifetimeProductID"))
+        XCTAssertTrue(storeSource.contains("transaction.revocationDate == nil"))
+        XCTAssertTrue(storeSource.contains("guard case .verified(let transaction) = verification else"))
+        XCTAssertTrue(storeSource.contains("applyEntitlement(transaction.revocationDate == nil)"))
+
+        // Pending (Ask-to-Buy / SCA): a pending purchase never unlocks, and the pending
+        // state clears once the entitlement actually unlocks (so Restore/Redeem re-enable).
+        XCTAssertTrue(storeSource.contains("case .pending:"))
+        XCTAssertTrue(storeSource.contains("purchaseState = .pending"))
+        XCTAssertTrue(storeSource.contains("if unlocked && purchaseState == .pending"))
+
+        // Shared App Group flag: synchronous source of truth for the widget process and
+        // the non-SwiftUI stores; falls back to locked and posts only on a real change.
+        XCTAssertTrue(entitlementSource.contains("UserDefaults(suiteName: WorkoutSnapshotStore.appGroupIdentifier)"))
+        XCTAssertTrue(entitlementSource.contains("?? false"))
+        XCTAssertTrue(entitlementSource.contains("defaults.bool(forKey: unlockedKey) != unlocked"))
+        XCTAssertTrue(entitlementSource.contains("NotificationCenter.default.post(name: didChangeNotification"))
+
+        // Widget gating: the gallery/preview shows the unlocked widget so users see what
+        // Pro unlocks; the live timeline respects the cached flag.
+        XCTAssertTrue(widgetSource.contains("usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked"))
     }
 
     func testWidgetFamiliesArePinnedPerWidget() throws {

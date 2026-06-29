@@ -1,5 +1,18 @@
 # Version History
 
+## 0.9.5 (build 8)
+
+- **Body Pro is now a real in-app purchase.** The paywall's Lifetime card, **Restore Purchases**, and **Redeem Pro** are wired to StoreKit 2 (non-consumable `com.zihengthedeveloper.body.pro.lifetime`); once purchased, an owned state replaces the buy card and all features unlock instantly.
+- **Five features are now gated behind Body Pro.** Longer-range metric charts (free users get the **Week** range only; **Month / 6 Months / Year** require Pro), **full day history** in the metric and sleep day-pickers (free users browse the 3 most recent days — older day tiles dim, show a lock badge, and open the paywall), **custom app backgrounds** (free users stay on the app-default background across Home, Workouts, and Settings), the **secondary data source** comparison on metric charts (gated in both the chart's source picker and Settings → Data → Source), and the five **Home Screen widgets** (which show an "Unlock Body widgets" state until purchased).
+- The paywall now shows a brief **"Checking your purchases…"** state until the entitlement resolves (so a returning purchaser never sees the buy card first), and disables purchase / restore / redeem while a purchase is in flight. When a pending **Ask-to-Buy** purchase is later approved, the paywall unlocks and re-enables Restore / Redeem instead of staying stuck on "pending".
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 8.
+
+## 0.9.5 (build 7)
+
+- The readable content-width cap — which centers a page's content instead of stretching it edge to edge on iPad and other wide canvases — now also applies to the **workout detail** page, the **metric detail hero** (the range tabs, trend chart, big value, and breakdown chart such as Sleep Stages), and the **Body Pro** page, matching the dashboard, Workouts, Settings, and the metric detail cards. Each page's full-bleed background (route map, tint gradient, or grouped background) still fills the screen while the content centers; iPhone layout is unchanged.
+- Raised the **Body Pro** Lifetime purchase price shown on the paywall to **$9.99** (up from $5.99).
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 7.
+
 ## 0.9.5 (build 6)
 
 - The colored **workout calendar squares** and **type-breakdown bars** now use a flat, slightly translucent fill so the backdrop shows through, matching the app's flat glass surfaces — no heavy material frost or specular sheen. The **breakdown bars** add a thin white edge rim; the **calendar squares** have no border. Empty calendar day cells are unchanged.
