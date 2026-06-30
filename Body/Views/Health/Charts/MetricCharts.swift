@@ -468,6 +468,7 @@ struct BodyHealthMetricDayChart: View {
 
     private static let pointDiameter: CGFloat = 8
     private static let currentPointDiameter: CGFloat = 10
+    private static let segmentGapThreshold: TimeInterval = 4 * 60 * 60
 
     @State private var selectedDate: Date?
     @GestureState private var isSelecting = false
@@ -503,12 +504,16 @@ struct BodyHealthMetricDayChart: View {
         self.secondaryHourlyBuckets = secondaryBuckets
         self.latestBucketDate = buckets.last?.plotDate
         self.latestSecondaryBucketDate = secondaryBuckets.last?.plotDate
-        let primaryEntries = buckets.map {
-            BodyHealthMetricDayChartEntry(sourceName: primarySourceName, sourceRole: .primary, bucket: $0)
-        }
-        let secondaryEntries = secondaryBuckets.map {
-            BodyHealthMetricDayChartEntry(sourceName: secondarySourceName, sourceRole: .secondary, bucket: $0)
-        }
+        let primaryEntries = Self.makeEntries(
+            from: buckets,
+            sourceName: primarySourceName,
+            sourceRole: .primary
+        )
+        let secondaryEntries = Self.makeEntries(
+            from: secondaryBuckets,
+            sourceName: secondarySourceName,
+            sourceRole: .secondary
+        )
         let allEntries = primaryEntries + secondaryEntries
         self.entries = allEntries
         self.finiteEntries = allEntries.filter { $0.averageValue.isFinite }
@@ -559,7 +564,7 @@ struct BodyHealthMetricDayChart: View {
                 LineMark(
                     x: .value("Time", entry.plotDate),
                     y: .value(title, entry.averageValue),
-                    series: .value("Source", entry.sourceRole.rawValue)
+                    series: .value("Segment", entry.seriesKey)
                 )
                 .interpolationMethod(.linear)
                 .foregroundStyle(color(for: entry))
@@ -706,15 +711,52 @@ struct BodyHealthMetricDayChart: View {
         let padding = max((maximum - minimum) * 0.16, 1)
         return max(0, minimum - padding)...(maximum + padding)
     }
+
+    static func segmentIndices(
+        forSortedPlotDates dates: [Date],
+        gapThreshold: TimeInterval = segmentGapThreshold
+    ) -> [Int] {
+        var indices: [Int] = []
+        indices.reserveCapacity(dates.count)
+        var current = 0
+        for (offset, date) in dates.enumerated() {
+            if offset > 0, date.timeIntervalSince(dates[offset - 1]) >= gapThreshold {
+                current += 1
+            }
+            indices.append(current)
+        }
+        return indices
+    }
+
+    private static func makeEntries(
+        from buckets: [HealthTrendHourlyBucket],
+        sourceName: String,
+        sourceRole: BodyHealthSourceRole
+    ) -> [BodyHealthMetricDayChartEntry] {
+        let indices = segmentIndices(forSortedPlotDates: buckets.map(\.plotDate))
+        return zip(buckets, indices).map { bucket, index in
+            BodyHealthMetricDayChartEntry(
+                sourceName: sourceName,
+                sourceRole: sourceRole,
+                bucket: bucket,
+                segmentIndex: index
+            )
+        }
+    }
 }
 
 struct BodyHealthMetricDayChartEntry: Identifiable {
     let sourceName: String
     let sourceRole: BodyHealthSourceRole
     let bucket: HealthTrendHourlyBucket
+    let segmentIndex: Int
 
     var id: String {
         "\(sourceRole.rawValue)-\(bucket.id)"
+    }
+
+    var seriesKey: String {
+        "\(sourceRole.rawValue)-\(segmentIndex)"
     }
 
     var plotDate: Date {
