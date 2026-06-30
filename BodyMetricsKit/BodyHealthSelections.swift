@@ -33,6 +33,7 @@ enum BodyAppearancePreference {
     static let homeTrendCardSelectionKey = "homeTrendCardSelection"
     static let metricDayViewSelectionKey = "metricDayViewSelection"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
+    static let healthPermissionExpandedMigratedKey = "healthPermissionExpandedMigrated"
     static let healthDataSourceSelectionKey = "healthDataSourceSelection"
     static let secondaryHealthDataSourceSelectionKey = "secondaryHealthDataSourceSelection"
     static let combinesHealthDataSourcesByNameKey = "combinesHealthDataSourcesByName"
@@ -70,8 +71,10 @@ enum BodySleepDurationGoal {
 enum BodyHealthPermission: String, CaseIterable, Identifiable {
     case activityRings
     case workouts
+    case workoutMetrics
     case sleep
     case heart
+    case dateOfBirth
     case basics
     case bloodOxygen
     case respiratory
@@ -91,10 +94,14 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
             return "Activity Rings"
         case .workouts:
             return "Workouts"
+        case .workoutMetrics:
+            return "Workout Metrics"
         case .sleep:
             return "Sleep"
         case .heart:
             return "Heart"
+        case .dateOfBirth:
+            return "Date of Birth"
         case .basics:
             return "Basics"
         case .bloodOxygen:
@@ -120,10 +127,14 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
             return "Move, Exercise, and Stand rings"
         case .workouts:
             return "Workout history, effort, and details"
+        case .workoutMetrics:
+            return "VO₂max, power, cadence, and swim strokes"
         case .sleep:
             return "Sleep duration, stages, and score"
         case .heart:
             return "Heart rate and HRV"
+        case .dateOfBirth:
+            return "Anchors workout HR zones (max HR)"
         case .basics:
             return "Weight, body fat, and BMI"
         case .bloodOxygen:
@@ -149,10 +160,14 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
             return "circle.circle.fill"
         case .workouts:
             return "figure.strengthtraining.traditional"
+        case .workoutMetrics:
+            return "speedometer"
         case .sleep:
             return "bed.double.fill"
         case .heart:
             return "heart.fill"
+        case .dateOfBirth:
+            return "birthday.cake.fill"
         case .basics:
             return "scalemass.fill"
         case .bloodOxygen:
@@ -178,10 +193,14 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
             return .pink
         case .workouts:
             return .orange
+        case .workoutMetrics:
+            return .indigo
         case .sleep:
             return Color(red: 0.20, green: 0.72, blue: 1.00)
         case .heart:
             return Color(red: 1.00, green: 0.25, blue: 0.45)
+        case .dateOfBirth:
+            return .brown
         case .basics:
             return .purple
         case .bloodOxygen,
@@ -261,10 +280,39 @@ struct BodyHealthPermissionSelection: Equatable {
     }
 
     static func load(defaults: UserDefaults = .standard) -> BodyHealthPermissionSelection {
-        storedValue(
+        let stored = storedValue(
             from: defaults.string(forKey: BodyAppearancePreference.healthPermissionSelectionKey)
                 ?? defaultRawValue
         )
+        return migratingExpandedPermissionsIfNeeded(stored, defaults: defaults)
+    }
+
+    /// One-time migration for users whose saved selection predates the `.workoutMetrics`
+    /// and `.dateOfBirth` categories (previously bundled under `.workouts` and `.heart`).
+    /// Adds each new category when its parent is still enabled so prior behavior is
+    /// preserved, then records a flag so a later intentional opt-out is never re-enabled.
+    /// Idempotent and per-`defaults` domain; fresh installs already default to all cases.
+    private static func migratingExpandedPermissionsIfNeeded(
+        _ selection: BodyHealthPermissionSelection,
+        defaults: UserDefaults
+    ) -> BodyHealthPermissionSelection {
+        guard !defaults.bool(forKey: BodyAppearancePreference.healthPermissionExpandedMigratedKey) else {
+            return selection
+        }
+
+        var migrated = selection
+        if selection.includes(.workouts) {
+            migrated.enabledPermissions.insert(.workoutMetrics)
+        }
+        if selection.includes(.heart) {
+            migrated.enabledPermissions.insert(.dateOfBirth)
+        }
+
+        if migrated != selection {
+            migrated.save(defaults: defaults)
+        }
+        defaults.set(true, forKey: BodyAppearancePreference.healthPermissionExpandedMigratedKey)
+        return migrated
     }
 
     func save(defaults: UserDefaults = .standard) {

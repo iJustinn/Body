@@ -40,6 +40,14 @@ enum BodyHealthReadTypes {
                 .heartRate,
                 .heartRateVariabilitySDNN
             ]
+            // Birth date (a read-only characteristic) anchors the workout heart-rate
+            // zones at a percentage of the age-estimated max HR (220 − age). Gated on
+            // its own `.dateOfBirth` toggle in addition to `.heart` — its only consumer
+            // (the HR-zone chart) needs heart data anyway, so don't request it alone.
+            if selection.includes(.dateOfBirth),
+               let dateOfBirth = HKObjectType.characteristicType(forIdentifier: .dateOfBirth) {
+                types.insert(dateOfBirth)
+            }
         }
         if selection.includes(.basics) {
             quantityIdentifiers += [
@@ -73,9 +81,23 @@ enum BodyHealthReadTypes {
             quantityIdentifiers.append(.stepCount)
         }
         if selection.includes(.workouts) {
-            // Activity-aware workout-detail metrics. Cadence is derived from
-            // `.stepCount` (also requested here so it doesn't depend on the
-            // separate `.steps` toggle); power/cadence/strokes are best-effort.
+            // Distance for the hero number + pace/speed. Many non-GPS workouts leave
+            // `totalDistance`/attached statistics nil, so distance is read from the
+            // workout's own samples — which needs these read scopes. Distance is core
+            // workout data (hero/pace/totals), so it rides `.workouts`, not the
+            // `.workoutMetrics` toggle.
+            quantityIdentifiers += [
+                .distanceWalkingRunning,
+                .distanceCycling,
+                .distanceSwimming,
+                .distanceWheelchair
+            ]
+        }
+        if selection.includes(.workouts) && selection.includes(.workoutMetrics) {
+            // Activity-aware workout-detail metrics, gated on the Workout Metrics toggle
+            // (and on `.workouts`, since they're only surfaced in the workout detail).
+            // Foot cadence is derived from `.stepCount` (requested here so it doesn't
+            // depend on the separate `.steps` toggle); power/cadence/strokes are best-effort.
             quantityIdentifiers += [
                 .vo2Max,
                 .runningPower,
