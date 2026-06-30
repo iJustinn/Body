@@ -1,5 +1,18 @@
 # Version History
 
+## 0.9.5 (build 10)
+
+- **Activity-aware workout details.** The workout detail card now adapts its metrics to the activity: walks, runs, and hikes add **Avg Pace**, **Elevation Gain**, **Cadence**, and **Cardio Fitness (VO₂max)**; rides add **Avg Speed**, **Cadence**, and **Power**; swims add **Swim Pace** (per 100 m) and **Stroke Count**. **Max Heart Rate** appears wherever heart-rate data exists, and every workout still shows distance, energy, and average heart rate. Each tile is shown only when the activity and recorded data support it.
+- Added Apple Health read access for **Cardio Fitness (VO₂max), running/cycling power, cycling cadence, swimming stroke count, and steps** (steps power foot cadence) so the new metrics can populate; power, cadence, and stroke count are best-effort and appear only when the recording source provides them.
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 10.
+
+## 0.9.5 (build 9)
+
+- Replaced every app icon with Apple **Icon Composer** (`.icon`) artwork: the primary icon plus the five color alternates (Rose, Violet, Midnight, Neutral, Light) now ship as layered icons that render the iOS 26 light / dark / tinted (Liquid Glass) appearances, with an automatic flat raster fallback on iOS 18–25.
+- Removed the **"Present" creator-surprise alternate icons** and the Settings version-card tap that unlocked them; the app-icon picker now shows the six standard color options only.
+- Updated the **Apple Watch app and Home Screen widget** icons to the new Classic design so every surface matches.
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 9.
+
 ## 0.9.5 (build 8)
 
 - **Body Pro is now a real in-app purchase.** The paywall's Lifetime card, **Restore Purchases**, and **Redeem Pro** are wired to StoreKit 2 (non-consumable `com.zihengthedeveloper.body.pro.lifetime`); once purchased, an owned state replaces the buy card and all features unlock instantly.

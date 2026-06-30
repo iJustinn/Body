@@ -26,14 +26,11 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
-    @AppStorage(BodyAppearancePreference.creatorSurpriseIconsUnlockedKey) private var creatorSurpriseIconsUnlocked = false
     @State private var activeSheet: BodySettingsSheet?
     @State private var showBodyProPaywall = false
     @State private var selectedAppIconName: String?
     @State private var showingAppIconError = false
     @State private var appIconErrorMessage = ""
-    @State private var versionTapCount = 0
-    @State private var showingCreatorSurprise = false
     @State private var showingHowToUseBrowser = false
     @State private var showingPrivacyBrowser = false
 
@@ -60,21 +57,9 @@ struct BodySettingsView: View {
                     .readableContentColumn()
                 }
 
-                if showingCreatorSurprise {
-                    BodyCreatorSurpriseOverlay(
-                        onChooseIcons: openCreatorSurpriseIcons,
-                        onDismiss: {
-                            showingCreatorSurprise = false
-                        }
-                    )
-                    .transition(.opacity)
-                    .zIndex(10)
-                }
             }
-            .animation(.easeInOut(duration: 0.2), value: showingCreatorSurprise)
             .onAppear {
                 selectedAppIconName = UIApplication.shared.alternateIconName
-                versionTapCount = 0
             }
             .sheet(item: $activeSheet) { sheet in
                 settingsSheet(for: sheet)
@@ -232,7 +217,7 @@ struct BodySettingsView: View {
             case .privacy:
                 showingPrivacyBrowser = true
             case .version:
-                handleVersionCardTap()
+                break
             case .more:
                 if let sheet = tab.sheet {
                     activeSheet = sheet
@@ -548,7 +533,6 @@ struct BodySettingsView: View {
         case .appIcon:
             BodyAppIconPickerSheet(
                 selectedIconName: selectedAppIconName,
-                showsCreatorSurprises: creatorSurpriseIconsUnlocked,
                 onSelect: changeAppIcon
             )
         case .summaryCards:
@@ -611,40 +595,6 @@ struct BodySettingsView: View {
         }
     }
 
-    private func handleVersionCardTap() {
-        versionTapCount += 1
-        playSelectionHaptic()
-
-        guard versionTapCount >= 5 else {
-            return
-        }
-
-        versionTapCount = 0
-        creatorSurpriseIconsUnlocked = true
-        showingCreatorSurprise = true
-        playSuccessHaptic()
-    }
-
-    private func openCreatorSurpriseIcons() {
-        showingCreatorSurprise = false
-
-        Task {
-            try? await Task.sleep(nanoseconds: 220_000_000)
-            activeSheet = .appIcon
-        }
-    }
-
-    private func playSelectionHaptic() {
-        let generator = UISelectionFeedbackGenerator()
-        generator.prepare()
-        generator.selectionChanged()
-    }
-
-    private func playSuccessHaptic() {
-        let generator = UINotificationFeedbackGenerator()
-        generator.prepare()
-        generator.notificationOccurred(.success)
-    }
 }
 
 enum BodySettingsSheet: String, Identifiable {
@@ -2415,7 +2365,6 @@ private struct BodyAppIconOption: Identifiable, Equatable {
     let descriptor: String
     let alternateIconName: String?
     let previewAssetName: String
-    var isCreatorSurprise = false
 
     static let standard: [BodyAppIconOption] = [
         BodyAppIconOption(
@@ -2462,62 +2411,7 @@ private struct BodyAppIconOption: Identifiable, Equatable {
         )
     ]
 
-    static let creatorSurprises: [BodyAppIconOption] = [
-        BodyAppIconOption(
-            id: "classicPresent",
-            displayName: "Classic",
-            descriptor: "Present",
-            alternateIconName: "BodyClassicAlt",
-            previewAssetName: "BodyIconClassicAlt",
-            isCreatorSurprise: true
-        ),
-        BodyAppIconOption(
-            id: "rosePresent",
-            displayName: "Rose",
-            descriptor: "Present",
-            alternateIconName: "BodyPinkAlt",
-            previewAssetName: "BodyIconPinkAlt",
-            isCreatorSurprise: true
-        ),
-        BodyAppIconOption(
-            id: "violetPresent",
-            displayName: "Violet",
-            descriptor: "Present",
-            alternateIconName: "BodyPurpleAlt",
-            previewAssetName: "BodyIconPurpleAlt",
-            isCreatorSurprise: true
-        ),
-        BodyAppIconOption(
-            id: "midnightPresent",
-            displayName: "Midnight",
-            descriptor: "Present",
-            alternateIconName: "BodyBlackAlt",
-            previewAssetName: "BodyIconBlackAlt",
-            isCreatorSurprise: true
-        ),
-        BodyAppIconOption(
-            id: "neutralPresent",
-            displayName: "Neutral",
-            descriptor: "Present",
-            alternateIconName: "BodyGrayAlt",
-            previewAssetName: "BodyIconGrayAlt",
-            isCreatorSurprise: true
-        ),
-        BodyAppIconOption(
-            id: "lightPresent",
-            displayName: "Light",
-            descriptor: "Present",
-            alternateIconName: "BodyWhiteAlt",
-            previewAssetName: "BodyIconWhiteAlt",
-            isCreatorSurprise: true
-        )
-    ]
-
-    static let all: [BodyAppIconOption] = standard + creatorSurprises
-
-    static func availableOptions(includeCreatorSurprises: Bool) -> [BodyAppIconOption] {
-        includeCreatorSurprises ? all : standard
-    }
+    static let all: [BodyAppIconOption] = standard
 
     static func option(named alternateIconName: String?) -> BodyAppIconOption {
         all.first { $0.alternateIconName == alternateIconName } ?? all[0]
@@ -2630,7 +2524,6 @@ private struct BodySettingsIconTile: View {
 
 private struct BodyAppIconPickerSheet: View {
     let selectedIconName: String?
-    let showsCreatorSurprises: Bool
     let onSelect: (BodyAppIconOption) -> Void
 
     private let columns = [
@@ -2640,14 +2533,7 @@ private struct BodyAppIconPickerSheet: View {
     ]
 
     private var options: [BodyAppIconOption] {
-        let availableOptions = BodyAppIconOption.availableOptions(includeCreatorSurprises: showsCreatorSurprises)
-
-        guard let selectedOption = BodyAppIconOption.all.first(where: { $0.alternateIconName == selectedIconName }),
-              !availableOptions.contains(selectedOption) else {
-            return availableOptions
-        }
-
-        return availableOptions + [selectedOption]
+        BodyAppIconOption.all
     }
 
     var body: some View {
@@ -2733,163 +2619,6 @@ private struct BodyAppIconSelectionTile: View {
         .scaleEffect(isSelected ? 1.03 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.78), value: isSelected)
     }
-}
-
-private struct BodyCreatorSurpriseOverlay: View {
-    let onChooseIcons: () -> Void
-    let onDismiss: () -> Void
-
-    @State private var ribbonsAreFalling = false
-
-    private let ribbons = BodyCreatorRibbon.all
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                Color.black.opacity(0.4)
-                    .ignoresSafeArea()
-                    .onTapGesture(perform: onDismiss)
-
-                ForEach(ribbons) { ribbon in
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(ribbon.color)
-                        .frame(width: ribbon.width, height: ribbon.height)
-                        .rotationEffect(.degrees(ribbonsAreFalling ? ribbon.endRotation : ribbon.startRotation))
-                        .offset(
-                            x: ribbon.xOffset(in: proxy.size.width),
-                            y: ribbonsAreFalling
-                                ? proxy.size.height + ribbon.endYOffset
-                                : -proxy.size.height * 0.45 - ribbon.startYOffset
-                        )
-                        .opacity(ribbonsAreFalling ? 0.95 : 0)
-                        .animation(
-                            .linear(duration: ribbon.duration)
-                                .delay(ribbon.delay)
-                                .repeatForever(autoreverses: false),
-                            value: ribbonsAreFalling
-                        )
-                }
-
-                VStack(spacing: 18) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 38, weight: .bold))
-                        .foregroundColor(.yellow)
-                        .frame(width: 76, height: 76)
-                        .background(
-                            Circle()
-                                .fill(Color.yellow.opacity(0.18))
-                        )
-
-                    VStack(spacing: 8) {
-                        Text("Surprise Unlocked")
-                            .font(.system(.title2, design: .rounded))
-                            .fontWeight(.bold)
-                            .multilineTextAlignment(.center)
-
-                        Text("You unlocked a surprise from the creator.")
-                            .font(.system(.body, design: .rounded))
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-
-                        Text("Six Present app icons are now available.")
-                            .font(.system(.subheadline, design: .rounded))
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-
-                    HStack(spacing: 12) {
-                        Button {
-                            onDismiss()
-                        } label: {
-                            Text("Later")
-                                .font(.system(.headline, design: .rounded))
-                                .fontWeight(.semibold)
-                                .foregroundColor(Color.accentColor)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .fill(Color.accentColor.opacity(0.14))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                                .stroke(Color.accentColor.opacity(0.45), lineWidth: 1)
-                                        )
-                                )
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            onChooseIcons()
-                        } label: {
-                            Text("Choose Icons")
-                                .font(.system(.headline, design: .rounded))
-                                .fontWeight(.semibold)
-                                .foregroundColor(Color(.systemBackground))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .fill(Color.accentColor)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(24)
-                .frame(maxWidth: 360)
-                .bodyCardBackground()
-                .padding(.horizontal, 24)
-            }
-            .onAppear {
-                ribbonsAreFalling = true
-            }
-        }
-    }
-}
-
-private struct BodyCreatorRibbon: Identifiable {
-    let id: Int
-    let xFraction: CGFloat
-    let width: CGFloat
-    let height: CGFloat
-    let startRotation: Double
-    let endRotation: Double
-    let startYOffset: CGFloat
-    let endYOffset: CGFloat
-    let delay: Double
-    let duration: Double
-    let color: Color
-
-    func xOffset(in width: CGFloat) -> CGFloat {
-        (xFraction - 0.5) * width
-    }
-
-    static let all: [BodyCreatorRibbon] = {
-        let palette: [Color] = [.pink, .yellow, .blue, .green, .purple, .orange, .cyan, .mint, .red, .indigo]
-        let columns: [CGFloat] = [0.04, 0.09, 0.14, 0.19, 0.24, 0.29, 0.34, 0.39, 0.44, 0.49, 0.54, 0.59, 0.64, 0.69, 0.74, 0.79, 0.84, 0.89, 0.94]
-
-        return (0..<48).map { index in
-            let column = columns[index % columns.count]
-            let jitter = CGFloat(((index * 37) % 9) - 4) / 100
-            let xFraction = min(max(column + jitter, 0.03), 0.97)
-
-            return BodyCreatorRibbon(
-                id: index,
-                xFraction: xFraction,
-                width: CGFloat(6 + (index * 5) % 8),
-                height: CGFloat(28 + (index * 11) % 34),
-                startRotation: Double(((index * 23) % 90) - 45),
-                endRotation: Double(((index * 61) % 560) - 280),
-                startYOffset: CGFloat((index * 29) % 220),
-                endYOffset: CGFloat((index * 43) % 260),
-                delay: Double(index % 16) * 0.09,
-                duration: 2.4 + Double((index * 7) % 12) * 0.11,
-                color: palette[index % palette.count]
-            )
-        }
-    }()
 }
 
 private struct BodyMoreSettingsSheet: View {

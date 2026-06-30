@@ -906,13 +906,13 @@ final class ProjectConfigurationTests: XCTestCase {
         let dayChartCardStart = try XCTUnwrap(homeSource.range(of: "private var metricDayChartCard: some View")?.lowerBound)
         let dayChartCardBlock = String(homeSource[dayChartCardStart...].prefix(3_500))
         let dayChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthMetricDayChart")?.lowerBound)
-        let dayChartBlock = String(homeSource[dayChartStart...].prefix(10_000))
+        let dayChartBlock = String(homeSource[dayChartStart...].prefix(12_000))
 
         XCTAssertTrue(dayChartCardBlock.contains("BodyHealthSourceLegend("))
         XCTAssertTrue(dayChartCardBlock.contains("selectedMetricSecondaryDaySeries"))
         XCTAssertTrue(dayChartCardBlock.contains("secondarySeries: selectedMetricSecondaryDaySeries"))
         XCTAssertTrue(dayChartBlock.contains("secondaryHourlyBuckets"))
-        XCTAssertTrue(dayChartBlock.contains("series: .value(\"Source\", entry.sourceRole.rawValue)"))
+        XCTAssertTrue(dayChartBlock.contains("series: .value(\"Segment\", entry.seriesKey)"))
         XCTAssertTrue(dayChartBlock.contains("BodyChartSelectionValue("))
         XCTAssertTrue(snapshotSource.contains("func secondaryDaySeries(for kind: HealthMetricKind) -> HealthTrendSeries"))
         XCTAssertTrue(engineSource.contains("func fetchSecondaryDaySamples("))
@@ -1229,7 +1229,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.BodyTests;"))
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.Body.watchkitapp;"))
         XCTAssertTrue(project.contains("PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.Body.watchkitapp.WatchWidget;"))
-        XCTAssertTrue(project.contains("ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = \"BodyBlack BodyBlackAlt BodyClassicAlt BodyGray BodyGrayAlt BodyPink BodyPinkAlt BodyPurple BodyPurpleAlt BodyWhite BodyWhiteAlt\";"))
+        XCTAssertTrue(project.contains("ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = \"BodyBlack BodyGray BodyPink BodyPurple BodyWhite\";"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_NSHealthShareUsageDescription"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_NSHealthUpdateUsageDescription"))
         // Every target that declares HealthKit read access (and carries the HealthKit
@@ -1246,12 +1246,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.5;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 8;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 10;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.5;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 8;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 10;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1286,7 +1286,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.5 (build 8)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.5 (build 10)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 9)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 8)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 5)**"))
@@ -1301,6 +1303,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.5 (build 10)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.5 build 10."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.5 (build 9)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.5 build 9."))
         XCTAssertTrue(versionHistory.contains("## 0.9.5 (build 8)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.5 build 8."))
         XCTAssertTrue(versionHistory.contains("## 0.9.5 (build 7)"))
@@ -1383,7 +1389,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testHealthKitUsageDescriptionListsRequestedHealthCategories() throws {
         let project = try text(at: "body.xcodeproj/project.pbxproj")
-        let usageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, and steps from Apple Health to power your dashboard, charts, and widgets."
+        let usageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, and swim strokes from Apple Health to power your dashboard, charts, and widgets."
 
         XCTAssertEqual(project.occurrenceCount(of: usageDescription), 2)
         XCTAssertFalse(project.contains("Body reads workout, sleep, heart, and body measurement data"))
@@ -1447,13 +1453,15 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-v0.9.5`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.5 build 8"))
-        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 7"))
-        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 6"))
-        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 5"))
-        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 3"))
-        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 2"))
-        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 1"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.5 build 10)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 9)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 8)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 7)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 6)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 5)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 3)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 2)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 1)"))
         XCTAssertFalse(testPlan.contains("branch `body-v0.9.3`"))
         XCTAssertFalse(testPlan.contains("app version 0.9.3 build 8"))
         XCTAssertFalse(testPlan.contains("app version 0.9.3 build 7"))
@@ -1474,8 +1482,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))
         XCTAssertTrue(testPlan.contains("Body Pro entry navigation"))
         XCTAssertTrue(testPlan.contains("Body Pro icon flip"))
-        XCTAssertTrue(testPlan.contains("version-card unlock"))
-        XCTAssertTrue(testPlan.contains("creator-surprise icon sheet"))
+        XCTAssertFalse(testPlan.contains("version-card unlock"))
+        XCTAssertFalse(testPlan.contains("creator-surprise icon sheet"))
     }
 
     func testWorkoutsMonthLoadUsesPullToRefreshOverlay() throws {
@@ -1532,52 +1540,79 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testAppIconAssetsIncludePrimaryAndAlternateOptions() throws {
-        let iconPaths = [
-            "Body/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
-            "Body/Assets.xcassets/BodyClassicAlt.appiconset/BodyClassicAlt.png",
-            "Body/Assets.xcassets/BodyBlack.appiconset/BodyBlack.png",
-            "Body/Assets.xcassets/BodyBlackAlt.appiconset/BodyBlackAlt.png",
-            "Body/Assets.xcassets/BodyGray.appiconset/BodyGray.png",
-            "Body/Assets.xcassets/BodyGrayAlt.appiconset/BodyGrayAlt.png",
-            "Body/Assets.xcassets/BodyPink.appiconset/BodyPink.png",
-            "Body/Assets.xcassets/BodyPinkAlt.appiconset/BodyPinkAlt.png",
-            "Body/Assets.xcassets/BodyPurple.appiconset/BodyPurple.png",
-            "Body/Assets.xcassets/BodyPurpleAlt.appiconset/BodyPurpleAlt.png",
-            "Body/Assets.xcassets/BodyWhite.appiconset/BodyWhite.png",
-            "Body/Assets.xcassets/BodyWhiteAlt.appiconset/BodyWhiteAlt.png",
-            "Body/Assets.xcassets/BodyIcon01.imageset/BodyIcon01.png",
-            "Body/Assets.xcassets/BodyIconBlack.imageset/BodyIconBlack.png",
-            "Body/Assets.xcassets/BodyIconBlackAlt.imageset/BodyIconBlackAlt.png",
-            "Body/Assets.xcassets/BodyIconClassicAlt.imageset/BodyIconClassicAlt.png",
-            "Body/Assets.xcassets/BodyIconGray.imageset/BodyIconGray.png",
-            "Body/Assets.xcassets/BodyIconGrayAlt.imageset/BodyIconGrayAlt.png",
-            "Body/Assets.xcassets/BodyIconPink.imageset/BodyIconPink.png",
-            "Body/Assets.xcassets/BodyIconPinkAlt.imageset/BodyIconPinkAlt.png",
-            "Body/Assets.xcassets/BodyIconPurple.imageset/BodyIconPurple.png",
-            "Body/Assets.xcassets/BodyIconPurpleAlt.imageset/BodyIconPurpleAlt.png",
-            "Body/Assets.xcassets/BodyIconWhite.imageset/BodyIconWhite.png",
-            "Body/Assets.xcassets/BodyIconWhiteAlt.imageset/BodyIconWhiteAlt.png",
-            "BodyWidgetExtension/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+        // Every shipping app icon is an Icon Composer (.icon) bundle at its target
+        // root — primary AppIcon plus five color alternates, and the watch + widget.
+        let iconBundles = [
+            "Body/AppIcon.icon/icon.json",
+            "Body/BodyBlack.icon/icon.json",
+            "Body/BodyGray.icon/icon.json",
+            "Body/BodyPink.icon/icon.json",
+            "Body/BodyPurple.icon/icon.json",
+            "Body/BodyWhite.icon/icon.json",
+            "BodyWatch/AppIcon.icon/icon.json",
+            "BodyWidgetExtension/AppIcon.icon/icon.json"
         ]
 
-        for path in iconPaths {
+        for path in iconBundles {
             let data = try Data(contentsOf: projectRoot.appendingPathComponent(path))
             XCTAssertGreaterThan(data.count, 0, path)
         }
+
+        // In-app icon-picker thumbnails, one per standard color.
+        let previewAssets = [
+            "Body/Assets.xcassets/BodyIcon01.imageset/BodyIcon01.png",
+            "Body/Assets.xcassets/BodyIconBlack.imageset/BodyIconBlack.png",
+            "Body/Assets.xcassets/BodyIconGray.imageset/BodyIconGray.png",
+            "Body/Assets.xcassets/BodyIconPink.imageset/BodyIconPink.png",
+            "Body/Assets.xcassets/BodyIconPurple.imageset/BodyIconPurple.png",
+            "Body/Assets.xcassets/BodyIconWhite.imageset/BodyIconWhite.png"
+        ]
+
+        for path in previewAssets {
+            let data = try Data(contentsOf: projectRoot.appendingPathComponent(path))
+            XCTAssertGreaterThan(data.count, 0, path)
+        }
+
+        // The legacy .appiconset artwork and the removed "Present" creator-surprise
+        // alternates (icons + preview thumbnails) must no longer exist.
+        let removedPaths = [
+            "Body/Assets.xcassets/AppIcon.appiconset",
+            "Body/Assets.xcassets/BodyBlack.appiconset",
+            "Body/Assets.xcassets/BodyClassicAlt.appiconset",
+            "Body/Assets.xcassets/BodyBlackAlt.appiconset",
+            "Body/Assets.xcassets/BodyGrayAlt.appiconset",
+            "Body/Assets.xcassets/BodyPinkAlt.appiconset",
+            "Body/Assets.xcassets/BodyPurpleAlt.appiconset",
+            "Body/Assets.xcassets/BodyWhiteAlt.appiconset",
+            "Body/Assets.xcassets/BodyIconClassicAlt.imageset",
+            "Body/Assets.xcassets/BodyIconBlackAlt.imageset",
+            "Body/Assets.xcassets/BodyIconWhiteAlt.imageset",
+            "BodyWidgetExtension/Assets.xcassets/AppIcon.appiconset"
+        ]
+
+        for path in removedPaths {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: projectRoot.appendingPathComponent(path).path),
+                path
+            )
+        }
     }
 
-    func testSettingsVersionTapUnlocksCreatorSurpriseIcons() throws {
+    func testSettingsExposesStandardAppIconOptionsWithoutCreatorSurprise() throws {
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
+        let appearanceSource = try text(at: "BodyMetricsKit/BodyHealthSelections.swift")
 
-        XCTAssertTrue(settingsSource.contains("@State private var versionTapCount = 0"))
-        XCTAssertTrue(settingsSource.contains("@AppStorage(BodyAppearancePreference.creatorSurpriseIconsUnlockedKey)"))
-        XCTAssertTrue(settingsSource.contains("handleVersionCardTap()"))
-        XCTAssertTrue(settingsSource.contains("versionTapCount >= 5"))
-        XCTAssertTrue(settingsSource.contains("showingCreatorSurprise = true"))
-        XCTAssertTrue(settingsSource.contains("BodyCreatorSurpriseOverlay"))
-        XCTAssertTrue(settingsSource.contains("BodyCreatorRibbon"))
-        XCTAssertTrue(settingsSource.contains("availableOptions(includeCreatorSurprises:"))
+        // The "Present" creator-surprise icons and their version-tap unlock were removed.
+        XCTAssertFalse(settingsSource.contains("versionTapCount"))
+        XCTAssertFalse(settingsSource.contains("creatorSurpriseIconsUnlocked"))
+        XCTAssertFalse(settingsSource.contains("showingCreatorSurprise"))
+        XCTAssertFalse(settingsSource.contains("BodyCreatorSurpriseOverlay"))
+        XCTAssertFalse(settingsSource.contains("BodyCreatorRibbon"))
+        XCTAssertFalse(settingsSource.contains("availableOptions(includeCreatorSurprises:"))
+        XCTAssertFalse(settingsSource.contains(#"descriptor: "Present""#))
+        XCTAssertFalse(appearanceSource.contains("creatorSurpriseIconsUnlockedKey"))
 
+        // The six standard color options remain.
         let requiredLabels = [
             #"displayName: "Classic""#,
             #"descriptor: "Original""#,
@@ -1590,15 +1625,12 @@ final class ProjectConfigurationTests: XCTestCase {
             #"displayName: "Neutral""#,
             #"descriptor: "Gray""#,
             #"displayName: "Light""#,
-            #"descriptor: "White""#,
-            #"descriptor: "Present""#
+            #"descriptor: "White""#
         ]
 
         for label in requiredLabels {
             XCTAssertTrue(settingsSource.contains(label), label)
         }
-
-        XCTAssertEqual(settingsSource.occurrenceCount(of: #"descriptor: "Present""#), 6)
     }
 
     func testSettingsMetricsSectionGroupsUnitsSummaryCardsAndTrendControls() throws {

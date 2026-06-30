@@ -37,7 +37,6 @@ enum BodyAppearancePreference {
     static let secondaryHealthDataSourceSelectionKey = "secondaryHealthDataSourceSelection"
     static let combinesHealthDataSourcesByNameKey = "combinesHealthDataSourcesByName"
     static let bodyProIconShowsBackKey = "bodyProIconShowsBack"
-    static let creatorSurpriseIconsUnlockedKey = "creatorSurpriseIconsUnlocked"
 
     static func bodyProIconAssetName(showsBack: Bool) -> String {
         showsBack ? "BodyProIconBack" : "BodyProIcon"
