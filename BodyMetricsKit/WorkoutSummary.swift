@@ -23,8 +23,15 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     let totalEnergyKilocalories: Double?
     let distanceMeters: Double?
     let averageHeartRateBeatsPerMinute: Double?
+    let maximumHeartRateBeatsPerMinute: Double?
     let effortLevel: Double?
     let heartRateSamples: [WorkoutHeartRateSample]?
+    let elevationAscendedMeters: Double?
+    let averagePowerWatts: Double?
+    let averageStepCadenceSPM: Double?
+    let averageCyclingCadenceRPM: Double?
+    let swimmingStrokeCount: Double?
+    let cardioFitnessVO2Max: Double?
     let sourceName: String
 
     init(
@@ -36,8 +43,15 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         totalEnergyKilocalories: Double? = nil,
         distanceMeters: Double? = nil,
         averageHeartRateBeatsPerMinute: Double? = nil,
+        maximumHeartRateBeatsPerMinute: Double? = nil,
         effortLevel: Double? = nil,
         heartRateSamples: [WorkoutHeartRateSample] = [],
+        elevationAscendedMeters: Double? = nil,
+        averagePowerWatts: Double? = nil,
+        averageStepCadenceSPM: Double? = nil,
+        averageCyclingCadenceRPM: Double? = nil,
+        swimmingStrokeCount: Double? = nil,
+        cardioFitnessVO2Max: Double? = nil,
         sourceName: String = "Apple Health"
     ) {
         self.id = id
@@ -48,13 +62,38 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         self.totalEnergyKilocalories = totalEnergyKilocalories
         self.distanceMeters = distanceMeters
         self.averageHeartRateBeatsPerMinute = averageHeartRateBeatsPerMinute
+        self.maximumHeartRateBeatsPerMinute = maximumHeartRateBeatsPerMinute
         self.effortLevel = effortLevel
         self.heartRateSamples = heartRateSamples
+        self.elevationAscendedMeters = elevationAscendedMeters
+        self.averagePowerWatts = averagePowerWatts
+        self.averageStepCadenceSPM = averageStepCadenceSPM
+        self.averageCyclingCadenceRPM = averageCyclingCadenceRPM
+        self.swimmingStrokeCount = swimmingStrokeCount
+        self.cardioFitnessVO2Max = cardioFitnessVO2Max
         self.sourceName = sourceName
     }
 }
 
 struct WorkoutDetailMetric: Equatable {
+    enum Kind {
+        case activeEnergy
+        case totalEnergy
+        case avgHeartRate
+        case maxHeartRate
+        case distance
+        case pace
+        case speed
+        case swimPace
+        case elevation
+        case stepCadence
+        case cyclingCadence
+        case power
+        case cardioFitness
+        case strokeCount
+    }
+
+    let kind: Kind
     let title: String
     let value: String
 }
@@ -209,14 +248,127 @@ struct WorkoutDetailPresentation: Equatable {
         effortText = effortPresentation.map { "\($0.valueText) \($0.descriptor)" } ?? "No Saved Effort"
         heartRateSamples = sortedHeartRateSamples
 
-        var metrics = [
-            WorkoutDetailMetric(title: "Active \(energyUnitPreference.detailTitleUnit)", value: activeEnergyText ?? "No Data"),
-            WorkoutDetailMetric(title: "Total \(energyUnitPreference.detailTitleUnit)", value: totalEnergyText ?? "No Data"),
-            WorkoutDetailMetric(title: "Avg Heart Rate", value: averageHeartRateText ?? "No Data")
-        ]
+        // Mirror the distance tile's resolution so pace/speed/elevation agree with
+        // it: an explicit distance preference wins, else fall back to the unit
+        // preference (metric/imperial/system), not to locale alone.
+        let resolvedDistancePreference: BodyValueFormat.DistanceUnitPreference = distanceUnitPreference ?? {
+            switch unitPreference {
+            case .imperial:
+                return .miles
+            case .metric:
+                return .kilometers
+            case .system:
+                return .systemValue(locale: locale)
+            }
+        }()
+        let distanceMeters = workout.distanceMeters ?? 0
+        let canDeriveDistanceRate = distanceMeters > 0 && workout.duration > 0
+
+        var metrics: [WorkoutDetailMetric] = []
+
+        // Performance metrics first, then a generic Distance tile for any positive distance.
         if let distanceText {
-            metrics.append(WorkoutDetailMetric(title: "Distance", value: distanceText))
+            metrics.append(WorkoutDetailMetric(kind: .distance, title: "Distance", value: distanceText))
         }
+        if canDeriveDistanceRate {
+            switch workout.type.paceStyle {
+            case .distancePace:
+                metrics.append(WorkoutDetailMetric(
+                    kind: .pace,
+                    title: "Avg Pace",
+                    value: BodyValueFormat.paceText(
+                        meters: distanceMeters,
+                        seconds: workout.duration,
+                        distanceUnitPreference: resolvedDistancePreference,
+                        locale: locale
+                    )
+                ))
+            case .speed:
+                metrics.append(WorkoutDetailMetric(
+                    kind: .speed,
+                    title: "Avg Speed",
+                    value: BodyValueFormat.speedText(
+                        meters: distanceMeters,
+                        seconds: workout.duration,
+                        distanceUnitPreference: resolvedDistancePreference,
+                        locale: locale
+                    )
+                ))
+            case .swimPace:
+                metrics.append(WorkoutDetailMetric(
+                    kind: .swimPace,
+                    title: "Avg Pace",
+                    value: BodyValueFormat.swimPaceText(
+                        meters: distanceMeters,
+                        seconds: workout.duration,
+                        distanceUnitPreference: resolvedDistancePreference,
+                        locale: locale
+                    )
+                ))
+            case .none:
+                break
+            }
+        }
+        if let elevation = workout.elevationAscendedMeters, elevation > 0 {
+            metrics.append(WorkoutDetailMetric(
+                kind: .elevation,
+                title: "Elevation Gain",
+                value: BodyValueFormat.elevationText(
+                    meters: elevation,
+                    distanceUnitPreference: resolvedDistancePreference,
+                    locale: locale
+                )
+            ))
+        }
+
+        metrics.append(WorkoutDetailMetric(kind: .activeEnergy, title: "Active \(energyUnitPreference.detailTitleUnit)", value: activeEnergyText ?? "No Data"))
+        metrics.append(WorkoutDetailMetric(kind: .totalEnergy, title: "Total \(energyUnitPreference.detailTitleUnit)", value: totalEnergyText ?? "No Data"))
+        metrics.append(WorkoutDetailMetric(kind: .avgHeartRate, title: "Avg Heart Rate", value: averageHeartRateText ?? "No Data"))
+        if let maxHeartRate = workout.maximumHeartRateBeatsPerMinute {
+            metrics.append(WorkoutDetailMetric(
+                kind: .maxHeartRate,
+                title: "Max Heart Rate",
+                value: BodyValueFormat.heartRateText(beatsPerMinute: maxHeartRate, locale: locale)
+            ))
+        }
+
+        // Form metrics — best-effort, shown only when the recording source provided them.
+        if let stepCadence = workout.averageStepCadenceSPM, stepCadence > 0 {
+            metrics.append(WorkoutDetailMetric(
+                kind: .stepCadence,
+                title: "Cadence",
+                value: BodyValueFormat.cadenceText(stepCadence, unit: "SPM", locale: locale)
+            ))
+        }
+        if let cyclingCadence = workout.averageCyclingCadenceRPM, cyclingCadence > 0 {
+            metrics.append(WorkoutDetailMetric(
+                kind: .cyclingCadence,
+                title: "Cadence",
+                value: BodyValueFormat.cadenceText(cyclingCadence, unit: "RPM", locale: locale)
+            ))
+        }
+        if let power = workout.averagePowerWatts, power > 0 {
+            metrics.append(WorkoutDetailMetric(
+                kind: .power,
+                title: "Avg Power",
+                value: BodyValueFormat.powerText(watts: power, locale: locale)
+            ))
+        }
+        if let vo2Max = workout.cardioFitnessVO2Max, vo2Max > 0 {
+            metrics.append(WorkoutDetailMetric(
+                kind: .cardioFitness,
+                title: "Cardio Fitness",
+                value: BodyValueFormat.vo2MaxText(vo2Max, locale: locale)
+            ))
+        }
+        if let strokeCount = workout.swimmingStrokeCount, strokeCount > 0 {
+            metrics.append(WorkoutDetailMetric(
+                kind: .strokeCount,
+                title: "Swim Strokes",
+                value: BodyValueFormat.strokeCountText(strokeCount, locale: locale)
+            ))
+        }
+
         detailMetrics = metrics
     }
 
@@ -558,6 +710,92 @@ enum BodyValueFormat {
             .converted(to: .kilometers)
             .value
         return numberText(kilometers, decimals: 1, locale: locale) + " km"
+    }
+
+    /// Average pace as M:SS per km (or per mile), from total distance and elapsed time.
+    static func paceText(
+        meters: Double,
+        seconds: Double,
+        distanceUnitPreference: DistanceUnitPreference,
+        locale: Locale = .current
+    ) -> String {
+        guard meters > 0, seconds > 0 else { return "—" }
+        let useMiles = distanceUnitPreference == .miles
+        let unitMeters = useMiles ? 1_609.344 : 1_000.0
+        let secondsPerUnit = seconds / (meters / unitMeters)
+        return clockText(seconds: secondsPerUnit) + (useMiles ? " /mi" : " /km")
+    }
+
+    /// Average speed as km/h (or mph), from total distance and elapsed time.
+    static func speedText(
+        meters: Double,
+        seconds: Double,
+        distanceUnitPreference: DistanceUnitPreference,
+        locale: Locale = .current
+    ) -> String {
+        guard meters > 0, seconds > 0 else { return "—" }
+        let metersPerSecond = meters / seconds
+        if distanceUnitPreference == .miles {
+            let mph = Measurement(value: metersPerSecond, unit: UnitSpeed.metersPerSecond)
+                .converted(to: .milesPerHour)
+                .value
+            return numberText(mph, decimals: 1, locale: locale) + " mph"
+        }
+        let kmh = Measurement(value: metersPerSecond, unit: UnitSpeed.metersPerSecond)
+            .converted(to: .kilometersPerHour)
+            .value
+        return numberText(kmh, decimals: 1, locale: locale) + " km/h"
+    }
+
+    /// Swim pace as M:SS per 100 m (or per 100 yd).
+    static func swimPaceText(
+        meters: Double,
+        seconds: Double,
+        distanceUnitPreference: DistanceUnitPreference,
+        locale: Locale = .current
+    ) -> String {
+        guard meters > 0, seconds > 0 else { return "—" }
+        let useYards = distanceUnitPreference == .miles
+        let unitMeters = useYards ? 91.44 : 100.0
+        let secondsPerUnit = seconds / (meters / unitMeters)
+        return clockText(seconds: secondsPerUnit) + (useYards ? " /100yd" : " /100m")
+    }
+
+    /// Elevation gain as whole meters (or feet).
+    static func elevationText(
+        meters: Double,
+        distanceUnitPreference: DistanceUnitPreference,
+        locale: Locale = .current
+    ) -> String {
+        if distanceUnitPreference == .miles {
+            let feet = Measurement(value: meters, unit: UnitLength.meters)
+                .converted(to: .feet)
+                .value
+            return numberText(feet.rounded(), decimals: 0, locale: locale) + " ft"
+        }
+        return numberText(meters.rounded(), decimals: 0, locale: locale) + " m"
+    }
+
+    static func powerText(watts: Double, locale: Locale = .current) -> String {
+        numberText(watts.rounded(), decimals: 0, locale: locale) + " W"
+    }
+
+    /// Cadence with an activity-specific unit ("SPM" for foot, "RPM" for cycling).
+    static func cadenceText(_ cadence: Double, unit: String, locale: Locale = .current) -> String {
+        numberText(cadence.rounded(), decimals: 0, locale: locale) + " " + unit
+    }
+
+    static func vo2MaxText(_ value: Double, locale: Locale = .current) -> String {
+        numberText(value, decimals: 1, locale: locale) + " ml/kg·min"
+    }
+
+    static func strokeCountText(_ count: Double, locale: Locale = .current) -> String {
+        numberText(count.rounded(), decimals: 0, locale: locale)
+    }
+
+    private static func clockText(seconds: Double) -> String {
+        let total = max(0, Int(seconds.rounded()))
+        return "\(total / 60):\(String(format: "%02d", total % 60))"
     }
 
     static func energyText(

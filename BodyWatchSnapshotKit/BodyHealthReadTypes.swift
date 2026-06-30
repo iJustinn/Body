@@ -72,6 +72,19 @@ enum BodyHealthReadTypes {
         if selection.includes(.steps) {
             quantityIdentifiers.append(.stepCount)
         }
+        if selection.includes(.workouts) {
+            // Activity-aware workout-detail metrics. Cadence is derived from
+            // `.stepCount` (also requested here so it doesn't depend on the
+            // separate `.steps` toggle); power/cadence/strokes are best-effort.
+            quantityIdentifiers += [
+                .vo2Max,
+                .runningPower,
+                .cyclingPower,
+                .cyclingCadence,
+                .swimmingStrokeCount,
+                .stepCount
+            ]
+        }
 
         quantityIdentifiers
             .compactMap { HKObjectType.quantityType(forIdentifier: $0) }

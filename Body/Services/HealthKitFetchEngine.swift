@@ -1094,6 +1094,7 @@ actor HealthKitFetchEngine {
         startDate: Date,
         endDate: Date,
         includesHeartRateSamples: Bool,
+        includesDetailMetrics: Bool = true,
         reusableSummariesByID: [UUID: WorkoutSummary] = [:]
     ) async throws -> [WorkoutSummary] {
         let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: [.strictStartDate])
@@ -1152,9 +1153,36 @@ actor HealthKitFetchEngine {
             }
         }()
         async let fetchedEffortLevels = fetchEffortLevels(forWorkouts: workouts)
+        // Cardio Fitness + foot cadence are only consumed by the workout detail
+        // card, so callers that don't surface them (training load) pass
+        // `includesDetailMetrics: false` to skip these reads entirely — otherwise
+        // the 180-day training-load window would pay a per-workout step query it
+        // never reads. When they DO run, they cover *every* workout (like effort
+        // levels above), NOT just the non-reused `workoutsNeedingHeartRate` set:
+        // only the expensive HR-sample payload keeps the passive-resume reuse
+        // skip. A workout cached before these fields existed decodes their values
+        // as nil, so gating them on the HR skip would leave a reused workout
+        // permanently missing them until a user-initiated refresh; fetching for
+        // all workouts backfills those on the next passive resume. The reuse
+        // branch below still falls back to the cached value if the read is
+        // permission-gated.
+        async let cardioFitnessByWorkoutID: [UUID: Double] = {
+            guard includesDetailMetrics else { return [:] }
+            return await fetchIfPermitted(.workouts, default: [:]) {
+                await fetchCardioFitness(forWorkouts: workouts)
+            }
+        }()
+        async let stepCadenceByWorkoutID: [UUID: Double] = {
+            guard includesDetailMetrics else { return [:] }
+            return await fetchIfPermitted(.workouts, default: [:]) {
+                await fetchStepCadence(forWorkouts: workouts)
+            }
+        }()
 
         let resolvedHeartRateSamples = await heartRateSamplesByWorkoutID
         let resolvedEffortLevels = await fetchedEffortLevels
+        let resolvedCardioFitness = await cardioFitnessByWorkoutID
+        let resolvedStepCadence = await stepCadenceByWorkoutID
 
         var summaries: [WorkoutSummary] = []
         summaries.reserveCapacity(workouts.count)
@@ -1165,7 +1193,9 @@ actor HealthKitFetchEngine {
                     Self.summary(
                         for: workout,
                         reusingHeartRateFrom: cached,
-                        effortLevel: resolvedEffortLevels[workout.uuid]
+                        effortLevel: resolvedEffortLevels[workout.uuid],
+                        cardioFitnessVO2Max: resolvedCardioFitness[workout.uuid] ?? cached.cardioFitnessVO2Max,
+                        averageStepCadenceSPM: resolvedStepCadence[workout.uuid] ?? cached.averageStepCadenceSPM
                     )
                 )
             } else {
@@ -1173,7 +1203,9 @@ actor HealthKitFetchEngine {
                     Self.summary(
                         for: workout,
                         heartRateSamples: resolvedHeartRateSamples[workout.uuid] ?? [],
-                        effortLevel: resolvedEffortLevels[workout.uuid]
+                        effortLevel: resolvedEffortLevels[workout.uuid],
+                        cardioFitnessVO2Max: resolvedCardioFitness[workout.uuid],
+                        averageStepCadenceSPM: resolvedStepCadence[workout.uuid]
                     )
                 )
             }
@@ -1415,6 +1447,139 @@ actor HealthKitFetchEngine {
 
     private func fetchSavedEffortLevel(for workout: HKWorkout) async -> BodyWorkoutEffortOutcome {
         await BodyWorkoutEffortFetcher.savedEffortOutcome(for: workout, store: healthStore)
+    }
+
+    /// Cardio Fitness (VO₂max) per eligible workout. VO₂max is recorded
+    /// standalone — not on the workout — so this matches a sample to the workout
+    /// that produced it: an eligible type (`supportsCardioFitness`) that is NOT
+    /// indoor, with a sample timestamped inside the workout's own window (plus a
+    /// short grace for the post-workout write). There is deliberately no
+    /// multi-day lookback — an indoor or reading-less workout shows nothing
+    /// rather than inheriting an earlier outdoor workout's stale VO₂max.
+    private func fetchCardioFitness(forWorkouts workouts: [HKWorkout]) async -> [UUID: Double] {
+        let eligible = workouts.filter {
+            HealthKitWorkoutStore.workoutType(for: $0.workoutActivityType).supportsCardioFitness
+                && !Self.isIndoorWorkout($0)
+        }
+        guard !eligible.isEmpty,
+              let vo2MaxType = HKObjectType.quantityType(forIdentifier: .vo2Max) else {
+            return [:]
+        }
+
+        // Apple timestamps the VO₂max estimate within the workout it came from;
+        // the grace only covers a slightly-delayed write and is far smaller than
+        // the gap between separate workouts, so no reading bleeds across them.
+        let writeGrace: TimeInterval = 5 * 60
+        let rangeStart = eligible.map(\.startDate).min() ?? Date()
+        let rangeEnd = (eligible.map(\.endDate).max() ?? Date()).addingTimeInterval(writeGrace)
+        let predicate = HKQuery.predicateForSamples(withStart: rangeStart, end: rangeEnd, options: [])
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
+        let unit = HKUnit(from: "ml/kg*min")
+
+        let samples: [HKQuantitySample] = await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: vo2MaxType,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sort]
+            ) { _, samples, _ in
+                continuation.resume(returning: samples as? [HKQuantitySample] ?? [])
+            }
+            healthStore.execute(query)
+        }
+
+        guard !samples.isEmpty else { return [:] }
+        let readings = samples.map { (endDate: $0.endDate, value: $0.quantity.doubleValue(for: unit)) }
+
+        var results: [UUID: Double] = [:]
+        for workout in eligible {
+            let windowEnd = workout.endDate.addingTimeInterval(writeGrace)
+            // Ascending by end date; `last` is the reading this workout produced,
+            // bounded to its own span so an older workout's value never carries.
+            if let match = readings.last(where: { $0.endDate >= workout.startDate && $0.endDate <= windowEnd }),
+               match.value.isFinite, match.value > 0 {
+                results[workout.uuid] = match.value
+            }
+        }
+        return results
+    }
+
+    /// Whether a workout is flagged indoor (`HKMetadataKeyIndoorWorkout`). Absent
+    /// metadata is treated as outdoor — Apple only estimates VO₂max outdoors.
+    nonisolated static func isIndoorWorkout(_ workout: HKWorkout) -> Bool {
+        (workout.metadata?[HKMetadataKeyIndoorWorkout] as? NSNumber)?.boolValue ?? false
+    }
+
+    /// Average foot cadence (steps/min) per eligible workout. `.stepCount` is not
+    /// reliably exposed via `HKWorkout.statistics(for:)`, and a plain time-window
+    /// sample query is wrong: it double-counts overlapping iPhone/Watch step
+    /// samples and sweeps in non-workout steps that fall in the same window. So
+    /// steps are read per workout, scoped to the workout's *own* samples via
+    /// `predicateForObjects(from:)` and summed with `.cumulativeSum` (HealthKit's
+    /// source-deduplicated aggregation), then divided by the workout's minutes.
+    /// One relationship-scoped query per workout — pooled with bounded
+    /// concurrency, like effort scores (months refresh concurrently on top).
+    private func fetchStepCadence(forWorkouts workouts: [HKWorkout]) async -> [UUID: Double] {
+        let eligible = workouts.filter {
+            HealthKitWorkoutStore.workoutType(for: $0.workoutActivityType).supportsStepCadence
+                && $0.duration > 0
+        }
+        guard !eligible.isEmpty,
+              let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount) else {
+            return [:]
+        }
+
+        let maxConcurrentQueries = 12
+        return await withTaskGroup(
+            of: (UUID, Double?).self,
+            returning: [UUID: Double].self
+        ) { group in
+            var nextIndex = 0
+            while nextIndex < min(maxConcurrentQueries, eligible.count) {
+                let workout = eligible[nextIndex]
+                group.addTask {
+                    (workout.uuid, await self.stepCadence(for: workout, stepType: stepType))
+                }
+                nextIndex += 1
+            }
+
+            var results: [UUID: Double] = [:]
+            for await (id, cadence) in group {
+                if let cadence {
+                    results[id] = cadence
+                }
+                if nextIndex < eligible.count {
+                    let workout = eligible[nextIndex]
+                    group.addTask {
+                        (workout.uuid, await self.stepCadence(for: workout, stepType: stepType))
+                    }
+                    nextIndex += 1
+                }
+            }
+            return results
+        }
+    }
+
+    /// Steps associated with `workout` (cumulative-sum statistics over the
+    /// workout's own samples, deduplicated across sources by HealthKit) divided
+    /// by its duration in minutes. Returns nil when no steps are attributed.
+    private func stepCadence(for workout: HKWorkout, stepType: HKQuantityType) async -> Double? {
+        let minutes = workout.duration / 60
+        guard minutes > 0 else { return nil }
+
+        let totalSteps: Double? = await withCheckedContinuation { continuation in
+            let query = HKStatisticsQuery(
+                quantityType: stepType,
+                quantitySamplePredicate: HKQuery.predicateForObjects(from: workout),
+                options: .cumulativeSum
+            ) { _, statistics, _ in
+                continuation.resume(returning: statistics?.sumQuantity()?.doubleValue(for: .count()))
+            }
+            healthStore.execute(query)
+        }
+
+        guard let totalSteps, totalSteps > 0 else { return nil }
+        return totalSteps / minutes
     }
 
     // Sleep summary + history + per-day vitals hydration live in

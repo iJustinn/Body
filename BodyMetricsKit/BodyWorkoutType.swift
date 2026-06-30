@@ -5,6 +5,14 @@
 
 import SwiftUI
 
+/// The distance-derived metric that suits an activity on the workout detail card.
+enum WorkoutPaceStyle {
+    case distancePace   // min / km or mi — walking, running, hiking, wheelchair pace
+    case speed          // km/h or mph — cycling
+    case swimPace       // min / 100 m — swimming
+    case none
+}
+
 enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
     case americanFootball
     case archery
@@ -380,6 +388,54 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
             return 10
         default:
             return 15
+        }
+    }
+
+    /// Which distance-derived metric (if any) the detail card should show.
+    var paceStyle: WorkoutPaceStyle {
+        switch self {
+        case .walking, .running, .hiking, .wheelchairWalkPace, .wheelchairRunPace:
+            return .distancePace
+        case .cycling, .handCycling:
+            return .speed
+        case .swimming:
+            return .swimPace
+        default:
+            return .none
+        }
+    }
+
+    /// Foot activities whose cadence is derived from step count (steps/min).
+    /// Wheelchair paces are excluded — they record pushes, not steps.
+    var supportsStepCadence: Bool {
+        switch self {
+        case .walking, .running, .hiking:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Activities that record running power.
+    var supportsRunningPower: Bool {
+        switch self {
+        case .running, .trackAndField:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Activity *types* eligible for an Apple Cardio Fitness (VO₂max) estimate:
+    /// walk, run, and hike. Apple only estimates it *outdoors*, but that hinges
+    /// on per-workout metadata this type can't see, so the indoor exclusion is
+    /// applied where the workout is available (see `isIndoorWorkout`).
+    var supportsCardioFitness: Bool {
+        switch self {
+        case .walking, .running, .hiking:
+            return true
+        default:
+            return false
         }
     }
 

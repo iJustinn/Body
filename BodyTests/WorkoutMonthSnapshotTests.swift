@@ -298,7 +298,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(presentation.effortPresentation?.segmentFills, [1, 1, 1, 0.5, 0])
         XCTAssertEqual(presentation.heartRateSamples.map(\.beatsPerMinute), [102, 122, 146])
         XCTAssertEqual(presentation.sourceText, "Motra")
-        XCTAssertEqual(presentation.detailMetrics.map(\.title), ["Active Kcal", "Total Kcal", "Avg Heart Rate", "Distance"])
+        XCTAssertEqual(presentation.detailMetrics.map(\.title), ["Distance", "Active Kcal", "Total Kcal", "Avg Heart Rate"])
     }
 
     func testWorkoutEffortPresentationMapsScoresToAppleStyleBars() throws {
@@ -467,6 +467,164 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         XCTAssertEqual(presentation.detailMetrics.map(\.title), ["Active Kcal", "Total Kcal", "Avg Heart Rate"])
         XCTAssertNil(presentation.distanceText)
+    }
+
+    func testWorkoutPaceStyleClassification() {
+        XCTAssertEqual(BodyWorkoutType.running.paceStyle, .distancePace)
+        XCTAssertEqual(BodyWorkoutType.walking.paceStyle, .distancePace)
+        XCTAssertEqual(BodyWorkoutType.hiking.paceStyle, .distancePace)
+        XCTAssertEqual(BodyWorkoutType.cycling.paceStyle, .speed)
+        XCTAssertEqual(BodyWorkoutType.handCycling.paceStyle, .speed)
+        XCTAssertEqual(BodyWorkoutType.swimming.paceStyle, .swimPace)
+        XCTAssertEqual(BodyWorkoutType.strengthTraining.paceStyle, .none)
+        XCTAssertTrue(BodyWorkoutType.running.supportsRunningPower)
+        XCTAssertFalse(BodyWorkoutType.walking.supportsRunningPower)
+        XCTAssertTrue(BodyWorkoutType.hiking.supportsStepCadence)
+        XCTAssertFalse(BodyWorkoutType.wheelchairWalkPace.supportsStepCadence)
+        XCTAssertTrue(BodyWorkoutType.running.supportsCardioFitness)
+        XCTAssertFalse(BodyWorkoutType.cycling.supportsCardioFitness)
+    }
+
+    func testWorkoutDetailPresentationAddsPacedRunMetrics() throws {
+        let start = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 7)
+        ))
+        let workout = WorkoutSummary(
+            type: .running,
+            startDate: start,
+            duration: 1_800,
+            activeEnergyKilocalories: 320,
+            totalEnergyKilocalories: 360,
+            distanceMeters: 5_000,
+            averageHeartRateBeatsPerMinute: 150,
+            maximumHeartRateBeatsPerMinute: 172,
+            heartRateSamples: [WorkoutHeartRateSample(date: start, beatsPerMinute: 150)],
+            elevationAscendedMeters: 80,
+            averagePowerWatts: 310,
+            averageStepCadenceSPM: 168,
+            cardioFitnessVO2Max: 48.5,
+            sourceName: "Apple Watch"
+        )
+
+        let presentation = WorkoutDetailPresentation(
+            workout: workout,
+            locale: Locale(identifier: "en_US_POSIX"),
+            unitPreference: .metric
+        )
+
+        XCTAssertEqual(presentation.detailMetrics.map(\.title), [
+            "Distance", "Avg Pace", "Elevation Gain",
+            "Active Kcal", "Total Kcal", "Avg Heart Rate", "Max Heart Rate",
+            "Cadence", "Avg Power", "Cardio Fitness"
+        ])
+        let byTitle = Dictionary(uniqueKeysWithValues: presentation.detailMetrics.map { ($0.title, $0.value) })
+        XCTAssertEqual(byTitle["Avg Pace"], "6:00 /km")
+        XCTAssertEqual(byTitle["Elevation Gain"], "80 m")
+        XCTAssertEqual(byTitle["Max Heart Rate"], "172 BPM")
+        XCTAssertEqual(byTitle["Cadence"], "168 SPM")
+        XCTAssertEqual(byTitle["Avg Power"], "310 W")
+        XCTAssertEqual(byTitle["Cardio Fitness"], "48.5 ml/kg·min")
+        XCTAssertEqual(presentation.detailMetrics.first { $0.title == "Cadence" }?.kind, .stepCadence)
+    }
+
+    func testWorkoutDetailPresentationAddsSpeedAndCyclingCadence() throws {
+        let start = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 7)
+        ))
+        let workout = WorkoutSummary(
+            type: .cycling,
+            startDate: start,
+            duration: 3_600,
+            activeEnergyKilocalories: 500,
+            totalEnergyKilocalories: 560,
+            distanceMeters: 30_000,
+            averageHeartRateBeatsPerMinute: 140,
+            averagePowerWatts: 220,
+            averageCyclingCadenceRPM: 85,
+            sourceName: "Apple Watch"
+        )
+
+        let presentation = WorkoutDetailPresentation(
+            workout: workout,
+            locale: Locale(identifier: "en_US_POSIX"),
+            unitPreference: .metric
+        )
+
+        let byTitle = Dictionary(uniqueKeysWithValues: presentation.detailMetrics.map { ($0.title, $0.value) })
+        XCTAssertEqual(byTitle["Avg Speed"], "30.0 km/h")
+        XCTAssertEqual(byTitle["Cadence"], "85 RPM")
+        XCTAssertEqual(byTitle["Avg Power"], "220 W")
+        XCTAssertEqual(presentation.detailMetrics.first { $0.title == "Cadence" }?.kind, .cyclingCadence)
+        XCTAssertTrue(presentation.detailMetrics.map(\.kind).contains(.speed))
+        XCTAssertFalse(presentation.detailMetrics.map(\.kind).contains(.cardioFitness))
+    }
+
+    func testWorkoutDetailPresentationAddsSwimPaceAndStrokes() throws {
+        let start = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 7)
+        ))
+        let workout = WorkoutSummary(
+            type: .swimming,
+            startDate: start,
+            duration: 1_800,
+            activeEnergyKilocalories: 300,
+            distanceMeters: 1_500,
+            swimmingStrokeCount: 600,
+            sourceName: "Apple Watch"
+        )
+
+        let presentation = WorkoutDetailPresentation(
+            workout: workout,
+            locale: Locale(identifier: "en_US_POSIX"),
+            unitPreference: .metric
+        )
+
+        let byTitle = Dictionary(uniqueKeysWithValues: presentation.detailMetrics.map { ($0.title, $0.value) })
+        XCTAssertEqual(byTitle["Avg Pace"], "2:00 /100m")
+        XCTAssertEqual(byTitle["Swim Strokes"], "600")
+        XCTAssertTrue(presentation.detailMetrics.map(\.kind).contains(.swimPace))
+        XCTAssertTrue(presentation.detailMetrics.map(\.kind).contains(.strokeCount))
+    }
+
+    func testActivityMetricFormattersHonorUnitPreferences() {
+        let locale = Locale(identifier: "en_US_POSIX")
+
+        XCTAssertEqual(
+            BodyValueFormat.paceText(meters: 1_609.344, seconds: 480, distanceUnitPreference: .miles, locale: locale),
+            "8:00 /mi"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.paceText(meters: 1_000, seconds: 300, distanceUnitPreference: .kilometers, locale: locale),
+            "5:00 /km"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.speedText(meters: 16_093.44, seconds: 3_600, distanceUnitPreference: .miles, locale: locale),
+            "10.0 mph"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.speedText(meters: 10_000, seconds: 3_600, distanceUnitPreference: .kilometers, locale: locale),
+            "10.0 km/h"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.swimPaceText(meters: 91.44, seconds: 120, distanceUnitPreference: .miles, locale: locale),
+            "2:00 /100yd"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.swimPaceText(meters: 100, seconds: 120, distanceUnitPreference: .kilometers, locale: locale),
+            "2:00 /100m"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.elevationText(meters: 100, distanceUnitPreference: .miles, locale: locale),
+            "328 ft"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.elevationText(meters: 80, distanceUnitPreference: .kilometers, locale: locale),
+            "80 m"
+        )
+        XCTAssertEqual(BodyValueFormat.powerText(watts: 310, locale: locale), "310 W")
+        XCTAssertEqual(BodyValueFormat.cadenceText(168, unit: "SPM", locale: locale), "168 SPM")
+        XCTAssertEqual(BodyValueFormat.vo2MaxText(48.5, locale: locale), "48.5 ml/kg·min")
+        XCTAssertEqual(BodyValueFormat.strokeCountText(600, locale: locale), "600")
     }
 
     func testHealthTrendRangeDefaultsToRecentWeek() {

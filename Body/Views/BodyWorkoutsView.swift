@@ -895,11 +895,11 @@ struct BodyWorkoutDetailSheet: View {
                 .foregroundColor(.primary)
 
             LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 18) {
-                ForEach(presentation.detailMetrics, id: \.title) { metric in
+                ForEach(presentation.detailMetrics, id: \.kind) { metric in
                     BodyWorkoutDetailMetricTile(
                         title: metric.title,
                         value: metric.value,
-                        valueColor: metricValueColor(for: metric.title)
+                        valueColor: metricValueColor(for: metric.kind)
                     )
                 }
             }
@@ -1129,18 +1129,18 @@ struct BodyWorkoutDetailSheet: View {
         .padding(.bottom, 4)
     }
 
-    private func metricValueColor(for title: String) -> Color {
-        if title.hasPrefix("Active ") || title.hasPrefix("Total ") {
+    private func metricValueColor(for kind: WorkoutDetailMetric.Kind) -> Color {
+        switch kind {
+        case .activeEnergy, .totalEnergy:
             return .pink
-        }
-
-        switch title {
-        case "Avg Heart Rate":
+        case .avgHeartRate, .maxHeartRate:
             return .red
-        case "Distance":
+        case .distance, .pace, .speed, .swimPace, .elevation, .strokeCount:
             return workout.type.color
-        default:
-            return .primary
+        case .stepCadence, .cyclingCadence, .power:
+            return .orange
+        case .cardioFitness:
+            return .mint
         }
     }
 
