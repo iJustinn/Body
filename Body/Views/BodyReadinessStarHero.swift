@@ -83,7 +83,7 @@ struct BodyReadinessHeroLabel: View {
 
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(numberText)
-                    .font(.system(size: 66, weight: .heavy, design: .rounded))
+                    .font(.system(size: 66, weight: .heavy))
                     .monospacedDigit()
                     .contentTransition(.numericText())
                     .lineLimit(1)
@@ -92,7 +92,7 @@ struct BodyReadinessHeroLabel: View {
 
                 if readiness.score != nil {
                     Text("%")
-                        .font(.system(size: 30, weight: .heavy, design: .rounded))
+                        .font(.system(size: 30, weight: .heavy))
                         .opacity(0.9)
                 }
             }
