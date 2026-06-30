@@ -14,6 +14,87 @@ struct WorkoutHeartRateSample: Codable, Equatable, Hashable, Identifiable {
     }
 }
 
+/// One heart-rate zone row for the workout-detail breakdown: its index (0 = recovery …
+/// 5 = max effort), bpm bounds (nil = open-ended), and the time/share spent in it.
+struct WorkoutHeartRateZone: Equatable, Identifiable {
+    let zone: Int
+    let lowerBound: Int?
+    let upperBound: Int?
+    let duration: TimeInterval
+    let fraction: Double
+
+    var id: Int { zone }
+
+    /// "≤122", "123–142", or "≥183".
+    var bpmRangeText: String {
+        switch (lowerBound, upperBound) {
+        case let (nil, upper?):
+            return "≤\(upper)"
+        case let (lower?, nil):
+            return "≥\(lower)"
+        case let (lower?, upper?):
+            return "\(lower)–\(upper)"
+        case (nil, nil):
+            return ""
+        }
+    }
+}
+
+enum WorkoutHeartRateZones {
+    /// Zone lower bounds as a fraction of max HR: Zone 1 starts at 50% … Zone 5 at 90%.
+    /// Zone 0 (recovery) is everything below Zone 1.
+    static let lowerBoundFractions: [Double] = [0.50, 0.60, 0.70, 0.80, 0.90]
+
+    /// A gap larger than this between consecutive HR samples is treated as a pause and
+    /// capped, so a mid-workout stop doesn't dump minutes into whatever zone preceded it.
+    static let maxSampleGap: TimeInterval = 60
+
+    /// Time-in-zone breakdown ordered 5→0 (matching the card's top-down layout) from the
+    /// workout's HR samples and the athlete's max HR. Returns nil without enough samples
+    /// or a positive max HR to anchor the bands.
+    static func zones(
+        samples: [WorkoutHeartRateSample],
+        maxHeartRate: Double
+    ) -> [WorkoutHeartRateZone]? {
+        guard maxHeartRate > 0, samples.count >= 2 else {
+            return nil
+        }
+
+        let thresholds = lowerBoundFractions.map { Int((maxHeartRate * $0).rounded()) }
+        let sorted = samples.sorted { $0.date < $1.date }
+
+        var durations = [TimeInterval](repeating: 0, count: 6)
+        for index in 0..<(sorted.count - 1) {
+            let gap = sorted[index + 1].date.timeIntervalSince(sorted[index].date)
+            guard gap > 0 else { continue }
+            let zone = zoneIndex(forBPM: sorted[index].beatsPerMinute, thresholds: thresholds)
+            durations[zone] += min(gap, maxSampleGap)
+        }
+
+        let total = durations.reduce(0, +)
+        guard total > 0 else {
+            return nil
+        }
+
+        return (0...5).reversed().map { zone in
+            WorkoutHeartRateZone(
+                zone: zone,
+                lowerBound: zone == 0 ? nil : thresholds[zone - 1],
+                upperBound: zone == 5 ? nil : thresholds[zone] - 1,
+                duration: durations[zone],
+                fraction: durations[zone] / total
+            )
+        }
+    }
+
+    private static func zoneIndex(forBPM bpm: Double, thresholds: [Int]) -> Int {
+        for (index, threshold) in thresholds.enumerated() where bpm < Double(threshold) {
+            return index
+        }
+        return thresholds.count
+    }
+}
+
 struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     let id: UUID
     let type: BodyWorkoutType
@@ -72,6 +153,34 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         self.swimmingStrokeCount = swimmingStrokeCount
         self.cardioFitnessVO2Max = cardioFitnessVO2Max
         self.sourceName = sourceName
+    }
+
+    /// A copy with the Workout Metrics detail fields cleared — used when the user
+    /// disables the `.workoutMetrics` permission so already-cached summaries stop
+    /// surfacing those values. Distance, energy, and heart rate are preserved (they
+    /// ride other toggles); only VO₂max, power, both cadences, and swim strokes drop.
+    /// The detail tile builder omits any tile whose value is nil.
+    func removingWorkoutMetrics() -> WorkoutSummary {
+        WorkoutSummary(
+            id: id,
+            type: type,
+            startDate: startDate,
+            duration: duration,
+            activeEnergyKilocalories: activeEnergyKilocalories,
+            totalEnergyKilocalories: totalEnergyKilocalories,
+            distanceMeters: distanceMeters,
+            averageHeartRateBeatsPerMinute: averageHeartRateBeatsPerMinute,
+            maximumHeartRateBeatsPerMinute: maximumHeartRateBeatsPerMinute,
+            effortLevel: effortLevel,
+            heartRateSamples: heartRateSamples ?? [],
+            elevationAscendedMeters: elevationAscendedMeters,
+            averagePowerWatts: nil,
+            averageStepCadenceSPM: nil,
+            averageCyclingCadenceRPM: nil,
+            swimmingStrokeCount: nil,
+            cardioFitnessVO2Max: nil,
+            sourceName: sourceName
+        )
     }
 }
 
@@ -160,6 +269,8 @@ struct WorkoutDetailPresentation: Equatable {
     let totalEnergyText: String?
     let averageHeartRateText: String?
     let distanceText: String?
+    let heroDistanceValue: String?
+    let heroDistanceUnit: String?
     let effortText: String
     let effortPresentation: WorkoutEffortPresentation?
     let detailMetrics: [WorkoutDetailMetric]
@@ -264,10 +375,24 @@ struct WorkoutDetailPresentation: Equatable {
         let distanceMeters = workout.distanceMeters ?? 0
         let canDeriveDistanceRate = distanceMeters > 0 && workout.duration > 0
 
+        // Distance-tracking activities promote distance to the hero header instead of a Details
+        // tile (every paced activity plus snow sports); non-distance activities keep the tile.
+        let promotesDistanceToHero = workout.type.promotesDistanceToHero && distanceMeters > 0
+        let heroDistance = promotesDistanceToHero
+            ? BodyValueFormat.distanceComponents(
+                meters: distanceMeters,
+                locale: locale,
+                distanceUnitPreference: resolvedDistancePreference
+              )
+            : nil
+        heroDistanceValue = heroDistance?.value
+        heroDistanceUnit = heroDistance?.unit
+
         var metrics: [WorkoutDetailMetric] = []
 
-        // Performance metrics first, then a generic Distance tile for any positive distance.
-        if let distanceText {
+        // Performance metrics first, then a generic Distance tile for any positive distance
+        // (suppressed when distance is shown in the hero instead).
+        if let distanceText, !promotesDistanceToHero {
             metrics.append(WorkoutDetailMetric(kind: .distance, title: "Distance", value: distanceText))
         }
         if canDeriveDistanceRate {
@@ -694,22 +819,29 @@ enum BodyValueFormat {
         )
     }
 
+    static func distanceComponents(
+        meters: Double,
+        locale: Locale = .current,
+        distanceUnitPreference: DistanceUnitPreference
+    ) -> (value: String, unit: String) {
+        let unit: UnitLength = distanceUnitPreference == .miles ? .miles : .kilometers
+        let converted = Measurement(value: meters, unit: UnitLength.meters)
+            .converted(to: unit)
+            .value
+        return (numberText(converted, decimals: 1, locale: locale), distanceUnitPreference.unitLabel)
+    }
+
     static func distanceText(
         meters: Double,
         locale: Locale = .current,
         distanceUnitPreference: DistanceUnitPreference
     ) -> String {
-        if distanceUnitPreference == .miles {
-            let miles = Measurement(value: meters, unit: UnitLength.meters)
-                .converted(to: .miles)
-                .value
-            return numberText(miles, decimals: 1, locale: locale) + " mi"
-        }
-
-        let kilometers = Measurement(value: meters, unit: UnitLength.meters)
-            .converted(to: .kilometers)
-            .value
-        return numberText(kilometers, decimals: 1, locale: locale) + " km"
+        let components = distanceComponents(
+            meters: meters,
+            locale: locale,
+            distanceUnitPreference: distanceUnitPreference
+        )
+        return components.value + " " + components.unit
     }
 
     /// Average pace as M:SS per km (or per mile), from total distance and elapsed time.

@@ -405,6 +405,19 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// Activities that show distance in the hero header (above Duration) instead of a
+    /// Details tile. Every paced activity qualifies, plus snow sports — they track
+    /// distance down the mountain but have no meaningful pace/speed tile.
+    var promotesDistanceToHero: Bool {
+        if paceStyle != .none { return true }
+        switch self {
+        case .snowSports, .crossCountrySkiing, .downhillSkiing, .snowboarding:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Foot activities whose cadence is derived from step count (steps/min).
     /// Wheelchair paces are excluded — they record pushes, not steps.
     var supportsStepCadence: Bool {

@@ -688,7 +688,10 @@ struct BodyWorkoutDetailSheet: View {
     @State private var effortError: String?
     @State private var route: WorkoutRoute?
     @State private var scrollOffset: CGFloat = 0
-    @Environment(\.dismiss) private var dismiss
+    /// Age-estimated max HR (220 − age) from Apple Health, loaded once to anchor the
+    /// heart-rate zones; nil until loaded (or when no birth date), falling back to the
+    /// workout's own peak HR.
+    @State private var resolvedMaxHeartRate: Double?
     let workout: WorkoutSummary
 
     init(workout: WorkoutSummary) {
@@ -740,44 +743,9 @@ struct BodyWorkoutDetailSheet: View {
                 scrollOffset = offset
             }
         }
-        .overlay(alignment: .topTrailing) {
-            closeButton
-                .padding(.top, 8)
-                .padding(.trailing, 20)
-        }
         .toolbar(.hidden, for: .navigationBar)
         .task {
             route = await workoutStore.loadWorkoutRoute(for: workout)
-        }
-    }
-
-    @ViewBuilder
-    private var closeButton: some View {
-        if #available(iOS 26.0, *) {
-            // System Liquid Glass circular close button.
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-            .accessibilityLabel("Close")
-        } else {
-            // Pre-Liquid-Glass fallback: a frosted material circle.
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 34, height: 34)
-                    .background(.ultraThinMaterial, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
         }
     }
 
@@ -873,16 +841,41 @@ struct BodyWorkoutDetailSheet: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .trailing, spacing: -2) {
-                Text(presentation.durationClockText)
-                    .font(.system(size: 44, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.45)
+            VStack(alignment: .trailing, spacing: 6) {
+                // Distance-tracking workouts lead the hero with distance above duration.
+                // Both hero props are set together, so unwrap as a pair.
+                if let value = presentation.heroDistanceValue, let unit = presentation.heroDistanceUnit {
+                    VStack(alignment: .trailing, spacing: -2) {
+                        // Concatenated so the serif number and its small unit share a baseline and
+                        // scale together under one minimumScaleFactor within the fixed-width column.
+                        (
+                            Text(value)
+                                .font(.system(size: 48, weight: .bold))
+                                .foregroundColor(.primary)
+                            + Text(" \(unit)")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.secondary)
+                        )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.45)
 
-                Text("Duration")
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    .foregroundColor(.secondary)
+                        Text("Distance")
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                VStack(alignment: .trailing, spacing: -2) {
+                    Text(presentation.durationClockText)
+                        .font(.system(size: 48, weight: .bold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.45)
+
+                    Text("Duration")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
             }
             .frame(width: 152, alignment: .trailing)
         }
@@ -898,8 +891,7 @@ struct BodyWorkoutDetailSheet: View {
                 ForEach(presentation.detailMetrics, id: \.kind) { metric in
                     BodyWorkoutDetailMetricTile(
                         title: metric.title,
-                        value: metric.value,
-                        valueColor: metricValueColor(for: metric.kind)
+                        value: metric.value
                     )
                 }
             }
@@ -962,9 +954,9 @@ struct BodyWorkoutDetailSheet: View {
                 if let presentation {
                     HStack(spacing: 12) {
                         Text(presentation.valueText)
-                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
                             .foregroundColor(color)
-                            .frame(width: 40, height: 40)
+                            .frame(width: 30, height: 30)
                             .background(Circle().fill(color.opacity(0.2)))
 
                         Text(presentation.descriptor)
@@ -983,22 +975,25 @@ struct BodyWorkoutDetailSheet: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            BodyWorkoutEffortBars(
-                segmentFills: presentation?.segmentFills ?? [0, 0, 0, 0, 0],
-                tintColor: color
+            BodyWorkoutEffortChart(
+                score: presentation?.normalizedScore,
+                tintColor: color,
+                showsLevelDots: isEditingEffort
             )
             .accessibilityHidden(true)
             .animation(.snappy(duration: 0.3), value: displayedEffortLevel)
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            if !isEditingEffort {
+            if isEditingEffort {
+                cancelEditingEffort()
+            } else {
                 beginEditingEffort()
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(isEditingEffort ? [] : .isButton)
-        .accessibilityHint(isEditingEffort ? "" : "Edit effort")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(isEditingEffort ? "Stop editing" : "Edit effort")
     }
 
     private func effortEditingControls(color: Color) -> some View {
@@ -1011,13 +1006,10 @@ struct BodyWorkoutDetailSheet: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
-                    .padding(.horizontal, 16)
-                    .frame(height: 40)
-                    .frame(minWidth: 80)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.secondary.opacity(0.15))
-                    )
+                    .padding(.horizontal, 18)
+                    .frame(height: 42)
+                    .frame(minWidth: 84)
+                    .bodyTrendRangeTabBackgroundOnGradient(isSelected: false)
             }
             .buttonStyle(.plain)
             .disabled(isSavingEffort)
@@ -1028,22 +1020,19 @@ struct BodyWorkoutDetailSheet: View {
                 Group {
                     if isSavingEffort {
                         ProgressView()
-                            .tint(.white)
+                            .tint(.primary)
                     } else {
                         Text("Save")
                             .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
+                            .foregroundColor(.primary)
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
                     }
                 }
-                .padding(.horizontal, 14)
-                .frame(height: 40)
-                .frame(minWidth: 72)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(color)
-                )
+                .padding(.horizontal, 18)
+                .frame(height: 42)
+                .frame(minWidth: 80)
+                .bodyTrendRangeTabBackgroundOnGradient(isSelected: true)
             }
             .buttonStyle(.plain)
             .disabled(isSavingEffort)
@@ -1064,12 +1053,9 @@ struct BodyWorkoutDetailSheet: View {
             Image(systemName: systemName)
                 .font(.system(size: 18, weight: .bold))
                 .foregroundColor(isEnabled ? color : Color.secondary.opacity(0.4))
-                .frame(width: 46, height: 40)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.secondary.opacity(0.15))
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(width: 50, height: 42)
+                .bodyTrendRangeTabBackgroundOnGradient(isSelected: false)
+                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
@@ -1108,8 +1094,17 @@ struct BodyWorkoutDetailSheet: View {
     }
 
     private var heartRateSection: some View {
-        BodyWorkoutHeartRateChartCard(samples: presentation.heartRateSamples)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        BodyWorkoutHeartRateChartCard(
+            samples: presentation.heartRateSamples,
+            maxHeartRate: resolvedMaxHeartRate ?? workout.maximumHeartRateBeatsPerMinute
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Re-key on the permission selection so toggling Date of Birth re-resolves the
+        // anchor: when it goes out of scope `userMaxHeartRate()` returns nil and the chart
+        // falls back to the session-peak HR (no `== nil` guard — `.task(id:)` dedupes).
+        .task(id: workoutStore.permissionSelection.rawValue) {
+            resolvedMaxHeartRate = await workoutStore.userMaxHeartRate()
+        }
     }
 
     private var sourceFooter: some View {
@@ -1127,21 +1122,6 @@ struct BodyWorkoutDetailSheet: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.top, 2)
         .padding(.bottom, 4)
-    }
-
-    private func metricValueColor(for kind: WorkoutDetailMetric.Kind) -> Color {
-        switch kind {
-        case .activeEnergy, .totalEnergy:
-            return .pink
-        case .avgHeartRate, .maxHeartRate:
-            return .red
-        case .distance, .pace, .speed, .swimPace, .elevation, .strokeCount:
-            return workout.type.color
-        case .stepCadence, .cyclingCadence, .power:
-            return .orange
-        case .cardioFitness:
-            return .mint
-        }
     }
 
     private var presentation: WorkoutDetailPresentation {
@@ -1172,7 +1152,17 @@ struct BodyWorkoutDetailSheet: View {
 private struct BodyWorkoutDetailMetricTile: View {
     let title: String
     let value: String
-    let valueColor: Color
+
+    /// Splits a formatted value ("172 BPM") into number and trailing unit so the
+    /// unit can read smaller and gray like the hero distance. Values that don't
+    /// start with a digit (e.g. "No Data", "—") stay whole.
+    private var valueParts: (number: String, unit: String) {
+        guard let first = value.first, first.isNumber,
+              let spaceIndex = value.firstIndex(of: " ") else {
+            return (value, "")
+        }
+        return (String(value[..<spaceIndex]), String(value[value.index(after: spaceIndex)...]))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -1182,56 +1172,135 @@ private struct BodyWorkoutDetailMetricTile: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
 
-            Text(value)
-                .font(.system(size: 30, weight: .bold, design: .rounded))
-                .foregroundColor(valueColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.46)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(valueParts.number)
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                if !valueParts.unit.isEmpty {
+                    Text(valueParts.unit)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+            }
         }
         .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
     }
 }
 
-private struct BodyWorkoutEffortBars: View {
-    let segmentFills: [Double]
-    let tintColor: Color
-    /// Multiplies every dimension. Defaults to 1 (the compact size on the
-    /// workout detail card); the effort editor passes a larger value.
-    var scale: CGFloat = 1
+private struct EffortWedge: Shape {
+    /// Top-edge heights at the left and right edges, as a fraction (0...1) of the
+    /// frame height; the sloped top joins adjacent wedges into one rising triangle.
+    var leftHeight: CGFloat
+    var rightHeight: CGFloat
+    var cornerRadius: CGFloat = 4
 
-    private let baseBarHeights: [CGFloat] = [14, 22, 30, 38, 46]
+    func path(in rect: CGRect) -> Path {
+        let width = rect.width
+        let height = rect.height
+        let topLeft = CGPoint(x: 0, y: height * (1 - leftHeight))
+        let topRight = CGPoint(x: width, y: height * (1 - rightHeight))
+        let bottomRight = CGPoint(x: width, y: height)
+        let bottomLeft = CGPoint(x: 0, y: height)
+        let radius = min(cornerRadius, width / 2, height * min(leftHeight, rightHeight) / 2)
+
+        var path = Path()
+        path.move(to: CGPoint(x: 0, y: (topLeft.y + bottomLeft.y) / 2))
+        path.addArc(tangent1End: topLeft, tangent2End: topRight, radius: radius)
+        path.addArc(tangent1End: topRight, tangent2End: bottomRight, radius: radius)
+        path.addArc(tangent1End: bottomRight, tangent2End: bottomLeft, radius: radius)
+        path.addArc(tangent1End: bottomLeft, tangent2End: topLeft, radius: radius)
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// The effort meter: four wedge segments whose shared sloped top reads as one triangle.
+/// Segment widths track each band's level count (Easy/Moderate = 3, Hard/All Out = 2),
+/// and the tint fills left-to-right to the exact 1–10 score, so a partly-filled segment
+/// shows the precise level. While editing it overlays the level dots (current one lit).
+private struct BodyWorkoutEffortChart: View {
+    /// Exact effort 1...10 (nil = no saved effort → an empty triangle).
+    let score: Double?
+    let tintColor: Color
+    /// While editing, overlays the 1–10 level dots with the current level lit.
+    var showsLevelDots: Bool = false
+
+    private let bandLevelCounts: [Int] = [3, 3, 2, 2]
+    private let maxHeight: CGFloat = 66
+    private let unitWidth: CGFloat = 11
+    private let gap: CGFloat = 4
+
+    private var totalLevels: Int { bandLevelCounts.reduce(0, +) }
+    private var currentLevel: Int { min(max(Int((score ?? 0).rounded()), 1), 10) }
 
     var body: some View {
-        let barWidth = 11 * scale
-        let radius = 4 * scale
-
-        HStack(alignment: .bottom, spacing: 5 * scale) {
-            ForEach(baseBarHeights.indices, id: \.self) { index in
-                let barHeight = baseBarHeights[index] * scale
-                let fill = segmentFill(at: index)
-
-                ZStack(alignment: .bottom) {
-                    RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .fill(Color.secondary.opacity(0.18))
-                        .frame(width: barWidth, height: barHeight)
-
-                    RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .fill(tintColor)
-                        .frame(width: barWidth, height: max(barHeight * fill, fill > 0 ? 4 * scale : 0))
-                }
-                .frame(width: barWidth, height: barHeight, alignment: .bottom)
-                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        HStack(alignment: .bottom, spacing: gap) {
+            ForEach(bandLevelCounts.indices, id: \.self) { band in
+                segment(band: band)
             }
         }
-        .frame(width: 88 * scale, height: 54 * scale, alignment: .trailing)
+        .frame(height: maxHeight, alignment: .bottom)
     }
 
-    private func segmentFill(at index: Int) -> CGFloat {
-        guard segmentFills.indices.contains(index) else {
-            return 0
-        }
+    private func segment(band: Int) -> some View {
+        let lo = bandStart(band)
+        let hi = lo + bandLevelCounts[band]
+        let width = CGFloat(bandLevelCounts[band]) * unitWidth
+        let wedge = EffortWedge(
+            leftHeight: heightFraction(at: lo),
+            rightHeight: heightFraction(at: hi)
+        )
 
-        return CGFloat(min(max(segmentFills[index], 0), 1))
+        return ZStack(alignment: .bottomLeading) {
+            wedge.fill(Color.secondary.opacity(0.18))
+
+            wedge.fill(tintColor)
+                .mask(alignment: .leading) {
+                    Rectangle().frame(width: width * fillFraction(from: lo, to: hi))
+                }
+
+            if showsLevelDots {
+                levelDots(band: band)
+            }
+        }
+        .frame(width: width, height: maxHeight, alignment: .bottom)
+    }
+
+    private func levelDots(band: Int) -> some View {
+        let lo = bandStart(band)
+        return HStack(spacing: 5) {
+            ForEach(0..<bandLevelCounts[band], id: \.self) { offset in
+                let level = lo + offset + 1
+                Circle()
+                    .fill(level == currentLevel ? Color.white : Color.white.opacity(0.5))
+                    .frame(width: 4, height: 4)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 2)
+    }
+
+    /// Units (0-based) before `band`: 0, 3, 6, 8.
+    private func bandStart(_ band: Int) -> Int {
+        bandLevelCounts.prefix(band).reduce(0, +)
+    }
+
+    /// Top height (fraction of `maxHeight`) at a unit position 0...totalLevels — a
+    /// straight line from a low left edge to full height, i.e. the triangle's slope.
+    private func heightFraction(at unit: Int) -> CGFloat {
+        let base: CGFloat = 0.1
+        return base + (1 - base) * CGFloat(unit) / CGFloat(totalLevels)
+    }
+
+    /// Filled fraction (0...1) of a segment spanning [lo, hi) units for `score`.
+    private func fillFraction(from lo: Int, to hi: Int) -> CGFloat {
+        guard let score else { return 0 }
+        let filled = min(max(score - Double(lo), 0), Double(hi - lo))
+        return CGFloat(filled / Double(hi - lo))
     }
 }
 
@@ -1250,17 +1319,118 @@ private extension WorkoutEffortIntensity {
     }
 }
 
+/// The heart-rate zone breakdown under the HR chart: one row per zone (5 → 0) with a
+/// proportional colored bar, percentage, time-in-zone, and bpm range.
+private struct BodyWorkoutHeartRateZoneChart: View {
+    let zones: [WorkoutHeartRateZone]
+
+    private let pctWidth: CGFloat = 46
+    private let bpmWidth: CGFloat = 84
+    private let barHeight: CGFloat = 16
+
+    var body: some View {
+        VStack(spacing: 11) {
+            headerRow
+            ForEach(zones) { zone in
+                row(for: zone)
+            }
+        }
+    }
+
+    private var headerRow: some View {
+        HStack(spacing: 10) {
+            Text("Zone")
+                .fixedSize()
+            Spacer(minLength: 8)
+            Text("Pct.")
+                .frame(width: pctWidth, alignment: .trailing)
+            Text("bpm")
+                .frame(width: bpmWidth, alignment: .trailing)
+        }
+        .font(.system(size: 15, weight: .semibold, design: .rounded))
+        .lineLimit(1)
+        .foregroundColor(.secondary)
+    }
+
+    private func row(for zone: WorkoutHeartRateZone) -> some View {
+        HStack(spacing: 10) {
+            Text("\(zone.zone)")
+                .font(.system(size: 19, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+                .frame(width: 24, alignment: .leading)
+
+            bar(for: zone)
+
+            Text("\(Int((zone.fraction * 100).rounded()))%")
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .frame(width: pctWidth, alignment: .trailing)
+
+            Text(zone.bpmRangeText)
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .foregroundColor(.secondary)
+                .frame(width: bpmWidth, alignment: .trailing)
+        }
+    }
+
+    private func bar(for zone: WorkoutHeartRateZone) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous)
+                    .fill(Color.secondary.opacity(0.16))
+                Capsule(style: .continuous)
+                    .fill(color(for: zone.zone))
+                    // Floor the width at the bar height so a tiny share reads as a
+                    // circle (a Capsule with equal width/height) rather than a stub.
+                    .frame(width: max(geometry.size.width * zone.fraction, zone.fraction > 0 ? barHeight : 0))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: barHeight)
+    }
+
+    private func color(for zone: Int) -> Color {
+        switch zone {
+        case 0:
+            return Color(red: 0.36, green: 0.86, blue: 0.69)
+        case 1:
+            return Color(red: 0.30, green: 0.55, blue: 0.98)
+        case 2:
+            return Color(red: 1.0, green: 0.83, blue: 0.30)
+        case 3:
+            return Color(red: 1.0, green: 0.62, blue: 0.18)
+        case 4:
+            return Color(red: 1.0, green: 0.45, blue: 0.20)
+        default:
+            return Color(red: 1.0, green: 0.27, blue: 0.31)
+        }
+    }
+}
+
 private struct BodyWorkoutHeartRateChartCard: View {
     let samples: [WorkoutHeartRateSample]
+    /// Anchors the zone bands (% of this value); nil hides the zone breakdown.
+    var maxHeartRate: Double?
 
     var body: some View {
         let cachedMetrics: BodyWorkoutHeartRateChartMetrics? = samples.isEmpty
             ? nil
             : BodyWorkoutHeartRateChartMetrics(samples: samples)
+        let zones = maxHeartRate.flatMap {
+            WorkoutHeartRateZones.zones(samples: samples, maxHeartRate: $0)
+        }
 
         return VStack(alignment: .leading, spacing: 14) {
             header(metrics: cachedMetrics)
             chartView(metrics: cachedMetrics)
+            if let zones {
+                BodyWorkoutHeartRateZoneChart(zones: zones)
+                    .padding(.top, 6)
+            }
         }
         .padding(.horizontal, 18)
         .padding(.top, 16)
@@ -1272,7 +1442,7 @@ private struct BodyWorkoutHeartRateChartCard: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text("Heart Rate")
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .foregroundColor(.secondary)
+                .foregroundColor(.primary)
 
             Spacer(minLength: 0)
 

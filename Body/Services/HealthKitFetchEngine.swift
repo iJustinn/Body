@@ -117,6 +117,22 @@ actor HealthKitFetchEngine {
         confirmedNoEffortWorkoutIDs = []
     }
 
+    /// Estimated max heart rate (220 − age) from the user's Apple Health birth date,
+    /// used to anchor the workout heart-rate zones. Returns nil when the birth date is
+    /// unavailable or unauthorized, so the caller can fall back to the session peak.
+    func userMaxHeartRate(asOf now: Date = Date()) -> Double? {
+        guard permissionSelection.includes(.heart) && permissionSelection.includes(.dateOfBirth) else {
+            return nil
+        }
+        guard let components = try? healthStore.dateOfBirthComponents(),
+              let birthDate = Calendar.current.date(from: components),
+              let age = Calendar.current.dateComponents([.year], from: birthDate, to: now).year,
+              (1...120).contains(age) else {
+            return nil
+        }
+        return 220 - Double(age)
+    }
+
     // MARK: - Authorization
 
     func requestAuthorization() async throws {
@@ -1168,14 +1184,20 @@ actor HealthKitFetchEngine {
         // permission-gated.
         async let cardioFitnessByWorkoutID: [UUID: Double] = {
             guard includesDetailMetrics else { return [:] }
-            return await fetchIfPermitted(.workouts, default: [:]) {
+            return await fetchIfPermitted(.workoutMetrics, default: [:]) {
                 await fetchCardioFitness(forWorkouts: workouts)
             }
         }()
         async let stepCadenceByWorkoutID: [UUID: Double] = {
             guard includesDetailMetrics else { return [:] }
-            return await fetchIfPermitted(.workouts, default: [:]) {
+            return await fetchIfPermitted(.workoutMetrics, default: [:]) {
                 await fetchStepCadence(forWorkouts: workouts)
+            }
+        }()
+        async let workoutDistanceByWorkoutID: [UUID: Double] = {
+            guard includesDetailMetrics else { return [:] }
+            return await fetchIfPermitted(.workouts, default: [:]) {
+                await fetchWorkoutDistances(forWorkouts: workouts)
             }
         }()
 
@@ -1183,6 +1205,8 @@ actor HealthKitFetchEngine {
         let resolvedEffortLevels = await fetchedEffortLevels
         let resolvedCardioFitness = await cardioFitnessByWorkoutID
         let resolvedStepCadence = await stepCadenceByWorkoutID
+        let resolvedWorkoutDistance = await workoutDistanceByWorkoutID
+        let includesWorkoutMetrics = permissionSelection.includes(.workoutMetrics)
 
         var summaries: [WorkoutSummary] = []
         summaries.reserveCapacity(workouts.count)
@@ -1195,7 +1219,9 @@ actor HealthKitFetchEngine {
                         reusingHeartRateFrom: cached,
                         effortLevel: resolvedEffortLevels[workout.uuid],
                         cardioFitnessVO2Max: resolvedCardioFitness[workout.uuid] ?? cached.cardioFitnessVO2Max,
-                        averageStepCadenceSPM: resolvedStepCadence[workout.uuid] ?? cached.averageStepCadenceSPM
+                        averageStepCadenceSPM: resolvedStepCadence[workout.uuid] ?? cached.averageStepCadenceSPM,
+                        resolvedDistanceMeters: resolvedWorkoutDistance[workout.uuid],
+                        includesWorkoutMetrics: includesWorkoutMetrics
                     )
                 )
             } else {
@@ -1205,7 +1231,9 @@ actor HealthKitFetchEngine {
                         heartRateSamples: resolvedHeartRateSamples[workout.uuid] ?? [],
                         effortLevel: resolvedEffortLevels[workout.uuid],
                         cardioFitnessVO2Max: resolvedCardioFitness[workout.uuid],
-                        averageStepCadenceSPM: resolvedStepCadence[workout.uuid]
+                        averageStepCadenceSPM: resolvedStepCadence[workout.uuid],
+                        resolvedDistanceMeters: resolvedWorkoutDistance[workout.uuid],
+                        includesWorkoutMetrics: includesWorkoutMetrics
                     )
                 )
             }
@@ -1580,6 +1608,71 @@ actor HealthKitFetchEngine {
 
         guard let totalSteps, totalSteps > 0 else { return nil }
         return totalSteps / minutes
+    }
+
+    /// Total distance (m) per distance-tracking workout that lacks the legacy
+    /// `totalDistance` aggregate. Like step cadence, distance can live only in the
+    /// workout's *associated* samples (not `HKWorkout.statistics(for:)`), so it's
+    /// read per workout via `predicateForObjects(from:)` + `.cumulativeSum`,
+    /// source-deduplicated by HealthKit. One query per workout, bounded concurrency.
+    private func fetchWorkoutDistances(forWorkouts workouts: [HKWorkout]) async -> [UUID: Double] {
+        let eligible = workouts.filter {
+            $0.totalDistance == nil
+                && HealthKitFetchEngine.distanceQuantityTypeIdentifier(
+                    for: HealthKitWorkoutStore.workoutType(for: $0.workoutActivityType)
+                ) != nil
+        }
+        guard !eligible.isEmpty else { return [:] }
+
+        let maxConcurrentQueries = 12
+        return await withTaskGroup(
+            of: (UUID, Double?).self,
+            returning: [UUID: Double].self
+        ) { group in
+            var nextIndex = 0
+            while nextIndex < min(maxConcurrentQueries, eligible.count) {
+                let workout = eligible[nextIndex]
+                group.addTask { (workout.uuid, await self.workoutDistanceMeters(for: workout)) }
+                nextIndex += 1
+            }
+
+            var results: [UUID: Double] = [:]
+            for await (id, distance) in group {
+                if let distance {
+                    results[id] = distance
+                }
+                if nextIndex < eligible.count {
+                    let workout = eligible[nextIndex]
+                    group.addTask { (workout.uuid, await self.workoutDistanceMeters(for: workout)) }
+                    nextIndex += 1
+                }
+            }
+            return results
+        }
+    }
+
+    /// Distance (m) attributed to `workout`'s own samples — cumulative-sum over the
+    /// activity's distance type. Returns nil when no distance is attributed.
+    private func workoutDistanceMeters(for workout: HKWorkout) async -> Double? {
+        let type = HealthKitWorkoutStore.workoutType(for: workout.workoutActivityType)
+        guard let identifier = HealthKitFetchEngine.distanceQuantityTypeIdentifier(for: type),
+              let distanceType = HKQuantityType.quantityType(forIdentifier: identifier) else {
+            return nil
+        }
+
+        let meters: Double? = await withCheckedContinuation { continuation in
+            let query = HKStatisticsQuery(
+                quantityType: distanceType,
+                quantitySamplePredicate: HKQuery.predicateForObjects(from: workout),
+                options: .cumulativeSum
+            ) { _, statistics, _ in
+                continuation.resume(returning: statistics?.sumQuantity()?.doubleValue(for: .meter()))
+            }
+            healthStore.execute(query)
+        }
+
+        guard let meters, meters > 0 else { return nil }
+        return meters
     }
 
     // Sleep summary + history + per-day vitals hydration live in
@@ -2022,7 +2115,9 @@ actor HealthKitFetchEngine {
             activeEnergyDaySamples: cachedActiveEnergyDaySamples,
             activeEnergyDaySamplesSecondary: cachedActiveEnergyDaySamplesSecondary,
             stepsDaySamples: cachedStepsDaySamples,
-            stepsDaySamplesSecondary: cachedStepsDaySamplesSecondary
+            stepsDaySamplesSecondary: cachedStepsDaySamplesSecondary,
+            recordedReadiness: cachedTrends.recordedReadiness,
+            recordedReadinessContext: cachedTrends.recordedReadinessContext
         )
     }
 

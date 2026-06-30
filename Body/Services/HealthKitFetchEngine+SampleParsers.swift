@@ -105,7 +105,9 @@ extension HealthKitFetchEngine {
         heartRateSamples: [WorkoutHeartRateSample] = [],
         effortLevel: Double? = nil,
         cardioFitnessVO2Max: Double? = nil,
-        averageStepCadenceSPM: Double? = nil
+        averageStepCadenceSPM: Double? = nil,
+        resolvedDistanceMeters: Double? = nil,
+        includesWorkoutMetrics: Bool = true
     ) -> WorkoutSummary {
         let activeEnergy = activeEnergyKilocalories(for: workout)
         let averageHeartRate = averageHeartRate(from: heartRateSamples)
@@ -118,17 +120,17 @@ extension HealthKitFetchEngine {
             duration: workout.duration,
             activeEnergyKilocalories: activeEnergy,
             totalEnergyKilocalories: totalEnergyKilocalories(for: workout) ?? activeEnergy,
-            distanceMeters: workout.totalDistance?.doubleValue(for: .meter()),
+            distanceMeters: distanceMeters(for: workout, type: type) ?? resolvedDistanceMeters,
             averageHeartRateBeatsPerMinute: averageHeartRate,
             maximumHeartRateBeatsPerMinute: maximumHeartRate(from: heartRateSamples),
             effortLevel: effortLevel,
             heartRateSamples: downsampleHeartRateSamples(heartRateSamples),
             elevationAscendedMeters: elevationAscendedMeters(for: workout),
-            averagePowerWatts: averagePowerWatts(for: workout, type: type),
-            averageStepCadenceSPM: averageStepCadenceSPM,
-            averageCyclingCadenceRPM: averageCyclingCadenceRPM(for: workout, type: type),
-            swimmingStrokeCount: swimmingStrokeCount(for: workout, type: type),
-            cardioFitnessVO2Max: cardioFitnessVO2Max,
+            averagePowerWatts: includesWorkoutMetrics ? averagePowerWatts(for: workout, type: type) : nil,
+            averageStepCadenceSPM: includesWorkoutMetrics ? averageStepCadenceSPM : nil,
+            averageCyclingCadenceRPM: includesWorkoutMetrics ? averageCyclingCadenceRPM(for: workout, type: type) : nil,
+            swimmingStrokeCount: includesWorkoutMetrics ? swimmingStrokeCount(for: workout, type: type) : nil,
+            cardioFitnessVO2Max: includesWorkoutMetrics ? cardioFitnessVO2Max : nil,
             sourceName: workout.sourceRevision.source.name
         )
     }
@@ -144,7 +146,9 @@ extension HealthKitFetchEngine {
         reusingHeartRateFrom cached: WorkoutSummary,
         effortLevel: Double? = nil,
         cardioFitnessVO2Max: Double? = nil,
-        averageStepCadenceSPM: Double? = nil
+        averageStepCadenceSPM: Double? = nil,
+        resolvedDistanceMeters: Double? = nil,
+        includesWorkoutMetrics: Bool = true
     ) -> WorkoutSummary {
         let activeEnergy = activeEnergyKilocalories(for: workout)
         let type = HealthKitWorkoutStore.workoutType(for: workout.workoutActivityType)
@@ -156,17 +160,17 @@ extension HealthKitFetchEngine {
             duration: workout.duration,
             activeEnergyKilocalories: activeEnergy,
             totalEnergyKilocalories: totalEnergyKilocalories(for: workout) ?? activeEnergy,
-            distanceMeters: workout.totalDistance?.doubleValue(for: .meter()),
+            distanceMeters: distanceMeters(for: workout, type: type) ?? resolvedDistanceMeters,
             averageHeartRateBeatsPerMinute: cached.averageHeartRateBeatsPerMinute,
             maximumHeartRateBeatsPerMinute: cached.maximumHeartRateBeatsPerMinute,
             effortLevel: effortLevel,
             heartRateSamples: cached.heartRateSamples ?? [],
             elevationAscendedMeters: elevationAscendedMeters(for: workout),
-            averagePowerWatts: averagePowerWatts(for: workout, type: type),
-            averageStepCadenceSPM: averageStepCadenceSPM,
-            averageCyclingCadenceRPM: averageCyclingCadenceRPM(for: workout, type: type),
-            swimmingStrokeCount: swimmingStrokeCount(for: workout, type: type),
-            cardioFitnessVO2Max: cardioFitnessVO2Max,
+            averagePowerWatts: includesWorkoutMetrics ? averagePowerWatts(for: workout, type: type) : nil,
+            averageStepCadenceSPM: includesWorkoutMetrics ? averageStepCadenceSPM : nil,
+            averageCyclingCadenceRPM: includesWorkoutMetrics ? averageCyclingCadenceRPM(for: workout, type: type) : nil,
+            swimmingStrokeCount: includesWorkoutMetrics ? swimmingStrokeCount(for: workout, type: type) : nil,
+            cardioFitnessVO2Max: includesWorkoutMetrics ? cardioFitnessVO2Max : nil,
             sourceName: workout.sourceRevision.source.name
         )
     }
@@ -208,6 +212,41 @@ extension HealthKitFetchEngine {
 
     nonisolated private static func elevationAscendedMeters(for workout: HKWorkout) -> Double? {
         (workout.metadata?[HKMetadataKeyElevationAscended] as? HKQuantity)?.doubleValue(for: .meter())
+    }
+
+    /// The distance `HKQuantityType` identifier for an activity, or nil when the
+    /// activity isn't distance-tracking. Shared by the synchronous statistics read
+    /// and the per-workout distance sample query in the fetch engine.
+    nonisolated static func distanceQuantityTypeIdentifier(for type: BodyWorkoutType) -> HKQuantityTypeIdentifier? {
+        switch type.paceStyle {
+        case .distancePace:
+            return (type == .wheelchairWalkPace || type == .wheelchairRunPace)
+                ? .distanceWheelchair
+                : .distanceWalkingRunning
+        case .speed:
+            return .distanceCycling
+        case .swimPace:
+            return .distanceSwimming
+        case .none:
+            return nil
+        }
+    }
+
+    /// Total workout distance (m): the legacy `totalDistance` aggregate when
+    /// present, otherwise the activity-appropriate distance statistic attached to
+    /// the workout. Distance that lives only in the workout's associated samples
+    /// (not its attached statistics) is resolved asynchronously in the fetch engine
+    /// and passed in as `resolvedDistanceMeters`.
+    nonisolated private static func distanceMeters(for workout: HKWorkout, type: BodyWorkoutType) -> Double? {
+        if let total = workout.totalDistance?.doubleValue(for: .meter()) {
+            return total
+        }
+
+        guard let identifier = distanceQuantityTypeIdentifier(for: type),
+              let distanceType = HKQuantityType.quantityType(forIdentifier: identifier) else {
+            return nil
+        }
+        return workout.statistics(for: distanceType)?.sumQuantity()?.doubleValue(for: .meter())
     }
 
     /// Average running/cycling power (W), best-effort from the workout's attached
