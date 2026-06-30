@@ -1389,7 +1389,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testHealthKitUsageDescriptionListsRequestedHealthCategories() throws {
         let project = try text(at: "body.xcodeproj/project.pbxproj")
-        let usageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, and swim strokes from Apple Health to power your dashboard, charts, and widgets."
+        let usageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, swim strokes, distance, and date of birth from Apple Health to power your dashboard, charts, and widgets."
 
         XCTAssertEqual(project.occurrenceCount(of: usageDescription), 2)
         XCTAssertFalse(project.contains("Body reads workout, sleep, heart, and body measurement data"))
@@ -1411,22 +1411,22 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(storeSource.contains("if permission == .workouts"))
     }
 
-    func testWorkoutDetailPresentsFullScreenWithCloseButton() throws {
+    func testWorkoutDetailPresentsFullScreenPushDragToDismiss() throws {
         let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
         let sheetStart = try XCTUnwrap(workoutsSource.range(of: "struct BodyWorkoutDetailSheet")?.lowerBound)
         let sheetBlock = String(workoutsSource[sheetStart...].prefix(6_000))
 
         // Workout details open as a full-bleed navigation push (so the tab bar stays
-        // visible), the map bleeds under the status bar, the nav bar is hidden, and a
-        // Liquid Glass close button dismisses it — no full-screen cover, no detents.
+        // visible), the map bleeds under the status bar, and the nav bar is hidden. There
+        // is no close button — the zoom transition's drag-to-dismiss returns to the card.
         XCTAssertTrue(workoutsSource.contains(".navigationDestination(item: $selectedWorkoutForDetails) { workout in"))
         XCTAssertTrue(workoutsSource.contains(".navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))"))
         XCTAssertTrue(workoutsSource.contains("route = await workoutStore.loadWorkoutRoute(for: workout)"))
         XCTAssertTrue(workoutsSource.contains(".ignoresSafeArea(edges: .top)"))
         XCTAssertTrue(workoutsSource.contains(".toolbar(.hidden, for: .navigationBar)"))
-        XCTAssertTrue(workoutsSource.contains(".buttonStyle(.glass)"))
-        XCTAssertTrue(workoutsSource.contains(#"Image(systemName: "xmark")"#))
-        XCTAssertTrue(sheetBlock.contains("@Environment(\\.dismiss) private var dismiss"))
+        XCTAssertFalse(sheetBlock.contains(#"Image(systemName: "xmark")"#))
+        XCTAssertFalse(sheetBlock.contains("private var closeButton"))
+        XCTAssertFalse(sheetBlock.contains("@Environment(\\.dismiss) private var dismiss"))
         XCTAssertFalse(sheetBlock.contains("distanceMeters ?? 0"))
         XCTAssertFalse(workoutsSource.contains(".fullScreenCover(item: $selectedWorkoutForDetails)"))
         XCTAssertFalse(workoutsSource.contains("selectedDetent"))
