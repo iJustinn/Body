@@ -155,8 +155,7 @@ struct WorkoutCalendarView: View {
         let markerRowHeight = 9 * glyphScale
 
         return ZStack {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(cellFill(for: day))
+            cellBackground(for: day)
 
             VStack(spacing: 3 * glyphScale) {
                 if let workoutType = day.primaryWorkoutType {
@@ -197,12 +196,18 @@ struct WorkoutCalendarView: View {
         Calendar.bodyGregorian.bodyRotatedVeryShortWeekdaySymbols()
     }
 
-    private func cellFill(for day: WorkoutDaySummary) -> Color {
-        guard day.workoutCount > 0 else {
-            return Color.primary.opacity(colorScheme == .dark ? 0.14 : 0.10)
+    @ViewBuilder
+    private func cellBackground(for day: WorkoutDaySummary) -> some View {
+        if day.workoutCount > 0 {
+            BodyGlassChip(
+                color: day.primaryWorkoutType?.color ?? Color(red: 0.09, green: 0.56, blue: 0.88),
+                cornerRadius: 9,
+                showsRim: false
+            )
+        } else {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.primary.opacity(colorScheme == .dark ? 0.14 : 0.10))
         }
-
-        return day.primaryWorkoutType?.color ?? Color(red: 0.09, green: 0.56, blue: 0.88)
     }
 
     @ViewBuilder

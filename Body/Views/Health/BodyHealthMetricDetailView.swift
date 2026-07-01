@@ -34,7 +34,6 @@ struct BodyHealthMetricDetailModel {
     let sourceRangeComparisonTrend: BodyHealthSourceRangeComparisonTrend?
     let sourceLineComparisonTrend: BodyHealthSourceComparisonTrend?
     let headerMetrics: [BodyMetricDisplayValue]
-    let headerSecondaryText: String?
     let helpText: HealthMetricDetailHelpText?
     let dataSourceText: HealthMetricDetailDataSourceText?
 
@@ -66,7 +65,6 @@ struct BodyHealthMetricDetailModel {
         sourceRangeComparisonTrend: BodyHealthSourceRangeComparisonTrend? = nil,
         sourceLineComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
         headerMetrics: [BodyMetricDisplayValue] = [],
-        headerSecondaryText: String? = nil,
         helpText: HealthMetricDetailHelpText? = nil,
         dataSourceText: HealthMetricDetailDataSourceText? = nil
     ) {
@@ -97,7 +95,6 @@ struct BodyHealthMetricDetailModel {
         self.sourceRangeComparisonTrend = sourceRangeComparisonTrend
         self.sourceLineComparisonTrend = sourceLineComparisonTrend
         self.headerMetrics = headerMetrics
-        self.headerSecondaryText = headerSecondaryText
         self.helpText = helpText ?? kind.detailHelpText
         self.dataSourceText = dataSourceText
     }
@@ -307,11 +304,14 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = false
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
-    @State private var selectedTrendRange: BodyHealthTrendRange
+    @State private var selectedTrendRangeSelection: BodyHealthTrendRange
+    @State private var showBodyProPaywall = false
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @State private var selectedSleepDate: Date?
     @State private var selectedMetricDate: Date?
     @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
@@ -328,7 +328,46 @@ struct BodyHealthMetricDetailView: View {
         initialTrendRange: BodyHealthTrendRange = BodyHealthTrendRange.defaultValue
     ) {
         self.model = model
-        _selectedTrendRange = State(initialValue: initialTrendRange)
+        _selectedTrendRangeSelection = State(initialValue: initialTrendRange)
+    }
+
+    private var isBodyProUnlocked: Bool {
+        proStore?.isPro ?? false
+    }
+
+    /// The raw range-picker selection, clamped to the free `.recentWeek` for non-Pro
+    /// users. Every chart, data slice, legend average, and chart identity below reads
+    /// this (not the raw selection), so longer ranges never render without Body Pro.
+    private var selectedTrendRange: BodyHealthTrendRange {
+        isBodyProUnlocked ? selectedTrendRangeSelection : .recentWeek
+    }
+
+    /// Free users can browse the 3 most recent days in every metric day-picker; older
+    /// days are a Body Pro feature.
+    private static let freeDatePickerDayCount = 3
+
+    /// The oldest day a non-Pro user may select, or `nil` for Pro (no day limit).
+    private var oldestUnlockedDatePickerDay: Date? {
+        guard !isBodyProUnlocked else { return nil }
+        let calendar = Calendar.bodyGregorian
+        let today = calendar.startOfDay(for: Date())
+        return calendar.date(byAdding: .day, value: -(Self.freeDatePickerDayCount - 1), to: today)
+    }
+
+    private func isDatePickerDateLocked(_ date: Date) -> Bool {
+        guard let oldestUnlockedDatePickerDay else { return false }
+        return Calendar.bodyGregorian.startOfDay(for: date) < oldestUnlockedDatePickerDay
+    }
+
+    /// Clamps a picker selection up into the free window for non-Pro users, so a locked
+    /// day can never be the effective selection that the day charts read.
+    private func clampedDatePickerDay(_ date: Date?) -> Date {
+        let calendar = Calendar.bodyGregorian
+        let dayStart = calendar.startOfDay(for: date ?? Date())
+        if let oldestUnlockedDatePickerDay, dayStart < oldestUnlockedDatePickerDay {
+            return oldestUnlockedDatePickerDay
+        }
+        return dayStart
     }
 
     private var dayChartTransition: AnyTransition {
@@ -337,44 +376,13 @@ struct BodyHealthMetricDetailView: View {
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 16) {
-                headerCard
-                if isSleepDetail {
-                    BodyHealthTrendRangeSelector(selectedRange: $selectedTrendRange)
-                    trendCard
-                    sleepDatePicker
-                    selectedSleepCards
-                    detailTrendComparisonCard
-                    if showSleepScore {
-                        aboutSleepScoreCard
-                    }
-                    dataSourceFooter
-                } else {
-                    BodyHealthTrendRangeSelector(selectedRange: $selectedTrendRange)
-                    if isBasicsDetail {
-                        basicsRangeCard
-                    }
-                    trendCard
-                    if supportsMetricDayView {
-                        metricDatePicker
-                        metricDayChartCard
-                        metricActivityAveragesCard
-                        detailTrendComparisonCard
-                    } else {
-                        if model.kind == .readiness, let readiness = model.readiness {
-                            readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
-                        }
-                        detailTrendComparisonCard
-                    }
-                    if isBasicsDetail {
-                        bodyMassIndexTrendCard
-                    }
-                    helpTextCard
-                    dataSourceFooter
+            VStack(spacing: 16) {
+                metricHero
+                VStack(alignment: .leading, spacing: 16) {
+                    metricDetailCards
                 }
+                .padding(.horizontal, 16)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
             .padding(.bottom, 32)
             .readableContentColumn()
         }
@@ -389,7 +397,19 @@ struct BodyHealthMetricDetailView: View {
             await workoutStore.loadIntradayMetricSamplesIfNeeded(model.kind)
         }
         .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background {
+            // Fixed (non-scrolling) backdrop for every metric detail: the metric tint
+            // at the very top — behind the transparent nav bar — easing into the page
+            // background by mid-screen. The hero content and cards scroll over this;
+            // the nav bar stays clear over the tint at rest and picks up its standard
+            // material as cards scroll beneath it.
+            LinearGradient(
+                colors: [model.symbolColor.opacity(0.45), Color(.systemGroupedBackground)],
+                startPoint: .top,
+                endPoint: UnitPoint(x: 0.5, y: 0.5)
+            )
+            .ignoresSafeArea()
+        }
         .navigationTitle(model.title)
         .navigationBarTitleDisplayMode(.inline)
         .tint(model.symbolColor)
@@ -410,14 +430,12 @@ struct BodyHealthMetricDetailView: View {
             SleepScoreDetailsSheet(selection: selection, accentColor: model.symbolColor)
                 .presentationDetents([.height(BodySleepScoreDetailsSheetLayout.sheetHeight), .large])
                 .presentationDragIndicator(.visible)
-                .presentationBackground(Color(.systemBackground))
         }
         .sheet(isPresented: $showsDataSourcePicker) {
             BodyHealthDataSourcePickerSheet(kind: model.kind, accentColor: model.symbolColor)
                 .environmentObject(workoutStore)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
-                .presentationBackground(Color(.systemGroupedBackground))
         }
         .sheet(isPresented: $showsAddMeasurementSheet) {
             BodyAddBasicsMeasurementSheet(
@@ -445,12 +463,21 @@ struct BodyHealthMetricDetailView: View {
         return BodyValueFormat.TemperatureUnitPreference.storedValue(from: selectedTemperatureUnitRawValue)
     }
 
+    private var selectedWeightUnitPreference: BodyValueFormat.WeightUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.WeightUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.WeightUnitPreference.storedValue(from: selectedWeightUnitRawValue)
+    }
+
     private var detailTrendComparisonModel: BodyHomeTrendCard.Model? {
         BodyHomeTrendCardFactory.card(
             for: model.kind,
             trends: workoutStore.healthTrends,
             temperatureUnitPreference: selectedTemperatureUnitPreference,
             energyUnitPreference: selectedEnergyUnitPreference,
+            weightUnitPreference: selectedWeightUnitPreference,
             includesStable: true,
             cache: trendComputationCache
         )
@@ -463,16 +490,34 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
+    // The combined Basics page has no trend card of its own (the `.basics` kind maps
+    // to no `BodyHomeTrendCardKind`), so surface the standalone Weight and Body Fat
+    // trend cards here. Tapping pushes that metric's focused detail via the stack's
+    // HealthMetricKind navigationDestination.
+    @ViewBuilder
+    private func basicsMetricTrendCard(for kind: HealthMetricKind) -> some View {
+        if let card = BodyHomeTrendCardFactory.card(
+            for: kind,
+            trends: workoutStore.healthTrends,
+            temperatureUnitPreference: selectedTemperatureUnitPreference,
+            energyUnitPreference: selectedEnergyUnitPreference,
+            weightUnitPreference: selectedWeightUnitPreference,
+            includesStable: true,
+            cache: trendComputationCache
+        ) {
+            NavigationLink(value: kind) {
+                BodyHomeTrendCard(model: card)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     private var isSleepDetail: Bool {
         model.kind == .sleep
     }
 
     private var isBasicsDetail: Bool {
         model.kind == .basics
-    }
-
-    private var trendHeaderAlignment: VerticalAlignment {
-        isBasicsDetail ? .top : .firstTextBaseline
     }
 
     private var supportsMetricDayView: Bool {
@@ -511,13 +556,11 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var selectedSleepDay: Date {
-        let calendar = Calendar.bodyGregorian
-        return calendar.startOfDay(for: selectedSleepDate ?? Date())
+        clampedDatePickerDay(selectedSleepDate)
     }
 
     private var selectedMetricDay: Date {
-        let calendar = Calendar.bodyGregorian
-        return calendar.startOfDay(for: selectedMetricDate ?? Date())
+        clampedDatePickerDay(selectedMetricDate)
     }
 
     private var selectedMetricDayInterval: DateInterval {
@@ -552,7 +595,9 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var selectedMetricSecondaryDaySeries: HealthTrendSeries {
-        guard model.kind.usesSourceComparisonDayLineChart else {
+        // Day-line comparison reads the cached secondary series directly, bypassing the
+        // store's secondary-source chokepoint — so gate it on Body Pro here too.
+        guard isBodyProUnlocked, model.kind.usesSourceComparisonDayLineChart else {
             return .empty
         }
 
@@ -645,7 +690,7 @@ struct BodyHealthMetricDetailView: View {
     }
 
     @ViewBuilder
-    private var selectedSleepCards: some View {
+    private var sleepScoreSummaryCard: some View {
         if showSleepScore {
             if let sleepScore = selectedSleepScore {
                 sleepScoreCard(sleepScore)
@@ -653,7 +698,10 @@ struct BodyHealthMetricDetailView: View {
                 unavailableSleepScoreCard
             }
         }
+    }
 
+    @ViewBuilder
+    private var selectedSleepCards: some View {
         if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
             sleepStageCard(
                 selectedSleepStageSnapshot,
@@ -688,7 +736,7 @@ struct BodyHealthMetricDetailView: View {
             }
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
     }
 
@@ -709,7 +757,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private func readinessStatusExplanationRow(status: ReadinessStatus, isCurrent: Bool) -> some View {
@@ -807,236 +855,283 @@ struct BodyHealthMetricDetailView: View {
         return "\(primaryName) vs \(secondaryOption.name)"
     }
 
-    private var headerCard: some View {
-        HStack(spacing: 16) {
-            Image(systemName: model.symbolName)
-                .font(.system(size: 26, weight: .semibold))
-                .foregroundColor(model.symbolColor)
-                .frame(width: 58, height: 58)
-                .background(model.symbolColor.opacity(0.16))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(model.title)
-                    .font(.system(.title3, design: .rounded))
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
-
-                Text("Current")
-                    .font(.system(.subheadline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
+    // Apple Watch–style immersive header, shared by every metric. The metric-tint→
+    // page-color gradient is a fixed, non-scrolling backdrop (set on `body`), so it
+    // stays put behind the nav bar while the cards scroll over it. This hero is just
+    // the transparent content laid on top: the range tabs as floating pills, the
+    // metric's chart blended in (Y-axis hidden), and the current value reading large
+    // at the bottom-left.
+    private var metricHero: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            BodyHealthTrendRangeSelector(
+                // Bind to the effective (clamped) range, not the raw selection, so a
+                // locked pill can't appear selected while the chart renders Week.
+                selectedRange: Binding(
+                    get: { selectedTrendRange },
+                    set: { selectedTrendRangeSelection = $0 }
+                ),
+                appearance: .onGradient,
+                isProUnlocked: isBodyProUnlocked,
+                onLockedRangeTap: { showBodyProPaywall = true }
+            )
+            .sheet(isPresented: $showBodyProPaywall) {
+                NavigationStack { BodyProView() }
             }
 
-            Spacer(minLength: 10)
+            metricTrendChart(immersive: true)
 
-            headerValues
+            metricHeroValueRow
+
+            metricBreakdownChart
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 94)
-        .bodyCardBackground()
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // The per-metric cards that scroll below the hero (unchanged from the prior
+    // layout, minus the header/selector/trend-card now folded into the hero).
+    @ViewBuilder
+    private var metricDetailCards: some View {
+        if isSleepDetail {
+            sleepScoreSummaryCard
+            sleepDatePicker
+            selectedSleepCards
+            detailTrendComparisonCard
+            if showSleepScore {
+                aboutSleepScoreCard
+            }
+            dataSourceFooter
+        } else {
+            if isBasicsDetail {
+                basicsRangeCard
+            }
+            if supportsMetricDayView {
+                metricDatePicker
+                metricDayChartCard
+                metricActivityAveragesCard
+                detailTrendComparisonCard
+            } else {
+                if model.kind == .readiness, let readiness = model.readiness {
+                    readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
+                }
+                detailTrendComparisonCard
+            }
+            if isBasicsDetail {
+                bodyMassIndexTrendCard
+                basicsMetricTrendCard(for: .bodyMass)
+                basicsMetricTrendCard(for: .bodyFatPercentage)
+            }
+            helpTextCard
+            dataSourceFooter
+        }
+    }
+
+    private var metricHeroValueRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            heroValueLeading
+            Spacer(minLength: 8)
+            heroValueTrailing
+        }
     }
 
     @ViewBuilder
-    private var headerValues: some View {
-        if model.headerMetrics.isEmpty {
-            VStack(alignment: .trailing, spacing: 3) {
-                headerValueRow(BodyMetricDisplayValue(title: model.title, value: model.value, unit: model.unit))
-
-                if let headerSecondaryText = model.headerSecondaryText {
-                    Text(headerSecondaryText)
-                        .font(.system(.caption, design: .rounded))
-                        .fontWeight(.bold)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                }
-            }
-        } else {
-            VStack(alignment: .trailing, spacing: 0) {
-                ForEach(model.headerMetrics) { display in
-                    headerValueRow(display)
-                }
-            }
+    private var heroValueLeading: some View {
+        if !model.value.isEmpty {
+            heroBigValue(model.value, unit: model.unit)
+        } else if let firstMetric = model.headerMetrics.first {
+            heroBigValue(firstMetric.value, unit: firstMetric.unit)
         }
     }
 
-    private func headerValueRow(_ display: BodyMetricDisplayValue) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
+    private func heroBigValue(_ value: String, unit: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             BodyAnimatedMetricValueText(
-                value: display.value,
-                fontSize: 30,
+                value: value,
+                fontSize: 44,
                 color: .primary,
-                minimumScaleFactor: 0.6
+                minimumScaleFactor: 0.5
             )
 
-            if !display.unit.isEmpty {
-                Text(display.unit)
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
+            if !unit.isEmpty {
+                Text(unit)
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
             }
         }
     }
 
-    private var trendCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: trendHeaderAlignment) {
-                Text(selectedTrendRange.chartTitle)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
-
-                Spacer(minLength: 12)
-
-                if model.kind == .basics {
-                    BodyBasicsTrendLegend(
-                        weightColor: model.symbolColor,
-                        bodyFatColor: basicsBodyFatColor,
-                        weightAverageText: basicsWeightAverageText,
-                        bodyFatAverageText: basicsBodyFatAverageText
-                    )
-                } else if let sourceComparisonTrend = model.sourceComparisonTrend {
-                    BodyHealthSourceLegend(
-                        items: comparisonLegendItems(for: sourceComparisonTrend),
-                        valueFormatter: model.valueFormatter
-                    )
-                } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend {
-                    BodyHealthSourceLegend(
-                        items: rangeComparisonLegendItems(for: sourceRangeComparisonTrend),
-                        valueFormatter: model.valueFormatter
-                    )
-                } else if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
-                    BodyHealthSourceLegend(
-                        items: comparisonLegendItems(for: sourceLineComparisonTrend),
-                        valueFormatter: model.valueFormatter
-                    )
-                } else if usesRangeTrendChart, let metricRangeHeaderText {
-                    averageHeaderText(metricRangeHeaderText, prefix: "Range")
-                } else if let averageTrendText {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        averageHeaderText(averageTrendText)
-                        if wristTemperatureTrendBaseline != nil {
-                            BodyChartBaselineLegend()
-                        }
-                    }
+    // Metric-specific legend or average, relocated from the old trend-card header to
+    // the hero's value row.
+    @ViewBuilder
+    private var heroValueTrailing: some View {
+        if model.kind == .basics {
+            BodyBasicsTrendLegend(
+                weightColor: model.symbolColor,
+                bodyFatColor: basicsBodyFatColor,
+                weightAverageText: basicsWeightAverageText,
+                bodyFatAverageText: basicsBodyFatAverageText
+            )
+        } else if let sourceComparisonTrend = model.sourceComparisonTrend {
+            BodyHealthSourceLegend(
+                items: comparisonLegendItems(for: sourceComparisonTrend),
+                valueFormatter: model.valueFormatter
+            )
+        } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend {
+            BodyHealthSourceLegend(
+                items: rangeComparisonLegendItems(for: sourceRangeComparisonTrend),
+                valueFormatter: model.valueFormatter
+            )
+        } else if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
+            BodyHealthSourceLegend(
+                items: comparisonLegendItems(for: sourceLineComparisonTrend),
+                valueFormatter: model.valueFormatter
+            )
+        } else if usesRangeTrendChart, let metricRangeHeaderText {
+            averageHeaderText(metricRangeHeaderText, prefix: "Range")
+        } else if let averageTrendText {
+            VStack(alignment: .trailing, spacing: 4) {
+                averageHeaderText(averageTrendText)
+                if wristTemperatureTrendBaseline != nil {
+                    BodyChartBaselineLegend()
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if let visibleBasicsTrend {
-                BodyBasicsTrendChart(
-                    trend: visibleBasicsTrend,
-                    selectedRange: selectedTrendRange,
-                    weightColor: model.symbolColor,
-                    bodyFatColor: basicsBodyFatColor,
-                    weightFormatter: model.valueFormatter,
-                    bodyFatFormatter: model.secondaryValueFormatter ?? {
-                        BodyValueFormat.numberText($0, decimals: 1) + "%"
-                    }
-                )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
-            } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend,
-                      model.kind.usesSourceComparisonRangeBandLineChart {
-                BodyHeartRateRangeTrendChart(
-                    title: model.title,
-                    selectedRange: selectedTrendRange,
-                    rangeSeries: sourceRangeComparisonTrend.primary.series,
-                    secondaryRangeSeries: sourceRangeComparisonTrend.secondary.series,
-                    primarySourceName: sourceRangeComparisonTrend.primary.sourceName,
-                    secondarySourceName: sourceRangeComparisonTrend.secondary.sourceName,
-                    symbolColor: model.symbolColor,
-                    secondaryColor: sourceComparisonSecondaryColor,
-                    valueFormatter: model.valueFormatter,
-                    showsAverageLineOverlay: true,
-                    yDomain: metricRangeYDomain
-                )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
-            } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend {
-                BodyHealthSourceComparisonRangeChart(
-                    title: model.title,
-                    comparison: sourceRangeComparisonTrend,
-                    selectedRange: selectedTrendRange,
-                    primaryColor: model.symbolColor,
-                    secondaryColor: sourceComparisonSecondaryColor,
-                    valueFormatter: model.valueFormatter,
-                    yDomain: metricRangeYDomain,
-                    chartIdentity: "\(model.kind.rawValue)-source-range-comparison-\(selectedTrendRange.rawValue)"
-                )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
-            } else if usesRangeTrendChart, let visibleMetricRangeSeries {
-                BodyHeartRateRangeTrendChart(
-                    title: model.title,
-                    selectedRange: selectedTrendRange,
-                    rangeSeries: visibleMetricRangeSeries,
-                    symbolColor: model.symbolColor,
-                    valueFormatter: model.valueFormatter,
-                    showsAverageLineOverlay: model.kind == .heartRate || model.kind == .heartRateVariability,
-                    yDomain: metricRangeYDomain
-                )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
-            } else if let sourceComparisonTrend = model.sourceComparisonTrend {
-                BodyHealthSourceComparisonBarChart(
-                    title: model.title,
-                    comparison: sourceComparisonTrend,
-                    selectedRange: selectedTrendRange,
-                    primaryColor: model.symbolColor,
-                    secondaryColor: sourceComparisonSecondaryColor,
-                    valueFormatter: model.valueFormatter,
-                    chartIdentity: "\(model.kind.rawValue)-source-comparison-\(selectedTrendRange.rawValue)"
-                )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
-            } else if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
-                BodyHealthSourceComparisonLineChart(
-                    title: model.title,
-                    comparison: sourceLineComparisonTrend,
-                    selectedRange: selectedTrendRange,
-                    primaryColor: model.symbolColor,
-                    secondaryColor: sourceComparisonSecondaryColor,
-                    valueFormatter: model.valueFormatter,
-                    isSleepDetail: isSleepDetail,
-                    chartIdentity: "\(model.kind.rawValue)-source-line-comparison-\(selectedTrendRange.rawValue)"
-                )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
-            } else {
-                BodyHealthMetricTrendChart(
-                    title: model.title,
-                    chartStyle: model.chartStyle,
-                    symbolColor: model.symbolColor,
-                    selectedRange: selectedTrendRange,
-                    series: model.series,
-                    valueFormatter: model.valueFormatter,
-                    highlightedRange: model.highlightedRange,
-                    highlightedRangeResolver: model.highlightedRangeResolver,
-                    activeHighlightedValue: model.kind == .readiness ? $activeReadinessTrendValue : nil,
-                    isSleepDetail: isSleepDetail,
-                    baselineValue: wristTemperatureTrendBaseline,
-                    baselineDeviationFormatter: wristTemperatureTrendBaselineDeviationFormatter,
-                    chartIdentity: "\(model.kind.rawValue)-\(selectedTrendRange.rawValue)"
-                )
-                .frame(height: BodyHealthDetailChartLayout.standardHeight)
-
-                if model.kind == .trainingLoad {
-                    BodyTrainingLoadIntervalBreakdownChart(
-                        series: model.series,
-                        selectedRange: selectedTrendRange
-                    )
-                    .padding(.top, 4)
-                }
-
-                if model.kind == .readiness {
-                    BodyReadinessStatusBreakdownChart(
-                        series: model.series,
-                        selectedRange: selectedTrendRange
-                    )
-                    .padding(.top, 4)
-                }
+            .alignmentGuide(.firstTextBaseline) { dimensions in
+                dimensions[.lastTextBaseline]
             }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+    }
+
+    // The metric's trend chart, blended into the hero (no card, Y-axis hidden when
+    // `immersive`). Each branch preserves that metric's chart: range bars for
+    // heart-rate-style metrics, primary/secondary comparison charts, the dual-line
+    // basics chart, and the highlight strips on the line chart. The training-load /
+    // readiness day breakdowns render separately in `metricBreakdownChart`, below the
+    // hero value row.
+    @ViewBuilder
+    private func metricTrendChart(immersive: Bool) -> some View {
+        if let visibleBasicsTrend {
+            BodyBasicsTrendChart(
+                trend: visibleBasicsTrend,
+                selectedRange: selectedTrendRange,
+                weightColor: model.symbolColor,
+                bodyFatColor: basicsBodyFatColor,
+                weightFormatter: model.valueFormatter,
+                bodyFatFormatter: model.secondaryValueFormatter ?? {
+                    BodyValueFormat.numberText($0, decimals: 1) + "%"
+                },
+                immersive: immersive
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend,
+                  model.kind.usesSourceComparisonRangeBandLineChart {
+            BodyHeartRateRangeTrendChart(
+                title: model.title,
+                selectedRange: selectedTrendRange,
+                rangeSeries: sourceRangeComparisonTrend.primary.series,
+                secondaryRangeSeries: sourceRangeComparisonTrend.secondary.series,
+                primarySourceName: sourceRangeComparisonTrend.primary.sourceName,
+                secondarySourceName: sourceRangeComparisonTrend.secondary.sourceName,
+                symbolColor: model.symbolColor,
+                secondaryColor: sourceComparisonSecondaryColor,
+                valueFormatter: model.valueFormatter,
+                showsAverageLineOverlay: true,
+                immersive: immersive,
+                yDomain: metricRangeYDomain
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend {
+            BodyHealthSourceComparisonRangeChart(
+                title: model.title,
+                comparison: sourceRangeComparisonTrend,
+                selectedRange: selectedTrendRange,
+                primaryColor: model.symbolColor,
+                secondaryColor: sourceComparisonSecondaryColor,
+                valueFormatter: model.valueFormatter,
+                yDomain: metricRangeYDomain,
+                immersive: immersive,
+                chartIdentity: "\(model.kind.rawValue)-source-range-comparison-\(selectedTrendRange.rawValue)"
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        } else if usesRangeTrendChart, let visibleMetricRangeSeries {
+            BodyHeartRateRangeTrendChart(
+                title: model.title,
+                selectedRange: selectedTrendRange,
+                rangeSeries: visibleMetricRangeSeries,
+                symbolColor: model.symbolColor,
+                valueFormatter: model.valueFormatter,
+                showsAverageLineOverlay: model.kind == .heartRate || model.kind == .heartRateVariability,
+                immersive: immersive,
+                yDomain: metricRangeYDomain
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        } else if let sourceComparisonTrend = model.sourceComparisonTrend {
+            BodyHealthSourceComparisonBarChart(
+                title: model.title,
+                comparison: sourceComparisonTrend,
+                selectedRange: selectedTrendRange,
+                primaryColor: model.symbolColor,
+                secondaryColor: sourceComparisonSecondaryColor,
+                valueFormatter: model.valueFormatter,
+                immersive: immersive,
+                chartIdentity: "\(model.kind.rawValue)-source-comparison-\(selectedTrendRange.rawValue)"
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        } else if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
+            BodyHealthSourceComparisonLineChart(
+                title: model.title,
+                comparison: sourceLineComparisonTrend,
+                selectedRange: selectedTrendRange,
+                primaryColor: model.symbolColor,
+                secondaryColor: sourceComparisonSecondaryColor,
+                valueFormatter: model.valueFormatter,
+                isSleepDetail: isSleepDetail,
+                immersive: immersive,
+                chartIdentity: "\(model.kind.rawValue)-source-line-comparison-\(selectedTrendRange.rawValue)"
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        } else {
+            BodyHealthMetricTrendChart(
+                title: model.title,
+                chartStyle: model.chartStyle,
+                symbolColor: model.symbolColor,
+                selectedRange: selectedTrendRange,
+                series: model.series,
+                valueFormatter: model.valueFormatter,
+                highlightedRange: model.highlightedRange,
+                highlightedRangeResolver: model.highlightedRangeResolver,
+                activeHighlightedValue: model.kind == .readiness ? $activeReadinessTrendValue : nil,
+                isSleepDetail: isSleepDetail,
+                baselineValue: wristTemperatureTrendBaseline,
+                baselineDeviationFormatter: wristTemperatureTrendBaselineDeviationFormatter,
+                immersive: immersive,
+                chartIdentity: "\(model.kind.rawValue)-\(selectedTrendRange.rawValue)"
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        }
+    }
+
+    // Readiness/training-load day breakdown bars, rendered below the hero value row so
+    // the big current value reads directly beneath the line chart and the
+    // day-by-status/interval bars sit under it.
+    @ViewBuilder
+    private var metricBreakdownChart: some View {
+        if model.kind == .trainingLoad {
+            BodyTrainingLoadIntervalBreakdownChart(
+                series: model.series,
+                selectedRange: selectedTrendRange
+            )
+            .padding(.top, 4)
+        }
+
+        if model.kind == .readiness {
+            BodyReadinessStatusBreakdownChart(
+                series: model.series,
+                selectedRange: selectedTrendRange
+            )
+            .padding(.top, 4)
+        }
     }
 
     private var basicsRangeCard: some View {
@@ -1083,7 +1178,7 @@ struct BodyHealthMetricDetailView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private var bodyMassIndexTrendCard: some View {
@@ -1110,7 +1205,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private var wristTemperatureTrendBaseline: Double? {
@@ -1161,22 +1256,20 @@ struct BodyHealthMetricDetailView: View {
 
     private func datePicker(_ picker: BodyMetricDetailDatePicker) -> some View {
         ScrollViewReader { proxy in
-            ZStack {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(recentDatePickerDates, id: \.self) { date in
-                            dateTile(for: date, picker: picker)
-                                .id(date)
-                        }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(recentDatePickerDates, id: \.self) { date in
+                        dateTile(for: date, picker: picker)
+                            .id(date)
                     }
-                    .padding(.horizontal, 2)
-                    .padding(.vertical, 1)
                 }
-
-                sleepDateSliderEdgeShade
-                    .allowsHitTesting(false)
+                .padding(.horizontal, 2)
+                .padding(.vertical, 1)
             }
-            .background(sleepDateSliderBackground)
+            // Fade the scroll ends by masking the tiles to transparent (not a colored
+            // overlay), so the edges blend into whatever is behind — including the
+            // tinted page gradient — with no dark wedge.
+            .mask(sleepDateSliderEdgeMask)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .task(id: recentDatePickerDates.last) {
                 let calendar = Calendar.bodyGregorian
@@ -1241,7 +1334,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     @ViewBuilder
@@ -1275,7 +1368,7 @@ struct BodyHealthMetricDetailView: View {
             }
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
     }
 
@@ -1418,14 +1511,21 @@ struct BodyHealthMetricDetailView: View {
         let today = calendar.startOfDay(for: Date())
         let isSelected = calendar.isDate(dayStart, inSameDayAs: selectedDay(for: picker))
         let isFuture = dayStart > today
+        // Days older than the free window are a Body Pro feature: the tile dims, shows a
+        // lock badge, and routes a tap to the paywall instead of changing the selection.
+        let isLocked = isDatePickerDateLocked(dayStart)
         let primaryText = BodyDateSliderTileLabel.primaryText(for: dayStart, today: today, calendar: calendar)
+        let tileFill = Color.primary.opacity(isFuture ? 0.03 : 0.06)
+        let tileStroke: Color = isSelected
+            ? dateSliderSelectionColor
+            : Color.primary.opacity(isFuture ? 0.06 : 0.10)
 
         return Button {
             guard !isFuture else {
                 return
             }
 
-            selectDate(dayStart, for: picker)
+            selectDatePickerDay(dayStart, for: picker)
         } label: {
             VStack(spacing: 6) {
                 Text(primaryText)
@@ -1438,27 +1538,31 @@ struct BodyHealthMetricDetailView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
             }
-            .foregroundColor(dateTileForegroundColor(isFuture: isFuture))
+            .foregroundColor(dateTileForegroundColor(isFuture: isFuture || isLocked))
             .frame(width: 58, height: 74)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isFuture ? sleepDateTileBackground.opacity(0.62) : sleepDateTileBackground)
+                    .fill(tileFill)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(
-                        isSelected ? dateSliderSelectionColor : dateTileStrokeColor(isFuture: isFuture),
-                        lineWidth: isSelected ? 2.5 : 1
-                    )
+                    .stroke(tileStroke, lineWidth: isSelected ? 2.5 : 1)
             )
-            .shadow(color: Color.black.opacity(0.08), radius: 5, x: 0, y: 2)
+            .overlay(alignment: .topTrailing) {
+                if isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .padding(5)
+                }
+            }
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .animation(.easeInOut(duration: 0.16), value: isSelected)
         }
         .buttonStyle(.plain)
         .disabled(isFuture)
         .accessibilityLabel(dayStart.formatted(.dateTime.weekday(.wide).month(.wide).day()))
-        .accessibilityHint(isFuture ? "Future date is not selectable" : "")
+        .accessibilityHint(isFuture ? "Future date is not selectable" : (isLocked ? "Requires Body Pro" : ""))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
@@ -1480,6 +1584,18 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
+    /// Shared selection entry point for every day-picker surface (the date tiles and the
+    /// Sleep Consistency chart): a locked day opens the paywall instead of silently
+    /// clamping. Callers still gate out future days themselves where applicable.
+    private func selectDatePickerDay(_ date: Date, for picker: BodyMetricDetailDatePicker) {
+        if isDatePickerDateLocked(date) {
+            showBodyProPaywall = true
+            return
+        }
+
+        selectDate(date, for: picker)
+    }
+
     private func setInitialDateIfNeeded(_ date: Date, for picker: BodyMetricDetailDatePicker) {
         switch picker {
         case .sleep:
@@ -1493,19 +1609,19 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
-    private var sleepDateSliderEdgeShade: some View {
+    private var sleepDateSliderEdgeMask: some View {
         HStack(spacing: 0) {
             LinearGradient(
-                colors: [sleepDateSliderBackground, sleepDateSliderBackground.opacity(0)],
+                colors: [.clear, .black],
                 startPoint: .leading,
                 endPoint: .trailing
             )
             .frame(width: 28)
 
-            Spacer(minLength: 0)
+            Rectangle().fill(Color.black)
 
             LinearGradient(
-                colors: [sleepDateSliderBackground.opacity(0), sleepDateSliderBackground],
+                colors: [.black, .clear],
                 startPoint: .leading,
                 endPoint: .trailing
             )
@@ -1517,28 +1633,11 @@ struct BodyHealthMetricDetailView: View {
         model.symbolColor
     }
 
-    private var sleepDateSliderBackground: Color {
-        colorScheme == .dark
-            ? Color(red: 0.02, green: 0.02, blue: 0.025)
-            : Color(red: 0.91, green: 0.91, blue: 0.93)
-    }
-
-    private var sleepDateTileBackground: Color {
-        colorScheme == .dark
-            ? Color(red: 0.07, green: 0.07, blue: 0.08)
-            : Color.white
-    }
-
     private func dateTileForegroundColor(isFuture: Bool) -> Color {
         if colorScheme == .dark {
             return isFuture ? Color.white.opacity(0.34) : .white
         }
         return isFuture ? Color.black.opacity(0.32) : .black
-    }
-
-    private func dateTileStrokeColor(isFuture: Bool) -> Color {
-        let base: Color = colorScheme == .dark ? .white : .black
-        return base.opacity(isFuture ? 0.08 : 0.16)
     }
 
     private func sleepScoreCard(_ score: SleepScoreSummary) -> some View {
@@ -1578,7 +1677,7 @@ struct BodyHealthMetricDetailView: View {
             }
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
         .buttonStyle(.plain)
         .accessibilityHint("Shows detailed sleep score scoring")
@@ -1608,7 +1707,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private func sleepStageCard(
@@ -1626,12 +1725,12 @@ struct BodyHealthMetricDetailView: View {
                 Spacer(minLength: 12)
 
                 if snapshot.asleepDuration > 0 {
-                    Text(BodyValueFormat.sleepDurationText(for: snapshot.asleepDuration))
-                        .font(.system(.caption, design: .rounded))
-                        .fontWeight(.bold)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+                    BodyAnimatedMetricValueText(
+                        value: BodyValueFormat.sleepDurationText(for: snapshot.asleepDuration),
+                        fontSize: 22,
+                        color: .secondary,
+                        minimumScaleFactor: 0.75
+                    )
                 }
 
                 if let sourceName {
@@ -1682,7 +1781,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private func sleepStageDurationSummary(_ snapshot: SleepStageSnapshot) -> some View {
@@ -1735,13 +1834,15 @@ struct BodyHealthMetricDetailView: View {
 
                 Spacer(minLength: 12)
 
-                Text(workoutStore.selectedHealthDataSourceOption(for: model.kind).name)
-                    .font(.system(.caption, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .multilineTextAlignment(.trailing)
+                if let consistencyPercentage = chartModel.consistencyPercentage {
+                    BodyAnimatedMetricValueText(
+                        value: "\(consistencyPercentage)%",
+                        fontSize: 22,
+                        color: .secondary,
+                        minimumScaleFactor: 0.75
+                    )
+                        .multilineTextAlignment(.trailing)
+                }
             }
 
             if chartModel.nights.count < 2 {
@@ -1755,7 +1856,7 @@ struct BodyHealthMetricDetailView: View {
                     model: chartModel,
                     selectedDay: selectedSleepDay,
                     onSelectDay: { day in
-                        selectDate(day, for: .sleep)
+                        selectDatePickerDay(day, for: .sleep)
                     }
                 )
                 .frame(height: BodyHealthDetailChartLayout.sleepConsistencyHeight)
@@ -1763,7 +1864,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     // One pass over the history instead of 14 `sleepSummary(for:)` scans;
@@ -1801,7 +1902,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private func sleepVitalsCard(_ vitals: SleepVitalsSummary, duration: TimeInterval?) -> some View {
@@ -1840,7 +1941,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private func sleepVitalRows(for vitals: SleepVitalsSummary, duration: TimeInterval?) -> [SleepVitalDisplayRow] {

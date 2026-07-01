@@ -177,6 +177,20 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
         return WorkoutMonthSnapshot(month: month, year: year, generatedAt: generatedAt, days: days)
     }
 
+    /// Returns a copy with the Workout Metrics detail fields (VO₂max, power,
+    /// cadence, swim strokes) stripped from every workout, for when the user
+    /// disables the Workout Metrics permission. Preserves the month identity and
+    /// `generatedAt` so a re-saved snapshot stays change-deduped on disk.
+    func removingWorkoutMetrics(calendar: Calendar = .bodyGregorian) -> WorkoutMonthSnapshot {
+        WorkoutMonthSnapshot.make(
+            month: month,
+            year: year,
+            workouts: days.flatMap(\.workouts).map { $0.removingWorkoutMetrics() },
+            calendar: calendar,
+            generatedAt: generatedAt
+        )
+    }
+
     static var placeholder: WorkoutMonthSnapshot {
         makePlaceholder(generatedAt: Date(), calendar: .bodyGregorian)
     }

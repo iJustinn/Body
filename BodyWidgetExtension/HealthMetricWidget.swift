@@ -34,11 +34,12 @@ struct HealthMetricEntry: TimelineEntry {
     let background: BodyWidgetBackgroundSelection
     let metric: HealthWidgetMetric
     let trend: HealthWidgetMetricTrend?
+    let isPro: Bool
 }
 
 struct HealthMetricProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> HealthMetricEntry {
-        entry(snapshot: .placeholder, metric: .readiness, background: .system)
+        entry(snapshot: .placeholder, metric: .readiness, background: .system, isPro: true)
     }
 
     func snapshot(
@@ -68,20 +69,25 @@ struct HealthMetricProvider: AppIntentTimelineProvider {
         return entry(
             snapshot: snapshot,
             metric: metric,
-            background: configuration.background ?? .system
+            background: configuration.background ?? .system,
+            // Preview/gallery (usePlaceholderWhenEmpty) shows the real widget so users
+            // see what Body Pro unlocks; the live home-screen timeline respects the flag.
+            isPro: usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked
         )
     }
 
     private func entry(
         snapshot: HealthWidgetSnapshot,
         metric: HealthWidgetMetric,
-        background: BodyWidgetBackgroundSelection
+        background: BodyWidgetBackgroundSelection,
+        isPro: Bool
     ) -> HealthMetricEntry {
         HealthMetricEntry(
             date: Date(),
             background: background,
             metric: metric,
-            trend: snapshot.trend(for: metric)
+            trend: snapshot.trend(for: metric),
+            isPro: isPro
         )
     }
 }
@@ -95,8 +101,14 @@ struct BodyHealthMetricWidget: Widget {
             intent: BodyMetricWidgetConfigurationIntent.self,
             provider: HealthMetricProvider()
         ) { entry in
-            HealthMetricWidgetView(entry: entry)
-                .bodyWidgetBackground(entry.background)
+            Group {
+                if entry.isPro {
+                    HealthMetricWidgetView(entry: entry)
+                } else {
+                    BodyWidgetLockedView()
+                }
+            }
+            .bodyWidgetBackground(entry.background)
         }
         .supportedFamilies([.systemSmall])
         .configurationDisplayName("Health Metric")

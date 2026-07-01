@@ -9,6 +9,7 @@ import SwiftUI
 struct BodyApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var workoutStore = HealthKitWorkoutStore()
+    @State private var proStore = BodyProStore()
     @AppStorage(BodyAppearancePreference.selectedThemeKey) private var selectedThemeRawValue = BodyAppTheme.defaultValue.rawValue
 
     init() {
@@ -22,6 +23,7 @@ struct BodyApp: App {
             MainTabView()
                 .bodyBaseInterfaceLevel()
                 .environmentObject(workoutStore)
+                .environment(proStore)
                 .tint(.primary)
                 .accentColor(.primary)
                 .preferredColorScheme(selectedTheme.colorScheme)

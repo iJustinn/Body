@@ -112,11 +112,12 @@ struct HealthTrendEntry: TimelineEntry {
     let metric: HealthWidgetMetric
     let range: HealthWidgetTrendRange
     let trend: HealthWidgetMetricTrend?
+    let isPro: Bool
 }
 
 struct HealthTrendProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> HealthTrendEntry {
-        entry(snapshot: .placeholder, metric: .readiness, range: .week, background: .system)
+        entry(snapshot: .placeholder, metric: .readiness, range: .week, background: .system, isPro: true)
     }
 
     func snapshot(
@@ -148,7 +149,9 @@ struct HealthTrendProvider: AppIntentTimelineProvider {
             snapshot: snapshot,
             metric: metric,
             range: range,
-            background: configuration.background ?? .system
+            background: configuration.background ?? .system,
+            // Preview/gallery shows the real widget; the live timeline respects the flag.
+            isPro: usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked
         )
     }
 
@@ -156,14 +159,16 @@ struct HealthTrendProvider: AppIntentTimelineProvider {
         snapshot: HealthWidgetSnapshot,
         metric: HealthWidgetMetric,
         range: HealthWidgetTrendRange,
-        background: BodyWidgetBackgroundSelection
+        background: BodyWidgetBackgroundSelection,
+        isPro: Bool
     ) -> HealthTrendEntry {
         HealthTrendEntry(
             date: Date(),
             background: background,
             metric: metric,
             range: range,
-            trend: snapshot.trend(for: metric)
+            trend: snapshot.trend(for: metric),
+            isPro: isPro
         )
     }
 }
@@ -179,8 +184,14 @@ struct BodyHealthTrendWidget: Widget {
             intent: BodyTrendWidgetConfigurationIntent.self,
             provider: HealthTrendProvider()
         ) { entry in
-            HealthTrendWidgetView(entry: entry)
-                .bodyWidgetBackground(entry.background)
+            Group {
+                if entry.isPro {
+                    HealthTrendWidgetView(entry: entry)
+                } else {
+                    BodyWidgetLockedView()
+                }
+            }
+            .bodyWidgetBackground(entry.background)
         }
         .supportedFamilies([.systemMedium])
         .configurationDisplayName("Health Trend")

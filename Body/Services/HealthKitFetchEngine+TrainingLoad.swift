@@ -38,7 +38,8 @@ extension HealthKitFetchEngine {
             return try await fetchWorkoutSummaries(
                 startDate: window.start,
                 endDate: window.end,
-                includesHeartRateSamples: false
+                includesHeartRateSamples: false,
+                includesDetailMetrics: false
             )
         }
         sharedTrainingLoadWorkoutsTask = task

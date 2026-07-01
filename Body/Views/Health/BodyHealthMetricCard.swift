@@ -66,7 +66,7 @@ struct BodyHealthMetricCard: View {
             .padding(.top, 18)
             .padding(.bottom, 10)
             .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
-            .bodyCardBackground(cornerRadius: 28)
+            .bodyCardBackground(cornerRadius: 28, translucent: true, translucentFillOpacity: 0.09)
     }
 
     @ViewBuilder

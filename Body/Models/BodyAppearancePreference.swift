@@ -682,11 +682,24 @@ struct BodyDashboardFetchSelection: Equatable {
     let includesActivityRings: Bool
     private let metricKinds: Set<HealthMetricKind>
 
-    init(summaryCards: BodySummaryCardSelection, trendCards: BodyHomeTrendCardSelection) {
-        includesActivityRings = summaryCards.includes(.activityRings)
+    init(
+        summaryCards: BodySummaryCardSelection,
+        trendCards: BodyHomeTrendCardSelection,
+        starredMetric: BodyHomeCardKind? = nil
+    ) {
+        // The star-metric hero shows Activity Rings regardless of the Summary Cards
+        // toggle, so its HealthKit data must be fetched whenever it's starred.
+        includesActivityRings = summaryCards.includes(.activityRings) || starredMetric == .activityRings
 
         var metrics = Set(summaryCards.selectedCards.compactMap(\.healthMetricKind))
         metrics.formUnion(trendCards.selectedCards.map(\.metricKind))
+
+        // The starred hero shows its metric regardless of the Summary Cards toggle, so
+        // its HealthKit data (and any derived dependencies, e.g. readiness's inputs
+        // below) must be fetched whenever it's starred.
+        if let starredMetricKind = starredMetric?.healthMetricKind {
+            metrics.insert(starredMetricKind)
+        }
 
         if metrics.contains(.basics) {
             metrics.formUnion(Self.basicsMetricKinds)
@@ -712,6 +725,10 @@ struct BodyDashboardFetchSelection: Equatable {
             trendCards: BodyHomeTrendCardSelection.storedValue(
                 from: defaults.string(forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
                     ?? BodyHomeTrendCardSelection.defaultRawValue
+            ),
+            starredMetric: BodyHomeCardKind.starredMetric(
+                from: defaults.string(forKey: BodyAppearancePreference.starredMetricKey)
+                    ?? BodyHomeCardKind.readiness.rawValue
             )
         )
     }
@@ -732,6 +749,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
     case exerciseMinutes
     case trainingLoad
     case timeInDaylight
+    case bodyMass
+    case bodyFatPercentage
 
     static let defaultOrder: [BodyHomeTrendCardKind] = [
         .readiness,
@@ -747,7 +766,9 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
         .restingEnergy,
         .exerciseMinutes,
         .trainingLoad,
-        .timeInDaylight
+        .timeInDaylight,
+        .bodyMass,
+        .bodyFatPercentage
     ]
 
     init?(metricKind: HealthMetricKind) {
@@ -792,6 +813,10 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return "Training Load"
         case .timeInDaylight:
             return "Time In Daylight"
+        case .bodyMass:
+            return "Weight"
+        case .bodyFatPercentage:
+            return "Body Fat"
         }
     }
 
@@ -825,6 +850,10 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return "Workout strain trend"
         case .timeInDaylight:
             return "Outdoor daylight trend"
+        case .bodyMass:
+            return "Body weight trend"
+        case .bodyFatPercentage:
+            return "Body fat trend"
         }
     }
 
@@ -857,6 +886,10 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return "figure.strengthtraining.traditional"
         case .timeInDaylight:
             return "sun.max.fill"
+        case .bodyMass:
+            return "scalemass.fill"
+        case .bodyFatPercentage:
+            return "percent"
         }
     }
 
@@ -883,6 +916,10 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return Color(red: 0.14, green: 0.72, blue: 0.42)
         case .timeInDaylight:
             return Color(red: 0.10, green: 0.58, blue: 1.00)
+        case .bodyMass:
+            return Color(red: 0.50, green: 0.34, blue: 1.00)
+        case .bodyFatPercentage:
+            return Color(red: 1.00, green: 0.68, blue: 0.08)
         }
     }
 }
@@ -906,7 +943,6 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     case restingEnergy
 
     static let defaultOrder: [BodyHomeCardKind] = [
-        .activityRings,
         .sleep,
         .basics,
         .heartRate,
@@ -921,11 +957,25 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         .respiratoryRate,
         .exerciseMinutes,
         .steps,
-        .timeInDaylight
+        .timeInDaylight,
+        .activityRings
     ]
 
     static var defaultRawValue: String {
         rawValue(from: defaultOrder)
+    }
+
+    /// Metrics eligible to be promoted to the home-page "star" hero. Grows as more
+    /// metrics get a hero treatment; today only Readiness qualifies.
+    static let starEligible: [BodyHomeCardKind] = [.readiness]
+
+    /// Parses the stored star-metric preference. Returns the kind only when it both
+    /// parses and is currently star-eligible; empty / unknown / ineligible -> nil (None).
+    static func starredMetric(from rawValue: String) -> BodyHomeCardKind? {
+        guard let kind = BodyHomeCardKind(rawValue: rawValue), starEligible.contains(kind) else {
+            return nil
+        }
+        return kind
     }
 
     var id: String {
@@ -1249,7 +1299,7 @@ enum BodyAppTheme: String, CaseIterable, Identifiable {
     case light
     case dark
 
-    static let defaultValue: BodyAppTheme = .system
+    static let defaultValue: BodyAppTheme = .dark
 
     var id: String {
         rawValue
@@ -1311,6 +1361,10 @@ enum BodyAppTheme: String, CaseIterable, Identifiable {
     }
 
     static func storedValue(from rawValue: String) -> BodyAppTheme {
-        BodyAppTheme(rawValue: rawValue) ?? defaultValue
+        if BodyAppTheme(rawValue: rawValue) == .dark {
+            return .dark
+        }
+
+        return defaultValue
     }
 }

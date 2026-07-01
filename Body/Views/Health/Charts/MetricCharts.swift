@@ -19,6 +19,10 @@ struct BodyHealthMetricTrendChart: View {
     let baselineValue: Double?
     let baselineDeviationFormatter: ((Double) -> String)?
     let chartIdentity: String
+    /// When true the chart blends into the sleep hero's gradient: the Y axis is
+    /// hidden (Watch-style, label-free) while the X day labels stay. Default
+    /// `false` keeps every other caller's chart unchanged.
+    let immersive: Bool
 
     private let visibleCalendarPoints: [HealthTrendCalendarPoint]
     private let visibleFinitePoints: [HealthTrendCalendarPoint]
@@ -44,6 +48,7 @@ struct BodyHealthMetricTrendChart: View {
         isSleepDetail: Bool,
         baselineValue: Double? = nil,
         baselineDeviationFormatter: ((Double) -> String)? = nil,
+        immersive: Bool = false,
         chartIdentity: String
     ) {
         self.title = title
@@ -57,6 +62,7 @@ struct BodyHealthMetricTrendChart: View {
         self.isSleepDetail = isSleepDetail
         self.baselineValue = baselineValue
         self.baselineDeviationFormatter = baselineDeviationFormatter
+        self.immersive = immersive
         self.chartIdentity = chartIdentity
 
         let calendarPoints: [HealthTrendCalendarPoint]
@@ -80,7 +86,7 @@ struct BodyHealthMetricTrendChart: View {
         self.chartYDomain = yDomain
 
         let domainDates = series.calendarPoints(to: selectedRange).map(\.date)
-        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
+        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive)
 
         self.latestVisibleCalendarDate = calendarPoints.last { $0.value?.isFinite == true }?.date
 
@@ -253,16 +259,18 @@ struct BodyHealthMetricTrendChart: View {
                 }
             }
             .chartYAxis {
-                AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
-                    AxisGridLine()
-                        .foregroundStyle(Color.secondary.opacity(0.18))
-                    AxisTick()
-                        .foregroundStyle(Color.secondary.opacity(0.28))
-                    AxisValueLabel {
-                        if let yValue = value.as(Double.self) {
-                            Text(valueFormatter(yValue))
-                                .font(.system(.caption2, design: .rounded))
-                                .foregroundStyle(Color.secondary)
+                if !immersive {
+                    AxisMarks(position: .leading, values: .automatic(desiredCount: BodyHealthDetailChartLayout.yAxisLabelCount)) { value in
+                        AxisGridLine()
+                            .foregroundStyle(Color.secondary.opacity(0.18))
+                        AxisTick()
+                            .foregroundStyle(Color.secondary.opacity(0.28))
+                        AxisValueLabel {
+                            if let yValue = value.as(Double.self) {
+                                Text(valueFormatter(yValue))
+                                    .font(.system(.caption2, design: .rounded))
+                                    .foregroundStyle(Color.secondary)
+                            }
                         }
                     }
                 }
@@ -460,6 +468,7 @@ struct BodyHealthMetricDayChart: View {
 
     private static let pointDiameter: CGFloat = 8
     private static let currentPointDiameter: CGFloat = 10
+    private static let segmentGapThreshold: TimeInterval = 4 * 60 * 60
 
     @State private var selectedDate: Date?
     @GestureState private var isSelecting = false
@@ -495,12 +504,16 @@ struct BodyHealthMetricDayChart: View {
         self.secondaryHourlyBuckets = secondaryBuckets
         self.latestBucketDate = buckets.last?.plotDate
         self.latestSecondaryBucketDate = secondaryBuckets.last?.plotDate
-        let primaryEntries = buckets.map {
-            BodyHealthMetricDayChartEntry(sourceName: primarySourceName, sourceRole: .primary, bucket: $0)
-        }
-        let secondaryEntries = secondaryBuckets.map {
-            BodyHealthMetricDayChartEntry(sourceName: secondarySourceName, sourceRole: .secondary, bucket: $0)
-        }
+        let primaryEntries = Self.makeEntries(
+            from: buckets,
+            sourceName: primarySourceName,
+            sourceRole: .primary
+        )
+        let secondaryEntries = Self.makeEntries(
+            from: secondaryBuckets,
+            sourceName: secondarySourceName,
+            sourceRole: .secondary
+        )
         let allEntries = primaryEntries + secondaryEntries
         self.entries = allEntries
         self.finiteEntries = allEntries.filter { $0.averageValue.isFinite }
@@ -551,7 +564,7 @@ struct BodyHealthMetricDayChart: View {
                 LineMark(
                     x: .value("Time", entry.plotDate),
                     y: .value(title, entry.averageValue),
-                    series: .value("Source", entry.sourceRole.rawValue)
+                    series: .value("Segment", entry.seriesKey)
                 )
                 .interpolationMethod(.linear)
                 .foregroundStyle(color(for: entry))
@@ -698,15 +711,52 @@ struct BodyHealthMetricDayChart: View {
         let padding = max((maximum - minimum) * 0.16, 1)
         return max(0, minimum - padding)...(maximum + padding)
     }
+
+    static func segmentIndices(
+        forSortedPlotDates dates: [Date],
+        gapThreshold: TimeInterval = segmentGapThreshold
+    ) -> [Int] {
+        var indices: [Int] = []
+        indices.reserveCapacity(dates.count)
+        var current = 0
+        for (offset, date) in dates.enumerated() {
+            if offset > 0, date.timeIntervalSince(dates[offset - 1]) >= gapThreshold {
+                current += 1
+            }
+            indices.append(current)
+        }
+        return indices
+    }
+
+    private static func makeEntries(
+        from buckets: [HealthTrendHourlyBucket],
+        sourceName: String,
+        sourceRole: BodyHealthSourceRole
+    ) -> [BodyHealthMetricDayChartEntry] {
+        let indices = segmentIndices(forSortedPlotDates: buckets.map(\.plotDate))
+        return zip(buckets, indices).map { bucket, index in
+            BodyHealthMetricDayChartEntry(
+                sourceName: sourceName,
+                sourceRole: sourceRole,
+                bucket: bucket,
+                segmentIndex: index
+            )
+        }
+    }
 }
 
 struct BodyHealthMetricDayChartEntry: Identifiable {
     let sourceName: String
     let sourceRole: BodyHealthSourceRole
     let bucket: HealthTrendHourlyBucket
+    let segmentIndex: Int
 
     var id: String {
         "\(sourceRole.rawValue)-\(bucket.id)"
+    }
+
+    var seriesKey: String {
+        "\(sourceRole.rawValue)-\(segmentIndex)"
     }
 
     var plotDate: Date {
@@ -773,9 +823,7 @@ struct BodyHealthMetricDayAnnotation: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .shadow(color: Color.black.opacity(0.10), radius: 8, y: 4)
+        .bodyChartSelectionAnnotationBackground()
     }
 
     private var sampleWindows: [HealthTrendHourlySampleWindow] {

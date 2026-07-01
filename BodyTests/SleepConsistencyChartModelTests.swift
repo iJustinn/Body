@@ -68,6 +68,7 @@ final class SleepConsistencyChartModelTests: XCTestCase {
 
         XCTAssertEqual(try XCTUnwrap(model.averageBedOffsetHours), 0.5, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(model.averageWakeOffsetHours), 8.0, accuracy: 0.001)
+        XCTAssertEqual(model.consistencyPercentage, 70)
     }
 
     func testMissingDaysKeepSlotsWithoutNights() throws {
@@ -108,6 +109,54 @@ final class SleepConsistencyChartModelTests: XCTestCase {
         XCTAssertTrue(model.nights.isEmpty)
         XCTAssertNil(model.averageBedOffsetHours)
         XCTAssertNil(model.averageWakeOffsetHours)
+        XCTAssertNil(model.consistencyPercentage)
+    }
+
+    func testConsistencyPercentageRequiresAtLeastTwoNights() throws {
+        let day = try date(2026, 6, 10)
+        let snapshot = SleepStageSnapshot(date: day, segments: [
+            SleepStageSegment(stage: .core, startDate: try date(2026, 6, 9, 23, 0), endDate: try date(2026, 6, 10, 7, 0))
+        ])
+
+        let model = SleepConsistencyChartModel.make(entries: [(day: day, snapshot: snapshot)], calendar: calendar)
+
+        XCTAssertNil(model.consistencyPercentage)
+    }
+
+    func testConsistencyPercentageScoresStableSleepAsPerfect() throws {
+        let firstDay = try date(2026, 6, 9)
+        let secondDay = try date(2026, 6, 10)
+        let firstSnapshot = SleepStageSnapshot(date: firstDay, segments: [
+            SleepStageSegment(stage: .core, startDate: try date(2026, 6, 8, 23, 0), endDate: try date(2026, 6, 9, 7, 0))
+        ])
+        let secondSnapshot = SleepStageSnapshot(date: secondDay, segments: [
+            SleepStageSegment(stage: .core, startDate: try date(2026, 6, 9, 23, 30), endDate: try date(2026, 6, 10, 7, 30))
+        ])
+
+        let model = SleepConsistencyChartModel.make(
+            entries: [(day: firstDay, snapshot: firstSnapshot), (day: secondDay, snapshot: secondSnapshot)],
+            calendar: calendar
+        )
+
+        XCTAssertEqual(model.consistencyPercentage, 100)
+    }
+
+    func testConsistencyPercentageScoresOppositeSleepWindowsAsZero() throws {
+        let firstDay = try date(2026, 6, 10)
+        let secondDay = try date(2026, 6, 11)
+        let overnightSnapshot = SleepStageSnapshot(date: firstDay, segments: [
+            SleepStageSegment(stage: .core, startDate: try date(2026, 6, 9, 22, 0), endDate: try date(2026, 6, 10, 6, 0))
+        ])
+        let daytimeSnapshot = SleepStageSnapshot(date: secondDay, segments: [
+            SleepStageSegment(stage: .core, startDate: try date(2026, 6, 11, 10, 0), endDate: try date(2026, 6, 11, 18, 0))
+        ])
+
+        let model = SleepConsistencyChartModel.make(
+            entries: [(day: firstDay, snapshot: overnightSnapshot), (day: secondDay, snapshot: daytimeSnapshot)],
+            calendar: calendar
+        )
+
+        XCTAssertEqual(model.consistencyPercentage, 0)
     }
 
     func testDomainPadsBedAndWakeByHalfHour() throws {

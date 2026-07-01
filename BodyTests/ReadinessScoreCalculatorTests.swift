@@ -512,6 +512,280 @@ final class ReadinessScoreCalculatorTests: XCTestCase {
         XCTAssertEqual(summary.confidence, .low, "neutral autonomic core must cap confidence at low")
     }
 
+    // MARK: - Activity drain + frozen morning record
+
+    func testActivityDrainLowersLiveScoreButNotHistoryToday() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let trends = moderateDayTrends(on: scoreDay, calendar: calendar)
+        let undrained = try XCTUnwrap(
+            ReadinessScoreCalculator.summary(on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar).score
+        )
+
+        let workout = WorkoutSummary(
+            type: .running,
+            startDate: scoreDay.addingTimeInterval(12 * 3_600),
+            duration: 3_600,
+            effortLevel: 9
+        )
+        let snapshot = HealthDashboardSnapshot(summary: .empty, trends: trends)
+            .recalculatingReadiness(on: scoreDay, calendar: calendar, todaysWorkouts: [workout])
+
+        let live = try XCTUnwrap(snapshot.summary.readiness.score)
+        XCTAssertLessThan(live, undrained, "live tile should drop after a hard workout")
+        let todayHistory = try XCTUnwrap(snapshot.trends.readiness.point(on: scoreDay)?.value)
+        XCTAssertEqual(Int(todayHistory), undrained, "history today point must stay at the undrained morning value")
+    }
+
+    func testDrainAppliesWithoutFreezing() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let trends = moderateDayTrends(on: scoreDay, calendar: calendar)
+        let undrained = try XCTUnwrap(
+            ReadinessScoreCalculator.summary(on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar).score
+        )
+
+        let workout = WorkoutSummary(
+            type: .running,
+            startDate: scoreDay.addingTimeInterval(12 * 3_600),
+            duration: 3_600,
+            effortLevel: 9
+        )
+        let snapshot = HealthDashboardSnapshot(summary: .empty, trends: trends)
+            .recalculatingReadiness(
+                on: scoreDay,
+                calendar: calendar,
+                todaysWorkouts: [workout],
+                freezesRecordedReadiness: false
+            )
+
+        XCTAssertLessThan(try XCTUnwrap(snapshot.summary.readiness.score), undrained)
+        XCTAssertTrue(snapshot.trends.recordedReadiness.isEmpty, "freeze:false must not write a record")
+    }
+
+    func testFreezeIsIdempotentWithinWindow() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let wake = scoreDay.addingTimeInterval(7 * 3_600)
+        let base = HealthDashboardSnapshot(summary: .empty, trends: moderateDayTrends(on: scoreDay, calendar: calendar))
+
+        let first = base.recalculatingReadiness(
+            on: scoreDay,
+            calendar: calendar,
+            wakeTime: wake,
+            now: scoreDay.addingTimeInterval(11 * 3_600),
+            freezesRecordedReadiness: true
+        )
+        XCTAssertEqual(first.trends.recordedReadiness.count, 1)
+        let frozen = try XCTUnwrap(first.trends.recordedReadiness.first?.score)
+
+        let second = first.recalculatingReadiness(
+            on: scoreDay,
+            calendar: calendar,
+            wakeTime: wake,
+            now: scoreDay.addingTimeInterval(12 * 3_600),
+            freezesRecordedReadiness: true
+        )
+        XCTAssertEqual(second.trends.recordedReadiness.count, 1, "freeze must be idempotent")
+        XCTAssertEqual(second.trends.recordedReadiness.first?.score, frozen)
+    }
+
+    func testFreezeWindowAndTenAMFallback() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let base = HealthDashboardSnapshot(summary: .empty, trends: moderateDayTrends(on: scoreDay, calendar: calendar))
+
+        // Wake unknown → fallback freeze at 10:00 local. Before 10:00: no record.
+        let early = base.recalculatingReadiness(
+            on: scoreDay, calendar: calendar, wakeTime: nil,
+            now: scoreDay.addingTimeInterval(9 * 3_600), freezesRecordedReadiness: true
+        )
+        XCTAssertTrue(early.trends.recordedReadiness.isEmpty, "no freeze before the 10:00 fallback")
+
+        // After 10:00, within the day: record written.
+        let onTime = base.recalculatingReadiness(
+            on: scoreDay, calendar: calendar, wakeTime: nil,
+            now: scoreDay.addingTimeInterval(10 * 3_600 + 1_800), freezesRecordedReadiness: true
+        )
+        XCTAssertEqual(onTime.trends.recordedReadiness.count, 1, "freeze at/after the 10:00 fallback")
+
+        // Past end of the day: no record (never freeze a stale late value).
+        let late = base.recalculatingReadiness(
+            on: scoreDay, calendar: calendar, wakeTime: nil,
+            now: scoreDay.addingTimeInterval(25 * 3_600), freezesRecordedReadiness: true
+        )
+        XCTAssertTrue(late.trends.recordedReadiness.isEmpty, "no freeze after the freeze window closes")
+    }
+
+    func testFrozenValueImmuneToLaterMorningInputChange() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let wake = scoreDay.addingTimeInterval(7 * 3_600)
+        let frozenSnapshot = HealthDashboardSnapshot(summary: .empty, trends: moderateDayTrends(on: scoreDay, calendar: calendar))
+            .recalculatingReadiness(
+                on: scoreDay, calendar: calendar, wakeTime: wake,
+                now: scoreDay.addingTimeInterval(11 * 3_600), freezesRecordedReadiness: true
+            )
+        let frozen = try XCTUnwrap(frozenSnapshot.trends.recordedReadiness.first?.score)
+
+        // Crash today's HRV, then recompute: the record and the chart's today
+        // point must stay pinned to the frozen morning value.
+        var mutated = frozenSnapshot
+        mutated.trends.heartRateVariability = constantSeries(baseline: 60, today: 15, on: scoreDay, calendar: calendar)
+        let after = mutated.recalculatingReadiness(
+            on: scoreDay, calendar: calendar, wakeTime: wake,
+            now: scoreDay.addingTimeInterval(12 * 3_600), freezesRecordedReadiness: true
+        )
+
+        XCTAssertEqual(after.trends.recordedReadiness.first?.score, frozen, "frozen record must not move")
+        XCTAssertEqual(Int(try XCTUnwrap(after.trends.readiness.point(on: scoreDay)?.value)), frozen, "chart pinned to frozen value")
+    }
+
+    func testChartPrefersFrozenRecordReplacedInPlace() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        var trends = moderateDayTrends(on: scoreDay, calendar: calendar)
+        trends.recordedReadiness = [RecordedReadinessEntry(date: scoreDay, score: 42)]
+
+        let snapshot = HealthDashboardSnapshot(summary: .empty, trends: trends)
+            .recalculatingReadiness(on: scoreDay, calendar: calendar)
+
+        let sameDayPoints = snapshot.trends.readiness.points.filter { calendar.isDate($0.date, inSameDayAs: scoreDay) }
+        XCTAssertEqual(sameDayPoints.count, 1, "overlay must replace in place, not append a duplicate")
+        XCTAssertEqual(snapshot.trends.readiness.point(on: scoreDay)?.value, 42)
+    }
+
+    func testOverlayDoesNotInsertPhantomPointForUncomputedDay() throws {
+        let calendar = Calendar.bodyGregorian
+        let dayA = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let dayB = try XCTUnwrap(calendar.date(byAdding: .day, value: -3, to: dayA))
+        let series = HealthTrendSeries(points: [HealthTrendDataPoint(date: dayA, value: 70)])
+
+        // A record for a day with no computed point must NOT be inserted — so a
+        // stale frozen value can't leak back when readiness is uncomputable.
+        let overlaid = series.applyingRecordedOverrides(
+            [RecordedReadinessEntry(date: dayB, score: 88)],
+            calendar: calendar
+        )
+        XCTAssertNil(overlaid.point(on: dayB))
+        XCTAssertEqual(overlaid.point(on: dayA)?.value, 70)
+    }
+
+    func testNoFreezePathDoesNotMutateRecord() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        var trends = moderateDayTrends(on: scoreDay, calendar: calendar)
+        trends.recordedReadiness = [RecordedReadinessEntry(date: scoreDay, score: 50)]
+
+        let snapshot = HealthDashboardSnapshot(summary: .empty, trends: trends)
+            .recalculatingReadiness(
+                on: scoreDay, calendar: calendar,
+                now: scoreDay.addingTimeInterval(11 * 3_600), freezesRecordedReadiness: false
+            )
+        XCTAssertEqual(snapshot.trends.recordedReadiness, [RecordedReadinessEntry(date: scoreDay, score: 50)])
+    }
+
+    func testRecordContextChangeDropsFrozenRecordsAndRestamps() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        var trends = moderateDayTrends(on: scoreDay, calendar: calendar)
+        trends.recordedReadiness = [RecordedReadinessEntry(date: scoreDay, score: 50)]
+        trends.recordedReadinessContext = "old-context"
+        let base = HealthDashboardSnapshot(summary: .empty, trends: trends)
+        let now = scoreDay.addingTimeInterval(11 * 3_600)
+
+        // A changed input context drops the stale records and re-stamps the signature.
+        let changed = base.recalculatingReadiness(
+            on: scoreDay, calendar: calendar, now: now,
+            freezesRecordedReadiness: false, recordedReadinessContext: "new-context"
+        )
+        XCTAssertTrue(changed.trends.recordedReadiness.isEmpty)
+        XCTAssertEqual(changed.trends.recordedReadinessContext, "new-context")
+
+        // The same context preserves the records.
+        let same = base.recalculatingReadiness(
+            on: scoreDay, calendar: calendar, now: now,
+            freezesRecordedReadiness: false, recordedReadinessContext: "old-context"
+        )
+        XCTAssertEqual(same.trends.recordedReadiness, [RecordedReadinessEntry(date: scoreDay, score: 50)])
+
+        // A nil context (the caller asserts nothing) leaves records and signature untouched.
+        let untouched = base.recalculatingReadiness(
+            on: scoreDay, calendar: calendar, now: now,
+            freezesRecordedReadiness: false, recordedReadinessContext: nil
+        )
+        XCTAssertEqual(untouched.trends.recordedReadiness, [RecordedReadinessEntry(date: scoreDay, score: 50)])
+        XCTAssertEqual(untouched.trends.recordedReadinessContext, "old-context")
+    }
+
+    func testLiveScoreFlooredAtZeroUnderHeavyDrain() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        var trends = HealthTrendSnapshot.empty
+        trends.heartRateVariability = constantSeries(baseline: 65, today: 15, on: scoreDay, calendar: calendar)
+        trends.restingHeartRate = constantSeries(baseline: 52, today: 85, on: scoreDay, calendar: calendar)
+        trends.trainingLoad = HealthTrendSeries(points: [HealthTrendDataPoint(date: scoreDay, value: 1.6)])
+        trends.sleepHistory = SleepHistorySnapshot(days: [
+            SleepDaySummary(
+                date: scoreDay,
+                summary: SleepSummary(
+                    duration: 4.0 * 3_600,
+                    stageSnapshot: stageSnapshot(on: scoreDay, asleepHours: 4.0, awakeHours: 1.0, calendar: calendar)
+                )
+            )
+        ])
+        let undrained = try XCTUnwrap(
+            ReadinessScoreCalculator.summary(on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar).score
+        )
+
+        let huge = WorkoutSummary(type: .hiit, startDate: scoreDay.addingTimeInterval(12 * 3_600), duration: 600 * 60, effortLevel: 10)
+        let snapshot = HealthDashboardSnapshot(summary: .empty, trends: trends)
+            .recalculatingReadiness(on: scoreDay, calendar: calendar, todaysWorkouts: [huge, huge, huge])
+
+        let live = try XCTUnwrap(snapshot.summary.readiness.score)
+        XCTAssertGreaterThanOrEqual(live, 0, "live score must never go negative")
+        XCTAssertLessThanOrEqual(live, undrained)
+    }
+
+    func testRecordedReadinessSurvivesCodableRoundTrip() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        var trends = HealthTrendSnapshot.empty
+        trends.recordedReadiness = [RecordedReadinessEntry(date: scoreDay, score: 77)]
+
+        let data = try JSONEncoder().encode(trends)
+        let decoded = try JSONDecoder().decode(HealthTrendSnapshot.self, from: data)
+        XCTAssertEqual(decoded.recordedReadiness, trends.recordedReadiness)
+    }
+
+    func testReplacingReadinessMetricPreservesRecordedReadiness() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        var trends = HealthTrendSnapshot.empty
+        trends.recordedReadiness = [RecordedReadinessEntry(date: scoreDay, score: 77)]
+
+        let replaced = trends.replacingMetric(.readiness, with: .empty)
+        XCTAssertEqual(replaced.recordedReadiness, trends.recordedReadiness, "carry-forward foundation: replacingMetric keeps the record")
+    }
+
+    private func moderateDayTrends(on scoreDay: Date, calendar: Calendar) -> HealthTrendSnapshot {
+        var trends = HealthTrendSnapshot.empty
+        trends.heartRateVariability = constantSeries(baseline: 60, today: 60, on: scoreDay, calendar: calendar)
+        trends.restingHeartRate = constantSeries(baseline: 58, today: 58, on: scoreDay, calendar: calendar)
+        trends.trainingLoad = HealthTrendSeries(points: [HealthTrendDataPoint(date: scoreDay, value: 1.0)])
+        trends.sleepHistory = SleepHistorySnapshot(days: [
+            SleepDaySummary(
+                date: scoreDay,
+                summary: SleepSummary(
+                    duration: 7.6 * 3_600,
+                    stageSnapshot: stageSnapshot(on: scoreDay, asleepHours: 7.6, awakeHours: 0.3, calendar: calendar)
+                )
+            )
+        ])
+        return trends
+    }
+
     // MARK: - Helpers
 
     private func trendsWithSleepDuration(

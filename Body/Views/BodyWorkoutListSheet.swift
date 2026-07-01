@@ -80,9 +80,11 @@ enum BodyWorkoutListSelection: Identifiable {
 }
 
 struct BodyWorkoutListSheet: View {
-    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
+    @State private var selectedWorkout: WorkoutSummary?
+    @Namespace private var workoutZoom
     let selection: BodyWorkoutListSelection
 
     var body: some View {
@@ -100,7 +102,16 @@ struct BodyWorkoutListSheet: View {
                         emptyState
                     } else {
                         ForEach(selection.workouts) { workout in
-                            BodyWorkoutRecordRow(workout: workout)
+                            Button {
+                                selectedWorkout = workout
+                            } label: {
+                                BodyWorkoutRecordRow(workout: workout)
+                                    .matchedTransitionSource(id: workout.id, in: workoutZoom) {
+                                        $0.clipShape(.rect(cornerRadius: 30, style: .continuous))
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Shows workout details")
                         }
                     }
                 }
@@ -108,13 +119,18 @@ struct BodyWorkoutListSheet: View {
                 .padding(.top, 14)
                 .padding(.bottom, 24)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
+            .background {
+                // On iOS 26+ the sheet's default Liquid Glass background shows through;
+                // older systems keep the opaque grouped background.
+                if #unavailable(iOS 26.0) {
+                    Color(.systemGroupedBackground).ignoresSafeArea()
                 }
+            }
+            .toolbar(.hidden, for: .navigationBar)
+            .fullScreenCover(item: $selectedWorkout) { workout in
+                BodyWorkoutDetailSheet(workout: workout)
+                    .environmentObject(workoutStore)
+                    .navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))
             }
         }
     }
@@ -159,7 +175,7 @@ struct BodyWorkoutListSheet: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity, minHeight: 94)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private var emptyState: some View {
@@ -169,7 +185,7 @@ struct BodyWorkoutListSheet: View {
             .foregroundColor(.secondary)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.vertical, 28)
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
     }
 
     private var selectedEnergyUnitPreference: BodyValueFormat.EnergyUnitPreference {
@@ -238,7 +254,7 @@ private struct BodyWorkoutRecordRow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, minHeight: 88)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private var workoutDetailText: String {

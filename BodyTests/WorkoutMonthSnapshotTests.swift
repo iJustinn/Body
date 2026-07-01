@@ -298,7 +298,8 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(presentation.effortPresentation?.segmentFills, [1, 1, 1, 0.5, 0])
         XCTAssertEqual(presentation.heartRateSamples.map(\.beatsPerMinute), [102, 122, 146])
         XCTAssertEqual(presentation.sourceText, "Motra")
-        XCTAssertEqual(presentation.detailMetrics.map(\.title), ["Active Kcal", "Total Kcal", "Avg Heart Rate", "Distance"])
+        XCTAssertEqual(presentation.detailMetrics.map(\.title), ["Distance", "Active Kcal", "Total Kcal", "Avg Heart Rate"])
+        XCTAssertNil(presentation.heroDistanceValue)
     }
 
     func testWorkoutEffortPresentationMapsScoresToAppleStyleBars() throws {
@@ -469,6 +470,210 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertNil(presentation.distanceText)
     }
 
+    func testWorkoutPaceStyleClassification() {
+        XCTAssertEqual(BodyWorkoutType.running.paceStyle, .distancePace)
+        XCTAssertEqual(BodyWorkoutType.walking.paceStyle, .distancePace)
+        XCTAssertEqual(BodyWorkoutType.hiking.paceStyle, .distancePace)
+        XCTAssertEqual(BodyWorkoutType.cycling.paceStyle, .speed)
+        XCTAssertEqual(BodyWorkoutType.handCycling.paceStyle, .speed)
+        XCTAssertEqual(BodyWorkoutType.swimming.paceStyle, .swimPace)
+        XCTAssertEqual(BodyWorkoutType.strengthTraining.paceStyle, .none)
+        XCTAssertTrue(BodyWorkoutType.running.supportsRunningPower)
+        XCTAssertFalse(BodyWorkoutType.walking.supportsRunningPower)
+        XCTAssertTrue(BodyWorkoutType.hiking.supportsStepCadence)
+        XCTAssertFalse(BodyWorkoutType.wheelchairWalkPace.supportsStepCadence)
+        XCTAssertTrue(BodyWorkoutType.running.supportsCardioFitness)
+        XCTAssertFalse(BodyWorkoutType.cycling.supportsCardioFitness)
+        // Paced activities and snow sports promote distance to the hero; non-distance
+        // activities (e.g. strength) keep the in-grid distance tile.
+        XCTAssertTrue(BodyWorkoutType.running.promotesDistanceToHero)
+        XCTAssertTrue(BodyWorkoutType.snowboarding.promotesDistanceToHero)
+        XCTAssertTrue(BodyWorkoutType.downhillSkiing.promotesDistanceToHero)
+        XCTAssertTrue(BodyWorkoutType.crossCountrySkiing.promotesDistanceToHero)
+        XCTAssertEqual(BodyWorkoutType.snowboarding.paceStyle, .none)
+        XCTAssertFalse(BodyWorkoutType.strengthTraining.promotesDistanceToHero)
+    }
+
+    func testHeartRateZonesComputeTimeBoundsAndFractions() throws {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        // maxHR 200 → zone lower bounds at 100/120/140/160/180 bpm. Samples 10s apart land
+        // in Zone 0 (90), Zone 2 (130), then Zone 4 (170); the final sample has no trailing gap.
+        let samples = [
+            WorkoutHeartRateSample(date: start, beatsPerMinute: 90),
+            WorkoutHeartRateSample(date: start.addingTimeInterval(10), beatsPerMinute: 130),
+            WorkoutHeartRateSample(date: start.addingTimeInterval(20), beatsPerMinute: 170),
+            WorkoutHeartRateSample(date: start.addingTimeInterval(30), beatsPerMinute: 170)
+        ]
+
+        let zones = try XCTUnwrap(WorkoutHeartRateZones.zones(samples: samples, maxHeartRate: 200))
+        XCTAssertEqual(zones.map(\.zone), [5, 4, 3, 2, 1, 0])
+
+        let byZone = Dictionary(uniqueKeysWithValues: zones.map { ($0.zone, $0) })
+        XCTAssertEqual(byZone[0]?.duration, 10)
+        XCTAssertEqual(byZone[2]?.duration, 10)
+        XCTAssertEqual(byZone[4]?.duration, 10)
+        XCTAssertEqual(byZone[1]?.duration, 0)
+        XCTAssertEqual(try XCTUnwrap(byZone[4]?.fraction), 1.0 / 3.0, accuracy: 0.0001)
+
+        XCTAssertEqual(byZone[0]?.bpmRangeText, "≤99")
+        XCTAssertEqual(byZone[2]?.bpmRangeText, "120–139")
+        XCTAssertEqual(byZone[5]?.bpmRangeText, "≥180")
+
+        XCTAssertNil(WorkoutHeartRateZones.zones(samples: [samples[0]], maxHeartRate: 200))
+        XCTAssertNil(WorkoutHeartRateZones.zones(samples: samples, maxHeartRate: 0))
+    }
+
+    func testWorkoutDetailPresentationAddsPacedRunMetrics() throws {
+        let start = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 7)
+        ))
+        let workout = WorkoutSummary(
+            type: .running,
+            startDate: start,
+            duration: 1_800,
+            activeEnergyKilocalories: 320,
+            totalEnergyKilocalories: 360,
+            distanceMeters: 5_000,
+            averageHeartRateBeatsPerMinute: 150,
+            maximumHeartRateBeatsPerMinute: 172,
+            heartRateSamples: [WorkoutHeartRateSample(date: start, beatsPerMinute: 150)],
+            elevationAscendedMeters: 80,
+            averagePowerWatts: 310,
+            averageStepCadenceSPM: 168,
+            cardioFitnessVO2Max: 48.5,
+            sourceName: "Apple Watch"
+        )
+
+        let presentation = WorkoutDetailPresentation(
+            workout: workout,
+            locale: Locale(identifier: "en_US_POSIX"),
+            unitPreference: .metric
+        )
+
+        XCTAssertEqual(presentation.detailMetrics.map(\.title), [
+            "Avg Pace", "Elevation Gain",
+            "Active Kcal", "Total Kcal", "Avg Heart Rate", "Max Heart Rate",
+            "Cadence", "Avg Power", "Cardio Fitness"
+        ])
+        XCTAssertEqual(presentation.heroDistanceValue, "5.0")
+        XCTAssertEqual(presentation.heroDistanceUnit, "km")
+        XCTAssertFalse(presentation.detailMetrics.map(\.kind).contains(.distance))
+        let byTitle = Dictionary(uniqueKeysWithValues: presentation.detailMetrics.map { ($0.title, $0.value) })
+        XCTAssertEqual(byTitle["Avg Pace"], "6:00 /km")
+        XCTAssertEqual(byTitle["Elevation Gain"], "80 m")
+        XCTAssertEqual(byTitle["Max Heart Rate"], "172 BPM")
+        XCTAssertEqual(byTitle["Cadence"], "168 SPM")
+        XCTAssertEqual(byTitle["Avg Power"], "310 W")
+        XCTAssertEqual(byTitle["Cardio Fitness"], "48.5 ml/kg·min")
+        XCTAssertEqual(presentation.detailMetrics.first { $0.title == "Cadence" }?.kind, .stepCadence)
+    }
+
+    func testWorkoutDetailPresentationAddsSpeedAndCyclingCadence() throws {
+        let start = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 7)
+        ))
+        let workout = WorkoutSummary(
+            type: .cycling,
+            startDate: start,
+            duration: 3_600,
+            activeEnergyKilocalories: 500,
+            totalEnergyKilocalories: 560,
+            distanceMeters: 30_000,
+            averageHeartRateBeatsPerMinute: 140,
+            averagePowerWatts: 220,
+            averageCyclingCadenceRPM: 85,
+            sourceName: "Apple Watch"
+        )
+
+        let presentation = WorkoutDetailPresentation(
+            workout: workout,
+            locale: Locale(identifier: "en_US_POSIX"),
+            unitPreference: .metric
+        )
+
+        let byTitle = Dictionary(uniqueKeysWithValues: presentation.detailMetrics.map { ($0.title, $0.value) })
+        XCTAssertEqual(byTitle["Avg Speed"], "30.0 km/h")
+        XCTAssertEqual(byTitle["Cadence"], "85 RPM")
+        XCTAssertEqual(byTitle["Avg Power"], "220 W")
+        XCTAssertEqual(presentation.detailMetrics.first { $0.title == "Cadence" }?.kind, .cyclingCadence)
+        XCTAssertTrue(presentation.detailMetrics.map(\.kind).contains(.speed))
+        XCTAssertFalse(presentation.detailMetrics.map(\.kind).contains(.cardioFitness))
+        XCTAssertEqual(presentation.heroDistanceValue, "30.0")
+        XCTAssertEqual(presentation.heroDistanceUnit, "km")
+        XCTAssertFalse(presentation.detailMetrics.map(\.kind).contains(.distance))
+    }
+
+    func testWorkoutDetailPresentationAddsSwimPaceAndStrokes() throws {
+        let start = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 7)
+        ))
+        let workout = WorkoutSummary(
+            type: .swimming,
+            startDate: start,
+            duration: 1_800,
+            activeEnergyKilocalories: 300,
+            distanceMeters: 1_500,
+            swimmingStrokeCount: 600,
+            sourceName: "Apple Watch"
+        )
+
+        let presentation = WorkoutDetailPresentation(
+            workout: workout,
+            locale: Locale(identifier: "en_US_POSIX"),
+            unitPreference: .metric
+        )
+
+        let byTitle = Dictionary(uniqueKeysWithValues: presentation.detailMetrics.map { ($0.title, $0.value) })
+        XCTAssertEqual(byTitle["Avg Pace"], "2:00 /100m")
+        XCTAssertEqual(byTitle["Swim Strokes"], "600")
+        XCTAssertTrue(presentation.detailMetrics.map(\.kind).contains(.swimPace))
+        XCTAssertTrue(presentation.detailMetrics.map(\.kind).contains(.strokeCount))
+        XCTAssertEqual(presentation.heroDistanceValue, "1.5")
+        XCTAssertEqual(presentation.heroDistanceUnit, "km")
+        XCTAssertFalse(presentation.detailMetrics.map(\.kind).contains(.distance))
+    }
+
+    func testActivityMetricFormattersHonorUnitPreferences() {
+        let locale = Locale(identifier: "en_US_POSIX")
+
+        XCTAssertEqual(
+            BodyValueFormat.paceText(meters: 1_609.344, seconds: 480, distanceUnitPreference: .miles, locale: locale),
+            "8:00 /mi"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.paceText(meters: 1_000, seconds: 300, distanceUnitPreference: .kilometers, locale: locale),
+            "5:00 /km"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.speedText(meters: 16_093.44, seconds: 3_600, distanceUnitPreference: .miles, locale: locale),
+            "10.0 mph"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.speedText(meters: 10_000, seconds: 3_600, distanceUnitPreference: .kilometers, locale: locale),
+            "10.0 km/h"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.swimPaceText(meters: 91.44, seconds: 120, distanceUnitPreference: .miles, locale: locale),
+            "2:00 /100yd"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.swimPaceText(meters: 100, seconds: 120, distanceUnitPreference: .kilometers, locale: locale),
+            "2:00 /100m"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.elevationText(meters: 100, distanceUnitPreference: .miles, locale: locale),
+            "328 ft"
+        )
+        XCTAssertEqual(
+            BodyValueFormat.elevationText(meters: 80, distanceUnitPreference: .kilometers, locale: locale),
+            "80 m"
+        )
+        XCTAssertEqual(BodyValueFormat.powerText(watts: 310, locale: locale), "310 W")
+        XCTAssertEqual(BodyValueFormat.cadenceText(168, unit: "SPM", locale: locale), "168 SPM")
+        XCTAssertEqual(BodyValueFormat.vo2MaxText(48.5, locale: locale), "48.5 ml/kg·min")
+        XCTAssertEqual(BodyValueFormat.strokeCountText(600, locale: locale), "600")
+    }
+
     func testHealthTrendRangeDefaultsToRecentWeek() {
         XCTAssertEqual(BodyAppearancePreference.defaultTrendRangeKey, "defaultTrendRange")
         XCTAssertEqual(BodyHealthTrendRange.defaultValue, .recentWeek)
@@ -477,6 +682,14 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(BodyHealthTrendRange.allCases.map(\.displayName), ["Week", "Month", "6 Months", "Year"])
         XCTAssertEqual(BodyHealthTrendRange.recentSixMonths.selectionSubtitle, "6 months")
         XCTAssertEqual(BodyHealthTrendRange.recentYear.iconName, "calendar")
+    }
+
+    func testAppThemeDefaultsToDarkAndGatesLightMode() {
+        XCTAssertEqual(BodyAppTheme.defaultValue, .dark)
+        XCTAssertEqual(BodyAppTheme.storedValue(from: BodyAppTheme.dark.rawValue), .dark)
+        XCTAssertEqual(BodyAppTheme.storedValue(from: BodyAppTheme.light.rawValue), .dark)
+        XCTAssertEqual(BodyAppTheme.storedValue(from: BodyAppTheme.system.rawValue), .dark)
+        XCTAssertEqual(BodyAppTheme.storedValue(from: "unknown"), .dark)
     }
 
     func testSleepDurationGoalDefaultsToEightHoursAndClampsStoredMinutes() {
@@ -777,7 +990,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(series.points.allSatisfy { (0...100).contains($0.value) })
     }
 
-    func testBodyHomeCardKindIncludesReadinessAfterActivityRings() throws {
+    func testBodyHomeCardKindIncludesReadinessBeforeExerciseMinutes() throws {
         XCTAssertEqual(BodyHomeCardKind.readiness.healthMetricKind, .readiness)
         XCTAssertTrue(BodyHomeCardKind.defaultOrder.contains(.readiness))
         XCTAssertLessThan(
@@ -1802,6 +2015,81 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
     }
 
+    func testRemovingWorkoutMetricsClearsDetailFieldsAndKeepsCoreData() {
+        let summary = WorkoutSummary(
+            type: .strengthTraining,
+            startDate: Date(timeIntervalSince1970: 1_000_000),
+            duration: 1_800,
+            activeEnergyKilocalories: 250,
+            totalEnergyKilocalories: 300,
+            distanceMeters: 5_000,
+            averageHeartRateBeatsPerMinute: 150,
+            maximumHeartRateBeatsPerMinute: 175,
+            effortLevel: 6,
+            averagePowerWatts: 240,
+            averageStepCadenceSPM: 170,
+            averageCyclingCadenceRPM: 85,
+            swimmingStrokeCount: 400,
+            cardioFitnessVO2Max: 48
+        )
+
+        let sanitized = summary.removingWorkoutMetrics()
+
+        // The five Workout Metrics detail fields are cleared.
+        XCTAssertNil(sanitized.averagePowerWatts)
+        XCTAssertNil(sanitized.averageStepCadenceSPM)
+        XCTAssertNil(sanitized.averageCyclingCadenceRPM)
+        XCTAssertNil(sanitized.swimmingStrokeCount)
+        XCTAssertNil(sanitized.cardioFitnessVO2Max)
+        // Core workout data (distance, energy, heart rate, effort, identity) is preserved.
+        XCTAssertEqual(sanitized.id, summary.id)
+        XCTAssertEqual(sanitized.distanceMeters, 5_000)
+        XCTAssertEqual(sanitized.activeEnergyKilocalories, 250)
+        XCTAssertEqual(sanitized.totalEnergyKilocalories, 300)
+        XCTAssertEqual(sanitized.averageHeartRateBeatsPerMinute, 150)
+        XCTAssertEqual(sanitized.maximumHeartRateBeatsPerMinute, 175)
+        XCTAssertEqual(sanitized.effortLevel, 6)
+    }
+
+    func testExpandedPermissionMigrationAddsNewTogglesForLegacySelections() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // A selection saved before the new categories existed: Workouts + Heart on.
+        defaults.set("workouts,heart,sleep", forKey: BodyAppearancePreference.healthPermissionSelectionKey)
+
+        let migrated = BodyHealthPermissionSelection.load(defaults: defaults)
+        XCTAssertTrue(migrated.includes(.workoutMetrics))
+        XCTAssertTrue(migrated.includes(.dateOfBirth))
+        XCTAssertTrue(migrated.includes(.workouts))
+        XCTAssertTrue(migrated.includes(.heart))
+        XCTAssertTrue(defaults.bool(forKey: BodyAppearancePreference.healthPermissionExpandedMigratedKey))
+
+        // Idempotent: a later intentional opt-out is not re-enabled on the next load.
+        migrated
+            .setting(.workoutMetrics, isEnabled: false)
+            .setting(.dateOfBirth, isEnabled: false)
+            .save(defaults: defaults)
+        let reloaded = BodyHealthPermissionSelection.load(defaults: defaults)
+        XCTAssertFalse(reloaded.includes(.workoutMetrics))
+        XCTAssertFalse(reloaded.includes(.dateOfBirth))
+    }
+
+    func testExpandedPermissionMigrationSkipsWhenParentsDisabled() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // Everything off ("none"): neither new toggle is added, but the flag is set.
+        defaults.set("none", forKey: BodyAppearancePreference.healthPermissionSelectionKey)
+
+        let migrated = BodyHealthPermissionSelection.load(defaults: defaults)
+        XCTAssertFalse(migrated.includes(.workoutMetrics))
+        XCTAssertFalse(migrated.includes(.dateOfBirth))
+        XCTAssertTrue(defaults.bool(forKey: BodyAppearancePreference.healthPermissionExpandedMigratedKey))
+    }
+
     func testHealthDashboardSnapshotsFilterDisabledPermissions() {
         let date = Date(timeIntervalSince1970: 0)
         let selection = BodyHealthPermissionSelection(enabledPermissions: [.steps, .wristTemperature])
@@ -1909,6 +2197,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             .timeInDaylight,
             .sleep
         ])
+        XCTAssertEqual(migratedOrder.last, .steps)
         XCTAssertEqual(Set(order), Set(BodyHomeCardKind.defaultOrder))
         XCTAssertEqual(order.count, BodyHomeCardKind.defaultOrder.count)
         XCTAssertTrue(order.contains(.activityRings))
@@ -1920,8 +2209,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(order.contains(.heartRate))
         XCTAssertEqual(
             Array(BodyHomeCardKind.defaultOrder.prefix(6)),
-            [.activityRings, .sleep, .basics, .heartRate, .heartRateVariability, .trainingLoad]
+            [.sleep, .basics, .heartRate, .heartRateVariability, .trainingLoad, .readiness]
         )
+        XCTAssertEqual(BodyHomeCardKind.defaultOrder.last, .activityRings)
         XCTAssertLessThan(
             BodyHomeCardKind.defaultOrder.firstIndex(of: .heartRate) ?? .max,
             BodyHomeCardKind.defaultOrder.firstIndex(of: .restingHeartRate) ?? .max
@@ -1934,16 +2224,18 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let movedDown = BodyHomeCardKind.reordered(order, moving: .sleep, to: .basics)
         XCTAssertEqual(
             Array(movedDown.prefix(9)),
-            [.activityRings, .basics, .sleep, .heartRate, .heartRateVariability, .trainingLoad, .readiness, .activeEnergy, .restingEnergy]
+            [.basics, .sleep, .heartRate, .heartRateVariability, .trainingLoad, .readiness, .activeEnergy, .restingEnergy, .wristTemperature]
         )
+        XCTAssertEqual(movedDown.last, .activityRings)
         XCTAssertEqual(Set(movedDown), Set(order))
         XCTAssertEqual(movedDown.count, order.count)
 
         let movedUp = BodyHomeCardKind.reordered(order, moving: .activeEnergy, to: .sleep)
         XCTAssertEqual(
             Array(movedUp.prefix(9)),
-            [.activityRings, .activeEnergy, .sleep, .basics, .heartRate, .heartRateVariability, .trainingLoad, .readiness, .restingEnergy]
+            [.activeEnergy, .sleep, .basics, .heartRate, .heartRateVariability, .trainingLoad, .readiness, .restingEnergy, .wristTemperature]
         )
+        XCTAssertEqual(movedUp.last, .activityRings)
         XCTAssertEqual(Set(movedUp), Set(order))
         XCTAssertEqual(movedUp.count, order.count)
     }
@@ -1965,23 +2257,23 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
     func testSummaryCardSelectionStoresVisibleCardsWithoutChangingOrder() {
         let selection = BodySummaryCardSelection(selectedCards: [.activityRings, .sleep, .heartRate])
 
-        XCTAssertEqual(selection.rawValue, "activityRings,sleep,heartRate")
+        XCTAssertEqual(selection.rawValue, "sleep,heartRate,activityRings")
         XCTAssertEqual(selection.enabledCount, 3)
         XCTAssertTrue(selection.includes(.activityRings))
         XCTAssertTrue(selection.includes(.sleep))
         XCTAssertFalse(selection.includes(.steps))
         XCTAssertEqual(
             selection.setting(.steps, isEnabled: true).rawValue,
-            "activityRings,sleep,heartRate,steps"
+            "sleep,heartRate,steps,activityRings"
         )
         XCTAssertEqual(
             selection.setting(.sleep, isEnabled: false).rawValue,
-            "activityRings,heartRate"
+            "heartRate,activityRings"
         )
 
         XCTAssertEqual(
             BodySummaryCardSelection.storedValue(from: "activityRings,unknown,steps").rawValue,
-            "activityRings,steps"
+            "steps,activityRings"
         )
         XCTAssertEqual(
             BodySummaryCardSelection.storedValue(from: "").rawValue,
@@ -2027,7 +2319,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 .restingEnergy,
                 .exerciseMinutes,
                 .trainingLoad,
-                .timeInDaylight
+                .timeInDaylight,
+                .bodyMass,
+                .bodyFatPercentage
             ]
         )
         XCTAssertEqual(selection.rawValue, "heartRate,sleep,steps")
@@ -2055,6 +2349,84 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             BodyHomeTrendCardSelection.storedValue(from: "none").enabledCount,
             0
         )
+    }
+
+    @MainActor
+    func testHomeTrendCardFactoryBuildsWeightAndBodyFatCardsWithUnitConversion() throws {
+        let calendar = Calendar.bodyGregorian
+        let today = calendar.startOfDay(for: Date())
+        // Older 21 days vs. recent 7 days (same shape the resting-heart-rate test
+        // proves resolves to a 7-day recent window).
+        let weightPoints = try (-27...0).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: today))
+            return HealthTrendDataPoint(date: date, value: offset < -6 ? 72.0 : 69.0) // kilograms
+        }
+        let bodyFatPoints = try (-27...0).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: today))
+            return HealthTrendDataPoint(date: date, value: offset < -6 ? 25.0 : 20.0) // already 0–100
+        }
+
+        var trends = HealthTrendSnapshot.empty
+        trends.bodyMass = HealthTrendSeries(points: weightPoints)
+        trends.bodyFatPercentage = HealthTrendSeries(points: bodyFatPoints)
+
+        let cards = BodyHomeTrendCardFactory.cards(
+            trends: trends,
+            selection: BodyHomeTrendCardSelection(selectedCards: [.bodyMass, .bodyFatPercentage]),
+            temperatureUnitPreference: .defaultValue,
+            energyUnitPreference: .defaultValue,
+            weightUnitPreference: .pounds,
+            includesStable: true,
+            cache: BodyHomeTrendComputationCache()
+        )
+
+        XCTAssertEqual(cards.count, 2)
+        XCTAssertEqual(cards.map(\.presentation.kind), [.bodyMass, .bodyFatPercentage])
+
+        let weightCard = try XCTUnwrap(cards.first { $0.presentation.kind == .bodyMass })
+        XCTAssertEqual(weightCard.presentation.title, "Weight")
+        XCTAssertEqual(weightCard.symbolName, "scalemass.fill")
+        XCTAssertEqual(weightCard.presentation.chartStyle, .line)
+        XCTAssertTrue(weightCard.presentation.recentAverageText.hasSuffix("lb"))
+        // 69–72 kg converts to ~152–159 lb; a value > 100 proves kg→lb ran before presentation.
+        XCTAssertGreaterThan(weightCard.presentation.recentAverage, 100)
+        XCTAssertGreaterThan(weightCard.presentation.baselineAverage, 100)
+        XCTAssertTrue(weightCard.presentation.messageText.contains("your weight"))
+
+        let bodyFatCard = try XCTUnwrap(cards.first { $0.presentation.kind == .bodyFatPercentage })
+        XCTAssertEqual(bodyFatCard.presentation.title, "Body Fat")
+        XCTAssertEqual(bodyFatCard.symbolName, "percent")
+        XCTAssertEqual(bodyFatCard.presentation.chartStyle, .line)
+        XCTAssertTrue(bodyFatCard.presentation.recentAverageText.hasSuffix("%"))
+        // Series is already 0–100; a value > 1 proves no extra 0–1 scaling is applied.
+        XCTAssertGreaterThan(bodyFatCard.presentation.recentAverage, 1)
+        XCTAssertTrue(bodyFatCard.presentation.messageText.contains("your body fat"))
+    }
+
+    func testDashboardFetchSelectionStarredReadinessForcesDependencies() {
+        // The Readiness star hero shows regardless of the Summary/Trend toggles, so its
+        // inputs must be fetched whenever it's starred — even with no readiness card shown.
+        let selection = BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection(selectedCards: [.steps]),
+            trendCards: BodyHomeTrendCardSelection(selectedCards: []),
+            starredMetric: .readiness
+        )
+
+        XCTAssertTrue(selection.includes(.readiness))
+        XCTAssertTrue(selection.includes(.sleep))
+        XCTAssertTrue(selection.includes(.heartRateVariability))
+        XCTAssertTrue(selection.includes(.restingHeartRate))
+        XCTAssertTrue(selection.includes(.trainingLoad))
+    }
+
+    func testStarredMetricParsingHonorsEligibility() {
+        XCTAssertEqual(BodyHomeCardKind.starredMetric(from: BodyHomeCardKind.readiness.rawValue), .readiness)
+        XCTAssertNil(BodyHomeCardKind.starredMetric(from: ""))
+        XCTAssertNil(BodyHomeCardKind.starredMetric(from: "not-a-kind"))
+        // Real card kinds that aren't star-eligible must not parse as a star metric
+        // (Readiness is currently the only eligible metric).
+        XCTAssertNil(BodyHomeCardKind.starredMetric(from: BodyHomeCardKind.activityRings.rawValue))
+        XCTAssertNil(BodyHomeCardKind.starredMetric(from: BodyHomeCardKind.sleep.rawValue))
     }
 
     func testDashboardFetchSelectionIncludesVisibleSummaryAndTrendCards() {

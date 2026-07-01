@@ -4,11 +4,245 @@
 //
 
 import SwiftUI
+import UIKit
 
 private enum BodyActivityRingPalette {
     static let move = Color(red: 1.00, green: 0.12, blue: 0.36)
     static let exercise = Color(red: 0.48, green: 1.00, blue: 0.00)
     static let stand = Color(red: 0.16, green: 0.92, blue: 0.96)
+}
+
+extension Color {
+    /// Parses a 6-digit RRGGBB hex string into a Color (nil when malformed).
+    init?(bodyHex hex: String) {
+        let cleaned = hex.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: "")
+        guard cleaned.count == 6, let value = UInt64(cleaned, radix: 16) else { return nil }
+        self = Color(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255
+        )
+    }
+
+    /// RRGGBB hex string for persistence.
+    var bodyHexString: String {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return String(format: "%02X%02X%02X", Int((r * 255).rounded()), Int((g * 255).rounded()), Int((b * 255).rounded()))
+    }
+}
+
+/// The customizable color mix + per-color widths behind the Home hero background.
+/// The app-wide custom background: the user's saved color mix when the Background setting
+/// is on, otherwise the plain grouped background. Used as-is on Workouts and Settings, which
+/// always show it. Home composes the mix directly instead (so it can suppress it while a star
+/// metric supplies the hero backdrop).
+struct BodyAppBackground: View {
+    @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var enabled = true
+    @AppStorage(BodyAppearancePreference.homeBackgroundColorsKey) private var colorsRawValue = ""
+    @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var separatorsRawValue = ""
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
+
+    var body: some View {
+        if enabled {
+            let isPro = proStore?.isPro ?? false
+            BodyActivityRingsCard.heroBackground(
+                colors: BodyHomeBackground.proGatedColors(from: colorsRawValue, isProUnlocked: isPro),
+                separators: BodyHomeBackground.proGatedSeparators(from: separatorsRawValue, isProUnlocked: isPro)
+            )
+        } else {
+            Color(.systemGroupedBackground)
+        }
+    }
+}
+
+/// Defaults to three neighboring blue tones split into uneven thirds; users can
+/// override the colors and the dividers between them.
+enum BodyHomeBackground {
+    static var defaultColors: [Color] {
+        [
+            Color(red: 0.19, green: 0.71, blue: 1.00),
+            Color(red: 0.04, green: 0.52, blue: 1.00),
+            Color(red: 0.00, green: 0.34, blue: 0.85)
+        ]
+    }
+
+    /// Internal divider positions for the default 3-color mix (two gates → three bands).
+    static var defaultSeparators: [Double] { [0.33, 0.67] }
+
+    static func colors(from rawValue: String) -> [Color] {
+        let parsed = rawValue
+            .split(separator: ",")
+            .compactMap { Color(bodyHex: String($0)) }
+        return parsed.isEmpty ? defaultColors : Array(parsed.prefix(3))
+    }
+
+    static func rawValue(from colors: [Color]) -> String {
+        colors.prefix(3).map(\.bodyHexString).joined(separator: ",")
+    }
+
+    static func separators(from rawValue: String) -> [Double] {
+        let parsed = rawValue
+            .split(separator: ",")
+            .compactMap { Double($0) }
+            .filter { $0 > 0 && $0 < 1 }
+            .sorted()
+        return parsed.isEmpty ? defaultSeparators : parsed
+    }
+
+    /// Custom background colors are a Body Pro feature; non-Pro users always render the
+    /// app-default mix regardless of any stored customization.
+    static func proGatedColors(from rawValue: String, isProUnlocked: Bool) -> [Color] {
+        isProUnlocked ? colors(from: rawValue) : defaultColors
+    }
+
+    static func proGatedSeparators(from rawValue: String, isProUnlocked: Bool) -> [Double] {
+        isProUnlocked ? separators(from: rawValue) : defaultSeparators
+    }
+
+    static func rawValue(fromSeparators separators: [Double]) -> String {
+        separators.map { String(format: "%.4f", $0) }.joined(separator: ",")
+    }
+
+    /// Sorted internal boundaries for `count` colors (count − 1 values in (0,1)),
+    /// falling back to the default split when the stored data doesn't match.
+    static func normalizedSeparators(_ separators: [Double], count: Int) -> [Double] {
+        guard count > 1 else { return [] }
+        let needed = count - 1
+        let cleaned = separators.filter { $0 > 0 && $0 < 1 }.sorted()
+        guard cleaned.count == needed else {
+            return Array(defaultSeparators.prefix(needed))
+        }
+        return cleaned
+    }
+}
+
+struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
+    static let appDefaultID = "app-default"
+
+    let id: String
+    let colorsRawValue: String
+    let separatorsRawValue: String
+    var name: String? = nil
+
+    static var appDefault: BodyHomeBackgroundProfile {
+        BodyHomeBackgroundProfile(
+            id: appDefaultID,
+            colorsRawValue: BodyHomeBackground.rawValue(from: BodyHomeBackground.defaultColors),
+            separatorsRawValue: BodyHomeBackground.rawValue(fromSeparators: BodyHomeBackground.defaultSeparators)
+        )
+    }
+
+    static func custom(name: String, colors: [Color], separators: [Double]) -> BodyHomeBackgroundProfile {
+        BodyHomeBackgroundProfile(
+            id: UUID().uuidString,
+            colorsRawValue: BodyHomeBackground.rawValue(from: colors),
+            separatorsRawValue: BodyHomeBackground.rawValue(
+                fromSeparators: BodyHomeBackground.normalizedSeparators(separators, count: 3)
+            ),
+            name: Self.sanitizedName(name)
+        )
+    }
+
+    var colors: [Color] {
+        BodyHomeBackground.colors(from: colorsRawValue)
+    }
+
+    var separators: [Double] {
+        BodyHomeBackground.normalizedSeparators(BodyHomeBackground.separators(from: separatorsRawValue), count: 3)
+    }
+
+    var fingerprint: String {
+        Self.fingerprint(colorsRawValue: colorsRawValue, separatorsRawValue: separatorsRawValue)
+    }
+
+    var segmentSummary: String {
+        let bounds = [0.0] + separators + [1.0]
+        return zip(bounds, bounds.dropFirst())
+            .map { Int((($1 - $0) * 100).rounded()) }
+            .map { "\($0)%" }
+            .joined(separator: " / ")
+    }
+
+    func displayName(defaultName: String) -> String {
+        Self.sanitizedName(name ?? "") ?? defaultName
+    }
+
+    func renamed(_ name: String) -> BodyHomeBackgroundProfile {
+        BodyHomeBackgroundProfile(
+            id: id,
+            colorsRawValue: colorsRawValue,
+            separatorsRawValue: separatorsRawValue,
+            name: Self.sanitizedName(name)
+        )
+    }
+
+    static func sanitizedName(_ name: String) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func fingerprint(colors: [Color], separators: [Double]) -> String {
+        fingerprint(
+            colorsRawValue: BodyHomeBackground.rawValue(from: colors),
+            separatorsRawValue: BodyHomeBackground.rawValue(
+                fromSeparators: BodyHomeBackground.normalizedSeparators(separators, count: 3)
+            )
+        )
+    }
+
+    static func fingerprint(colorsRawValue: String, separatorsRawValue: String) -> String {
+        let colorsRawValue = BodyHomeBackground.rawValue(from: BodyHomeBackground.colors(from: colorsRawValue))
+        let separatorsRawValue = BodyHomeBackground.rawValue(
+            fromSeparators: BodyHomeBackground.normalizedSeparators(
+                BodyHomeBackground.separators(from: separatorsRawValue),
+                count: 3
+            )
+        )
+        return "\(colorsRawValue)|\(separatorsRawValue)"
+    }
+}
+
+enum BodyHomeBackgroundProfileStore {
+    static let maximumProfileCount = 5
+    static var maximumCustomProfileCount: Int { maximumProfileCount - 1 }
+
+    static func allProfiles(from rawValue: String) -> [BodyHomeBackgroundProfile] {
+        [BodyHomeBackgroundProfile.appDefault] + customProfiles(from: rawValue)
+    }
+
+    static func customProfiles(from rawValue: String) -> [BodyHomeBackgroundProfile] {
+        guard
+            let data = rawValue.data(using: .utf8),
+            let decoded = try? JSONDecoder().decode([BodyHomeBackgroundProfile].self, from: data)
+        else {
+            return []
+        }
+
+        return Array(
+            decoded
+                .filter { $0.id != BodyHomeBackgroundProfile.appDefaultID }
+                .prefix(maximumCustomProfileCount)
+        )
+    }
+
+    static func rawValue(from profiles: [BodyHomeBackgroundProfile]) -> String {
+        let profiles = Array(
+            profiles
+                .filter { $0.id != BodyHomeBackgroundProfile.appDefaultID }
+                .prefix(maximumCustomProfileCount)
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard
+            let data = try? encoder.encode(profiles),
+            let rawValue = String(data: data, encoding: .utf8)
+        else {
+            return ""
+        }
+        return rawValue
+    }
 }
 
 enum BodyActivityRingGraphicGeometry {
@@ -478,18 +712,24 @@ private struct BodyScaledActivityRingGraphic: View {
 
 struct BodyActivityRingsCard: View {
     let summary: ActivityRingSummary
+    /// `true` renders the card chrome-free for the home-page star hero (the rings +
+    /// numbers sit directly on the tinted gradient backdrop).
+    var isHero: Bool = false
 
     private let ringSize: CGFloat = 108
+    private var heroRingScale: CGFloat { isHero ? 1.4 : 1.0 }
     private let moveColor = BodyActivityRingPalette.move
     private let exerciseColor = BodyActivityRingPalette.exercise
     private let standColor = BodyActivityRingPalette.stand
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
+        let card = HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Activity Rings")
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
+                if !isHero {
+                    Text("Activity Rings")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
+                }
 
                 ZStack(alignment: .topTrailing) {
                     BodyActivityRingGraphic(
@@ -507,6 +747,8 @@ struct BodyActivityRingsCard: View {
                     }
                 }
                 .frame(width: ringSize, height: ringSize)
+                .scaleEffect(heroRingScale)
+                .frame(width: ringSize * heroRingScale, height: ringSize * heroRingScale)
                 .padding(.leading, 12)
                 .animation(.easeInOut(duration: 0.35), value: summary.isCompleted)
                 .accessibilityHidden(true)
@@ -535,9 +777,50 @@ struct BodyActivityRingsCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(18)
+        .padding(isHero ? 6 : 18)
         .frame(maxWidth: .infinity, minHeight: 176, alignment: .leading)
-        .bodyCardBackground(cornerRadius: 28)
+
+        if isHero {
+            // No background shape — instead each colored ring/number gets a black layer
+            // directly beneath it (stacked shadows that hug the glyph/arc shapes), so the
+            // content reads on any backdrop without a visible card.
+            card
+                .environment(\.colorScheme, .dark)
+                .shadow(color: .black, radius: 3)
+                .shadow(color: .black, radius: 3)
+        } else {
+            card.bodyCardBackground(cornerRadius: 28, translucent: true, translucentFillOpacity: 0.09)
+        }
+    }
+
+    /// Full-bleed home backdrop: the chosen mix colors blended left to right, each
+    /// centered in a band whose width is set by `separators` (the draggable dividers),
+    /// over the page background, with a top-to-bottom fade so the colors ease into the
+    /// plain background lower down. Falls back to the three ring colors / default split.
+    static func heroBackground(colors: [Color], separators: [Double] = BodyHomeBackground.defaultSeparators) -> some View {
+        let mix = colors.isEmpty ? BodyHomeBackground.defaultColors : Array(colors.prefix(3))
+        let bounds = [0.0] + BodyHomeBackground.normalizedSeparators(separators, count: mix.count) + [1.0]
+
+        // Each color sits at the center of its band and blends smoothly into its
+        // neighbors; the dividers set the band widths (how much area each color takes).
+        let stops = mix.enumerated().map { index, color in
+            Gradient.Stop(color: color.opacity(0.3), location: (bounds[index] + bounds[index + 1]) / 2)
+        }
+
+        return ZStack {
+            Color(.systemGroupedBackground)
+
+            LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
+
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0.00),
+                    .init(color: Color(.systemGroupedBackground), location: 0.55)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
     }
 }
 

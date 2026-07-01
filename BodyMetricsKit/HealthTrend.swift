@@ -5,6 +5,13 @@
 
 import Foundation
 
+/// A frozen daily readiness record: the morning score (captured ~10 min after
+/// wake) that the history charts display. Immune to later intra-day changes.
+struct RecordedReadinessEntry: Codable, Equatable {
+    var date: Date   // calendar.startOfDay of the recorded day
+    var score: Int
+}
+
 struct HealthTrendSnapshot: Codable, Equatable {
     var sleep: HealthTrendSeries
     var sleepSecondary: HealthTrendSeries
@@ -51,6 +58,17 @@ struct HealthTrendSnapshot: Codable, Equatable {
     var activeEnergyDaySamplesSecondary: HealthTrendSeries
     var stepsDaySamples: HealthTrendSeries
     var stepsDaySamplesSecondary: HealthTrendSeries
+    /// Per-day frozen "morning" readiness records (captured ~10 min after wake).
+    /// The charts read these; later intra-day drain never touches them. Carried
+    /// forward across refreshes (see HealthKitFetchEngine.fetchHealthTrends).
+    var recordedReadiness: [RecordedReadinessEntry]
+    /// Signature of the readiness input context (enabled readiness permissions,
+    /// the primary source per readiness input kind, and source grouping) under
+    /// which `recordedReadiness` was captured. When the live context no longer
+    /// matches, the records are dropped so a recompute under the new inputs is
+    /// authoritative (see `recalculatingReadiness`). Persisted with the records,
+    /// so a context change is still detected after a failed refresh or relaunch.
+    var recordedReadinessContext: String
 
     static let empty = HealthTrendSnapshot(
         sleep: .empty,
@@ -97,7 +115,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         activeEnergyDaySamples: .empty,
         activeEnergyDaySamplesSecondary: .empty,
         stepsDaySamples: .empty,
-        stepsDaySamplesSecondary: .empty
+        stepsDaySamplesSecondary: .empty,
+        recordedReadiness: [],
+        recordedReadinessContext: ""
     )
 
     var isEmpty: Bool {
@@ -145,7 +165,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
             activeEnergyDaySamples.isEmpty &&
             activeEnergyDaySamplesSecondary.isEmpty &&
             stepsDaySamples.isEmpty &&
-            stepsDaySamplesSecondary.isEmpty
+            stepsDaySamplesSecondary.isEmpty &&
+            recordedReadiness.isEmpty
     }
 
     init(
@@ -193,7 +214,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         activeEnergyDaySamples: HealthTrendSeries = .empty,
         activeEnergyDaySamplesSecondary: HealthTrendSeries = .empty,
         stepsDaySamples: HealthTrendSeries = .empty,
-        stepsDaySamplesSecondary: HealthTrendSeries = .empty
+        stepsDaySamplesSecondary: HealthTrendSeries = .empty,
+        recordedReadiness: [RecordedReadinessEntry] = [],
+        recordedReadinessContext: String = ""
     ) {
         self.sleep = sleep
         self.sleepSecondary = sleepSecondary
@@ -240,6 +263,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.activeEnergyDaySamplesSecondary = activeEnergyDaySamplesSecondary
         self.stepsDaySamples = stepsDaySamples
         self.stepsDaySamplesSecondary = stepsDaySamplesSecondary
+        self.recordedReadiness = recordedReadiness
+        self.recordedReadinessContext = recordedReadinessContext
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -288,6 +313,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case activeEnergyDaySamplesSecondary
         case stepsDaySamples
         case stepsDaySamplesSecondary
+        case recordedReadiness
+        case recordedReadinessContext
     }
 
     init(from decoder: Decoder) throws {
@@ -409,6 +436,14 @@ struct HealthTrendSnapshot: Codable, Equatable {
             HealthTrendSeries.self,
             forKey: .stepsDaySamplesSecondary
         ) ?? .empty
+        recordedReadiness = try container.decodeIfPresent(
+            [RecordedReadinessEntry].self,
+            forKey: .recordedReadiness
+        ) ?? []
+        recordedReadinessContext = try container.decodeIfPresent(
+            String.self,
+            forKey: .recordedReadinessContext
+        ) ?? ""
     }
 
     func series(for kind: HealthMetricKind) -> HealthTrendSeries {
@@ -1369,6 +1404,33 @@ struct HealthTrendSeries: Codable, Equatable {
 
     func point(on date: Date) -> HealthTrendDataPoint? {
         points.first { $0.date == date }
+    }
+
+    /// Overlay frozen morning records onto the series, replacing each recorded
+    /// day's point value in place (keyed by start-of-day) so `point(on:)` and the
+    /// chart's last-point-per-day grouping agree. Override-only: a recorded day
+    /// with no computed point is left out — so when readiness becomes uncomputable
+    /// (e.g. inputs filtered out), a stale frozen value can't leak back in as a
+    /// phantom point. Days without a record keep their computed point unchanged.
+    func applyingRecordedOverrides(
+        _ records: [RecordedReadinessEntry],
+        calendar: Calendar = .bodyGregorian
+    ) -> HealthTrendSeries {
+        guard !records.isEmpty else {
+            return self
+        }
+
+        var valuesByDay: [Date: Double] = [:]
+        for record in records {
+            valuesByDay[calendar.startOfDay(for: record.date)] = Double(record.score)
+        }
+
+        return HealthTrendSeries(points: points.map { point in
+            guard let frozen = valuesByDay[calendar.startOfDay(for: point.date)] else {
+                return point
+            }
+            return HealthTrendDataPoint(date: point.date, value: frozen)
+        })
     }
 
     func points(on date: Date, calendar: Calendar = .bodyGregorian) -> HealthTrendSeries {

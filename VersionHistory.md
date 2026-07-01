@@ -1,5 +1,68 @@
 # Version History
 
+## 0.9.5 (build 11)
+
+- **Refreshed the summary card beta badges.** The Readiness card's badge now reads **Beta v3**, and the **Sleep Score** toggle in Settings no longer carries a beta badge.
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 11.
+
+## 0.9.5 (build 10)
+
+- **Activity-aware workout details.** The workout detail card now adapts its metrics to the activity: walks, runs, and hikes add **Avg Pace**, **Elevation Gain**, **Cadence**, and **Cardio Fitness (VO₂max)**; rides add **Avg Speed**, **Cadence**, and **Power**; swims add **Swim Pace** (per 100 m) and **Stroke Count**. **Max Heart Rate** appears wherever heart-rate data exists, and every workout still shows distance, energy, and average heart rate. Each tile is shown only when the activity and recorded data support it.
+- Added Apple Health read access for **Cardio Fitness (VO₂max), running/cycling power, cycling cadence, swimming stroke count, and steps** (steps power foot cadence) so the new metrics can populate; power, cadence, and stroke count are best-effort and appear only when the recording source provides them.
+- **New permission toggles in Settings → Data → Permissions.** **Workout Metrics** (VO₂max, power, cadence, and swim strokes) and **Date of Birth** (which anchors the workout heart-rate zones at the age-estimated max HR, 220 − age) each get their own switch. Turning Workout Metrics off removes those detail tiles while distance, pace, energy, and heart rate stay; turning Date of Birth off falls the HR zones back to the session's peak. Workout distance and date of birth are now part of the requested read set, and a one-time migration keeps both new categories on for anyone who had already customized their permissions.
+- **Readiness now reacts to your day.** After a workout, today's live Readiness drops based on the activity's type, effort, and recorded metrics (duration, heart rate, energy) — a hard session can pull it down by up to ~two status bands while an easy one barely moves it. The drop accumulates across the day's workouts and stays until the next morning (no same-day rebound).
+- **Readiness history is locked to your morning.** The score recorded into the Week / Month / 6 Months / Year charts is your readiness ~10 minutes after you wake (or after 10:00 when no sleep is tracked). Every later same-day change — the activity drop and late-arriving data — is display-only and never alters the recorded history.
+- Switching a readiness data **source** (or how same-name sources are combined), or toggling a readiness **permission** (sleep, heart, blood oxygen, respiratory, workouts, or skin temperature), now rebuilds the recorded morning history from the new inputs instead of keeping values captured under the old ones; fresh morning records resume the next day. Changing a source or permission that does not feed Readiness leaves its history untouched.
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 10.
+
+## 0.9.5 (build 9)
+
+- Replaced every app icon with Apple **Icon Composer** (`.icon`) artwork: the primary icon plus the five color alternates (Rose, Violet, Midnight, Neutral, Light) now ship as layered icons that render the iOS 26 light / dark / tinted (Liquid Glass) appearances, with an automatic flat raster fallback on iOS 18–25.
+- Removed the **"Present" creator-surprise alternate icons** and the Settings version-card tap that unlocked them; the app-icon picker now shows the six standard color options only.
+- Updated the **Apple Watch app and Home Screen widget** icons to the new Classic design so every surface matches.
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 9.
+
+## 0.9.5 (build 8)
+
+- **Body Pro is now a real in-app purchase.** The paywall's Lifetime card, **Restore Purchases**, and **Redeem Pro** are wired to StoreKit 2 (non-consumable `com.zihengthedeveloper.body.pro.lifetime`); once purchased, an owned state replaces the buy card and all features unlock instantly.
+- **Five features are now gated behind Body Pro.** Longer-range metric charts (free users get the **Week** range only; **Month / 6 Months / Year** require Pro), **full day history** in the metric and sleep day-pickers (free users browse the 3 most recent days — older day tiles dim, show a lock badge, and open the paywall), **custom app backgrounds** (free users stay on the app-default background across Home, Workouts, and Settings), the **secondary data source** comparison on metric charts (gated in both the chart's source picker and Settings → Data → Source), and the five **Home Screen widgets** (which show an "Unlock Body widgets" state until purchased).
+- The paywall now shows a brief **"Checking your purchases…"** state until the entitlement resolves (so a returning purchaser never sees the buy card first), and disables purchase / restore / redeem while a purchase is in flight. When a pending **Ask-to-Buy** purchase is later approved, the paywall unlocks and re-enables Restore / Redeem instead of staying stuck on "pending".
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 8.
+
+## 0.9.5 (build 7)
+
+- The readable content-width cap — which centers a page's content instead of stretching it edge to edge on iPad and other wide canvases — now also applies to the **workout detail** page, the **metric detail hero** (the range tabs, trend chart, big value, and breakdown chart such as Sleep Stages), and the **Body Pro** page, matching the dashboard, Workouts, Settings, and the metric detail cards. Each page's full-bleed background (route map, tint gradient, or grouped background) still fills the screen while the content centers; iPhone layout is unchanged.
+- Raised the **Body Pro** Lifetime purchase price shown on the paywall to **$9.99** (up from $5.99).
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 7.
+
+## 0.9.5 (build 6)
+
+- The colored **workout calendar squares** and **type-breakdown bars** now use a flat, slightly translucent fill so the backdrop shows through, matching the app's flat glass surfaces — no heavy material frost or specular sheen. The **breakdown bars** add a thin white edge rim; the **calendar squares** have no border. Empty calendar day cells are unchanged.
+- Workout cards now **zoom into their detail the same way Summary cards do**: tapping a workout on the Workouts list morphs the card open into a full-bleed detail page (the morph clipped to the card's rounded corners) that collapses back into the card when you close it with a top-right **Liquid Glass ✕** button — replacing the old partial-height detail sheet. The detail opens as a navigation push, so the **bottom tab bar stays visible**, and the route map now extends to the very top of the screen (under the status bar). The same morphing detail also opens from the **calendar-day** and **workout-type** popups — their rows are now tappable, and those popups dropped their **Done** button (swipe down to dismiss). Built on iOS 18's zoom transition, which falls back to a cross-fade under Reduce Motion.
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 6.
+
+## 0.9.5 (build 5)
+
+- Sleep detail card header values now use the same number-flipping transition as the Summary metric values: the Sleep Stages duration and Sleep Consistency percentage animate when the selected day changes, while respecting Reduce Motion.
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 5.
+
+## 0.9.5 (build 3)
+
+- Workouts recorded with GPS now show a **route map** behind the top of the workout detail sheet: the route is drawn fit-to-bounds and **colored by pace** (red slow → green fast) with a green start marker and a red end marker, and the city (e.g. "New York, NY") is shown below the workout title. The map is a static snapshot (no panning) that sits as a fixed background and dims as the workout details scroll up over it; indoor or route-less workouts show no map and are otherwise unchanged. Reading routes adds a one-time Apple Health permission prompt the next time you refresh.
+- Tapping a metric on the Home screen now **zooms the detail page out of the card you tapped** instead of sliding it in from the screen edge. The grid metric cards, the trend cards, and the Activity Rings card all use the new transition — each detail page collapses back into its own card on dismiss. The morph is clipped to the cards' rounded corners, and when a grid card and a trend card for the same metric are both on screen, each animates from its own position. Built on iOS 18's zoom navigation transition, which falls back to a cross-fade under Reduce Motion. The full-bleed Readiness star hero instead **cross-fades its detail in and out** (dismissed with a Back button) — a fade reads better for a hero with no card edges to grow from.
+- Sleep detail now shows a 14-day Sleep Consistency percentage in the card header instead of the selected Apple Health source name.
+- Dark theme is now the app default; Settings keeps the Theme row visible but disabled while Light/System theme selection is gated.
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 3.
+
+## 0.9.5 (build 2)
+
+- Added a **Star Metric** to the Summary tab: one metric is pinned to the top of the home screen as a full-bleed hero (no card) and lifted out of the drag-to-reorder grid. v1 ships **Readiness** as the default star metric — today's readiness score sits on a wave-fill tinted by the readiness band that fills left-to-right to the score, bleeds behind the status bar, and melts into the page; the score flips up from zero (and rolls to each new value) and the whole hero taps through to the Readiness detail. Pick the star metric, or turn it off (which returns the Readiness card to the grid), under Settings > Metrics > Star Metric, a new gold row at the bottom of the Metrics section. While Readiness is starred the custom Home Background is auto-disabled (the hero supplies the color); the remaining cards still drag-to-reorder, and Readiness keeps fetching its inputs even when it's hidden in Summary Cards.
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 2.
+
+## 0.9.5 (build 1)
+
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 1.
+
 ## 0.9.3 (build 8)
 
 - Added Apple Watch **metric detail pages**: tapping a metric card — or a metric complication on the watch face — opens a full-screen detail view for that metric, and you can swipe up/down (or turn the Digital Crown) to page between every metric's detail directly, the page's color sliding smoothly as you go. Each page is washed in the metric's color — the title sits top-right, the last 7 days plot as a line chart (a tinted line with a ringed dot per day and a solid dot for today when today has a reading, faint per-day gridlines, and weekday labels), and the current value reads large at the bottom-left, with Readiness and Training Load showing today's status level beside it ("85 · HIGH"). Those two also highlight today's status band — the colored value range with top/bottom edge stripes — behind the line, matching the iPhone chart. The 7-day series, band, and status are computed on the iPhone and carried in the pushed snapshot, so the watch stays display-only. A snapshot from an older iPhone build (no weekly data) shows a "No recent data yet" state.

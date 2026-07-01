@@ -7,33 +7,81 @@ import Charts
 import SwiftUI
 
 struct BodyHealthTrendRangeSelector: View {
+    /// Standard grouped-background pills, or translucent "glass" pills for the
+    /// metric gradient hero where the selector floats over the gradient wash.
+    enum Appearance {
+        case standard
+        case onGradient
+    }
+
     @Environment(\.colorScheme) private var colorScheme
     @Binding var selectedRange: BodyHealthTrendRange
+    var appearance: Appearance = .standard
+    /// When false, every range but the free `.recentWeek` is locked: its pill shows a
+    /// lock and a tap routes to `onLockedRangeTap` (the paywall) instead of selecting.
+    var isProUnlocked: Bool = true
+    var onLockedRangeTap: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 8) {
             ForEach(BodyHealthTrendRange.allCases) { range in
                 Button {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                        selectedRange = range
+                    if isLocked(range) {
+                        onLockedRangeTap()
+                    } else {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                            selectedRange = range
+                        }
                     }
                 } label: {
-                    Text(range.displayName)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundColor(selectedRange == range ? .accentColor : .primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
-                        .frame(maxWidth: .infinity, minHeight: 42)
-                        .bodyTrendRangeTabBackground(
-                            isSelected: selectedRange == range,
-                            colorScheme: colorScheme
-                        )
+                    pillLabel(for: range)
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(selectedRange == range ? .isSelected : [])
+                .accessibilityHint(isLocked(range) ? "Requires Body Pro" : "")
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func isLocked(_ range: BodyHealthTrendRange) -> Bool {
+        !isProUnlocked && range != .recentWeek
+    }
+
+    @ViewBuilder
+    private func pillLabel(for range: BodyHealthTrendRange) -> some View {
+        let isSelected = selectedRange == range
+        let locked = isLocked(range)
+        let label = HStack(spacing: 3) {
+            Text(range.displayName)
+            if locked {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+            }
+        }
+        .font(.system(size: 15, weight: .semibold, design: .rounded))
+        .foregroundColor(textColor(isSelected: isSelected, locked: locked))
+        .lineLimit(1)
+        .minimumScaleFactor(0.78)
+        .frame(maxWidth: .infinity, minHeight: 42)
+
+        switch appearance {
+        case .standard:
+            label.bodyTrendRangeTabBackground(isSelected: isSelected, colorScheme: colorScheme)
+        case .onGradient:
+            label.bodyTrendRangeTabBackgroundOnGradient(isSelected: isSelected)
+        }
+    }
+
+    private func textColor(isSelected: Bool, locked: Bool) -> Color {
+        switch appearance {
+        case .standard:
+            if locked { return .secondary }
+            return isSelected ? .accentColor : .primary
+        case .onGradient:
+            if locked { return .primary.opacity(0.4) }
+            return isSelected ? .primary : .primary.opacity(0.6)
+        }
     }
 }
 
@@ -79,6 +127,9 @@ struct BodyBasicsTrendLegend: View {
             legendItem(title: "Weight", valueText: weightAverageText, color: weightColor)
         }
         .frame(maxWidth: 180, alignment: .trailing)
+        .alignmentGuide(.firstTextBaseline) { dimensions in
+            dimensions[.lastTextBaseline]
+        }
     }
 
     private func legendItem(title: String, valueText: String?, color: Color) -> some View {
@@ -160,8 +211,24 @@ struct BodyChartSelectionAnnotation: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .bodyChartSelectionAnnotationBackground()
+    }
+}
+
+private enum BodyChartSelectionAnnotationStyle {
+    static let cornerRadius: CGFloat = 8
+    static let fillOpacity = 0.82
+}
+
+extension View {
+    func bodyChartSelectionAnnotationBackground() -> some View {
+        background {
+            RoundedRectangle(cornerRadius: BodyChartSelectionAnnotationStyle.cornerRadius, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground).opacity(BodyChartSelectionAnnotationStyle.fillOpacity))
+        }
+        .clipShape(
+            RoundedRectangle(cornerRadius: BodyChartSelectionAnnotationStyle.cornerRadius, style: .continuous)
+        )
         .shadow(color: Color.black.opacity(0.10), radius: 8, y: 4)
     }
 }
@@ -278,4 +345,3 @@ struct BodyHealthMetricTrendHighlightedRange {
         min(upperBound ?? domain.upperBound, domain.upperBound)
     }
 }
-

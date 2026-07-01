@@ -15,11 +15,12 @@ struct SleepStagesEntry: TimelineEntry {
     let date: Date
     let background: BodyWidgetBackgroundSelection
     let sleep: HealthWidgetSleepStages
+    let isPro: Bool
 }
 
 struct SleepStagesProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> SleepStagesEntry {
-        SleepStagesEntry(date: Date(), background: .system, sleep: HealthWidgetSnapshot.placeholder.sleep)
+        SleepStagesEntry(date: Date(), background: .system, sleep: HealthWidgetSnapshot.placeholder.sleep, isPro: true)
     }
 
     func snapshot(
@@ -48,7 +49,9 @@ struct SleepStagesProvider: AppIntentTimelineProvider {
         return SleepStagesEntry(
             date: Date(),
             background: configuration.background ?? .system,
-            sleep: snapshot.sleep
+            sleep: snapshot.sleep,
+            // Preview/gallery shows the real widget; the live timeline respects the flag.
+            isPro: usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked
         )
     }
 }
@@ -62,8 +65,14 @@ struct BodySleepStagesWidget: Widget {
             intent: BodyWidgetConfigurationIntent.self,
             provider: SleepStagesProvider()
         ) { entry in
-            SleepStagesWidgetView(entry: entry)
-                .bodyWidgetBackground(entry.background)
+            Group {
+                if entry.isPro {
+                    SleepStagesWidgetView(entry: entry)
+                } else {
+                    BodyWidgetLockedView()
+                }
+            }
+            .bodyWidgetBackground(entry.background)
         }
         .supportedFamilies([.systemMedium])
         .configurationDisplayName("Sleep Stages")

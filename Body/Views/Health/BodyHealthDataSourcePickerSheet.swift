@@ -13,6 +13,14 @@ struct BodyHealthDataSourcePickerSheet: View {
     let accentColor: Color
 
     @State private var updatingSelection: PendingSelection?
+    @State private var showBodyProPaywall = false
+
+    // Read the cached entitlement directly (not the environment store) since this is a
+    // sheet; it stays reactive because the view observes `workoutStore`, which re-renders
+    // on the entitlement-change notification.
+    private var isSecondaryLocked: Bool {
+        !BodyProEntitlement.isUnlocked
+    }
 
     private enum SourceRole: Equatable {
         case primary
@@ -66,7 +74,13 @@ struct BodyHealthDataSourcePickerSheet: View {
                 .padding(.top, 18)
                 .padding(.bottom, 30)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background {
+                // On iOS 26+ the sheet's default Liquid Glass background shows through;
+                // older systems keep the opaque grouped background.
+                if #unavailable(iOS 26.0) {
+                    Color(.systemGroupedBackground).ignoresSafeArea()
+                }
+            }
             .navigationTitle("\(kind.sourcePickerTitle) Source")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -77,6 +91,9 @@ struct BodyHealthDataSourcePickerSheet: View {
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.semibold)
                 }
+            }
+            .sheet(isPresented: $showBodyProPaywall) {
+                NavigationStack { BodyProView() }
             }
         }
     }
@@ -117,7 +134,8 @@ struct BodyHealthDataSourcePickerSheet: View {
     ) -> some View {
         let isSelected = selectedOption.id == option.id
         let isThisRowUpdating = updatingSelection == PendingSelection(role: role, optionID: option.id)
-        let isSectionLocked = updatingSelection?.role == role
+        let isSelectionLocked = updatingSelection != nil
+        let isProLocked = role == .secondary && isSecondaryLocked
         return Button {
             updateSelection(option, role: role)
         } label: {
@@ -145,16 +163,20 @@ struct BodyHealthDataSourcePickerSheet: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 21, weight: .semibold))
                         .foregroundColor(accentColor)
+                } else if isProLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.secondary)
                 }
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemGroupedBackground))
+            .background(Color.primary.opacity(0.06))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(isSelected || isSectionLocked)
+        .disabled(isSelected || isSelectionLocked)
     }
 
     private func optionIconName(for role: SourceRole) -> String {
@@ -167,6 +189,10 @@ struct BodyHealthDataSourcePickerSheet: View {
     }
 
     private func updateSelection(_ option: BodyHealthDataSourceOption, role: SourceRole) {
+        if role == .secondary, isSecondaryLocked {
+            showBodyProPaywall = true
+            return
+        }
         updatingSelection = PendingSelection(role: role, optionID: option.id)
         Task {
             switch role {
@@ -176,10 +202,7 @@ struct BodyHealthDataSourcePickerSheet: View {
                 await workoutStore.updateHealthDataSource(for: kind, option: option)
             }
             updatingSelection = nil
-            dismiss()
         }
     }
 }
-
-
 

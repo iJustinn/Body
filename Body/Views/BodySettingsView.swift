@@ -9,7 +9,7 @@ import UIKit
 
 struct BodySettingsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
-    @AppStorage(BodyAppearancePreference.selectedThemeKey) private var selectedThemeRawValue = BodyAppTheme.defaultValue.rawValue
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
@@ -21,25 +21,26 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey) private var showsSubMinuteAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsSubMinuteAwakeStages
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
-    @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
+    @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var homeBackgroundEnabled = true
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
-    @AppStorage(BodyAppearancePreference.creatorSurpriseIconsUnlockedKey) private var creatorSurpriseIconsUnlocked = false
     @State private var activeSheet: BodySettingsSheet?
+    @State private var showBodyProPaywall = false
     @State private var selectedAppIconName: String?
     @State private var showingAppIconError = false
     @State private var appIconErrorMessage = ""
-    @State private var versionTapCount = 0
-    @State private var showingCreatorSurprise = false
+    @State private var showingHowToUseBrowser = false
     @State private var showingPrivacyBrowser = false
 
+    private let howToUseURLString = "https://docs.ijustinz.com/body/how-to-use"
     private let privacyPolicyURLString = "https://docs.ijustinz.com/body/privacy"
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground)
+                BodyAppBackground()
                     .ignoresSafeArea()
 
                 ScrollView(.vertical, showsIndicators: false) {
@@ -56,29 +57,26 @@ struct BodySettingsView: View {
                     .readableContentColumn()
                 }
 
-                if showingCreatorSurprise {
-                    BodyCreatorSurpriseOverlay(
-                        onChooseIcons: openCreatorSurpriseIcons,
-                        onDismiss: {
-                            showingCreatorSurprise = false
-                        }
-                    )
-                    .transition(.opacity)
-                    .zIndex(10)
-                }
             }
-            .animation(.easeInOut(duration: 0.2), value: showingCreatorSurprise)
             .onAppear {
                 selectedAppIconName = UIApplication.shared.alternateIconName
-                versionTapCount = 0
             }
             .sheet(item: $activeSheet) { sheet in
                 settingsSheet(for: sheet)
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
             }
+            .sheet(isPresented: $showBodyProPaywall) {
+                NavigationStack { BodyProView() }
+            }
             .sheet(isPresented: $showingPrivacyBrowser) {
                 if let url = URL(string: privacyPolicyURLString) {
+                    SafariView(url: url)
+                        .ignoresSafeArea()
+                }
+            }
+            .sheet(isPresented: $showingHowToUseBrowser) {
+                if let url = URL(string: howToUseURLString) {
                     SafariView(url: url)
                         .ignoresSafeArea()
                 }
@@ -133,7 +131,7 @@ struct BodySettingsView: View {
             }
             .padding(18)
             .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
-            .bodyCardBackground(cornerRadius: 28)
+            .bodyCardBackground(cornerRadius: 28, translucent: true)
         }
         .buttonStyle(.plain)
     }
@@ -141,13 +139,17 @@ struct BodySettingsView: View {
     private var appearanceSection: some View {
         BodySettingsCardSection("Appearance") {
             Button {
-                activeSheet = .theme
+                if proStore?.isPro ?? false {
+                    activeSheet = .homeBackground
+                } else {
+                    showBodyProPaywall = true
+                }
             } label: {
                 BodySettingsRowLabel(
-                    title: "Theme",
-                    value: currentTheme.displayName,
-                    iconName: currentTheme.iconName,
-                    tintColor: currentTheme.tintColor,
+                    title: "Background",
+                    value: homeBackgroundSummaryText,
+                    iconName: "paintpalette.fill",
+                    tintColor: .teal,
                     accessory: .chevron
                 )
             }
@@ -162,7 +164,7 @@ struct BodySettingsView: View {
                     title: "Icon",
                     value: currentAppIconOption.displayName,
                     iconName: "app.fill",
-                    tintColor: .indigo,
+                    tintColor: .gray,
                     accessory: .chevron
                 )
             }
@@ -210,11 +212,13 @@ struct BodySettingsView: View {
     private func aboutRow(for tab: BodySettingsAboutTab) -> some View {
         Button {
             switch tab {
+            case .howToUse:
+                showingHowToUseBrowser = true
             case .privacy:
                 showingPrivacyBrowser = true
             case .version:
-                handleVersionCardTap()
-            default:
+                break
+            case .more:
                 if let sheet = tab.sheet {
                     activeSheet = sheet
                 }
@@ -225,10 +229,21 @@ struct BodySettingsView: View {
                 value: tab == .version ? appVersionDisplay : nil,
                 iconName: tab.iconName,
                 tintColor: tab.tintColor,
-                accessory: tab == .version ? .none : .chevron
+                accessory: aboutAccessory(for: tab)
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private func aboutAccessory(for tab: BodySettingsAboutTab) -> BodySettingsRowAccessory {
+        switch tab {
+        case .howToUse, .privacy:
+            return .externalLink
+        case .more:
+            return .chevron
+        case .version:
+            return .none
+        }
     }
 
     private var metricsSection: some View {
@@ -254,23 +269,8 @@ struct BodySettingsView: View {
                 BodySettingsRowLabel(
                     title: "Units",
                     value: unitsSummaryText,
-                    iconName: "ruler.fill",
-                    tintColor: .teal,
-                    accessory: .chevron
-                )
-            }
-            .buttonStyle(.plain)
-
-            settingsDivider
-
-            Button {
-                activeSheet = .defaultTrendRange
-            } label: {
-                BodySettingsRowLabel(
-                    title: "Charts Range",
-                    value: currentDefaultTrendRange.displayName,
-                    iconName: currentDefaultTrendRange.iconName,
-                    tintColor: currentDefaultTrendRange.tintColor,
+                    iconName: "pencil.and.ruler.fill",
+                    tintColor: .blue,
                     accessory: .chevron
                 )
             }
@@ -284,7 +284,7 @@ struct BodySettingsView: View {
                 BodySettingsRowLabel(
                     title: "Summary Cards",
                     value: summaryCardsSummaryText,
-                    iconName: "rectangle.grid.2x2.fill",
+                    iconName: "square.grid.2x2",
                     tintColor: .pink,
                     accessory: .chevron
                 )
@@ -299,8 +299,8 @@ struct BodySettingsView: View {
                 BodySettingsRowLabel(
                     title: "Day View",
                     value: dayViewSummaryText,
-                    iconName: "clock.fill",
-                    tintColor: .indigo,
+                    iconName: "chart.line.flattrend.xyaxis",
+                    tintColor: .orange,
                     accessory: .chevron
                 )
             }
@@ -320,7 +320,38 @@ struct BodySettingsView: View {
                 )
             }
             .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
+                activeSheet = .starMetric
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Star Metric",
+                    value: starredMetricSummaryText,
+                    iconName: "star.fill",
+                    tintColor: Color(red: 1.0, green: 0.84, blue: 0.0),
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
         }
+    }
+
+    private var starredMetric: Binding<BodyHomeCardKind?> {
+        Binding {
+            BodyHomeCardKind.starredMetric(from: starredMetricRawValue)
+        } set: { newValue in
+            starredMetricRawValue = newValue?.rawValue ?? ""
+        }
+    }
+
+    private var starredMetricSummaryText: String {
+        BodyHomeCardKind.starredMetric(from: starredMetricRawValue)?.title ?? "None"
+    }
+
+    private var homeBackgroundSummaryText: String {
+        homeBackgroundEnabled ? "On" : "Off"
     }
 
     private var settingsDivider: some View {
@@ -365,10 +396,6 @@ struct BodySettingsView: View {
 
     private var currentAppIconOption: BodyAppIconOption {
         BodyAppIconOption.option(named: selectedAppIconName)
-    }
-
-    private var currentTheme: BodyAppTheme {
-        BodyAppTheme.storedValue(from: selectedThemeRawValue)
     }
 
     private var currentWeightUnit: BodyValueFormat.WeightUnitPreference {
@@ -418,24 +445,12 @@ struct BodySettingsView: View {
         BodySummaryCardSelection.storedValue(from: summaryCardSelectionRawValue)
     }
 
-    private var currentDefaultTrendRange: BodyHealthTrendRange {
-        BodyHealthTrendRange.storedValue(from: defaultTrendRangeRawValue)
-    }
-
     private var currentHomeTrendCardSelection: BodyHomeTrendCardSelection {
         BodyHomeTrendCardSelection.storedValue(from: homeTrendCardSelectionRawValue)
     }
 
     private var currentMetricDayViewSelection: BodyMetricDayViewSelection {
         BodyMetricDayViewSelection.storedValue(from: metricDayViewSelectionRawValue)
-    }
-
-    private var selectedTheme: Binding<BodyAppTheme> {
-        Binding {
-            currentTheme
-        } set: { theme in
-            selectedThemeRawValue = theme.rawValue
-        }
     }
 
     private var followsSystemUnitsBinding: Binding<Bool> {
@@ -494,14 +509,6 @@ struct BodySettingsView: View {
         }
     }
 
-    private var defaultTrendRange: Binding<BodyHealthTrendRange> {
-        Binding {
-            currentDefaultTrendRange
-        } set: { range in
-            defaultTrendRangeRawValue = range.rawValue
-        }
-    }
-
     private var homeTrendCardSelection: Binding<BodyHomeTrendCardSelection> {
         Binding {
             currentHomeTrendCardSelection
@@ -521,20 +528,19 @@ struct BodySettingsView: View {
     @ViewBuilder
     private func settingsSheet(for sheet: BodySettingsSheet) -> some View {
         switch sheet {
-        case .theme:
-            BodyThemePickerSheet(selectedTheme: selectedTheme)
+        case .homeBackground:
+            BodyHomeBackgroundSheet()
         case .appIcon:
             BodyAppIconPickerSheet(
                 selectedIconName: selectedAppIconName,
-                showsCreatorSurprises: creatorSurpriseIconsUnlocked,
                 onSelect: changeAppIcon
             )
         case .summaryCards:
             BodySummaryCardsSettingsSheet(selection: summaryCardSelection)
-        case .defaultTrendRange:
-            BodyDefaultTrendRangePickerSheet(selectedRange: defaultTrendRange)
         case .homeTrendCards:
             BodyHomeTrendCardsSettingsSheet(selection: homeTrendCardSelection)
+        case .starMetric:
+            BodyStarMetricPickerSheet(selection: starredMetric)
         case .dayView:
             BodyMetricDayViewSettingsSheet(selection: metricDayViewSelection)
         case .sleepDurationGoal:
@@ -558,8 +564,6 @@ struct BodySettingsView: View {
             BodyHealthSyncStatusSettingsSheet(workoutStore: workoutStore)
         case .cache:
             BodyCacheSettingsSheet(workoutStore: workoutStore)
-        case .howToUse:
-            BodyHowToUseSettingsSheet()
         case .more:
             BodyMoreSettingsSheet()
         }
@@ -591,56 +595,21 @@ struct BodySettingsView: View {
         }
     }
 
-    private func handleVersionCardTap() {
-        versionTapCount += 1
-        playSelectionHaptic()
-
-        guard versionTapCount >= 5 else {
-            return
-        }
-
-        versionTapCount = 0
-        creatorSurpriseIconsUnlocked = true
-        showingCreatorSurprise = true
-        playSuccessHaptic()
-    }
-
-    private func openCreatorSurpriseIcons() {
-        showingCreatorSurprise = false
-
-        Task {
-            try? await Task.sleep(nanoseconds: 220_000_000)
-            activeSheet = .appIcon
-        }
-    }
-
-    private func playSelectionHaptic() {
-        let generator = UISelectionFeedbackGenerator()
-        generator.prepare()
-        generator.selectionChanged()
-    }
-
-    private func playSuccessHaptic() {
-        let generator = UINotificationFeedbackGenerator()
-        generator.prepare()
-        generator.notificationOccurred(.success)
-    }
 }
 
 enum BodySettingsSheet: String, Identifiable {
-    case theme
+    case homeBackground
     case appIcon
     case sleepDurationGoal
     case summaryCards
-    case defaultTrendRange
     case homeTrendCards
+    case starMetric
     case dayView
     case units
     case source
     case permissions
     case syncStatus
     case cache
-    case howToUse
     case more
 
     var id: String {
@@ -687,13 +656,13 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
     var tintColor: Color {
         switch self {
         case .source:
-            return .cyan
+            return .green
         case .permissions:
             return .green
         case .syncStatus:
-            return .blue
+            return .gray
         case .cache:
-            return .orange
+            return .gray
         }
     }
 
@@ -757,56 +726,10 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
 
     var sheet: BodySettingsSheet? {
         switch self {
-        case .howToUse:
-            return .howToUse
         case .more:
             return .more
-        case .privacy, .version:
+        case .howToUse, .privacy, .version:
             return nil
-        }
-    }
-}
-
-private struct BodyThemePickerSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Binding var selectedTheme: BodyAppTheme
-
-    private let columns = [
-        GridItem(.flexible()),
-        GridItem(.flexible()),
-        GridItem(.flexible())
-    ]
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(BodyAppTheme.allCases) { theme in
-                            Button {
-                                selectedTheme = theme
-                                dismiss()
-                            } label: {
-                                BodySymbolSelectionTile(
-                                    title: theme.displayName,
-                                    subtitle: theme.selectionSubtitle,
-                                    iconName: theme.iconName,
-                                    tintColor: theme.tintColor,
-                                    isSelected: selectedTheme == theme
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding()
-                    .padding(.bottom, 24)
-                }
-            }
-            .navigationTitle("Theme")
-            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
@@ -891,8 +814,12 @@ private struct BodyUnitPreferencePickerSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
+                // On iOS 26+ the sheet's default Liquid Glass background shows through;
+                // older systems keep the opaque grouped background.
+                if #unavailable(iOS 26.0) {
+                    Color(.systemGroupedBackground)
+                        .ignoresSafeArea()
+                }
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 18) {
@@ -900,7 +827,7 @@ private struct BodyUnitPreferencePickerSheet: View {
                             Toggle("Follow System", isOn: $followsSystemUnits)
                                 .font(.system(.headline, design: .rounded))
                                 .fontWeight(.semibold)
-                                .tint(.teal)
+                                .tint(.blue)
                                 .padding(.horizontal, 18)
                                 .padding(.vertical, 16)
                                 .frame(minHeight: 70)
@@ -1056,49 +983,6 @@ private struct BodyUnitChoiceButton: View {
     }
 }
 
-private struct BodyDefaultTrendRangePickerSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Binding var selectedRange: BodyHealthTrendRange
-
-    private let columns = [
-        GridItem(.flexible()),
-        GridItem(.flexible())
-    ]
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(BodyHealthTrendRange.allCases) { range in
-                            Button {
-                                selectedRange = range
-                                dismiss()
-                            } label: {
-                                BodySymbolSelectionTile(
-                                    title: range.displayName,
-                                    subtitle: range.selectionSubtitle,
-                                    iconName: range.iconName,
-                                    tintColor: range.tintColor,
-                                    isSelected: selectedRange == range
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding()
-                    .padding(.bottom, 24)
-                }
-            }
-            .navigationTitle("Charts Range")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-}
-
 private struct BodySummaryCardsSettingsSheet: View {
     @Binding var selection: BodySummaryCardSelection
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
@@ -1129,8 +1013,671 @@ private struct BodySummaryCardsSettingsSheet: View {
                     }
                 }
             }
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
+    }
+}
+
+private struct BodyStarMetricPickerSheet: View {
+    @Binding var selection: BodyHomeCardKind?
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Star Metric") {
+            VStack(spacing: 0) {
+                BodyStarMetricOptionRow(
+                    title: "None",
+                    subtitle: "No metric pinned to the top of Home",
+                    iconName: "circle.slash",
+                    tintColor: .secondary,
+                    isSelected: selection == nil
+                ) {
+                    selection = nil
+                }
+
+                ForEach(BodyHomeCardKind.starEligible) { card in
+                    Divider()
+                        .padding(.leading, 76)
+
+                    BodyStarMetricOptionRow(
+                        title: card.title,
+                        subtitle: card.subtitle,
+                        iconName: card.iconName,
+                        tintColor: card.tintColor,
+                        isSelected: selection == card
+                    ) {
+                        selection = card
+                    }
+                }
+            }
+            .bodyCardBackground(translucent: true)
+        }
+    }
+}
+
+private struct BodyHomeBackgroundSheet: View {
+    @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var enabled = true
+    @AppStorage(BodyAppearancePreference.homeBackgroundColorsKey) private var colorsRawValue = ""
+    @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var separatorsRawValue = ""
+    @AppStorage(BodyAppearancePreference.homeBackgroundProfilesKey) private var profilesRawValue = ""
+    @State private var profileBeingRenamed: BodyHomeBackgroundProfile?
+    @State private var renameProfileName = ""
+    @State private var profileBeingDeleted: BodyHomeBackgroundProfile?
+    @State private var deleteProfileName = ""
+
+    private var colors: Binding<[Color]> {
+        Binding {
+            var parsed = BodyHomeBackground.colors(from: colorsRawValue)
+            while parsed.count < 3 {
+                parsed.append(BodyHomeBackground.defaultColors[parsed.count])
+            }
+            return Array(parsed.prefix(3))
+        } set: {
+            colorsRawValue = BodyHomeBackground.rawValue(from: $0)
+        }
+    }
+
+    private var separators: Binding<[Double]> {
+        Binding {
+            BodyHomeBackground.normalizedSeparators(
+                BodyHomeBackground.separators(from: separatorsRawValue),
+                count: 3
+            )
+        } set: {
+            separatorsRawValue = BodyHomeBackground.rawValue(fromSeparators: $0)
+        }
+    }
+
+    private var customProfiles: [BodyHomeBackgroundProfile] {
+        BodyHomeBackgroundProfileStore.customProfiles(from: profilesRawValue)
+    }
+
+    private var profiles: [BodyHomeBackgroundProfile] {
+        BodyHomeBackgroundProfileStore.allProfiles(from: profilesRawValue)
+    }
+
+    private var currentProfileFingerprint: String {
+        BodyHomeBackgroundProfile.fingerprint(colors: colors.wrappedValue, separators: separators.wrappedValue)
+    }
+
+    private var canSaveCurrentProfile: Bool {
+        !profiles.contains { $0.fingerprint == currentProfileFingerprint }
+            && customProfiles.count < BodyHomeBackgroundProfileStore.maximumCustomProfileCount
+    }
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Background") {
+            VStack(spacing: 20) {
+                showToggleRow
+
+                BodyHomeBackgroundPreview(colors: colors.wrappedValue, separators: separators)
+                    .frame(height: 180)
+                    .opacity(enabled ? 1 : 0.35)
+                    .allowsHitTesting(enabled)
+
+                BodyHomeBackgroundColorWheel(colors: colors)
+                    .frame(height: 300)
+                    .opacity(enabled ? 1 : 0.35)
+                    .allowsHitTesting(enabled)
+
+                profilesSection
+                    .opacity(enabled ? 1 : 0.35)
+                    .allowsHitTesting(enabled)
+
+                Text("Drag a color around the spectrum to recolor it, or drag a divider on the preview to change how much space each color takes.")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .alert("Rename Profile", isPresented: isRenamingProfile) {
+            TextField("Profile Name", text: $renameProfileName)
+
+            Button("Save", action: commitProfileRename)
+
+            Button(role: .cancel, action: discardProfileRename) {
+                Text("Cancel")
+            }
+        }
+        .alert("Delete \"\(deleteProfileName)\"?", isPresented: isConfirmingDelete) {
+            Button("Delete", role: .destructive, action: confirmProfileDeletion)
+
+            Button("Cancel", role: .cancel, action: discardProfileDeletion)
+        } message: {
+            Text("This profile will be removed.")
+        }
+    }
+
+    private var profilesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Text("Profiles")
+                    .font(.system(size: BodySettingsTypography.sectionTitleFontSize, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                Spacer(minLength: 12)
+
+                Button(action: saveCurrentProfile) {
+                    Label("Save Current", systemImage: "plus.circle.fill")
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(canSaveCurrentProfile ? .blue : .secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill((canSaveCurrentProfile ? Color.blue : Color.secondary).opacity(0.14))
+                )
+                .disabled(!canSaveCurrentProfile)
+            }
+
+            VStack(spacing: 0) {
+                ForEach(Array(profiles.enumerated()), id: \.element.id) { index, profile in
+                    let defaultTitle = profile.id == BodyHomeBackgroundProfile.appDefaultID ? "App Default" : "Saved \(index)"
+                    let title = profile.displayName(defaultName: defaultTitle)
+                    let canEditProfile = profile.id != BodyHomeBackgroundProfile.appDefaultID
+
+                    BodyHomeBackgroundProfileRow(
+                        profile: profile,
+                        title: title,
+                        isSelected: profile.fingerprint == currentProfileFingerprint,
+                        canEdit: canEditProfile,
+                        onSelect: {
+                            applyProfile(profile)
+                        },
+                        onRename: {
+                            beginRenamingProfile(profile, defaultName: defaultTitle)
+                        },
+                        onDelete: {
+                            beginDeletingProfile(profile, name: title)
+                        }
+                    )
+
+                    if index < profiles.count - 1 {
+                        Divider()
+                            .padding(.leading, 86)
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .bodyCardBackground(translucent: true)
+        }
+    }
+
+    private var showToggleRow: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: "paintpalette.fill", color: .teal)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Show Background")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+
+                Text("Shown on Home, Workouts, and Settings")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Show Background", isOn: $enabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+        .bodyCardBackground(translucent: true)
+    }
+
+    private var isRenamingProfile: Binding<Bool> {
+        Binding {
+            profileBeingRenamed != nil
+        } set: { isPresented in
+            if !isPresented {
+                discardProfileRename()
+            }
+        }
+    }
+
+    private var isConfirmingDelete: Binding<Bool> {
+        Binding {
+            profileBeingDeleted != nil
+        } set: { isPresented in
+            if !isPresented {
+                discardProfileDeletion()
+            }
+        }
+    }
+
+    private func saveCurrentProfile() {
+        guard canSaveCurrentProfile else { return }
+        let defaultName = "Saved \(customProfiles.count + 1)"
+        let nextProfile = BodyHomeBackgroundProfile.custom(
+            name: defaultName,
+            colors: colors.wrappedValue,
+            separators: separators.wrappedValue
+        )
+        storeCustomProfiles(customProfiles + [nextProfile])
+    }
+
+    private func applyProfile(_ profile: BodyHomeBackgroundProfile) {
+        if profile.id == BodyHomeBackgroundProfile.appDefaultID {
+            colorsRawValue = ""
+            separatorsRawValue = ""
+        } else {
+            colorsRawValue = profile.colorsRawValue
+            separatorsRawValue = profile.separatorsRawValue
+        }
+    }
+
+    private func beginDeletingProfile(_ profile: BodyHomeBackgroundProfile, name: String) {
+        guard profile.id != BodyHomeBackgroundProfile.appDefaultID else { return }
+        profileBeingDeleted = profile
+        deleteProfileName = name
+    }
+
+    private func confirmProfileDeletion() {
+        guard let profileBeingDeleted else { return }
+        storeCustomProfiles(customProfiles.filter { $0.id != profileBeingDeleted.id })
+        discardProfileDeletion()
+    }
+
+    private func discardProfileDeletion() {
+        profileBeingDeleted = nil
+        deleteProfileName = ""
+    }
+
+    private func beginRenamingProfile(_ profile: BodyHomeBackgroundProfile, defaultName: String) {
+        guard profile.id != BodyHomeBackgroundProfile.appDefaultID else { return }
+        profileBeingRenamed = profile
+        renameProfileName = profile.displayName(defaultName: defaultName)
+    }
+
+    private func commitProfileRename() {
+        guard let profileBeingRenamed else { return }
+        storeCustomProfiles(
+            customProfiles.map { profile in
+                profile.id == profileBeingRenamed.id ? profile.renamed(renameProfileName) : profile
+            }
+        )
+        discardProfileRename()
+    }
+
+    private func discardProfileRename() {
+        profileBeingRenamed = nil
+        renameProfileName = ""
+    }
+
+    private func storeCustomProfiles(_ profiles: [BodyHomeBackgroundProfile]) {
+        profilesRawValue = BodyHomeBackgroundProfileStore.rawValue(from: profiles)
+    }
+}
+
+private struct BodyHomeBackgroundProfileRow: View {
+    let profile: BodyHomeBackgroundProfile
+    let title: String
+    let isSelected: Bool
+    let canEdit: Bool
+    let onSelect: () -> Void
+    let onRename: () -> Void
+    let onDelete: () -> Void
+    @State private var revealsDelete = false
+    @State private var dragWidth: CGFloat = 0
+    @State private var didSwipe = false
+
+    private let deleteActionWidth: CGFloat = 82
+
+    private var contentOffset: CGFloat {
+        let settled: CGFloat = revealsDelete ? -deleteActionWidth : 0
+        return max(-deleteActionWidth, min(0, settled + dragWidth))
+    }
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            if canEdit {
+                Button(role: .destructive) {
+                    closeDelete()
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(.body, design: .rounded))
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.red)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Delete \(title)")
+                .frame(width: max(0, -contentOffset), alignment: .trailing)
+                .clipped()
+            }
+
+            rowContent
+                .offset(x: contentOffset)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 10)
+                        .onChanged { value in
+                            guard canEdit else { return }
+                            // Only follow horizontal swipes so vertical scrolling still works.
+                            guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                            didSwipe = true
+                            dragWidth = value.translation.width
+                        }
+                        .onEnded { value in
+                            guard canEdit else { return }
+                            let settled: CGFloat = revealsDelete ? -deleteActionWidth : 0
+                            let projected = settled + value.predictedEndTranslation.width
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                revealsDelete = projected < -deleteActionWidth / 2
+                                dragWidth = 0
+                            }
+                        }
+                )
+        }
+        .clipped()
+    }
+
+    private var rowContent: some View {
+        ZStack(alignment: .leading) {
+            Button(action: selectOrCloseDelete) {
+                Color.clear
+                    .frame(maxWidth: .infinity, minHeight: 72)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            HStack(spacing: 14) {
+                BodyHomeBackgroundProfileSwatch(colors: profile.colors, separators: profile.separators)
+
+                profileText
+
+                Spacer(minLength: 12)
+
+                if isSelected, !revealsDelete {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundColor(.blue)
+                }
+            }
+            .allowsHitTesting(false)
+
+            if canEdit, !revealsDelete {
+                // Mirror the row's leading layout (hidden swatch + hidden summary)
+                // so the tappable title lands exactly on the real title line above
+                // the summary, instead of relying on hard-coded offsets.
+                HStack(spacing: 14) {
+                    BodyHomeBackgroundProfileSwatch(colors: profile.colors, separators: profile.separators)
+                        .hidden()
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Button(action: onRename) {
+                            Text(title)
+                                .font(.system(.headline, design: .rounded))
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Rename \(title)")
+
+                        Text(profile.segmentSummary)
+                            .font(.system(.subheadline, design: .rounded))
+                            .fontWeight(.semibold)
+                            .hidden()
+                    }
+
+                    Spacer(minLength: 12)
+                }
+            }
+        }
+        .padding(.leading, 14)
+        .padding(.vertical, 12)
+        .padding(.trailing, 14)
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+        .contentShape(Rectangle())
+        .background(Color.clear)
+    }
+
+    private func selectOrCloseDelete() {
+        // The full-row button fires on release of a swipe; ignore that tap so it
+        // doesn't immediately re-close the delete action the swipe just revealed.
+        if didSwipe {
+            didSwipe = false
+            return
+        }
+        if revealsDelete {
+            closeDelete()
+        } else {
+            onSelect()
+        }
+    }
+
+    private func closeDelete() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            revealsDelete = false
+            dragWidth = 0
+        }
+    }
+
+    private var profileText: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(.headline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .opacity(canEdit && !revealsDelete ? 0 : 1)
+
+            Text(profile.segmentSummary)
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+        }
+    }
+}
+
+private struct BodyHomeBackgroundProfileSwatch: View {
+    let colors: [Color]
+    let separators: [Double]
+
+    var body: some View {
+        BodyActivityRingsCard.heroBackground(colors: colors, separators: separators)
+            .frame(width: 58, height: 42)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(.white.opacity(0.22), lineWidth: 1)
+            )
+    }
+}
+
+private struct BodyHomeBackgroundPreview: View {
+    let colors: [Color]
+    @Binding var separators: [Double]
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+
+            ZStack(alignment: .topLeading) {
+                BodyActivityRingsCard.heroBackground(colors: colors, separators: separators)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                ForEach(separators.indices, id: \.self) { index in
+                    BodyHomeBackgroundSeparatorHandle()
+                        .frame(width: 30, height: geo.size.height)
+                        .contentShape(Rectangle())
+                        .position(x: CGFloat(separators[index]) * width, y: geo.size.height / 2)
+                        .gesture(
+                            DragGesture(minimumDistance: 0, coordinateSpace: .named("bgPreview"))
+                                .onChanged { value in
+                                    guard width > 0 else { return }
+                                    let raw = Double(value.location.x / width)
+                                    let lower = index > 0 ? separators[index - 1] + 0.06 : 0.06
+                                    let upper = index < separators.count - 1 ? separators[index + 1] - 0.06 : 0.94
+                                    separators[index] = min(max(raw, lower), upper)
+                                }
+                        )
+                }
+            }
+            .coordinateSpace(name: "bgPreview")
+        }
+    }
+}
+
+private struct BodyHomeBackgroundSeparatorHandle: View {
+    var body: some View {
+        ZStack {
+            Capsule()
+                .fill(.white)
+                .frame(width: 3)
+                .shadow(color: .black.opacity(0.3), radius: 2)
+
+            Circle()
+                .fill(.white)
+                .frame(width: 22, height: 22)
+                .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                .overlay(
+                    Image(systemName: "arrow.left.and.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.secondary)
+                )
+        }
+    }
+}
+
+/// A circular HSV spectrum with one draggable bubble per mix color. Dragging a bubble
+/// sets that color's hue from the angle and saturation from the distance to the center.
+private struct BodyHomeBackgroundColorWheel: View {
+    @Binding var colors: [Color]
+
+    private let bubbleSizes: [CGFloat] = [66, 50, 58]
+
+    var body: some View {
+        GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height)
+            let radius = side / 2
+            let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+
+            ZStack {
+                ZStack {
+                    AngularGradient(gradient: Gradient(colors: Self.hueRing), center: .center)
+                    RadialGradient(
+                        gradient: Gradient(colors: [.white, .white.opacity(0)]),
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: radius
+                    )
+                }
+                .frame(width: side, height: side)
+                .clipShape(Circle())
+                .position(center)
+
+                ForEach(colors.indices, id: \.self) { index in
+                    Circle()
+                        .fill(colors[index])
+                        .overlay(Circle().strokeBorder(.white, lineWidth: 4))
+                        .frame(width: bubbleSize(index), height: bubbleSize(index))
+                        .shadow(color: .black.opacity(0.25), radius: 3, y: 2)
+                        .position(position(for: colors[index], center: center, radius: radius))
+                        .gesture(
+                            DragGesture(minimumDistance: 0, coordinateSpace: .named("colorWheel"))
+                                .onChanged { value in
+                                    colors[index] = Self.color(at: value.location, center: center, radius: radius)
+                                }
+                        )
+                }
+            }
+            .coordinateSpace(name: "colorWheel")
+        }
+    }
+
+    private static let hueRing: [Color] = stride(from: 0.0, through: 1.0, by: 1.0 / 12.0)
+        .map { Color(hue: $0, saturation: 1, brightness: 1) }
+
+    private func bubbleSize(_ index: Int) -> CGFloat {
+        bubbleSizes.indices.contains(index) ? bubbleSizes[index] : 56
+    }
+
+    private func position(for color: Color, center: CGPoint, radius: CGFloat) -> CGPoint {
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(color).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        let angle = Double(h) * 2 * .pi
+        let dist = Double(min(s, 1)) * Double(radius)
+        return CGPoint(
+            x: center.x + CGFloat(cos(angle) * dist),
+            y: center.y + CGFloat(sin(angle) * dist)
+        )
+    }
+
+    private static func color(at point: CGPoint, center: CGPoint, radius: CGFloat) -> Color {
+        let dx = Double(point.x - center.x)
+        let dy = Double(point.y - center.y)
+        let dist = min((dx * dx + dy * dy).squareRoot(), Double(radius))
+        var angle = atan2(dy, dx) / (2 * .pi)
+        if angle < 0 { angle += 1 }
+        let saturation = radius > 0 ? dist / Double(radius) : 0
+        return Color(hue: angle, saturation: saturation, brightness: 1)
+    }
+}
+
+private struct BodyStarMetricOptionRow: View {
+    let title: String
+    let subtitle: String
+    let iconName: String
+    let tintColor: Color
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                BodySettingsIconTile(iconName: iconName, color: tintColor)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    Text(subtitle)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundColor(tintColor)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -1145,21 +1692,12 @@ private struct BodySleepScoreToggleRow: View {
             )
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
-                    Text("Sleep Score")
-                        .font(.system(.headline, design: .rounded))
-                        .fontWeight(.semibold)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-
-                    Text("Beta v2")
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(.blue)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(.blue.opacity(0.14), in: Capsule())
-                }
+                Text("Sleep Score")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
 
                 Text("Nightly score from sleep stages, vitals, and timing")
                     .font(.system(.subheadline, design: .rounded))
@@ -1201,7 +1739,7 @@ private struct BodySummaryCardToggleRow: View {
                         .minimumScaleFactor(0.8)
 
                     if card.isBeta {
-                        Text("Beta v2")
+                        Text("Beta v3")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(.blue)
                             .padding(.horizontal, 7)
@@ -1254,7 +1792,7 @@ private struct BodyHomeTrendCardsSettingsSheet: View {
                     }
                 }
             }
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
     }
 }
@@ -1319,7 +1857,7 @@ private struct BodyMetricDayViewSettingsSheet: View {
                     }
                 }
             }
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
     }
 }
@@ -1369,6 +1907,12 @@ private struct BodyMetricDayViewToggleRow: View {
 private struct BodySourceSettingsSheet: View {
     @ObservedObject var workoutStore: HealthKitWorkoutStore
     @State private var updatingSelection: PendingSelection?
+    @State private var showBodyProPaywall = false
+
+    // Cached entitlement read (this is a sheet); reactive via the observed `workoutStore`.
+    private var isSecondaryLocked: Bool {
+        !BodyProEntitlement.isUnlocked
+    }
 
     fileprivate enum Role: String, Equatable {
         case primary
@@ -1398,11 +1942,16 @@ private struct BodySourceSettingsSheet: View {
                 sourceOptionSection(
                     title: "Secondary Data Source",
                     options: workoutStore.secondaryHealthDataSourceDefaultOptions(),
-                    selectedOption: workoutStore.defaultSecondaryHealthDataSourceOption,
+                    // While locked, the effective secondary is No Comparison — show the
+                    // checkmark there, not on the (still-persisted) paid source.
+                    selectedOption: isSecondaryLocked ? .noComparison : workoutStore.defaultSecondaryHealthDataSourceOption,
                     role: .secondary,
                     tintColor: .purple
                 )
             }
+        }
+        .sheet(isPresented: $showBodyProPaywall) {
+            NavigationStack { BodyProView() }
         }
     }
 
@@ -1479,6 +2028,7 @@ private struct BodySourceSettingsSheet: View {
         // Lock only the rows in the same section while a selection in that
         // section is in flight — the other role's rows stay tappable.
         let isSectionLocked = updatingSelection?.role == role
+        let isProLocked = role == .secondary && isSecondaryLocked
         return Button {
             updateSelection(option, role: role)
         } label: {
@@ -1501,6 +2051,10 @@ private struct BodySourceSettingsSheet: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 21, weight: .semibold))
                         .foregroundColor(tintColor)
+                } else if isProLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.secondary)
                 }
             }
             .padding(.horizontal, 18)
@@ -1526,6 +2080,10 @@ private struct BodySourceSettingsSheet: View {
     }
 
     private func updateSelection(_ option: BodyHealthDataSourceOption, role: Role) {
+        if role == .secondary, isSecondaryLocked {
+            showBodyProPaywall = true
+            return
+        }
         updatingSelection = PendingSelection(role: role, optionID: option.id)
         Task {
             switch role {
@@ -1563,7 +2121,7 @@ private struct BodyHealthPermissionsSettingsSheet: View {
                     }
                 }
             }
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
     }
 }
@@ -1632,7 +2190,7 @@ private struct BodyHealthSyncStatusSettingsSheet: View {
                     .buttonStyle(.plain)
                     .opacity(workoutStore.isRefreshing ? 0.65 : 1)
                 }
-                .bodyCardBackground()
+                .bodyCardBackground(translucent: true)
             }
         }
     }
@@ -1696,7 +2254,7 @@ private struct BodyCacheSettingsSheet: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .bodyCardBackground()
+                .bodyCardBackground(translucent: true)
             }
         }
     }
@@ -1786,7 +2344,7 @@ private struct BodySymbolSelectionTile: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, minHeight: 132)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
         .scaleEffect(isSelected ? 1.03 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.78), value: isSelected)
     }
@@ -1798,7 +2356,6 @@ private struct BodyAppIconOption: Identifiable, Equatable {
     let descriptor: String
     let alternateIconName: String?
     let previewAssetName: String
-    var isCreatorSurprise = false
 
     static let standard: [BodyAppIconOption] = [
         BodyAppIconOption(
@@ -1845,62 +2402,7 @@ private struct BodyAppIconOption: Identifiable, Equatable {
         )
     ]
 
-    static let creatorSurprises: [BodyAppIconOption] = [
-        BodyAppIconOption(
-            id: "classicPresent",
-            displayName: "Classic",
-            descriptor: "Present",
-            alternateIconName: "BodyClassicAlt",
-            previewAssetName: "BodyIconClassicAlt",
-            isCreatorSurprise: true
-        ),
-        BodyAppIconOption(
-            id: "rosePresent",
-            displayName: "Rose",
-            descriptor: "Present",
-            alternateIconName: "BodyPinkAlt",
-            previewAssetName: "BodyIconPinkAlt",
-            isCreatorSurprise: true
-        ),
-        BodyAppIconOption(
-            id: "violetPresent",
-            displayName: "Violet",
-            descriptor: "Present",
-            alternateIconName: "BodyPurpleAlt",
-            previewAssetName: "BodyIconPurpleAlt",
-            isCreatorSurprise: true
-        ),
-        BodyAppIconOption(
-            id: "midnightPresent",
-            displayName: "Midnight",
-            descriptor: "Present",
-            alternateIconName: "BodyBlackAlt",
-            previewAssetName: "BodyIconBlackAlt",
-            isCreatorSurprise: true
-        ),
-        BodyAppIconOption(
-            id: "neutralPresent",
-            displayName: "Neutral",
-            descriptor: "Present",
-            alternateIconName: "BodyGrayAlt",
-            previewAssetName: "BodyIconGrayAlt",
-            isCreatorSurprise: true
-        ),
-        BodyAppIconOption(
-            id: "lightPresent",
-            displayName: "Light",
-            descriptor: "Present",
-            alternateIconName: "BodyWhiteAlt",
-            previewAssetName: "BodyIconWhiteAlt",
-            isCreatorSurprise: true
-        )
-    ]
-
-    static let all: [BodyAppIconOption] = standard + creatorSurprises
-
-    static func availableOptions(includeCreatorSurprises: Bool) -> [BodyAppIconOption] {
-        includeCreatorSurprises ? all : standard
-    }
+    static let all: [BodyAppIconOption] = standard
 
     static func option(named alternateIconName: String?) -> BodyAppIconOption {
         all.first { $0.alternateIconName == alternateIconName } ?? all[0]
@@ -1929,7 +2431,7 @@ private struct BodySettingsCardSection<Content: View>: View {
             VStack(spacing: 0) {
                 content
             }
-            .bodyCardBackground()
+            .bodyCardBackground(translucent: true)
         }
     }
 }
@@ -1981,6 +2483,10 @@ private struct BodySettingsRowLabel: View {
             Image(systemName: "chevron.right")
                 .font(.system(.caption, weight: .bold))
                 .foregroundColor(.secondary.opacity(0.7))
+        case .externalLink:
+            Image(systemName: "arrow.up.right")
+                .font(.system(.caption, weight: .bold))
+                .foregroundColor(.secondary.opacity(0.7))
         }
     }
 }
@@ -1988,6 +2494,7 @@ private struct BodySettingsRowLabel: View {
 private enum BodySettingsRowAccessory {
     case none
     case chevron
+    case externalLink
 }
 
 private struct BodySettingsIconTile: View {
@@ -2008,7 +2515,6 @@ private struct BodySettingsIconTile: View {
 
 private struct BodyAppIconPickerSheet: View {
     let selectedIconName: String?
-    let showsCreatorSurprises: Bool
     let onSelect: (BodyAppIconOption) -> Void
 
     private let columns = [
@@ -2018,21 +2524,18 @@ private struct BodyAppIconPickerSheet: View {
     ]
 
     private var options: [BodyAppIconOption] {
-        let availableOptions = BodyAppIconOption.availableOptions(includeCreatorSurprises: showsCreatorSurprises)
-
-        guard let selectedOption = BodyAppIconOption.all.first(where: { $0.alternateIconName == selectedIconName }),
-              !availableOptions.contains(selectedOption) else {
-            return availableOptions
-        }
-
-        return availableOptions + [selectedOption]
+        BodyAppIconOption.all
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
+                // On iOS 26+ the sheet's default Liquid Glass background shows through;
+                // older systems keep the opaque grouped background.
+                if #unavailable(iOS 26.0) {
+                    Color(.systemGroupedBackground)
+                        .ignoresSafeArea()
+                }
 
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVGrid(columns: columns, spacing: 12) {
@@ -2103,278 +2606,9 @@ private struct BodyAppIconSelectionTile: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, minHeight: 142)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
         .scaleEffect(isSelected ? 1.03 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.78), value: isSelected)
-    }
-}
-
-private struct BodyCreatorSurpriseOverlay: View {
-    let onChooseIcons: () -> Void
-    let onDismiss: () -> Void
-
-    @State private var ribbonsAreFalling = false
-
-    private let ribbons = BodyCreatorRibbon.all
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                Color.black.opacity(0.4)
-                    .ignoresSafeArea()
-                    .onTapGesture(perform: onDismiss)
-
-                ForEach(ribbons) { ribbon in
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(ribbon.color)
-                        .frame(width: ribbon.width, height: ribbon.height)
-                        .rotationEffect(.degrees(ribbonsAreFalling ? ribbon.endRotation : ribbon.startRotation))
-                        .offset(
-                            x: ribbon.xOffset(in: proxy.size.width),
-                            y: ribbonsAreFalling
-                                ? proxy.size.height + ribbon.endYOffset
-                                : -proxy.size.height * 0.45 - ribbon.startYOffset
-                        )
-                        .opacity(ribbonsAreFalling ? 0.95 : 0)
-                        .animation(
-                            .linear(duration: ribbon.duration)
-                                .delay(ribbon.delay)
-                                .repeatForever(autoreverses: false),
-                            value: ribbonsAreFalling
-                        )
-                }
-
-                VStack(spacing: 18) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 38, weight: .bold))
-                        .foregroundColor(.yellow)
-                        .frame(width: 76, height: 76)
-                        .background(
-                            Circle()
-                                .fill(Color.yellow.opacity(0.18))
-                        )
-
-                    VStack(spacing: 8) {
-                        Text("Surprise Unlocked")
-                            .font(.system(.title2, design: .rounded))
-                            .fontWeight(.bold)
-                            .multilineTextAlignment(.center)
-
-                        Text("You unlocked a surprise from the creator.")
-                            .font(.system(.body, design: .rounded))
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-
-                        Text("Six Present app icons are now available.")
-                            .font(.system(.subheadline, design: .rounded))
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-
-                    HStack(spacing: 12) {
-                        Button {
-                            onDismiss()
-                        } label: {
-                            Text("Later")
-                                .font(.system(.headline, design: .rounded))
-                                .fontWeight(.semibold)
-                                .foregroundColor(Color.accentColor)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .fill(Color.accentColor.opacity(0.14))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                                .stroke(Color.accentColor.opacity(0.45), lineWidth: 1)
-                                        )
-                                )
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            onChooseIcons()
-                        } label: {
-                            Text("Choose Icons")
-                                .font(.system(.headline, design: .rounded))
-                                .fontWeight(.semibold)
-                                .foregroundColor(Color(.systemBackground))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .fill(Color.accentColor)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(24)
-                .frame(maxWidth: 360)
-                .bodyCardBackground()
-                .padding(.horizontal, 24)
-            }
-            .onAppear {
-                ribbonsAreFalling = true
-            }
-        }
-    }
-}
-
-private struct BodyCreatorRibbon: Identifiable {
-    let id: Int
-    let xFraction: CGFloat
-    let width: CGFloat
-    let height: CGFloat
-    let startRotation: Double
-    let endRotation: Double
-    let startYOffset: CGFloat
-    let endYOffset: CGFloat
-    let delay: Double
-    let duration: Double
-    let color: Color
-
-    func xOffset(in width: CGFloat) -> CGFloat {
-        (xFraction - 0.5) * width
-    }
-
-    static let all: [BodyCreatorRibbon] = {
-        let palette: [Color] = [.pink, .yellow, .blue, .green, .purple, .orange, .cyan, .mint, .red, .indigo]
-        let columns: [CGFloat] = [0.04, 0.09, 0.14, 0.19, 0.24, 0.29, 0.34, 0.39, 0.44, 0.49, 0.54, 0.59, 0.64, 0.69, 0.74, 0.79, 0.84, 0.89, 0.94]
-
-        return (0..<48).map { index in
-            let column = columns[index % columns.count]
-            let jitter = CGFloat(((index * 37) % 9) - 4) / 100
-            let xFraction = min(max(column + jitter, 0.03), 0.97)
-
-            return BodyCreatorRibbon(
-                id: index,
-                xFraction: xFraction,
-                width: CGFloat(6 + (index * 5) % 8),
-                height: CGFloat(28 + (index * 11) % 34),
-                startRotation: Double(((index * 23) % 90) - 45),
-                endRotation: Double(((index * 61) % 560) - 280),
-                startYOffset: CGFloat((index * 29) % 220),
-                endYOffset: CGFloat((index * 43) % 260),
-                delay: Double(index % 16) * 0.09,
-                duration: 2.4 + Double((index * 7) % 12) * 0.11,
-                color: palette[index % palette.count]
-            )
-        }
-    }()
-}
-
-private struct BodyHowToUseSettingsSheet: View {
-    private let sections: [BodyHowToUseGuideSection] = [
-        BodyHowToUseGuideSection(
-            title: "Connect Apple Health",
-            iconName: "heart.text.square.fill",
-            tintColor: .red,
-            steps: [
-                "Grant read permission when Body asks for Apple Health access. Use a real device for complete Health data.",
-                "Open Data > Source to set default primary and secondary Apple Health sources or combine duplicate source names.",
-                "Open Data > Permissions to choose which Apple Health categories Body uses inside the app.",
-                "Open Data > Data Refresh to see the last refresh time or run Refresh Now."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Read Summary",
-            iconName: "rectangle.grid.2x2.fill",
-            tintColor: .blue,
-            steps: [
-                "Summary shows Activity Rings, Readiness, Sleep, Basics, Training Load, heart, respiratory, energy, daylight, steps, and body metric cards.",
-                "Tap a card to open details with trend ranges, day views when available, and metric-specific context.",
-                "Pull down on Summary after new Health data is recorded to refresh the dashboard. A Loading data overlay stays on screen until the refresh finishes so you know work is in progress."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Customize Metrics",
-            iconName: "slider.horizontal.3",
-            tintColor: .teal,
-            steps: [
-                "Use Metrics > Units to follow the system or choose weight, distance, energy, and temperature units manually.",
-                "Use Metrics > Summary Cards, Charts Range, and Trend Cards to decide what appears on Summary and which default range charts open with.",
-                "Use Appearance to change theme and icon separately from metric behavior."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Sleep Details",
-            iconName: "bed.double.fill",
-            tintColor: Color(red: 0.20, green: 0.72, blue: 1.00),
-            steps: [
-                "Use the Sleep date slider to choose the day you want to inspect.",
-                "Tap the Sleep Score card to see the score breakdown.",
-                "Press the Sleep Stages chart to inspect a stage segment's duration and start/end time.",
-                "Tap the stage breakdown beneath the timeline to switch between per-stage durations and the optimal-range chart — each stage's share of the night with a healthy reference band — and your choice is remembered."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Day Views",
-            iconName: "chart.xyaxis.line",
-            tintColor: .indigo,
-            steps: [
-                "Heart Rate, Resting Heart Rate, HRV, Respiratory Rate, and Blood Oxygen include a Day View below the range trend.",
-                "Choose a day with the date slider.",
-                "Heart Rate also overlays sleep and workout windows; press the chart to reveal the raw readings behind each hourly point.",
-                "The legend shows just the average when a single source is active and switches to a per-source breakdown when a secondary source is selected."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Compare Two Sources",
-            iconName: "rectangle.split.2x1.fill",
-            tintColor: .pink,
-            steps: [
-                "Open a supported metric detail (Sleep, Heart Rate, Resting Heart Rate, HRV, Blood Oxygen, Steps, Active Energy, Resting Energy, Exercise Minutes).",
-                "Use Data > Source for app-wide primary and secondary defaults, or tap the source picker on a metric detail to override that metric.",
-                "Primary and secondary share the same x-axis buckets so bars and lines line up. The legend lists each source with its average across the selected range.",
-                "Changing the secondary source triggers a focused refresh of that metric; the Loading data overlay stays until the new comparison data is ready."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Workouts",
-            iconName: "figure.run",
-            tintColor: .orange,
-            steps: [
-                "Open Workouts to browse, search, sort, and filter your Apple Health workout history.",
-                "Tap a workout to view duration, calories, heart rate, distance when available, effort, and source.",
-                "Use the month controls to inspect older workout history.",
-                "Pull down to refresh the selected month; the Loading data overlay stays until the refresh finishes."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Apple Watch",
-            iconName: "applewatch",
-            tintColor: .green,
-            steps: [
-                "Install the Body watch app from the Watch app on your iPhone. It mirrors your Readiness, Sleep, Heart Rate, HRV, Resting Heart Rate, Training Load, and Skin Temperature cards.",
-                "Add a Body complication to your watch face — every metric has an accessory circular, rectangular, and corner ring complication.",
-                "The iPhone stays the source of truth: it pushes a metrics snapshot to the watch after each successful refresh, so open and refresh Body on iPhone to keep the watch current.",
-                "When that snapshot is stale, the watch refreshes Heart Rate and HRV from its own Health data. Complications update when the watch app runs; snapshots pushed while it is closed apply on next launch."
-            ]
-        ),
-        BodyHowToUseGuideSection(
-            title: "Manage Cache",
-            iconName: "internaldrive.fill",
-            tintColor: .purple,
-            steps: [
-                "Use Data > Cache to review cached dashboard, workout, and Activity Ring data.",
-                "Clear Cache removes local snapshots; Rebuild Cache refreshes Apple Health and rebuilds the local files.",
-                "Workout widgets read Body's shared cached snapshot, so open the app and refresh when widget data looks stale.",
-                "Widget backgrounds can use System, Black, or White styling."
-            ]
-        )
-    ]
-
-    var body: some View {
-        BodySettingsAboutSheetScaffold(title: "How to Use") {
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(sections) { section in
-                    BodyHowToUseGuideCard(section: section)
-                }
-            }
-        }
     }
 }
 
@@ -2407,7 +2641,7 @@ private struct BodyMoreSettingsSheet: View {
                         openSupportEmail()
                     }
                 }
-                .bodyCardBackground()
+                .bodyCardBackground(translucent: true)
 
                 BodySettingsInfoCard(section: disclaimerSection)
 
@@ -2443,7 +2677,7 @@ private struct BodyMoreSettingsSheet: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 
     private func openSupportEmail() {
@@ -2506,8 +2740,12 @@ private struct BodySettingsAboutSheetScaffold<Content: View>: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
+                // On iOS 26+ the sheet's default Liquid Glass background shows through;
+                // older systems keep the opaque grouped background.
+                if #unavailable(iOS 26.0) {
+                    Color(.systemGroupedBackground)
+                        .ignoresSafeArea()
+                }
 
                 ScrollView(.vertical, showsIndicators: false) {
                     content
@@ -2533,70 +2771,41 @@ private struct BodySettingsPopupActionRow: View {
         Button {
             action()
         } label: {
-            BodySettingsRowLabel(
-                title: title,
-                value: subtitle,
-                iconName: iconName,
-                tintColor: tintColor,
-                accessory: isEnabled ? .chevron : .none
-            )
+            HStack(spacing: 14) {
+                BodySettingsIconTile(iconName: iconName, color: tintColor)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    Text(subtitle)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+
+                Spacer(minLength: 12)
+
+                if isEnabled {
+                    Image(systemName: "chevron.right")
+                        .font(.system(.caption, weight: .bold))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .disabled(!isEnabled)
         .buttonStyle(.plain)
         .opacity(isEnabled ? 1 : 0.65)
-    }
-}
-
-private struct BodyHowToUseGuideSection: Identifiable {
-    let title: String
-    let iconName: String
-    let tintColor: Color
-    let steps: [String]
-
-    var id: String {
-        title
-    }
-}
-
-private struct BodyHowToUseGuideCard: View {
-    let section: BodyHowToUseGuideSection
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 14) {
-                BodySettingsIconTile(iconName: section.iconName, color: section.tintColor)
-
-                Text(section.title)
-                    .font(.system(.headline, design: .rounded))
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(section.steps.enumerated()), id: \.offset) { index, step in
-                    HStack(alignment: .top, spacing: 10) {
-                        Text("\(index + 1)")
-                            .font(.system(.caption, design: .rounded))
-                            .fontWeight(.bold)
-                            .foregroundColor(section.tintColor)
-                            .frame(width: 22, height: 22)
-                            .background(Circle().fill(section.tintColor.opacity(0.14)))
-
-                        Text(step)
-                            .font(.system(.subheadline, design: .rounded))
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
     }
 }
 
@@ -2646,7 +2855,7 @@ private struct BodySettingsInfoCard: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground()
+        .bodyCardBackground(translucent: true)
     }
 }
 

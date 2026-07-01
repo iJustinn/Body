@@ -12,6 +12,7 @@ struct BodyBasicsTrendChart: View {
     let bodyFatColor: Color
     let weightFormatter: (Double) -> String
     let bodyFatFormatter: (Double) -> String
+    let immersive: Bool
 
     private let weightCalendarPoints: [HealthTrendCalendarPoint]
     private let bodyFatCalendarPoints: [HealthTrendCalendarPoint]
@@ -37,13 +38,15 @@ struct BodyBasicsTrendChart: View {
         weightColor: Color,
         bodyFatColor: Color,
         weightFormatter: @escaping (Double) -> String,
-        bodyFatFormatter: @escaping (Double) -> String
+        bodyFatFormatter: @escaping (Double) -> String,
+        immersive: Bool = false
     ) {
         self.selectedRange = selectedRange
         self.weightColor = weightColor
         self.bodyFatColor = bodyFatColor
         self.weightFormatter = weightFormatter
         self.bodyFatFormatter = bodyFatFormatter
+        self.immersive = immersive
 
         let weightPoints = trend.weight.lineChartCalendarPoints(
             to: selectedRange,
@@ -60,7 +63,7 @@ struct BodyBasicsTrendChart: View {
 
         let domainDates = trend.weight.calendarPoints(to: selectedRange).map(\.date)
             + trend.bodyFat.calendarPoints(to: selectedRange).map(\.date)
-        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
+        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive)
 
         self.weightLatestCalendarDate = weightPoints.last { $0.value?.isFinite == true }?.date
         self.bodyFatLatestCalendarDate = bodyFatPoints.last { $0.value?.isFinite == true }?.date
@@ -216,28 +219,30 @@ struct BodyBasicsTrendChart: View {
             }
         }
         .chartYAxis {
-            AxisMarks(position: .leading, values: axisTickValues) { value in
-                AxisGridLine()
-                    .foregroundStyle(Color.secondary.opacity(0.18))
-                AxisTick()
-                    .foregroundStyle(weightColor.opacity(0.55))
-                AxisValueLabel {
-                    if let yValue = value.as(Double.self) {
-                        Text(weightFormatter(denormalizedValue(for: yValue, in: weightDomain)))
-                            .font(.system(.caption2, design: .rounded))
-                            .foregroundStyle(Color.secondary)
+            if !immersive {
+                AxisMarks(position: .leading, values: axisTickValues) { value in
+                    AxisGridLine()
+                        .foregroundStyle(Color.secondary.opacity(0.18))
+                    AxisTick()
+                        .foregroundStyle(weightColor.opacity(0.55))
+                    AxisValueLabel {
+                        if let yValue = value.as(Double.self) {
+                            Text(weightFormatter(denormalizedValue(for: yValue, in: weightDomain)))
+                                .font(.system(.caption2, design: .rounded))
+                                .foregroundStyle(Color.secondary)
+                        }
                     }
                 }
-            }
 
-            AxisMarks(position: .trailing, values: axisTickValues) { value in
-                AxisTick()
-                    .foregroundStyle(bodyFatColor.opacity(0.55))
-                AxisValueLabel {
-                    if let yValue = value.as(Double.self) {
-                        Text(bodyFatFormatter(denormalizedValue(for: yValue, in: bodyFatDomain)))
-                            .font(.system(.caption2, design: .rounded))
-                            .foregroundStyle(Color.secondary)
+                AxisMarks(position: .trailing, values: axisTickValues) { value in
+                    AxisTick()
+                        .foregroundStyle(bodyFatColor.opacity(0.55))
+                    AxisValueLabel {
+                        if let yValue = value.as(Double.self) {
+                            Text(bodyFatFormatter(denormalizedValue(for: yValue, in: bodyFatDomain)))
+                                .font(.system(.caption2, design: .rounded))
+                                .foregroundStyle(Color.secondary)
+                        }
                     }
                 }
             }
@@ -382,7 +387,7 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
         self.chartYDomain = Self.computeYDomain(from: points)
 
         let domainDates = series.calendarPoints(to: selectedRange).map(\.date)
-        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange)
+        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: false)
 
         self.latestCalendarDate = points.last { $0.value?.isFinite == true }?.date
     }

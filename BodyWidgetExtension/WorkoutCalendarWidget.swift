@@ -39,6 +39,7 @@ struct WorkoutCalendarEntry: TimelineEntry {
     let date: Date
     let background: BodyWidgetBackgroundSelection
     let snapshot: WorkoutMonthSnapshot
+    let isPro: Bool
 }
 
 struct WorkoutCalendarProvider: AppIntentTimelineProvider {
@@ -46,7 +47,8 @@ struct WorkoutCalendarProvider: AppIntentTimelineProvider {
         WorkoutCalendarEntry(
             date: Date(),
             background: .system,
-            snapshot: .placeholder
+            snapshot: .placeholder,
+            isPro: true
         )
     }
 
@@ -54,23 +56,24 @@ struct WorkoutCalendarProvider: AppIntentTimelineProvider {
         for configuration: BodyWidgetConfigurationIntent,
         in context: Context
     ) async -> WorkoutCalendarEntry {
-        loadEntry(configuration: configuration)
+        loadEntry(configuration: configuration, isPro: context.isPreview || BodyProEntitlement.isUnlocked)
     }
 
     func timeline(
         for configuration: BodyWidgetConfigurationIntent,
         in context: Context
     ) async -> Timeline<WorkoutCalendarEntry> {
-        let entry = loadEntry(configuration: configuration)
+        let entry = loadEntry(configuration: configuration, isPro: BodyProEntitlement.isUnlocked)
         let nextRefresh = Calendar.bodyGregorian.date(byAdding: .minute, value: 30, to: entry.date) ?? entry.date.addingTimeInterval(1_800)
         return Timeline(entries: [entry], policy: .after(nextRefresh))
     }
 
-    private func loadEntry(configuration: BodyWidgetConfigurationIntent) -> WorkoutCalendarEntry {
+    private func loadEntry(configuration: BodyWidgetConfigurationIntent, isPro: Bool) -> WorkoutCalendarEntry {
         WorkoutCalendarEntry(
             date: Date(),
             background: configuration.background ?? .system,
-            snapshot: WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty()
+            snapshot: WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty(),
+            isPro: isPro
         )
     }
 }
@@ -84,8 +87,14 @@ struct BodyWorkoutCalendarWidget: Widget {
             intent: BodyWidgetConfigurationIntent.self,
             provider: WorkoutCalendarProvider()
         ) { entry in
-            WorkoutCalendarWidgetView(entry: entry)
-                .bodyWidgetBackground(entry.background)
+            Group {
+                if entry.isPro {
+                    WorkoutCalendarWidgetView(entry: entry)
+                } else {
+                    BodyWidgetLockedView()
+                }
+            }
+            .bodyWidgetBackground(entry.background)
         }
         .supportedFamilies([.systemLarge])
         .configurationDisplayName("Workout Calendar")
@@ -103,8 +112,14 @@ struct BodyWorkoutTypeBreakdownWidget: Widget {
             intent: BodyWidgetConfigurationIntent.self,
             provider: WorkoutCalendarProvider()
         ) { entry in
-            WorkoutTypeBreakdownWidgetView(entry: entry)
-                .bodyWidgetBackground(entry.background)
+            Group {
+                if entry.isPro {
+                    WorkoutTypeBreakdownWidgetView(entry: entry)
+                } else {
+                    BodyWidgetLockedView()
+                }
+            }
+            .bodyWidgetBackground(entry.background)
         }
         .supportedFamilies([.systemMedium, .systemLarge])
         .configurationDisplayName("Workout Types")

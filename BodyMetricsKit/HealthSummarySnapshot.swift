@@ -34,7 +34,7 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
         case .readiness:
             return HealthMetricDetailHelpText(
                 title: "About Readiness",
-                body: "Readiness combines your recent heart, sleep, training, and overnight vital signs against your own baseline. It is a readiness estimate, not a diagnosis. The strongest signal comes from sustained patterns across HRV, resting heart rate, sleep quality, and recent load rather than one isolated reading."
+                body: "Readiness combines your recent heart, sleep, training, and overnight vital signs against your own baseline. It is a readiness estimate, not a diagnosis. The strongest signal comes from sustained patterns across HRV, resting heart rate, sleep quality, and recent load rather than one isolated reading.\nToday's live score updates through the day and drops after a workout, while the trend chart keeps the value from shortly after you wake, so the current score can read lower than today's point on the chart."
             )
         case .sleep:
             return HealthMetricDetailHelpText(
@@ -488,7 +488,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
     /// implicit baseline ("v0 / unversioned"). New saves write the current
     /// value. When the structure evolves, branch on `schemaVersion` in
     /// `init(from:)` to migrate.
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     var summary: HealthSummarySnapshot
     var trends: HealthTrendSnapshot
@@ -537,10 +537,15 @@ struct HealthDashboardSnapshot: Codable, Equatable {
 
     func filtered(
         by selection: BodyHealthPermissionSelection,
-        idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration
+        idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
+        recordedReadinessContext: String? = nil
     ) -> HealthDashboardSnapshot {
         filteredWithoutReadinessRecompute(by: selection)
-            .recalculatingReadiness(idealSleepDuration: idealSleepDuration, calendar: .bodyGregorian)
+            .recalculatingReadiness(
+                idealSleepDuration: idealSleepDuration,
+                calendar: .bodyGregorian,
+                recordedReadinessContext: recordedReadinessContext
+            )
     }
 
     func filteredWithoutReadinessRecompute(by selection: BodyHealthPermissionSelection) -> HealthDashboardSnapshot {
@@ -551,13 +556,38 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         )
     }
 
+    /// Recomputes readiness end to end: today's live tile (`summary.readiness`)
+    /// and the full history series (`trends.readiness`).
+    ///
+    /// The live tile = a fresh recompute **minus** the same-day activity drain
+    /// (display only). The history series prefers the frozen morning record per
+    /// day, falling back to the deterministic recompute where no record exists.
+    /// When `freezesRecordedReadiness` is set and the wake+10 window is open, the
+    /// day's undrained morning score is frozen once into `trends.recordedReadiness`.
     func recalculatingReadiness(
         on date: Date = Date(),
         idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
-        calendar: Calendar = .bodyGregorian
+        calendar: Calendar = .bodyGregorian,
+        todaysWorkouts: [WorkoutSummary] = [],
+        wakeTime: Date? = nil,
+        now: Date = Date(),
+        freezesRecordedReadiness: Bool = false,
+        recordedReadinessContext: String? = nil
     ) -> HealthDashboardSnapshot {
         var next = self
-        next.summary.readiness = ReadinessScoreCalculator.summary(
+        let scoreDay = calendar.startOfDay(for: date)
+
+        // Drop frozen records captured under a different readiness input context
+        // (a permission, source, or grouping change). The signature persists with
+        // the records, so this also fires once on the first recompute after the
+        // context changed while the app was backgrounded or a refresh failed.
+        if let recordedReadinessContext, next.trends.recordedReadinessContext != recordedReadinessContext {
+            next.trends.recordedReadiness = []
+            next.trends.recordedReadinessContext = recordedReadinessContext
+        }
+
+        // Fresh, undrained recompute of today's summary.
+        let undrained = ReadinessScoreCalculator.summary(
             on: date,
             healthSummary: next.summary,
             trends: next.trends,
@@ -565,12 +595,25 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             calendar: calendar
         )
 
-        let scoreDay = calendar.startOfDay(for: date)
+        // Freeze the morning record from the UNDRAINED score, before any drain.
+        next.trends.recordedReadiness = Self.freezingRecordedReadiness(
+            next.trends.recordedReadiness,
+            undrainedScore: undrained.score,
+            scoreDay: scoreDay,
+            wakeTime: wakeTime,
+            now: now,
+            freezes: freezesRecordedReadiness,
+            calendar: calendar
+        )
+
+        // Live tile = undrained − same-day activity drain (display only).
+        next.summary.readiness = Self.draining(undrained, with: todaysWorkouts)
+
+        // History series: deterministic recompute overlaid with frozen records.
         let oldestTrendDate = next.trends.readinessSourceSeries.compactMap { series in
             series.points.map { calendar.startOfDay(for: $0.date) }.min()
         }.min()
         let startDate = oldestTrendDate ?? scoreDay
-
         next.trends.readiness = ReadinessScoreCalculator.dailySeries(
             healthSummary: next.summary,
             trends: next.trends,
@@ -578,9 +621,133 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             endDate: scoreDay,
             idealSleepDuration: idealSleepDuration,
             calendar: calendar
-        )
+        ).applyingRecordedOverrides(next.trends.recordedReadiness, calendar: calendar)
 
+        next.trends.recordedReadiness = Self.pruningRecordedReadiness(
+            next.trends.recordedReadiness,
+            before: scoreDay,
+            calendar: calendar
+        )
         return next
+    }
+
+    /// Lightweight re-application of the morning freeze + activity drain WITHOUT
+    /// rebuilding the full daily series. Used after the workout fetch lands so the
+    /// live tile reflects today's just-fetched workouts (the main recompute at the
+    /// start of a refresh runs before workouts are available). Re-overlays the
+    /// frozen records onto the existing history series.
+    func reapplyingActivityReadiness(
+        on date: Date = Date(),
+        idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
+        calendar: Calendar = .bodyGregorian,
+        todaysWorkouts: [WorkoutSummary] = [],
+        wakeTime: Date? = nil,
+        now: Date = Date(),
+        freezesRecordedReadiness: Bool = false,
+        recordedReadinessContext: String? = nil
+    ) -> HealthDashboardSnapshot {
+        var next = self
+        let scoreDay = calendar.startOfDay(for: date)
+
+        if let recordedReadinessContext, next.trends.recordedReadinessContext != recordedReadinessContext {
+            next.trends.recordedReadiness = []
+            next.trends.recordedReadinessContext = recordedReadinessContext
+        }
+
+        let undrained = ReadinessScoreCalculator.summary(
+            on: date,
+            healthSummary: next.summary,
+            trends: next.trends,
+            idealSleepDuration: idealSleepDuration,
+            calendar: calendar
+        )
+        next.trends.recordedReadiness = Self.freezingRecordedReadiness(
+            next.trends.recordedReadiness,
+            undrainedScore: undrained.score,
+            scoreDay: scoreDay,
+            wakeTime: wakeTime,
+            now: now,
+            freezes: freezesRecordedReadiness,
+            calendar: calendar
+        )
+        next.summary.readiness = Self.draining(undrained, with: todaysWorkouts)
+        next.trends.readiness = next.trends.readiness.applyingRecordedOverrides(
+            next.trends.recordedReadiness,
+            calendar: calendar
+        )
+        next.trends.recordedReadiness = Self.pruningRecordedReadiness(
+            next.trends.recordedReadiness,
+            before: scoreDay,
+            calendar: calendar
+        )
+        return next
+    }
+
+    /// Appends today's frozen morning record when freezing is enabled, the score
+    /// exists, no record exists yet for the day, and `now` is within the freeze
+    /// window `[freezeMoment, end of scoreDay]`. Idempotent. `freezeMoment` is
+    /// `wake + 10 min`, or 10:00 local on the score day when wake is unknown.
+    private static func freezingRecordedReadiness(
+        _ records: [RecordedReadinessEntry],
+        undrainedScore: Int?,
+        scoreDay: Date,
+        wakeTime: Date?,
+        now: Date,
+        freezes: Bool,
+        calendar: Calendar
+    ) -> [RecordedReadinessEntry] {
+        guard freezes, let score = undrainedScore else {
+            return records
+        }
+        guard !records.contains(where: { calendar.startOfDay(for: $0.date) == scoreDay }) else {
+            return records
+        }
+
+        let freezeMoment: Date
+        if let wakeTime {
+            freezeMoment = wakeTime.addingTimeInterval(600)
+        } else {
+            freezeMoment = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: scoreDay) ?? scoreDay
+        }
+        let windowEnd = calendar.date(byAdding: .day, value: 1, to: scoreDay)
+            ?? scoreDay.addingTimeInterval(86_400)
+        guard now >= freezeMoment, now < windowEnd else {
+            return records
+        }
+
+        var updated = records
+        updated.append(RecordedReadinessEntry(date: scoreDay, score: score))
+        return updated
+    }
+
+    /// Returns the summary with the same-day activity drain subtracted from the
+    /// live score (floored at 0, status recomputed). Display only.
+    private static func draining(
+        _ summary: ReadinessSummary,
+        with workouts: [WorkoutSummary]
+    ) -> ReadinessSummary {
+        guard let score = summary.score else {
+            return summary
+        }
+        let drain = ActivityReadinessImpact.drainPoints(workouts: workouts)
+        guard drain >= 0.5 else {
+            return summary
+        }
+        var drained = summary
+        let newScore = max(0, score - Int(drain.rounded()))
+        drained.score = newScore
+        drained.status = ReadinessStatus.status(for: newScore)
+        return drained
+    }
+
+    /// Drops records older than the chart's reach (~450 days) to bound growth.
+    private static func pruningRecordedReadiness(
+        _ records: [RecordedReadinessEntry],
+        before scoreDay: Date,
+        calendar: Calendar
+    ) -> [RecordedReadinessEntry] {
+        let cutoff = calendar.date(byAdding: .day, value: -450, to: scoreDay) ?? scoreDay
+        return records.filter { calendar.startOfDay(for: $0.date) >= cutoff }
     }
 }
 

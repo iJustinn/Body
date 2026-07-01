@@ -119,8 +119,7 @@ struct WorkoutTypeBreakdownView: View {
 
     private func percentageBar(_ entry: WorkoutTypeBreakdown) -> some View {
         ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: barCornerRadius, style: .continuous)
-                .fill(entry.type.color)
+            BodyGlassChip(color: entry.type.color, cornerRadius: barCornerRadius)
 
             Text(percentageText(for: entry.duration))
                 .font(.system(size: percentageFontSize, weight: .bold, design: .rounded))

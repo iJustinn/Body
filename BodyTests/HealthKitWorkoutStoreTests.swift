@@ -61,6 +61,62 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertFalse(readTypes.contains(try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))))
     }
 
+    func testWorkoutMetricsPermissionGatesDetailReadTypes() throws {
+        let vo2Max = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .vo2Max))
+        let runningPower = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .runningPower))
+        let cyclingCadence = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .cyclingCadence))
+        let swimStrokes = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .swimmingStrokeCount))
+        let distance = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning))
+
+        // Workouts + Workout Metrics: detail metrics requested; distance (core) also present.
+        let both = HealthKitWorkoutStore.readObjectTypes(
+            for: BodyHealthPermissionSelection(enabledPermissions: [.workouts, .workoutMetrics])
+        )
+        XCTAssertTrue(both.contains(vo2Max))
+        XCTAssertTrue(both.contains(runningPower))
+        XCTAssertTrue(both.contains(cyclingCadence))
+        XCTAssertTrue(both.contains(swimStrokes))
+        XCTAssertTrue(both.contains(distance))
+        XCTAssertTrue(both.contains(HKObjectType.workoutType()))
+
+        // Workouts alone: distance + workout type stay; the detail metrics drop.
+        let workoutsOnly = HealthKitWorkoutStore.readObjectTypes(
+            for: BodyHealthPermissionSelection(enabledPermissions: [.workouts])
+        )
+        XCTAssertTrue(workoutsOnly.contains(distance))
+        XCTAssertTrue(workoutsOnly.contains(HKObjectType.workoutType()))
+        XCTAssertFalse(workoutsOnly.contains(vo2Max))
+        XCTAssertFalse(workoutsOnly.contains(runningPower))
+        XCTAssertFalse(workoutsOnly.contains(swimStrokes))
+
+        // Workout Metrics without Workouts: nothing requested (AND-gate).
+        let metricsOnly = HealthKitWorkoutStore.readObjectTypes(
+            for: BodyHealthPermissionSelection(enabledPermissions: [.workoutMetrics])
+        )
+        XCTAssertFalse(metricsOnly.contains(vo2Max))
+        XCTAssertFalse(metricsOnly.contains(distance))
+    }
+
+    func testDateOfBirthPermissionGatesCharacteristicReadType() throws {
+        let dateOfBirth = try XCTUnwrap(HKObjectType.characteristicType(forIdentifier: .dateOfBirth))
+
+        let both = HealthKitWorkoutStore.readObjectTypes(
+            for: BodyHealthPermissionSelection(enabledPermissions: [.heart, .dateOfBirth])
+        )
+        XCTAssertTrue(both.contains(dateOfBirth))
+
+        // Heart alone (no Date of Birth) and Date of Birth alone (no Heart): not requested.
+        let heartOnly = HealthKitWorkoutStore.readObjectTypes(
+            for: BodyHealthPermissionSelection(enabledPermissions: [.heart])
+        )
+        XCTAssertFalse(heartOnly.contains(dateOfBirth))
+
+        let dateOfBirthOnly = HealthKitWorkoutStore.readObjectTypes(
+            for: BodyHealthPermissionSelection(enabledPermissions: [.dateOfBirth])
+        )
+        XCTAssertFalse(dateOfBirthOnly.contains(dateOfBirth))
+    }
+
     func testHealthDashboardSnapshotStoreWritesCachedHomeDataToFileNotUserDefaults() throws {
         let suiteName = "BodyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

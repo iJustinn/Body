@@ -4,6 +4,7 @@
 //
 
 import Charts
+import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -20,15 +21,39 @@ func bodyHealthDetailChartTrailingDatePadding(for selectedRange: BodyHealthTrend
     return max(bodyHealthDetailChartMinimumTrailingDatePadding, rangeScaledPadding)
 }
 
-func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange) -> ClosedRange<Date> {
-    let trailingDatePadding = bodyHealthDetailChartTrailingDatePadding(for: selectedRange)
+func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange, immersive: Bool = false, immersivePairedBars: Bool = false) -> ClosedRange<Date> {
+    // Immersive charts hide the Y axis and fill the plot width. Pad each edge by about
+    // half a data bucket so the first/last bar (or point) sits fully inside the plot
+    // without clipping and no empty day appears. Non-immersive charts keep the small
+    // leading padding and the larger right-side breathing room (room for the trailing
+    // axis label).
+    let leadingDatePadding: TimeInterval
+    let trailingDatePadding: TimeInterval
+    if immersive {
+        let bucketSeconds = Double(selectedRange.chartAggregationDayCount) * 24 * 60 * 60
+        if selectedRange == .recentWeek && !immersivePairedBars {
+            // Week single-mark charts bias hard to the left: a little space on the left,
+            // a bit more than a full day of breathing room on the right. Paired-bar
+            // comparison charts keep symmetric padding — their two offset bars already
+            // sit asymmetrically within the day.
+            leadingDatePadding = 2 * 60 * 60
+            trailingDatePadding = 26 * 60 * 60
+        } else {
+            let halfBucketPadding = bucketSeconds * 0.5
+            leadingDatePadding = halfBucketPadding
+            trailingDatePadding = halfBucketPadding
+        }
+    } else {
+        leadingDatePadding = bodyHealthDetailChartLeadingDatePadding
+        trailingDatePadding = bodyHealthDetailChartTrailingDatePadding(for: selectedRange)
+    }
 
     guard let startDate = dates.min(), let endDate = dates.max() else {
         let now = Date()
-        return now.addingTimeInterval(-bodyHealthDetailChartLeadingDatePadding)...now.addingTimeInterval(trailingDatePadding)
+        return now.addingTimeInterval(-leadingDatePadding)...now.addingTimeInterval(trailingDatePadding)
     }
 
-    return startDate.addingTimeInterval(-bodyHealthDetailChartLeadingDatePadding)...endDate.addingTimeInterval(trailingDatePadding)
+    return startDate.addingTimeInterval(-leadingDatePadding)...endDate.addingTimeInterval(trailingDatePadding)
 }
 
 // Symbol area for a PointMark that renders a circle whose diameter matches a
@@ -218,21 +243,17 @@ struct BodyDataLoadingOverlay: View {
                 ProgressView()
                     .progressViewStyle(.circular)
                     .controlSize(.regular)
-                    .tint(.white)
+                    .tint(.primary)
 
                 Text(message)
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                     .multilineTextAlignment(.center)
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 22)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(white: 0.18))
-            )
-            .shadow(color: Color.black.opacity(0.28), radius: 18, x: 0, y: 8)
+            .bodyCardBackground(cornerRadius: 16, translucent: true, translucentFillOpacity: 0.12)
         }
         .transition(.opacity)
         .accessibilityElement(children: .combine)
@@ -262,6 +283,63 @@ extension View {
     }
 }
 
+/// Holds the home page's live scroll offset. Kept as a standalone `@Observable` so writing
+/// it on each scroll frame only invalidates the views that actually read `offset` (the
+/// readiness hero fade) instead of all of `BodyHomeView`, whose body rebuilds every metric
+/// card model on every evaluation.
+@Observable
+private final class BodyHomeScrollState {
+    var offset: CGFloat = 0
+}
+
+/// Applies the readiness hero's scroll fade and pin. It reads `scrollState.offset`, so this
+/// small view re-renders as the page scrolls while `BodyHomeView`'s body does not.
+private struct BodyReadinessHeroScrollFade<Content: View>: View {
+    let scrollState: BodyHomeScrollState
+    @ViewBuilder var content: Content
+
+    private var opacity: Double {
+        max(0, 1 - Double(scrollState.offset) / 130)
+    }
+
+    var body: some View {
+        content
+            // Stay put and fade out as the page scrolls up; fade back in at the top — it
+            // pins via offset rather than scrolling away with the content.
+            .opacity(opacity)
+            .offset(y: min(scrollState.offset, 160))
+            .allowsHitTesting(opacity > 0.1)
+    }
+}
+
+/// Dims the fixed full-bleed star-hero backdrop as the page scrolls up — in step with the
+/// hero number/text fade — so the translucent cards scrolling over it stay readable. Reads
+/// `scrollState.offset` itself so only this layer re-renders per scroll frame, not all of
+/// `BodyHomeView`.
+private struct BodyHomeBackgroundScrollDim: View {
+    let scrollState: BodyHomeScrollState
+
+    private var opacity: Double {
+        min(1, max(0, Double(scrollState.offset) / 130)) * 0.8
+    }
+
+    var body: some View {
+        Color(.systemGroupedBackground)
+            .opacity(opacity)
+            .allowsHitTesting(false)
+    }
+}
+
+/// Navigation route for Home → detail pushes. The section (`metric` grid/hero vs
+/// `trend`) is part of the value so a grid card and a trend card of the same
+/// `HealthMetricKind` — frequently both on screen — get distinct
+/// `matchedTransitionSource` ids and each detail page zooms from its own card.
+enum HomeMetricRoute: Hashable {
+    case metric(HealthMetricKind)   // grid card or the readiness star hero
+    case trend(HealthMetricKind)    // home trends section card
+    case activityRings              // activity rings card
+}
+
 struct BodyHomeView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
@@ -272,20 +350,40 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.homeCardOrderKey) private var homeCardOrderRawValue = BodyHomeCardKind.defaultRawValue
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
+    @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var homeBackgroundEnabled = true
+    @AppStorage(BodyAppearancePreference.homeBackgroundColorsKey) private var homeBackgroundColorsRawValue = ""
+    @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var homeBackgroundSeparatorsRawValue = ""
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.summaryReselectCount) private var summaryReselectCount
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @State private var draggedHomeCard: BodyHomeCardKind?
     @State private var showsAllHomeTrends = false
     @State private var isPullRefreshing = false
+    // Scroll offset lives in an @Observable so per-frame scroll updates only re-render the
+    // hero fade wrapper that reads it — not this whole body, which rebuilds every metric
+    // card model on each evaluation.
+    @State private var scrollState = BodyHomeScrollState()
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
+    /// Shared namespace for the card → detail zoom transition (matchedTransitionSource +
+    /// `.navigationTransition(.zoom)`). Threaded into `BodyHomeTrendsSection` for trends.
+    @Namespace private var metricZoom
+    /// Drives the Readiness star's detail presentation. The full-bleed hero has no card
+    /// edges for a zoom to read cleanly from, so it cross-fades in/out as an overlay
+    /// instead of pushing — see `readinessDetailOverlay`.
+    @State private var readinessDetailPresented = false
 
     var body: some View {
         let metricCardLookup = metricCardsByKind
 
         return NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground)
+                homeBackground
+                    .ignoresSafeArea()
+
+                BodyHomeBackgroundScrollDim(scrollState: scrollState)
                     .ignoresSafeArea()
 
                 ScrollView(.vertical, showsIndicators: false) {
@@ -293,6 +391,8 @@ struct BodyHomeView: View {
                         if let healthDataNotice = workoutStore.healthDataNotice {
                             BodyHealthNoticeBanner(message: healthDataNotice)
                         }
+
+                        starMetricHero
 
                         if horizontalSizeClass == .regular {
                             HStack(alignment: .top, spacing: 14) {
@@ -322,13 +422,43 @@ struct BodyHomeView: View {
                     await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
                     isPullRefreshing = false
                 }
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.contentOffset.y + geometry.contentInsets.top
+                } action: { _, offset in
+                    scrollState.offset = max(0, offset)
+                }
             }
             .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
-            .navigationDestination(for: HealthMetricKind.self) { kind in
-                BodyHealthMetricDetailView(
-                    model: detailModel(for: kind),
-                    initialTrendRange: defaultTrendRange
-                )
+            .navigationDestination(for: HomeMetricRoute.self) { route in
+                switch route {
+                case .metric(let kind), .trend(let kind):
+                    BodyHealthMetricDetailView(
+                        model: detailModel(for: kind),
+                        initialTrendRange: defaultTrendRange
+                    )
+                    .navigationTransition(.zoom(sourceID: route, in: metricZoom))
+                case .activityRings:
+                    BodyActivityRingsDetailView()
+                        .navigationTransition(.zoom(sourceID: route, in: metricZoom))
+                }
+            }
+        }
+        // Readiness star: cross-fade its detail in/out over Home as an overlay instead of a
+        // navigation push (SwiftUI has no fade push transition, and the full-bleed hero has
+        // no card edges for a zoom to read cleanly from).
+        .overlay {
+            if readinessDetailPresented {
+                readinessDetailOverlay
+                    .transition(.opacity)
+            }
+        }
+        // Re-tapping the Summary tab dismisses the Readiness overlay, mirroring how the
+        // system pops a pushed detail to root (the overlay lives outside the nav stack).
+        .onChange(of: summaryReselectCount) { _, _ in
+            if readinessDetailPresented {
+                withAnimation(.easeInOut(duration: 0.28)) {
+                    readinessDetailPresented = false
+                }
             }
         }
     }
@@ -337,8 +467,89 @@ struct BodyHomeView: View {
         BodyHomeCardKind.storedOrder(from: homeCardOrderRawValue)
     }
 
+    private var starredHomeCard: BodyHomeCardKind? {
+        BodyHomeCardKind.starredMetric(from: starredMetricRawValue)
+    }
+
     private var homeCardRows: [BodyHomeCardLayoutRow] {
-        BodyHomeCardKind.layoutRows(from: homeCardOrder, visibleIn: summaryCardSelection)
+        // The starred metric is shown as the top hero, so exclude it from the grid via
+        // an effective selection. Filtering the order won't work — `layoutRows` repairs
+        // missing cards back in. The persisted order is untouched, so reordering the
+        // remaining cards is unaffected and the card returns to its slot when un-starred.
+        let gridSelection = starredHomeCard.map { summaryCardSelection.setting($0, isEnabled: false) } ?? summaryCardSelection
+        return BodyHomeCardKind.layoutRows(from: homeCardOrder, visibleIn: gridSelection)
+    }
+
+    /// The home-page star hero promoted above the grid. Readiness shows its score text
+    /// here, over the full-bleed color backdrop supplied by `homeBackground` (which
+    /// bleeds behind the status bar). Readiness is the only star-eligible metric.
+    @ViewBuilder
+    private var starMetricHero: some View {
+        switch starredHomeCard {
+        case .readiness:
+            // The scroll fade/pin lives in the wrapper (which reads scrollState.offset) so
+            // scrolling re-renders only it, not this body. Reading the offset here would
+            // rebuild every metric card model on each scroll frame.
+            BodyReadinessHeroScrollFade(scrollState: scrollState) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.28)) {
+                        readinessDetailPresented = true
+                    }
+                } label: {
+                    BodyReadinessHeroLabel(readiness: workoutStore.healthSummary.readiness)
+                }
+                .buttonStyle(.plain)
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    /// The Readiness star's detail, presented as a full-screen cross-fade overlay rather
+    /// than a navigation push (so it fades instead of zooming/sliding). Wrapped in its own
+    /// NavigationStack for the title bar; a tap Back button dismisses — there is no
+    /// swipe-from-edge back gesture in this mode.
+    private var readinessDetailOverlay: some View {
+        NavigationStack {
+            BodyHealthMetricDetailView(
+                model: detailModel(for: .readiness),
+                initialTrendRange: defaultTrendRange
+            )
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.28)) {
+                            readinessDetailPresented = false
+                        }
+                    } label: {
+                        Image(systemName: "chevron.backward")
+                            .fontWeight(.semibold)
+                    }
+                    .accessibilityLabel("Back")
+                }
+            }
+        }
+    }
+
+    /// Fixed full-bleed backdrop behind the scroll view: the custom Background
+    /// color mix when enabled, otherwise the plain grouped background. The mix is
+    /// auto-suppressed while Readiness is starred — that hero is colored by today's
+    /// readiness level, so a separate background tint would clash.
+    @ViewBuilder
+    private var homeBackground: some View {
+        if starredHomeCard == .readiness {
+            // Readiness colors the top of Home directly — fixed, bleeding behind the
+            // status bar, melting into the page — so it replaces the custom mix here.
+            BodyReadinessHeroBackdrop(readiness: workoutStore.healthSummary.readiness)
+        } else if homeBackgroundEnabled {
+            let isPro = proStore?.isPro ?? false
+            BodyActivityRingsCard.heroBackground(
+                colors: BodyHomeBackground.proGatedColors(from: homeBackgroundColorsRawValue, isProUnlocked: isPro),
+                separators: BodyHomeBackground.proGatedSeparators(from: homeBackgroundSeparatorsRawValue, isProUnlocked: isPro)
+            )
+        } else {
+            Color(.systemGroupedBackground)
+        }
     }
 
     /// The two-column grid of summary metric cards (identical on iPhone and iPad).
@@ -392,7 +603,8 @@ struct BodyHomeView: View {
                 cards: visibleHomeTrendCards,
                 canToggleAll: canToggleAllHomeTrends,
                 showsAllTrends: showsAllHomeTrends,
-                toggleAll: toggleAllHomeTrends
+                toggleAll: toggleAllHomeTrends,
+                zoomNamespace: metricZoom
             )
         }
     }
@@ -573,6 +785,7 @@ struct BodyHomeView: View {
             selection: homeTrendCardSelection,
             temperatureUnitPreference: selectedTemperatureUnitPreference,
             energyUnitPreference: selectedEnergyUnitPreference,
+            weightUnitPreference: selectedWeightUnitPreference,
             includesStable: includesStable,
             cache: trendComputationCache
         )
@@ -840,17 +1053,21 @@ struct BodyHomeView: View {
     ) -> some View {
         switch card {
         case .activityRings:
-            NavigationLink {
-                BodyActivityRingsDetailView()
-            } label: {
+            NavigationLink(value: HomeMetricRoute.activityRings) {
                 BodyActivityRingsCard(summary: workoutStore.healthSummary.activityRings)
+                    .matchedTransitionSource(id: HomeMetricRoute.activityRings, in: metricZoom) {
+                        $0.clipShape(.rect(cornerRadius: 28, style: .continuous))
+                    }
             }
             .buttonStyle(.plain)
         default:
             if let metricKind = card.healthMetricKind,
                let metric = lookup[metricKind] {
-                NavigationLink(value: metric.kind) {
+                NavigationLink(value: HomeMetricRoute.metric(metric.kind)) {
                     BodyHealthMetricCard(metric: metric)
+                        .matchedTransitionSource(id: HomeMetricRoute.metric(metric.kind), in: metricZoom) {
+                            $0.clipShape(.rect(cornerRadius: 28, style: .continuous))
+                        }
                 }
                 .buttonStyle(.plain)
             }
@@ -1941,6 +2158,10 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         let lastTimestamp: TimeInterval?
         let firstValue: Double?
         let lastValue: Double?
+        // Hash over every point so a backdated edit to a non-edge day (manually
+        // editable Basics metrics: weight/body fat) invalidates the cache instead
+        // of colliding on the count + first/last fields above.
+        let contentHash: Int
     }
 
     private struct Entry {
@@ -1992,13 +2213,19 @@ final class BodyHomeTrendComputationCache: ObservableObject {
     }
 
     private static func fingerprint(for series: HealthTrendSeries, dayStart: Date) -> Fingerprint {
-        Fingerprint(
+        var hasher = Hasher()
+        for point in series.points {
+            hasher.combine(point.date)
+            hasher.combine(point.value)
+        }
+        return Fingerprint(
             dayStart: dayStart,
             pointCount: series.points.count,
             firstTimestamp: series.points.first?.date.timeIntervalSinceReferenceDate,
             lastTimestamp: series.points.last?.date.timeIntervalSinceReferenceDate,
             firstValue: series.points.first?.value,
-            lastValue: series.points.last?.value
+            lastValue: series.points.last?.value,
+            contentHash: hasher.finalize()
         )
     }
 }
