@@ -1,5 +1,9 @@
 # Version History
 
+## 0.9.6 (build 1)
+
+- Updated the app, widget, watch, and test bundle version to 0.9.6 build 1.
+
 ## 0.9.5 (build 11)
 
 - **Refreshed the summary card beta badges.** The Readiness card's badge now reads **Beta v3**, and the **Sleep Score** toggle in Settings no longer carries a beta badge.
