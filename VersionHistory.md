@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.5 (build 11)
+
+- **Refreshed the summary card beta badges.** The Readiness card's badge now reads **Beta v3**, and the **Sleep Score** toggle in Settings no longer carries a beta badge.
+- Updated the app, widget, watch, and test bundle version to 0.9.5 build 11.
+
 ## 0.9.5 (build 10)
 
 - **Activity-aware workout details.** The workout detail card now adapts its metrics to the activity: walks, runs, and hikes add **Avg Pace**, **Elevation Gain**, **Cadence**, and **Cardio Fitness (VO₂max)**; rides add **Avg Speed**, **Cadence**, and **Power**; swims add **Swim Pace** (per 100 m) and **Stroke Count**. **Max Heart Rate** appears wherever heart-rate data exists, and every workout still shows distance, energy, and average heart rate. Each tile is shown only when the activity and recorded data support it.

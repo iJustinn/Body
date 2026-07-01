@@ -1692,21 +1692,12 @@ private struct BodySleepScoreToggleRow: View {
             )
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
-                    Text("Sleep Score")
-                        .font(.system(.headline, design: .rounded))
-                        .fontWeight(.semibold)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-
-                    Text("Beta v2")
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(.blue)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(.blue.opacity(0.14), in: Capsule())
-                }
+                Text("Sleep Score")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
 
                 Text("Nightly score from sleep stages, vitals, and timing")
                     .font(.system(.subheadline, design: .rounded))
@@ -1748,7 +1739,7 @@ private struct BodySummaryCardToggleRow: View {
                         .minimumScaleFactor(0.8)
 
                     if card.isBeta {
-                        Text("Beta v2")
+                        Text("Beta v3")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(.blue)
                             .padding(.horizontal, 7)
