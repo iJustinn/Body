@@ -205,6 +205,203 @@ struct WorkoutDetailMetric: Equatable {
     let kind: Kind
     let title: String
     let value: String
+    let comparison: WorkoutMetricComparison?
+
+    init(kind: Kind, title: String, value: String, comparison: WorkoutMetricComparison? = nil) {
+        self.kind = kind
+        self.title = title
+        self.value = value
+        self.comparison = comparison
+    }
+}
+
+/// A compact comparison badge shown above a metric's unit. `badgeText` is the visual
+/// token (e.g. "↑12%", "↓3%", "≈0%"); `accessibilityLabel` is the spoken VoiceOver form
+/// so the arrow glyph isn't read literally. The "vs 30-day avg" frame lives once in the
+/// section header, not in every badge.
+struct WorkoutMetricComparison: Equatable {
+    let badgeText: String
+    let accessibilityLabel: String
+}
+
+/// Builds the "↑ 12% vs 30-day avg" caption for a single detail metric against the
+/// same workout type's recent history. Pure and unit-agnostic: the percentage is
+/// computed on one raw scalar per metric, so it needs no unit preferences. Eligibility
+/// mirrors each tile's display guard so a prior the UI treats as absent never skews the
+/// baseline, and the math is hardened against near-zero baselines before any `Int(...)`.
+enum WorkoutMetricComparisonBuilder {
+    /// Minimum eligible prior samples before a comparison is shown.
+    static let minimumSampleCount = 3
+    /// Distance floors below which pace/speed are too noisy to compare.
+    static let minComparableDistanceMeters = 400.0
+    static let minComparableSwimDistanceMeters = 100.0
+    /// Percent magnitude is clamped to this before `Int(...)` to avoid overflow traps
+    /// (`Int(inf/NaN)` and `abs(Int.min)` both crash).
+    static let maxDisplayPercent = 999.0
+
+    /// A compact badge for the metric — "↑12%", "↓3%", or "≈0%" — or nil when there is
+    /// nothing to show: while months are still loading, when the current metric isn't
+    /// displayable, or when there are fewer than `minimumSampleCount` eligible priors.
+    /// The "vs 30-day avg" reference frame is shown once in the section header, not here.
+    static func comparison(
+        for kind: WorkoutDetailMetric.Kind,
+        current: WorkoutSummary,
+        priors: [WorkoutSummary],
+        isComplete: Bool,
+        locale: Locale
+    ) -> WorkoutMetricComparison? {
+        // No caption at all until every spanned month has loaded. A partial window can
+        // still hold 3+ priors (from already-loaded months or the launch-seeded snapshot),
+        // so gating only the under-sampled fallback would leak an inaccurate average.
+        guard isComplete else { return nil }
+
+        guard let currentScalar = scalar(for: kind, from: current) else {
+            return nil
+        }
+
+        let baseline: Double?
+        let sampleCount: Int
+        if isRateMetric(kind) {
+            let totals = rateTotals(for: kind, from: priors)
+            sampleCount = totals.count
+            baseline = totals.count > 0 && totals.distance > 0 && totals.duration > 0
+                ? rateValue(for: kind, distance: totals.distance, duration: totals.duration)
+                : nil
+        } else {
+            let priorScalars = priors.compactMap { scalar(for: kind, from: $0) }
+            sampleCount = priorScalars.count
+            baseline = priorScalars.isEmpty
+                ? nil
+                : priorScalars.reduce(0, +) / Double(priorScalars.count)
+        }
+
+        guard sampleCount >= minimumSampleCount, let baseline else {
+            return nil
+        }
+
+        return caption(current: currentScalar, baseline: baseline, locale: locale)
+    }
+
+    // MARK: - Scalars
+
+    /// The comparable scalar for a metric, or nil when the metric would read as absent
+    /// for this workout (mirrors the detail tile's `> 0` display guards). Positive-only
+    /// so a zero-valued prior never depresses the baseline or fills the sample floor.
+    static func scalar(for kind: WorkoutDetailMetric.Kind, from workout: WorkoutSummary) -> Double? {
+        switch kind {
+        case .activeEnergy: return positive(workout.activeEnergyKilocalories)
+        case .totalEnergy: return positive(workout.totalEnergyKilocalories)
+        case .avgHeartRate: return positive(displayedAverageHeartRate(for: workout))
+        case .maxHeartRate: return positive(workout.maximumHeartRateBeatsPerMinute)
+        case .distance: return positive(workout.distanceMeters)
+        case .elevation: return positive(workout.elevationAscendedMeters)
+        case .stepCadence: return positive(workout.averageStepCadenceSPM)
+        case .cyclingCadence: return positive(workout.averageCyclingCadenceRPM)
+        case .power: return positive(workout.averagePowerWatts)
+        case .cardioFitness: return positive(workout.cardioFitnessVO2Max)
+        case .strokeCount: return positive(workout.swimmingStrokeCount)
+        case .pace, .swimPace, .speed:
+            guard let distance = workout.distanceMeters,
+                  distance >= distanceFloor(for: kind),
+                  workout.duration > 0 else {
+                return nil
+            }
+            return rateValue(for: kind, distance: distance, duration: workout.duration)
+        }
+    }
+
+    private static func isRateMetric(_ kind: WorkoutDetailMetric.Kind) -> Bool {
+        switch kind {
+        case .pace, .swimPace, .speed: return true
+        default: return false
+        }
+    }
+
+    private static func distanceFloor(for kind: WorkoutDetailMetric.Kind) -> Double {
+        kind == .swimPace ? minComparableSwimDistanceMeters : minComparableDistanceMeters
+    }
+
+    /// Rate as displayed: pace/swim pace are seconds per meter (lower = faster), speed is
+    /// meters per second. The percentage is identical in any consistent unit.
+    private static func rateValue(for kind: WorkoutDetailMetric.Kind, distance: Double, duration: Double) -> Double {
+        switch kind {
+        case .speed: return distance / duration
+        default: return duration / distance
+        }
+    }
+
+    /// Distance and duration totals over priors clearing the per-style floor — an
+    /// aggregate ratio of totals, not a mean of per-workout rates (which would let a
+    /// 100 m workout weigh the same as a 10 km one).
+    private static func rateTotals(
+        for kind: WorkoutDetailMetric.Kind,
+        from priors: [WorkoutSummary]
+    ) -> (distance: Double, duration: Double, count: Int) {
+        let floor = distanceFloor(for: kind)
+        var distance = 0.0
+        var duration = 0.0
+        var count = 0
+        for workout in priors {
+            guard let dist = workout.distanceMeters, dist >= floor, workout.duration > 0 else {
+                continue
+            }
+            distance += dist
+            duration += workout.duration
+            count += 1
+        }
+        return (distance, duration, count)
+    }
+
+    /// The average heart rate the detail tile actually shows: the stored average, else
+    /// the mean of the workout's heart-rate samples (mirrors `WorkoutDetailPresentation`'s
+    /// `storedHeartRate ?? computedHeartRate`). Reading only the stored field would drop a
+    /// samples-only workout from the current comparison and under-count such priors.
+    private static func displayedAverageHeartRate(for workout: WorkoutSummary) -> Double? {
+        if let stored = workout.averageHeartRateBeatsPerMinute {
+            return stored
+        }
+        let samples = workout.heartRateSamples ?? []
+        guard !samples.isEmpty else { return nil }
+        return samples.reduce(0) { $0 + $1.beatsPerMinute } / Double(samples.count)
+    }
+
+    private static func positive(_ value: Double?) -> Double? {
+        guard let value, value.isFinite, value > 0 else { return nil }
+        return value
+    }
+
+    // MARK: - Caption
+
+    private static func caption(
+        current: Double,
+        baseline: Double,
+        locale: Locale
+    ) -> WorkoutMetricComparison? {
+        // Guard near-zero baselines and non-finite results BEFORE Int(): Int(inf/NaN)
+        // and abs(Int.min) trap. An unusable baseline shows no badge.
+        guard current.isFinite, baseline.isFinite, abs(baseline) > 1e-9 else {
+            return nil
+        }
+        let percent = (current - baseline) / baseline * 100
+        guard percent.isFinite else {
+            return nil
+        }
+        let clamped = max(-maxDisplayPercent, min(maxDisplayPercent, percent))
+        let rounded = Int(clamped.rounded())
+        if rounded == 0 {
+            return WorkoutMetricComparison(
+                badgeText: "≈0%",
+                accessibilityLabel: "About the same as the 30-day average"
+            )
+        }
+        let magnitude = BodyValueFormat.numberText(Double(abs(rounded)), decimals: 0, locale: locale)
+        let arrow = rounded > 0 ? "↑" : "↓"
+        let direction = rounded > 0 ? "higher" : "lower"
+        return WorkoutMetricComparison(
+            badgeText: "\(arrow)\(magnitude)%",
+            accessibilityLabel: "\(magnitude) percent \(direction) than 30-day average"
+        )
+    }
 }
 
 enum WorkoutEffortIntensity: Equatable {
@@ -284,7 +481,9 @@ struct WorkoutDetailPresentation: Equatable {
         timeZone: TimeZone = .current,
         unitPreference: BodyValueFormat.UnitPreference = .system,
         distanceUnitPreference: BodyValueFormat.DistanceUnitPreference? = nil,
-        energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories,
+        comparisonWorkouts: [WorkoutSummary]? = nil,
+        comparisonDataComplete: Bool = true
     ) {
         let endDate = workout.startDate.addingTimeInterval(max(0, workout.duration))
 
@@ -492,6 +691,25 @@ struct WorkoutDetailPresentation: Equatable {
                 title: "Swim Strokes",
                 value: BodyValueFormat.strokeCountText(strokeCount, locale: locale)
             ))
+        }
+
+        // Attach the 30-day comparison caption to each metric when comparison data was
+        // provided (nil == feature off, so existing callers/previews are unchanged).
+        if let comparisonWorkouts {
+            metrics = metrics.map { metric in
+                WorkoutDetailMetric(
+                    kind: metric.kind,
+                    title: metric.title,
+                    value: metric.value,
+                    comparison: WorkoutMetricComparisonBuilder.comparison(
+                        for: metric.kind,
+                        current: workout,
+                        priors: comparisonWorkouts,
+                        isComplete: comparisonDataComplete,
+                        locale: locale
+                    )
+                )
+            }
         }
 
         detailMetrics = metrics

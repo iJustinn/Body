@@ -34,6 +34,14 @@ struct BodyWorkoutMonthKey: Hashable {
     }
 }
 
+/// The recent same-type history used to build a workout's 30-day metric comparisons.
+/// `isComplete` is false while any spanned month is still loading, so the UI can
+/// distinguish "loading" from genuinely sparse history.
+struct WorkoutComparisonContext {
+    let priorWorkouts: [WorkoutSummary]
+    let isComplete: Bool
+}
+
 struct BodyHealthCacheStatus: Equatable {
     let hasHealthDashboardData: Bool
     let workoutMonthCount: Int
@@ -1100,6 +1108,61 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     func hasLoadedSnapshot(month: Int, year: Int) -> Bool {
         loadedMonthKeys.contains(BodyWorkoutMonthKey(month: month, year: year))
+    }
+
+    /// Same-type workouts in the half-open 30 days before `workout` (excluding it),
+    /// read only from already-loaded snapshots. Pure — no fetch, no `Task` — so it is
+    /// safe to call from a SwiftUI computed property. `isComplete` uses `loadedMonthKeys`
+    /// (the true load signal), not `monthSnapshots` membership, which is seeded with a
+    /// placeholder at launch and left populated after `clearWorkoutSnapshots`.
+    func comparisonContext(for workout: WorkoutSummary) -> WorkoutComparisonContext {
+        let calendar = Calendar.bodyGregorian
+        guard let windowStart = calendar.date(byAdding: .day, value: -30, to: workout.startDate) else {
+            return WorkoutComparisonContext(priorWorkouts: [], isComplete: false)
+        }
+
+        let keys = comparisonMonthKeys(for: workout, calendar: calendar)
+        let isComplete = keys.allSatisfy { loadedMonthKeys.contains($0) }
+
+        let priors = keys
+            .compactMap { monthSnapshots[$0] }
+            .flatMap { $0.days }
+            .flatMap { $0.workouts }
+            .filter { prior in
+                prior.type == workout.type
+                    && prior.id != workout.id
+                    && prior.startDate >= windowStart
+                    && prior.startDate < workout.startDate
+            }
+
+        return WorkoutComparisonContext(priorWorkouts: priors, isComplete: isComplete)
+    }
+
+    /// Loads any month the 30-day comparison window overlaps that isn't cached yet.
+    /// Call from `.task(id:)`, never from the synchronous `comparisonContext`.
+    func ensureComparisonMonthsLoaded(for workout: WorkoutSummary) async {
+        let keys = comparisonMonthKeys(for: workout, calendar: .bodyGregorian)
+        for key in keys where !loadedMonthKeys.contains(key) {
+            await loadMonthIfNeeded(month: key.month, year: key.year)
+        }
+    }
+
+    /// Every month key the `[start - 30d, start)` window touches — up to 3 (a workout
+    /// early in a month reaches back across two prior months).
+    private func comparisonMonthKeys(for workout: WorkoutSummary, calendar: Calendar) -> [BodyWorkoutMonthKey] {
+        guard let windowStart = calendar.date(byAdding: .day, value: -30, to: workout.startDate),
+              var cursor = calendar.dateInterval(of: .month, for: windowStart)?.start,
+              let endMonthStart = calendar.dateInterval(of: .month, for: workout.startDate)?.start else {
+            return [BodyWorkoutMonthKey(date: workout.startDate, calendar: calendar)]
+        }
+
+        var keys: [BodyWorkoutMonthKey] = []
+        while cursor <= endMonthStart {
+            keys.append(BodyWorkoutMonthKey(date: cursor, calendar: calendar))
+            guard let next = calendar.date(byAdding: .month, value: 1, to: cursor) else { break }
+            cursor = next
+        }
+        return keys
     }
 
     func loadRecentWorkoutMonthsIfNeeded(date: Date = Date()) async {

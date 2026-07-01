@@ -2,6 +2,7 @@
 
 ## 0.9.6 (build 1)
 
+- **Workout metrics now compare to your 30-day average.** Each tile on the workout detail card shows a compact **`↑12%`** badge above its unit — comparing that metric to the average of your **same-type** workouts over the 30 days before that workout — with a single **`vs 30-day avg`** label beside the **Details** heading. It's direction only (no good/bad coloring), shows `≈0%` when you're on par, and shows no badge for metrics without enough comparable history or while that history is still loading. Rate metrics (pace, speed, swim pace) use a distance-weighted baseline with a per-style minimum distance so short workouts don't skew it, and each tile's VoiceOver label speaks the comparison in words.
 - Updated the app, widget, watch, and test bundle version to 0.9.6 build 1.
 
 ## 0.9.5 (build 11)

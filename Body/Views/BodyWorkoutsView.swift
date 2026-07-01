@@ -747,6 +747,9 @@ struct BodyWorkoutDetailSheet: View {
         .task {
             route = await workoutStore.loadWorkoutRoute(for: workout)
         }
+        .task(id: workout.id) {
+            await workoutStore.ensureComparisonMonthsLoaded(for: workout)
+        }
     }
 
     /// The fixed route map sits behind the scroll content; as the content slides
@@ -882,16 +885,29 @@ struct BodyWorkoutDetailSheet: View {
     }
 
     private var workoutDetailsCard: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Details")
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
+        let metrics = presentation.detailMetrics
+        let showsComparisonLegend = metrics.contains { $0.comparison != nil }
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Details")
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                if showsComparisonLegend {
+                    Text("vs 30-day avg")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer(minLength: 0)
+            }
 
             LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 18) {
-                ForEach(presentation.detailMetrics, id: \.kind) { metric in
+                ForEach(metrics, id: \.kind) { metric in
                     BodyWorkoutDetailMetricTile(
                         title: metric.title,
-                        value: metric.value
+                        value: metric.value,
+                        comparison: metric.comparison
                     )
                 }
             }
@@ -1125,10 +1141,13 @@ struct BodyWorkoutDetailSheet: View {
     }
 
     private var presentation: WorkoutDetailPresentation {
-        WorkoutDetailPresentation(
+        let comparison = workoutStore.comparisonContext(for: workout)
+        return WorkoutDetailPresentation(
             workout: workout,
             distanceUnitPreference: selectedDistanceUnitPreference,
-            energyUnitPreference: selectedEnergyUnitPreference
+            energyUnitPreference: selectedEnergyUnitPreference,
+            comparisonWorkouts: comparison.priorWorkouts,
+            comparisonDataComplete: comparison.isComplete
         )
     }
 
@@ -1152,6 +1171,17 @@ struct BodyWorkoutDetailSheet: View {
 private struct BodyWorkoutDetailMetricTile: View {
     let title: String
     let value: String
+    let comparison: WorkoutMetricComparison?
+
+    /// Combined VoiceOver label so the caption's ↑/↓ glyph is spoken meaningfully
+    /// ("12 percent lower than 30-day average") instead of read as a bare symbol.
+    private var metricAccessibilityLabel: String {
+        var parts = [title, value]
+        if let comparison {
+            parts.append(comparison.accessibilityLabel)
+        }
+        return parts.joined(separator: ", ")
+    }
 
     /// Splits a formatted value ("172 BPM") into number and trailing unit so the
     /// unit can read smaller and gray like the hero distance. Values that don't
@@ -1172,22 +1202,36 @@ private struct BodyWorkoutDetailMetricTile: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
 
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+            HStack(alignment: .lastTextBaseline, spacing: 4) {
                 Text(valueParts.number)
-                    .font(.system(size: 30, weight: .bold))
+                    .font(.system(size: 33, weight: .bold))
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
-                if !valueParts.unit.isEmpty {
-                    Text(valueParts.unit)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+
+                if !valueParts.unit.isEmpty || comparison != nil {
+                    VStack(alignment: .leading, spacing: -2) {
+                        if let comparison {
+                            Text(comparison.badgeText)
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                        }
+                        if !valueParts.unit.isEmpty {
+                            Text(valueParts.unit)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                        }
+                    }
                 }
             }
         }
         .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(metricAccessibilityLabel)
     }
 }
 
