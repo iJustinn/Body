@@ -356,7 +356,8 @@ enum WorkoutMetricComparisonBuilder {
     /// the mean of the workout's heart-rate samples (mirrors `WorkoutDetailPresentation`'s
     /// `storedHeartRate ?? computedHeartRate`). Reading only the stored field would drop a
     /// samples-only workout from the current comparison and under-count such priors.
-    private static func displayedAverageHeartRate(for workout: WorkoutSummary) -> Double? {
+    /// Internal (not private) so `WorkoutEffortEstimator` scores the same average.
+    static func displayedAverageHeartRate(for workout: WorkoutSummary) -> Double? {
         if let stored = workout.averageHeartRateBeatsPerMinute {
             return stored
         }

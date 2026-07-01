@@ -25,6 +25,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var homeBackgroundEnabled = true
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @State private var activeSheet: BodySettingsSheet?
     @State private var showBodyProPaywall = false
@@ -335,6 +336,10 @@ struct BodySettingsView: View {
                 )
             }
             .buttonStyle(.plain)
+
+            settingsDivider
+
+            BodyEffortSuggestionToggleRow(isEnabled: $showWorkoutEffortSuggestions)
         }
     }
 
@@ -1710,6 +1715,55 @@ private struct BodySleepScoreToggleRow: View {
             Spacer(minLength: 12)
 
             Toggle("Sleep Score", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct BodyEffortSuggestionToggleRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(
+                iconName: "speedometer",
+                color: .purple
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text("Effort Suggestions")
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    Text("Beta v1")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(.blue)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(.blue.opacity(0.14), in: Capsule())
+                }
+
+                Text("Body's predicted effort on every workout")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Effort Suggestions", isOn: $isEnabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                 .accessibilityValue(isEnabled ? "On" : "Off")

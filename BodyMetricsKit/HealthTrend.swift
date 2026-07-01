@@ -1406,6 +1406,26 @@ struct HealthTrendSeries: Codable, Equatable {
         points.first { $0.date == date }
     }
 
+    /// Latest finite point value on or before `date`, no older than `maxAgeDays`.
+    /// Unlike `point(on:)` (exact-Date equality), this tolerates sparse daily series —
+    /// e.g. "the resting HR in effect on the day of an old workout".
+    func latestValue(
+        onOrBefore date: Date,
+        maxAgeDays: Int,
+        calendar: Calendar = .bodyGregorian
+    ) -> Double? {
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: date))
+            ?? date
+        guard let earliest = calendar.date(byAdding: .day, value: -maxAgeDays, to: calendar.startOfDay(for: date)) else {
+            return nil
+        }
+
+        let eligible = points.filter {
+            $0.date < dayEnd && $0.date >= earliest && $0.value.isFinite
+        }
+        return eligible.max(by: { $0.date < $1.date })?.value
+    }
+
     /// Overlay frozen morning records onto the series, replacing each recorded
     /// day's point value in place (keyed by start-of-day) so `point(on:)` and the
     /// chart's last-point-per-day grouping agree. Override-only: a recorded day

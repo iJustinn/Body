@@ -103,6 +103,13 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// the cached snapshot value so an edit shows immediately; the snapshot's
     /// baked-in effort catches up on the next workout refresh.
     @Published private(set) var workoutEffortOverrides: [UUID: Double] = [:]
+    /// Workouts whose saved effort was an accepted suggestion (saved unchanged from
+    /// the pre-filled estimate). `WorkoutEffortEstimator` excludes these from its
+    /// calibration so it never learns from its own output; a manual re-rate removes
+    /// the ID again. Device-local: persisted in `UserDefaults` as an ordered
+    /// `[String]` capped at `suggestionAcceptedEffortIDsCap` (oldest dropped first).
+    @Published private(set) var suggestionAcceptedEffortWorkoutIDs: Set<UUID> =
+        HealthKitWorkoutStore.loadSuggestionAcceptedEffortIDs()
     @Published private(set) var healthSummary: HealthSummarySnapshot = .empty
     @Published private(set) var healthTrends: HealthTrendSnapshot = .empty
     @Published private(set) var activityRingHistory: ActivityRingHistorySnapshot = .empty
@@ -502,6 +509,32 @@ final class HealthKitWorkoutStore: ObservableObject {
         try await engine.saveWorkoutEffort(workoutID: workoutID, score: score)
         workoutEffortOverrides[workoutID] = score
         Task { await refreshAfterWrite(.trainingLoad) }
+    }
+
+    nonisolated private static let suggestionAcceptedEffortIDsKey = "workoutEffortSuggestionAcceptedIDs"
+    nonisolated private static let suggestionAcceptedEffortIDsCap = 300
+
+    nonisolated private static func loadSuggestionAcceptedEffortIDs() -> Set<UUID> {
+        let stored = UserDefaults.standard.stringArray(forKey: suggestionAcceptedEffortIDsKey) ?? []
+        return Set(stored.compactMap(UUID.init(uuidString:)))
+    }
+
+    /// Records whether a workout's saved effort was an accepted suggestion (saved
+    /// unchanged from the pre-filled estimate). Call on every effort save: `true`
+    /// marks the rating as machine-derived, any other save clears the mark so the
+    /// rating counts as genuine again.
+    func setEffortSuggestionAccepted(_ accepted: Bool, workoutID: UUID) {
+        var stored = UserDefaults.standard.stringArray(forKey: Self.suggestionAcceptedEffortIDsKey) ?? []
+        let idString = workoutID.uuidString
+        stored.removeAll { $0 == idString }
+        if accepted {
+            stored.append(idString)
+            if stored.count > Self.suggestionAcceptedEffortIDsCap {
+                stored.removeFirst(stored.count - Self.suggestionAcceptedEffortIDsCap)
+            }
+        }
+        UserDefaults.standard.set(stored, forKey: Self.suggestionAcceptedEffortIDsKey)
+        suggestionAcceptedEffortWorkoutIDs = Set(stored.compactMap(UUID.init(uuidString:)))
     }
 
     /// Loads the GPS route + city label for a workout's detail map hero, or `nil`
@@ -1110,12 +1143,14 @@ final class HealthKitWorkoutStore: ObservableObject {
         loadedMonthKeys.contains(BodyWorkoutMonthKey(month: month, year: year))
     }
 
-    /// Same-type workouts in the half-open 30 days before `workout` (excluding it),
-    /// read only from already-loaded snapshots. Pure — no fetch, no `Task` — so it is
-    /// safe to call from a SwiftUI computed property. `isComplete` uses `loadedMonthKeys`
-    /// (the true load signal), not `monthSnapshots` membership, which is seeded with a
+    /// Workouts in the half-open 30 days before `workout` (excluding it) — same-type
+    /// only by default, all types when `matchingTypeOnly` is false (the effort
+    /// estimator prefers same-type but falls back across types) — read only from
+    /// already-loaded snapshots. Pure — no fetch, no `Task` — so it is safe to call
+    /// from a SwiftUI computed property. `isComplete` uses `loadedMonthKeys` (the true
+    /// load signal), not `monthSnapshots` membership, which is seeded with a
     /// placeholder at launch and left populated after `clearWorkoutSnapshots`.
-    func comparisonContext(for workout: WorkoutSummary) -> WorkoutComparisonContext {
+    func comparisonContext(for workout: WorkoutSummary, matchingTypeOnly: Bool = true) -> WorkoutComparisonContext {
         let calendar = Calendar.bodyGregorian
         guard let windowStart = calendar.date(byAdding: .day, value: -30, to: workout.startDate) else {
             return WorkoutComparisonContext(priorWorkouts: [], isComplete: false)
@@ -1129,7 +1164,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             .flatMap { $0.days }
             .flatMap { $0.workouts }
             .filter { prior in
-                prior.type == workout.type
+                (!matchingTypeOnly || prior.type == workout.type)
                     && prior.id != workout.id
                     && prior.startDate >= windowStart
                     && prior.startDate < workout.startDate

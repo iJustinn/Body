@@ -681,11 +681,21 @@ struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @State private var isEditingEffort = false
     @State private var editingScore = 5
     @State private var isSavingEffort = false
     @State private var effortError: String?
+    /// The current effort prediction, shown persistently as "Body's prediction: N" on
+    /// every workout — rated or not, editing or not. Cached in @State so it isn't
+    /// rebuilt on each scroll frame; refreshed when the workout, max HR, comparison
+    /// history, or the setting changes.
+    @State private var prediction: WorkoutEffortEstimator.Estimate?
+    /// True while the editor holds a value pre-filled from the prediction that the user
+    /// hasn't adjusted — the one signal `saveEditingEffort` uses to exclude an
+    /// accepted-unchanged suggestion from calibration (no feedback loop).
+    @State private var editorPrefilledFromSuggestion = false
     @State private var route: WorkoutRoute?
     @State private var scrollOffset: CGFloat = 0
     /// Age-estimated max HR (220 − age) from Apple Health, loaded once to anchor the
@@ -748,8 +758,11 @@ struct BodyWorkoutDetailSheet: View {
             route = await workoutStore.loadWorkoutRoute(for: workout)
         }
         .task(id: workout.id) {
+            editorPrefilledFromSuggestion = false
             await workoutStore.ensureComparisonMonthsLoaded(for: workout)
+            refreshPrediction()
         }
+        .onChange(of: showWorkoutEffortSuggestions) { refreshPrediction() }
     }
 
     /// The fixed route map sits behind the scroll content; as the content slides
@@ -988,6 +1001,14 @@ struct BodyWorkoutDetailSheet: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                 }
+
+                if showWorkoutEffortSuggestions, let prediction {
+                    Text("Body's prediction: \(prediction.score)")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel("Body's prediction: \(prediction.score) out of 10")
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1056,9 +1077,11 @@ struct BodyWorkoutDetailSheet: View {
             Spacer(minLength: 10)
 
             effortStepButton(systemName: "minus", color: color, isEnabled: editingScore > 1 && !isSavingEffort) {
+                editorPrefilledFromSuggestion = false
                 withAnimation(.snappy(duration: 0.28)) { editingScore = max(editingScore - 1, 1) }
             }
             effortStepButton(systemName: "plus", color: color, isEnabled: editingScore < 10 && !isSavingEffort) {
+                editorPrefilledFromSuggestion = false
                 withAnimation(.snappy(duration: 0.28)) { editingScore = min(editingScore + 1, 10) }
             }
         }
@@ -1086,27 +1109,88 @@ struct BodyWorkoutDetailSheet: View {
     }
 
     private func beginEditingEffort() {
-        editingScore = effortLevel.map { min(max(Int($0.rounded()), 1), 10) } ?? 5
+        let estimate = showWorkoutEffortSuggestions
+            ? WorkoutEffortEstimator.estimate(for: effortEstimateInput())
+            : nil
+        // Keep the persistent "Body's prediction" label in sync with the value the
+        // editor pre-fills from, in case max HR resolved since the last refresh.
+        if estimate != nil {
+            prediction = estimate
+        }
+        if let effortLevel {
+            // A logged workout opens at its saved value — the pre-fill is only for
+            // workouts the user hasn't rated yet.
+            editingScore = min(max(Int(effortLevel.rounded()), 1), 10)
+            editorPrefilledFromSuggestion = false
+        } else if let estimate {
+            // Pre-fill the editor from the prediction for an unrated workout. The value
+            // is snapshotted into editingScore, so a later load can't move it mid-edit.
+            editingScore = estimate.score
+            editorPrefilledFromSuggestion = true
+        } else {
+            editingScore = 5
+            editorPrefilledFromSuggestion = false
+        }
         withAnimation(.snappy(duration: 0.3)) { isEditingEffort = true }
     }
 
     private func cancelEditingEffort() {
+        editorPrefilledFromSuggestion = false
         withAnimation(.snappy(duration: 0.3)) { isEditingEffort = false }
     }
 
     private func saveEditingEffort() {
         isSavingEffort = true
         let value = Double(editingScore)
+        // Saved straight from an unadjusted pre-fill → the rating is the prediction's
+        // own output, so mark it for exclusion from future calibration; any other save
+        // clears the mark (the rating is the user's judgment again).
+        let acceptedSuggestionUnchanged = editorPrefilledFromSuggestion
         Task {
             do {
                 try await workoutStore.saveWorkoutEffort(workoutID: workout.id, score: value)
+                workoutStore.setEffortSuggestionAccepted(acceptedSuggestionUnchanged, workoutID: workout.id)
                 isSavingEffort = false
+                editorPrefilledFromSuggestion = false
+                // The prediction label stays shown after saving — it's decoupled from
+                // the edit session, so the user can compare it against their own rating.
                 withAnimation(.snappy(duration: 0.3)) { isEditingEffort = false }
             } catch {
                 isSavingEffort = false
                 effortError = "Body couldn't save the effort rating to Apple Health. Make sure Body is allowed to update Workouts in Settings › Health › Data Access & Devices."
             }
         }
+    }
+
+    /// Recomputes the persistent prediction from currently-loaded inputs. Cheap and
+    /// synchronous; called from the load tasks and when the setting changes, never per
+    /// render, so scrolling doesn't repeatedly rebuild the 30-day comparison window.
+    private func refreshPrediction() {
+        prediction = showWorkoutEffortSuggestions
+            ? WorkoutEffortEstimator.estimate(for: effortEstimateInput())
+            : nil
+    }
+
+    /// Everything the effort estimator needs, read synchronously from already-published
+    /// store state — no fetches, safe to call from the tap handler on the main actor.
+    private func effortEstimateInput() -> WorkoutEffortEstimator.Input {
+        let context = workoutStore.comparisonContext(for: workout, matchingTypeOnly: false)
+        let calendar = Calendar.bodyGregorian
+        let workoutDay = calendar.startOfDay(for: workout.startDate)
+        return WorkoutEffortEstimator.Input(
+            workout: workout,
+            userMaxHeartRate: resolvedMaxHeartRate,
+            restingHeartRate: workoutStore.healthTrends.restingHeartRate
+                .latestValue(onOrBefore: workout.startDate, maxAgeDays: 45)
+                ?? workoutStore.healthSummary.restingHeartRate.value,
+            priorWorkouts: context.priorWorkouts,
+            priorRatingOverrides: workoutStore.workoutEffortOverrides,
+            suggestionAcceptedWorkoutIDs: workoutStore.suggestionAcceptedEffortWorkoutIDs,
+            isHistoryComplete: context.isComplete,
+            morningReadiness: workoutStore.healthTrends.recordedReadiness
+                .first { calendar.startOfDay(for: $0.date) == workoutDay }?
+                .score
+        )
     }
 
     private var heartRateSection: some View {
@@ -1120,6 +1204,7 @@ struct BodyWorkoutDetailSheet: View {
         // falls back to the session-peak HR (no `== nil` guard — `.task(id:)` dedupes).
         .task(id: workoutStore.permissionSelection.rawValue) {
             resolvedMaxHeartRate = await workoutStore.userMaxHeartRate()
+            refreshPrediction()
         }
     }
 

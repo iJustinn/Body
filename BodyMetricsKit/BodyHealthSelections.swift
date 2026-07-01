@@ -21,6 +21,7 @@ enum BodyAppearancePreference {
     static let sleepDurationGoalMinutesKey = "sleepDurationGoalMinutes"
     static let showsSubMinuteAwakeSleepStagesKey = "showsSubMinuteAwakeSleepStages"
     static let showSleepScoreKey = "showSleepScore"
+    static let showWorkoutEffortSuggestionsKey = "showWorkoutEffortSuggestions"
     static let sleepStageBreakdownShowsOptimalRangesKey = "sleepStageBreakdownShowsOptimalRanges"
     static let homeCardOrderKey = "homeCardOrder"
     static let summaryCardSelectionKey = "summaryCardSelection"
