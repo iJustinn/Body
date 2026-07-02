@@ -90,7 +90,7 @@ extension HealthKitFetchEngine {
                     let sourceNameKeys = Set(sources.map { source in
                         BodyHealthDataSourceOption.individualSourceIdentityKey(
                             bundleIdentifier: source.bundleIdentifier,
-                            name: displayName(for: source)
+                            name: identityName(for: source)
                         )
                     })
                     return sourceNameKeys.count > 1 ? bundleIdentifier : nil
@@ -99,46 +99,43 @@ extension HealthKitFetchEngine {
         for source in sortedSources {
             let sourceID = BodyHealthDataSourceOption.individualSourceID(
                 bundleIdentifier: source.bundleIdentifier,
-                name: displayName(for: source),
+                name: identityName(for: source),
                 disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(source.bundleIdentifier)
             )
             sourcesByID[sourceID, default: []].append(source)
         }
 
         let groupedSources = Dictionary(grouping: sortedSources) { source in
-            BodyHealthDataSourceOption.normalizedSourceName(displayName(for: source))
+            BodyHealthDataSourceOption.normalizedSourceName(identityName(for: source))
         }
         for group in groupedSources.values where group.count > 1 {
-            let displayName = displayName(for: group[0])
-            sourcesByID[BodyHealthDataSourceOption.combinedSourceID(for: displayName)] = group
+            sourcesByID[BodyHealthDataSourceOption.combinedSourceID(for: identityName(for: group[0]))] = group
         }
 
         let options: [BodyHealthDataSourceOption]
         if combinesHealthDataSourcesByName {
             options = groupedSources.values.map { group in
-                let displayName = displayName(for: group[0])
                 let optionID = group.count > 1
-                    ? BodyHealthDataSourceOption.combinedSourceID(for: displayName)
+                    ? BodyHealthDataSourceOption.combinedSourceID(for: identityName(for: group[0]))
                     : BodyHealthDataSourceOption.individualSourceID(
                         bundleIdentifier: group[0].bundleIdentifier,
-                        name: displayName,
+                        name: identityName(for: group[0]),
                         disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(group[0].bundleIdentifier)
                     )
                 return BodyHealthDataSourceOption(
                     id: optionID,
-                    name: BodyHealthDataSourceOption.combinedSourceDisplayName(for: displayName)
+                    name: BodyHealthDataSourceOption.combinedSourceDisplayName(for: displayName(for: group[0]))
                 )
             }
         } else {
             options = sortedSources.map { source in
-                let displayName = displayName(for: source)
                 return BodyHealthDataSourceOption(
                     id: BodyHealthDataSourceOption.individualSourceID(
                         bundleIdentifier: source.bundleIdentifier,
-                        name: displayName,
+                        name: identityName(for: source),
                         disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(source.bundleIdentifier)
                     ),
-                    name: displayName
+                    name: displayName(for: source)
                 )
             }
         }
@@ -156,6 +153,15 @@ extension HealthKitFetchEngine {
 
     private func displayName(for source: HKSource) -> String {
         let trimmedName = source.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedName.isEmpty ? String(localized: "Unknown Source") : trimmedName
+    }
+
+    /// Locale-stable name used for persisted option IDs and grouping keys. A
+    /// blank source name falls back to a fixed English string so switching the
+    /// app language never re-keys the same HealthKit source and drops the user's
+    /// selected source override. Only `displayName(for:)` is localized.
+    private func identityName(for source: HKSource) -> String {
+        let trimmedName = source.name.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedName.isEmpty ? "Unknown Source" : trimmedName
     }
 
@@ -166,7 +172,7 @@ extension HealthKitFetchEngine {
             for source in sources {
                 let sourceKey = BodyHealthDataSourceOption.individualSourceIdentityKey(
                     bundleIdentifier: source.bundleIdentifier,
-                    name: displayName(for: source)
+                    name: identityName(for: source)
                 )
                 if sourcesByIdentifier[sourceKey] == nil {
                     sourcesByIdentifier[sourceKey] = source
