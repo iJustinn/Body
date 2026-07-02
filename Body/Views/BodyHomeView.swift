@@ -200,14 +200,23 @@ func bodyChartSelectionDateText(startDate: Date, endDate: Date) -> String? {
     let sameMonth = sameYear && calendar.component(.month, from: startDate) == calendar.component(.month, from: endDate)
 
     if sameMonth {
-        return "\(startMonth) \(startDay)-\(endDay), \(endYear)"
+        return String(
+            localized: "dateRange.sameMonth",
+            defaultValue: "\(startMonth) \(startDay)-\(endDay), \(endYear)"
+        )
     }
 
     if sameYear {
-        return "\(startMonth) \(startDay)-\(endMonth) \(endDay), \(endYear)"
+        return String(
+            localized: "dateRange.sameYear",
+            defaultValue: "\(startMonth) \(startDay)-\(endMonth) \(endDay), \(endYear)"
+        )
     }
 
-    return "\(startMonth) \(startDay), \(startYear)-\(endMonth) \(endDay), \(endYear)"
+    return String(
+        localized: "dateRange.differentYears",
+        defaultValue: "\(startMonth) \(startDay), \(startYear)-\(endMonth) \(endDay), \(endYear)"
+    )
 }
 
 extension Array where Element == HealthTrendCalendarPoint {
@@ -232,7 +241,7 @@ extension Array where Element == HealthTrendCalendarPoint {
 }
 
 struct BodyDataLoadingOverlay: View {
-    var message: String = "Loading data..."
+    var message: LocalizedStringKey = "Loading data..."
 
     var body: some View {
         ZStack {
@@ -480,6 +489,16 @@ struct BodyHomeView: View {
         return BodyHomeCardKind.layoutRows(from: homeCardOrder, visibleIn: gridSelection)
     }
 
+    /// Today's frozen morning readiness (undrained, captured ~10 min after wake), read
+    /// the same way as `BodyWorkoutsView`, so the hero can show where the day started
+    /// once the live score drains below it.
+    private var todaysMorningReadiness: Int? {
+        let calendar = Calendar.bodyGregorian
+        let today = calendar.startOfDay(for: Date())
+        return workoutStore.healthTrends.recordedReadiness
+            .first { calendar.startOfDay(for: $0.date) == today }?.score
+    }
+
     /// The home-page star hero promoted above the grid. Readiness shows its score text
     /// here, over the full-bleed color backdrop supplied by `homeBackground` (which
     /// bleeds behind the status bar). Readiness is the only star-eligible metric.
@@ -496,7 +515,10 @@ struct BodyHomeView: View {
                         readinessDetailPresented = true
                     }
                 } label: {
-                    BodyReadinessHeroLabel(readiness: workoutStore.healthSummary.readiness)
+                    BodyReadinessHeroLabel(
+                        readiness: workoutStore.healthSummary.readiness,
+                        morningScore: todaysMorningReadiness
+                    )
                 }
                 .buttonStyle(.plain)
             }
@@ -1681,9 +1703,11 @@ enum BodyHomeTrendMessageStyle {
         let phrase = BodyHomeTrendCardPresentation.recentPeriodPhrase(days: recentDayCount)
         switch self {
         case .average(let subject):
-            return "On average, \(subject) \(direction.averagePhrase) over the last \(phrase)."
+            let localizedSubject = String(localized: String.LocalizationValue(subject))
+            return String(localized: "On average, \(localizedSubject) \(direction.averagePhrase) over the last \(phrase).")
         case .quantity(let subject):
-            return "\(subject) \(direction.quantityPhrase) over the last \(phrase)."
+            let localizedSubject = String(localized: String.LocalizationValue(subject))
+            return String(localized: "\(localizedSubject) \(direction.quantityPhrase) over the last \(phrase).")
         }
     }
 }
@@ -1696,22 +1720,22 @@ enum BodyHomeTrendDirection {
     var averagePhrase: String {
         switch self {
         case .increased:
-            return "increased"
+            return String(localized: "increased")
         case .decreased:
-            return "decreased"
+            return String(localized: "decreased")
         case .stable:
-            return "stayed about the same"
+            return String(localized: "stayed about the same")
         }
     }
 
     var quantityPhrase: String {
         switch self {
         case .increased:
-            return "was higher"
+            return String(localized: "was higher")
         case .decreased:
-            return "was lower"
+            return String(localized: "was lower")
         case .stable:
-            return "stayed about the same"
+            return String(localized: "stayed about the same")
         }
     }
 }
@@ -1920,25 +1944,25 @@ struct BodyHomeTrendCardPresentation: Identifiable {
 
     static func recentPeriodPhrase(days: Int) -> String {
         if days < 28 {
-            return "\(days) days"
+            return String(localized: "\(days) days")
         } else if days < 90 {
             let weeks = max(1, Int((Double(days) / 7).rounded()))
-            return "\(weeks) weeks"
+            return String(localized: "\(weeks) weeks")
         } else {
             let months = max(1, Int((Double(days) / 30).rounded()))
-            return "\(months) months"
+            return String(localized: "\(months) months")
         }
     }
 
     static func averagePeriodText(days: Int) -> String {
         if days < 28 {
-            return "\(days)-day avg"
+            return String(localized: "\(days)-day avg")
         } else if days < 90 {
             let weeks = max(1, Int((Double(days) / 7).rounded()))
-            return "\(weeks)-week avg"
+            return String(localized: "\(weeks)-week avg")
         } else {
             let months = max(1, Int((Double(days) / 30).rounded()))
-            return "\(months)-month avg"
+            return String(localized: "\(months)-month avg")
         }
     }
 

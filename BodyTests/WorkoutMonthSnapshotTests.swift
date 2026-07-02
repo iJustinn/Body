@@ -772,6 +772,44 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(ReadinessStatus.poor.explanation.contains("Rest"))
     }
 
+    func testReadinessHeroExplanationIsMetricKeyedPerBandAndDriver() {
+        let realStatuses: [ReadinessStatus] = [.prime, .high, .moderate, .low, .poor]
+        let drivers: [ReadinessDriverKind] = [
+            .hrvBelowBaseline, .heartRateAboveBaseline, .sleepDurationBelowGoal,
+            .sleepFragmented, .trainingLoadElevated, .respiratoryRateAboveBaseline,
+            .oxygenSaturationLow, .wristTemperatureAboveBaseline, .mostlyTypical, .needsMoreData
+        ]
+
+        // Every band × signal resolves to non-empty hero copy.
+        for status in realStatuses {
+            for driver in drivers {
+                XCTAssertFalse(status.heroExplanation(forDriver: driver).isEmpty, "\(status) \(driver)")
+            }
+        }
+
+        // The sentence names the metric actually moving the score.
+        XCTAssertTrue(ReadinessStatus.low.heroExplanation(forDriver: .sleepDurationBelowGoal).lowercased().contains("sleep"))
+        XCTAssertTrue(ReadinessStatus.low.heroExplanation(forDriver: .hrvBelowBaseline).contains("HRV"))
+        XCTAssertTrue(ReadinessStatus.poor.heroExplanation(forDriver: .trainingLoadElevated).lowercased().contains("load"))
+
+        // needsMoreData and the unavailable band fall back to the generic legend copy.
+        XCTAssertEqual(ReadinessStatus.low.heroExplanation(forDriver: .needsMoreData), ReadinessStatus.low.explanation)
+        XCTAssertEqual(ReadinessStatus.unavailable.heroExplanation(forDriver: .mostlyTypical), ReadinessStatus.unavailable.explanation)
+
+        // ReadinessSummary keys off the strongest driver (drivers.first); no drivers → mostlyTypical.
+        let dragged = ReadinessSummary(
+            score: 55,
+            status: .low,
+            confidence: .high,
+            components: [],
+            drivers: [ReadinessDriver(kind: .sleepDurationBelowGoal, message: "", impact: 0.4)]
+        )
+        XCTAssertEqual(dragged.heroExplanation, ReadinessStatus.low.heroExplanation(forDriver: .sleepDurationBelowGoal))
+
+        let typical = ReadinessSummary(score: 98, status: .prime, confidence: .high, components: [], drivers: [])
+        XCTAssertEqual(typical.heroExplanation, ReadinessStatus.prime.heroExplanation(forDriver: .mostlyTypical))
+    }
+
     func testReadinessRobustBaselineUsesMedianAndMad() throws {
         let calendar = Calendar.bodyGregorian
         let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
