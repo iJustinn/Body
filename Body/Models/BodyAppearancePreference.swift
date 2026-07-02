@@ -102,40 +102,40 @@ extension HealthMetricKind {
     var sourcePickerTitle: String {
         switch self {
         case .heartRate:
-            return "Heart Rate"
+            return String(localized: "Heart Rate")
         case .sleep:
-            return "Sleep"
+            return String(localized: "Sleep")
         case .basics:
-            return "Basics"
+            return String(localized: "Basics")
         case .heartRateVariability:
-            return "HRV"
+            return String(localized: "HRV")
         case .restingHeartRate:
-            return "Resting Heart Rate"
+            return String(localized: "Resting Heart Rate")
         case .respiratoryRate:
-            return "Respiratory Rate"
+            return String(localized: "Respiratory Rate")
         case .steps:
-            return "Steps"
+            return String(localized: "Steps")
         case .oxygenSaturation:
-            return "Blood Oxygen"
+            return String(localized: "Blood Oxygen")
         case .activeEnergy:
-            return "Active Energy"
+            return String(localized: "Active Energy")
         case .restingEnergy:
-            return "Resting Energy"
+            return String(localized: "Resting Energy")
         case .exerciseMinutes:
-            return "Exercise Minutes"
+            return String(localized: "Exercise Minutes")
         case .wristTemperature:
-            return "Skin Temperature"
+            return String(localized: "Skin Temperature")
         case .timeInDaylight:
-            return "Time in Daylight"
+            return String(localized: "sourcePicker.timeInDaylight", defaultValue: "Time in Daylight")
         default:
-            return "Data"
+            return String(localized: "Data")
         }
     }
 }
 
 struct BodyHealthDataSourceOption: Codable, Equatable, Identifiable {
     static let allSources = BodyHealthDataSourceOption(id: "all", name: "Apple Health")
-    static let noComparison = BodyHealthDataSourceOption(id: "none", name: "No Comparison")
+    static let noComparison = BodyHealthDataSourceOption(id: "none", name: String(localized: "No Comparison"))
     private static let combinedSourcePrefix = "combined-name:"
 
     let id: String
@@ -786,74 +786,74 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .readiness:
-            return "Readiness"
+            return String(localized: "Readiness")
         case .heartRate:
-            return "Heart Rate"
+            return String(localized: "Heart Rate")
         case .restingHeartRate:
-            return "Resting Heart Rate"
+            return String(localized: "Resting Heart Rate")
         case .heartRateVariability:
-            return "HRV"
+            return String(localized: "HRV")
         case .respiratoryRate:
-            return "Respiratory Rate"
+            return String(localized: "Respiratory Rate")
         case .oxygenSaturation:
-            return "Blood Oxygen"
+            return String(localized: "Blood Oxygen")
         case .sleep:
-            return "Sleep"
+            return String(localized: "Sleep")
         case .wristTemperature:
-            return "Skin Temperature"
+            return String(localized: "Skin Temperature")
         case .steps:
-            return "Steps"
+            return String(localized: "Steps")
         case .activeEnergy:
-            return "Active Energy"
+            return String(localized: "Active Energy")
         case .restingEnergy:
-            return "Resting Energy"
+            return String(localized: "Resting Energy")
         case .exerciseMinutes:
-            return "Exercise Minutes"
+            return String(localized: "Exercise Minutes")
         case .trainingLoad:
-            return "Training Load"
+            return String(localized: "Training Load")
         case .timeInDaylight:
-            return "Time In Daylight"
+            return String(localized: "Time In Daylight")
         case .bodyMass:
-            return "Weight"
+            return String(localized: "Weight")
         case .bodyFatPercentage:
-            return "Body Fat"
+            return String(localized: "Body Fat")
         }
     }
 
     var subtitle: String {
         switch self {
         case .readiness:
-            return "Readiness score trend"
+            return String(localized: "Readiness score trend")
         case .heartRate:
-            return "Average heart rate trend"
+            return String(localized: "Average heart rate trend")
         case .restingHeartRate:
-            return "Resting heart trend"
+            return String(localized: "Resting heart trend")
         case .heartRateVariability:
-            return "Readiness signal trend"
+            return String(localized: "Readiness signal trend")
         case .respiratoryRate:
-            return "Breathing rate trend"
+            return String(localized: "Breathing rate trend")
         case .oxygenSaturation:
-            return "Blood oxygen trend"
+            return String(localized: "Blood oxygen trend")
         case .sleep:
-            return "Sleep duration trend"
+            return String(localized: "Sleep duration trend")
         case .wristTemperature:
-            return "Sleeping skin temperature trend"
+            return String(localized: "Sleeping skin temperature trend")
         case .steps:
-            return "Daily step trend"
+            return String(localized: "Daily step trend")
         case .activeEnergy:
-            return "Active calorie trend"
+            return String(localized: "Active calorie trend")
         case .restingEnergy:
-            return "Resting calorie trend"
+            return String(localized: "Resting calorie trend")
         case .exerciseMinutes:
-            return "Exercise minute trend"
+            return String(localized: "Exercise minute trend")
         case .trainingLoad:
-            return "Workout strain trend"
+            return String(localized: "Workout strain trend")
         case .timeInDaylight:
-            return "Outdoor daylight trend"
+            return String(localized: "Outdoor daylight trend")
         case .bodyMass:
-            return "Body weight trend"
+            return String(localized: "Body weight trend")
         case .bodyFatPercentage:
-            return "Body fat trend"
+            return String(localized: "Body fat trend")
         }
     }
 
@@ -1031,74 +1031,74 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .activityRings:
-            return "Activity Rings"
+            return String(localized: "Activity Rings")
         case .readiness:
-            return "Readiness"
+            return String(localized: "Readiness")
         case .exerciseMinutes:
-            return "Exercise Minutes"
+            return String(localized: "Exercise Minutes")
         case .trainingLoad:
-            return "Training Load"
+            return String(localized: "Training Load")
         case .wristTemperature:
-            return "Skin Temperature"
+            return String(localized: "Skin Temperature")
         case .timeInDaylight:
-            return "Time In Daylight"
+            return String(localized: "Time In Daylight")
         case .steps:
-            return "Steps"
+            return String(localized: "Steps")
         case .sleep:
-            return "Sleep"
+            return String(localized: "Sleep")
         case .basics:
-            return "Basics"
+            return String(localized: "Basics")
         case .heartRate:
-            return "Heart Rate"
+            return String(localized: "Heart Rate")
         case .restingHeartRate:
-            return "Resting Heart Rate"
+            return String(localized: "Resting Heart Rate")
         case .heartRateVariability:
-            return "HRV"
+            return String(localized: "HRV")
         case .oxygenSaturation:
-            return "Blood Oxygen"
+            return String(localized: "Blood Oxygen")
         case .respiratoryRate:
-            return "Respiratory Rate"
+            return String(localized: "Respiratory Rate")
         case .activeEnergy:
-            return "Active Energy"
+            return String(localized: "Active Energy")
         case .restingEnergy:
-            return "Resting Energy"
+            return String(localized: "Resting Energy")
         }
     }
 
     var subtitle: String {
         switch self {
         case .activityRings:
-            return "Move, Exercise, and Stand progress"
+            return String(localized: "Move, Exercise, and Stand progress")
         case .readiness:
-            return "Readiness from sleep, strain, and vitals"
+            return String(localized: "Readiness from sleep, strain, and vitals")
         case .exerciseMinutes:
-            return "Daily exercise minute total"
+            return String(localized: "Daily exercise minute total")
         case .trainingLoad:
-            return "Workout strain ratio"
+            return String(localized: "Workout strain ratio")
         case .wristTemperature:
-            return "Sleeping skin temperature"
+            return String(localized: "Sleeping skin temperature")
         case .timeInDaylight:
-            return "Outdoor daylight exposure"
+            return String(localized: "Outdoor daylight exposure")
         case .steps:
-            return "Step count total"
+            return String(localized: "Step count total")
         case .sleep:
-            return "Sleep score and duration"
+            return String(localized: "Sleep score and duration")
         case .basics:
-            return "Weight, body fat, and BMI"
+            return String(localized: "Weight, body fat, and BMI")
         case .heartRate:
-            return "Daily heart rate"
+            return String(localized: "Daily heart rate")
         case .restingHeartRate:
-            return "Resting beats per minute"
+            return String(localized: "Resting beats per minute")
         case .heartRateVariability:
-            return "Readiness and stress signal"
+            return String(localized: "Readiness and stress signal")
         case .oxygenSaturation:
-            return "Blood oxygen range"
+            return String(localized: "Blood oxygen range")
         case .respiratoryRate:
-            return "Breathing rate range"
+            return String(localized: "Breathing rate range")
         case .activeEnergy:
-            return "Active calories"
+            return String(localized: "Active calories")
         case .restingEnergy:
-            return "Resting calories"
+            return String(localized: "Resting calories")
         }
     }
 
@@ -1308,22 +1308,22 @@ enum BodyAppTheme: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .system:
-            return "System"
+            return String(localized: "System")
         case .light:
-            return "Light"
+            return String(localized: "Light")
         case .dark:
-            return "Dark"
+            return String(localized: "Dark")
         }
     }
 
     var selectionSubtitle: String {
         switch self {
         case .system:
-            return "Auto"
+            return String(localized: "Auto")
         case .light:
-            return "Bright"
+            return String(localized: "Bright")
         case .dark:
-            return "Dim"
+            return String(localized: "Dim")
         }
     }
 

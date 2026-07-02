@@ -54,17 +54,17 @@ struct BodyHealthCacheStatus: Equatable {
     }
 
     var summaryText: String {
-        isEmpty ? "Empty" : "Cached"
+        isEmpty ? String(localized: "Empty") : String(localized: "Cached")
     }
 
     var detailLines: [String] {
         [
             hasHealthDashboardData
-                ? "Health summary, trend, or Activity Ring data is available in the local dashboard cache."
-                : "Health dashboard cache is empty.",
-            "\(workoutMonthCount) workout \(monthWord(for: workoutMonthCount)) cached with \(workoutCount) \(workoutWord(for: workoutCount)).",
-            "\(activityRingMonthCount) Activity Ring \(monthWord(for: activityRingMonthCount)) cached.",
-            "On-disk size: \(formattedDiskSize)."
+                ? String(localized: "Health summary, trend, or Activity Ring data is available in the local dashboard cache.")
+                : String(localized: "Health dashboard cache is empty."),
+            String(localized: "\(workoutMonthCount) workout \(monthWord(for: workoutMonthCount)) cached with \(workoutCount) \(workoutWord(for: workoutCount))."),
+            String(localized: "\(activityRingMonthCount) Activity Ring \(monthWord(for: activityRingMonthCount)) cached."),
+            String(localized: "On-disk size: \(formattedDiskSize).")
         ]
     }
 
@@ -75,11 +75,11 @@ struct BodyHealthCacheStatus: Equatable {
     }
 
     private func monthWord(for count: Int) -> String {
-        count == 1 ? "month" : "months"
+        count == 1 ? String(localized: "month") : String(localized: "months")
     }
 
     private func workoutWord(for count: Int) -> String {
-        count == 1 ? "workout" : "workouts"
+        count == 1 ? String(localized: "workout") : String(localized: "workouts")
     }
 }
 
@@ -312,26 +312,26 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     var healthSyncStatusSummaryText: String {
         if isRefreshing {
-            return "Refreshing"
+            return String(localized: "Refreshing")
         }
 
         switch authorizationState {
         case .unknown:
-            return lastSuccessfulRefreshDate == nil ? "Not Synced" : healthSyncStatusLastRefreshText
+            return lastSuccessfulRefreshDate == nil ? String(localized: "Not Synced") : healthSyncStatusLastRefreshText
         case .unavailable:
-            return "Unavailable"
+            return String(localized: "Unavailable")
         case .authorized:
             return healthSyncStatusLastRefreshText
         case .denied:
-            return "Denied"
+            return String(localized: "Denied")
         case .failed:
-            return "Failed"
+            return String(localized: "Failed")
         }
     }
 
     var healthSyncStatusLastRefreshText: String {
         guard let date = lastSuccessfulRefreshDate else {
-            return "Not yet refreshed"
+            return String(localized: "Not yet refreshed")
         }
 
         return date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
@@ -339,22 +339,22 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     var healthSyncStatusDetailText: String {
         if isRefreshing {
-            return "Body is refreshing Apple Health data now."
+            return String(localized: "Body is refreshing Apple Health data now.")
         }
 
         switch authorizationState {
         case .unknown:
             return lastSuccessfulRefreshDate == nil
-                ? "Body has not completed a HealthKit refresh in this app session."
-                : "Body has cached Health data from a previous refresh."
+                ? String(localized: "Body has not completed a HealthKit refresh in this app session.")
+                : String(localized: "Body has cached Health data from a previous refresh.")
         case .unavailable:
-            return "Apple Health is not available on this device."
+            return String(localized: "Apple Health is not available on this device.")
         case .authorized:
-            return "Body can read the Health data permissions enabled below."
+            return String(localized: "Body can read the Health data permissions enabled below.")
         case .denied:
-            return "Health access was denied. Review Body's permissions in Apple Health or iOS Settings."
+            return String(localized: "Health access was denied. Review Body's permissions in Apple Health or iOS Settings.")
         case .failed(let message):
-            return "The last refresh failed: \(message)"
+            return String(localized: "The last refresh failed: \(message)")
         }
     }
 
@@ -399,7 +399,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
-            healthDataNotice = "Apple Health is not available on this device."
+            healthDataNotice = String(localized: "Apple Health is not available on this device.")
             return
         }
 
@@ -424,7 +424,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
-            healthDataNotice = "Apple Health is not available on this device."
+            healthDataNotice = String(localized: "Apple Health is not available on this device.")
             return
         }
 
@@ -724,7 +724,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
-            healthDataNotice = "Apple Health is not available on this device."
+            healthDataNotice = String(localized: "Apple Health is not available on this device.")
             return
         }
 
@@ -1328,7 +1328,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
-            healthDataNotice = "Apple Health is not available on this device."
+            healthDataNotice = String(localized: "Apple Health is not available on this device.")
             hasMoreActivityRingHistory = false
             return
         }
@@ -1474,7 +1474,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
-            healthDataNotice = "Apple Health is not available on this device."
+            healthDataNotice = String(localized: "Apple Health is not available on this device.")
             return
         }
 
@@ -1523,7 +1523,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         persistedDaySamplesHydration = nil
         lastSuccessfulRefreshDate = nil
         authorizationState = .unknown
-        healthDataNotice = "Local cache cleared. Refresh to load Apple Health data again."
+        healthDataNotice = String(localized: "Local cache cleared. Refresh to load Apple Health data again.")
 
         WorkoutSnapshotStore.delete()
         WorkoutSnapshotStore.deletePrevious()
@@ -1791,7 +1791,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
-            healthDataNotice = "Apple Health is not available on this device."
+            healthDataNotice = String(localized: "Apple Health is not available on this device.")
             return
         }
 
@@ -2363,7 +2363,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     private func updateHealthDataNotice() {
         guard !permissionSelection.enabledPermissions.isEmpty else {
-            healthDataNotice = "All Apple Health data permissions are turned off in Settings."
+            healthDataNotice = String(localized: "All Apple Health data permissions are turned off in Settings.")
             return
         }
 
@@ -2372,7 +2372,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
 
-        healthDataNotice = "No Apple Health data was found. If you expected data, check Body's permissions in the Health app."
+        healthDataNotice = String(localized: "No Apple Health data was found. If you expected data, check Body's permissions in the Health app.")
     }
 
     private func handleRefreshError(_ error: Error) {
@@ -2658,13 +2658,13 @@ enum HealthKitWorkoutError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .authorizationDenied:
-            return "Apple Health access was not granted."
+            return String(localized: "Apple Health access was not granted.")
         case .authorizationStatusUnknown:
-            return "Apple Health access could not be confirmed."
+            return String(localized: "Apple Health access could not be confirmed.")
         case .workoutNotFound:
-            return "That workout could not be found in Apple Health."
+            return String(localized: "That workout could not be found in Apple Health.")
         case .workoutEffortUnavailable:
-            return "Workout effort isn't available on this device."
+            return String(localized: "Workout effort isn't available on this device.")
         }
     }
 }

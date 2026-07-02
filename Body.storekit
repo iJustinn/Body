@@ -21,6 +21,11 @@
           "description" : "Unlock all Body Pro features for life with a single purchase.",
           "displayName" : "Body Pro Lifetime",
           "locale" : "en_US"
+        },
+        {
+          "description" : "一次购买，终身解锁 Body Pro 全部功能。",
+          "displayName" : "Body Pro 终身版",
+          "locale" : "zh_CN"
         }
       ],
       "productID" : "com.zihengthedeveloper.body.pro.lifetime",

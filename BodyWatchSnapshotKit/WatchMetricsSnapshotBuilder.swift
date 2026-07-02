@@ -42,17 +42,17 @@ enum WatchMetricsSnapshotBuilder {
         }
         if permissionSelection.includes(.heart) {
             metrics.append(rangeMetric(
-                kind: WatchMetricKindKey.heartRate, title: "Heart Rate", value: summary.heartRate.value,
+                kind: WatchMetricKindKey.heartRate, title: String(localized: "Heart Rate", table: "BodyWatchSnapshotKit"), value: summary.heartRate.value,
                 unit: "bpm", decimals: 0,
                 seriesValues: values(trends.heartRate)
             ))
             metrics.append(rangeMetric(
-                kind: WatchMetricKindKey.heartRateVariability, title: "HRV", value: summary.heartRateVariability.value,
+                kind: WatchMetricKindKey.heartRateVariability, title: String(localized: "HRV", table: "BodyWatchSnapshotKit"), value: summary.heartRateVariability.value,
                 unit: "ms", decimals: 0,
                 seriesValues: values(trends.heartRateVariability)
             ))
             metrics.append(rangeMetric(
-                kind: WatchMetricKindKey.restingHeartRate, title: "Resting HR", value: summary.restingHeartRate.value,
+                kind: WatchMetricKindKey.restingHeartRate, title: String(localized: "Resting HR", table: "BodyWatchSnapshotKit"), value: summary.restingHeartRate.value,
                 unit: "bpm", decimals: 0,
                 seriesValues: values(trends.restingHeartRate), invert: true
             ))
@@ -104,7 +104,7 @@ enum WatchMetricsSnapshotBuilder {
         let status = ReadinessStatus.status(for: score)
         return WatchMetric(
             kind: WatchMetricKindKey.readiness,
-            title: "Readiness",
+            title: String(localized: "Readiness", table: "BodyWatchSnapshotKit"),
             displayValue: score.map { "\($0)" } ?? "--",
             unit: score == nil ? "" : "%",
             score: score,
@@ -149,7 +149,7 @@ enum WatchMetricsSnapshotBuilder {
             : nil
         return WatchMetric(
             kind: WatchMetricKindKey.sleep,
-            title: "Sleep",
+            title: String(localized: "Sleep", table: "BodyWatchSnapshotKit"),
             displayValue: sleep.duration.map { BodyValueFormat.sleepDurationText(for: $0) } ?? "--",
             unit: "",
             score: total,
@@ -186,7 +186,7 @@ enum WatchMetricsSnapshotBuilder {
         let interval = TrainingLoadInterval.interval(for: value)
         return WatchMetric(
             kind: WatchMetricKindKey.trainingLoad,
-            title: "Training Load",
+            title: String(localized: "Training Load", table: "BodyWatchSnapshotKit"),
             displayValue: value.map { BodyValueFormat.numberText($0, decimals: 2) } ?? "--",
             unit: "",
             score: nil,
@@ -217,7 +217,7 @@ enum WatchMetricsSnapshotBuilder {
         let display = celsius.map { BodyValueFormat.temperatureDisplay(celsius: $0, temperatureUnitPreference: pref) }
         return WatchMetric(
             kind: WatchMetricKindKey.wristTemperature,
-            title: "Skin Temp",
+            title: String(localized: "Skin Temp", table: "BodyWatchSnapshotKit"),
             displayValue: display?.value ?? "--",
             unit: display?.unit ?? "",
             score: nil,

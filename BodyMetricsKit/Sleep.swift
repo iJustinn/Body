@@ -147,11 +147,11 @@ enum SleepVitalStatusTitle {
 
         switch outlierCount {
         case 0:
-            return "Typical"
+            return String(localized: "Typical", table: "BodyMetricsKit")
         case 1:
-            return "1 Outlier"
+            return String(localized: "1 Outlier", table: "BodyMetricsKit")
         default:
-            return "\(outlierCount) Outliers"
+            return String(localized: "\(outlierCount) Outliers", table: "BodyMetricsKit")
         }
     }
 }
@@ -371,15 +371,15 @@ struct SleepScoreSummary: Equatable {
     static func comment(for total: Int) -> String {
         switch total {
         case 90...:
-            return "Excellent sleep readiness for this day."
+            return String(localized: "Excellent sleep readiness for this day.", table: "BodyMetricsKit")
         case 80..<90:
-            return "Strong sleep with small room to improve."
+            return String(localized: "Strong sleep with small room to improve.", table: "BodyMetricsKit")
         case 70..<80:
-            return "Decent sleep, but key areas can improve."
+            return String(localized: "Decent sleep, but key areas can improve.", table: "BodyMetricsKit")
         case 60..<70:
-            return "Mixed sleep signals for this day."
+            return String(localized: "Mixed sleep signals for this day.", table: "BodyMetricsKit")
         default:
-            return "Low sleep score; prioritize readiness tonight."
+            return String(localized: "Low sleep score; prioritize readiness tonight.", table: "BodyMetricsKit")
         }
     }
 
@@ -475,7 +475,7 @@ struct SleepScoreSummary: Equatable {
             kind: .startTime,
             progress: startTimeProgress(forDeviation: deviation),
             maximumPoints: 10,
-            valueDescription: "\(BodyValueFormat.durationText(for: deviation)) off"
+            valueDescription: String(localized: "\(BodyValueFormat.durationText(for: deviation)) off", table: "BodyMetricsKit")
         )
     }
 
@@ -750,21 +750,21 @@ struct SleepScoreCategory: Equatable, Identifiable {
         var displayName: String {
             switch self {
             case .duration:
-                return "Amount"
+                return String(localized: "Amount", table: "BodyMetricsKit")
             case .continuity:
-                return "Continuity"
+                return String(localized: "Continuity", table: "BodyMetricsKit")
             case .startTime:
-                return "Start Time"
+                return String(localized: "Start Time", table: "BodyMetricsKit")
             case .rem:
-                return "REM"
+                return String(localized: "REM", table: "BodyMetricsKit")
             case .deep:
-                return "Deep"
+                return String(localized: "Deep", table: "BodyMetricsKit")
             case .pressure:
-                return "Pressure"
+                return String(localized: "Pressure", table: "BodyMetricsKit")
             case .vitals:
-                return "Vitals"
+                return String(localized: "Vitals", table: "BodyMetricsKit")
             case .temperature:
-                return "Temperature"
+                return String(localized: "Temperature", table: "BodyMetricsKit")
             }
         }
     }
@@ -805,26 +805,26 @@ enum SleepStage: String, CaseIterable, Codable, Equatable, Identifiable {
     var displayName: String {
         switch self {
         case .awake:
-            return "Awake"
+            return String(localized: "Awake", table: "BodyMetricsKit")
         case .rem:
-            return "REM"
+            return String(localized: "REM", table: "BodyMetricsKit")
         case .core:
-            return "Core"
+            return String(localized: "Core", table: "BodyMetricsKit")
         case .deep:
-            return "Deep"
+            return String(localized: "Deep", table: "BodyMetricsKit")
         }
     }
 
     var axisLabel: String {
         switch self {
         case .awake:
-            return "A"
+            return String(localized: "A", table: "BodyMetricsKit")
         case .rem:
-            return "R"
+            return String(localized: "R", table: "BodyMetricsKit")
         case .core:
-            return "C"
+            return String(localized: "C", table: "BodyMetricsKit")
         case .deep:
-            return "D"
+            return String(localized: "D", table: "BodyMetricsKit")
         }
     }
 

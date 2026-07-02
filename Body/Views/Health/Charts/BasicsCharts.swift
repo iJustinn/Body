@@ -337,7 +337,7 @@ struct BodyBasicsTrendChart: View {
 
         if let point = bodyFatFinitePointsByDate[date], let value = point.value {
             values.append(BodyChartSelectionValue(
-                title: "Body Fat",
+                title: String(localized: "Body Fat"),
                 value: bodyFatFormatter(value),
                 color: bodyFatColor
             ))
@@ -345,7 +345,7 @@ struct BodyBasicsTrendChart: View {
 
         if let point = weightFinitePointsByDate[date], let value = point.value {
             values.append(BodyChartSelectionValue(
-                title: "Weight",
+                title: String(localized: "Weight"),
                 value: weightFormatter(value),
                 color: weightColor
             ))

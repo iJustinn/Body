@@ -677,19 +677,19 @@ private struct BodyActivityRingCalendarDayCell: View {
     private var accessibilityLabel: String {
         let dateText = day.date.formatted(.dateTime.month(.wide).day())
         guard day.hasData else {
-            return "\(dateText), no activity ring data"
+            return String(localized: "\(dateText), no activity ring data")
         }
 
-        let completionText = day.summary.isCompleted ? ", completed" : ""
-        return "\(dateText)\(completionText), Move \(metricText(day.summary.move)), Exercise \(metricText(day.summary.exercise)), Stand \(metricText(day.summary.stand))"
+        let completionText = day.summary.isCompleted ? String(localized: ", completed") : ""
+        return String(localized: "\(dateText)\(completionText), Move \(metricText(day.summary.move)), Exercise \(metricText(day.summary.exercise)), Stand \(metricText(day.summary.stand))")
     }
 
     private func metricText(_ metric: ActivityRingMetric) -> String {
         guard let value = metric.value, let goal = metric.goal else {
-            return "no data"
+            return String(localized: "no data")
         }
 
-        return "\(Int(value.rounded())) of \(Int(goal.rounded()))"
+        return String(localized: "\(Int(value.rounded())) of \(Int(goal.rounded()))")
     }
 }
 
@@ -832,9 +832,17 @@ private struct BodyActivityRingMetricRow: View {
     let unit: String
     let color: Color
 
+    private var localizedTitle: String {
+        String(localized: String.LocalizationValue(title))
+    }
+
+    private var localizedUnit: String {
+        String(localized: String.LocalizationValue(unit))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(title)
+            Text(localizedTitle)
                 .font(.system(.subheadline, design: .rounded))
                 .fontWeight(.semibold)
                 .foregroundColor(.primary)
@@ -847,14 +855,14 @@ private struct BodyActivityRingMetricRow: View {
                     minimumScaleFactor: 0.65
                 )
 
-                Text(unit)
+                Text(localizedUnit)
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundColor(metricTextColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(title) \(valueText) \(unit)")
+            .accessibilityLabel(String(localized: "\(localizedTitle) \(valueText) \(localizedUnit)"))
         }
     }
 

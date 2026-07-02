@@ -131,7 +131,7 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
             return "\(month)/\(year)"
         }
 
-        return BodyDateFormatterCache.formatter(dateFormat: "MMMM yyyy").string(from: date)
+        return BodyDateFormatterCache.formatter(template: "yMMMM").string(from: date)
     }
 
     func day(_ number: Int) -> WorkoutDaySummary? {

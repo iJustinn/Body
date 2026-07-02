@@ -115,7 +115,7 @@ struct BodyHomeTrendCard: View {
                 .foregroundStyle(model.symbolColor)
                 .accessibilityHidden(true)
 
-            Text(model.presentation.title)
+            Text(String(localized: String.LocalizationValue(model.presentation.title)))
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .foregroundColor(model.symbolColor)
                 .lineLimit(1)

@@ -33,93 +33,93 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
         switch self {
         case .readiness:
             return HealthMetricDetailHelpText(
-                title: "About Readiness",
-                body: "Readiness combines your recent heart, sleep, training, and overnight vital signs against your own baseline. It is a readiness estimate, not a diagnosis. The strongest signal comes from sustained patterns across HRV, resting heart rate, sleep quality, and recent load rather than one isolated reading.\nToday's live score updates through the day and drops after a workout, while the trend chart keeps the value from shortly after you wake, so the current score can read lower than today's point on the chart."
+                title: String(localized: "About Readiness", table: "BodyMetricsKit"),
+                body: String(localized: "Readiness combines your recent heart, sleep, training, and overnight vital signs against your own baseline. It is a readiness estimate, not a diagnosis. The strongest signal comes from sustained patterns across HRV, resting heart rate, sleep quality, and recent load rather than one isolated reading.\nToday's live score updates through the day and drops after a workout, while the trend chart keeps the value from shortly after you wake, so the current score can read lower than today's point on the chart.", table: "BodyMetricsKit")
             )
         case .sleep:
             return HealthMetricDetailHelpText(
-                title: "About Sleep",
-                body: "Sleep combines your recent sleep duration, stage breakdown, and sleep score into one view. Your own baseline matters more than a single night. Use the trend to spot repeated short sleep, fragmented nights, or shifts in deep and REM sleep that may line up with stress, travel, training, or illness."
+                title: String(localized: "About Sleep", table: "BodyMetricsKit"),
+                body: String(localized: "Sleep combines your recent sleep duration, stage breakdown, and sleep score into one view. Your own baseline matters more than a single night. Use the trend to spot repeated short sleep, fragmented nights, or shifts in deep and REM sleep that may line up with stress, travel, training, or illness.", table: "BodyMetricsKit")
             )
         case .basics:
             return HealthMetricDetailHelpText(
-                title: "About Basics",
-                body: "Basics tracks weight, body fat, and BMI together so changes are easier to compare in context. Daily movement can reflect hydration, meals, measurement timing, or device differences. Longer trends are usually more useful than single readings."
+                title: String(localized: "About Basics", table: "BodyMetricsKit"),
+                body: String(localized: "Basics tracks weight, body fat, and BMI together so changes are easier to compare in context. Daily movement can reflect hydration, meals, measurement timing, or device differences. Longer trends are usually more useful than single readings.", table: "BodyMetricsKit")
             )
         case .heartRate:
             return HealthMetricDetailHelpText(
-                title: "About Heart Rate",
-                body: "Heart rate is the number of beats per minute measured throughout the day. Daily ranges can shift with sleep, workouts, stress, caffeine, illness, heat, and readiness. Compare the range with your sleep and workout timing before judging a single spike."
+                title: String(localized: "About Heart Rate", table: "BodyMetricsKit"),
+                body: String(localized: "Heart rate is the number of beats per minute measured throughout the day. Daily ranges can shift with sleep, workouts, stress, caffeine, illness, heat, and readiness. Compare the range with your sleep and workout timing before judging a single spike.", table: "BodyMetricsKit")
             )
         case .restingHeartRate:
             return HealthMetricDetailHelpText(
-                title: "About Resting Heart Rate",
-                body: "Resting heart rate is the number of beats per minute while your body is at rest. A lower value can come with better aerobic fitness, but your own baseline matters most. Watch for sustained changes from your usual range, especially if they happen with symptoms, illness, stress, dehydration, or medication changes."
+                title: String(localized: "About Resting Heart Rate", table: "BodyMetricsKit"),
+                body: String(localized: "Resting heart rate is the number of beats per minute while your body is at rest. A lower value can come with better aerobic fitness, but your own baseline matters most. Watch for sustained changes from your usual range, especially if they happen with symptoms, illness, stress, dehydration, or medication changes.", table: "BodyMetricsKit")
             )
         case .bodyMass:
             return HealthMetricDetailHelpText(
-                title: "About Weight",
-                body: "Weight is your recorded body mass from Apple Health or connected devices. Short-term changes often come from hydration, food, sodium, exercise, or measurement timing. Compare readings taken under similar conditions and focus on the direction over weeks."
+                title: String(localized: "About Weight", table: "BodyMetricsKit"),
+                body: String(localized: "Weight is your recorded body mass from Apple Health or connected devices. Short-term changes often come from hydration, food, sodium, exercise, or measurement timing. Compare readings taken under similar conditions and focus on the direction over weeks.", table: "BodyMetricsKit")
             )
         case .bodyFatPercentage:
             return HealthMetricDetailHelpText(
-                title: "About Body Fat",
-                body: "Body fat percentage estimates how much of your body mass is fat tissue. Consumer scales and devices can vary with hydration, skin temperature, and measurement timing, so the trend is more useful than one reading. Compare it alongside weight and how you feel."
+                title: String(localized: "About Body Fat", table: "BodyMetricsKit"),
+                body: String(localized: "Body fat percentage estimates how much of your body mass is fat tissue. Consumer scales and devices can vary with hydration, skin temperature, and measurement timing, so the trend is more useful than one reading. Compare it alongside weight and how you feel.", table: "BodyMetricsKit")
             )
         case .heartRateVariability:
             return HealthMetricDetailHelpText(
-                title: "About HRV",
-                body: "Heart rate variability measures the small timing changes between heartbeats. Higher than your usual baseline often points to better readiness and lower strain; lower than usual can follow hard training, poor sleep, alcohol, illness, or stress. Compare trends over weeks instead of judging one day by itself."
+                title: String(localized: "About HRV", table: "BodyMetricsKit"),
+                body: String(localized: "Heart rate variability measures the small timing changes between heartbeats. Higher than your usual baseline often points to better readiness and lower strain; lower than usual can follow hard training, poor sleep, alcohol, illness, or stress. Compare trends over weeks instead of judging one day by itself.", table: "BodyMetricsKit")
             )
         case .respiratoryRate:
             return HealthMetricDetailHelpText(
-                title: "About Respiratory Rate",
-                body: "Respiratory rate is breaths per minute, often measured during sleep or quiet periods. A stable personal baseline is usually the most useful signal. Sustained increases or drops can reflect illness, altitude, stress, alcohol, or sleep disruption; check with a clinician if the change is unusual for you."
+                title: String(localized: "About Respiratory Rate", table: "BodyMetricsKit"),
+                body: String(localized: "Respiratory rate is breaths per minute, often measured during sleep or quiet periods. A stable personal baseline is usually the most useful signal. Sustained increases or drops can reflect illness, altitude, stress, alcohol, or sleep disruption; check with a clinician if the change is unusual for you.", table: "BodyMetricsKit")
             )
         case .oxygenSaturation:
             return HealthMetricDetailHelpText(
-                title: "About Blood Oxygen",
-                body: "Blood oxygen estimates the percentage of oxygen carried by your blood. It is usually fairly steady at rest, and fit or motion can affect readings. Repeated low readings, sudden drops, or low values with shortness of breath, chest pain, or confusion need medical attention."
+                title: String(localized: "About Blood Oxygen", table: "BodyMetricsKit"),
+                body: String(localized: "Blood oxygen estimates the percentage of oxygen carried by your blood. It is usually fairly steady at rest, and fit or motion can affect readings. Repeated low readings, sudden drops, or low values with shortness of breath, chest pain, or confusion need medical attention.", table: "BodyMetricsKit")
             )
         case .bodyMassIndex:
             return HealthMetricDetailHelpText(
-                title: "About BMI",
-                body: "BMI is a weight-to-height calculation used as a broad screening measure. It does not distinguish fat, muscle, bone, or body shape, so it is best treated as context rather than a diagnosis. Compare it with weight, body fat, activity, and your personal goals."
+                title: String(localized: "About BMI", table: "BodyMetricsKit"),
+                body: String(localized: "BMI is a weight-to-height calculation used as a broad screening measure. It does not distinguish fat, muscle, bone, or body shape, so it is best treated as context rather than a diagnosis. Compare it with weight, body fat, activity, and your personal goals.", table: "BodyMetricsKit")
             )
         case .activeEnergy:
             return HealthMetricDetailHelpText(
-                title: "About Active Energy",
-                body: "Active Energy estimates calories you burn through movement and workouts, above your resting needs. More is not automatically better; useful context comes from matching activity to your goals and checking how sleep, appetite, soreness, and readiness respond."
+                title: String(localized: "About Active Energy", table: "BodyMetricsKit"),
+                body: String(localized: "Active Energy estimates calories you burn through movement and workouts, above your resting needs. More is not automatically better; useful context comes from matching activity to your goals and checking how sleep, appetite, soreness, and readiness respond.", table: "BodyMetricsKit")
             )
         case .restingEnergy:
             return HealthMetricDetailHelpText(
-                title: "About Resting Energy",
-                body: "Resting Energy estimates calories your body uses for basic functions while minimally active. It tends to change slowly with body size, age, sex, and lean mass. Day-to-day jumps are often measurement or model changes, so treat the trend as context rather than a target."
+                title: String(localized: "About Resting Energy", table: "BodyMetricsKit"),
+                body: String(localized: "Resting Energy estimates calories your body uses for basic functions while minimally active. It tends to change slowly with body size, age, sex, and lean mass. Day-to-day jumps are often measurement or model changes, so treat the trend as context rather than a target.", table: "BodyMetricsKit")
             )
         case .exerciseMinutes:
             return HealthMetricDetailHelpText(
-                title: "About Exercise Minutes",
-                body: "Exercise Minutes count time Apple Health classifies as brisk activity or workouts. The value can differ from workout duration because intensity, heart rate, and motion all matter. Use it to see whether your recent activity is consistently reaching meaningful effort."
+                title: String(localized: "About Exercise Minutes", table: "BodyMetricsKit"),
+                body: String(localized: "Exercise Minutes count time Apple Health classifies as brisk activity or workouts. The value can differ from workout duration because intensity, heart rate, and motion all matter. Use it to see whether your recent activity is consistently reaching meaningful effort.", table: "BodyMetricsKit")
             )
         case .trainingLoad:
             return HealthMetricDetailHelpText(
-                title: "About Training Load",
-                body: "Training Load compares acute training load with chronic training load. Acute load is a 7-day exponentially weighted average of workout strain, while chronic load is a 42-day weighted average that reflects your adapted baseline. Values near 0.80-1.30 are usually the most sustainable; sustained values above that range can point to higher readiness demand."
+                title: String(localized: "About Training Load", table: "BodyMetricsKit"),
+                body: String(localized: "Training Load compares acute training load with chronic training load. Acute load is a 7-day exponentially weighted average of workout strain, while chronic load is a 42-day weighted average that reflects your adapted baseline. Values near 0.80-1.30 are usually the most sustainable; sustained values above that range can point to higher readiness demand.", table: "BodyMetricsKit")
             )
         case .wristTemperature:
             return HealthMetricDetailHelpText(
-                title: "About Skin Temperature",
-                body: "Skin Temperature shows changes captured during sleep from supported devices. It is most useful as a trend against your own baseline. Shifts can follow room temperature, illness, alcohol, menstrual cycle changes, travel, or wearable fit."
+                title: String(localized: "About Skin Temperature", table: "BodyMetricsKit"),
+                body: String(localized: "Skin Temperature shows changes captured during sleep from supported devices. It is most useful as a trend against your own baseline. Shifts can follow room temperature, illness, alcohol, menstrual cycle changes, travel, or wearable fit.", table: "BodyMetricsKit")
             )
         case .timeInDaylight:
             return HealthMetricDetailHelpText(
-                title: "About Time In Daylight",
-                body: "Time In Daylight estimates how long supported devices detected outdoor daylight exposure. Daylight can support circadian rhythm, mood, and sleep timing, but readings depend on device support and whether the device was worn."
+                title: String(localized: "About Time In Daylight", table: "BodyMetricsKit"),
+                body: String(localized: "Time In Daylight estimates how long supported devices detected outdoor daylight exposure. Daylight can support circadian rhythm, mood, and sleep timing, but readings depend on device support and whether the device was worn.", table: "BodyMetricsKit")
             )
         case .steps:
             return HealthMetricDetailHelpText(
-                title: "About Steps",
-                body: "Steps estimate your walking and running step count from Apple Health sources. Phones and wearables can count differently depending on where they are worn or carried. The trend is best used to compare your usual activity level over time."
+                title: String(localized: "About Steps", table: "BodyMetricsKit"),
+                body: String(localized: "Steps estimate your walking and running step count from Apple Health sources. Phones and wearables can count differently depending on where they are worn or carried. The trend is best used to compare your usual activity level over time.", table: "BodyMetricsKit")
             )
         }
     }
@@ -278,25 +278,25 @@ struct HealthSummarySnapshot: Codable, Equatable {
                     kind: .autonomic,
                     score: 88,
                     weight: 30,
-                    message: "Heart signals compared with your baseline."
+                    message: String(localized: "Heart signals compared with your baseline.", table: "BodyMetricsKit")
                 ),
                 ReadinessComponent(
                     kind: .sleep,
                     score: 78,
                     weight: 30,
-                    message: "Sleep amount and continuity."
+                    message: String(localized: "Sleep amount and continuity.", table: "BodyMetricsKit")
                 ),
                 ReadinessComponent(
                     kind: .training,
                     score: 86,
                     weight: 25,
-                    message: "Recent load relative to your longer baseline."
+                    message: String(localized: "Recent load relative to your longer baseline.", table: "BodyMetricsKit")
                 )
             ],
             drivers: [
                 ReadinessDriver(
                     kind: .mostlyTypical,
-                    message: "Readiness signals are mostly typical.",
+                    message: String(localized: "Readiness signals are mostly typical.", table: "BodyMetricsKit"),
                     impact: 0
                 )
             ]

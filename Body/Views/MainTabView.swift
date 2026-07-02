@@ -18,7 +18,7 @@ enum BodyMainTab: Hashable, CaseIterable {
         }
     }
 
-    var accessibilityLabel: String {
+    var accessibilityLabel: LocalizedStringKey {
         switch self {
         case .summary: "Summary"
         case .workouts: "Workouts"

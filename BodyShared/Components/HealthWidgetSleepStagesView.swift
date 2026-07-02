@@ -43,7 +43,7 @@ struct HealthWidgetSleepStagesView: View {
                 .foregroundStyle(HealthWidgetSleepStage.core.color)
                 .accessibilityHidden(true)
 
-            Text("Sleep Stages")
+            Text(String(localized: "Sleep Stages", table: "BodyShared"))
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundColor(HealthWidgetSleepStage.core.color)
                 .lineLimit(1)
@@ -151,11 +151,11 @@ struct HealthWidgetSleepStagesView: View {
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(HealthWidgetSleepStage.core.color.opacity(0.55))
 
-            Text("No sleep data")
+            Text(String(localized: "No sleep data", table: "BodyShared"))
                 .font(.system(size: 14, weight: .bold, design: .rounded))
                 .foregroundColor(.secondary)
 
-            Text("Open Body to sync")
+            Text(String(localized: "Open Body to sync", table: "BodyShared"))
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .foregroundColor(.secondary.opacity(0.7))
         }

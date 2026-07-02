@@ -410,7 +410,7 @@ struct BodyHealthMetricDetailView: View {
             )
             .ignoresSafeArea()
         }
-        .navigationTitle(model.title)
+        .navigationTitle(String(localized: String.LocalizationValue(model.title)))
         .navigationBarTitleDisplayMode(.inline)
         .tint(model.symbolColor)
         .accentColor(model.symbolColor)
@@ -852,7 +852,7 @@ struct BodyHealthMetricDetailView: View {
             return primaryName
         }
 
-        return "\(primaryName) vs \(secondaryOption.name)"
+        return String(localized: "\(primaryName) vs \(secondaryOption.name)")
     }
 
     // Apple Watch–style immersive header, shared by every metric. The metric-tint→
@@ -989,7 +989,10 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter
             )
         } else if usesRangeTrendChart, let metricRangeHeaderText {
-            averageHeaderText(metricRangeHeaderText, prefix: "Range")
+            averageHeaderText(
+                metricRangeHeaderText,
+                prefix: String(localized: "chart.legendRange", defaultValue: "Range")
+            )
         } else if let averageTrendText {
             VStack(alignment: .trailing, spacing: 4) {
                 averageHeaderText(averageTrendText)
@@ -1145,7 +1148,7 @@ struct BodyHealthMetricDetailView: View {
             HStack(alignment: .top, spacing: 12) {
                 ForEach(basicsRangeMetrics) { metric in
                     VStack(alignment: .center, spacing: 5) {
-                        Text(metric.title)
+                        Text(String(localized: String.LocalizationValue(metric.title)))
                             .font(.system(.caption, design: .rounded))
                             .fontWeight(.semibold)
                             .foregroundColor(.secondary)
@@ -1386,7 +1389,7 @@ struct BodyHealthMetricDetailView: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(row.title)
+                Text(String(localized: String.LocalizationValue(row.title)))
                     .font(.system(size: 17, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
                     .lineLimit(1)
@@ -1432,9 +1435,9 @@ struct BodyHealthMetricDetailView: View {
     private var selectedMetricDayAggregationLabel: String {
         switch model.kind {
         case .activeEnergy, .steps:
-            return "HOURLY TOTAL"
+            return String(localized: "HOURLY TOTAL")
         default:
-            return "HOURLY AVG"
+            return String(localized: "HOURLY AVG")
         }
     }
 
@@ -1714,11 +1717,11 @@ struct BodyHealthMetricDetailView: View {
         _ snapshot: SleepStageSnapshot,
         title: String = "Sleep Stages",
         sourceName: String? = nil,
-        emptyMessage: String = "No sleep stages for this day"
+        emptyMessage: LocalizedStringKey = "No sleep stages for this day"
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text(title)
+                Text(String(localized: String.LocalizationValue(title)))
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
 
@@ -1812,9 +1815,9 @@ struct BodyHealthMetricDetailView: View {
         let descriptions = SleepStage.allCases.map { stage -> String in
             let duration = snapshot.duration(for: stage)
             let percent = total > 0 ? Int((duration / total * 100).rounded()) : 0
-            return "\(stage.displayName) \(percent) percent, \(BodyValueFormat.durationText(for: duration))"
+            return String(localized: "\(stage.displayName) \(percent) percent, \(BodyValueFormat.durationText(for: duration))")
         }
-        return "Sleep stage breakdown. " + descriptions.joined(separator: ". ") + "."
+        return String(localized: "Sleep stage breakdown. \(descriptions.joined(separator: ". ")).")
     }
 
     private func sleepStageChartIdentity(for snapshot: SleepStageSnapshot) -> String {
@@ -2203,7 +2206,10 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
-    private func averageHeaderText(_ text: String, prefix: String = "Avg") -> some View {
+    private func averageHeaderText(
+        _ text: String,
+        prefix: String = String(localized: "detail.avgPrefix", defaultValue: "Avg")
+    ) -> some View {
         Text("\(prefix) \(text)")
             .font(.system(.subheadline, design: .rounded))
             .fontWeight(.semibold)

@@ -92,66 +92,66 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .activityRings:
-            return "Activity Rings"
+            return String(localized: "Activity Rings", table: "BodyMetricsKit")
         case .workouts:
-            return "Workouts"
+            return String(localized: "Workouts", table: "BodyMetricsKit")
         case .workoutMetrics:
-            return "Workout Metrics"
+            return String(localized: "Workout Metrics", table: "BodyMetricsKit")
         case .sleep:
-            return "Sleep"
+            return String(localized: "Sleep", table: "BodyMetricsKit")
         case .heart:
-            return "Heart"
+            return String(localized: "Heart", table: "BodyMetricsKit")
         case .dateOfBirth:
-            return "Date of Birth"
+            return String(localized: "Date of Birth", table: "BodyMetricsKit")
         case .basics:
-            return "Basics"
+            return String(localized: "Basics", table: "BodyMetricsKit")
         case .bloodOxygen:
-            return "Blood Oxygen"
+            return String(localized: "Blood Oxygen", table: "BodyMetricsKit")
         case .respiratory:
-            return "Respiratory"
+            return String(localized: "Respiratory", table: "BodyMetricsKit")
         case .energy:
-            return "Energy"
+            return String(localized: "Energy", table: "BodyMetricsKit")
         case .exerciseMinutes:
-            return "Exercise Minutes"
+            return String(localized: "Exercise Minutes", table: "BodyMetricsKit")
         case .wristTemperature:
-            return "Skin Temperature"
+            return String(localized: "Skin Temperature", table: "BodyMetricsKit")
         case .timeInDaylight:
-            return "Time in Daylight"
+            return String(localized: "Time in Daylight", table: "BodyMetricsKit")
         case .steps:
-            return "Steps"
+            return String(localized: "Steps", table: "BodyMetricsKit")
         }
     }
 
     var subtitle: String {
         switch self {
         case .activityRings:
-            return "Move, Exercise, and Stand rings"
+            return String(localized: "Move, Exercise, and Stand rings", table: "BodyMetricsKit")
         case .workouts:
-            return "Workout history, effort, and details"
+            return String(localized: "Workout history, effort, and details", table: "BodyMetricsKit")
         case .workoutMetrics:
-            return "VO₂max, power, cadence, and swim strokes"
+            return String(localized: "VO₂max, power, cadence, and swim strokes", table: "BodyMetricsKit")
         case .sleep:
-            return "Sleep duration, stages, and score"
+            return String(localized: "Sleep duration, stages, and score", table: "BodyMetricsKit")
         case .heart:
-            return "Heart rate and HRV"
+            return String(localized: "Heart rate and HRV", table: "BodyMetricsKit")
         case .dateOfBirth:
-            return "Anchors workout HR zones (max HR)"
+            return String(localized: "Anchors workout HR zones (max HR)", table: "BodyMetricsKit")
         case .basics:
-            return "Weight, body fat, and BMI"
+            return String(localized: "Weight, body fat, and BMI", table: "BodyMetricsKit")
         case .bloodOxygen:
-            return "Blood oxygen readings"
+            return String(localized: "Blood oxygen readings", table: "BodyMetricsKit")
         case .respiratory:
-            return "Breathing rate readings"
+            return String(localized: "Breathing rate readings", table: "BodyMetricsKit")
         case .energy:
-            return "Active and resting calories"
+            return String(localized: "Active and resting calories", table: "BodyMetricsKit")
         case .exerciseMinutes:
-            return "Exercise minute totals"
+            return String(localized: "Exercise minute totals", table: "BodyMetricsKit")
         case .wristTemperature:
-            return "Sleeping skin temperature"
+            return String(localized: "Sleeping skin temperature", table: "BodyMetricsKit")
         case .timeInDaylight:
-            return "Daylight exposure time"
+            return String(localized: "Daylight exposure time", table: "BodyMetricsKit")
         case .steps:
-            return "Step count totals"
+            return String(localized: "Step count totals", table: "BodyMetricsKit")
         }
     }
 
@@ -341,26 +341,26 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .recentWeek:
-            return "Week"
+            return String(localized: "Week", table: "BodyMetricsKit")
         case .recentMonth:
-            return "Month"
+            return String(localized: "Month", table: "BodyMetricsKit")
         case .recentSixMonths:
-            return "6 Months"
+            return String(localized: "6 Months", table: "BodyMetricsKit")
         case .recentYear:
-            return "Year"
+            return String(localized: "Year", table: "BodyMetricsKit")
         }
     }
 
     var selectionSubtitle: String {
         switch self {
         case .recentWeek:
-            return "7 days"
+            return String(localized: "7 days", table: "BodyMetricsKit")
         case .recentMonth:
-            return "30 days"
+            return String(localized: "30 days", table: "BodyMetricsKit")
         case .recentSixMonths:
-            return "6 months"
+            return String(localized: "range.subtitle.sixMonths", defaultValue: "6 months", table: "BodyMetricsKit")
         case .recentYear:
-            return "1 year"
+            return String(localized: "1 year", table: "BodyMetricsKit")
         }
     }
 
@@ -393,13 +393,13 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
     var chartTitle: String {
         switch self {
         case .recentWeek:
-            return "Last 7 Days"
+            return String(localized: "Last 7 Days", table: "BodyMetricsKit")
         case .recentMonth:
-            return "Last 30 Days"
+            return String(localized: "Last 30 Days", table: "BodyMetricsKit")
         case .recentSixMonths:
-            return "Last 6 Months"
+            return String(localized: "Last 6 Months", table: "BodyMetricsKit")
         case .recentYear:
-            return "Last Year"
+            return String(localized: "Last Year", table: "BodyMetricsKit")
         }
     }
 

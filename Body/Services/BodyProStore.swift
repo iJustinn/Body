@@ -76,7 +76,7 @@ final class BodyProStore {
             await loadProduct()
         }
         guard let product else {
-            purchaseState = .failed("Body Pro is temporarily unavailable. Please try again.")
+            purchaseState = .failed(String(localized: "Body Pro is temporarily unavailable. Please try again."))
             return
         }
 
@@ -95,7 +95,7 @@ final class BodyProStore {
                 purchaseState = .idle
             }
         } catch {
-            purchaseState = .failed("Purchase could not be completed.")
+            purchaseState = .failed(String(localized: "Purchase could not be completed."))
         }
     }
 
@@ -106,7 +106,7 @@ final class BodyProStore {
             await refreshEntitlement()
             purchaseState = .idle
         } catch {
-            purchaseState = .failed("Restore could not be completed.")
+            purchaseState = .failed(String(localized: "Restore could not be completed."))
         }
     }
 

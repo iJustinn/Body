@@ -37,4 +37,32 @@ enum BodyDateFormatterCache {
         formattersByKey[key] = formatter
         return formatter
     }
+
+    /// Like `formatter(dateFormat:)`, but derives a locale-appropriate pattern
+    /// from an ICU template via `setLocalizedDateFormatFromTemplate(_:)`, so
+    /// month/weekday ordering follows the locale (e.g. "MMM d" vs "d MMM").
+    /// The cache key is prefixed to keep templates distinct from raw formats.
+    static func formatter(
+        template: String,
+        calendar: Calendar = .bodyGregorian,
+        locale: Locale = .current,
+        timeZone: TimeZone = .current
+    ) -> DateFormatter {
+        let key = "tpl:\(template)|\(calendar.identifier)-\(calendar.firstWeekday)|\(locale.identifier)|\(timeZone.identifier)"
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        if let cached = formattersByKey[key] {
+            return cached
+        }
+
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        formatter.setLocalizedDateFormatFromTemplate(template)
+        formattersByKey[key] = formatter
+        return formatter
+    }
 }

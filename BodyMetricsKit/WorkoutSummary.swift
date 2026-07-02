@@ -392,15 +392,17 @@ enum WorkoutMetricComparisonBuilder {
         if rounded == 0 {
             return WorkoutMetricComparison(
                 badgeText: "≈0%",
-                accessibilityLabel: "About the same as the 30-day average"
+                accessibilityLabel: String(localized: "About the same as the 30-day average", table: "BodyMetricsKit")
             )
         }
         let magnitude = BodyValueFormat.numberText(Double(abs(rounded)), decimals: 0, locale: locale)
         let arrow = rounded > 0 ? "↑" : "↓"
-        let direction = rounded > 0 ? "higher" : "lower"
+        let accessibilityLabel = rounded > 0
+            ? String(localized: "\(magnitude) percent higher than 30-day average", table: "BodyMetricsKit")
+            : String(localized: "\(magnitude) percent lower than 30-day average", table: "BodyMetricsKit")
         return WorkoutMetricComparison(
             badgeText: "\(arrow)\(magnitude)%",
-            accessibilityLabel: "\(magnitude) percent \(direction) than 30-day average"
+            accessibilityLabel: accessibilityLabel
         )
     }
 }
@@ -438,16 +440,16 @@ struct WorkoutEffortPresentation: Equatable {
 
         switch normalizedScore {
         case ..<4:
-            descriptor = "Easy"
+            descriptor = String(localized: "Easy", table: "BodyMetricsKit")
             intensity = .easy
         case ..<7:
-            descriptor = "Moderate"
+            descriptor = String(localized: "Moderate", table: "BodyMetricsKit")
             intensity = .moderate
         case ..<9:
-            descriptor = "Hard"
+            descriptor = String(localized: "Hard", table: "BodyMetricsKit")
             intensity = .hard
         default:
-            descriptor = "All Out"
+            descriptor = String(localized: "All Out", table: "BodyMetricsKit")
             intensity = .allOut
         }
 
@@ -491,7 +493,7 @@ struct WorkoutDetailPresentation: Equatable {
         title = workout.type.displayName
         dateTitle = Self.formattedDate(
             workout.startDate,
-            dateFormat: "EEE, MMM d",
+            template: "EEEMMMd",
             calendar: calendar,
             locale: locale,
             timeZone: timeZone
@@ -556,7 +558,7 @@ struct WorkoutDetailPresentation: Equatable {
         effortPresentation = workout.effortLevel.flatMap {
             WorkoutEffortPresentation(score: $0, locale: locale)
         }
-        effortText = effortPresentation.map { "\($0.valueText) \($0.descriptor)" } ?? "No Saved Effort"
+        effortText = effortPresentation.map { "\($0.valueText) \($0.descriptor)" } ?? String(localized: "No Saved Effort", table: "BodyMetricsKit")
         heartRateSamples = sortedHeartRateSamples
 
         // Mirror the distance tile's resolution so pace/speed/elevation agree with
@@ -593,14 +595,14 @@ struct WorkoutDetailPresentation: Equatable {
         // Performance metrics first, then a generic Distance tile for any positive distance
         // (suppressed when distance is shown in the hero instead).
         if let distanceText, !promotesDistanceToHero {
-            metrics.append(WorkoutDetailMetric(kind: .distance, title: "Distance", value: distanceText))
+            metrics.append(WorkoutDetailMetric(kind: .distance, title: String(localized: "Distance", table: "BodyMetricsKit"), value: distanceText))
         }
         if canDeriveDistanceRate {
             switch workout.type.paceStyle {
             case .distancePace:
                 metrics.append(WorkoutDetailMetric(
                     kind: .pace,
-                    title: "Avg Pace",
+                    title: String(localized: "Avg Pace", table: "BodyMetricsKit"),
                     value: BodyValueFormat.paceText(
                         meters: distanceMeters,
                         seconds: workout.duration,
@@ -611,7 +613,7 @@ struct WorkoutDetailPresentation: Equatable {
             case .speed:
                 metrics.append(WorkoutDetailMetric(
                     kind: .speed,
-                    title: "Avg Speed",
+                    title: String(localized: "Avg Speed", table: "BodyMetricsKit"),
                     value: BodyValueFormat.speedText(
                         meters: distanceMeters,
                         seconds: workout.duration,
@@ -622,7 +624,7 @@ struct WorkoutDetailPresentation: Equatable {
             case .swimPace:
                 metrics.append(WorkoutDetailMetric(
                     kind: .swimPace,
-                    title: "Avg Pace",
+                    title: String(localized: "Avg Pace", table: "BodyMetricsKit"),
                     value: BodyValueFormat.swimPaceText(
                         meters: distanceMeters,
                         seconds: workout.duration,
@@ -637,7 +639,7 @@ struct WorkoutDetailPresentation: Equatable {
         if let elevation = workout.elevationAscendedMeters, elevation > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .elevation,
-                title: "Elevation Gain",
+                title: String(localized: "Elevation Gain", table: "BodyMetricsKit"),
                 value: BodyValueFormat.elevationText(
                     meters: elevation,
                     distanceUnitPreference: resolvedDistancePreference,
@@ -646,13 +648,13 @@ struct WorkoutDetailPresentation: Equatable {
             ))
         }
 
-        metrics.append(WorkoutDetailMetric(kind: .activeEnergy, title: "Active \(energyUnitPreference.detailTitleUnit)", value: activeEnergyText ?? "No Data"))
-        metrics.append(WorkoutDetailMetric(kind: .totalEnergy, title: "Total \(energyUnitPreference.detailTitleUnit)", value: totalEnergyText ?? "No Data"))
-        metrics.append(WorkoutDetailMetric(kind: .avgHeartRate, title: "Avg Heart Rate", value: averageHeartRateText ?? "No Data"))
+        metrics.append(WorkoutDetailMetric(kind: .activeEnergy, title: String(localized: "Active \(energyUnitPreference.detailTitleUnit)", table: "BodyMetricsKit"), value: activeEnergyText ?? String(localized: "No Data", table: "BodyMetricsKit")))
+        metrics.append(WorkoutDetailMetric(kind: .totalEnergy, title: String(localized: "Total \(energyUnitPreference.detailTitleUnit)", table: "BodyMetricsKit"), value: totalEnergyText ?? String(localized: "No Data", table: "BodyMetricsKit")))
+        metrics.append(WorkoutDetailMetric(kind: .avgHeartRate, title: String(localized: "Avg Heart Rate", table: "BodyMetricsKit"), value: averageHeartRateText ?? String(localized: "No Data", table: "BodyMetricsKit")))
         if let maxHeartRate = workout.maximumHeartRateBeatsPerMinute {
             metrics.append(WorkoutDetailMetric(
                 kind: .maxHeartRate,
-                title: "Max Heart Rate",
+                title: String(localized: "Max Heart Rate", table: "BodyMetricsKit"),
                 value: BodyValueFormat.heartRateText(beatsPerMinute: maxHeartRate, locale: locale)
             ))
         }
@@ -661,35 +663,35 @@ struct WorkoutDetailPresentation: Equatable {
         if let stepCadence = workout.averageStepCadenceSPM, stepCadence > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .stepCadence,
-                title: "Cadence",
+                title: String(localized: "Step Cadence", table: "BodyMetricsKit"),
                 value: BodyValueFormat.cadenceText(stepCadence, unit: "SPM", locale: locale)
             ))
         }
         if let cyclingCadence = workout.averageCyclingCadenceRPM, cyclingCadence > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .cyclingCadence,
-                title: "Cadence",
+                title: String(localized: "Cycling Cadence", table: "BodyMetricsKit"),
                 value: BodyValueFormat.cadenceText(cyclingCadence, unit: "RPM", locale: locale)
             ))
         }
         if let power = workout.averagePowerWatts, power > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .power,
-                title: "Avg Power",
+                title: String(localized: "Avg Power", table: "BodyMetricsKit"),
                 value: BodyValueFormat.powerText(watts: power, locale: locale)
             ))
         }
         if let vo2Max = workout.cardioFitnessVO2Max, vo2Max > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .cardioFitness,
-                title: "Cardio Fitness",
+                title: String(localized: "Cardio Fitness", table: "BodyMetricsKit"),
                 value: BodyValueFormat.vo2MaxText(vo2Max, locale: locale)
             ))
         }
         if let strokeCount = workout.swimmingStrokeCount, strokeCount > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .strokeCount,
-                title: "Swim Strokes",
+                title: String(localized: "Swim Strokes", table: "BodyMetricsKit"),
                 value: BodyValueFormat.strokeCountText(strokeCount, locale: locale)
             ))
         }
@@ -731,6 +733,21 @@ struct WorkoutDetailPresentation: Equatable {
         ).string(from: date)
     }
 
+    private static func formattedDate(
+        _ date: Date,
+        template: String,
+        calendar: Calendar,
+        locale: Locale,
+        timeZone: TimeZone
+    ) -> String {
+        BodyDateFormatterCache.formatter(
+            template: template,
+            calendar: calendar,
+            locale: locale,
+            timeZone: timeZone
+        ).string(from: date)
+    }
+
     private static func averageHeartRate(from samples: [WorkoutHeartRateSample]) -> Double? {
         guard !samples.isEmpty else {
             return nil
@@ -755,18 +772,18 @@ enum BodyValueFormat {
         var displayName: String {
             switch self {
             case .system:
-                return "System"
+                return String(localized: "System", table: "BodyMetricsKit")
             case .metric:
-                return "Metric"
+                return String(localized: "Metric", table: "BodyMetricsKit")
             case .imperial:
-                return "Imperial"
+                return String(localized: "Imperial", table: "BodyMetricsKit")
             }
         }
 
         var selectionSubtitle: String {
             switch self {
             case .system:
-                return "Device"
+                return String(localized: "Device", table: "BodyMetricsKit")
             case .metric:
                 return "kg / km"
             case .imperial:
@@ -792,9 +809,9 @@ enum BodyValueFormat {
         var displayName: String {
             switch self {
             case .kilograms:
-                return "Kilograms"
+                return String(localized: "Kilograms", table: "BodyMetricsKit")
             case .pounds:
-                return "Pounds"
+                return String(localized: "Pounds", table: "BodyMetricsKit")
             }
         }
 
@@ -829,9 +846,9 @@ enum BodyValueFormat {
         var displayName: String {
             switch self {
             case .kilometers:
-                return "Kilometers"
+                return String(localized: "Kilometers", table: "BodyMetricsKit")
             case .miles:
-                return "Miles"
+                return String(localized: "Miles", table: "BodyMetricsKit")
             }
         }
 
@@ -866,9 +883,9 @@ enum BodyValueFormat {
         var displayName: String {
             switch self {
             case .kilocalories:
-                return "Kilocalories"
+                return String(localized: "Kilocalories", table: "BodyMetricsKit")
             case .kilojoules:
-                return "Kilojoules"
+                return String(localized: "Kilojoules", table: "BodyMetricsKit")
             }
         }
 
@@ -912,9 +929,9 @@ enum BodyValueFormat {
         var displayName: String {
             switch self {
             case .celsius:
-                return "Celsius"
+                return String(localized: "Celsius", table: "BodyMetricsKit")
             case .fahrenheit:
-                return "Fahrenheit"
+                return String(localized: "Fahrenheit", table: "BodyMetricsKit")
             }
         }
 
@@ -966,17 +983,18 @@ enum BodyValueFormat {
         let remainingMinutes = minutes % 60
 
         if hours > 0, remainingMinutes > 0 {
-            return "\(hours)h \(remainingMinutes)m"
+            return String(localized: "\(hours)h \(remainingMinutes)m", table: "BodyMetricsKit")
         } else if hours > 0 {
-            return "\(hours)h"
+            return String(localized: "\(hours)h", table: "BodyMetricsKit")
         }
 
-        return "\(remainingMinutes)m"
+        return String(localized: "\(remainingMinutes)m", table: "BodyMetricsKit")
     }
 
     static func workoutCountText(_ count: Int) -> String {
-        let label = count == 1 ? "workout" : "workouts"
-        return "\(count) \(label)"
+        count == 1
+            ? String(localized: "\(count) workout", table: "BodyMetricsKit")
+            : String(localized: "\(count) workouts", table: "BodyMetricsKit")
     }
 
     static func massDisplay(

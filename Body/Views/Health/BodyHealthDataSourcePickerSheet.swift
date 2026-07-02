@@ -99,8 +99,8 @@ struct BodyHealthDataSourcePickerSheet: View {
     }
 
     private func sourceSection(
-        title: String,
-        detail: String,
+        title: LocalizedStringKey,
+        detail: LocalizedStringKey,
         options: [BodyHealthDataSourceOption],
         selectedOption: BodyHealthDataSourceOption,
         role: SourceRole

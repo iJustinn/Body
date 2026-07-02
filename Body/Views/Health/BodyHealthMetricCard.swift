@@ -115,7 +115,7 @@ struct BodyHealthMetricCard: View {
     }
 
     private var titleLabel: some View {
-        Text(metric.title)
+        Text(String(localized: String.LocalizationValue(metric.title)))
             .font(.system(size: 18, weight: .bold, design: .rounded))
             .foregroundColor(.primary)
             .lineLimit(3)

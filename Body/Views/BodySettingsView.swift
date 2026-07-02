@@ -48,6 +48,7 @@ struct BodySettingsView: View {
                     VStack(alignment: .leading, spacing: 22) {
                         appearanceSection
                         metricsSection
+                        workoutsSection
                         dataSection
                         aboutSection
                         bodyProEntryCard
@@ -163,7 +164,7 @@ struct BodySettingsView: View {
             } label: {
                 BodySettingsRowLabel(
                     title: "Icon",
-                    value: currentAppIconOption.displayName,
+                    value: currentAppIconOption.localizedDisplayName,
                     iconName: "app.fill",
                     tintColor: .gray,
                     accessory: .chevron
@@ -181,7 +182,7 @@ struct BodySettingsView: View {
                     activeSheet = tab.sheet
                 } label: {
                     BodySettingsRowLabel(
-                        title: tab.title,
+                        title: LocalizedStringKey(tab.title),
                         value: dataValue(for: tab),
                         iconName: tab.iconName,
                         tintColor: tab.tintColor,
@@ -226,7 +227,7 @@ struct BodySettingsView: View {
             }
         } label: {
             BodySettingsRowLabel(
-                title: tab.title,
+                title: LocalizedStringKey(tab.title),
                 value: tab == .version ? appVersionDisplay : nil,
                 iconName: tab.iconName,
                 tintColor: tab.tintColor,
@@ -336,10 +337,23 @@ struct BodySettingsView: View {
                 )
             }
             .buttonStyle(.plain)
+        }
+    }
 
-            settingsDivider
-
-            BodyEffortSuggestionToggleRow(isEnabled: $showWorkoutEffortSuggestions)
+    private var workoutsSection: some View {
+        BodySettingsCardSection("Workouts") {
+            Button {
+                activeSheet = .effortSuggestions
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Effort Suggestions",
+                    value: workoutEffortSuggestionsSummaryText,
+                    iconName: "speedometer",
+                    tintColor: .purple,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -352,11 +366,15 @@ struct BodySettingsView: View {
     }
 
     private var starredMetricSummaryText: String {
-        BodyHomeCardKind.starredMetric(from: starredMetricRawValue)?.title ?? "None"
+        BodyHomeCardKind.starredMetric(from: starredMetricRawValue)?.title ?? String(localized: "None")
     }
 
     private var homeBackgroundSummaryText: String {
-        homeBackgroundEnabled ? "On" : "Off"
+        homeBackgroundEnabled ? String(localized: "On") : String(localized: "Off")
+    }
+
+    private var workoutEffortSuggestionsSummaryText: String {
+        showWorkoutEffortSuggestions ? String(localized: "On") : String(localized: "Off")
     }
 
     private var settingsDivider: some View {
@@ -365,8 +383,8 @@ struct BodySettingsView: View {
     }
 
     private var appVersionDisplay: String {
-        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
-        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? String(localized: "Unknown")
+        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? String(localized: "Unknown")
         return "\(appVersion) (\(buildNumber))"
     }
 
@@ -421,7 +439,7 @@ struct BodySettingsView: View {
 
     private var unitsSummaryText: String {
         if followsSystemUnits {
-            return "System"
+            return String(localized: "System")
         }
 
         return [
@@ -548,6 +566,8 @@ struct BodySettingsView: View {
             BodyStarMetricPickerSheet(selection: starredMetric)
         case .dayView:
             BodyMetricDayViewSettingsSheet(selection: metricDayViewSelection)
+        case .effortSuggestions:
+            BodyEffortSuggestionsSettingsSheet(isEnabled: $showWorkoutEffortSuggestions)
         case .sleepDurationGoal:
             BodySleepSettingsSheet(
                 goalMinutes: sleepDurationGoal,
@@ -576,7 +596,7 @@ struct BodySettingsView: View {
 
     private func changeAppIcon(to option: BodyAppIconOption) {
         guard UIApplication.shared.supportsAlternateIcons else {
-            appIconErrorMessage = "This device does not support alternate app icons."
+            appIconErrorMessage = String(localized: "This device does not support alternate app icons.")
             showingAppIconError = true
             return
         }
@@ -610,6 +630,7 @@ enum BodySettingsSheet: String, Identifiable {
     case homeTrendCards
     case starMetric
     case dayView
+    case effortSuggestions
     case units
     case source
     case permissions
@@ -901,7 +922,7 @@ private struct BodyUnitPreferencePickerSheet: View {
 
 private struct BodyUnitPreferenceControlRow<Option: BodyUnitPreferenceOption>: View
 where Option.AllCases: RandomAccessCollection {
-    let title: String
+    let title: LocalizedStringKey
     let iconName: String
     let tintColor: Color
     let options: Option.AllCases
@@ -967,7 +988,9 @@ private struct BodyUnitChoiceButton: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
 
-            Text(subtitle)
+            // `subtitle` carries the unit's English display name (e.g. "Kilograms");
+            // resolve it as a catalog key so it localizes.
+            Text(LocalizedStringKey(subtitle))
                 .font(.system(.caption, design: .rounded))
                 .fontWeight(.semibold)
                 .lineLimit(1)
@@ -1030,8 +1053,8 @@ private struct BodyStarMetricPickerSheet: View {
         BodySettingsAboutSheetScaffold(title: "Star Metric") {
             VStack(spacing: 0) {
                 BodyStarMetricOptionRow(
-                    title: "None",
-                    subtitle: "No metric pinned to the top of Home",
+                    title: String(localized: "None"),
+                    subtitle: String(localized: "No metric pinned to the top of Home"),
                     iconName: "circle.slash",
                     tintColor: .secondary,
                     isSelected: selection == nil
@@ -1183,7 +1206,7 @@ private struct BodyHomeBackgroundSheet: View {
 
             VStack(spacing: 0) {
                 ForEach(Array(profiles.enumerated()), id: \.element.id) { index, profile in
-                    let defaultTitle = profile.id == BodyHomeBackgroundProfile.appDefaultID ? "App Default" : "Saved \(index)"
+                    let defaultTitle = profile.id == BodyHomeBackgroundProfile.appDefaultID ? String(localized: "App Default") : String(localized: "Saved \(index)")
                     let title = profile.displayName(defaultName: defaultTitle)
                     let canEditProfile = profile.id != BodyHomeBackgroundProfile.appDefaultID
 
@@ -1266,7 +1289,7 @@ private struct BodyHomeBackgroundSheet: View {
 
     private func saveCurrentProfile() {
         guard canSaveCurrentProfile else { return }
-        let defaultName = "Saved \(customProfiles.count + 1)"
+        let defaultName = String(localized: "Saved \(customProfiles.count + 1)")
         let nextProfile = BodyHomeBackgroundProfile.custom(
             name: defaultName,
             colors: colors.wrappedValue,
@@ -1362,7 +1385,7 @@ private struct BodyHomeBackgroundProfileRow: View {
                         .background(Color.red)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Delete \(title)")
+                .accessibilityLabel(String(localized: "accessibility.deleteProfile", defaultValue: "Delete \(title)"))
                 .frame(width: max(0, -contentOffset), alignment: .trailing)
                 .clipped()
             }
@@ -1726,6 +1749,27 @@ private struct BodySleepScoreToggleRow: View {
     }
 }
 
+private struct BodyEffortSuggestionsSettingsSheet: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Effort Suggestions") {
+            VStack(alignment: .leading, spacing: 12) {
+                BodySettingsCardSection("Workout Effort") {
+                    BodyEffortSuggestionToggleRow(isEnabled: $isEnabled)
+                }
+
+                Text("When on, Body estimates a 1-10 effort for each workout from available workout, heart-rate, recent history, and readiness data. The suggestion appears on workout details and pre-fills unrated effort edits; your saved ratings stay in control, and unchanged accepted suggestions are excluded from future calibration.")
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+}
+
 private struct BodyEffortSuggestionToggleRow: View {
     @Binding var isEnabled: Bool
 
@@ -2048,7 +2092,7 @@ private struct BodySourceSettingsSheet: View {
     }
 
     private func sourceOptionSection(
-        title: String,
+        title: LocalizedStringKey,
         options: [BodyHealthDataSourceOption],
         selectedOption: BodyHealthDataSourceOption,
         role: Role,
@@ -2089,7 +2133,7 @@ private struct BodySourceSettingsSheet: View {
             HStack(spacing: 14) {
                 BodySettingsIconTile(iconName: optionIconName(for: option, role: role), color: tintColor)
 
-                Text(option.name)
+                Text(option.isNoComparison ? String(localized: "No Comparison") : option.name)
                     .font(.system(.headline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
@@ -2234,7 +2278,7 @@ private struct BodyHealthSyncStatusSettingsSheet: View {
                     } label: {
                         BodySettingsRowLabel(
                             title: "Refresh Now",
-                            value: workoutStore.isRefreshing ? "Refreshing" : nil,
+                            value: workoutStore.isRefreshing ? String(localized: "Refreshing") : nil,
                             iconName: "arrow.clockwise",
                             tintColor: .blue,
                             accessory: .chevron
@@ -2251,12 +2295,12 @@ private struct BodyHealthSyncStatusSettingsSheet: View {
 
     private var syncStatusSection: BodySettingsInfoSection {
         BodySettingsInfoSection(
-            title: "Status",
+            title: String(localized: "Status"),
             iconName: "arrow.triangle.2.circlepath",
             tintColor: .blue,
             details: [
-                "Last refreshed: \(lastSuccessfulRefreshText)",
-                workoutStore.healthDataNotice ?? "No health data notice is currently shown."
+                String(localized: "Last refreshed: \(lastSuccessfulRefreshText)"),
+                workoutStore.healthDataNotice ?? String(localized: "No health data notice is currently shown.")
             ]
         )
     }
@@ -2282,7 +2326,7 @@ private struct BodyCacheSettingsSheet: View {
                     } label: {
                         BodySettingsRowLabel(
                             title: "Rebuild Cache",
-                            value: workoutStore.isRefreshing ? "Refreshing" : nil,
+                            value: workoutStore.isRefreshing ? String(localized: "Refreshing") : nil,
                             iconName: "arrow.clockwise.circle.fill",
                             tintColor: .blue,
                             accessory: .chevron
@@ -2315,7 +2359,7 @@ private struct BodyCacheSettingsSheet: View {
 
     private var cacheStatusSection: BodySettingsInfoSection {
         BodySettingsInfoSection(
-            title: "Local Cache",
+            title: String(localized: "Local Cache"),
             iconName: "internaldrive.fill",
             tintColor: .orange,
             details: workoutStore.cacheStatus.detailLines
@@ -2411,6 +2455,16 @@ private struct BodyAppIconOption: Identifiable, Equatable {
     let alternateIconName: String?
     let previewAssetName: String
 
+    /// `displayName`/`descriptor` stay as English catalog keys; these resolve them
+    /// for display so the stored literals remain stable for lookups and tests.
+    var localizedDisplayName: String {
+        String(localized: String.LocalizationValue(displayName))
+    }
+
+    var localizedDescriptor: String {
+        String(localized: String.LocalizationValue(descriptor))
+    }
+
     static let standard: [BodyAppIconOption] = [
         BodyAppIconOption(
             id: "body01",
@@ -2468,10 +2522,10 @@ private enum BodySettingsTypography {
 }
 
 private struct BodySettingsCardSection<Content: View>: View {
-    let title: String
+    let title: LocalizedStringKey
     private let content: Content
 
-    init(_ title: String, @ViewBuilder content: () -> Content) {
+    init(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
         self.title = title
         self.content = content()
     }
@@ -2491,7 +2545,7 @@ private struct BodySettingsCardSection<Content: View>: View {
 }
 
 private struct BodySettingsRowLabel: View {
-    let title: String
+    let title: LocalizedStringKey
     let value: String?
     let iconName: String
     let tintColor: Color
@@ -2642,14 +2696,14 @@ private struct BodyAppIconSelectionTile: View {
             }
 
             VStack(spacing: 3) {
-                Text(option.displayName)
+                Text(option.localizedDisplayName)
                     .font(.system(.headline, design: .rounded))
                     .fontWeight(.bold)
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
 
-                Text(option.descriptor)
+                Text(option.localizedDescriptor)
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -2672,13 +2726,13 @@ private struct BodyMoreSettingsSheet: View {
     private let supportEmailAddress = "zihengthedeveloper@gmail.com"
 
     private let disclaimerSection = BodySettingsInfoSection(
-        title: "Disclaimer",
+        title: String(localized: "Disclaimer"),
         iconName: "exclamationmark.triangle.fill",
         tintColor: .gray,
         details: [
-            "Body is for personal health awareness and visualization.",
-            "Body does not provide medical diagnosis, treatment, fitness prescriptions, or professional health advice.",
-            "Sleep scores, trends, charts, and summaries are estimates based on available Apple Health data. Talk with a qualified clinician for health concerns or unusual changes."
+            String(localized: "Body is for personal health awareness and visualization."),
+            String(localized: "Body does not provide medical diagnosis, treatment, fitness prescriptions, or professional health advice."),
+            String(localized: "Sleep scores, trends, charts, and summaries are estimates based on available Apple Health data. Talk with a qualified clinician for health concerns or unusual changes.")
         ]
     )
 
@@ -2747,7 +2801,7 @@ private struct BodyMoreSettingsSheet: View {
         components.scheme = "mailto"
         components.path = supportEmailAddress
         components.queryItems = [
-            URLQueryItem(name: "subject", value: "Body Support"),
+            URLQueryItem(name: "subject", value: String(localized: "Body Support")),
             URLQueryItem(name: "body", value: supportEmailBody)
         ]
         return components.url
@@ -2755,8 +2809,8 @@ private struct BodyMoreSettingsSheet: View {
 
     private var supportEmailBody: String {
         let device = UIDevice.current
-        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
-        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? String(localized: "Unknown")
+        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? String(localized: "Unknown")
 
         return """
 
@@ -2783,10 +2837,10 @@ private struct SafariView: UIViewControllerRepresentable {
 }
 
 private struct BodySettingsAboutSheetScaffold<Content: View>: View {
-    let title: String
+    let title: LocalizedStringKey
     private let content: Content
 
-    init(title: String, @ViewBuilder content: () -> Content) {
+    init(title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
         self.title = title
         self.content = content()
     }
@@ -2814,7 +2868,7 @@ private struct BodySettingsAboutSheetScaffold<Content: View>: View {
 }
 
 private struct BodySettingsPopupActionRow: View {
-    let title: String
+    let title: LocalizedStringKey
     let subtitle: String
     let iconName: String
     let tintColor: Color

@@ -657,12 +657,12 @@ struct BodySleepConsistencyChart: View {
     private func accessibilityLabel(for day: Date) -> String {
         let dayText = day.formatted(.dateTime.weekday(.wide).month(.wide).day())
         guard let night = model.nights.first(where: { $0.day == day }) else {
-            return "\(dayText): no sleep data"
+            return String(localized: "\(dayText): no sleep data")
         }
 
         let bedText = timeText(forOffsetHours: night.bedOffsetHours)
         let wakeText = timeText(forOffsetHours: night.wakeOffsetHours)
-        return "\(dayText): asleep \(bedText) to \(wakeText)"
+        return String(localized: "\(dayText): asleep \(bedText) to \(wakeText)")
     }
 }
 
@@ -916,11 +916,11 @@ struct BodySleepVitalRegionDot: View {
     private var accessibilityRegion: String {
         switch row.region {
         case .low:
-            return "Low"
+            return String(localized: "Low")
         case .typical:
-            return "Typical"
+            return String(localized: "Typical")
         case .high:
-            return "High"
+            return String(localized: "High")
         }
     }
 }
@@ -936,7 +936,7 @@ struct BodySleepVitalRegionLabels: View {
         .foregroundColor(Color.secondary.opacity(0.62))
     }
 
-    private func regionLabel(_ title: String) -> some View {
+    private func regionLabel(_ title: LocalizedStringKey) -> some View {
         Text(title)
             .lineLimit(1)
             .minimumScaleFactor(0.75)

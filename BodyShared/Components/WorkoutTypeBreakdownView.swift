@@ -65,7 +65,7 @@ struct WorkoutTypeBreakdownView: View {
                 .font(.system(size: style == .widgetMedium ? 22 : 28, weight: .bold))
                 .foregroundStyle(Color.secondary.opacity(0.45))
 
-            Text("No workouts yet")
+            Text(String(localized: "No workouts yet", table: "BodyShared"))
                 .font(.system(size: style == .widgetMedium ? 13 : 16, weight: .bold, design: .rounded))
                 .foregroundStyle(.secondary)
         }

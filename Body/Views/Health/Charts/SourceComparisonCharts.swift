@@ -447,7 +447,7 @@ struct BodyHealthSourceComparisonBarChart: View {
                             overflowResolution: bodyChartSelectionOverflowResolution
                         ) {
                             BodyChartSelectionAnnotation(
-                                eyebrow: selectedRange.sourceComparisonChartAggregationDayCount > 1 ? "AVG" : "TOTAL",
+                                eyebrow: selectedRange.sourceComparisonChartAggregationDayCount > 1 ? String(localized: "AVG") : String(localized: "TOTAL"),
                                 values: selectedValues(for: selectedPoint),
                                 date: selectedPoint.date,
                                 dateText: bodyChartSelectionDateText(for: selectedPoint.point)
@@ -684,7 +684,7 @@ struct BodyHealthSourceComparisonRangeChart: View {
                             overflowResolution: bodyChartSelectionOverflowResolution
                         ) {
                             BodyChartSelectionAnnotation(
-                                eyebrow: "RANGE",
+                                eyebrow: String(localized: "RANGE"),
                                 values: selectedValues(for: selectedPoint),
                                 date: selectedPoint.date,
                                 dateText: bodyChartSelectionDateText(for: selectedPoint.point)
