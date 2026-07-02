@@ -164,11 +164,11 @@ struct BodyWorkoutRouteMapHero: View {
             cgContext.setLineJoin(.round)
             cgContext.setLineCap(.round)
 
-            if let bounds = speedColorBounds(for: route) {
+            if let bounds = WorkoutRoutePaceColoring.speedColorBounds(for: route) {
                 // One short stroke per segment so the line shades smoothly by pace.
                 for index in 0..<(points.count - 1) {
                     let segmentSpeed = (route[index].speed + route[index + 1].speed) / 2
-                    cgContext.setStrokeColor(color(forSpeed: segmentSpeed, bounds: bounds).cgColor)
+                    cgContext.setStrokeColor(WorkoutRoutePaceColoring.color(forSpeed: segmentSpeed, bounds: bounds).cgColor)
                     cgContext.move(to: points[index])
                     cgContext.addLine(to: points[index + 1])
                     cgContext.strokePath()
@@ -187,10 +187,22 @@ struct BodyWorkoutRouteMapHero: View {
         }
     }
 
+    private static func drawMarker(at point: CGPoint, color: UIColor, in context: CGContext) {
+        let radius: CGFloat = 6
+        let inner = CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)
+        context.setFillColor(UIColor.white.cgColor)
+        context.fillEllipse(in: inner.insetBy(dx: -2.5, dy: -2.5))
+        context.setFillColor(color.cgColor)
+        context.fillEllipse(in: inner)
+    }
+}
+
+/// Pace coloring shared by the static hero snapshot and the full-screen map.
+enum WorkoutRoutePaceColoring {
     /// Robust [lo, hi] speed range (10th–90th percentile of moving fixes) used to
     /// normalize the pace coloring, or `nil` when there isn't enough spread to be
     /// meaningful — then the route draws in a single tint.
-    private static func speedColorBounds(for route: [RouteCoordinate]) -> (lo: Double, hi: Double)? {
+    static func speedColorBounds(for route: [RouteCoordinate]) -> (lo: Double, hi: Double)? {
         let speeds = route.map(\.speed).filter { $0 > 0 }.sorted()
         guard speeds.count >= 4 else {
             return nil
@@ -204,18 +216,9 @@ struct BodyWorkoutRouteMapHero: View {
     }
 
     /// Maps a segment speed to a hue from red (slow) through yellow to green (fast).
-    private static func color(forSpeed speed: Double, bounds: (lo: Double, hi: Double)) -> UIColor {
+    static func color(forSpeed speed: Double, bounds: (lo: Double, hi: Double)) -> UIColor {
         let fraction = min(max((speed - bounds.lo) / (bounds.hi - bounds.lo), 0), 1)
         return UIColor(hue: CGFloat(fraction) * 0.33, saturation: 0.9, brightness: 0.95, alpha: 1)
-    }
-
-    private static func drawMarker(at point: CGPoint, color: UIColor, in context: CGContext) {
-        let radius: CGFloat = 6
-        let inner = CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)
-        context.setFillColor(UIColor.white.cgColor)
-        context.fillEllipse(in: inner.insetBy(dx: -2.5, dy: -2.5))
-        context.setFillColor(color.cgColor)
-        context.fillEllipse(in: inner)
     }
 }
 

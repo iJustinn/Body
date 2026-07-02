@@ -196,7 +196,7 @@ struct BodyWorkoutsView: View {
             return "\(selectedMonth)"
         }
 
-        return BodyDateFormatterCache.formatter(dateFormat: "MMMM").string(from: date)
+        return BodyDateFormatterCache.formatter(template: "MMMM").string(from: date)
     }
 
     private var searchAndControlsRow: some View {
@@ -505,15 +505,15 @@ private enum BodyWorkoutListSortOption: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .dateDescending:
-            return "Newest"
+            return String(localized: "Newest")
         case .dateAscending:
-            return "Oldest"
+            return String(localized: "Oldest")
         case .durationDescending:
-            return "Duration"
+            return String(localized: "Duration")
         case .energyDescending:
-            return "Energy"
+            return String(localized: "Energy")
         case .workoutType:
-            return "Workout Type"
+            return String(localized: "Workout Type")
         }
     }
 }
@@ -698,6 +698,8 @@ struct BodyWorkoutDetailSheet: View {
     @State private var editorPrefilledFromSuggestion = false
     @State private var route: WorkoutRoute?
     @State private var scrollOffset: CGFloat = 0
+    @State private var showsFullScreenRouteMap = false
+    @Namespace private var routeMapZoom
     /// Age-estimated max HR (220 − age) from Apple Health, loaded once to anchor the
     /// heart-rate zones; nil until loaded (or when no birth date), falling back to the
     /// workout's own peak HR.
@@ -730,6 +732,7 @@ struct BodyWorkoutDetailSheet: View {
 
                 BodyWorkoutRouteMapHero(route: route, tint: workout.type.color)
                     .frame(height: mapHeight)
+                    .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
                     .overlay {
                         // Dim the map as the content floats up over it.
                         Color.black
@@ -754,6 +757,12 @@ struct BodyWorkoutDetailSheet: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .fullScreenCover(isPresented: $showsFullScreenRouteMap) {
+            if let route {
+                BodyWorkoutRouteMapFullScreen(route: route, tint: workout.type.color)
+                    .navigationTransition(.zoom(sourceID: "routeMap", in: routeMapZoom))
+            }
+        }
         .task {
             route = await workoutStore.loadWorkoutRoute(for: workout)
         }
@@ -799,8 +808,19 @@ struct BodyWorkoutDetailSheet: View {
         VStack(spacing: 0) {
             if route != nil {
                 // Transparent gap that reveals the map background above; the
-                // content below floats over it with no backing of its own.
-                Color.clear.frame(height: mapHeight - contentTopOverlap)
+                // content below floats over it with no backing of its own. The
+                // map itself is behind the ScrollView and can't be hit-tested,
+                // so the gap doubles as its tap target.
+                Button {
+                    showsFullScreenRouteMap = true
+                } label: {
+                    Color.clear
+                        .frame(height: mapHeight - contentTopOverlap)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Route map")
+                .accessibilityHint("Shows a full screen interactive map")
             }
 
             VStack(spacing: 18) {
@@ -1157,7 +1177,7 @@ struct BodyWorkoutDetailSheet: View {
                 withAnimation(.snappy(duration: 0.3)) { isEditingEffort = false }
             } catch {
                 isSavingEffort = false
-                effortError = "Body couldn't save the effort rating to Apple Health. Make sure Body is allowed to update Workouts in Settings › Health › Data Access & Devices."
+                effortError = String(localized: "Body couldn't save the effort rating to Apple Health. Make sure Body is allowed to update Workouts in Settings › Health › Data Access & Devices.")
             }
         }
     }
