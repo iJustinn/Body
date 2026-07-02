@@ -1246,12 +1246,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.6;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.6;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 1;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 3;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1286,7 +1286,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.6 (build 1)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.6 (build 3)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.6 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.6 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 11)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 10)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 9)**"))
@@ -1305,6 +1307,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.6 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.6 build 3."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.6 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.6 build 2."))
         XCTAssertTrue(versionHistory.contains("## 0.9.6 (build 1)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.6 build 1."))
         XCTAssertTrue(versionHistory.contains("## 0.9.5 (build 11)"))
@@ -1390,7 +1396,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.3.4 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.3.3 (build 2)**"))
         XCTAssertFalse(settingsSource.contains(#"?? "1""#))
-        XCTAssertGreaterThanOrEqual(settingsSource.occurrenceCount(of: #"?? "Unknown""#), 4)
+        // Version fallbacks are localized; both literal and String(localized:) forms count.
+        XCTAssertGreaterThanOrEqual(
+            settingsSource.occurrenceCount(of: #"?? "Unknown""#)
+                + settingsSource.occurrenceCount(of: #"?? String(localized: "Unknown")"#),
+            4
+        )
     }
 
     func testHealthKitUsageDescriptionListsRequestedHealthCategories() throws {
@@ -1459,7 +1470,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-v0.9.6`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.6 build 1)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.6 build 3)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.6 build 2)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.6 build 1)"))
         XCTAssertFalse(testPlan.contains("branch `body-v0.9.5`"))
         XCTAssertFalse(testPlan.contains("app version 0.9.5 build 11)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.5 build 10)"))
@@ -1934,6 +1947,50 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(breakdownSource.contains("return 2"))
         XCTAssertTrue(breakdownSource.contains("case .widgetLarge:"))
         XCTAssertTrue(breakdownSource.contains("return 5"))
+    }
+
+    func testProjectDeclaresSimplifiedChineseLocalization() throws {
+        let project = try text(at: "body.xcodeproj/project.pbxproj")
+        XCTAssertTrue(project.contains(#""zh-Hans","#))
+        XCTAssertTrue(project.contains("developmentRegion = en;"))
+    }
+
+    func testChineseLocalizationCatalogsAreComplete() throws {
+        let catalogPaths = [
+            "Body/Localizable.xcstrings",
+            "Body/InfoPlist.xcstrings",
+            "BodyMetricsKit/BodyMetricsKit.xcstrings",
+            "BodyShared/BodyShared.xcstrings",
+            "BodyWatchShared/BodyWatchShared.xcstrings",
+            "BodyWatchSnapshotKit/BodyWatchSnapshotKit.xcstrings",
+            "BodyWatch/Localizable.xcstrings",
+            "BodyWatch/InfoPlist.xcstrings",
+            "BodyWidgetExtension/Localizable.xcstrings",
+            "BodyWatchWidgetExtension/Localizable.xcstrings"
+        ]
+
+        for path in catalogPaths {
+            let data = try Data(contentsOf: projectRoot.appendingPathComponent(path))
+            let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any], path)
+            XCTAssertEqual(root["sourceLanguage"] as? String, "en", path)
+            let strings = try XCTUnwrap(root["strings"] as? [String: Any], path)
+            XCTAssertFalse(strings.isEmpty, "\(path) has no entries")
+
+            for (key, rawEntry) in strings {
+                let entry = try XCTUnwrap(rawEntry as? [String: Any], "\(path) \(key)")
+                let localizations = try XCTUnwrap(entry["localizations"] as? [String: Any], "\(path) \(key)")
+                for language in ["en", "zh-Hans"] {
+                    let localization = try XCTUnwrap(
+                        localizations[language] as? [String: Any],
+                        "\(path) \(key) missing \(language)"
+                    )
+                    let unit = try XCTUnwrap(localization["stringUnit"] as? [String: Any], "\(path) \(key) \(language)")
+                    XCTAssertEqual(unit["state"] as? String, "translated", "\(path) \(key) \(language)")
+                    let value = try XCTUnwrap(unit["value"] as? String, "\(path) \(key) \(language)")
+                    XCTAssertFalse(value.isEmpty, "\(path) \(key) \(language)")
+                }
+            }
+        }
     }
 
     private var projectRoot: URL {

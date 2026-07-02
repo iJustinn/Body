@@ -1,5 +1,18 @@
 # Version History
 
+## 0.9.6 (build 3)
+
+- **Body now speaks Simplified Chinese.** The entire app UI is localized to **Simplified Chinese (zh-Hans)**, following the iOS system language (or the per-app language in iOS Settings > Body > Language): all three tabs and every detail screen, the trend-card sentences, the Apple Watch app and its complications, the Home Screen widgets and their configuration options, the HealthKit permission prompts, and the Body Pro StoreKit product strings. English remains the development language and is untouched.
+- Strings moved into per-target **String Catalogs** (`.xcstrings`) — a `Localizable` catalog per app/extension target plus named tables for the shared folders (`BodyMetricsKit`, `BodyShared`, `BodyWatchShared`, `BodyWatchSnapshotKit`) and `InfoPlist` catalogs for the usage descriptions. `zh-Hans` was added to the project's known regions.
+- Month/weekday date formats now go through **localized date templates** (`setLocalizedDateFormatFromTemplate`) via a new `BodyDateFormatterCache.formatter(template:calendar:locale:timeZone:)`, so dates order correctly in Chinese (e.g. 2026年7月) while English output is unchanged. Unit abbreviations (kg, km, kcal, bpm) stay Latin per Apple Health convention.
+- Updated the app, widget, watch, and test bundle version to 0.9.6 build 3.
+
+## 0.9.6 (build 2)
+
+- **The Readiness star on Home now keeps your morning starting point in view.** When today's live Readiness has drained below the score you woke up with (after a workout or late-arriving data), the hero adds a **`Started today with NN%`** line beneath the status text so the morning value stays readable at a glance. It appears only when the score has actually dropped.
+- **The Readiness hero explanation now names what's moving your score.** Instead of one generic sentence per band, the hero picks copy keyed to today's strongest signal — short sleep, restless sleep, elevated training load, a soft HRV, a high resting heart rate, elevated breathing rate, low blood oxygen, or above-baseline skin temperature — so the one-liner reflects your actual metrics. The "About your score" card keeps its static per-band legend.
+- Updated the app, widget, watch, and test bundle version to 0.9.6 build 2.
+
 ## 0.9.6 (build 1)
 
 - **Workout metrics now compare to your 30-day average.** Each tile on the workout detail card shows a compact **`↑12%`** badge above its unit — comparing that metric to the average of your **same-type** workouts over the 30 days before that workout — with a single **`vs 30-day avg`** label beside the **Details** heading. It's direction only (no good/bad coloring), shows `≈0%` when you're on par, and shows no badge for metrics without enough comparable history or while that history is still loading. Rate metrics (pace, speed, swim pace) use a distance-weighted baseline with a per-style minimum distance so short workouts don't skew it, and each tile's VoiceOver label speaks the comparison in words.
