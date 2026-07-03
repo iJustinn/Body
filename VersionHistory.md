@@ -1,9 +1,14 @@
 # Version History
 
-## 0.9.6 (build 5)
+## 0.9.7 (build 2)
 
-- **Fixed: the morning "Started today with" readiness value could get stuck without sleep data.** The frozen morning score (captured ~10 minutes after wake) now upgrades **once, same-day**, if today's actual sleep hadn't synced from Apple Health yet at freeze time — previously the first score of the day, computed without sleep, stayed locked in for the rest of the day even after sleep data arrived. Once the upgrade happens (or if sleep was already available at freeze time), the value stays pinned as before. Build 4 was skipped.
-- Updated the app, widget, watch, and test bundle version to 0.9.6 build 5.
+- **Workout details now show pace splits.** A new **Splits** section on the workout detail page breaks running, walking, hiking, wheelchair, and cycling workouts into per-kilometer or per-mile segments — each row showing the segment, a relative pace bar (shortest for the fastest split), its pace (speed for cycling), and average heart rate, with the fastest split highlighted in the Heart Rate card's blue; a partial final split is labeled with its fraction of a full unit. It appears only when a workout has enough recorded distance data for at least one complete split, and the km/mi boundaries switch live with the Settings distance unit.
+- Updated the app, widget, watch, and test bundle version to 0.9.7 build 2.
+
+## 0.9.7 (build 1)
+
+- **Fixed: the morning "Started today with" readiness value could get stuck without sleep data.** The frozen morning score (captured ~10 minutes after wake) now upgrades **once, same-day**, if today's actual sleep hadn't synced from Apple Health yet at freeze time — previously the first score of the day, computed without sleep, stayed locked in for the rest of the day even after sleep data arrived. Once the upgrade happens (or if sleep was already available at freeze time), the value stays pinned as before.
+- Updated the app, widget, watch, and test bundle version to 0.9.7 build 1.
 
 ## 0.9.6 (build 3)
 
