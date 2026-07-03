@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.6 (build 5)
+
+- **Fixed: the morning "Started today with" readiness value could get stuck without sleep data.** The frozen morning score (captured ~10 minutes after wake) now upgrades **once, same-day**, if today's actual sleep hadn't synced from Apple Health yet at freeze time — previously the first score of the day, computed without sleep, stayed locked in for the rest of the day even after sleep data arrived. Once the upgrade happens (or if sleep was already available at freeze time), the value stays pinned as before. Build 4 was skipped.
+- Updated the app, widget, watch, and test bundle version to 0.9.6 build 5.
+
 ## 0.9.6 (build 3)
 
 - **Body now speaks Simplified Chinese.** The entire app UI is localized to **Simplified Chinese (zh-Hans)**, following the iOS system language (or the per-app language in iOS Settings > Body > Language): all three tabs and every detail screen, the trend-card sentences, the Apple Watch app and its complications, the Home Screen widgets and their configuration options, the HealthKit permission prompts, and the Body Pro StoreKit product strings. English remains the development language and is untouched.
