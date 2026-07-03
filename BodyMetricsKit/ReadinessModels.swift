@@ -295,7 +295,7 @@ extension ReadinessStatus {
             case .hrvBelowBaseline:
                 return String(localized: "Readiness is prime even with HRV a touch under baseline. You're primed to train.", table: "BodyMetricsKit")
             case .heartRateAboveBaseline:
-                return String(localized: "Resting heart rate ticked up slightly, but every other signal is strong. Prime to go.", table: "BodyMetricsKit")
+                return String(localized: "Resting heart rate is slightly higher than your baseline, but every other signal is strong. Prime to go.", table: "BodyMetricsKit")
             case .sleepDurationBelowGoal:
                 return String(localized: "Sleep ran a little short, yet recovery still landed in the prime range.", table: "BodyMetricsKit")
             case .sleepFragmented:
@@ -318,7 +318,7 @@ extension ReadinessStatus {
             case .hrvBelowBaseline:
                 return String(localized: "HRV is a little under baseline, but recovery is solid. Normal training is fine.", table: "BodyMetricsKit")
             case .heartRateAboveBaseline:
-                return String(localized: "Resting heart rate is slightly elevated, yet you're well prepared for a normal day.", table: "BodyMetricsKit")
+                return String(localized: "Resting heart rate is slightly higher than your baseline, yet you're well prepared for a normal day.", table: "BodyMetricsKit")
             case .sleepDurationBelowGoal:
                 return String(localized: "Sleep was a bit short, but readiness is high. A normal session should feel good.", table: "BodyMetricsKit")
             case .sleepFragmented:
@@ -341,7 +341,7 @@ extension ReadinessStatus {
             case .hrvBelowBaseline:
                 return String(localized: "HRV is running below baseline. Readiness is okay, but keep the load controlled.", table: "BodyMetricsKit")
             case .heartRateAboveBaseline:
-                return String(localized: "Resting heart rate is up a bit. Readiness is moderate; hold the intensity back.", table: "BodyMetricsKit")
+                return String(localized: "Resting heart rate is higher than your baseline. Readiness is moderate; hold the intensity back.", table: "BodyMetricsKit")
             case .sleepDurationBelowGoal:
                 return String(localized: "Sleep came up short last night, so keep today's training moderate.", table: "BodyMetricsKit")
             case .sleepFragmented:
@@ -364,7 +364,7 @@ extension ReadinessStatus {
             case .hrvBelowBaseline:
                 return String(localized: "HRV is sitting below your baseline and recovery is still catching up. Favor easy work.", table: "BodyMetricsKit")
             case .heartRateAboveBaseline:
-                return String(localized: "Resting heart rate is running high, so your system hasn't fully settled. Keep it light.", table: "BodyMetricsKit")
+                return String(localized: "Resting heart rate is higher than your baseline, so your system hasn't fully settled. Keep it light.", table: "BodyMetricsKit")
             case .sleepDurationBelowGoal:
                 return String(localized: "Short sleep last night is the main drag on today's readiness.", table: "BodyMetricsKit")
             case .sleepFragmented:
@@ -387,7 +387,7 @@ extension ReadinessStatus {
             case .hrvBelowBaseline:
                 return String(localized: "HRV is well below baseline and your body needs recovery. Rest or keep it very light.", table: "BodyMetricsKit")
             case .heartRateAboveBaseline:
-                return String(localized: "Resting heart rate is markedly elevated. Prioritize rest until it settles.", table: "BodyMetricsKit")
+                return String(localized: "Resting heart rate is markedly higher than your baseline. Prioritize rest until it settles.", table: "BodyMetricsKit")
             case .sleepDurationBelowGoal:
                 return String(localized: "Very little sleep last night has readiness low. Rest is the priority today.", table: "BodyMetricsKit")
             case .sleepFragmented:

@@ -44,6 +44,17 @@ final class WorkoutEffortEstimatorTests: XCTestCase {
         }
     }
 
+    /// Samples spaced `interval` seconds apart, so set-density guards on median
+    /// inter-sample spacing can be exercised.
+    private func timedSamples(_ values: [Double], interval: TimeInterval) -> [WorkoutHeartRateSample] {
+        values.enumerated().map {
+            WorkoutHeartRateSample(
+                date: Date(timeIntervalSince1970: 1_700_000_000 + Double($0.offset) * interval),
+                beatsPerMinute: $0.element
+            )
+        }
+    }
+
     private func estimate(
         _ workout: WorkoutSummary,
         maxHeartRate: Double? = nil,
@@ -143,6 +154,9 @@ final class WorkoutEffortEstimatorTests: XCTestCase {
         XCTAssertEqual(WorkoutEffortEstimator.fallbackTypeAnchor(for: .hiit), 7.0)
         XCTAssertEqual(WorkoutEffortEstimator.fallbackTypeAnchor(for: .strengthTraining), 6.0)
         XCTAssertEqual(WorkoutEffortEstimator.fallbackTypeAnchor(for: .tennis), 5.0)
+        XCTAssertEqual(WorkoutEffortEstimator.fallbackTypeAnchor(for: .snowboarding), 6.0)
+        XCTAssertEqual(WorkoutEffortEstimator.fallbackTypeAnchor(for: .downhillSkiing), 6.0)
+        XCTAssertEqual(WorkoutEffortEstimator.fallbackTypeAnchor(for: .snowSports), 5.0)
     }
 
     func testWorkoutProfileScoreIsTypeAnchorPlusDurationModifier() {
@@ -159,6 +173,36 @@ final class WorkoutEffortEstimatorTests: XCTestCase {
         XCTAssertEqual(WorkoutEffortEstimator.durationModifier(durationMinutes: 45), 0)
         XCTAssertEqual(WorkoutEffortEstimator.durationModifier(durationMinutes: 105), 0.5, accuracy: 1e-9)
         XCTAssertEqual(WorkoutEffortEstimator.durationModifier(durationMinutes: 400), 1.5)
+    }
+
+    func testDurationModifierGravityCurve() {
+        XCTAssertEqual(WorkoutEffortEstimator.durationModifier(durationMinutes: 14, family: .gravity), -0.5)
+        XCTAssertEqual(WorkoutEffortEstimator.durationModifier(durationMinutes: 30, family: .gravity), 0)
+        XCTAssertEqual(WorkoutEffortEstimator.durationModifier(durationMinutes: 105, family: .gravity), 1.0, accuracy: 1e-9)
+        XCTAssertEqual(WorkoutEffortEstimator.durationModifier(durationMinutes: 300, family: .gravity), 3.0)
+    }
+
+    // MARK: - Effort family
+
+    func testEffortFamilyMapping() {
+        XCTAssertEqual(WorkoutEffortEstimator.effortFamily(for: .strengthTraining), .strength)
+        XCTAssertEqual(WorkoutEffortEstimator.effortFamily(for: .functionalStrengthTraining), .strength)
+        XCTAssertEqual(WorkoutEffortEstimator.effortFamily(for: .coreTraining), .strength)
+        XCTAssertEqual(WorkoutEffortEstimator.effortFamily(for: .snowboarding), .gravity)
+        XCTAssertEqual(WorkoutEffortEstimator.effortFamily(for: .downhillSkiing), .gravity)
+        XCTAssertEqual(WorkoutEffortEstimator.effortFamily(for: .running), .standard)
+        XCTAssertEqual(WorkoutEffortEstimator.effortFamily(for: .crossCountrySkiing), .standard)
+        XCTAssertEqual(WorkoutEffortEstimator.effortFamily(for: .snowSports), .standard)
+        XCTAssertEqual(WorkoutEffortEstimator.effortFamily(for: .tennis), .standard)
+    }
+
+    func testGravityDurationCapAndSnowboardNoHRFullDay() {
+        // No HR → workoutProfile basis, anchor 6.0; 5 h duration hits the gravity cap
+        // of +3.0 → raw 9, low confidence.
+        let result = estimate(workout(type: .snowboarding, duration: 5 * 3600))
+        XCTAssertEqual(result?.basis, .workoutProfile)
+        XCTAssertEqual(result?.rawScore ?? 0, 9.0, accuracy: 1e-9)
+        XCTAssertEqual(result?.confidence, .low)
     }
 
     // MARK: - Zone bump
@@ -204,6 +248,211 @@ final class WorkoutEffortEstimatorTests: XCTestCase {
         let intervalRaw = try XCTUnwrap(interval?.rawScore)
         let steadyRaw = try XCTUnwrap(steadyEquivalent?.rawScore)
         XCTAssertEqual(intervalRaw - steadyRaw, 1.0, accuracy: 1e-9)
+    }
+
+    func testStandardFamilyScoresUnchanged() {
+        // Regression pin: a running (`.standard`) workout with zone-4 time exercises the
+        // zoneBump path. Its base fraction is the plain average (no peak blend) and the
+        // zoneBump baseline is that same fraction, so the score is byte-identical to the
+        // pre-change formula. 180×120 bpm (zone 2) + 20×180 bpm (zone 4+): session mean
+        // 126 → base 3.4107…; uncapped zoneBump 0.5984… → raw 4.0091….
+        let samples = hrSamples(Array(repeating: 120.0, count: 180) + Array(repeating: 180.0, count: 20))
+        let result = estimate(
+            workout(type: .running, avgHR: nil, hrSamples: samples),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR
+        )
+        XCTAssertEqual(result?.rawScore ?? 0, 4.009152907394113, accuracy: 1e-9)
+    }
+
+    func testZoneBumpMeasuredAgainstBlendedBase() {
+        // Snowboarding (`.gravity`) with oscillating 95/155 samples: the base fraction is
+        // the peak blend (0.6428…), and zoneBump measures the hard samples against that
+        // blended baseline — not the lower average — so the riding peaks aren't credited
+        // twice. base 5.1386… + gravity duration (+0.75 at 90 min) + bump 0.9068… =
+        // 6.7955…. A regressed average baseline would cap the bump at 1.0 → 6.8886….
+        let osc = (0..<200).map { $0 % 2 == 0 ? 95.0 : 155.0 }
+        let result = estimate(
+            workout(type: .snowboarding, duration: 5400, avgHR: nil, hrSamples: hrSamples(osc)),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR
+        )
+        XCTAssertEqual(result?.rawScore ?? 0, 6.795516853823091, accuracy: 1e-9)
+    }
+
+    // MARK: - Peak-blend base
+
+    func testStrengthPeakBlendRaisesBaseAboveAverageOnly() {
+        // Oscillating 95/155 bpm strength samples: the working peak (155) lifts the base
+        // fraction above the plain average (blended base 5.1386…), and the dense set
+        // structure adds the capped +1.5 set-density bump → 6.6386…. Either way the
+        // strength score exceeds the identical session scored as `.standard` (average-only
+        // base + zone bump).
+        let osc = (0..<200).map { $0 % 2 == 0 ? 95.0 : 155.0 }
+        let strength = estimate(
+            workout(type: .strengthTraining, avgHR: nil, hrSamples: hrSamples(osc)),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR
+        )
+        let averageOnly = estimate(
+            workout(type: .running, avgHR: nil, hrSamples: hrSamples(osc)),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR
+        )
+        XCTAssertEqual(strength?.rawScore ?? 0, 6.638655462184873, accuracy: 1e-9)
+        XCTAssertGreaterThan(strength?.rawScore ?? 0, averageOnly?.rawScore ?? 0)
+    }
+
+    func testPeakBlendNeverLowersBase() {
+        // Flat 130 bpm samples: the working peak equals the average, so the `max` guard
+        // keeps the blended base identical to the average-only base (no samples).
+        let flat = estimate(
+            workout(type: .strengthTraining, avgHR: nil, hrSamples: hrSamples(Array(repeating: 130.0, count: 200))),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR
+        )
+        let averageOnly = estimate(
+            workout(type: .strengthTraining, avgHR: 130),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR
+        )
+        XCTAssertEqual(flat?.rawScore ?? 0, averageOnly?.rawScore ?? -1, accuracy: 1e-9)
+    }
+
+    func testStrengthWithoutSamplesDegradesToAverageOnly() {
+        // Stored average HR but no samples: the blend is skipped, so the strength base
+        // is the plain average — identical to the same average scored as `.standard`.
+        let strength = estimate(
+            workout(type: .strengthTraining, avgHR: 130),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR
+        )
+        let standard = estimate(
+            workout(type: .running, avgHR: 130),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR
+        )
+        XCTAssertEqual(strength?.rawScore ?? 0, 3.8781512605042003, accuracy: 1e-9)
+        XCTAssertEqual(strength?.rawScore ?? 0, standard?.rawScore ?? -1, accuracy: 1e-9)
+    }
+
+    // MARK: - Set-density bump
+
+    func testSetDensityBumpCountsHysteresisCrossings() {
+        // 40 min, 12 work/rest cycles (samples every 50 s): 12 sets / 40 min = 0.3 sets/min
+        // → (0.3 − 0.1) × 3.75 = +0.75. No max HR → workoutProfile basis, so the base is the
+        // strength anchor 6.0 and the set bump applies regardless → 6.75.
+        let cycles = Array(repeating: [100.0, 100.0, 160.0, 160.0], count: 12).flatMap { $0 }
+        let moderate = estimate(
+            workout(type: .strengthTraining, duration: 2400, avgHR: nil, hrSamples: timedSamples(cycles, interval: 50))
+        )
+        XCTAssertEqual(moderate?.basis, .workoutProfile)
+        XCTAssertEqual(moderate?.rawScore ?? 0, 6.75, accuracy: 1e-9)
+
+        // 24 cycles / 40 min = 0.6 sets/min → (0.6 − 0.1) × 3.75 = 1.875, capped at +1.5.
+        let dense = Array(repeating: [100.0, 160.0], count: 24).flatMap { $0 }
+        let capped = estimate(
+            workout(type: .strengthTraining, duration: 2400, avgHR: nil, hrSamples: timedSamples(dense, interval: 50))
+        )
+        XCTAssertEqual(capped?.rawScore ?? 0, 7.5, accuracy: 1e-9)
+    }
+
+    func testSetDensityBumpUsesSampleMeanMidline() {
+        // Stored average HR is 200, but the retained samples average 130. Crossings must be
+        // counted against the sample mean (130 ± 5), not the stored average — a 200 midline
+        // would see no sample reach 205 and count 0 sets. 12 sets / 40 min → +0.75 → 6.75.
+        let cycles = Array(repeating: [110.0, 110.0, 150.0, 150.0], count: 12).flatMap { $0 }
+        let result = estimate(
+            workout(type: .strengthTraining, duration: 2400, avgHR: 200, hrSamples: timedSamples(cycles, interval: 50))
+        )
+        XCTAssertEqual(result?.rawScore ?? 0, 6.75, accuracy: 1e-9)
+    }
+
+    func testSetDensityBumpIgnoresSubHysteresisNoise() {
+        // ±3 bpm wobble around the mean stays inside the ±5 hysteresis band, so the state
+        // machine counts no sets and the bump is 0 (rawScore is the bare strength anchor).
+        let wobble = Array(repeating: [127.0, 133.0], count: 40).flatMap { $0 }
+        let result = estimate(
+            workout(type: .strengthTraining, duration: 2400, avgHR: nil, hrSamples: timedSamples(wobble, interval: 30))
+        )
+        XCTAssertEqual(result?.rawScore ?? 0, 6.0, accuracy: 1e-9)
+    }
+
+    func testSetDensityBumpSkipsCoarseSampling() {
+        // 120 s spacing → median inter-sample interval exceeds 90 s, so setDensityBump
+        // returns nil and strength falls back to zoneBump — scoring identically to the same
+        // samples on a gravity workout (which always uses zoneBump) at a duration where both
+        // curves add 0.
+        let values = (0..<20).map { $0 % 2 == 0 ? 120.0 : 180.0 }
+        let coarseStrength = estimate(
+            workout(type: .strengthTraining, duration: 2280, avgHR: nil, hrSamples: timedSamples(values, interval: 120)),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR
+        )
+        let gravityEquivalent = estimate(
+            workout(type: .snowboarding, duration: 2280, avgHR: nil, hrSamples: timedSamples(values, interval: 120)),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR
+        )
+        XCTAssertEqual(coarseStrength?.rawScore ?? 0, gravityEquivalent?.rawScore ?? -1, accuracy: 1e-9)
+
+        // The same samples at 30 s spacing pass the guard, so setDensityBump replaces the
+        // zone bump and the score changes.
+        let fineStrength = estimate(
+            workout(type: .strengthTraining, duration: 2280, avgHR: nil, hrSamples: timedSamples(values, interval: 30)),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR
+        )
+        XCTAssertNotEqual(fineStrength?.rawScore ?? 0, coarseStrength?.rawScore ?? 0, accuracy: 1e-9)
+    }
+
+    func testSetDensityBumpHandlesUnsortedSamples() {
+        // Samples arrive out of date order; setDensityBump sorts by date first, so a reversed
+        // array counts the same crossings (and same sample mean) as the ordered one.
+        let cycles = Array(repeating: [100.0, 100.0, 160.0, 160.0], count: 12).flatMap { $0 }
+        let ordered = timedSamples(cycles, interval: 50)
+        let orderedResult = estimate(
+            workout(type: .strengthTraining, duration: 2400, avgHR: nil, hrSamples: ordered)
+        )
+        let shuffledResult = estimate(
+            workout(type: .strengthTraining, duration: 2400, avgHR: nil, hrSamples: ordered.reversed())
+        )
+        XCTAssertEqual(orderedResult?.rawScore ?? 0, 6.75, accuracy: 1e-9)
+        XCTAssertEqual(shuffledResult?.rawScore ?? 0, orderedResult?.rawScore ?? -1, accuracy: 1e-9)
+    }
+
+    func testStrengthNoMaxHeartRateStillGetsSetBump() {
+        // No date of birth → no max HR → workoutProfile basis (today those samples would be
+        // ignored entirely). setDensityBump needs no max HR, so the strength set structure
+        // still lifts the score above the bare anchor (6.0 + 0.75).
+        let cycles = Array(repeating: [100.0, 100.0, 160.0, 160.0], count: 12).flatMap { $0 }
+        let result = estimate(
+            workout(type: .strengthTraining, duration: 2400, avgHR: nil, hrSamples: timedSamples(cycles, interval: 50))
+        )
+        XCTAssertEqual(result?.basis, .workoutProfile)
+        XCTAssertEqual(result?.confidence, .low)
+        XCTAssertEqual(result?.rawScore ?? 0, 6.75, accuracy: 1e-9)
+    }
+
+    func testStrengthUsesSetBumpNotZoneBump() {
+        // Identical oscillating samples on HR basis: strength routes through setDensityBump
+        // (dense sets → capped +1.5) while gravity routes through zoneBump (+0.9069). The
+        // blended base and 0 duration modifier are identical, so the score difference is
+        // exactly the bump difference — proving strength does not use the zone bump.
+        let osc = (0..<200).map { $0 % 2 == 0 ? 95.0 : 155.0 }
+        let strength = estimate(
+            workout(type: .strengthTraining, duration: 1800, avgHR: nil, hrSamples: hrSamples(osc)),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR
+        )
+        let gravity = estimate(
+            workout(type: .snowboarding, duration: 1800, avgHR: nil, hrSamples: hrSamples(osc)),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR
+        )
+        XCTAssertEqual(strength?.rawScore ?? 0, 6.638655462184873, accuracy: 1e-9)
+        XCTAssertEqual(gravity?.rawScore ?? 0, 6.045516853823091, accuracy: 1e-9)
+        XCTAssertGreaterThan(strength?.rawScore ?? 0, gravity?.rawScore ?? 0)
     }
 
     // MARK: - Fallback personal intensity deltas
@@ -393,6 +642,32 @@ final class WorkoutEffortEstimatorTests: XCTestCase {
         )
         XCTAssertEqual(result?.calibrationBias ?? -1, 0)
         XCTAssertEqual(result?.confidence, .medium)
+    }
+
+    func testCalibrationUsesFamilyAwareCore() {
+        // Strength priors rated 7, with oscillating samples so the family-aware core
+        // (peak blend) scores them higher than the old average-only core. The learned
+        // bias is measured against that same higher core, so it is immediately smaller
+        // than the (clamped) bias the average-only core would have produced.
+        let osc = (0..<200).map { $0 % 2 == 0 ? 95.0 : 155.0 }
+        func priors(type: BodyWorkoutType) -> [WorkoutSummary] {
+            (0..<3).map { _ in workout(type: type, avgHR: nil, effortLevel: 7, hrSamples: hrSamples(osc)) }
+        }
+        let strength = estimate(
+            workout(type: .strengthTraining, avgHR: nil, hrSamples: hrSamples(osc)),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR,
+            priors: priors(type: .strengthTraining)
+        )
+        let averageOnly = estimate(
+            workout(type: .running, avgHR: nil, hrSamples: hrSamples(osc)),
+            maxHeartRate: maxHR,
+            restingHeartRate: restHR,
+            priors: priors(type: .running)
+        )
+        XCTAssertEqual(strength?.calibrationBias ?? 0, 1.8613445378151274, accuracy: 1e-9)
+        XCTAssertEqual(averageOnly?.calibrationBias ?? 0, 2.0, accuracy: 1e-9)
+        XCTAssertLessThan(strength?.calibrationBias ?? 0, averageOnly?.calibrationBias ?? 0)
     }
 
     // MARK: - Incomplete history gating

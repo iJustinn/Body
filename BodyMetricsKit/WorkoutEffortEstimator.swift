@@ -7,8 +7,17 @@ import Foundation
 
 /// Predicts a workout's effort on the same 1...10 scale the user rates on, so the
 /// effort editor can pre-fill a suggestion for unrated workouts. Deterministic and
-/// explainable by design: `raw = base + durationModifier + zoneBump + calibrationBias
-/// + readinessModifier`, clamped to 1...10.
+/// explainable by design: `raw = base + durationModifier + intraSessionBump +
+/// calibrationBias + readinessModifier`, clamped to 1...10.
+///
+/// A small "effort family" layer (`effortFamily(for:)`) tailors the HR paths to two
+/// workout types whose average HR systematically understates effort. `.strength`
+/// (inter-set rest) and `.gravity` (snowboarding/downhill lift rides) blend a robust
+/// working-peak fraction into the base, and `.strength` further replaces the zone bump
+/// with a set-density bump that counts work/rest cycles (falling back to the zone bump
+/// when the samples are too coarse). Every other type is `.standard` and scores exactly
+/// as before, bit-for-bit. Confidence tiers are intentionally left unchanged — a
+/// strength-specific cap would delay `.high` for exactly the users this helps.
 ///
 /// Personal baselines over universal thresholds: the primary path scores average HR
 /// as a fraction of the user's heart-rate reserve (resting → age-estimated max), and
@@ -66,6 +75,16 @@ enum WorkoutEffortEstimator {
         case workoutProfile
     }
 
+    /// Groups workout types that share a scoring quirk on the HR paths: strength
+    /// training's inter-set rest depresses average HR, and gravity sports' lift rides
+    /// do the same while effort tracks duration more directly. `.standard` reproduces
+    /// today's behavior bit-for-bit.
+    enum EffortFamily: Equatable {
+        case strength
+        case gravity
+        case standard
+    }
+
     enum Confidence: Equatable {
         case high
         case medium
@@ -104,8 +123,43 @@ enum WorkoutEffortEstimator {
     static let minimumHeartRateReserve = 20.0
     static let shortSessionMinutes = 15.0
     static let longSessionMinutes = 45.0
+    /// `.gravity` duration curve: +1.0 per hour past `longSessionMinutes`, capped.
+    static let gravityDurationRatePerHour = 1.0
+    static let gravityDurationCap = 3.0
+    /// Peak-blend base (strength/gravity): the base fraction is a 50/50 mix of the
+    /// average fraction and the higher of average vs. working-peak fraction.
+    static let peakBlendWeight = 0.5
+    /// Working peak = mean of the top 20% of HR samples by bpm.
+    static let peakSampleShare = 0.2
+    /// Below this many HR samples the blend is skipped (base is average-only).
+    static let minimumSamplesForPeakBlend = 8
+    /// Strength set-density bump: work/rest cycles are counted via a ±`setHysteresisBPM`
+    /// hysteresis band and rewarded at `setDensitySlope` per set/min above the floor,
+    /// capped at `setDensityBumpLimit`.
+    static let setDensityBumpLimit = 1.5
+    static let setHysteresisBPM = 5.0
+    static let setDensityFloorSetsPerMinute = 0.1
+    static let setDensitySlope = 3.75
+    /// Above this median inter-sample interval the crossing count is too coarse to trust.
+    static let maxSampleIntervalForSetDetection: TimeInterval = 90
     static let readinessHardDayThreshold = 40
     static let readinessEasyDayThreshold = 85
+
+    // MARK: - Effort family
+
+    /// Deliberately narrow: `.crossCountrySkiing` stays `.standard` (steady-state
+    /// endurance); generic `.snowSports` stays `.standard` (nothing proves lift-based
+    /// downhill behavior for it); racquet/team sports stay `.standard`.
+    static func effortFamily(for type: BodyWorkoutType) -> EffortFamily {
+        switch type {
+        case .strengthTraining, .functionalStrengthTraining, .coreTraining:
+            return .strength
+        case .snowboarding, .downhillSkiing:
+            return .gravity
+        default:
+            return .standard
+        }
+    }
 
     // MARK: - Estimate
 
@@ -118,13 +172,21 @@ enum WorkoutEffortEstimator {
         }
 
         let durationMinutes = workout.duration / 60
+        let family = effortFamily(for: workout.type)
         let basis = resolveBasis(for: workout, input: input)
-        let base = baseScore(for: workout, basis: basis, input: input)
-        var raw = base + durationModifier(durationMinutes: durationMinutes)
+        let (base, baseFraction) = baseScore(for: workout, basis: basis, input: input)
+        var raw = base + durationModifier(durationMinutes: durationMinutes, family: family)
 
-        if basis != .workoutProfile {
-            raw += zoneBump(for: workout, basis: basis, input: input)
-        } else if input.isHistoryComplete {
+        // `.strength` prefers the set-density bump (it needs no max HR, so it applies on
+        // every basis including `.workoutProfile`); when its guards fail it returns nil and
+        // strength falls back to the zone bump like everything else.
+        let strengthBump = family == .strength ? setDensityBump(for: workout) : nil
+        if let strengthBump {
+            raw += strengthBump
+        } else if basis != .workoutProfile {
+            raw += zoneBump(for: workout, basis: basis, baseFraction: baseFraction, input: input)
+        }
+        if basis == .workoutProfile, input.isHistoryComplete {
             raw += fallbackIntensityDelta(for: workout, priors: input.priorWorkouts)
         }
 
@@ -182,14 +244,27 @@ enum WorkoutEffortEstimator {
 
     /// Session-RPE grows with time: a hard half hour and a hard two hours are not the
     /// same effort. Small penalty for very short sessions, +0.5 per hour past 45 min.
-    static func durationModifier(durationMinutes: Double) -> Double {
-        if durationMinutes < shortSessionMinutes {
-            return -0.5
+    /// `.gravity` (snowboarding/downhill skiing) uses a steeper curve: lift rides
+    /// depress average HR, so effort tracks total time on the mountain more directly.
+    static func durationModifier(durationMinutes: Double, family: EffortFamily = .standard) -> Double {
+        switch family {
+        case .gravity:
+            if durationMinutes < shortSessionMinutes {
+                return -0.5
+            }
+            if durationMinutes > longSessionMinutes {
+                return min(gravityDurationCap, (durationMinutes - longSessionMinutes) / 60 * gravityDurationRatePerHour)
+            }
+            return 0
+        case .strength, .standard:
+            if durationMinutes < shortSessionMinutes {
+                return -0.5
+            }
+            if durationMinutes > longSessionMinutes {
+                return min(1.5, (durationMinutes - longSessionMinutes) / 60 * 0.5)
+            }
+            return 0
         }
-        if durationMinutes > longSessionMinutes {
-            return min(1.5, (durationMinutes - longSessionMinutes) / 60 * 0.5)
-        }
-        return 0
     }
 
     /// Baseline effort by modality when no HR is available. Groupings intentionally
@@ -206,6 +281,8 @@ enum WorkoutEffortEstimator {
              .mixedCardio, .mixedMetabolicCardioTraining:
             return 7.0
         case .strengthTraining, .functionalStrengthTraining, .coreTraining:
+            return 6.0
+        case .snowboarding, .downhillSkiing:
             return 6.0
         default:
             return 5.0
@@ -227,21 +304,68 @@ enum WorkoutEffortEstimator {
         return .percentMaxHeartRate
     }
 
-    private static func baseScore(for workout: WorkoutSummary, basis: Basis, input: Input) -> Double {
+    /// Returns the base score and the intensity fraction it scored — `fraction` is nil
+    /// on the `.workoutProfile` path (no HR) and when HR is present but unscorable.
+    /// `zoneBump` reuses `fraction` as its baseline so the peak blend and the bump can't
+    /// credit the same hard samples twice.
+    private static func baseScore(for workout: WorkoutSummary, basis: Basis, input: Input) -> (score: Double, fraction: Double?) {
         switch basis {
         case .workoutProfile:
-            return fallbackTypeAnchor(for: workout.type)
+            return (fallbackTypeAnchor(for: workout.type), nil)
         case .heartRateReserve, .percentMaxHeartRate:
             guard let averageHeartRate = positive(averageHeartRate(for: workout)),
-                  let fraction = intensityFraction(
+                  let avgFraction = intensityFraction(
                     beatsPerMinute: averageHeartRate,
                     basis: basis,
                     input: input
                   ) else {
-                return fallbackTypeAnchor(for: workout.type)
+                return (fallbackTypeAnchor(for: workout.type), nil)
             }
-            return anchorScore(fraction: fraction, basis: basis)
+            let fraction = blendedBaseFraction(
+                avgFraction: avgFraction,
+                workout: workout,
+                basis: basis,
+                input: input
+            )
+            return (anchorScore(fraction: fraction, basis: basis), fraction)
         }
+    }
+
+    /// Strength/gravity families blend the average fraction with a robust working-peak
+    /// fraction, because inter-set rest and lift rides depress average HR below the true
+    /// working intensity. `.standard` returns the average fraction untouched (today's
+    /// base, bit-for-bit). The `max` guard means a flat session never scores below its
+    /// average-only base, and fewer than `minimumSamplesForPeakBlend` samples skips the
+    /// blend entirely.
+    private static func blendedBaseFraction(
+        avgFraction: Double,
+        workout: WorkoutSummary,
+        basis: Basis,
+        input: Input
+    ) -> Double {
+        guard effortFamily(for: workout.type) != .standard,
+              let samples = workout.heartRateSamples,
+              let peakHeartRate = workingPeakHeartRate(samples: samples),
+              let peakFraction = intensityFraction(beatsPerMinute: peakHeartRate, basis: basis, input: input) else {
+            return avgFraction
+        }
+        return peakBlendWeight * avgFraction
+            + (1 - peakBlendWeight) * max(avgFraction, peakFraction)
+    }
+
+    /// Working peak: the mean of the top `peakSampleShare` of samples by bpm (at least
+    /// 3), robust to single spikes. nil below `minimumSamplesForPeakBlend` samples.
+    private static func workingPeakHeartRate(samples: [WorkoutHeartRateSample]) -> Double? {
+        guard samples.count >= minimumSamplesForPeakBlend else {
+            return nil
+        }
+        let sorted = samples.map(\.beatsPerMinute).sorted(by: >)
+        let count = max(3, Int((Double(sorted.count) * peakSampleShare).rounded()))
+        let top = sorted.prefix(count)
+        guard !top.isEmpty else {
+            return nil
+        }
+        return top.reduce(0, +) / Double(top.count)
     }
 
     /// The same average the detail tile shows: stored average, else the sample mean.
@@ -303,16 +427,17 @@ enum WorkoutEffortEstimator {
 
     // MARK: - Zone bump
 
-    /// How much the hard parts exceeded the session average, weighted by how long they
-    /// lasted — so interval sessions (whose average understates the work) get credit
-    /// while steady sessions at any intensity get ~0 (their hard-parts mean ≈ the
-    /// session mean, avoiding double counting on top of `base`).
-    private static func zoneBump(for workout: WorkoutSummary, basis: Basis, input: Input) -> Double {
-        guard let maxHeartRate = positive(input.userMaxHeartRate),
+    /// How much the hard parts exceeded the base fraction, weighted by how long they
+    /// lasted — so interval sessions (whose base understates the work) get credit while
+    /// steady sessions at any intensity get ~0 (their hard-parts mean ≈ the base
+    /// fraction, avoiding double counting on top of `base`). The baseline is the same
+    /// fraction `baseScore` used, so a family peak blend and this bump can't credit the
+    /// same hard samples twice.
+    private static func zoneBump(for workout: WorkoutSummary, basis: Basis, baseFraction: Double?, input: Input) -> Double {
+        guard let baseFraction,
+              let maxHeartRate = positive(input.userMaxHeartRate),
               let samples = workout.heartRateSamples,
-              let zones = WorkoutHeartRateZones.zones(samples: samples, maxHeartRate: maxHeartRate),
-              let sessionAverage = positive(averageHeartRate(for: workout)),
-              let sessionFraction = intensityFraction(beatsPerMinute: sessionAverage, basis: basis, input: input) else {
+              let zones = WorkoutHeartRateZones.zones(samples: samples, maxHeartRate: maxHeartRate) else {
             return 0
         }
 
@@ -335,8 +460,66 @@ enum WorkoutEffortEstimator {
         }
 
         let gap = anchorScore(fraction: hardFraction, basis: basis)
-            - anchorScore(fraction: sessionFraction, basis: basis)
+            - anchorScore(fraction: baseFraction, basis: basis)
         return min(zoneBumpLimit, max(0, gap * hardShare))
+    }
+
+    // MARK: - Set-density bump
+
+    /// Strength sessions live and die by set-to-set intensity swings, which average HR
+    /// erases. A hysteresis state machine counts work/rest cycles from the HR samples and
+    /// rewards denser sessions. Needs no max HR, so it works even on the `.workoutProfile`
+    /// basis. Returns nil — so the caller falls back to `zoneBump` — when the samples are
+    /// too few, the session too short, or the sampling too coarse to trust the count.
+    private static func setDensityBump(for workout: WorkoutSummary) -> Double? {
+        guard let samples = workout.heartRateSamples,
+              samples.count >= minimumSamplesForPeakBlend else {
+            return nil
+        }
+        let durationMinutes = workout.duration / 60
+        guard durationMinutes >= 10 else {
+            return nil
+        }
+
+        let sorted = samples.sorted { $0.date < $1.date }
+        let intervals = zip(sorted, sorted.dropFirst()).map { $1.date.timeIntervalSince($0.date) }
+        guard let median = medianInterval(intervals),
+              median <= maxSampleIntervalForSetDetection else {
+            return nil
+        }
+
+        // Midline is the retained samples' own mean, not `displayedAverageHeartRate`: the
+        // stored average is drawn from the full pre-downsample series, a different
+        // population that would systematically skew the crossing count.
+        let bpms = sorted.map(\.beatsPerMinute)
+        let midline = bpms.reduce(0, +) / Double(bpms.count)
+        let highThreshold = midline + setHysteresisBPM
+        let lowThreshold = midline - setHysteresisBPM
+
+        var setCount = 0
+        var isHigh = false
+        for bpm in bpms {
+            if !isHigh, bpm >= highThreshold {
+                isHigh = true
+                setCount += 1
+            } else if isHigh, bpm <= lowThreshold {
+                isHigh = false
+            }
+        }
+
+        let setsPerMinute = Double(setCount) / durationMinutes
+        return min(setDensityBumpLimit, max(0, (setsPerMinute - setDensityFloorSetsPerMinute) * setDensitySlope))
+    }
+
+    private static func medianInterval(_ intervals: [TimeInterval]) -> TimeInterval? {
+        guard !intervals.isEmpty else {
+            return nil
+        }
+        let sorted = intervals.sorted()
+        let mid = sorted.count / 2
+        return sorted.count.isMultiple(of: 2)
+            ? (sorted[mid - 1] + sorted[mid]) / 2
+            : sorted[mid]
     }
 
     // MARK: - Fallback personal intensity delta
@@ -443,8 +626,9 @@ enum WorkoutEffortEstimator {
 
         let gaps = pool.map { prior -> Double in
             let basis = resolveBasis(for: prior.workout, input: input)
-            let core = baseScore(for: prior.workout, basis: basis, input: input)
-                + durationModifier(durationMinutes: prior.workout.duration / 60)
+            let priorFamily = effortFamily(for: prior.workout.type)
+            let core = baseScore(for: prior.workout, basis: basis, input: input).score
+                + durationModifier(durationMinutes: prior.workout.duration / 60, family: priorFamily)
             return prior.rating - core
         }
         let bias = gaps.reduce(0, +) / Double(gaps.count)
