@@ -319,7 +319,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开 Body 以同步"
+            "value": "打开 Body 同步"
           }
         }
       }
@@ -336,7 +336,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开这一天的体能训练"
+            "value": "查看当天体能训练"
           }
         }
       }

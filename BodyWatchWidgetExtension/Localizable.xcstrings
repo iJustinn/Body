@@ -149,7 +149,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的心率圆环。"
+            "value": "心率圆环。"
           }
         }
       }
@@ -166,7 +166,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的心率变异性圆环。"
+            "value": "心率变异性圆环。"
           }
         }
       }
@@ -183,7 +183,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的恢复状态圆环。"
+            "value": "恢复状态圆环。"
           }
         }
       }
@@ -200,7 +200,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的静息心率圆环。"
+            "value": "静息心率圆环。"
           }
         }
       }
@@ -217,7 +217,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的皮肤温度圆环。"
+            "value": "皮肤温度圆环。"
           }
         }
       }
@@ -234,7 +234,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的睡眠分数圆环。"
+            "value": "睡眠分数圆环。"
           }
         }
       }
@@ -251,7 +251,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的训练负荷圆环。"
+            "value": "训练负荷圆环。"
           }
         }
       }

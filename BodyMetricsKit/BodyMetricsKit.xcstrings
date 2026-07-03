@@ -30,7 +30,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "比30天平均值高百分之%@"
+            "value" : "比 30 天平均值高 %@%%"
           }
         }
       }
@@ -47,7 +47,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "比30天平均值低百分之%@"
+            "value" : "比 30 天平均值低 %@%%"
           }
         }
       }
@@ -852,7 +852,20 @@
       }
     },
     "Badly broken sleep has left you short on recovery. Keep it very light or rest." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Badly broken sleep has left you short on recovery. Keep it very light or rest."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "昨晚睡眠质量偏低，身体恢复不足。建议休息，或做些轻松的运动。"
+          }
+        }
+      }
     },
     "Badly broken sleep has left you under-recovered. Keep it very light or rest." : {
       "extractionState" : "manual",
@@ -866,7 +879,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "严重断续的睡眠让身体未能充分恢复。保持极低强度或休息。"
+            "value" : "昨晚睡眠质量偏低，身体恢复不足。建议休息，或做些轻松的运动。"
           }
         }
       }
@@ -1002,7 +1015,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "血氧降到日常水平以下。恢复之前请放缓节奏。"
+            "value" : "血氧含量低于平时。恢复前建议放轻松。"
           }
         }
       }
@@ -1019,7 +1032,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "血氧略有下降，但整体恢复状态极佳。"
+            "value" : "血氧含量略低，但整体状态依然很好。"
           }
         }
       }
@@ -1053,7 +1066,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "血氧略偏低，但整体恢复状态良好。"
+            "value" : "血氧含量略低，但整体状态仍然不错。"
           }
         }
       }
@@ -1087,7 +1100,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "血氧低于日常水平，使恢复状态降至中等。请控制训练负荷。"
+            "value" : "血氧含量低于平时，整体状态降到中等。训练负荷建议收着点。"
           }
         }
       }
@@ -1104,7 +1117,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "血氧明显偏低。恢复之前请尽量放松。"
+            "value" : "血氧含量明显偏低。恢复前建议保持很低强度。"
           }
         }
       }
@@ -1206,7 +1219,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "呼吸频率略偏高，但没有任何阻碍。状态极佳，可以训练。"
+            "value" : "呼吸频率略偏高，但整体信号很强。今天可以正常训练。"
           }
         }
       }
@@ -1223,7 +1236,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "呼吸频率高于基线。恢复状态中等，训练量力而行。"
+            "value" : "呼吸频率高于基准。状态中等，训练量力而行。"
           }
         }
       }
@@ -1240,7 +1253,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "呼吸频率略偏高，但恢复良好。可以正常训练。"
+            "value" : "呼吸频率略偏高，但整体恢复不错。可以正常训练。"
           }
         }
       }
@@ -1257,7 +1270,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "呼吸频率远高于基线，是负荷过重或疾病的明显信号。好好休息。"
+            "value" : "呼吸频率远高于基准，可能是负荷过高或身体不适的信号。建议休息。"
           }
         }
       }
@@ -1308,7 +1321,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "断续不安的睡眠拖累了恢复状态。今天慢慢进入状态。"
+            "value" : "昨晚睡得断断续续，影响了今天的状态。今天慢慢来。"
           }
         }
       }
@@ -1631,7 +1644,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "日照暴露时间"
+            "value" : "户外日照时长"
           }
         }
       }
@@ -1852,13 +1865,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "所有信号都达到或高于基线——可以迎接最高强度的训练。"
+            "value" : "各项信号都在基准或更好。今天可以挑战高强度训练。"
           }
         }
       }
     },
     "Every signal is on or above baseline. You're primed for your hardest training." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every signal is on or above baseline. You're primed for your hardest training."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各项信号都在基准或更好。今天可以挑战高强度训练。"
+          }
+        }
+      }
     },
     "Excellent sleep readiness for this day." : {
       "extractionState" : "manual",
@@ -1923,7 +1949,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "锻炼分钟数统计被 Apple Health 判定为快速活动或体能训练的时间。该数值可能与训练时长不同，因为强度、心率和动作都会影响判定。可用它查看近期活动是否持续达到有效强度。"
+            "value" : "锻炼分钟数统计被健康 App 判定为较高强度活动或体能训练的时间。该数值可能与训练时长不同，因为强度、心率和动作都会影响判定。可用它查看近期活动是否持续达到有效强度。"
           }
         }
       }
@@ -2314,7 +2340,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "心率变异性略低于基线，但恢复扎实。可以正常训练。"
+            "value" : "心率变异性略低于基准，但整体恢复不错。可以正常训练。"
           }
         }
       }
@@ -2348,13 +2374,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "心率变异性低于基线——恢复状态尚可，但要控制训练负荷。"
+            "value" : "心率变异性低于基准。状态还可以，但训练量建议收着点。"
           }
         }
       }
     },
     "HRV is running below baseline. Readiness is okay, but keep the load controlled." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HRV is running below baseline. Readiness is okay, but keep the load controlled."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率变异性低于基准。状态还可以，但训练量建议收着点。"
+          }
+        }
+      }
     },
     "HRV is sitting below your baseline — recovery is still catching up. Favor easy work." : {
       "extractionState" : "manual",
@@ -2368,13 +2407,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "心率变异性低于基线——恢复仍在跟进中。宜安排轻松训练。"
+            "value" : "心率变异性低于基准，身体还在恢复。今天适合轻松一点。"
           }
         }
       }
     },
     "HRV is sitting below your baseline and recovery is still catching up. Favor easy work." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HRV is sitting below your baseline and recovery is still catching up. Favor easy work."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率变异性低于基准，身体还在恢复。今天适合轻松一点。"
+          }
+        }
+      }
     },
     "HRV is well below baseline — your body needs recovery. Rest or keep it very light." : {
       "extractionState" : "manual",
@@ -2388,13 +2440,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "心率变异性远低于基线——身体需要恢复。请休息或保持极低强度。"
+            "value" : "心率变异性远低于基准，身体需要恢复。建议休息，或只做很轻松的活动。"
           }
         }
       }
     },
     "HRV is well below baseline and your body needs recovery. Rest or keep it very light." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HRV is well below baseline and your body needs recovery. Rest or keep it very light."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率变异性远低于基准，身体需要恢复。建议休息，或只做很轻松的活动。"
+          }
+        }
+      }
     },
     "Hunting" : {
       "extractionState" : "manual",
@@ -2629,13 +2694,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "训练负荷在增加而身体已充分适应——恢复状态极佳，适合高强度训练。"
+            "value" : "训练负荷在增加，但身体适应得很好。今天适合高强度训练。"
           }
         }
       }
     },
     "Load is building and you've absorbed it. Readiness is prime for a hard effort." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Load is building and you've absorbed it. Readiness is prime for a hard effort."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "训练负荷在增加，但身体适应得很好。今天适合高强度训练。"
+          }
+        }
+      }
     },
     "Low" : {
       "extractionState" : "manual",
@@ -2870,7 +2948,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要更多 Apple Health 历史数据才能评分。"
+            "value" : "需要更多健康 App 历史数据后才能评分。"
           }
         }
       }
@@ -2904,13 +2982,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "多项信号同时走低——恢复状态较差。请休息或保持极低强度。"
+            "value" : "多项信号同时走低，今天状态较差。建议休息，或只做很轻松的活动。"
           }
         }
       }
     },
     "Multiple signals are down together and readiness is poor. Rest or keep it very light." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Multiple signals are down together and readiness is poor. Rest or keep it very light."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多项信号同时走低，今天状态较差。建议休息，或只做很轻松的活动。"
+          }
+        }
+      }
     },
     "Needs Data" : {
       "extractionState" : "manual",
@@ -3009,13 +3100,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "夜间呼吸频率偏高——是额外负荷的信号。放轻松些。"
+            "value" : "夜间呼吸频率偏高，可能代表身体负荷增加。今天放轻松些。"
           }
         }
       }
     },
     "Overnight breathing rate is elevated, a sign of extra load. Take it easy." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Overnight breathing rate is elevated, a sign of extra load. Take it easy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "夜间呼吸频率偏高，可能代表身体负荷增加。今天放轻松些。"
+          }
+        }
+      }
     },
     "Paddle Sports" : {
       "extractionState" : "manual",
@@ -3250,7 +3354,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "恢复状态将近期的心脏、睡眠、训练和夜间生命体征与自身基线综合比较。它只是对准备程度的估计，并非诊断。最有价值的信号来自心率变异性、静息心率、睡眠质量和近期负荷的持续变化趋势，而非某一次孤立的读数。\n今天的实时评分会随一天的进行不断更新，并在体能训练后下降；而趋势图保留的是醒来后不久的数值，因此当前评分可能低于图表上今天的数据点。"
+            "value" : "恢复状态将近期的心脏、睡眠、训练和夜间生命体征与自身基线综合比较。它只是恢复状态估算，并非诊断。最有价值的信号来自心率变异性、静息心率、睡眠质量和近期负荷的持续变化趋势，而非某一次孤立的读数。\n今天的实时评分会随一天的进行不断更新，并在体能训练后下降；而趋势图保留的是醒来后不久的数值，因此当前评分可能低于图表上今天的数据点。"
           }
         }
       }
@@ -3284,13 +3388,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "尽管心率变异性略低于基线，恢复状态仍处于极佳状态——可以放心训练。"
+            "value" : "心率变异性略低于基准，但整体状态依然很好。可以按计划训练。"
           }
         }
       }
     },
     "Readiness is prime even with HRV a touch under baseline. You're primed to train." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Readiness is prime even with HRV a touch under baseline. You're primed to train."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率变异性略低于基准，但整体状态依然很好。可以按计划训练。"
+          }
+        }
+      }
     },
     "Readiness signals are mostly typical." : {
       "extractionState" : "manual",
@@ -3321,13 +3438,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "近期负荷偏高——恢复状态中等，请把控好强度。"
+            "value" : "近期负荷偏高。状态中等，强度建议收着点。"
           }
         }
       }
     },
     "Recent load is elevated. Readiness is moderate, so manage the intensity." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recent load is elevated. Readiness is moderate, so manage the intensity."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "近期负荷偏高。状态中等，强度建议收着点。"
+          }
+        }
+      }
     },
     "Recent load relative to your longer baseline." : {
       "extractionState" : "manual",
@@ -3358,7 +3488,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "近期训练负荷不断累积，恢复状态因此受到影响。宜以恢复为主。"
+            "value" : "近期训练负荷累积较多，已经影响到今天的状态。建议以恢复为主。"
           }
         }
       }
@@ -3511,7 +3641,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "静息心率明显升高。请优先休息，直至恢复平稳。"
+            "value" : "静息心率明显升高。建议优先休息，等它恢复平稳。"
           }
         }
       }
@@ -3528,7 +3658,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "静息心率偏高，身体尚未完全平复。保持低强度。"
+            "value" : "静息心率偏高，身体还没完全缓过来。今天保持低强度。"
           }
         }
       }
@@ -3545,7 +3675,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "静息心率略有升高，但状态良好，可以正常安排一天的训练。"
+            "value" : "静息心率略有升高，但整体状态不错。今天照常安排就好。"
           }
         }
       }
@@ -3579,7 +3709,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "静息心率有所上升。恢复状态中等，注意收着点强度。"
+            "value" : "静息心率有所上升。状态中等，注意收着点强度。"
           }
         }
       }
@@ -3596,7 +3726,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "静息心率略有上升，但其他信号都很强劲。状态极佳。"
+            "value" : "静息心率略有上升，但其他指标都很稳。今天状态很好。"
           }
         }
       }
@@ -3613,7 +3743,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "睡眠不安稳，使恢复状态处于中等水平。注意控制强度。"
+            "value" : "昨晚睡得不太安稳，今天状态中等。注意控制强度。"
           }
         }
       }
@@ -3715,7 +3845,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "昨晚睡眠不足是今天恢复状态偏低的主要原因。"
+            "value" : "昨晚睡眠不足，是今天状态偏低的主要原因。"
           }
         }
       }
@@ -3732,13 +3862,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "各项信号好坏不一，但没有突出问题——今天恢复状态偏低。宜安排轻松训练。"
+            "value" : "各项信号有些波动，但没有单一突出原因。今天状态偏低，适合轻松一点。"
           }
         }
       }
     },
     "Signals are mixed but nothing stands out. Readiness is simply low today. Favor easy work." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Signals are mixed but nothing stands out. Readiness is simply low today. Favor easy work."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各项信号有些波动，但没有单一突出原因。今天状态偏低，适合轻松一点。"
+          }
+        }
+      }
     },
     "Signals are mostly typical — readiness is decent, so keep the load controlled." : {
       "extractionState" : "manual",
@@ -3752,13 +3895,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "各项信号大体正常——恢复状态尚可，注意控制负荷。"
+            "value" : "各项信号大体正常。状态尚可，注意控制负荷。"
           }
         }
       }
     },
     "Signals are mostly typical. Readiness is decent, so keep the load controlled." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Signals are mostly typical. Readiness is decent, so keep the load controlled."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各项信号大体正常。状态尚可，注意控制负荷。"
+          }
+        }
+      }
     },
     "Skating Sports" : {
       "extractionState" : "manual",
@@ -3806,7 +3962,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "皮肤温度略偏高，但恢复情况良好。按计划训练即可。"
+            "value" : "皮肤温度略偏高，但整体恢复不错。按计划训练即可。"
           }
         }
       }
@@ -3823,7 +3979,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "皮肤温度略偏高，但恢复情况仍然极佳。"
+            "value" : "皮肤温度略偏高，但整体恢复依然很好。"
           }
         }
       }
@@ -3840,13 +3996,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "皮肤温度高于基线——常常是劳累或疾病的早期信号。保持低强度。"
+            "value" : "皮肤温度高于基准，可能是劳累或身体不适的早期信号。今天保持低强度。"
           }
         }
       }
     },
     "Skin temperature is above baseline, often an early strain or illness cue. Keep it light." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skin temperature is above baseline, often an early strain or illness cue. Keep it light."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "皮肤温度高于基准，可能是劳累或身体不适的早期信号。今天保持低强度。"
+          }
+        }
+      }
     },
     "Skin temperature is above baseline." : {
       "extractionState" : "manual",
@@ -3877,13 +4046,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "皮肤温度高于基线。恢复状态中等——训练量力而行。"
+            "value" : "皮肤温度高于基准。状态中等，训练量力而行。"
           }
         }
       }
     },
     "Skin temperature is above baseline. Readiness is moderate, so keep it measured." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skin temperature is above baseline. Readiness is moderate, so keep it measured."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "皮肤温度高于基准。状态中等，训练量力而行。"
+          }
+        }
+      }
     },
     "Skin temperature is well above baseline — a common illness signal. Rest today." : {
       "extractionState" : "manual",
@@ -3897,13 +4079,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "皮肤温度远高于基线——常见的疾病信号。今天请休息。"
+            "value" : "皮肤温度远高于基准，可能和生病有关。今天请休息。"
           }
         }
       }
     },
     "Skin temperature is well above baseline, a common illness signal. Rest today." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skin temperature is well above baseline, a common illness signal. Rest today."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "皮肤温度远高于基准，可能和生病有关。今天请休息。"
+          }
+        }
+      }
     },
     "Skin Temperature shows changes captured during sleep from supported devices. It is most useful as a trend against your own baseline. Shifts can follow room temperature, illness, alcohol, menstrual cycle changes, travel, or wearable fit." : {
       "extractionState" : "manual",
@@ -3968,7 +4163,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "昨晚睡眠不足，今天的训练保持适度即可。"
+            "value" : "昨晚睡得不够，今天训练适度就好。"
           }
         }
       }
@@ -4036,7 +4231,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "睡眠时间略短，但恢复情况仍处于极佳区间。"
+            "value" : "昨晚睡得稍短，但整体恢复依然很好。"
           }
         }
       }
@@ -4053,7 +4248,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "睡眠有些断续，但恢复信号仍显示极佳。"
+            "value" : "昨晚有些睡睡醒醒，但其他恢复信号依然很好。"
           }
         }
       }
@@ -4070,13 +4265,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "睡眠略短，但恢复状态良好——正常训练应该感觉不错。"
+            "value" : "昨晚睡得稍短，但恢复状态不错。正常强度应该没问题。"
           }
         }
       }
     },
     "Sleep was a bit short, but readiness is high. A normal session should feel good." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep was a bit short, but readiness is high. A normal session should feel good."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "昨晚睡得稍短，但恢复状态不错。正常强度应该没问题。"
+          }
+        }
+      }
     },
     "Sleep was more fragmented than usual." : {
       "extractionState" : "manual",
@@ -4107,7 +4315,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "睡眠不太安稳，但各项信号仍然良好。按计划训练即可。"
+            "value" : "昨晚有些睡睡醒醒，但整体信号仍然不错。按计划训练即可。"
           }
         }
       }
@@ -4362,7 +4570,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "步数根据 Apple Health 的数据来源估算步行和跑步的步数。手机和可穿戴设备的计数会因佩戴或携带位置不同而有差异。趋势最适合用来比较自己一段时间内的日常活动量。"
+            "value" : "步数根据健康 App 的数据来源估算步行和跑步步数。手机和可穿戴设备的计数会因佩戴或携带位置不同而有差异。趋势最适合用来比较自己一段时间内的日常活动量。"
           }
         }
       }
@@ -4685,13 +4893,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "训练负荷已超过恢复能力——恢复状态很低。请减量并休息。"
+            "value" : "训练负荷已经超过恢复节奏，今天状态很低。建议减量并休息。"
           }
         }
       }
     },
     "Training load has outpaced recovery and readiness is low. Back off and rest." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Training load has outpaced recovery and readiness is low. Back off and rest."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "训练负荷已经超过恢复节奏，今天状态很低。建议减量并休息。"
+          }
+        }
+      }
     },
     "Training load is elevated." : {
       "extractionState" : "manual",
@@ -4722,13 +4943,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "训练负荷有所上升，而身体应对良好——恢复状态保持在高位。"
+            "value" : "训练负荷有所上升，但身体应对得不错。恢复状态仍然良好。"
           }
         }
       }
     },
     "Training load is up and you're handling it well. Readiness stays high." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Training load is up and you're handling it well. Readiness stays high."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "训练负荷有所上升，但身体应对得不错。恢复状态仍然良好。"
+          }
+        }
+      }
     },
     "Transition" : {
       "extractionState" : "manual",
@@ -4793,7 +5027,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "昨晚睡眠严重不足，恢复状态很低。今天以休息为先。"
+            "value" : "昨晚睡得太少，今天优先休息。"
           }
         }
       }
@@ -4946,7 +5180,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "体重是来自 Apple Health 或已连接设备记录的身体质量。短期变化通常源于水分、饮食、钠摄入、锻炼或测量时间。请比较相似条件下的读数，并关注数周内的整体走向。"
+            "value" : "体重来自健康 App 或已连接设备的记录。短期变化通常源于水分、饮食、钠摄入、锻炼或测量时间。请比较相似条件下的读数，并关注数周内的整体走向。"
           }
         }
       }
@@ -5150,13 +5384,26 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "各项信号稳稳高于基线——已做好训练准备。"
+            "value" : "各项信号都稳定高于基准。今天适合训练。"
           }
         }
       }
     },
     "Your signals sit comfortably above baseline. You're well prepared to train." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your signals sit comfortably above baseline. You're well prepared to train."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各项信号都稳定高于基准。今天适合训练。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

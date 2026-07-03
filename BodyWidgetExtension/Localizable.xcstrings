@@ -114,7 +114,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "以图表展示指标的每周或每月趋势。"
+            "value": "查看某项指标的周趋势或月趋势。"
           }
         }
       }

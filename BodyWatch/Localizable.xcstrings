@@ -64,7 +64,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "选择在手表主屏幕上显示的指标。"
+            "value": "选择要显示在手表主屏幕上的指标。"
           }
         }
       }
@@ -132,7 +132,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 iPhone 上打开 Body 以同步你的指标。"
+            "value": "在 iPhone 上打开 Body，同步你的指标。"
           }
         }
       }

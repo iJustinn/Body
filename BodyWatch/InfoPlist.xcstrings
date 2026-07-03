@@ -47,7 +47,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body 在你的 Apple Watch 上从 Apple 健康读取心率和心率变异性，以便在 iPhone 不在附近时更新这些数据。"
+            "value" : "Body 在你的 Apple Watch 上从健康 App 读取心率和心率变异性，以便在 iPhone 不在附近时更新这些数据。"
           }
         }
       }
@@ -64,7 +64,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body 不会向 Apple 健康写入数据。"
+            "value" : "Body 不会向健康 App 写入数据。"
           }
         }
       }

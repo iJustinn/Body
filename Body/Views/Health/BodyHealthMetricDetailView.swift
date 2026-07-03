@@ -1952,7 +1952,7 @@ struct BodyHealthMetricDetailView: View {
 
         if let heartRate = vitals.heartRate {
             rows.append(SleepVitalDisplayRow(
-                title: "Heart Rate",
+                title: String(localized: "Heart Rate"),
                 value: BodyValueFormat.numberText(heartRate.rounded(), decimals: 0),
                 unit: "BPM",
                 symbolName: "heart.fill",
@@ -1964,7 +1964,7 @@ struct BodyHealthMetricDetailView: View {
 
         if let heartRateVariability = vitals.heartRateVariability {
             rows.append(SleepVitalDisplayRow(
-                title: "Pressure",
+                title: String(localized: "Pressure"),
                 value: BodyValueFormat.numberText(heartRateVariability.rounded(), decimals: 0),
                 unit: "ms HRV",
                 symbolName: "waveform.path.ecg",
@@ -1976,7 +1976,7 @@ struct BodyHealthMetricDetailView: View {
 
         if let respiratoryRate = vitals.respiratoryRate {
             rows.append(SleepVitalDisplayRow(
-                title: "Respiratory",
+                title: String(localized: "Respiratory"),
                 value: BodyValueFormat.numberText(respiratoryRate.rounded(), decimals: 0),
                 unit: "br/min",
                 symbolName: "lungs.fill",
@@ -1992,7 +1992,7 @@ struct BodyHealthMetricDetailView: View {
                 temperatureUnitPreference: selectedTemperatureUnitPreference
             )
             rows.append(SleepVitalDisplayRow(
-                title: "Skin Temperature",
+                title: String(localized: "Skin Temperature"),
                 value: display.value,
                 unit: display.unit,
                 symbolName: "thermometer.medium",
@@ -2004,7 +2004,7 @@ struct BodyHealthMetricDetailView: View {
 
         if let oxygenSaturation = vitals.oxygenSaturation {
             rows.append(SleepVitalDisplayRow(
-                title: "Blood Oxygen",
+                title: String(localized: "Blood Oxygen"),
                 value: BodyValueFormat.numberText(oxygenSaturation.rounded(), decimals: 0),
                 unit: "%",
                 symbolName: "drop.fill",
@@ -2016,7 +2016,7 @@ struct BodyHealthMetricDetailView: View {
 
         if let duration {
             rows.append(SleepVitalDisplayRow(
-                title: "Sleep Duration",
+                title: String(localized: "Sleep Duration"),
                 value: BodyValueFormat.sleepDurationText(for: duration),
                 unit: "",
                 symbolName: "bed.double.fill",
