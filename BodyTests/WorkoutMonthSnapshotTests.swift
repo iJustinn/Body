@@ -1756,9 +1756,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
         let currentDayStart = calendar.startOfDay(for: currentDate)
-        let points = try (-27...0).map { offset -> HealthTrendDataPoint in
+        let points = try (-28...(-1)).map { offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
-            let value = offset < -6 ? 70.0 : 56.0
+            let value = offset < -7 ? 70.0 : 56.0
             return HealthTrendDataPoint(date: date, value: value)
         }
 
@@ -1789,13 +1789,46 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(averageLineSegments.recent.upperBound, 270, accuracy: 0.001)
     }
 
+    func testHomeTrendCardPresentationExcludesTodaysPartialData() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        // Same shape as the resting-heart-rate test, plus a partial value for today
+        // (e.g. a cumulative metric mid-day) that must not skew the recent average.
+        let points = try (-28...0).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
+            let value: Double
+            if offset == 0 {
+                value = 1
+            } else {
+                value = offset < -7 ? 70.0 : 56.0
+            }
+            return HealthTrendDataPoint(date: date, value: value)
+        }
+
+        let presentation = try XCTUnwrap(BodyHomeTrendCardPresentation.make(
+            kind: .restingHeartRate,
+            title: "Resting Heart Rate",
+            series: HealthTrendSeries(points: points),
+            chartStyle: .line,
+            valueFormatter: { "\(Int($0.rounded())) BPM" },
+            messageStyle: .average(subject: "your resting heart rate"),
+            calendar: calendar,
+            date: currentDate
+        ))
+
+        XCTAssertEqual(presentation.baselineAverage, 70, accuracy: 0.001)
+        XCTAssertEqual(presentation.recentAverage, 56, accuracy: 0.001)
+        XCTAssertFalse(presentation.calendarPoints.contains { $0.date >= currentDayStart })
+    }
+
     func testHomeTrendCardPresentationCanDetectLongerRecentTrendWindow() throws {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
         let currentDayStart = calendar.startOfDay(for: currentDate)
-        let points = try (-27...0).map { offset -> HealthTrendDataPoint in
+        let points = try (-28...(-1)).map { offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
-            let value = offset < -22 ? 9_000.0 : 5_000.0
+            let value = offset < -23 ? 9_000.0 : 5_000.0
             return HealthTrendDataPoint(date: date, value: value)
         }
 
@@ -1947,9 +1980,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
         let currentDayStart = calendar.startOfDay(for: currentDate)
-        let points = try (-27...0).map { offset -> HealthTrendDataPoint in
+        let points = try (-28...(-1)).map { offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
-            let value = offset > -3 ? 200.0 : 100.0
+            let value = offset > -4 ? 200.0 : 100.0
             return HealthTrendDataPoint(date: date, value: value)
         }
 
@@ -1980,7 +2013,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
         let currentDayStart = calendar.startOfDay(for: currentDate)
-        let points = try (-6...0).map { offset -> HealthTrendDataPoint in
+        let points = try (-7...(-1)).map { offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
             return HealthTrendDataPoint(date: date, value: 56)
         }
@@ -2001,9 +2034,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
         let currentDayStart = calendar.startOfDay(for: currentDate)
-        let points = try (-27...0).map { offset -> HealthTrendDataPoint in
+        let points = try (-28...(-1)).map { offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
-            let value = offset < -6 ? 100.0 : 100.5
+            let value = offset < -7 ? 100.0 : 100.5
             return HealthTrendDataPoint(date: date, value: value)
         }
 
@@ -2395,13 +2428,13 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let today = calendar.startOfDay(for: Date())
         // Older 21 days vs. recent 7 days (same shape the resting-heart-rate test
         // proves resolves to a 7-day recent window).
-        let weightPoints = try (-27...0).map { offset -> HealthTrendDataPoint in
+        let weightPoints = try (-28...(-1)).map { offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: today))
-            return HealthTrendDataPoint(date: date, value: offset < -6 ? 72.0 : 69.0) // kilograms
+            return HealthTrendDataPoint(date: date, value: offset < -7 ? 72.0 : 69.0) // kilograms
         }
-        let bodyFatPoints = try (-27...0).map { offset -> HealthTrendDataPoint in
+        let bodyFatPoints = try (-28...(-1)).map { offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: today))
-            return HealthTrendDataPoint(date: date, value: offset < -6 ? 25.0 : 20.0) // already 0–100
+            return HealthTrendDataPoint(date: date, value: offset < -7 ? 25.0 : 20.0) // already 0–100
         }
 
         var trends = HealthTrendSnapshot.empty

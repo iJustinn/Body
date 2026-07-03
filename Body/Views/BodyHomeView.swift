@@ -2058,11 +2058,12 @@ struct BodyHomeTrendCardPresentation: Identifiable {
         calendar: Calendar,
         date: Date
     ) -> [HealthTrendCalendarPoint] {
+        // The window covers full days ending yesterday: today's in-progress data
+        // would bias the recent average low for cumulative metrics (steps, energy).
         let currentDayStart = calendar.startOfDay(for: date)
-        let startDate = calendar.date(byAdding: .day, value: -(dayCount - 1), to: currentDayStart)
+        let startDate = calendar.date(byAdding: .day, value: -dayCount, to: currentDayStart)
             ?? currentDayStart
-        let endDate = calendar.date(byAdding: .day, value: 1, to: currentDayStart)
-            ?? date
+        let endDate = currentDayStart
         let pointsByDay = Dictionary(grouping: series.points.filter { point in
             point.date >= startDate && point.date < endDate
         }) {
