@@ -10,6 +10,7 @@ import Foundation
 struct RecordedReadinessEntry: Codable, Equatable {
     var date: Date   // calendar.startOfDay of the recorded day
     var score: Int
+    var includedSleep: Bool? = nil   // nil = legacy record (pre-flag), unknown
 }
 
 struct HealthTrendSnapshot: Codable, Equatable {

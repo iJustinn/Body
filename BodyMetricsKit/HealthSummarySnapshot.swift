@@ -564,6 +564,10 @@ struct HealthDashboardSnapshot: Codable, Equatable {
     /// day, falling back to the deterministic recompute where no record exists.
     /// When `freezesRecordedReadiness` is set and the wake+10 window is open, the
     /// day's undrained morning score is frozen once into `trends.recordedReadiness`.
+    /// A record frozen before today's sleep synced (no `.sleep` component) is
+    /// replaced once, same-day, by the first score that includes one; nil-flag
+    /// legacy records are upgradeable the same way. Once a record carries sleep it
+    /// is never replaced again.
     func recalculatingReadiness(
         on date: Date = Date(),
         idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
@@ -599,6 +603,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         next.trends.recordedReadiness = Self.freezingRecordedReadiness(
             next.trends.recordedReadiness,
             undrainedScore: undrained.score,
+            includesSleep: undrained.components.contains { $0.kind == .sleep },
             scoreDay: scoreDay,
             wakeTime: wakeTime,
             now: now,
@@ -664,6 +669,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         next.trends.recordedReadiness = Self.freezingRecordedReadiness(
             next.trends.recordedReadiness,
             undrainedScore: undrained.score,
+            includesSleep: undrained.components.contains { $0.kind == .sleep },
             scoreDay: scoreDay,
             wakeTime: wakeTime,
             now: now,
@@ -683,13 +689,21 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         return next
     }
 
-    /// Appends today's frozen morning record when freezing is enabled, the score
-    /// exists, no record exists yet for the day, and `now` is within the freeze
-    /// window `[freezeMoment, end of scoreDay]`. Idempotent. `freezeMoment` is
-    /// `wake + 10 min`, or 10:00 local on the score day when wake is unknown.
+    /// Freezes today's morning record when freezing is enabled, the score exists,
+    /// and `now` is within the freeze window `[freezeMoment, end of scoreDay]`.
+    /// `freezeMoment` is `wake + 10 min`, or 10:00 local on the score day when wake
+    /// is unknown.
+    ///
+    /// With no record for the day, appends one tagged with whether the score
+    /// included a `.sleep` component. When a record already exists, it is replaced
+    /// once — and only once — by a sleep-inclusive score if it was frozen without
+    /// sleep (or is a nil-flag legacy record); otherwise the existing record is
+    /// kept unchanged. This lets a score captured before today's sleep synced be
+    /// corrected same-day, while a record that already carries sleep stays pinned.
     private static func freezingRecordedReadiness(
         _ records: [RecordedReadinessEntry],
         undrainedScore: Int?,
+        includesSleep: Bool,
         scoreDay: Date,
         wakeTime: Date?,
         now: Date,
@@ -697,9 +711,6 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         calendar: Calendar
     ) -> [RecordedReadinessEntry] {
         guard freezes, let score = undrainedScore else {
-            return records
-        }
-        guard !records.contains(where: { calendar.startOfDay(for: $0.date) == scoreDay }) else {
             return records
         }
 
@@ -716,7 +727,15 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         }
 
         var updated = records
-        updated.append(RecordedReadinessEntry(date: scoreDay, score: score))
+        if let index = updated.firstIndex(where: { calendar.startOfDay(for: $0.date) == scoreDay }) {
+            // Upgrade a sleepless (or legacy nil-flag) record once, when the first
+            // sleep-inclusive score lands. All other cases keep the record.
+            if updated[index].includedSleep != true, includesSleep {
+                updated[index] = RecordedReadinessEntry(date: scoreDay, score: score, includedSleep: true)
+            }
+        } else {
+            updated.append(RecordedReadinessEntry(date: scoreDay, score: score, includedSleep: includesSleep))
+        }
         return updated
     }
 
