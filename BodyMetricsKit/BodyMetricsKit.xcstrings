@@ -766,6 +766,40 @@
         }
       }
     },
+    "Average heart rate %@ BPM" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Average heart rate %@ BPM"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均心率 %@ BPM"
+          }
+        }
+      }
+    },
+    "Avg HR" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avg HR"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均心率"
+          }
+        }
+      }
+    },
     "Avg Heart Rate" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1971,6 +2005,23 @@
         }
       }
     },
+    "Fastest split" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fastest split"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最快分段"
+          }
+        }
+      }
+    },
     "Fencing" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2204,7 +2255,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "心率变异性衡量心跳之间的细微时间变化。高于日常基线通常代表更好的恢复状态和更低的负担；低于日常水平则可能出现在高强度训练、睡眠不佳、饮酒、疾病或压力之后。请以数周的趋势为准，不要只看某一天。"
+            "value" : "心率变异性衡量心跳之间的细微时间变化。高于日常基准通常代表更好的恢复状态和更低的负担；低于日常水平则可能出现在高强度训练、睡眠不佳、饮酒、疾病或压力之后。请以数周的趋势为准，不要只看某一天。"
           }
         }
       }
@@ -2221,7 +2272,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "心脏信号与自身基线的对比。"
+            "value" : "心脏信号与自身基准的对比。"
           }
         }
       }
@@ -2357,7 +2408,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "心率变异性低于基线。"
+            "value" : "心率变异性低于基准。"
           }
         }
       }
@@ -2580,6 +2631,23 @@
         }
       }
     },
+    "Kilometer %@, %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kilometer %@, %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "第 %@ 公里，%@"
+          }
+        }
+      }
+    },
     "Kilometers" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2587,6 +2655,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kilometers"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "公里"
+          }
+        }
+      }
+    },
+    "KM" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KM"
           }
         },
         "zh-Hans" : {
@@ -2830,6 +2915,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "公制"
+          }
+        }
+      }
+    },
+    "MI" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MI"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "英里"
+          }
+        }
+      }
+    },
+    "Mile %@, %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mile %@, %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "第 %@ 英里，%@"
           }
         }
       }
@@ -3121,6 +3240,23 @@
         }
       }
     },
+    "Pace" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pace"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配速"
+          }
+        }
+      }
+    },
     "Paddle Sports" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3354,7 +3490,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "恢复状态将近期的心脏、睡眠、训练和夜间生命体征与自身基线综合比较。它只是恢复状态估算，并非诊断。最有价值的信号来自心率变异性、静息心率、睡眠质量和近期负荷的持续变化趋势，而非某一次孤立的读数。\n今天的实时评分会随一天的进行不断更新，并在体能训练后下降；而趋势图保留的是醒来后不久的数值，因此当前评分可能低于图表上今天的数据点。"
+            "value" : "恢复状态将近期的心脏、睡眠、训练和夜间生命体征与自身基准综合比较。它只是恢复状态估算，并非诊断。最有价值的信号来自心率变异性、静息心率、睡眠质量和近期负荷的持续变化趋势，而非某一次孤立的读数。\n今天的实时评分会随一天的进行不断更新，并在体能训练后下降；而趋势图保留的是醒来后不久的数值，因此当前评分可能低于图表上今天的数据点。"
           }
         }
       }
@@ -3471,7 +3607,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "近期负荷相对长期基线的情况。"
+            "value" : "近期负荷相对长期基准的情况。"
           }
         }
       }
@@ -3539,7 +3675,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "呼吸频率高于基线。"
+            "value" : "呼吸频率高于基准。"
           }
         }
       }
@@ -3556,7 +3692,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "呼吸频率是每分钟的呼吸次数，通常在睡眠或安静状态下测量。稳定的个人基线往往是最有用的信号。持续的升高或下降可能与疾病、海拔、压力、饮酒或睡眠紊乱有关；如变化异常，请咨询医生。"
+            "value" : "呼吸频率是每分钟的呼吸次数，通常在睡眠或安静状态下测量。稳定的个人基准往往是最有用的信号。持续的升高或下降可能与疾病、海拔、压力、饮酒或睡眠紊乱有关；如变化异常，请咨询医生。"
           }
         }
       }
@@ -3624,58 +3760,58 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "静息心率高于基线。"
+            "value" : "静息心率高于基准。"
           }
         }
       }
     },
-    "Resting heart rate is markedly elevated. Prioritize rest until it settles." : {
+    "Resting heart rate is markedly higher than your baseline. Prioritize rest until it settles." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Resting heart rate is markedly elevated. Prioritize rest until it settles."
+            "value" : "Resting heart rate is markedly higher than your baseline. Prioritize rest until it settles."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "静息心率明显升高。建议优先休息，等它恢复平稳。"
+            "value" : "静息心率明显高于你的基准。建议优先休息，等它恢复平稳。"
           }
         }
       }
     },
-    "Resting heart rate is running high, so your system hasn't fully settled. Keep it light." : {
+    "Resting heart rate is higher than your baseline, so your system hasn't fully settled. Keep it light." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Resting heart rate is running high, so your system hasn't fully settled. Keep it light."
+            "value" : "Resting heart rate is higher than your baseline, so your system hasn't fully settled. Keep it light."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "静息心率偏高，身体还没完全缓过来。今天保持低强度。"
+            "value" : "静息心率高于你的基准，身体还没完全缓过来。今天保持低强度。"
           }
         }
       }
     },
-    "Resting heart rate is slightly elevated, yet you're well prepared for a normal day." : {
+    "Resting heart rate is slightly higher than your baseline, yet you're well prepared for a normal day." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Resting heart rate is slightly elevated, yet you're well prepared for a normal day."
+            "value" : "Resting heart rate is slightly higher than your baseline, yet you're well prepared for a normal day."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "静息心率略有升高，但整体状态不错。今天照常安排就好。"
+            "value" : "静息心率略高于你的基准，但整体状态不错。今天照常安排就好。"
           }
         }
       }
@@ -3692,41 +3828,41 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "静息心率是身体处于休息状态时每分钟的心跳次数。数值较低可能意味着更好的有氧体能，但自身基线最为重要。请留意与日常范围的持续偏离，尤其是伴随症状、疾病、压力、脱水或用药变化时。"
+            "value" : "静息心率是身体处于休息状态时每分钟的心跳次数。数值较低可能意味着更好的有氧体能，但自身基准最为重要。请留意与日常范围的持续偏离，尤其是伴随症状、疾病、压力、脱水或用药变化时。"
           }
         }
       }
     },
-    "Resting heart rate is up a bit. Readiness is moderate; hold the intensity back." : {
+    "Resting heart rate is higher than your baseline. Readiness is moderate; hold the intensity back." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Resting heart rate is up a bit. Readiness is moderate; hold the intensity back."
+            "value" : "Resting heart rate is higher than your baseline. Readiness is moderate; hold the intensity back."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "静息心率有所上升。状态中等，注意收着点强度。"
+            "value" : "静息心率高于你的基准。状态中等，注意收着点强度。"
           }
         }
       }
     },
-    "Resting heart rate ticked up slightly, but every other signal is strong. Prime to go." : {
+    "Resting heart rate is slightly higher than your baseline, but every other signal is strong. Prime to go." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Resting heart rate ticked up slightly, but every other signal is strong. Prime to go."
+            "value" : "Resting heart rate is slightly higher than your baseline, but every other signal is strong. Prime to go."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "静息心率略有上升，但其他指标都很稳。今天状态很好。"
+            "value" : "静息心率略高于你的基准，但其他指标都很稳。今天状态很好。"
           }
         }
       }
@@ -4029,7 +4165,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "皮肤温度高于基线。"
+            "value" : "皮肤温度高于基准。"
           }
         }
       }
@@ -4112,7 +4248,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "皮肤温度显示受支持设备在睡眠期间记录的变化。它最适合作为与自身基线对比的趋势来看。变化可能与室温、疾病、饮酒、月经周期变化、旅行或佩戴松紧有关。"
+            "value" : "皮肤温度显示受支持设备在睡眠期间记录的变化。它最适合作为与自身基准对比的趋势来看。变化可能与室温、疾病、饮酒、月经周期变化、旅行或佩戴松紧有关。"
           }
         }
       }
@@ -4180,7 +4316,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "睡眠将近期的睡眠时长、阶段构成和睡眠评分汇总在一个视图中。自身基线比单独一晚更重要。可借助趋势发现反复出现的睡眠不足、夜间断续，或深睡与快速眼动睡眠的变化，这些可能与压力、旅行、训练或疾病有关。"
+            "value" : "睡眠将近期的睡眠时长、阶段构成和睡眠评分汇总在一个视图中。自身基准比单独一晚更重要。可借助趋势发现反复出现的睡眠不足、夜间断续，或深睡与快速眼动睡眠的变化，这些可能与压力、旅行、训练或疾病有关。"
           }
         }
       }
@@ -4541,6 +4677,23 @@
         }
       }
     },
+    "Speed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Speed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "速度"
+          }
+        }
+      }
+    },
     "Steps" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4876,7 +5029,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "训练负荷比较急性训练负荷与慢性训练负荷。急性负荷是训练强度的 7 天指数加权平均值，慢性负荷是反映身体已适应基线的 42 天加权平均值。0.80-1.30 附近的数值通常最可持续；持续高于该范围可能意味着对恢复状态的更高要求。"
+            "value" : "训练负荷比较急性训练负荷与慢性训练负荷。急性负荷是训练强度的 7 天指数加权平均值，慢性负荷是反映身体已适应基准的 42 天加权平均值。0.80-1.30 附近的数值通常最可持续；持续高于该范围可能意味着对恢复状态的更高要求。"
           }
         }
       }

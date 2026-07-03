@@ -1,6 +1,9 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "" : {
+
+    },
     " %@" : {
       "localizations" : {
         "en" : {
@@ -1202,7 +1205,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "基线"
+            "value" : "基准"
           }
         }
       }
@@ -1237,6 +1240,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Beta v1"
+          }
+        }
+      }
+    },
+    "Beta v2" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beta v2"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beta v2"
           }
         }
       }
@@ -3090,6 +3109,22 @@
         }
       }
     },
+    "Go to Month" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to Month"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前往月份"
+          }
+        }
+      }
+    },
     "Goal" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3407,6 +3442,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "有所上升"
+          }
+        }
+      }
+    },
+    "Jump to month" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jump to month"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跳转到月份"
           }
         }
       }
@@ -3827,6 +3878,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "个月"
+          }
+        }
+      }
+    },
+    "Month" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Month"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "月"
           }
         }
       }
@@ -6148,6 +6216,23 @@
         }
       }
     },
+    "Splits" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Splits"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分段"
+          }
+        }
+      }
+    },
     "Stage" : {
       "localizations" : {
         "en" : {
@@ -7181,6 +7266,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "x %lld"
+          }
+        }
+      }
+    },
+    "Year" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Year"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "年"
           }
         }
       }

@@ -103,6 +103,13 @@ struct BodyHealthMetricDetailModel {
 enum BodyDateSliderTileLabel {
     private static let recentWeekDayCount = 7
 
+    static func dayNumberText(
+        for date: Date,
+        calendar: Calendar = .bodyGregorian
+    ) -> String {
+        String(calendar.component(.day, from: date))
+    }
+
     static func primaryText(
         for date: Date,
         today: Date = Date(),
@@ -1518,6 +1525,7 @@ struct BodyHealthMetricDetailView: View {
         // lock badge, and routes a tap to the paywall instead of changing the selection.
         let isLocked = isDatePickerDateLocked(dayStart)
         let primaryText = BodyDateSliderTileLabel.primaryText(for: dayStart, today: today, calendar: calendar)
+        let dayNumberText = BodyDateSliderTileLabel.dayNumberText(for: dayStart, calendar: calendar)
         let tileFill = Color.primary.opacity(isFuture ? 0.03 : 0.06)
         let tileStroke: Color = isSelected
             ? dateSliderSelectionColor
@@ -1536,7 +1544,7 @@ struct BodyHealthMetricDetailView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.74)
 
-                Text(dayStart.formatted(.dateTime.day()))
+                Text(dayNumberText)
                     .font(.system(size: 27, weight: .bold, design: .rounded))
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)

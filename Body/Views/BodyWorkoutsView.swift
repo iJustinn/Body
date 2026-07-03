@@ -13,6 +13,7 @@ struct BodyWorkoutsView: View {
     @State private var pendingMonthSelection: BodyMonthYear?
     @State private var searchText = ""
     @State private var showingFilterSheet = false
+    @State private var showingMonthPicker = false
     @State private var selectedSortOption: BodyWorkoutListSortOption = .dateDescending
     @State private var selectedWorkoutTypes = Set(BodyWorkoutType.allCases)
     @State private var selectedWorkoutForDetails: WorkoutSummary?
@@ -215,7 +216,7 @@ struct BodyWorkoutsView: View {
             Button {
                 showingFilterSheet = true
             } label: {
-                searchControlCard(iconName: "line.3.horizontal.decrease.circle", size: 19)
+                searchControlCard(iconName: "line.3.horizontal.decrease", size: 19)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Filter workouts")
@@ -243,6 +244,24 @@ struct BodyWorkoutsView: View {
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity, minHeight: 46)
             .bodyWorkoutsToolbarCardBackground()
+
+            Button {
+                showingMonthPicker = true
+            } label: {
+                searchControlCard(iconName: "calendar", size: 18)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Jump to month")
+            .popover(isPresented: $showingMonthPicker) {
+                BodyWorkoutMonthPicker(
+                    selectedMonth: selectedMonth,
+                    selectedYear: selectedYear,
+                    onSelect: { monthYear in
+                        _ = requestMonthYearSelection(monthYear)
+                    }
+                )
+                .presentationCompactAdaptation(.popover)
+            }
         }
         .frame(height: 46)
     }
@@ -697,6 +716,7 @@ struct BodyWorkoutDetailSheet: View {
     /// accepted-unchanged suggestion from calibration (no feedback loop).
     @State private var editorPrefilledFromSuggestion = false
     @State private var route: WorkoutRoute?
+    @State private var splitData: WorkoutSplitData = .empty
     @State private var scrollOffset: CGFloat = 0
     @State private var showsFullScreenRouteMap = false
     @Namespace private var routeMapZoom
@@ -764,7 +784,12 @@ struct BodyWorkoutDetailSheet: View {
             }
         }
         .task {
-            route = await workoutStore.loadWorkoutRoute(for: workout)
+            // Load the route and distance samples concurrently so the splits
+            // section isn't blocked behind the route fetch + reverse geocoding.
+            async let loadedRoute = workoutStore.loadWorkoutRoute(for: workout)
+            async let loadedSplitData = workoutStore.loadWorkoutSplitData(for: workout)
+            route = await loadedRoute
+            splitData = await loadedSplitData
         }
         .task(id: workout.id) {
             editorPrefilledFromSuggestion = false
@@ -827,6 +852,9 @@ struct BodyWorkoutDetailSheet: View {
                 topEntryPanel
                 workoutDetailsCard
                 effortCard
+                if let splitsPresentation {
+                    BodyWorkoutSplitsCard(presentation: splitsPresentation)
+                }
                 heartRateSection
                 sourceFooter
             }
@@ -1271,6 +1299,27 @@ struct BodyWorkoutDetailSheet: View {
 
         return BodyValueFormat.EnergyUnitPreference.storedValue(from: selectedEnergyUnitRawValue)
     }
+
+    /// Per-km/mi split rows for the current unit preference; nil when the
+    /// workout has no usable distance samples or isn't a pace/speed activity.
+    /// Recomputes on unit toggle without refetching (boundaries are unit-derived).
+    private var splitsPresentation: WorkoutSplitsPresentation? {
+        let unitMeters = selectedDistanceUnitPreference == .miles ? 1_609.344 : 1_000.0
+        let splits = WorkoutSplitCalculator.splits(
+            samples: splitData.distanceSamples,
+            unitMeters: unitMeters,
+            workoutStart: workout.startDate,
+            workoutEnd: workout.startDate.addingTimeInterval(max(0, workout.duration)),
+            segments: splitData.segments
+        )
+        return WorkoutSplitsPresentation(
+            splits: splits,
+            paceStyle: workout.type.paceStyle,
+            distanceUnitPreference: selectedDistanceUnitPreference,
+            heartRateSamples: workout.heartRateSamples ?? [],
+            stepSamples: splitData.stepSamples
+        )
+    }
 }
 
 private struct BodyWorkoutDetailMetricTile: View {
@@ -1473,9 +1522,15 @@ private extension WorkoutEffortIntensity {
 private struct BodyWorkoutHeartRateZoneChart: View {
     let zones: [WorkoutHeartRateZone]
 
-    private let pctWidth: CGFloat = 46
+    /// Tapping the breakdown swaps the share column between percentage and time.
+    @State private var showsDuration = false
+
+    private let pctWidth: CGFloat = 60
+    private let durationWidth: CGFloat = 84
     private let bpmWidth: CGFloat = 84
-    private let barHeight: CGFloat = 16
+    private let barHeight: CGFloat = 12
+
+    private var valueWidth: CGFloat { showsDuration ? durationWidth : pctWidth }
 
     var body: some View {
         VStack(spacing: 11) {
@@ -1484,15 +1539,22 @@ private struct BodyWorkoutHeartRateZoneChart: View {
                 row(for: zone)
             }
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showsDuration.toggle()
+            }
+        }
     }
 
     private var headerRow: some View {
-        HStack(spacing: 10) {
+        let valueHeader: LocalizedStringKey = showsDuration ? "Time" : "Pct."
+        return HStack(spacing: 10) {
             Text("Zone")
                 .fixedSize()
             Spacer(minLength: 8)
-            Text("Pct.")
-                .frame(width: pctWidth, alignment: .trailing)
+            Text(valueHeader)
+                .frame(width: valueWidth, alignment: .trailing)
             Text("bpm")
                 .frame(width: bpmWidth, alignment: .trailing)
         }
@@ -1504,17 +1566,22 @@ private struct BodyWorkoutHeartRateZoneChart: View {
     private func row(for zone: WorkoutHeartRateZone) -> some View {
         HStack(spacing: 10) {
             Text("\(zone.zone)")
-                .font(.system(size: 19, weight: .bold, design: .rounded))
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .lineLimit(1)
                 .foregroundColor(.primary)
                 .frame(width: 24, alignment: .leading)
 
             bar(for: zone)
 
-            Text("\(Int((zone.fraction * 100).rounded()))%")
+            Text(showsDuration
+                ? BodyValueFormat.stopwatchDurationText(for: zone.duration)
+                : "\(Int((zone.fraction * 100).rounded()))%")
                 .font(.system(size: 17, weight: .bold, design: .rounded))
+                .monospacedDigit()
                 .foregroundColor(.primary)
                 .lineLimit(1)
-                .frame(width: pctWidth, alignment: .trailing)
+                .minimumScaleFactor(0.8)
+                .frame(width: valueWidth, alignment: .trailing)
 
             Text(zone.bpmRangeText)
                 .font(.system(size: 16, weight: .semibold, design: .rounded))
@@ -1560,6 +1627,127 @@ private struct BodyWorkoutHeartRateZoneChart: View {
     }
 }
 
+private struct BodyWorkoutSplitsCard: View {
+    let presentation: WorkoutSplitsPresentation
+
+    /// Tapping the card swaps the pace bars for a step-cadence column.
+    @State private var showsCadenceColumn = false
+
+    /// Fastest-split highlight, matching the BPM readout on the Heart Rate card.
+    private static let fastestColor = BodyWorkoutHeartRateChart.referenceLineColor
+
+    // Column geometry mirrors the heart-rate zone breakdown so the two cards align.
+    private let indexWidth: CGFloat = 24
+    private let valueWidth: CGFloat = 72
+    private let hrWidth: CGFloat = 84
+    private let cadenceWidth: CGFloat = 76
+    private let barHeight: CGFloat = 12
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Splits")
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundColor(.primary)
+
+            VStack(spacing: 11) {
+                headerRow
+                ForEach(presentation.rows) { row in
+                    splitRow(row)
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 18)
+        .bodyCardBackground(cornerRadius: 30, translucent: true)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showsCadenceColumn.toggle()
+            }
+        }
+    }
+
+    private var headerRow: some View {
+        HStack(spacing: 10) {
+            Text(presentation.unitHeaderText)
+                .fixedSize()
+            Spacer(minLength: 8)
+            Text(presentation.valueHeaderText)
+                .frame(width: valueWidth, alignment: .trailing)
+            Text(presentation.heartRateHeaderText)
+                .frame(width: hrWidth, alignment: .trailing)
+            if showsCadenceColumn {
+                Text(presentation.cadenceHeaderText)
+                    .minimumScaleFactor(0.7)
+                    .frame(width: cadenceWidth, alignment: .trailing)
+                    .transition(.opacity)
+            }
+        }
+        .font(.system(size: 15, weight: .semibold, design: .rounded))
+        .lineLimit(1)
+        .foregroundColor(.secondary)
+    }
+
+    private func splitRow(_ row: WorkoutSplitsPresentation.Row) -> some View {
+        let color = row.isFastest ? Self.fastestColor : Color.primary
+        return HStack(spacing: 10) {
+            Text(row.indexText)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundColor(color)
+                .frame(width: indexWidth, alignment: .leading)
+
+            bar(for: row)
+
+            Text(row.valueText)
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundColor(color)
+                .frame(width: valueWidth, alignment: .trailing)
+
+            Text(verbatim: row.heartRateText ?? "—")
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .foregroundColor(row.heartRateText == nil ? .secondary : color)
+                .frame(width: hrWidth, alignment: .trailing)
+
+            if showsCadenceColumn {
+                Text(verbatim: row.cadenceText ?? "—")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .foregroundColor(row.cadenceText == nil ? .secondary : color)
+                    .frame(width: cadenceWidth, alignment: .trailing)
+                    .transition(.opacity)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(row.accessibilityLabel)
+    }
+
+    private func bar(for row: WorkoutSplitsPresentation.Row) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous)
+                    .fill(Color.secondary.opacity(0.16))
+                Capsule(style: .continuous)
+                    .fill(row.isFastest ? Self.fastestColor : Color.secondary)
+                    // Floor the width at the bar height so the shortest (fastest) split
+                    // reads as a circle rather than a stub.
+                    .frame(width: max(geometry.size.width * row.barFraction, barHeight))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: barHeight)
+    }
+}
+
 private struct BodyWorkoutHeartRateChartCard: View {
     let samples: [WorkoutHeartRateSample]
     /// Anchors the zone bands (% of this value); nil hides the zone breakdown.
@@ -1602,7 +1790,7 @@ private struct BodyWorkoutHeartRateChartCard: View {
                     Text("BPM")
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                 }
-                .foregroundColor(BodyWorkoutHeartRateChart.referenceLineColor)
+                .foregroundColor(.secondary)
             }
         }
     }
@@ -1715,6 +1903,19 @@ private struct BodyWorkoutHeartRateChart: View {
             with: .color(Self.referenceLineColor.opacity(0.85)),
             lineWidth: 1
         )
+
+        // Dashed session max and min lines bracketing the solid average line.
+        var extremesLines = Path()
+        for value in metrics.extremaReferenceValues {
+            let extremeY = plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: value))
+            extremesLines.move(to: CGPoint(x: plotRect.minX, y: extremeY))
+            extremesLines.addLine(to: CGPoint(x: plotRect.maxX, y: extremeY))
+        }
+        context.stroke(
+            extremesLines,
+            with: .color(Self.referenceLineColor.opacity(0.5)),
+            style: StrokeStyle(lineWidth: 1, dash: [4, 4])
+        )
     }
 
     private func drawScatterDots(in plotRect: CGRect, context: inout GraphicsContext) {
@@ -1797,16 +1998,6 @@ private struct BodyWorkoutHeartRateChart: View {
 
     @ViewBuilder
     private func yAxisLabels(in plotRect: CGRect) -> some View {
-        ForEach(metrics.primaryTickValues, id: \.self) { tickValue in
-            Text("\(tickValue)")
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundColor(.secondary)
-                .position(
-                    x: plotRect.maxX + 22,
-                    y: plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: Double(tickValue)))
-                )
-        }
-
         Text("\(metrics.averageLabel)")
             .font(.system(size: 16, weight: .bold, design: .rounded))
             .foregroundColor(Self.referenceLineColor)
@@ -1814,6 +2005,18 @@ private struct BodyWorkoutHeartRateChart: View {
                 x: plotRect.maxX + 22,
                 y: plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: metrics.averageValue))
             )
+
+        // Values for the dashed session max/min lines, mirroring the average label
+        // but dimmed to match their line weight.
+        ForEach(metrics.extremaReferenceValues, id: \.self) { value in
+            Text("\(Int(value.rounded()))")
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundColor(Self.referenceLineColor.opacity(0.55))
+                .position(
+                    x: plotRect.maxX + 22,
+                    y: plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: value))
+                )
+        }
     }
 
     private func timeMarkLabelX(for mark: BodyWorkoutHeartRateTimeMark, in plotRect: CGRect) -> CGFloat {
@@ -1852,6 +2055,19 @@ private struct BodyWorkoutHeartRateChartMetrics {
 
     var averageLabel: Int {
         Int(averageValue.rounded())
+    }
+
+    /// Distinct session max/min values for the dashed reference lines and their
+    /// labels. Flat HR makes max == min (and both can equal the average), which
+    /// would collide SwiftUI `\.self` IDs and stack labels on top of the average —
+    /// so deduplicate by displayed value and drop any that rounds to the average.
+    var extremaReferenceValues: [Double] {
+        var seenLabels: Set<Int> = [averageLabel]
+        var result: [Double] = []
+        for value in [dataMaximumValue, dataMinimumValue] where seenLabels.insert(Int(value.rounded())).inserted {
+            result.append(value)
+        }
+        return result
     }
 
     var primaryTickValues: [Int] {
@@ -1893,12 +2109,16 @@ private struct BodyWorkoutHeartRateChartMetrics {
 
         let values = sortedSamples.map(\.beatsPerMinute).filter(\.isFinite)
         let lowestValue = max(0, values.min() ?? 70)
-        let highestValue = max(lowestValue + 1, values.max() ?? 165)
+        let actualHighest = max(lowestValue, values.max() ?? 165)
+        // Pad only the scaling bound so a flat series still yields a nonzero range;
+        // the max label and reference line show the real peak, not the pad (otherwise
+        // an all-140 bpm workout would report a 141 bpm maximum).
+        let highestValue = max(lowestValue + 1, actualHighest)
         let lowerBound = max(0, (floor((lowestValue - 5) / 5) * 5))
         let upperBound = ceil((highestValue + 5) / 5) * 5
 
         self.dataMinimumValue = lowestValue
-        self.dataMaximumValue = highestValue
+        self.dataMaximumValue = actualHighest
         self.minimumValue = lowerBound
         self.maximumValue = max(upperBound, lowerBound + 10)
         self.averageValue = values.isEmpty
@@ -2126,7 +2346,7 @@ private struct BodyWorkoutFilterView: View {
     }
 }
 
-private extension View {
+extension View {
     func bodyWorkoutsToolbarCardBackground() -> some View {
         background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)

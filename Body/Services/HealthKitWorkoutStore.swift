@@ -148,6 +148,11 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// sheet is reopened. HealthKit read access is opaque, so authorization gates
     /// clear the cache before any stale positive or negative route result sticks.
     private var routeCache: [UUID: WorkoutRoute?] = [:]
+    /// Session cache of a workout's raw distance samples keyed by UUID, feeding the
+    /// detail Splits section. Empty results are cached only for workouts that ended
+    /// more than 24 h ago; recent workouts may still be syncing from the watch, so
+    /// their empty reads are retried on the next sheet open.
+    private var distanceSampleCache: [UUID: WorkoutSplitData] = [:]
     private var loadedMonthKeys: Set<BodyWorkoutMonthKey> = []
     private var monthLoadOrder: [BodyWorkoutMonthKey] = []
     private var loadedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
@@ -557,6 +562,32 @@ final class HealthKitWorkoutStore: ObservableObject {
         return route
     }
 
+    /// Loads a workout's raw distance samples and recorded split segments for the
+    /// detail Splits section, or `.empty` when the activity isn't pace/speed-tracked
+    /// or has no usable distance data. Cached per session; an empty read is cached
+    /// only when the workout ended more than 24 h ago, so a still-syncing recent
+    /// workout is retried on reopen.
+    func loadWorkoutSplitData(for workout: WorkoutSummary) async -> WorkoutSplitData {
+        guard workout.type.paceStyle == .distancePace || workout.type.paceStyle == .speed else {
+            return .empty
+        }
+
+        if let cached = distanceSampleCache[workout.id] {
+            return cached
+        }
+
+        let data = await engine.workoutSplitData(workoutID: workout.id)
+        if !data.distanceSamples.isEmpty {
+            distanceSampleCache[workout.id] = data
+        } else {
+            let endDate = workout.startDate.addingTimeInterval(max(0, workout.duration))
+            if Date().timeIntervalSince(endDate) > 24 * 60 * 60 {
+                distanceSampleCache[workout.id] = data
+            }
+        }
+        return data
+    }
+
     /// Estimated max heart rate (220 − age) from Apple Health, anchoring the
     /// workout-detail heart-rate zones. `nil` when no birth date is readable, so the
     /// caller falls back to the session's peak HR.
@@ -567,6 +598,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     private func requestHealthKitAuthorization() async throws {
         try await engine.requestAuthorization()
         routeCache.removeAll()
+        distanceSampleCache.removeAll()
     }
 
     /// Loads the intraday day-sample sidecar (split out of the launch-critical
@@ -761,6 +793,12 @@ final class HealthKitWorkoutStore: ObservableObject {
         await engine.setPermissionSelection(nextSelection)
         if permission == .workouts {
             routeCache.removeAll()
+            distanceSampleCache.removeAll()
+        } else if permission == .workoutMetrics {
+            // Cached split data carries per-split step cadence, which rides on the
+            // Workout Metrics permission — drop it so a toggle change isn't served
+            // stale cadence from a read taken under the previous selection.
+            distanceSampleCache.removeAll()
         }
         await applyPermissionSelectionToCachedData()
 

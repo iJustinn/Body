@@ -16,9 +16,32 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Respiratory",
             "Skin Temperature",
             "Blood Oxygen",
-            "Sleep Duration"
+            "Sleep Duration",
+            "Splits"
         ]
 
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testSplitKeysResolveInBodyMetricsKitCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+
+        let keys = [
+            "KM",
+            "MI",
+            "Kilometer %@, %@",
+            "Mile %@, %@",
+            "Fastest split",
+            "Average heart rate %@ BPM",
+            "Pace",
+            "Speed",
+            "Avg HR"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    private func assertKeysTranslated(_ keys: [String], in catalog: [String: Any]) throws {
         for key in keys {
             let entry = try XCTUnwrap(catalog[key] as? [String: Any], "missing catalog entry for \(key)")
             let localizations = try XCTUnwrap(entry["localizations"] as? [String: Any], "\(key) missing localizations")

@@ -1065,7 +1065,7 @@ enum BodyValueFormat {
         let converted = Measurement(value: meters, unit: UnitLength.meters)
             .converted(to: unit)
             .value
-        return (numberText(converted, decimals: 1, locale: locale), distanceUnitPreference.unitLabel)
+        return (numberText(converted, decimals: 2, locale: locale), distanceUnitPreference.unitLabel)
     }
 
     static func distanceText(

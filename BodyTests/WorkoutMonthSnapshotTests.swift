@@ -155,7 +155,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.detailIconName, "map.fill")
-        XCTAssertEqual(presentation.detailText, "1.4 km")
+        XCTAssertEqual(presentation.detailText, "1.40 km")
         XCTAssertEqual(presentation.trailingEnergyText, "77 kcal")
     }
 
@@ -163,14 +163,14 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let locale = Locale(identifier: "en_US")
 
         XCTAssertEqual(BodyValueFormat.massDisplay(kilograms: 69.3, locale: locale).unit, "lb")
-        XCTAssertEqual(BodyValueFormat.distanceText(meters: 1_609.344, locale: locale), "1.0 mi")
+        XCTAssertEqual(BodyValueFormat.distanceText(meters: 1_609.344, locale: locale), "1.00 mi")
     }
 
     func testBodyValueFormatUsesMetricUnitsOutsideUSLocale() {
         let locale = Locale(identifier: "en_GB")
 
         XCTAssertEqual(BodyValueFormat.massDisplay(kilograms: 69.3, locale: locale).unit, "kg")
-        XCTAssertEqual(BodyValueFormat.distanceText(meters: 1_000, locale: locale), "1.0 km")
+        XCTAssertEqual(BodyValueFormat.distanceText(meters: 1_000, locale: locale), "1.00 km")
     }
 
     func testBodyValueFormatMassDisplaySupportsPrecisionOverride() {
@@ -191,7 +191,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
         XCTAssertEqual(
             BodyValueFormat.distanceText(meters: 1_000, locale: usMetricLocale),
-            "1.0 km"
+            "1.00 km"
         )
     }
 
@@ -213,7 +213,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 locale: metricLocale,
                 unitPreference: .imperial
             ),
-            "1.0 mi"
+            "1.00 mi"
         )
     }
 
@@ -234,7 +234,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 locale: locale,
                 distanceUnitPreference: .kilometers
             ),
-            "1.6 km"
+            "1.61 km"
         )
         XCTAssertEqual(
             BodyValueFormat.energyText(
@@ -292,7 +292,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(presentation.activeEnergyText, "416 kcal")
         XCTAssertEqual(presentation.totalEnergyText, "482 kcal")
         XCTAssertEqual(presentation.averageHeartRateText, "122 BPM")
-        XCTAssertEqual(presentation.distanceText, "1.0 km")
+        XCTAssertEqual(presentation.distanceText, "1.00 km")
         XCTAssertEqual(presentation.effortText, "7 Hard")
         XCTAssertEqual(presentation.effortPresentation?.intensity, .hard)
         XCTAssertEqual(presentation.effortPresentation?.segmentFills, [1, 1, 1, 0.5, 0])
@@ -555,7 +555,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             "Active Kcal", "Total Kcal", "Avg Heart Rate", "Max Heart Rate",
             "Cadence", "Avg Power", "Cardio Fitness"
         ])
-        XCTAssertEqual(presentation.heroDistanceValue, "5.0")
+        XCTAssertEqual(presentation.heroDistanceValue, "5.00")
         XCTAssertEqual(presentation.heroDistanceUnit, "km")
         XCTAssertFalse(presentation.detailMetrics.map(\.kind).contains(.distance))
         let byTitle = Dictionary(uniqueKeysWithValues: presentation.detailMetrics.map { ($0.title, $0.value) })
@@ -598,7 +598,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(presentation.detailMetrics.first { $0.title == "Cadence" }?.kind, .cyclingCadence)
         XCTAssertTrue(presentation.detailMetrics.map(\.kind).contains(.speed))
         XCTAssertFalse(presentation.detailMetrics.map(\.kind).contains(.cardioFitness))
-        XCTAssertEqual(presentation.heroDistanceValue, "30.0")
+        XCTAssertEqual(presentation.heroDistanceValue, "30.00")
         XCTAssertEqual(presentation.heroDistanceUnit, "km")
         XCTAssertFalse(presentation.detailMetrics.map(\.kind).contains(.distance))
     }
@@ -628,7 +628,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(byTitle["Swim Strokes"], "600")
         XCTAssertTrue(presentation.detailMetrics.map(\.kind).contains(.swimPace))
         XCTAssertTrue(presentation.detailMetrics.map(\.kind).contains(.strokeCount))
-        XCTAssertEqual(presentation.heroDistanceValue, "1.5")
+        XCTAssertEqual(presentation.heroDistanceValue, "1.50")
         XCTAssertEqual(presentation.heroDistanceUnit, "km")
         XCTAssertFalse(presentation.detailMetrics.map(\.kind).contains(.distance))
     }
@@ -2829,6 +2829,13 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(BodyDateSliderTileLabel.primaryText(for: oldestRecentDay, today: today, calendar: calendar), "Sun")
         XCTAssertEqual(BodyDateSliderTileLabel.primaryText(for: olderCurrentMonthDay, today: today, calendar: calendar), "May")
         XCTAssertEqual(BodyDateSliderTileLabel.primaryText(for: olderPriorMonthDay, today: today, calendar: calendar), "Apr")
+    }
+
+    func testDateSliderTileDayNumberLabelOmitsLocalizedDaySuffix() throws {
+        let calendar = Calendar.bodyGregorian
+        let date = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 3)))
+
+        XCTAssertEqual(BodyDateSliderTileLabel.dayNumberText(for: date, calendar: calendar), "3")
     }
 
     func testSleepHistoryFindsSummaryByCalendarDay() throws {
