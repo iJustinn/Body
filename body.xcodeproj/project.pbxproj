@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		12EFFBB42FF897E4001B1449 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 12EFFBB32FF897E4001B1449 /* RevenueCat */; };
+		12EFFBB62FF897E4001B1449 /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = 12EFFBB52FF897E4001B1449 /* RevenueCatUI */; };
 		710000012E00000100000001 /* BodyWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 710000022E00000100000002 /* BodyWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		710000032E00000100000003 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 710000042E00000100000004 /* WidgetKit.framework */; };
 		710000052E00000100000005 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 710000062E00000100000006 /* SwiftUI.framework */; };
@@ -43,6 +45,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 710000372E00000100000037;
 			remoteInfo = BodyWatchWidgetExtension;
+		};
+		BDA00000000000000000000B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7100000A2E0000010000000A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 710000362E00000100000036;
+			remoteInfo = BodyWatch;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -93,6 +102,7 @@
 		710000112E00000100000011 /* BodyWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BodyWidgetExtension.entitlements; sourceTree = "<group>"; };
 		710000322E00000100000032 /* BodyWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BodyWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		710000332E00000100000033 /* BodyWatchWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BodyWatchWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		BDA000000000000000000008 /* BodyWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BodyWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -186,6 +196,11 @@
 			path = BodyWatchSnapshotKit;
 			sourceTree = "<group>";
 		};
+		BDA000000000000000000009 /* BodyWatchTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BodyWatchTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -193,7 +208,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				12EFFBB42FF897E4001B1449 /* RevenueCat in Frameworks */,
 				710000072E00000100000007 /* HealthKit.framework in Frameworks */,
+				12EFFBB62FF897E4001B1449 /* RevenueCatUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -227,6 +244,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BDA000000000000000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -238,6 +262,7 @@
 				710000132E00000100000013 /* Body */,
 				710000142E00000100000014 /* BodyShared */,
 				710000162E00000100000016 /* BodyTests */,
+				BDA000000000000000000009 /* BodyWatchTests */,
 				710000152E00000100000015 /* BodyWidgetExtension */,
 				710000412E00000100000041 /* BodyWatch */,
 				710000402E00000100000040 /* BodyWatchShared */,
@@ -267,6 +292,7 @@
 				710000102E00000100000010 /* BodyTests.xctest */,
 				710000322E00000100000032 /* BodyWatch.app */,
 				710000332E00000100000033 /* BodyWatchWidgetExtension.appex */,
+				BDA000000000000000000008 /* BodyWatchTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -323,6 +349,8 @@
 			);
 			name = Body;
 			packageProductDependencies = (
+				12EFFBB32FF897E4001B1449 /* RevenueCat */,
+				12EFFBB52FF897E4001B1449 /* RevenueCatUI */,
 			);
 			productName = Body;
 			productReference = 7100000F2E0000010000000F /* Body.app */;
@@ -401,6 +429,29 @@
 			productReference = 710000332E00000100000033 /* BodyWatchWidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		BDA000000000000000000001 /* BodyWatchTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BDA000000000000000000002 /* Build configuration list for PBXNativeTarget "BodyWatchTests" */;
+			buildPhases = (
+				BDA000000000000000000005 /* Sources */,
+				BDA000000000000000000006 /* Frameworks */,
+				BDA000000000000000000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BDA00000000000000000000A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				BDA000000000000000000009 /* BodyWatchTests */,
+			);
+			name = BodyWatchTests;
+			packageProductDependencies = (
+			);
+			productName = BodyWatchTests;
+			productReference = BDA000000000000000000008 /* BodyWatchTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -421,6 +472,10 @@
 						CreatedOnToolsVersion = 16.3;
 						TestTargetID = 7100000D2E0000010000000D;
 					};
+					BDA000000000000000000001 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = 710000362E00000100000036;
+					};
 				};
 			};
 			buildConfigurationList = 710000292E00000100000029 /* Build configuration list for PBXProject "body" */;
@@ -433,6 +488,9 @@
 			);
 			mainGroup = 7100001A2E0000010000001A;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				12EFFBB22FF897E4001B1449 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 7100001C2E0000010000001C /* Products */;
 			projectDirPath = "";
@@ -443,6 +501,7 @@
 				710000362E00000100000036 /* BodyWatch */,
 				710000372E00000100000037 /* BodyWatchWidgetExtension */,
 				710000242E00000100000024 /* BodyTests */,
+				BDA000000000000000000001 /* BodyWatchTests */,
 			);
 		};
 /* End PBXProject section */
@@ -477,6 +536,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		7100003E2E0000010000003E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BDA000000000000000000007 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -521,6 +587,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BDA000000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -543,6 +616,11 @@
 			isa = PBXTargetDependency;
 			target = 710000372E00000100000037 /* BodyWatchWidgetExtension */;
 			targetProxy = 7100004E2E0000010000004E /* PBXContainerItemProxy */;
+		};
+		BDA00000000000000000000A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 710000362E00000100000036 /* BodyWatch */;
+			targetProxy = BDA00000000000000000000B /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -678,7 +756,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Body/Body.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Body;
@@ -718,7 +796,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Body/Body.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Body;
@@ -758,7 +836,7 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = BodyWidgetExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BodyWidgetExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BodyWidgetExtension;
@@ -787,7 +865,7 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = BodyWidgetExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BodyWidgetExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BodyWidgetExtension;
@@ -813,7 +891,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_TESTING_SEARCH_PATHS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
@@ -837,7 +915,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_TESTING_SEARCH_PATHS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
@@ -863,7 +941,7 @@
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CODE_SIGN_ENTITLEMENTS = BodyWatch/BodyWatch.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BodyWatch/Info.plist;
@@ -897,7 +975,7 @@
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CODE_SIGN_ENTITLEMENTS = BodyWatch/BodyWatch.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BodyWatch/Info.plist;
@@ -930,7 +1008,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = BodyWatchWidgetExtension/BodyWatchWidgetExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BodyWatchWidgetExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Body;
@@ -958,7 +1036,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = BodyWatchWidgetExtension/BodyWatchWidgetExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BodyWatchWidgetExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Body;
@@ -976,6 +1054,52 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Release;
+		};
+		BDA000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_TESTING_SEARCH_PATHS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.BodyWatchTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BodyWatch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BodyWatch";
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Debug;
+		};
+		BDA000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_TESTING_SEARCH_PATHS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.zihengthedeveloper.BodyWatchTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BodyWatch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BodyWatch";
 				WATCHOS_DEPLOYMENT_TARGET = 11.0;
 			};
 			name = Release;
@@ -1037,7 +1161,40 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		BDA000000000000000000002 /* Build configuration list for PBXNativeTarget "BodyWatchTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BDA000000000000000000003 /* Debug */,
+				BDA000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		12EFFBB22FF897E4001B1449 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios-spm.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.80.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		12EFFBB32FF897E4001B1449 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 12EFFBB22FF897E4001B1449 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCat;
+		};
+		12EFFBB52FF897E4001B1449 /* RevenueCatUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 12EFFBB22FF897E4001B1449 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCatUI;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 7100000A2E0000010000000A /* Project object */;
 }
