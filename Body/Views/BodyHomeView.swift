@@ -308,7 +308,7 @@ private struct BodyReadinessHeroScrollFade<Content: View>: View {
     @ViewBuilder var content: Content
 
     private var opacity: Double {
-        max(0, 1 - Double(scrollState.offset) / 130)
+        max(0, 1 - Double(scrollState.offset) / 70)
     }
 
     var body: some View {
@@ -329,7 +329,7 @@ private struct BodyHomeBackgroundScrollDim: View {
     let scrollState: BodyHomeScrollState
 
     private var opacity: Double {
-        min(1, max(0, Double(scrollState.offset) / 130)) * 0.8
+        min(1, max(0, Double(scrollState.offset) / 70)) * 0.9
     }
 
     var body: some View {
@@ -372,8 +372,8 @@ struct BodyHomeView: View {
     @State private var showsAllHomeTrends = false
     @State private var isPullRefreshing = false
     // Scroll offset lives in an @Observable so per-frame scroll updates only re-render the
-    // hero fade wrapper that reads it — not this whole body, which rebuilds every metric
-    // card model on each evaluation.
+    // hero fade wrapper that reads it — not this whole body. (The metric-card models are
+    // additionally memoized in BodyHomeTrendComputationCache, keyed on their full input set.)
     @State private var scrollState = BodyHomeScrollState()
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     /// Shared namespace for the card → detail zoom transition (matchedTransitionSource +
@@ -644,10 +644,30 @@ struct BodyHomeView: View {
     }
 
     private var metricCardsByKind: [HealthMetricKind: BodyHealthMetricCard.Model] {
-        Dictionary(uniqueKeysWithValues: metricCards.map { ($0.kind, $0) })
+        trendComputationCache.metricCards(inputs: metricCardsInputs, build: buildMetricCards)
     }
 
-    private var metricCards: [BodyHealthMetricCard.Model] {
+    /// Snapshot of every input `buildMetricCards()` reads, used as the memoization key.
+    /// The locale covers `BodyValueFormat` text output, the time zone covers
+    /// `.bodyGregorian` day bucketing, and `dayStart` invalidates on day rollover
+    /// while the app stays foregrounded.
+    private var metricCardsInputs: BodyHomeTrendComputationCache.MetricCardsInputs {
+        BodyHomeTrendComputationCache.MetricCardsInputs(
+            summary: workoutStore.healthSummary,
+            trends: workoutStore.healthTrends,
+            weightUnitPreference: selectedWeightUnitPreference,
+            energyUnitPreference: selectedEnergyUnitPreference,
+            temperatureUnitPreference: selectedTemperatureUnitPreference,
+            showSleepScore: showSleepScore,
+            sleepDurationGoalMinutes: sleepDurationGoalMinutes,
+            dayStart: Calendar.bodyGregorian.startOfDay(for: Date()),
+            previewDayCount: BodyHomeMetricCardPreview.dayCount(forScreenWidth: UIScreen.main.bounds.width),
+            localeIdentifier: Locale.current.identifier,
+            timeZoneIdentifier: TimeZone.current.identifier
+        )
+    }
+
+    private func buildMetricCards() -> [BodyHealthMetricCard.Model] {
         let summary = workoutStore.healthSummary
         let trends = workoutStore.healthTrends
 
@@ -2194,8 +2214,27 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         let result: BodyHomeTrendCardPresentation.WindowResult?
     }
 
+    /// Full-equality snapshot of every input the metric-card build reads; an exact
+    /// key, so the cached models can never go stale. Comparing the snapshots is
+    /// COW-cheap because the cached copy shares buffers with the store's values
+    /// until a refresh publishes new ones.
+    struct MetricCardsInputs: Equatable {
+        let summary: HealthSummarySnapshot
+        let trends: HealthTrendSnapshot
+        let weightUnitPreference: BodyValueFormat.WeightUnitPreference
+        let energyUnitPreference: BodyValueFormat.EnergyUnitPreference
+        let temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
+        let showSleepScore: Bool
+        let sleepDurationGoalMinutes: Int
+        let dayStart: Date
+        let previewDayCount: Int
+        let localeIdentifier: String
+        let timeZoneIdentifier: String
+    }
+
     private var entries: [CacheKey: Entry] = [:]
     private var wristTemperatureBaselineEntry: (fingerprint: Fingerprint, baseline: Double?)?
+    private var metricCardsEntry: (inputs: MetricCardsInputs, cardsByKind: [HealthMetricKind: BodyHealthMetricCard.Model])?
 
     func result(
         for kind: HealthMetricKind,
@@ -2217,6 +2256,22 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         )
         entries[key] = Entry(fingerprint: fingerprint, result: result)
         return result
+    }
+
+    /// Memoizes the full set of summary metric-card models. Rebuilding them
+    /// re-derives every card's preview point set (sort + day grouping over each
+    /// series), so `body` only pays that cost when an input actually changes.
+    func metricCards(
+        inputs: MetricCardsInputs,
+        build: () -> [BodyHealthMetricCard.Model]
+    ) -> [HealthMetricKind: BodyHealthMetricCard.Model] {
+        if let entry = metricCardsEntry, entry.inputs == inputs {
+            return entry.cardsByKind
+        }
+
+        let cardsByKind = Dictionary(uniqueKeysWithValues: build().map { ($0.kind, $0) })
+        metricCardsEntry = (inputs, cardsByKind)
+        return cardsByKind
     }
 
     /// Memoizes the Skin Temperature baseline median — its stable-line

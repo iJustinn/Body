@@ -18,7 +18,10 @@ final class WatchConnectivityPublisher: NSObject {
     static let shared = WatchConnectivityPublisher()
 
     private let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "WatchConnectivity")
-    private var pending: WatchMetricsSnapshot?
+    // The snapshot plus the permission value it was captured with, held for the
+    // activation-retry resend so the retry ships the paired (not a newer) value.
+    private var pending: (snapshot: WatchMetricsSnapshot, permissionRawValue: String)?
+    private var lastQueuedGeneratedAt: Date = .distantPast
 
     private override init() {
         super.init()
@@ -37,15 +40,21 @@ final class WatchConnectivityPublisher: NSObject {
     /// Sends the snapshot, activating the session lazily on first use. If the
     /// session isn't activated yet the snapshot is queued and flushed from
     /// `activationDidCompleteWith`.
-    func send(_ snapshot: WatchMetricsSnapshot) {
+    func send(_ snapshot: WatchMetricsSnapshot, permissionRawValue: String) {
         guard WCSession.isSupported() else { return }
+        // Drop a snapshot whose off-actor build lost the FIFO race with a newer
+        // one already queued. `>=` (not `>`) lets the pending activation-retry
+        // resend the same snapshot through.
+        guard snapshot.generatedAt >= lastQueuedGeneratedAt else { return }
+        lastQueuedGeneratedAt = snapshot.generatedAt
+
         let session = WCSession.default
 
         if session.delegate == nil {
             session.delegate = self
         }
         guard session.activationState == .activated else {
-            pending = snapshot
+            pending = (snapshot, permissionRawValue)
             if session.activationState == .notActivated {
                 session.activate()
             }
@@ -62,14 +71,15 @@ final class WatchConnectivityPublisher: NSObject {
             // sibling keys in the SAME context (a separate context write would
             // drop "snapshot"). The watch needs the selection to gate its live
             // HR/HRV reads; every displayed value is already baked into the
-            // snapshot by the phone.
+            // snapshot by the phone. The selection is captured alongside the
+            // snapshot so a queued build can't pair with a newer selection.
             try session.updateApplicationContext([
                 "snapshot": data,
-                BodyAppearancePreference.healthPermissionSelectionKey: BodyHealthPermissionSelection.load().rawValue
+                BodyAppearancePreference.healthPermissionSelectionKey: permissionRawValue
             ])
         } catch {
             logger.error("updateApplicationContext failed: \(error.localizedDescription, privacy: .public)")
-            pending = snapshot
+            pending = (snapshot, permissionRawValue)
         }
     }
 }
@@ -83,7 +93,7 @@ extension WatchConnectivityPublisher: WCSessionDelegate {
         Task { @MainActor in
             if let pending = self.pending {
                 self.pending = nil
-                self.send(pending)
+                self.send(pending.snapshot, permissionRawValue: pending.permissionRawValue)
             }
         }
     }

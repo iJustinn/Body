@@ -54,7 +54,11 @@ struct BodyHealthCacheStatus: Equatable {
     }
 
     var summaryText: String {
-        isEmpty ? String(localized: "Empty") : String(localized: "Cached")
+        guard !isEmpty else { return String(localized: "Empty") }
+        // `diskSizeBytes` is refreshed off the main actor (`refreshCacheDiskSize`), so it's
+        // still 0 in the window between a non-empty cache loading and that stat landing.
+        // Show the generic "Cached" until then rather than a misleading "Zero KB".
+        return diskSizeBytes > 0 ? formattedDiskSize : String(localized: "Cached")
     }
 
     var detailLines: [String] {
@@ -2186,17 +2190,38 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// workout-only refresh must not look fresh to the watch, or it would
     /// suppress the watch's own stale-triggered live HR/HRV refresh.
     func publishWatchSnapshot() {
-        var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
-            summary: healthSummary,
-            trends: healthTrends,
-            lastRefreshDate: lastVitalsRefreshDate,
-            permissionSelection: permissionSelection,
-            temperatureUnitPreference: HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference(),
-            idealSleepDuration: Self.storedIdealSleepDuration(),
-            showSleepScore: HealthWidgetSnapshotBuilder.storedShowSleepScore()
-        )
-        snapshot.source = "phone"
-        WatchConnectivityPublisher.shared.send(snapshot)
+        // Capture on the main actor exactly what the builder + send read today,
+        // then build off-actor on the serial persist queue and hop back to `send`
+        // — mirroring `saveHealthWidgetSnapshot`. `now` stamps `generatedAt` at
+        // capture time so the queue's FIFO order is the send order, and the
+        // permission value is paired at capture time so a queued build can't ship
+        // a newer selection.
+        let summary = healthSummary
+        let trends = healthTrends
+        let lastRefreshDate = lastVitalsRefreshDate
+        let permissionSelection = permissionSelection
+        let temperatureUnitPreference = HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference()
+        let idealSleepDuration = Self.storedIdealSleepDuration()
+        let showSleepScore = HealthWidgetSnapshotBuilder.storedShowSleepScore()
+        let now = Date()
+        let permissionRawValue = BodyHealthPermissionSelection.load().rawValue
+
+        Self.snapshotPersistQueue.async {
+            var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
+                summary: summary,
+                trends: trends,
+                lastRefreshDate: lastRefreshDate,
+                permissionSelection: permissionSelection,
+                temperatureUnitPreference: temperatureUnitPreference,
+                idealSleepDuration: idealSleepDuration,
+                showSleepScore: showSleepScore,
+                now: now
+            )
+            snapshot.source = "phone"
+            Task { @MainActor in
+                WatchConnectivityPublisher.shared.send(snapshot, permissionRawValue: permissionRawValue)
+            }
+        }
     }
 
     /// Builds the slim widget snapshot from the current trends, sleep stages,

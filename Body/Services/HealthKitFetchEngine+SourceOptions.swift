@@ -166,9 +166,25 @@ extension HealthKitFetchEngine {
     }
 
     private func fetchHealthDataSources(for sampleTypes: [HKSampleType]) async -> [HKSource] {
+        // Fan the per-sample-type `HKSourceQuery` round-trips out concurrently
+        // instead of awaiting them one at a time. Results are collected by
+        // index so the merge below can replay the exact same first-wins,
+        // iteration-order precedence as the old serial loop.
+        var resultsByIndex = [[HKSource]](repeating: [], count: sampleTypes.count)
+        await withTaskGroup(of: IndexedSources.self) { group in
+            for (index, sampleType) in sampleTypes.enumerated() {
+                group.addTask {
+                    IndexedSources(index: index, sources: await self.fetchHealthDataSources(for: sampleType))
+                }
+            }
+
+            for await result in group {
+                resultsByIndex[result.index] = result.sources
+            }
+        }
+
         var sourcesByIdentifier: [String: HKSource] = [:]
-        for sampleType in sampleTypes {
-            let sources = await fetchHealthDataSources(for: sampleType)
+        for sources in resultsByIndex {
             for source in sources {
                 let sourceKey = BodyHealthDataSourceOption.individualSourceIdentityKey(
                     bundleIdentifier: source.bundleIdentifier,
@@ -180,6 +196,18 @@ extension HealthKitFetchEngine {
             }
         }
         return Array(sourcesByIdentifier.values)
+    }
+
+    /// One sample type's discovered sources, carried out of the concurrent
+    /// fetch task group, tagged with its original index so the merge can
+    /// replay first-wins precedence in the same order as a serial loop.
+    /// `@unchecked Sendable` mirrors `KindSources` above — sound because
+    /// `HKSource` is immutable metadata that HealthKit just doesn't annotate
+    /// `Sendable`. A raw tuple can't be marked `@unchecked Sendable`, hence
+    /// this wrapper struct.
+    private struct IndexedSources: @unchecked Sendable {
+        let index: Int
+        let sources: [HKSource]
     }
 
     private func fetchHealthDataSources(for sampleType: HKSampleType) async -> [HKSource] {

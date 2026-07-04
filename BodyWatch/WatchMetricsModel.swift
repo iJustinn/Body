@@ -124,8 +124,9 @@ final class WatchMetricsModel: NSObject, ObservableObject {
 
     private func apply(_ newSnapshot: WatchMetricsSnapshot) {
         snapshot = newSnapshot
-        WatchMetricsSnapshotStore.save(newSnapshot)
-        WidgetCenter.shared.reloadAllTimelines()
+        if WatchMetricsSnapshotStore.save(newSnapshot) {
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
 
     // MARK: - Dashboard metric visibility (watch-local)

@@ -75,26 +75,82 @@ enum HealthWidgetSnapshotStore {
         }
     }
 
+    /// Memoizes decoded snapshots keyed by file identity (mtime + size) so the
+    /// widget extension's repeated timeline passes don't re-read and re-decode
+    /// the same App-Group JSON. Lock-protected because widget providers may call
+    /// `load` concurrently (project is Swift 5 language mode, no strict
+    /// concurrency). Every `load` re-stats the file, so a cross-process rewrite
+    /// (atomic write → new mtime) invalidates the entry.
+    private final class LoadCache {
+        private let lock = NSLock()
+        private var entries: [URL: (modificationDate: Date, fileSize: Int, snapshot: HealthWidgetSnapshot)] = [:]
+
+        func snapshot(for url: URL, modificationDate: Date, fileSize: Int) -> HealthWidgetSnapshot? {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let entry = entries[url],
+                  entry.modificationDate == modificationDate,
+                  entry.fileSize == fileSize else {
+                return nil
+            }
+            return entry.snapshot
+        }
+
+        func store(_ snapshot: HealthWidgetSnapshot, for url: URL, modificationDate: Date, fileSize: Int) {
+            lock.lock()
+            entries[url] = (modificationDate, fileSize, snapshot)
+            lock.unlock()
+        }
+
+        func remove(_ url: URL) {
+            lock.lock()
+            entries.removeValue(forKey: url)
+            lock.unlock()
+        }
+    }
+
+    private static let loadCache = LoadCache()
+
     static func load(fileURL: URL? = snapshotFileURL) -> HealthWidgetSnapshot? {
         guard let fileURL else {
             logger.error("Health widget snapshot load skipped because shared file URL is unavailable.")
             return nil
         }
 
+        // Stat before reading so a cache hit skips the read+decode, and a store
+        // records the identity the decoded bytes actually came from. FileManager
+        // (not URL.resourceValues) because URL caches resource values per
+        // instance — a stale hit there would mask a rewrite behind the same URL.
+        let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let modificationDate = attributes?[.modificationDate] as? Date
+        let fileSize = (attributes?[.size] as? NSNumber)?.intValue
+        if let modificationDate,
+           let fileSize,
+           let cached = loadCache.snapshot(for: fileURL, modificationDate: modificationDate, fileSize: fileSize) {
+            return cached
+        }
+
         let data: Data
         do {
             data = try Data(contentsOf: fileURL)
         } catch CocoaError.fileReadNoSuchFile {
+            loadCache.remove(fileURL)
             return nil
         } catch {
             logger.error("Health widget snapshot file read failed: \(error.localizedDescription, privacy: .public)")
+            loadCache.remove(fileURL)
             return nil
         }
 
         do {
-            return try JSONDecoder().decode(HealthWidgetSnapshot.self, from: data)
+            let snapshot = try JSONDecoder().decode(HealthWidgetSnapshot.self, from: data)
+            if let modificationDate, let fileSize {
+                loadCache.store(snapshot, for: fileURL, modificationDate: modificationDate, fileSize: fileSize)
+            }
+            return snapshot
         } catch {
             logger.error("Health widget snapshot decode failed: \(error.localizedDescription, privacy: .public)")
+            loadCache.remove(fileURL)
             return nil
         }
     }

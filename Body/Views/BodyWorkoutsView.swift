@@ -20,6 +20,7 @@ struct BodyWorkoutsView: View {
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
     @State private var isPullRefreshing = false
+    @State private var searchCorpusCache = BodyWorkoutSearchCorpusCache()
     @Namespace private var workoutZoom
 
     private var monthSwitchTransition: AnyTransition {
@@ -31,7 +32,8 @@ struct BodyWorkoutsView: View {
     }
 
     var body: some View {
-        let visibleWorkouts = filteredWorkouts
+        let allWorkouts = self.allWorkouts
+        let visibleWorkouts = filteredWorkouts(from: allWorkouts)
 
         NavigationStack {
             ZStack {
@@ -168,19 +170,39 @@ struct BodyWorkoutsView: View {
             }
     }
 
-    private var filteredWorkouts: [WorkoutSummary] {
+    private func filteredWorkouts(from allWorkouts: [WorkoutSummary]) -> [WorkoutSummary] {
         let normalizedSearchText = searchText
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
 
+        guard !normalizedSearchText.isEmpty else {
+            let searchedWorkouts = allWorkouts.filter { workout in
+                selectedWorkoutTypes.contains(workout.type)
+            }
+
+            return sorted(workouts: searchedWorkouts)
+        }
+
+        let corpus = searchCorpusCache.entries(
+            for: selectedSnapshot,
+            workouts: allWorkouts,
+            dateSearchText: dateSearchText(for:)
+        )
+
         let searchedWorkouts = allWorkouts.filter { workout in
-            selectedWorkoutTypes.contains(workout.type)
-                && (
-                    normalizedSearchText.isEmpty
-                        || workout.type.displayName.lowercased().contains(normalizedSearchText)
-                        || workout.sourceName.lowercased().contains(normalizedSearchText)
-                        || dateSearchText(for: workout.startDate).contains(normalizedSearchText)
-                )
+            guard selectedWorkoutTypes.contains(workout.type) else {
+                return false
+            }
+
+            guard let corpusEntry = corpus[workout.id] else {
+                return workout.type.displayName.lowercased().contains(normalizedSearchText)
+                    || workout.sourceName.lowercased().contains(normalizedSearchText)
+                    || dateSearchText(for: workout.startDate).contains(normalizedSearchText)
+            }
+
+            return corpusEntry.typeText.contains(normalizedSearchText)
+                || corpusEntry.sourceText.contains(normalizedSearchText)
+                || corpusEntry.dateText.contains(normalizedSearchText)
         }
 
         return sorted(workouts: searchedWorkouts)
@@ -493,6 +515,54 @@ struct BodyWorkoutsView: View {
                 }
             }
         }
+    }
+}
+
+/// Caches the lowercased search fields (`type`, `source`, formatted `date`) for
+/// each workout in the currently selected month, avoiding recomputation on
+/// every keystroke. Invalidated whenever the snapshot identity, locale, or
+/// time zone changes, since `dateSearchText` is locale/time-zone derived.
+private final class BodyWorkoutSearchCorpusCache {
+    private struct Key: Equatable {
+        let month: Int
+        let year: Int
+        let generatedAt: Date
+        let localeIdentifier: String
+        let timeZoneIdentifier: String
+    }
+
+    private var key: Key?
+    private var storedEntries: [WorkoutSummary.ID: (typeText: String, sourceText: String, dateText: String)] = [:]
+
+    func entries(
+        for snapshot: WorkoutMonthSnapshot,
+        workouts: [WorkoutSummary],
+        dateSearchText: (Date) -> String
+    ) -> [WorkoutSummary.ID: (typeText: String, sourceText: String, dateText: String)] {
+        let currentKey = Key(
+            month: snapshot.month,
+            year: snapshot.year,
+            generatedAt: snapshot.generatedAt,
+            localeIdentifier: Locale.current.identifier,
+            timeZoneIdentifier: TimeZone.current.identifier
+        )
+
+        guard key == currentKey else {
+            key = currentKey
+            storedEntries = Dictionary(uniqueKeysWithValues: workouts.map { workout in
+                (
+                    workout.id,
+                    (
+                        typeText: workout.type.displayName.lowercased(),
+                        sourceText: workout.sourceName.lowercased(),
+                        dateText: dateSearchText(workout.startDate)
+                    )
+                )
+            })
+            return storedEntries
+        }
+
+        return storedEntries
     }
 }
 
