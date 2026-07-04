@@ -1,5 +1,9 @@
 # Version History
 
+## 0.9.7 (build 5)
+
+- Updated the app, widget, watch, and test bundle version to 0.9.7 build 5.
+
 ## 0.9.7 (build 3)
 
 - **Body Pro now runs on RevenueCat.** Purchases, entitlements, restore, and pending (Ask to Buy) handling moved from the hand-rolled StoreKit 2 store to the RevenueCat SDK, with the paywall UI and the shared App Group entitlement flag (read by widgets and the watch) unchanged. Added a **Manage Purchases** entry in Settings ▸ About that opens the RevenueCat **Customer Center** (restore, refunds, support), localized in Simplified Chinese.
