@@ -1246,12 +1246,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.7;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.7;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 2;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 3;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1286,7 +1286,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.7 (build 2)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.7 (build 3)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.7 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.7 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.6 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.6 (build 3)**"))
@@ -1310,6 +1311,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.7 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.7 build 3."))
         XCTAssertTrue(versionHistory.contains("## 0.9.7 (build 2)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.7 build 2."))
         XCTAssertTrue(versionHistory.contains("## 0.9.7 (build 1)"))
@@ -1481,7 +1484,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-v0.9.6`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.7 build 2)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.7 build 3)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.7 build 2)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.7 build 1)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.6 build 5)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.6 build 3)"))
@@ -1908,31 +1912,60 @@ final class ProjectConfigurationTests: XCTestCase {
         }
     }
 
-    /// Pins the StoreKit monetization wiring that can't be exercised without StoreKitTest
-    /// and a running store: the product id, verified/non-revoked entitlement filtering,
-    /// pending (Ask-to-Buy) handling, and the shared App Group flag. The persistence and
-    /// change-notification behavior of that flag is exercised at runtime in
-    /// `BodyProEntitlementTests`.
-    func testBodyProStoreStoreKitWiringIsGuarded() throws {
+    /// Pins the RevenueCat monetization wiring that can't be exercised without a configured
+    /// SDK and a running store: the entitlement source of truth, purchase/restore/pending
+    /// handling, the absence of the retired native-StoreKit plumbing, and the shared App
+    /// Group flag. The persistence and change-notification behavior of that flag is exercised
+    /// at runtime in `BodyProEntitlementTests`.
+    func testBodyProStoreRevenueCatWiringIsGuarded() throws {
         let storeSource = try text(at: "Body/Services/BodyProStore.swift")
+        let configSource = try text(at: "Body/Services/RevenueCatConfiguration.swift")
         let entitlementSource = try text(at: "BodyShared/Services/BodyProEntitlement.swift")
         let widgetSource = try text(at: "BodyWidgetExtension/HealthMetricWidget.swift")
 
-        // Product id / config path: the single non-consumable that unlocks Pro.
+        // Backed by RevenueCat, keyed to the single non-consumable that unlocks Pro. The
+        // product id is retained — the store fetches it directly for the display price.
+        XCTAssertTrue(storeSource.contains("import RevenueCat"))
         XCTAssertTrue(storeSource.contains(#"static let lifetimeProductID = "com.zihengthedeveloper.body.pro.lifetime""#))
+        XCTAssertTrue(storeSource.contains("static let entitlementID"))
 
-        // Revocation handling: only a verified, non-revoked transaction for our product
-        // counts as unlocked.
-        XCTAssertTrue(storeSource.contains("transaction.productID == Self.lifetimeProductID"))
-        XCTAssertTrue(storeSource.contains("transaction.revocationDate == nil"))
-        XCTAssertTrue(storeSource.contains("guard case .verified(let transaction) = verification else"))
-        XCTAssertTrue(storeSource.contains("applyEntitlement(transaction.revocationDate == nil)"))
+        // Entitlement source of truth: RevenueCat CustomerInfo. The stream catches
+        // this-device / post-call updates; purchase / restore / customerInfo cover the rest.
+        XCTAssertTrue(storeSource.contains("Purchases.shared.customerInfoStream"))
+        XCTAssertTrue(storeSource.contains("Purchases.shared.purchase(product:"))
+        XCTAssertTrue(storeSource.contains("Purchases.shared.restorePurchases()"))
+        XCTAssertTrue(storeSource.contains("entitlements[Self.entitlementID]?.isActive == true"))
+
+        // The explicit launch/foreground refresh must force a network fetch, not read the
+        // stale local cache — otherwise refunds / other-device purchases never propagate.
+        // `.fetchCurrent` is the non-default policy that guarantees this.
+        XCTAssertTrue(storeSource.contains("customerInfo(fetchPolicy: .fetchCurrent)"))
 
         // Pending (Ask-to-Buy / SCA): a pending purchase never unlocks, and the pending
         // state clears once the entitlement actually unlocks (so Restore/Redeem re-enable).
-        XCTAssertTrue(storeSource.contains("case .pending:"))
-        XCTAssertTrue(storeSource.contains("purchaseState = .pending"))
+        XCTAssertTrue(storeSource.contains(".paymentPendingError"))
         XCTAssertTrue(storeSource.contains("if unlocked && purchaseState == .pending"))
+
+        // Migration guards: the native StoreKit plumbing is gone. RevenueCat verifies,
+        // encodes revocation into `isActive`, and auto-finishes transactions; re-introducing
+        // any of these would double-handle purchases or fight the SDK (observer mode).
+        XCTAssertFalse(storeSource.contains("Transaction.updates"))
+        XCTAssertFalse(storeSource.contains("Transaction.currentEntitlements"))
+        XCTAssertFalse(storeSource.contains("transaction.finish()"))
+        XCTAssertFalse(storeSource.contains("AppStore.sync()"))
+        XCTAssertFalse(storeSource.contains("purchasesAreCompletedBy: .myApp"))
+        XCTAssertFalse(storeSource.contains("recordPurchase"))
+
+        // Configuration: one auditable place for the public key + entitlement id, configured
+        // once, using RevenueCat's default (SDK-completed) purchase mode. The key and
+        // entitlement id must be the real dashboard values — a reverted placeholder key or a
+        // wrong entitlement identifier would silently make every entitlement read inactive.
+        XCTAssertTrue(configSource.contains(#"static let publicAPIKey = "appl_"#))
+        XCTAssertFalse(configSource.contains("REPLACE_ME"))
+        XCTAssertFalse(configSource.contains("test_iZhxBFYdgodhOoQkJoDgLpmweay"))
+        XCTAssertTrue(configSource.contains(#"static let proEntitlementID = "Body: Health Dashboard Pro""#))
+        XCTAssertTrue(configSource.contains("guard !Purchases.isConfigured"))
+        XCTAssertTrue(configSource.contains("Purchases.configure(with:"))
 
         // Shared App Group flag: synchronous source of truth for the widget process and
         // the non-SwiftUI stores; falls back to locked and posts only on a real change.

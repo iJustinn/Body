@@ -1,5 +1,16 @@
 # Version History
 
+## 0.9.7 (build 3)
+
+- **Body Pro now runs on RevenueCat.** Purchases, entitlements, restore, and pending (Ask to Buy) handling moved from the hand-rolled StoreKit 2 store to the RevenueCat SDK, with the paywall UI and the shared App Group entitlement flag (read by widgets and the watch) unchanged. Added a **Manage Purchases** entry in Settings ▸ About that opens the RevenueCat **Customer Center** (restore, refunds, support), localized in Simplified Chinese.
+- Performance: the watch snapshot (weekly aggregations, sleep score) is now built and encoded off the main thread on every refresh, mirroring the existing widget-snapshot path, with a paired permission value and a latest-wins ordering guard so a delayed build can never ship stale or out-of-order data to the watch.
+- Performance: the watch app now reloads its complication timelines only when the pushed snapshot actually changed on disk, instead of on every refresh and every foreground live heart-rate/HRV update.
+- Performance: the widget and complication snapshot stores now cache decoded snapshots by file identity (modification date + size), so repeated timeline passes across widget kinds and complications no longer each re-read and re-decode the same App Group file.
+- Performance: the Home screen's summary metric cards are now memoized against their full set of inputs (health data, unit preferences, sleep settings, day, locale, and time zone), so they're rebuilt only when something they depend on actually changes instead of on every render.
+- Performance: the Workouts tab flattens the selected month once per render instead of twice, and search text is matched against a cached per-workout corpus instead of re-lowercasing and re-formatting every workout's type, source, and date on each keystroke.
+- Performance: Apple Health source discovery for multi-metric categories (e.g. weight, body fat, and BMI together) now runs its per-metric-type queries concurrently instead of one at a time.
+- Updated the app, widget, watch, and test bundle version to 0.9.7 build 3.
+
 ## 0.9.7 (build 2)
 
 - **Workout details now show pace splits.** A new **Splits** section on the workout detail page breaks running, walking, hiking, wheelchair, and cycling workouts into per-kilometer or per-mile segments — each row showing the segment, a relative pace bar (shortest for the fastest split), its pace (speed for cycling), and average heart rate, with the fastest split highlighted in the Heart Rate card's blue; a partial final split is labeled with its fraction of a full unit. It appears only when a workout has enough recorded distance data for at least one complete split, and the km/mi boundaries switch live with the Settings distance unit.
