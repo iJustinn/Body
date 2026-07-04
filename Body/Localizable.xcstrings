@@ -4264,6 +4264,22 @@
         }
       }
     },
+    "No sleep data yet" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No sleep data yet"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还没有睡眠数据"
+          }
+        }
+      }
+    },
     "No sleep or workout heart rate for this day" : {
       "localizations" : {
         "en" : {

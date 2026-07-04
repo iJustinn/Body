@@ -819,9 +819,11 @@ struct BodyHealthMetricDetailView: View {
                 }
             } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: "heart.text.square.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(model.symbolColor)
+                    ForEach(Array(dataSourceFooterIconNames.enumerated()), id: \.offset) { _, iconName in
+                        Image(systemName: iconName)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(model.symbolColor)
+                    }
 
                     Text(dataSourceFooterText(defaultText: dataSourceText.sourceText))
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
@@ -842,6 +844,40 @@ struct BodyHealthMetricDetailView: View {
             .padding(.top, 2)
             .padding(.bottom, 4)
         }
+    }
+
+    private var dataSourceFooterIconNames: [String] {
+        guard model.kind.supportsHealthDataSourceSelection else {
+            return ["heart.text.square.fill"]
+        }
+
+        let primary = workoutStore.selectedHealthDataSourceOption(for: model.kind)
+        let primaryIcon = primary.isAllSources
+            ? "heart.text.square"
+            : BodyHealthSourceIcon.systemImageName(
+                name: primary.name,
+                bundleIdentifier: primary.iconBundleIdentifierHint,
+                fallback: "heart.text.square"
+            )
+
+        guard model.kind.supportsSecondaryHealthDataSourceSelection else {
+            return [primaryIcon]
+        }
+
+        let secondary = workoutStore.selectedSecondaryHealthDataSourceOption(for: model.kind)
+        guard !secondary.isNoComparison else {
+            return [primaryIcon]
+        }
+
+        let secondaryIcon = secondary.isAllSources
+            ? "square.text.square"
+            : BodyHealthSourceIcon.systemImageName(
+                name: secondary.name,
+                bundleIdentifier: secondary.iconBundleIdentifierHint,
+                fallback: "square.text.square"
+            )
+
+        return [primaryIcon, secondaryIcon]
     }
 
     private func dataSourceFooterText(defaultText: String) -> String {
@@ -889,12 +925,26 @@ struct BodyHealthMetricDetailView: View {
 
             metricHeroValueRow
 
+            if sleepDataUnavailableForToday {
+                Text("No sleep data yet")
+                    .font(.system(.body, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            }
+
             metricBreakdownChart
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
         .padding(.bottom, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var sleepDataUnavailableForToday: Bool {
+        model.kind == .sleep &&
+            model.sleepDuration == nil &&
+            (model.sleepStageSnapshot?.isEmpty ?? true) &&
+            (model.sleepVitals?.isEmpty ?? true)
     }
 
     // The per-metric cards that scroll below the hero (unchanged from the prior

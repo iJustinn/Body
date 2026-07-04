@@ -153,6 +153,24 @@ struct BodyHealthDataSourceOption: Codable, Equatable, Identifiable {
         id.hasPrefix(Self.combinedSourcePrefix)
     }
 
+    var iconBundleIdentifierHint: String? {
+        if isAllSources || isNoComparison || isCombinedSource {
+            return nil
+        }
+
+        let disambiguatedPrefix = "source:bundle="
+        guard id.hasPrefix(disambiguatedPrefix) else {
+            return id
+        }
+
+        let remainder = id.dropFirst(disambiguatedPrefix.count)
+        guard let nameRange = remainder.range(of: "|name=") else {
+            return String(remainder)
+        }
+
+        return String(remainder[remainder.startIndex..<nameRange.lowerBound])
+    }
+
     static func normalizedSourceName(_ name: String) -> String {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayName = trimmedName.isEmpty ? "Unknown Source" : trimmedName

@@ -2196,12 +2196,23 @@ private struct BodySourceSettingsSheet: View {
             return "minus.circle.fill"
         }
 
+        let fallback: String
         switch role {
         case .primary:
-            return "heart.text.square.fill"
+            fallback = "heart.text.square"
         case .secondary:
-            return "square.stack.3d.up.fill"
+            fallback = "square.text.square"
         }
+
+        if option.isAllSources {
+            return fallback
+        }
+
+        return BodyHealthSourceIcon.systemImageName(
+            name: option.name,
+            bundleIdentifier: option.iconBundleIdentifierHint,
+            fallback: fallback
+        )
     }
 
     private func updateSelection(_ option: BodyHealthDataSourceOption, role: Role) {
