@@ -154,8 +154,11 @@ struct BodyProView: View {
             .disabled(isPurchaseFlowActive)
         }
         .offerCodeRedemption(isPresented: $showRedeemSheet) { _ in
-            // Redemptions also arrive via Transaction.updates; refresh proactively.
-            Task { await proStore?.refreshEntitlement() }
+            // Sync with the App Store so RevenueCat ingests the redeemed transaction, then
+            // re-resolve the entitlement. (Offer codes are a subscription mechanism; for
+            // this lifetime non-consumable the path is best-effort — worth revisiting
+            // whether promo-code redemption belongs here at all.)
+            Task { await proStore?.refreshAfterRedemption() }
         }
     }
 }

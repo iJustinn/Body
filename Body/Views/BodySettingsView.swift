@@ -3,6 +3,7 @@
 //  Body
 //
 
+import RevenueCatUI
 import SafariServices
 import SwiftUI
 import UIKit
@@ -29,6 +30,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @State private var activeSheet: BodySettingsSheet?
     @State private var showBodyProPaywall = false
+    @State private var showCustomerCenter = false
     @State private var selectedAppIconName: String?
     @State private var showingAppIconError = false
     @State private var appIconErrorMessage = ""
@@ -70,6 +72,9 @@ struct BodySettingsView: View {
             }
             .sheet(isPresented: $showBodyProPaywall) {
                 NavigationStack { BodyProView() }
+            }
+            .sheet(isPresented: $showCustomerCenter) {
+                CustomerCenterView()
             }
             .sheet(isPresented: $showingPrivacyBrowser) {
                 if let url = URL(string: privacyPolicyURLString) {
@@ -206,8 +211,30 @@ struct BodySettingsView: View {
                 if tab != .version {
                     settingsDivider
                 }
+
+                // Manage Purchases (RevenueCat Customer Center) sits just above "More".
+                if tab == .privacy {
+                    managePurchasesRow
+                    settingsDivider
+                }
             }
         }
+    }
+
+    // RevenueCat Customer Center: restore, manage, and get help with purchases.
+    private var managePurchasesRow: some View {
+        Button {
+            showCustomerCenter = true
+        } label: {
+            BodySettingsRowLabel(
+                title: "Manage Purchases",
+                value: nil,
+                iconName: "person.crop.circle",
+                tintColor: .gray,
+                accessory: .chevron
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

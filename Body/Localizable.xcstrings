@@ -2937,7 +2937,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "锻炼分钟数"
+            "value" : "运动时长"
           }
         }
       }
@@ -3777,6 +3777,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最低%@"
+          }
+        }
+      }
+    },
+    "Manage Purchases" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manage Purchases"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理会员"
           }
         }
       }
