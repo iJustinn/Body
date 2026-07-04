@@ -2,9 +2,11 @@
 //  SleepStagesWidget.swift
 //  BodyWidgetExtension
 //
-//  Medium widget that charts the most recent night's sleep stages for the
-//  primary source selected in the app. Background is chosen in the widget's
-//  edit screen (reusing BodyWidgetConfigurationIntent).
+//  Medium widget that charts today's sleep stages for the primary source
+//  selected in the app, once available (empty until today's own sleep
+//  session is recorded — a prior night's stages are never carried over).
+//  Background is chosen in the widget's edit screen (reusing
+//  BodyWidgetConfigurationIntent).
 //
 
 import AppIntents
@@ -44,10 +46,12 @@ struct SleepStagesProvider: AppIntentTimelineProvider {
         configuration: BodyWidgetConfigurationIntent,
         usePlaceholderWhenEmpty: Bool
     ) -> SleepStagesEntry {
+        let now = Date()
         let loaded = HealthWidgetSnapshotStore.load()
-        let snapshot = loaded ?? (usePlaceholderWhenEmpty ? .placeholder : .empty)
+        let snapshot = (loaded ?? (usePlaceholderWhenEmpty ? .placeholder : .empty))
+            .sanitizingStaleSleep(asOf: now)
         return SleepStagesEntry(
-            date: Date(),
+            date: now,
             background: configuration.background ?? .system,
             sleep: snapshot.sleep,
             // Preview/gallery shows the real widget; the live timeline respects the flag.
@@ -76,7 +80,7 @@ struct BodySleepStagesWidget: Widget {
         }
         .supportedFamilies([.systemMedium])
         .configurationDisplayName("Sleep Stages")
-        .description("View last night's sleep stages.")
+        .description("View today's sleep stages.")
         .contentMarginsDisabled()
     }
 }

@@ -71,6 +71,12 @@ enum HealthWidgetSnapshotBuilder {
         date: Date = Date(),
         calendar: Calendar = .bodyGregorian
     ) -> HealthWidgetSnapshot {
+        // Guard against carrying over a stale, previously-completed night into
+        // the widget after midnight, before today's own sleep session exists.
+        var summary = summary
+        summary.sleep = summary.sleep.asOf(date, calendar: calendar) ?? SleepSummary(duration: nil)
+        let sleepStageSnapshot = summary.sleep.stageSnapshot
+
         let metricTrends = HealthWidgetMetric.allCases.map { metric in
             metricTrend(
                 for: metric,

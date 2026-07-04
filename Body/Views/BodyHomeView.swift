@@ -644,7 +644,8 @@ struct BodyHomeView: View {
     }
 
     private var metricCardsByKind: [HealthMetricKind: BodyHealthMetricCard.Model] {
-        trendComputationCache.metricCards(inputs: metricCardsInputs, build: buildMetricCards)
+        let inputs = metricCardsInputs
+        return trendComputationCache.metricCards(inputs: inputs) { self.buildMetricCards(today: inputs.dayStart) }
     }
 
     /// Snapshot of every input `buildMetricCards()` reads, used as the memoization key.
@@ -667,7 +668,7 @@ struct BodyHomeView: View {
         )
     }
 
-    private func buildMetricCards() -> [BodyHealthMetricCard.Model] {
+    private func buildMetricCards(today: Date) -> [BodyHealthMetricCard.Model] {
         let summary = workoutStore.healthSummary
         let trends = workoutStore.healthTrends
 
@@ -727,7 +728,8 @@ struct BodyHomeView: View {
             sleepMetric(
                 summary: summary,
                 sleepHistory: trends.sleepHistory,
-                chartPreview: trends.series(for: .sleep)
+                chartPreview: trends.series(for: .sleep),
+                today: today
             ),
             basicsMetric(summary: summary, chartPreview: trends.series(for: .bodyMass)),
             metric(
@@ -971,16 +973,20 @@ struct BodyHomeView: View {
     private func sleepMetric(
         summary: HealthSummarySnapshot,
         sleepHistory: SleepHistorySnapshot,
-        chartPreview: HealthTrendSeries
+        chartPreview: HealthTrendSeries,
+        today: Date
     ) -> BodyHealthMetricCard.Model {
+        let todaySleep = summary.sleep.asOf(today)
         let prominentMetrics: [BodyMetricDisplayValue]
         if showSleepScore {
-            let sleepScoreDisplay = SleepScoreSummary(
-                sleep: summary.sleep,
-                idealSleepDuration: sleepDurationGoal,
-                recentSleepHistory: sleepHistory,
-                on: summary.sleep.stageSnapshot.date
-            ).map {
+            let sleepScoreDisplay = todaySleep.flatMap {
+                SleepScoreSummary(
+                    sleep: $0,
+                    idealSleepDuration: sleepDurationGoal,
+                    recentSleepHistory: sleepHistory,
+                    on: $0.stageSnapshot.date
+                )
+            }.map {
                 BodyMetricDisplayValue(title: "Score", value: "\($0.total)", unit: "PTS")
             } ?? BodyMetricDisplayValue(title: "Score", value: "--", unit: "")
 
@@ -988,7 +994,7 @@ struct BodyHomeView: View {
                 sleepScoreDisplay,
                 BodyMetricDisplayValue(
                     title: "Duration",
-                    value: formattedSleepDuration(summary.sleep.duration),
+                    value: formattedSleepDuration(todaySleep?.duration),
                     unit: ""
                 )
             ]
@@ -999,7 +1005,7 @@ struct BodyHomeView: View {
         return BodyHealthMetricCard.Model(
             kind: .sleep,
             title: "Sleep",
-            value: formattedSleepDuration(summary.sleep.duration),
+            value: formattedSleepDuration(todaySleep?.duration),
             unit: "",
             symbolName: "bed.double.fill",
             symbolColor: Color(red: 0.20, green: 0.72, blue: 1.00),
@@ -1302,27 +1308,30 @@ struct BodyHomeView: View {
                 sleepHistory: trends.sleepHistory
             )
         case .sleep:
+            let todaySleep = summary.sleep.asOf(Date())
             return BodyHealthMetricDetailModel(
                 kind: kind,
                 title: "Sleep",
-                value: formattedSleepDuration(summary.sleep.duration),
+                value: formattedSleepDuration(todaySleep?.duration),
                 unit: "",
                 symbolName: "bed.double.fill",
                 symbolColor: Color(red: 0.20, green: 0.72, blue: 1.00),
                 series: trends.sleep,
                 secondaryDaySeries: .empty,
                 basicsTrend: nil,
-                sleepStageSnapshot: summary.sleep.stageSnapshot,
+                sleepStageSnapshot: todaySleep?.stageSnapshot,
                 sleepScore: showSleepScore
-                    ? SleepScoreSummary(
-                        sleep: summary.sleep,
-                        idealSleepDuration: sleepDurationGoal,
-                        recentSleepHistory: trends.sleepHistory,
-                        on: summary.sleep.stageSnapshot.date
-                    )
+                    ? todaySleep.flatMap {
+                        SleepScoreSummary(
+                            sleep: $0,
+                            idealSleepDuration: sleepDurationGoal,
+                            recentSleepHistory: trends.sleepHistory,
+                            on: $0.stageSnapshot.date
+                        )
+                    }
                     : nil,
-                sleepVitals: summary.sleep.vitals,
-                sleepDuration: summary.sleep.duration,
+                sleepVitals: todaySleep?.vitals,
+                sleepDuration: todaySleep?.duration,
                 sleepHistory: trends.sleepHistory,
                 sleepHistorySecondary: trends.sleepHistorySecondary,
                 chartStyle: .line,

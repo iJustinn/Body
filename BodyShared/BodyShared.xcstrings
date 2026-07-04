@@ -273,19 +273,19 @@
         }
       }
     },
-    "No sleep data": {
+    "No sleep data yet": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No sleep data"
+            "value": "No sleep data yet"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "暂无睡眠数据"
+            "value": "还没有睡眠数据"
           }
         }
       }
@@ -490,6 +490,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "步数"
+          }
+        }
+      }
+    },
+    "Syncs after tonight's sleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syncs after tonight's sleep"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今晚睡眠同步后显示"
           }
         }
       }

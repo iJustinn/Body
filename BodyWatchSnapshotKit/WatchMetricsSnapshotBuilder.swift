@@ -32,9 +32,18 @@ enum WatchMetricsSnapshotBuilder {
         // hid. `.heart` gates HR, HRV, and Resting HR.
         var metrics: [WatchMetric] = [readinessMetric(summary.readiness)]
 
+        // The trusted night's day, carried on the snapshot so the watch can
+        // re-run the staleness guard at display time on a snapshot that outlived
+        // midnight in its cache (see `WatchMetricsSnapshot.sanitized`).
+        var sleepNight: Date? = nil
+
         if permissionSelection.includes(.sleep) {
+            // Guards against carrying over a stale, previously-completed night
+            // after midnight before today's own sleep session exists.
+            let trustedSleep = summary.sleep.asOf(now)
+            sleepNight = trustedSleep?.stageSnapshot.date
             metrics.append(sleepMetric(
-                summary.sleep,
+                trustedSleep,
                 recentSleepHistory: trends.sleepHistory,
                 idealSleepDuration: idealSleepDuration,
                 showScore: showSleepScore
@@ -94,7 +103,7 @@ enum WatchMetricsSnapshotBuilder {
             stampedMetric.weekly = weeklyValues(forKind: metric.kind)
             return stampedMetric
         }
-        return WatchMetricsSnapshot(generatedAt: now, lastRefreshDate: lastRefreshDate, metrics: stamped)
+        return WatchMetricsSnapshot(generatedAt: now, lastRefreshDate: lastRefreshDate, metrics: stamped, sleepNight: sleepNight)
     }
 
     // MARK: - Per-metric builders
@@ -129,7 +138,7 @@ enum WatchMetricsSnapshotBuilder {
     }
 
     private static func sleepMetric(
-        _ sleep: SleepSummary,
+        _ sleep: SleepSummary?,
         recentSleepHistory: SleepHistorySnapshot,
         idealSleepDuration: TimeInterval,
         showScore: Bool
@@ -139,18 +148,18 @@ enum WatchMetricsSnapshotBuilder {
         // Compute the score with the user's sleep-duration goal + recent history
         // for vitals baselines, matching the iPhone (the bare `sleep.score` would
         // use the 8h default + empty history and diverge from the phone).
-        let total = showScore
-            ? SleepScoreSummary(
-                sleep: sleep,
+        let total = (showScore ? sleep : nil).flatMap {
+            SleepScoreSummary(
+                sleep: $0,
                 idealSleepDuration: idealSleepDuration,
                 recentSleepHistory: recentSleepHistory,
-                on: sleep.stageSnapshot.date
+                on: $0.stageSnapshot.date
             )?.total
-            : nil
+        }
         return WatchMetric(
             kind: WatchMetricKindKey.sleep,
             title: String(localized: "Sleep", table: "BodyWatchSnapshotKit"),
-            displayValue: sleep.duration.map { BodyValueFormat.sleepDurationText(for: $0) } ?? "--",
+            displayValue: sleep?.duration.map { BodyValueFormat.sleepDurationText(for: $0) } ?? "--",
             unit: "",
             score: total,
             fillFraction: total.map { Double($0) / 100 } ?? 0,

@@ -27,7 +27,7 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     private var pendingConnectivityTasks: [WKWatchConnectivityRefreshBackgroundTask] = []
 
     private override init() {
-        snapshot = WatchMetricsSnapshotStore.load() ?? .empty
+        snapshot = (WatchMetricsSnapshotStore.load() ?? .empty).sanitized()
         hiddenMetricKinds = Self.loadHiddenMetricKinds()
         super.init()
     }
@@ -43,6 +43,10 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         if let stored = WatchMetricsSnapshotStore.load(), stored.generatedAt >= snapshot.generatedAt {
             snapshot = stored
         }
+        // A cached snapshot can outlive midnight; re-gate its Sleep metric at
+        // display time so a night that's no longer today doesn't linger (mirrors
+        // the phone's build-time `SleepSummary.asOf`).
+        snapshot = snapshot.sanitized()
         Task { await refreshLiveMetricsIfStale() }
     }
 
@@ -59,7 +63,10 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         guard let data = context["snapshot"] as? Data,
               let received = WatchMetricsSnapshot.decoded(from: data),
               received.generatedAt > snapshot.generatedAt else { return }
-        apply(merging(received))
+        // Sanitize AFTER merging: a snapshot built before midnight can be
+        // delivered after it, and the merge's don't-downgrade rule can also
+        // resurrect a stale local sleep value over an incoming blank one.
+        apply(merging(received).sanitized())
     }
 
     /// Adopts the phone's health-permission selection (phone-authoritative,

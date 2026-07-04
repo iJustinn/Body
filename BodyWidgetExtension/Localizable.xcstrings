@@ -591,23 +591,6 @@
         }
       }
     },
-    "View last night's sleep stages.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "View last night's sleep stages."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "查看昨晚的睡眠阶段。"
-          }
-        }
-      }
-    },
     "View this month's workout days.": {
       "extractionState": "manual",
       "localizations": {
@@ -638,6 +621,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "按类型查看本月的体能训练时长。"
+          }
+        }
+      }
+    },
+    "View today's sleep stages.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View today's sleep stages."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看今天的睡眠阶段。"
           }
         }
       }

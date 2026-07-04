@@ -338,6 +338,20 @@ struct HealthWidgetSleepStages: Codable, Equatable {
     }
 
     static let empty = HealthWidgetSleepStages(night: nil, sourceName: nil, segments: [])
+
+    /// True when `night` is missing or isn't the same calendar day as `date` —
+    /// i.e. these stages can't be trusted as belonging to `date`'s night and
+    /// must not be displayed as if they were "tonight's" sleep. A snapshot
+    /// persisted to the App Group before midnight still holds a legitimately
+    /// current "last night" at write time; the widget timeline just re-reads
+    /// that cache every ~30 min without rebuilding, so staleness must be
+    /// re-checked again at load/display time. A nil `night` is treated as
+    /// stale, matching how `SleepSummary.matchesDay` never trusts a missing
+    /// date (BodyMetricsKit/Sleep.swift).
+    func isStale(asOf date: Date, calendar: Calendar = .bodyGregorian) -> Bool {
+        guard let night else { return true }
+        return !calendar.isDate(night, inSameDayAs: date)
+    }
 }
 
 // MARK: - Snapshot
@@ -363,6 +377,29 @@ struct HealthWidgetSnapshot: Codable, Equatable {
 
     var isEmpty: Bool {
         metricTrends.allSatisfy { !$0.hasAnyData } && sleep.isEmpty
+    }
+
+    /// Blanks sleep data that's gone stale since this snapshot was persisted.
+    /// `HealthWidgetSnapshotBuilder` already guards against carrying over a
+    /// stale night when the phone rebuilds the snapshot (`SleepSummary.asOf`),
+    /// but a snapshot written to the App Group before midnight still holds a
+    /// valid "last night" at write time — the widget timeline just re-reads
+    /// that cache every ~30 min without rebuilding it. Widget providers call
+    /// this with the current `Date()` at entry-build time so widgets never
+    /// keep showing yesterday's sleep after midnight. Only blanks the
+    /// "current sleep" style displays (`sleep` stages, the `.sleep` metric's
+    /// `displayValues`); the week/month trend series are per-day dated
+    /// history, not stale carry-over, and are left untouched.
+    func sanitizingStaleSleep(asOf date: Date, calendar: Calendar = .bodyGregorian) -> HealthWidgetSnapshot {
+        guard sleep.isStale(asOf: date, calendar: calendar) else { return self }
+        var sanitized = self
+        sanitized.sleep = .empty
+        if let index = sanitized.metricTrends.firstIndex(where: { $0.metric == .sleep }) {
+            sanitized.metricTrends[index].displayValues = sanitized.metricTrends[index].displayValues.map { _ in
+                HealthWidgetDisplayValue(value: "--", unit: "")
+            }
+        }
+        return sanitized
     }
 
     static let empty = HealthWidgetSnapshot()

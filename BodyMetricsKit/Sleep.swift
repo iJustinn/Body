@@ -23,6 +23,22 @@ struct SleepSummary: Codable, Equatable {
     var score: SleepScoreSummary? {
         SleepScoreSummary(sleep: self)
     }
+
+    func matchesDay(_ date: Date, calendar: Calendar = .bodyGregorian) -> Bool {
+        guard duration != nil || !stageSnapshot.isEmpty || !vitals.isEmpty else {
+            return false
+        }
+        guard let summaryDate = stageSnapshot.date else {
+            return false
+        }
+        return calendar.isDate(summaryDate, inSameDayAs: date)
+    }
+
+    /// `self` if it can be trusted as `today`'s sleep, else `nil` — guards
+    /// against carrying over a stale, previously-completed night.
+    func asOf(_ today: Date, calendar: Calendar = .bodyGregorian) -> SleepSummary? {
+        matchesDay(today, calendar: calendar) ? self : nil
+    }
 }
 
 struct SleepDaySummary: Codable, Equatable, Identifiable {
@@ -254,6 +270,15 @@ struct SleepStageSnapshot: Codable, Equatable {
             .min()
     }
 
+    /// Last time asleep — the latest end of the sleep-stage segments, excluding
+    /// trailing awake time (symmetric with `sleepStartDate`'s sleep onset).
+    var sleepEndDate: Date? {
+        segments
+            .filter { SleepStage.sleepStages.contains($0.stage) }
+            .map(\.endDate)
+            .max()
+    }
+
     var hasDetailedStages: Bool {
         segments.contains { $0.stage == .rem || $0.stage == .deep }
     }
@@ -295,13 +320,13 @@ struct SleepScoreSummary: Equatable {
             categoryScores.append(continuityCategory)
         }
 
-        if let startTimeCategory = Self.startTimeCategory(
+        if let consistencyCategory = Self.consistencyCategory(
             sleep: sleep,
             recentSleepHistory: recentSleepHistory,
             on: date,
             calendar: calendar
         ) {
-            categoryScores.append(startTimeCategory)
+            categoryScores.append(consistencyCategory)
         }
 
         if sleep.stageSnapshot.hasDetailedStages {
@@ -438,13 +463,14 @@ struct SleepScoreSummary: Equatable {
         )
     }
 
-    private static func startTimeCategory(
+    private static func consistencyCategory(
         sleep: SleepSummary,
         recentSleepHistory: SleepHistorySnapshot,
         on date: Date?,
         calendar: Calendar
     ) -> SleepScoreCategory? {
-        guard let sleepStartDate = sleep.stageSnapshot.sleepStartDate else {
+        guard let sleepStartDate = sleep.stageSnapshot.sleepStartDate,
+              let sleepEndDate = sleep.stageSnapshot.sleepEndDate else {
             return nil
         }
 
@@ -452,29 +478,39 @@ struct SleepScoreSummary: Equatable {
         let scoringDay = calendar.startOfDay(for: scoringDate)
         let oldestBaselineDay = calendar.date(
             byAdding: .day,
-            value: -Self.startTimeBaselineDayCount,
+            value: -Self.consistencyBaselineDayCount,
             to: scoringDay
-        ) ?? scoringDay.addingTimeInterval(-TimeInterval(Self.startTimeBaselineDayCount) * Self.secondsPerDay)
-        let baselineStartDates = recentSleepHistory.days.compactMap { day -> Date? in
+        ) ?? scoringDay.addingTimeInterval(-TimeInterval(Self.consistencyBaselineDayCount) * Self.secondsPerDay)
+        let baselineNights = recentSleepHistory.days.compactMap { day -> (start: Date, end: Date)? in
             let dayDate = calendar.startOfDay(for: day.date)
-            guard dayDate < scoringDay, dayDate >= oldestBaselineDay else {
+            guard dayDate < scoringDay, dayDate >= oldestBaselineDay,
+                  let start = day.summary.stageSnapshot.sleepStartDate,
+                  let end = day.summary.stageSnapshot.sleepEndDate else {
                 return nil
             }
 
-            return day.summary.stageSnapshot.sleepStartDate
+            return (start, end)
         }
 
-        guard baselineStartDates.count >= Self.minimumStartTimeBaselineCount,
-              let baselineSeconds = circularAverageSeconds(for: baselineStartDates, calendar: calendar) else {
+        guard baselineNights.count >= Self.minimumConsistencyBaselineCount,
+              let baselineStartSeconds = circularAverageSeconds(for: baselineNights.map(\.start), calendar: calendar),
+              let baselineEndSeconds = circularAverageSeconds(for: baselineNights.map(\.end), calendar: calendar) else {
             return nil
         }
 
-        let sleepStartSeconds = secondsSinceStartOfDay(sleepStartDate, calendar: calendar)
-        let deviation = circularDeviationSeconds(from: sleepStartSeconds, to: baselineSeconds)
+        let startDeviation = circularDeviationSeconds(
+            from: secondsSinceStartOfDay(sleepStartDate, calendar: calendar),
+            to: baselineStartSeconds
+        )
+        let endDeviation = circularDeviationSeconds(
+            from: secondsSinceStartOfDay(sleepEndDate, calendar: calendar),
+            to: baselineEndSeconds
+        )
+        let deviation = (startDeviation + endDeviation) / 2
         return category(
-            kind: .startTime,
-            progress: startTimeProgress(forDeviation: deviation),
-            maximumPoints: 10,
+            kind: .consistency,
+            progress: consistencyProgress(forDeviation: deviation),
+            maximumPoints: 15,
             valueDescription: String(localized: "\(BodyValueFormat.durationText(for: deviation)) off", table: "BodyMetricsKit")
         )
     }
@@ -636,19 +672,19 @@ struct SleepScoreSummary: Equatable {
         return max(0.92 - (hours - idealHours - 2) * 0.15, 0.4)
     }
 
-    private static func startTimeProgress(forDeviation deviation: TimeInterval) -> Double {
-        if deviation <= Self.startTimeFullCreditDeviation {
+    private static func consistencyProgress(forDeviation deviation: TimeInterval) -> Double {
+        if deviation <= Self.consistencyFullCreditDeviation {
             return 1
         }
 
-        if deviation >= Self.startTimeNoCreditDeviation {
+        if deviation >= Self.consistencyNoCreditDeviation {
             return 0
         }
 
         return min(
             max(
-                1 - ((deviation - Self.startTimeFullCreditDeviation) /
-                    (Self.startTimeNoCreditDeviation - Self.startTimeFullCreditDeviation)),
+                1 - ((deviation - Self.consistencyFullCreditDeviation) /
+                    (Self.consistencyNoCreditDeviation - Self.consistencyFullCreditDeviation)),
                 0
             ),
             1
@@ -725,14 +761,14 @@ struct SleepScoreSummary: Equatable {
         return min(max(1 - ((value - upperBound) / tolerance), 0), 1)
     }
 
-    private static let startTimeBaselineDayCount = 14
-    private static let minimumStartTimeBaselineCount = 3
-    private static let startTimeFullCreditDeviation: TimeInterval = 45 * 60
-    private static let startTimeNoCreditDeviation: TimeInterval = 150 * 60
+    private static let consistencyBaselineDayCount = 14
+    private static let minimumConsistencyBaselineCount = 3
+    private static let consistencyFullCreditDeviation: TimeInterval = 45 * 60
+    private static let consistencyNoCreditDeviation: TimeInterval = 150 * 60
     private static let vitalsBaselineDayCount = 14
     private static let minimumVitalsBaselineCount = 5
     private static let decompressionSteepness = 0.45
-    private static let fullCategoryPoints = 110
+    private static let fullCategoryPoints = 115
     private static let secondsPerDay: TimeInterval = 24 * 60 * 60
 }
 
@@ -740,7 +776,7 @@ struct SleepScoreCategory: Equatable, Identifiable {
     enum Kind: String, Equatable {
         case duration
         case continuity
-        case startTime
+        case consistency
         case rem
         case deep
         case pressure
@@ -753,8 +789,8 @@ struct SleepScoreCategory: Equatable, Identifiable {
                 return String(localized: "Amount", table: "BodyMetricsKit")
             case .continuity:
                 return String(localized: "Continuity", table: "BodyMetricsKit")
-            case .startTime:
-                return String(localized: "Start Time", table: "BodyMetricsKit")
+            case .consistency:
+                return String(localized: "Consistency", table: "BodyMetricsKit")
             case .rem:
                 return String(localized: "REM", table: "BodyMetricsKit")
             case .deep:

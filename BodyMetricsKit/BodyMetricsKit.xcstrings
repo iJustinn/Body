@@ -1445,6 +1445,23 @@
         }
       }
     },
+    "Consistency" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consistency"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "规律性"
+          }
+        }
+      }
+    },
     "Continuity" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4605,23 +4622,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "爬楼梯"
-          }
-        }
-      }
-    },
-    "Start Time" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Start Time"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "入睡时间"
           }
         }
       }

@@ -21,14 +21,16 @@ struct WatchMetricProvider: TimelineProvider {
 
     func getSnapshot(in context: Context, completion: @escaping (WatchMetricEntry) -> Void) {
         // Gallery previews fall back to sample data; a configured complication
-        // keeps the honest empty state.
-        let stored = WatchMetricsSnapshotStore.load()
+        // keeps the honest empty state. `sanitized` re-gates a cached snapshot's
+        // Sleep metric at display time so a night that outlived midnight isn't
+        // shown as today's.
+        let stored = WatchMetricsSnapshotStore.load()?.sanitized()
         let snapshot = stored ?? (context.isPreview ? .placeholder : .empty)
         completion(WatchMetricEntry(date: Date(), snapshot: snapshot))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<WatchMetricEntry>) -> Void) {
-        let snapshot = WatchMetricsSnapshotStore.load() ?? .empty
+        let snapshot = WatchMetricsSnapshotStore.load()?.sanitized() ?? .empty
         let entry = WatchMetricEntry(date: Date(), snapshot: snapshot)
         let next = Date().addingTimeInterval(WatchMetricsSnapshot.staleInterval)
         completion(Timeline(entries: [entry], policy: .after(next)))

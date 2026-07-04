@@ -3570,7 +3570,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(customGoalScore.total, 100)
     }
 
-    func testSleepScorePenalizesStartTimeDeviationFromRecentBaseline() throws {
+    func testSleepScorePenalizesConsistencyDeviationFromRecentBaseline() throws {
         let calendar = Calendar.bodyGregorian
         let currentDay = try XCTUnwrap(calendar.date(
             from: DateComponents(year: 2026, month: 5, day: 15)
@@ -3624,11 +3624,141 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             calendar: calendar
         ))
 
-        XCTAssertEqual(score.total, 78)
-        XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .startTime])
-        XCTAssertEqual(score.category(for: .startTime)?.points, 0)
-        XCTAssertEqual(score.category(for: .startTime)?.maximumPoints, 10)
-        XCTAssertEqual(score.category(for: .startTime)?.valueDescription, "3h off")
+        XCTAssertEqual(score.total, 69)
+        XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .consistency])
+        XCTAssertEqual(score.category(for: .consistency)?.points, 0)
+        XCTAssertEqual(score.category(for: .consistency)?.maximumPoints, 15)
+        XCTAssertEqual(score.category(for: .consistency)?.valueDescription, "3h off")
+    }
+
+    func testSleepScoreConsistencyPenalizesWakeTimeDeviationAlone() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDay = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15)
+        ))
+        let currentStart = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 14, hour: 23)
+        ))
+        let history = SleepHistorySnapshot(days: try (1...14).map { day -> SleepDaySummary in
+            let sleepDay = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 5, day: day)
+            ))
+            let sleepStart = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 5, day: day - 1, hour: 23)
+            ))
+
+            return SleepDaySummary(
+                date: sleepDay,
+                summary: SleepSummary(
+                    duration: 8 * 60 * 60,
+                    stageSnapshot: SleepStageSnapshot(
+                        date: sleepDay,
+                        segments: [
+                            SleepStageSegment(
+                                stage: .core,
+                                startDate: sleepStart,
+                                endDate: sleepStart.addingTimeInterval(8 * 60 * 60)
+                            )
+                        ]
+                    )
+                )
+            )
+        })
+        func consistencyPoints(sleepHours: Double) throws -> Int {
+            let summary = SleepSummary(
+                duration: sleepHours * 60 * 60,
+                stageSnapshot: SleepStageSnapshot(
+                    date: currentDay,
+                    segments: [
+                        SleepStageSegment(
+                            stage: .core,
+                            startDate: currentStart,
+                            endDate: currentStart.addingTimeInterval(sleepHours * 60 * 60)
+                        )
+                    ]
+                )
+            )
+            let score = try XCTUnwrap(SleepScoreSummary(
+                sleep: summary,
+                recentSleepHistory: history,
+                on: currentDay,
+                calendar: calendar
+            ))
+            return try XCTUnwrap(score.category(for: .consistency)?.points)
+        }
+
+        // Bed time matches the baseline in both nights; only the wake time moves.
+        XCTAssertEqual(try consistencyPoints(sleepHours: 8), 15)
+        XCTAssertEqual(try consistencyPoints(sleepHours: 5), 9)
+    }
+
+    func testSleepScoreOmitsConsistencyWithSparseOrAmbiguousBaseline() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDay = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15)
+        ))
+        let currentStart = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 14, hour: 23)
+        ))
+        let currentSummary = SleepSummary(
+            duration: 8 * 60 * 60,
+            stageSnapshot: SleepStageSnapshot(
+                date: currentDay,
+                segments: [
+                    SleepStageSegment(
+                        stage: .core,
+                        startDate: currentStart,
+                        endDate: currentStart.addingTimeInterval(8 * 60 * 60)
+                    )
+                ]
+            )
+        )
+        func history(startHours: [Int]) throws -> SleepHistorySnapshot {
+            SleepHistorySnapshot(days: try startHours.enumerated().map { index, hour -> SleepDaySummary in
+                let sleepDay = try XCTUnwrap(calendar.date(
+                    from: DateComponents(year: 2026, month: 5, day: 10 + index)
+                ))
+                let sleepStart = try XCTUnwrap(calendar.date(
+                    from: DateComponents(year: 2026, month: 5, day: 10 + index, hour: hour)
+                ))
+
+                return SleepDaySummary(
+                    date: sleepDay,
+                    summary: SleepSummary(
+                        duration: 6 * 60 * 60,
+                        stageSnapshot: SleepStageSnapshot(
+                            date: sleepDay,
+                            segments: [
+                                SleepStageSegment(
+                                    stage: .core,
+                                    startDate: sleepStart,
+                                    endDate: sleepStart.addingTimeInterval(6 * 60 * 60)
+                                )
+                            ]
+                        )
+                    )
+                )
+            })
+        }
+
+        // Fewer than 3 baseline nights: category omitted.
+        let sparse = try XCTUnwrap(SleepScoreSummary(
+            sleep: currentSummary,
+            recentSleepHistory: try history(startHours: [23, 23]),
+            on: currentDay,
+            calendar: calendar
+        ))
+        XCTAssertNil(sparse.category(for: .consistency))
+
+        // Baseline times spread evenly around the clock cancel out in the
+        // circular average: category omitted rather than scored against noise.
+        let ambiguous = try XCTUnwrap(SleepScoreSummary(
+            sleep: currentSummary,
+            recentSleepHistory: try history(startHours: [23, 11, 23, 11]),
+            on: currentDay,
+            calendar: calendar
+        ))
+        XCTAssertNil(ambiguous.category(for: .consistency))
     }
 
     func testSleepScoreCommentSummarizesScoreBand() {
@@ -3732,15 +3862,18 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             try sleepScore(on: night, history: history).total
         }
 
-        XCTAssertLessThanOrEqual(totals[3], 63)
-        XCTAssertLessThanOrEqual(totals[5], 65)
+        // Crash nights keep some credit from a steady schedule now that
+        // consistency is scored, so the low band sits a touch higher than the
+        // pre-consistency calibration.
+        XCTAssertLessThanOrEqual(totals[3], 65)
+        XCTAssertLessThanOrEqual(totals[5], 66)
         XCTAssertLessThanOrEqual(totals[12], 64)
         XCTAssertGreaterThanOrEqual(totals[10], 84)
         XCTAssertGreaterThanOrEqual(totals[9], 80)
 
         let mean = Double(totals.reduce(0, +)) / Double(totals.count)
-        XCTAssertGreaterThanOrEqual(mean, 72)
-        XCTAssertLessThanOrEqual(mean, 80)
+        XCTAssertGreaterThanOrEqual(mean, 74)
+        XCTAssertLessThanOrEqual(mean, 82)
         let spread = try XCTUnwrap(totals.max()) - (try XCTUnwrap(totals.min()))
         XCTAssertGreaterThanOrEqual(spread, 25)
     }
