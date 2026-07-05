@@ -13,12 +13,14 @@ struct BodyWorkoutsView: View {
     @State private var pendingMonthSelection: BodyMonthYear?
     @State private var searchText = ""
     @State private var showingFilterSheet = false
+    @State private var showingMonthPicker = false
     @State private var selectedSortOption: BodyWorkoutListSortOption = .dateDescending
     @State private var selectedWorkoutTypes = Set(BodyWorkoutType.allCases)
     @State private var selectedWorkoutForDetails: WorkoutSummary?
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
     @State private var isPullRefreshing = false
+    @State private var searchCorpusCache = BodyWorkoutSearchCorpusCache()
     @Namespace private var workoutZoom
 
     private var monthSwitchTransition: AnyTransition {
@@ -30,7 +32,8 @@ struct BodyWorkoutsView: View {
     }
 
     var body: some View {
-        let visibleWorkouts = filteredWorkouts
+        let allWorkouts = self.allWorkouts
+        let visibleWorkouts = filteredWorkouts(from: allWorkouts)
 
         NavigationStack {
             ZStack {
@@ -167,19 +170,39 @@ struct BodyWorkoutsView: View {
             }
     }
 
-    private var filteredWorkouts: [WorkoutSummary] {
+    private func filteredWorkouts(from allWorkouts: [WorkoutSummary]) -> [WorkoutSummary] {
         let normalizedSearchText = searchText
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
 
+        guard !normalizedSearchText.isEmpty else {
+            let searchedWorkouts = allWorkouts.filter { workout in
+                selectedWorkoutTypes.contains(workout.type)
+            }
+
+            return sorted(workouts: searchedWorkouts)
+        }
+
+        let corpus = searchCorpusCache.entries(
+            for: selectedSnapshot,
+            workouts: allWorkouts,
+            dateSearchText: dateSearchText(for:)
+        )
+
         let searchedWorkouts = allWorkouts.filter { workout in
-            selectedWorkoutTypes.contains(workout.type)
-                && (
-                    normalizedSearchText.isEmpty
-                        || workout.type.displayName.lowercased().contains(normalizedSearchText)
-                        || workout.sourceName.lowercased().contains(normalizedSearchText)
-                        || dateSearchText(for: workout.startDate).contains(normalizedSearchText)
-                )
+            guard selectedWorkoutTypes.contains(workout.type) else {
+                return false
+            }
+
+            guard let corpusEntry = corpus[workout.id] else {
+                return workout.type.displayName.lowercased().contains(normalizedSearchText)
+                    || workout.sourceName.lowercased().contains(normalizedSearchText)
+                    || dateSearchText(for: workout.startDate).contains(normalizedSearchText)
+            }
+
+            return corpusEntry.typeText.contains(normalizedSearchText)
+                || corpusEntry.sourceText.contains(normalizedSearchText)
+                || corpusEntry.dateText.contains(normalizedSearchText)
         }
 
         return sorted(workouts: searchedWorkouts)
@@ -196,7 +219,7 @@ struct BodyWorkoutsView: View {
             return "\(selectedMonth)"
         }
 
-        return BodyDateFormatterCache.formatter(dateFormat: "MMMM").string(from: date)
+        return BodyDateFormatterCache.formatter(template: "MMMM").string(from: date)
     }
 
     private var searchAndControlsRow: some View {
@@ -215,7 +238,7 @@ struct BodyWorkoutsView: View {
             Button {
                 showingFilterSheet = true
             } label: {
-                searchControlCard(iconName: "line.3.horizontal.decrease.circle", size: 19)
+                searchControlCard(iconName: "line.3.horizontal.decrease", size: 19)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Filter workouts")
@@ -243,6 +266,24 @@ struct BodyWorkoutsView: View {
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity, minHeight: 46)
             .bodyWorkoutsToolbarCardBackground()
+
+            Button {
+                showingMonthPicker = true
+            } label: {
+                searchControlCard(iconName: "calendar", size: 18)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Jump to month")
+            .popover(isPresented: $showingMonthPicker) {
+                BodyWorkoutMonthPicker(
+                    selectedMonth: selectedMonth,
+                    selectedYear: selectedYear,
+                    onSelect: { monthYear in
+                        _ = requestMonthYearSelection(monthYear)
+                    }
+                )
+                .presentationCompactAdaptation(.popover)
+            }
         }
         .frame(height: 46)
     }
@@ -477,6 +518,54 @@ struct BodyWorkoutsView: View {
     }
 }
 
+/// Caches the lowercased search fields (`type`, `source`, formatted `date`) for
+/// each workout in the currently selected month, avoiding recomputation on
+/// every keystroke. Invalidated whenever the snapshot identity, locale, or
+/// time zone changes, since `dateSearchText` is locale/time-zone derived.
+private final class BodyWorkoutSearchCorpusCache {
+    private struct Key: Equatable {
+        let month: Int
+        let year: Int
+        let generatedAt: Date
+        let localeIdentifier: String
+        let timeZoneIdentifier: String
+    }
+
+    private var key: Key?
+    private var storedEntries: [WorkoutSummary.ID: (typeText: String, sourceText: String, dateText: String)] = [:]
+
+    func entries(
+        for snapshot: WorkoutMonthSnapshot,
+        workouts: [WorkoutSummary],
+        dateSearchText: (Date) -> String
+    ) -> [WorkoutSummary.ID: (typeText: String, sourceText: String, dateText: String)] {
+        let currentKey = Key(
+            month: snapshot.month,
+            year: snapshot.year,
+            generatedAt: snapshot.generatedAt,
+            localeIdentifier: Locale.current.identifier,
+            timeZoneIdentifier: TimeZone.current.identifier
+        )
+
+        guard key == currentKey else {
+            key = currentKey
+            storedEntries = Dictionary(uniqueKeysWithValues: workouts.map { workout in
+                (
+                    workout.id,
+                    (
+                        typeText: workout.type.displayName.lowercased(),
+                        sourceText: workout.sourceName.lowercased(),
+                        dateText: dateSearchText(workout.startDate)
+                    )
+                )
+            })
+            return storedEntries
+        }
+
+        return storedEntries
+    }
+}
+
 enum BodyWorkoutFilterLogic {
     static func toggled(_ workoutType: BodyWorkoutType, in selectedTypes: Set<BodyWorkoutType>) -> Set<BodyWorkoutType> {
         var updatedTypes = selectedTypes
@@ -505,15 +594,15 @@ private enum BodyWorkoutListSortOption: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .dateDescending:
-            return "Newest"
+            return String(localized: "Newest")
         case .dateAscending:
-            return "Oldest"
+            return String(localized: "Oldest")
         case .durationDescending:
-            return "Duration"
+            return String(localized: "Duration")
         case .energyDescending:
-            return "Energy"
+            return String(localized: "Energy")
         case .workoutType:
-            return "Workout Type"
+            return String(localized: "Workout Type")
         }
     }
 }
@@ -681,13 +770,26 @@ struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @State private var isEditingEffort = false
     @State private var editingScore = 5
     @State private var isSavingEffort = false
     @State private var effortError: String?
+    /// The current effort prediction, shown persistently as "Body's prediction: N" on
+    /// every workout — rated or not, editing or not. Cached in @State so it isn't
+    /// rebuilt on each scroll frame; refreshed when the workout, max HR, comparison
+    /// history, or the setting changes.
+    @State private var prediction: WorkoutEffortEstimator.Estimate?
+    /// True while the editor holds a value pre-filled from the prediction that the user
+    /// hasn't adjusted — the one signal `saveEditingEffort` uses to exclude an
+    /// accepted-unchanged suggestion from calibration (no feedback loop).
+    @State private var editorPrefilledFromSuggestion = false
     @State private var route: WorkoutRoute?
+    @State private var splitData: WorkoutSplitData = .empty
     @State private var scrollOffset: CGFloat = 0
+    @State private var showsFullScreenRouteMap = false
+    @Namespace private var routeMapZoom
     /// Age-estimated max HR (220 − age) from Apple Health, loaded once to anchor the
     /// heart-rate zones; nil until loaded (or when no birth date), falling back to the
     /// workout's own peak HR.
@@ -720,6 +822,7 @@ struct BodyWorkoutDetailSheet: View {
 
                 BodyWorkoutRouteMapHero(route: route, tint: workout.type.color)
                     .frame(height: mapHeight)
+                    .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
                     .overlay {
                         // Dim the map as the content floats up over it.
                         Color.black
@@ -744,9 +847,26 @@ struct BodyWorkoutDetailSheet: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .task {
-            route = await workoutStore.loadWorkoutRoute(for: workout)
+        .fullScreenCover(isPresented: $showsFullScreenRouteMap) {
+            if let route {
+                BodyWorkoutRouteMapFullScreen(route: route, tint: workout.type.color)
+                    .navigationTransition(.zoom(sourceID: "routeMap", in: routeMapZoom))
+            }
         }
+        .task {
+            // Load the route and distance samples concurrently so the splits
+            // section isn't blocked behind the route fetch + reverse geocoding.
+            async let loadedRoute = workoutStore.loadWorkoutRoute(for: workout)
+            async let loadedSplitData = workoutStore.loadWorkoutSplitData(for: workout)
+            route = await loadedRoute
+            splitData = await loadedSplitData
+        }
+        .task(id: workout.id) {
+            editorPrefilledFromSuggestion = false
+            await workoutStore.ensureComparisonMonthsLoaded(for: workout)
+            refreshPrediction()
+        }
+        .onChange(of: showWorkoutEffortSuggestions) { refreshPrediction() }
     }
 
     /// The fixed route map sits behind the scroll content; as the content slides
@@ -783,14 +903,28 @@ struct BodyWorkoutDetailSheet: View {
         VStack(spacing: 0) {
             if route != nil {
                 // Transparent gap that reveals the map background above; the
-                // content below floats over it with no backing of its own.
-                Color.clear.frame(height: mapHeight - contentTopOverlap)
+                // content below floats over it with no backing of its own. The
+                // map itself is behind the ScrollView and can't be hit-tested,
+                // so the gap doubles as its tap target.
+                Button {
+                    showsFullScreenRouteMap = true
+                } label: {
+                    Color.clear
+                        .frame(height: mapHeight - contentTopOverlap)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Route map")
+                .accessibilityHint("Shows a full screen interactive map")
             }
 
             VStack(spacing: 18) {
                 topEntryPanel
                 workoutDetailsCard
                 effortCard
+                if let splitsPresentation {
+                    BodyWorkoutSplitsCard(presentation: splitsPresentation)
+                }
                 heartRateSection
                 sourceFooter
             }
@@ -882,16 +1016,29 @@ struct BodyWorkoutDetailSheet: View {
     }
 
     private var workoutDetailsCard: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Details")
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
+        let metrics = presentation.detailMetrics
+        let showsComparisonLegend = metrics.contains { $0.comparison != nil }
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Details")
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                if showsComparisonLegend {
+                    Text("vs 30-day avg")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer(minLength: 0)
+            }
 
             LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 18) {
-                ForEach(presentation.detailMetrics, id: \.kind) { metric in
+                ForEach(metrics, id: \.kind) { metric in
                     BodyWorkoutDetailMetricTile(
                         title: metric.title,
-                        value: metric.value
+                        value: metric.value,
+                        comparison: metric.comparison
                     )
                 }
             }
@@ -972,6 +1119,14 @@ struct BodyWorkoutDetailSheet: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                 }
+
+                if showWorkoutEffortSuggestions, let prediction {
+                    Text("Body's prediction: \(prediction.score)")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel("Body's prediction: \(prediction.score) out of 10")
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1040,9 +1195,11 @@ struct BodyWorkoutDetailSheet: View {
             Spacer(minLength: 10)
 
             effortStepButton(systemName: "minus", color: color, isEnabled: editingScore > 1 && !isSavingEffort) {
+                editorPrefilledFromSuggestion = false
                 withAnimation(.snappy(duration: 0.28)) { editingScore = max(editingScore - 1, 1) }
             }
             effortStepButton(systemName: "plus", color: color, isEnabled: editingScore < 10 && !isSavingEffort) {
+                editorPrefilledFromSuggestion = false
                 withAnimation(.snappy(duration: 0.28)) { editingScore = min(editingScore + 1, 10) }
             }
         }
@@ -1070,27 +1227,88 @@ struct BodyWorkoutDetailSheet: View {
     }
 
     private func beginEditingEffort() {
-        editingScore = effortLevel.map { min(max(Int($0.rounded()), 1), 10) } ?? 5
+        let estimate = showWorkoutEffortSuggestions
+            ? WorkoutEffortEstimator.estimate(for: effortEstimateInput())
+            : nil
+        // Keep the persistent "Body's prediction" label in sync with the value the
+        // editor pre-fills from, in case max HR resolved since the last refresh.
+        if estimate != nil {
+            prediction = estimate
+        }
+        if let effortLevel {
+            // A logged workout opens at its saved value — the pre-fill is only for
+            // workouts the user hasn't rated yet.
+            editingScore = min(max(Int(effortLevel.rounded()), 1), 10)
+            editorPrefilledFromSuggestion = false
+        } else if let estimate {
+            // Pre-fill the editor from the prediction for an unrated workout. The value
+            // is snapshotted into editingScore, so a later load can't move it mid-edit.
+            editingScore = estimate.score
+            editorPrefilledFromSuggestion = true
+        } else {
+            editingScore = 5
+            editorPrefilledFromSuggestion = false
+        }
         withAnimation(.snappy(duration: 0.3)) { isEditingEffort = true }
     }
 
     private func cancelEditingEffort() {
+        editorPrefilledFromSuggestion = false
         withAnimation(.snappy(duration: 0.3)) { isEditingEffort = false }
     }
 
     private func saveEditingEffort() {
         isSavingEffort = true
         let value = Double(editingScore)
+        // Saved straight from an unadjusted pre-fill → the rating is the prediction's
+        // own output, so mark it for exclusion from future calibration; any other save
+        // clears the mark (the rating is the user's judgment again).
+        let acceptedSuggestionUnchanged = editorPrefilledFromSuggestion
         Task {
             do {
                 try await workoutStore.saveWorkoutEffort(workoutID: workout.id, score: value)
+                workoutStore.setEffortSuggestionAccepted(acceptedSuggestionUnchanged, workoutID: workout.id)
                 isSavingEffort = false
+                editorPrefilledFromSuggestion = false
+                // The prediction label stays shown after saving — it's decoupled from
+                // the edit session, so the user can compare it against their own rating.
                 withAnimation(.snappy(duration: 0.3)) { isEditingEffort = false }
             } catch {
                 isSavingEffort = false
-                effortError = "Body couldn't save the effort rating to Apple Health. Make sure Body is allowed to update Workouts in Settings › Health › Data Access & Devices."
+                effortError = String(localized: "Body couldn't save the effort rating to Apple Health. Make sure Body is allowed to update Workouts in Settings › Health › Data Access & Devices.")
             }
         }
+    }
+
+    /// Recomputes the persistent prediction from currently-loaded inputs. Cheap and
+    /// synchronous; called from the load tasks and when the setting changes, never per
+    /// render, so scrolling doesn't repeatedly rebuild the 30-day comparison window.
+    private func refreshPrediction() {
+        prediction = showWorkoutEffortSuggestions
+            ? WorkoutEffortEstimator.estimate(for: effortEstimateInput())
+            : nil
+    }
+
+    /// Everything the effort estimator needs, read synchronously from already-published
+    /// store state — no fetches, safe to call from the tap handler on the main actor.
+    private func effortEstimateInput() -> WorkoutEffortEstimator.Input {
+        let context = workoutStore.comparisonContext(for: workout, matchingTypeOnly: false)
+        let calendar = Calendar.bodyGregorian
+        let workoutDay = calendar.startOfDay(for: workout.startDate)
+        return WorkoutEffortEstimator.Input(
+            workout: workout,
+            userMaxHeartRate: resolvedMaxHeartRate,
+            restingHeartRate: workoutStore.healthTrends.restingHeartRate
+                .latestValue(onOrBefore: workout.startDate, maxAgeDays: 45)
+                ?? workoutStore.healthSummary.restingHeartRate.value,
+            priorWorkouts: context.priorWorkouts,
+            priorRatingOverrides: workoutStore.workoutEffortOverrides,
+            suggestionAcceptedWorkoutIDs: workoutStore.suggestionAcceptedEffortWorkoutIDs,
+            isHistoryComplete: context.isComplete,
+            morningReadiness: workoutStore.healthTrends.recordedReadiness
+                .first { calendar.startOfDay(for: $0.date) == workoutDay }?
+                .score
+        )
     }
 
     private var heartRateSection: some View {
@@ -1104,6 +1322,7 @@ struct BodyWorkoutDetailSheet: View {
         // falls back to the session-peak HR (no `== nil` guard — `.task(id:)` dedupes).
         .task(id: workoutStore.permissionSelection.rawValue) {
             resolvedMaxHeartRate = await workoutStore.userMaxHeartRate()
+            refreshPrediction()
         }
     }
 
@@ -1125,10 +1344,13 @@ struct BodyWorkoutDetailSheet: View {
     }
 
     private var presentation: WorkoutDetailPresentation {
-        WorkoutDetailPresentation(
+        let comparison = workoutStore.comparisonContext(for: workout)
+        return WorkoutDetailPresentation(
             workout: workout,
             distanceUnitPreference: selectedDistanceUnitPreference,
-            energyUnitPreference: selectedEnergyUnitPreference
+            energyUnitPreference: selectedEnergyUnitPreference,
+            comparisonWorkouts: comparison.priorWorkouts,
+            comparisonDataComplete: comparison.isComplete
         )
     }
 
@@ -1147,11 +1369,43 @@ struct BodyWorkoutDetailSheet: View {
 
         return BodyValueFormat.EnergyUnitPreference.storedValue(from: selectedEnergyUnitRawValue)
     }
+
+    /// Per-km/mi split rows for the current unit preference; nil when the
+    /// workout has no usable distance samples or isn't a pace/speed activity.
+    /// Recomputes on unit toggle without refetching (boundaries are unit-derived).
+    private var splitsPresentation: WorkoutSplitsPresentation? {
+        let unitMeters = selectedDistanceUnitPreference == .miles ? 1_609.344 : 1_000.0
+        let splits = WorkoutSplitCalculator.splits(
+            samples: splitData.distanceSamples,
+            unitMeters: unitMeters,
+            workoutStart: workout.startDate,
+            workoutEnd: workout.startDate.addingTimeInterval(max(0, workout.duration)),
+            segments: splitData.segments
+        )
+        return WorkoutSplitsPresentation(
+            splits: splits,
+            paceStyle: workout.type.paceStyle,
+            distanceUnitPreference: selectedDistanceUnitPreference,
+            heartRateSamples: workout.heartRateSamples ?? [],
+            stepSamples: splitData.stepSamples
+        )
+    }
 }
 
 private struct BodyWorkoutDetailMetricTile: View {
     let title: String
     let value: String
+    let comparison: WorkoutMetricComparison?
+
+    /// Combined VoiceOver label so the caption's ↑/↓ glyph is spoken meaningfully
+    /// ("12 percent lower than 30-day average") instead of read as a bare symbol.
+    private var metricAccessibilityLabel: String {
+        var parts = [title, value]
+        if let comparison {
+            parts.append(comparison.accessibilityLabel)
+        }
+        return parts.joined(separator: ", ")
+    }
 
     /// Splits a formatted value ("172 BPM") into number and trailing unit so the
     /// unit can read smaller and gray like the hero distance. Values that don't
@@ -1172,22 +1426,36 @@ private struct BodyWorkoutDetailMetricTile: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
 
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+            HStack(alignment: .lastTextBaseline, spacing: 4) {
                 Text(valueParts.number)
-                    .font(.system(size: 30, weight: .bold))
+                    .font(.system(size: 33, weight: .bold))
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
-                if !valueParts.unit.isEmpty {
-                    Text(valueParts.unit)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+
+                if !valueParts.unit.isEmpty || comparison != nil {
+                    VStack(alignment: .leading, spacing: -2) {
+                        if let comparison {
+                            Text(comparison.badgeText)
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                        }
+                        if !valueParts.unit.isEmpty {
+                            Text(valueParts.unit)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                        }
+                    }
                 }
             }
         }
         .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(metricAccessibilityLabel)
     }
 }
 
@@ -1324,9 +1592,15 @@ private extension WorkoutEffortIntensity {
 private struct BodyWorkoutHeartRateZoneChart: View {
     let zones: [WorkoutHeartRateZone]
 
-    private let pctWidth: CGFloat = 46
+    /// Tapping the breakdown swaps the share column between percentage and time.
+    @State private var showsDuration = false
+
+    private let pctWidth: CGFloat = 60
+    private let durationWidth: CGFloat = 84
     private let bpmWidth: CGFloat = 84
-    private let barHeight: CGFloat = 16
+    private let barHeight: CGFloat = 12
+
+    private var valueWidth: CGFloat { showsDuration ? durationWidth : pctWidth }
 
     var body: some View {
         VStack(spacing: 11) {
@@ -1335,15 +1609,22 @@ private struct BodyWorkoutHeartRateZoneChart: View {
                 row(for: zone)
             }
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showsDuration.toggle()
+            }
+        }
     }
 
     private var headerRow: some View {
-        HStack(spacing: 10) {
+        let valueHeader: LocalizedStringKey = showsDuration ? "Time" : "Pct."
+        return HStack(spacing: 10) {
             Text("Zone")
                 .fixedSize()
             Spacer(minLength: 8)
-            Text("Pct.")
-                .frame(width: pctWidth, alignment: .trailing)
+            Text(valueHeader)
+                .frame(width: valueWidth, alignment: .trailing)
             Text("bpm")
                 .frame(width: bpmWidth, alignment: .trailing)
         }
@@ -1355,17 +1636,22 @@ private struct BodyWorkoutHeartRateZoneChart: View {
     private func row(for zone: WorkoutHeartRateZone) -> some View {
         HStack(spacing: 10) {
             Text("\(zone.zone)")
-                .font(.system(size: 19, weight: .bold, design: .rounded))
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .lineLimit(1)
                 .foregroundColor(.primary)
                 .frame(width: 24, alignment: .leading)
 
             bar(for: zone)
 
-            Text("\(Int((zone.fraction * 100).rounded()))%")
+            Text(showsDuration
+                ? BodyValueFormat.stopwatchDurationText(for: zone.duration)
+                : "\(Int((zone.fraction * 100).rounded()))%")
                 .font(.system(size: 17, weight: .bold, design: .rounded))
+                .monospacedDigit()
                 .foregroundColor(.primary)
                 .lineLimit(1)
-                .frame(width: pctWidth, alignment: .trailing)
+                .minimumScaleFactor(0.8)
+                .frame(width: valueWidth, alignment: .trailing)
 
             Text(zone.bpmRangeText)
                 .font(.system(size: 16, weight: .semibold, design: .rounded))
@@ -1411,6 +1697,127 @@ private struct BodyWorkoutHeartRateZoneChart: View {
     }
 }
 
+private struct BodyWorkoutSplitsCard: View {
+    let presentation: WorkoutSplitsPresentation
+
+    /// Tapping the card swaps the pace bars for a step-cadence column.
+    @State private var showsCadenceColumn = false
+
+    /// Fastest-split highlight, matching the BPM readout on the Heart Rate card.
+    private static let fastestColor = BodyWorkoutHeartRateChart.referenceLineColor
+
+    // Column geometry mirrors the heart-rate zone breakdown so the two cards align.
+    private let indexWidth: CGFloat = 24
+    private let valueWidth: CGFloat = 72
+    private let hrWidth: CGFloat = 84
+    private let cadenceWidth: CGFloat = 76
+    private let barHeight: CGFloat = 12
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Splits")
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundColor(.primary)
+
+            VStack(spacing: 11) {
+                headerRow
+                ForEach(presentation.rows) { row in
+                    splitRow(row)
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 18)
+        .bodyCardBackground(cornerRadius: 30, translucent: true)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showsCadenceColumn.toggle()
+            }
+        }
+    }
+
+    private var headerRow: some View {
+        HStack(spacing: 10) {
+            Text(presentation.unitHeaderText)
+                .fixedSize()
+            Spacer(minLength: 8)
+            Text(presentation.valueHeaderText)
+                .frame(width: valueWidth, alignment: .trailing)
+            Text(presentation.heartRateHeaderText)
+                .frame(width: hrWidth, alignment: .trailing)
+            if showsCadenceColumn {
+                Text(presentation.cadenceHeaderText)
+                    .minimumScaleFactor(0.7)
+                    .frame(width: cadenceWidth, alignment: .trailing)
+                    .transition(.opacity)
+            }
+        }
+        .font(.system(size: 15, weight: .semibold, design: .rounded))
+        .lineLimit(1)
+        .foregroundColor(.secondary)
+    }
+
+    private func splitRow(_ row: WorkoutSplitsPresentation.Row) -> some View {
+        let color = row.isFastest ? Self.fastestColor : Color.primary
+        return HStack(spacing: 10) {
+            Text(row.indexText)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundColor(color)
+                .frame(width: indexWidth, alignment: .leading)
+
+            bar(for: row)
+
+            Text(row.valueText)
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundColor(color)
+                .frame(width: valueWidth, alignment: .trailing)
+
+            Text(verbatim: row.heartRateText ?? "—")
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .foregroundColor(row.heartRateText == nil ? .secondary : color)
+                .frame(width: hrWidth, alignment: .trailing)
+
+            if showsCadenceColumn {
+                Text(verbatim: row.cadenceText ?? "—")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .foregroundColor(row.cadenceText == nil ? .secondary : color)
+                    .frame(width: cadenceWidth, alignment: .trailing)
+                    .transition(.opacity)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(row.accessibilityLabel)
+    }
+
+    private func bar(for row: WorkoutSplitsPresentation.Row) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous)
+                    .fill(Color.secondary.opacity(0.16))
+                Capsule(style: .continuous)
+                    .fill(row.isFastest ? Self.fastestColor : Color.secondary)
+                    // Floor the width at the bar height so the shortest (fastest) split
+                    // reads as a circle rather than a stub.
+                    .frame(width: max(geometry.size.width * row.barFraction, barHeight))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: barHeight)
+    }
+}
+
 private struct BodyWorkoutHeartRateChartCard: View {
     let samples: [WorkoutHeartRateSample]
     /// Anchors the zone bands (% of this value); nil hides the zone breakdown.
@@ -1453,7 +1860,7 @@ private struct BodyWorkoutHeartRateChartCard: View {
                     Text("BPM")
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                 }
-                .foregroundColor(BodyWorkoutHeartRateChart.referenceLineColor)
+                .foregroundColor(.secondary)
             }
         }
     }
@@ -1566,6 +1973,19 @@ private struct BodyWorkoutHeartRateChart: View {
             with: .color(Self.referenceLineColor.opacity(0.85)),
             lineWidth: 1
         )
+
+        // Dashed session max and min lines bracketing the solid average line.
+        var extremesLines = Path()
+        for value in metrics.extremaReferenceValues {
+            let extremeY = plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: value))
+            extremesLines.move(to: CGPoint(x: plotRect.minX, y: extremeY))
+            extremesLines.addLine(to: CGPoint(x: plotRect.maxX, y: extremeY))
+        }
+        context.stroke(
+            extremesLines,
+            with: .color(Self.referenceLineColor.opacity(0.5)),
+            style: StrokeStyle(lineWidth: 1, dash: [4, 4])
+        )
     }
 
     private func drawScatterDots(in plotRect: CGRect, context: inout GraphicsContext) {
@@ -1648,16 +2068,6 @@ private struct BodyWorkoutHeartRateChart: View {
 
     @ViewBuilder
     private func yAxisLabels(in plotRect: CGRect) -> some View {
-        ForEach(metrics.primaryTickValues, id: \.self) { tickValue in
-            Text("\(tickValue)")
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundColor(.secondary)
-                .position(
-                    x: plotRect.maxX + 22,
-                    y: plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: Double(tickValue)))
-                )
-        }
-
         Text("\(metrics.averageLabel)")
             .font(.system(size: 16, weight: .bold, design: .rounded))
             .foregroundColor(Self.referenceLineColor)
@@ -1665,6 +2075,18 @@ private struct BodyWorkoutHeartRateChart: View {
                 x: plotRect.maxX + 22,
                 y: plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: metrics.averageValue))
             )
+
+        // Values for the dashed session max/min lines, mirroring the average label
+        // but dimmed to match their line weight.
+        ForEach(metrics.extremaReferenceValues, id: \.self) { value in
+            Text("\(Int(value.rounded()))")
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundColor(Self.referenceLineColor.opacity(0.55))
+                .position(
+                    x: plotRect.maxX + 22,
+                    y: plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: value))
+                )
+        }
     }
 
     private func timeMarkLabelX(for mark: BodyWorkoutHeartRateTimeMark, in plotRect: CGRect) -> CGFloat {
@@ -1703,6 +2125,19 @@ private struct BodyWorkoutHeartRateChartMetrics {
 
     var averageLabel: Int {
         Int(averageValue.rounded())
+    }
+
+    /// Distinct session max/min values for the dashed reference lines and their
+    /// labels. Flat HR makes max == min (and both can equal the average), which
+    /// would collide SwiftUI `\.self` IDs and stack labels on top of the average —
+    /// so deduplicate by displayed value and drop any that rounds to the average.
+    var extremaReferenceValues: [Double] {
+        var seenLabels: Set<Int> = [averageLabel]
+        var result: [Double] = []
+        for value in [dataMaximumValue, dataMinimumValue] where seenLabels.insert(Int(value.rounded())).inserted {
+            result.append(value)
+        }
+        return result
     }
 
     var primaryTickValues: [Int] {
@@ -1744,12 +2179,16 @@ private struct BodyWorkoutHeartRateChartMetrics {
 
         let values = sortedSamples.map(\.beatsPerMinute).filter(\.isFinite)
         let lowestValue = max(0, values.min() ?? 70)
-        let highestValue = max(lowestValue + 1, values.max() ?? 165)
+        let actualHighest = max(lowestValue, values.max() ?? 165)
+        // Pad only the scaling bound so a flat series still yields a nonzero range;
+        // the max label and reference line show the real peak, not the pad (otherwise
+        // an all-140 bpm workout would report a 141 bpm maximum).
+        let highestValue = max(lowestValue + 1, actualHighest)
         let lowerBound = max(0, (floor((lowestValue - 5) / 5) * 5))
         let upperBound = ceil((highestValue + 5) / 5) * 5
 
         self.dataMinimumValue = lowestValue
-        self.dataMaximumValue = highestValue
+        self.dataMaximumValue = actualHighest
         self.minimumValue = lowerBound
         self.maximumValue = max(upperBound, lowerBound + 10)
         self.averageValue = values.isEmpty
@@ -1977,7 +2416,7 @@ private struct BodyWorkoutFilterView: View {
     }
 }
 
-private extension View {
+extension View {
     func bodyWorkoutsToolbarCardBackground() -> some View {
         background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)

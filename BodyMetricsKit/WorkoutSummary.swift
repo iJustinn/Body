@@ -205,6 +205,206 @@ struct WorkoutDetailMetric: Equatable {
     let kind: Kind
     let title: String
     let value: String
+    let comparison: WorkoutMetricComparison?
+
+    init(kind: Kind, title: String, value: String, comparison: WorkoutMetricComparison? = nil) {
+        self.kind = kind
+        self.title = title
+        self.value = value
+        self.comparison = comparison
+    }
+}
+
+/// A compact comparison badge shown above a metric's unit. `badgeText` is the visual
+/// token (e.g. "↑12%", "↓3%", "≈0%"); `accessibilityLabel` is the spoken VoiceOver form
+/// so the arrow glyph isn't read literally. The "vs 30-day avg" frame lives once in the
+/// section header, not in every badge.
+struct WorkoutMetricComparison: Equatable {
+    let badgeText: String
+    let accessibilityLabel: String
+}
+
+/// Builds the "↑ 12% vs 30-day avg" caption for a single detail metric against the
+/// same workout type's recent history. Pure and unit-agnostic: the percentage is
+/// computed on one raw scalar per metric, so it needs no unit preferences. Eligibility
+/// mirrors each tile's display guard so a prior the UI treats as absent never skews the
+/// baseline, and the math is hardened against near-zero baselines before any `Int(...)`.
+enum WorkoutMetricComparisonBuilder {
+    /// Minimum eligible prior samples before a comparison is shown.
+    static let minimumSampleCount = 3
+    /// Distance floors below which pace/speed are too noisy to compare.
+    static let minComparableDistanceMeters = 400.0
+    static let minComparableSwimDistanceMeters = 100.0
+    /// Percent magnitude is clamped to this before `Int(...)` to avoid overflow traps
+    /// (`Int(inf/NaN)` and `abs(Int.min)` both crash).
+    static let maxDisplayPercent = 999.0
+
+    /// A compact badge for the metric — "↑12%", "↓3%", or "≈0%" — or nil when there is
+    /// nothing to show: while months are still loading, when the current metric isn't
+    /// displayable, or when there are fewer than `minimumSampleCount` eligible priors.
+    /// The "vs 30-day avg" reference frame is shown once in the section header, not here.
+    static func comparison(
+        for kind: WorkoutDetailMetric.Kind,
+        current: WorkoutSummary,
+        priors: [WorkoutSummary],
+        isComplete: Bool,
+        locale: Locale
+    ) -> WorkoutMetricComparison? {
+        // No caption at all until every spanned month has loaded. A partial window can
+        // still hold 3+ priors (from already-loaded months or the launch-seeded snapshot),
+        // so gating only the under-sampled fallback would leak an inaccurate average.
+        guard isComplete else { return nil }
+
+        guard let currentScalar = scalar(for: kind, from: current) else {
+            return nil
+        }
+
+        let baseline: Double?
+        let sampleCount: Int
+        if isRateMetric(kind) {
+            let totals = rateTotals(for: kind, from: priors)
+            sampleCount = totals.count
+            baseline = totals.count > 0 && totals.distance > 0 && totals.duration > 0
+                ? rateValue(for: kind, distance: totals.distance, duration: totals.duration)
+                : nil
+        } else {
+            let priorScalars = priors.compactMap { scalar(for: kind, from: $0) }
+            sampleCount = priorScalars.count
+            baseline = priorScalars.isEmpty
+                ? nil
+                : priorScalars.reduce(0, +) / Double(priorScalars.count)
+        }
+
+        guard sampleCount >= minimumSampleCount, let baseline else {
+            return nil
+        }
+
+        return caption(current: currentScalar, baseline: baseline, locale: locale)
+    }
+
+    // MARK: - Scalars
+
+    /// The comparable scalar for a metric, or nil when the metric would read as absent
+    /// for this workout (mirrors the detail tile's `> 0` display guards). Positive-only
+    /// so a zero-valued prior never depresses the baseline or fills the sample floor.
+    static func scalar(for kind: WorkoutDetailMetric.Kind, from workout: WorkoutSummary) -> Double? {
+        switch kind {
+        case .activeEnergy: return positive(workout.activeEnergyKilocalories)
+        case .totalEnergy: return positive(workout.totalEnergyKilocalories)
+        case .avgHeartRate: return positive(displayedAverageHeartRate(for: workout))
+        case .maxHeartRate: return positive(workout.maximumHeartRateBeatsPerMinute)
+        case .distance: return positive(workout.distanceMeters)
+        case .elevation: return positive(workout.elevationAscendedMeters)
+        case .stepCadence: return positive(workout.averageStepCadenceSPM)
+        case .cyclingCadence: return positive(workout.averageCyclingCadenceRPM)
+        case .power: return positive(workout.averagePowerWatts)
+        case .cardioFitness: return positive(workout.cardioFitnessVO2Max)
+        case .strokeCount: return positive(workout.swimmingStrokeCount)
+        case .pace, .swimPace, .speed:
+            guard let distance = workout.distanceMeters,
+                  distance >= distanceFloor(for: kind),
+                  workout.duration > 0 else {
+                return nil
+            }
+            return rateValue(for: kind, distance: distance, duration: workout.duration)
+        }
+    }
+
+    private static func isRateMetric(_ kind: WorkoutDetailMetric.Kind) -> Bool {
+        switch kind {
+        case .pace, .swimPace, .speed: return true
+        default: return false
+        }
+    }
+
+    private static func distanceFloor(for kind: WorkoutDetailMetric.Kind) -> Double {
+        kind == .swimPace ? minComparableSwimDistanceMeters : minComparableDistanceMeters
+    }
+
+    /// Rate as displayed: pace/swim pace are seconds per meter (lower = faster), speed is
+    /// meters per second. The percentage is identical in any consistent unit.
+    private static func rateValue(for kind: WorkoutDetailMetric.Kind, distance: Double, duration: Double) -> Double {
+        switch kind {
+        case .speed: return distance / duration
+        default: return duration / distance
+        }
+    }
+
+    /// Distance and duration totals over priors clearing the per-style floor — an
+    /// aggregate ratio of totals, not a mean of per-workout rates (which would let a
+    /// 100 m workout weigh the same as a 10 km one).
+    private static func rateTotals(
+        for kind: WorkoutDetailMetric.Kind,
+        from priors: [WorkoutSummary]
+    ) -> (distance: Double, duration: Double, count: Int) {
+        let floor = distanceFloor(for: kind)
+        var distance = 0.0
+        var duration = 0.0
+        var count = 0
+        for workout in priors {
+            guard let dist = workout.distanceMeters, dist >= floor, workout.duration > 0 else {
+                continue
+            }
+            distance += dist
+            duration += workout.duration
+            count += 1
+        }
+        return (distance, duration, count)
+    }
+
+    /// The average heart rate the detail tile actually shows: the stored average, else
+    /// the mean of the workout's heart-rate samples (mirrors `WorkoutDetailPresentation`'s
+    /// `storedHeartRate ?? computedHeartRate`). Reading only the stored field would drop a
+    /// samples-only workout from the current comparison and under-count such priors.
+    /// Internal (not private) so `WorkoutEffortEstimator` scores the same average.
+    static func displayedAverageHeartRate(for workout: WorkoutSummary) -> Double? {
+        if let stored = workout.averageHeartRateBeatsPerMinute {
+            return stored
+        }
+        let samples = workout.heartRateSamples ?? []
+        guard !samples.isEmpty else { return nil }
+        return samples.reduce(0) { $0 + $1.beatsPerMinute } / Double(samples.count)
+    }
+
+    private static func positive(_ value: Double?) -> Double? {
+        guard let value, value.isFinite, value > 0 else { return nil }
+        return value
+    }
+
+    // MARK: - Caption
+
+    private static func caption(
+        current: Double,
+        baseline: Double,
+        locale: Locale
+    ) -> WorkoutMetricComparison? {
+        // Guard near-zero baselines and non-finite results BEFORE Int(): Int(inf/NaN)
+        // and abs(Int.min) trap. An unusable baseline shows no badge.
+        guard current.isFinite, baseline.isFinite, abs(baseline) > 1e-9 else {
+            return nil
+        }
+        let percent = (current - baseline) / baseline * 100
+        guard percent.isFinite else {
+            return nil
+        }
+        let clamped = max(-maxDisplayPercent, min(maxDisplayPercent, percent))
+        let rounded = Int(clamped.rounded())
+        if rounded == 0 {
+            return WorkoutMetricComparison(
+                badgeText: "≈0%",
+                accessibilityLabel: String(localized: "About the same as the 30-day average", table: "BodyMetricsKit")
+            )
+        }
+        let magnitude = BodyValueFormat.numberText(Double(abs(rounded)), decimals: 0, locale: locale)
+        let arrow = rounded > 0 ? "↑" : "↓"
+        let accessibilityLabel = rounded > 0
+            ? String(localized: "\(magnitude) percent higher than 30-day average", table: "BodyMetricsKit")
+            : String(localized: "\(magnitude) percent lower than 30-day average", table: "BodyMetricsKit")
+        return WorkoutMetricComparison(
+            badgeText: "\(arrow)\(magnitude)%",
+            accessibilityLabel: accessibilityLabel
+        )
+    }
 }
 
 enum WorkoutEffortIntensity: Equatable {
@@ -240,16 +440,16 @@ struct WorkoutEffortPresentation: Equatable {
 
         switch normalizedScore {
         case ..<4:
-            descriptor = "Easy"
+            descriptor = String(localized: "Easy", table: "BodyMetricsKit")
             intensity = .easy
         case ..<7:
-            descriptor = "Moderate"
+            descriptor = String(localized: "Moderate", table: "BodyMetricsKit")
             intensity = .moderate
         case ..<9:
-            descriptor = "Hard"
+            descriptor = String(localized: "Hard", table: "BodyMetricsKit")
             intensity = .hard
         default:
-            descriptor = "All Out"
+            descriptor = String(localized: "All Out", table: "BodyMetricsKit")
             intensity = .allOut
         }
 
@@ -284,14 +484,16 @@ struct WorkoutDetailPresentation: Equatable {
         timeZone: TimeZone = .current,
         unitPreference: BodyValueFormat.UnitPreference = .system,
         distanceUnitPreference: BodyValueFormat.DistanceUnitPreference? = nil,
-        energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories,
+        comparisonWorkouts: [WorkoutSummary]? = nil,
+        comparisonDataComplete: Bool = true
     ) {
         let endDate = workout.startDate.addingTimeInterval(max(0, workout.duration))
 
         title = workout.type.displayName
         dateTitle = Self.formattedDate(
             workout.startDate,
-            dateFormat: "EEE, MMM d",
+            template: "EEEMMMd",
             calendar: calendar,
             locale: locale,
             timeZone: timeZone
@@ -356,7 +558,7 @@ struct WorkoutDetailPresentation: Equatable {
         effortPresentation = workout.effortLevel.flatMap {
             WorkoutEffortPresentation(score: $0, locale: locale)
         }
-        effortText = effortPresentation.map { "\($0.valueText) \($0.descriptor)" } ?? "No Saved Effort"
+        effortText = effortPresentation.map { "\($0.valueText) \($0.descriptor)" } ?? String(localized: "No Saved Effort", table: "BodyMetricsKit")
         heartRateSamples = sortedHeartRateSamples
 
         // Mirror the distance tile's resolution so pace/speed/elevation agree with
@@ -393,14 +595,14 @@ struct WorkoutDetailPresentation: Equatable {
         // Performance metrics first, then a generic Distance tile for any positive distance
         // (suppressed when distance is shown in the hero instead).
         if let distanceText, !promotesDistanceToHero {
-            metrics.append(WorkoutDetailMetric(kind: .distance, title: "Distance", value: distanceText))
+            metrics.append(WorkoutDetailMetric(kind: .distance, title: String(localized: "Distance", table: "BodyMetricsKit"), value: distanceText))
         }
         if canDeriveDistanceRate {
             switch workout.type.paceStyle {
             case .distancePace:
                 metrics.append(WorkoutDetailMetric(
                     kind: .pace,
-                    title: "Avg Pace",
+                    title: String(localized: "Avg Pace", table: "BodyMetricsKit"),
                     value: BodyValueFormat.paceText(
                         meters: distanceMeters,
                         seconds: workout.duration,
@@ -411,7 +613,7 @@ struct WorkoutDetailPresentation: Equatable {
             case .speed:
                 metrics.append(WorkoutDetailMetric(
                     kind: .speed,
-                    title: "Avg Speed",
+                    title: String(localized: "Avg Speed", table: "BodyMetricsKit"),
                     value: BodyValueFormat.speedText(
                         meters: distanceMeters,
                         seconds: workout.duration,
@@ -422,7 +624,7 @@ struct WorkoutDetailPresentation: Equatable {
             case .swimPace:
                 metrics.append(WorkoutDetailMetric(
                     kind: .swimPace,
-                    title: "Avg Pace",
+                    title: String(localized: "Avg Pace", table: "BodyMetricsKit"),
                     value: BodyValueFormat.swimPaceText(
                         meters: distanceMeters,
                         seconds: workout.duration,
@@ -437,7 +639,7 @@ struct WorkoutDetailPresentation: Equatable {
         if let elevation = workout.elevationAscendedMeters, elevation > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .elevation,
-                title: "Elevation Gain",
+                title: String(localized: "Elevation Gain", table: "BodyMetricsKit"),
                 value: BodyValueFormat.elevationText(
                     meters: elevation,
                     distanceUnitPreference: resolvedDistancePreference,
@@ -446,13 +648,13 @@ struct WorkoutDetailPresentation: Equatable {
             ))
         }
 
-        metrics.append(WorkoutDetailMetric(kind: .activeEnergy, title: "Active \(energyUnitPreference.detailTitleUnit)", value: activeEnergyText ?? "No Data"))
-        metrics.append(WorkoutDetailMetric(kind: .totalEnergy, title: "Total \(energyUnitPreference.detailTitleUnit)", value: totalEnergyText ?? "No Data"))
-        metrics.append(WorkoutDetailMetric(kind: .avgHeartRate, title: "Avg Heart Rate", value: averageHeartRateText ?? "No Data"))
+        metrics.append(WorkoutDetailMetric(kind: .activeEnergy, title: String(localized: "Active \(energyUnitPreference.detailTitleUnit)", table: "BodyMetricsKit"), value: activeEnergyText ?? String(localized: "No Data", table: "BodyMetricsKit")))
+        metrics.append(WorkoutDetailMetric(kind: .totalEnergy, title: String(localized: "Total \(energyUnitPreference.detailTitleUnit)", table: "BodyMetricsKit"), value: totalEnergyText ?? String(localized: "No Data", table: "BodyMetricsKit")))
+        metrics.append(WorkoutDetailMetric(kind: .avgHeartRate, title: String(localized: "Avg Heart Rate", table: "BodyMetricsKit"), value: averageHeartRateText ?? String(localized: "No Data", table: "BodyMetricsKit")))
         if let maxHeartRate = workout.maximumHeartRateBeatsPerMinute {
             metrics.append(WorkoutDetailMetric(
                 kind: .maxHeartRate,
-                title: "Max Heart Rate",
+                title: String(localized: "Max Heart Rate", table: "BodyMetricsKit"),
                 value: BodyValueFormat.heartRateText(beatsPerMinute: maxHeartRate, locale: locale)
             ))
         }
@@ -461,37 +663,56 @@ struct WorkoutDetailPresentation: Equatable {
         if let stepCadence = workout.averageStepCadenceSPM, stepCadence > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .stepCadence,
-                title: "Cadence",
+                title: String(localized: "Step Cadence", table: "BodyMetricsKit"),
                 value: BodyValueFormat.cadenceText(stepCadence, unit: "SPM", locale: locale)
             ))
         }
         if let cyclingCadence = workout.averageCyclingCadenceRPM, cyclingCadence > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .cyclingCadence,
-                title: "Cadence",
+                title: String(localized: "Cycling Cadence", table: "BodyMetricsKit"),
                 value: BodyValueFormat.cadenceText(cyclingCadence, unit: "RPM", locale: locale)
             ))
         }
         if let power = workout.averagePowerWatts, power > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .power,
-                title: "Avg Power",
+                title: String(localized: "Avg Power", table: "BodyMetricsKit"),
                 value: BodyValueFormat.powerText(watts: power, locale: locale)
             ))
         }
         if let vo2Max = workout.cardioFitnessVO2Max, vo2Max > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .cardioFitness,
-                title: "Cardio Fitness",
+                title: String(localized: "Cardio Fitness", table: "BodyMetricsKit"),
                 value: BodyValueFormat.vo2MaxText(vo2Max, locale: locale)
             ))
         }
         if let strokeCount = workout.swimmingStrokeCount, strokeCount > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .strokeCount,
-                title: "Swim Strokes",
+                title: String(localized: "Swim Strokes", table: "BodyMetricsKit"),
                 value: BodyValueFormat.strokeCountText(strokeCount, locale: locale)
             ))
+        }
+
+        // Attach the 30-day comparison caption to each metric when comparison data was
+        // provided (nil == feature off, so existing callers/previews are unchanged).
+        if let comparisonWorkouts {
+            metrics = metrics.map { metric in
+                WorkoutDetailMetric(
+                    kind: metric.kind,
+                    title: metric.title,
+                    value: metric.value,
+                    comparison: WorkoutMetricComparisonBuilder.comparison(
+                        for: metric.kind,
+                        current: workout,
+                        priors: comparisonWorkouts,
+                        isComplete: comparisonDataComplete,
+                        locale: locale
+                    )
+                )
+            }
         }
 
         detailMetrics = metrics
@@ -506,6 +727,21 @@ struct WorkoutDetailPresentation: Equatable {
     ) -> String {
         BodyDateFormatterCache.formatter(
             dateFormat: dateFormat,
+            calendar: calendar,
+            locale: locale,
+            timeZone: timeZone
+        ).string(from: date)
+    }
+
+    private static func formattedDate(
+        _ date: Date,
+        template: String,
+        calendar: Calendar,
+        locale: Locale,
+        timeZone: TimeZone
+    ) -> String {
+        BodyDateFormatterCache.formatter(
+            template: template,
             calendar: calendar,
             locale: locale,
             timeZone: timeZone
@@ -536,18 +772,18 @@ enum BodyValueFormat {
         var displayName: String {
             switch self {
             case .system:
-                return "System"
+                return String(localized: "System", table: "BodyMetricsKit")
             case .metric:
-                return "Metric"
+                return String(localized: "Metric", table: "BodyMetricsKit")
             case .imperial:
-                return "Imperial"
+                return String(localized: "Imperial", table: "BodyMetricsKit")
             }
         }
 
         var selectionSubtitle: String {
             switch self {
             case .system:
-                return "Device"
+                return String(localized: "Device", table: "BodyMetricsKit")
             case .metric:
                 return "kg / km"
             case .imperial:
@@ -573,9 +809,9 @@ enum BodyValueFormat {
         var displayName: String {
             switch self {
             case .kilograms:
-                return "Kilograms"
+                return String(localized: "Kilograms", table: "BodyMetricsKit")
             case .pounds:
-                return "Pounds"
+                return String(localized: "Pounds", table: "BodyMetricsKit")
             }
         }
 
@@ -610,9 +846,9 @@ enum BodyValueFormat {
         var displayName: String {
             switch self {
             case .kilometers:
-                return "Kilometers"
+                return String(localized: "Kilometers", table: "BodyMetricsKit")
             case .miles:
-                return "Miles"
+                return String(localized: "Miles", table: "BodyMetricsKit")
             }
         }
 
@@ -647,9 +883,9 @@ enum BodyValueFormat {
         var displayName: String {
             switch self {
             case .kilocalories:
-                return "Kilocalories"
+                return String(localized: "Kilocalories", table: "BodyMetricsKit")
             case .kilojoules:
-                return "Kilojoules"
+                return String(localized: "Kilojoules", table: "BodyMetricsKit")
             }
         }
 
@@ -693,9 +929,9 @@ enum BodyValueFormat {
         var displayName: String {
             switch self {
             case .celsius:
-                return "Celsius"
+                return String(localized: "Celsius", table: "BodyMetricsKit")
             case .fahrenheit:
-                return "Fahrenheit"
+                return String(localized: "Fahrenheit", table: "BodyMetricsKit")
             }
         }
 
@@ -747,17 +983,18 @@ enum BodyValueFormat {
         let remainingMinutes = minutes % 60
 
         if hours > 0, remainingMinutes > 0 {
-            return "\(hours)h \(remainingMinutes)m"
+            return String(localized: "\(hours)h \(remainingMinutes)m", table: "BodyMetricsKit")
         } else if hours > 0 {
-            return "\(hours)h"
+            return String(localized: "\(hours)h", table: "BodyMetricsKit")
         }
 
-        return "\(remainingMinutes)m"
+        return String(localized: "\(remainingMinutes)m", table: "BodyMetricsKit")
     }
 
     static func workoutCountText(_ count: Int) -> String {
-        let label = count == 1 ? "workout" : "workouts"
-        return "\(count) \(label)"
+        count == 1
+            ? String(localized: "\(count) workout", table: "BodyMetricsKit")
+            : String(localized: "\(count) workouts", table: "BodyMetricsKit")
     }
 
     static func massDisplay(
@@ -828,7 +1065,7 @@ enum BodyValueFormat {
         let converted = Measurement(value: meters, unit: UnitLength.meters)
             .converted(to: unit)
             .value
-        return (numberText(converted, decimals: 1, locale: locale), distanceUnitPreference.unitLabel)
+        return (numberText(converted, decimals: 2, locale: locale), distanceUnitPreference.unitLabel)
     }
 
     static func distanceText(

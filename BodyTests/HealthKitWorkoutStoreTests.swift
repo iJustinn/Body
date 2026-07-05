@@ -930,10 +930,21 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
             )
         }
 
-        let sample = WorkoutHeartRateSample(date: finishedStart, beatsPerMinute: 140)
+        // Samples covering the workout window edge-to-edge (complete payload) vs
+        // a payload cached during a partial Watch sync that misses the opening
+        // ramp (first sample 10 minutes in) — the latter must re-fetch.
+        let coveringSamples = [
+            WorkoutHeartRateSample(date: finishedStart, beatsPerMinute: 140),
+            WorkoutHeartRateSample(date: finishedStart.addingTimeInterval(duration), beatsPerMinute: 150)
+        ]
+        let lateStartSamples = [
+            WorkoutHeartRateSample(date: finishedStart.addingTimeInterval(600), beatsPerMinute: 160),
+            WorkoutHeartRateSample(date: finishedStart.addingTimeInterval(duration), beatsPerMinute: 150)
+        ]
         let eligible = UUID()
         let dateMismatch = UUID()
         let emptySamples = UUID()
+        let missingRamp = UUID()
         let tooRecent = UUID()
         let uncached = UUID()
 
@@ -941,14 +952,16 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
             (eligible, finishedStart, duration),
             (dateMismatch, finishedStart, duration),
             (emptySamples, finishedStart, duration),
+            (missingRamp, finishedStart, duration),
             (tooRecent, recentStart, duration),
             (uncached, finishedStart, duration)
         ]
         let cachedSummaries: [UUID: WorkoutSummary] = [
-            eligible: cachedSummary(id: eligible, startDate: finishedStart, samples: [sample]),
-            dateMismatch: cachedSummary(id: dateMismatch, startDate: finishedStart.addingTimeInterval(5), samples: [sample]),
+            eligible: cachedSummary(id: eligible, startDate: finishedStart, samples: coveringSamples),
+            dateMismatch: cachedSummary(id: dateMismatch, startDate: finishedStart.addingTimeInterval(5), samples: coveringSamples),
             emptySamples: cachedSummary(id: emptySamples, startDate: finishedStart, samples: []),
-            tooRecent: cachedSummary(id: tooRecent, startDate: recentStart, samples: [sample])
+            missingRamp: cachedSummary(id: missingRamp, startDate: finishedStart, samples: lateStartSamples),
+            tooRecent: cachedSummary(id: tooRecent, startDate: recentStart, samples: coveringSamples)
         ]
 
         let eligibleIDs = HealthKitFetchEngine.heartRateReuseEligibleWorkoutIDs(

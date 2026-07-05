@@ -132,7 +132,7 @@ struct BodyBasicsTrendLegend: View {
         }
     }
 
-    private func legendItem(title: String, valueText: String?, color: Color) -> some View {
+    private func legendItem(title: LocalizedStringKey, valueText: String?, color: Color) -> some View {
         HStack(spacing: 7) {
             Circle()
                 .fill(color)

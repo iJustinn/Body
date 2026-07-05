@@ -200,14 +200,23 @@ func bodyChartSelectionDateText(startDate: Date, endDate: Date) -> String? {
     let sameMonth = sameYear && calendar.component(.month, from: startDate) == calendar.component(.month, from: endDate)
 
     if sameMonth {
-        return "\(startMonth) \(startDay)-\(endDay), \(endYear)"
+        return String(
+            localized: "dateRange.sameMonth",
+            defaultValue: "\(startMonth) \(startDay)-\(endDay), \(endYear)"
+        )
     }
 
     if sameYear {
-        return "\(startMonth) \(startDay)-\(endMonth) \(endDay), \(endYear)"
+        return String(
+            localized: "dateRange.sameYear",
+            defaultValue: "\(startMonth) \(startDay)-\(endMonth) \(endDay), \(endYear)"
+        )
     }
 
-    return "\(startMonth) \(startDay), \(startYear)-\(endMonth) \(endDay), \(endYear)"
+    return String(
+        localized: "dateRange.differentYears",
+        defaultValue: "\(startMonth) \(startDay), \(startYear)-\(endMonth) \(endDay), \(endYear)"
+    )
 }
 
 extension Array where Element == HealthTrendCalendarPoint {
@@ -232,7 +241,7 @@ extension Array where Element == HealthTrendCalendarPoint {
 }
 
 struct BodyDataLoadingOverlay: View {
-    var message: String = "Loading data..."
+    var message: LocalizedStringKey = "Loading data..."
 
     var body: some View {
         ZStack {
@@ -299,7 +308,7 @@ private struct BodyReadinessHeroScrollFade<Content: View>: View {
     @ViewBuilder var content: Content
 
     private var opacity: Double {
-        max(0, 1 - Double(scrollState.offset) / 130)
+        max(0, 1 - Double(scrollState.offset) / 70)
     }
 
     var body: some View {
@@ -320,7 +329,7 @@ private struct BodyHomeBackgroundScrollDim: View {
     let scrollState: BodyHomeScrollState
 
     private var opacity: Double {
-        min(1, max(0, Double(scrollState.offset) / 130)) * 0.8
+        min(1, max(0, Double(scrollState.offset) / 70)) * 0.9
     }
 
     var body: some View {
@@ -363,8 +372,8 @@ struct BodyHomeView: View {
     @State private var showsAllHomeTrends = false
     @State private var isPullRefreshing = false
     // Scroll offset lives in an @Observable so per-frame scroll updates only re-render the
-    // hero fade wrapper that reads it — not this whole body, which rebuilds every metric
-    // card model on each evaluation.
+    // hero fade wrapper that reads it — not this whole body. (The metric-card models are
+    // additionally memoized in BodyHomeTrendComputationCache, keyed on their full input set.)
     @State private var scrollState = BodyHomeScrollState()
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     /// Shared namespace for the card → detail zoom transition (matchedTransitionSource +
@@ -480,6 +489,16 @@ struct BodyHomeView: View {
         return BodyHomeCardKind.layoutRows(from: homeCardOrder, visibleIn: gridSelection)
     }
 
+    /// Today's frozen morning readiness (undrained, captured ~10 min after wake), read
+    /// the same way as `BodyWorkoutsView`, so the hero can show where the day started
+    /// once the live score drains below it.
+    private var todaysMorningReadiness: Int? {
+        let calendar = Calendar.bodyGregorian
+        let today = calendar.startOfDay(for: Date())
+        return workoutStore.healthTrends.recordedReadiness
+            .first { calendar.startOfDay(for: $0.date) == today }?.score
+    }
+
     /// The home-page star hero promoted above the grid. Readiness shows its score text
     /// here, over the full-bleed color backdrop supplied by `homeBackground` (which
     /// bleeds behind the status bar). Readiness is the only star-eligible metric.
@@ -496,7 +515,10 @@ struct BodyHomeView: View {
                         readinessDetailPresented = true
                     }
                 } label: {
-                    BodyReadinessHeroLabel(readiness: workoutStore.healthSummary.readiness)
+                    BodyReadinessHeroLabel(
+                        readiness: workoutStore.healthSummary.readiness,
+                        morningScore: todaysMorningReadiness
+                    )
                 }
                 .buttonStyle(.plain)
             }
@@ -622,10 +644,31 @@ struct BodyHomeView: View {
     }
 
     private var metricCardsByKind: [HealthMetricKind: BodyHealthMetricCard.Model] {
-        Dictionary(uniqueKeysWithValues: metricCards.map { ($0.kind, $0) })
+        let inputs = metricCardsInputs
+        return trendComputationCache.metricCards(inputs: inputs) { self.buildMetricCards(today: inputs.dayStart) }
     }
 
-    private var metricCards: [BodyHealthMetricCard.Model] {
+    /// Snapshot of every input `buildMetricCards()` reads, used as the memoization key.
+    /// The locale covers `BodyValueFormat` text output, the time zone covers
+    /// `.bodyGregorian` day bucketing, and `dayStart` invalidates on day rollover
+    /// while the app stays foregrounded.
+    private var metricCardsInputs: BodyHomeTrendComputationCache.MetricCardsInputs {
+        BodyHomeTrendComputationCache.MetricCardsInputs(
+            summary: workoutStore.healthSummary,
+            trends: workoutStore.healthTrends,
+            weightUnitPreference: selectedWeightUnitPreference,
+            energyUnitPreference: selectedEnergyUnitPreference,
+            temperatureUnitPreference: selectedTemperatureUnitPreference,
+            showSleepScore: showSleepScore,
+            sleepDurationGoalMinutes: sleepDurationGoalMinutes,
+            dayStart: Calendar.bodyGregorian.startOfDay(for: Date()),
+            previewDayCount: BodyHomeMetricCardPreview.dayCount(forScreenWidth: UIScreen.main.bounds.width),
+            localeIdentifier: Locale.current.identifier,
+            timeZoneIdentifier: TimeZone.current.identifier
+        )
+    }
+
+    private func buildMetricCards(today: Date) -> [BodyHealthMetricCard.Model] {
         let summary = workoutStore.healthSummary
         let trends = workoutStore.healthTrends
 
@@ -685,7 +728,8 @@ struct BodyHomeView: View {
             sleepMetric(
                 summary: summary,
                 sleepHistory: trends.sleepHistory,
-                chartPreview: trends.series(for: .sleep)
+                chartPreview: trends.series(for: .sleep),
+                today: today
             ),
             basicsMetric(summary: summary, chartPreview: trends.series(for: .bodyMass)),
             metric(
@@ -929,16 +973,20 @@ struct BodyHomeView: View {
     private func sleepMetric(
         summary: HealthSummarySnapshot,
         sleepHistory: SleepHistorySnapshot,
-        chartPreview: HealthTrendSeries
+        chartPreview: HealthTrendSeries,
+        today: Date
     ) -> BodyHealthMetricCard.Model {
+        let todaySleep = summary.sleep.asOf(today)
         let prominentMetrics: [BodyMetricDisplayValue]
         if showSleepScore {
-            let sleepScoreDisplay = SleepScoreSummary(
-                sleep: summary.sleep,
-                idealSleepDuration: sleepDurationGoal,
-                recentSleepHistory: sleepHistory,
-                on: summary.sleep.stageSnapshot.date
-            ).map {
+            let sleepScoreDisplay = todaySleep.flatMap {
+                SleepScoreSummary(
+                    sleep: $0,
+                    idealSleepDuration: sleepDurationGoal,
+                    recentSleepHistory: sleepHistory,
+                    on: $0.stageSnapshot.date
+                )
+            }.map {
                 BodyMetricDisplayValue(title: "Score", value: "\($0.total)", unit: "PTS")
             } ?? BodyMetricDisplayValue(title: "Score", value: "--", unit: "")
 
@@ -946,7 +994,7 @@ struct BodyHomeView: View {
                 sleepScoreDisplay,
                 BodyMetricDisplayValue(
                     title: "Duration",
-                    value: formattedSleepDuration(summary.sleep.duration),
+                    value: formattedSleepDuration(todaySleep?.duration),
                     unit: ""
                 )
             ]
@@ -957,7 +1005,7 @@ struct BodyHomeView: View {
         return BodyHealthMetricCard.Model(
             kind: .sleep,
             title: "Sleep",
-            value: formattedSleepDuration(summary.sleep.duration),
+            value: formattedSleepDuration(todaySleep?.duration),
             unit: "",
             symbolName: "bed.double.fill",
             symbolColor: Color(red: 0.20, green: 0.72, blue: 1.00),
@@ -1260,27 +1308,30 @@ struct BodyHomeView: View {
                 sleepHistory: trends.sleepHistory
             )
         case .sleep:
+            let todaySleep = summary.sleep.asOf(Date())
             return BodyHealthMetricDetailModel(
                 kind: kind,
                 title: "Sleep",
-                value: formattedSleepDuration(summary.sleep.duration),
+                value: formattedSleepDuration(todaySleep?.duration),
                 unit: "",
                 symbolName: "bed.double.fill",
                 symbolColor: Color(red: 0.20, green: 0.72, blue: 1.00),
                 series: trends.sleep,
                 secondaryDaySeries: .empty,
                 basicsTrend: nil,
-                sleepStageSnapshot: summary.sleep.stageSnapshot,
+                sleepStageSnapshot: todaySleep?.stageSnapshot,
                 sleepScore: showSleepScore
-                    ? SleepScoreSummary(
-                        sleep: summary.sleep,
-                        idealSleepDuration: sleepDurationGoal,
-                        recentSleepHistory: trends.sleepHistory,
-                        on: summary.sleep.stageSnapshot.date
-                    )
+                    ? todaySleep.flatMap {
+                        SleepScoreSummary(
+                            sleep: $0,
+                            idealSleepDuration: sleepDurationGoal,
+                            recentSleepHistory: trends.sleepHistory,
+                            on: $0.stageSnapshot.date
+                        )
+                    }
                     : nil,
-                sleepVitals: summary.sleep.vitals,
-                sleepDuration: summary.sleep.duration,
+                sleepVitals: todaySleep?.vitals,
+                sleepDuration: todaySleep?.duration,
                 sleepHistory: trends.sleepHistory,
                 sleepHistorySecondary: trends.sleepHistorySecondary,
                 chartStyle: .line,
@@ -1681,9 +1732,11 @@ enum BodyHomeTrendMessageStyle {
         let phrase = BodyHomeTrendCardPresentation.recentPeriodPhrase(days: recentDayCount)
         switch self {
         case .average(let subject):
-            return "On average, \(subject) \(direction.averagePhrase) over the last \(phrase)."
+            let localizedSubject = String(localized: String.LocalizationValue(subject))
+            return String(localized: "On average, \(localizedSubject) \(direction.averagePhrase) over the last \(phrase).")
         case .quantity(let subject):
-            return "\(subject) \(direction.quantityPhrase) over the last \(phrase)."
+            let localizedSubject = String(localized: String.LocalizationValue(subject))
+            return String(localized: "\(localizedSubject) \(direction.quantityPhrase) over the last \(phrase).")
         }
     }
 }
@@ -1696,22 +1749,22 @@ enum BodyHomeTrendDirection {
     var averagePhrase: String {
         switch self {
         case .increased:
-            return "increased"
+            return String(localized: "increased")
         case .decreased:
-            return "decreased"
+            return String(localized: "decreased")
         case .stable:
-            return "stayed about the same"
+            return String(localized: "stayed about the same")
         }
     }
 
     var quantityPhrase: String {
         switch self {
         case .increased:
-            return "was higher"
+            return String(localized: "was higher")
         case .decreased:
-            return "was lower"
+            return String(localized: "was lower")
         case .stable:
-            return "stayed about the same"
+            return String(localized: "stayed about the same")
         }
     }
 }
@@ -1920,25 +1973,25 @@ struct BodyHomeTrendCardPresentation: Identifiable {
 
     static func recentPeriodPhrase(days: Int) -> String {
         if days < 28 {
-            return "\(days) days"
+            return String(localized: "\(days) days")
         } else if days < 90 {
             let weeks = max(1, Int((Double(days) / 7).rounded()))
-            return "\(weeks) weeks"
+            return String(localized: "\(weeks) weeks")
         } else {
             let months = max(1, Int((Double(days) / 30).rounded()))
-            return "\(months) months"
+            return String(localized: "\(months) months")
         }
     }
 
     static func averagePeriodText(days: Int) -> String {
         if days < 28 {
-            return "\(days)-day avg"
+            return String(localized: "\(days)-day avg")
         } else if days < 90 {
             let weeks = max(1, Int((Double(days) / 7).rounded()))
-            return "\(weeks)-week avg"
+            return String(localized: "\(weeks)-week avg")
         } else {
             let months = max(1, Int((Double(days) / 30).rounded()))
-            return "\(months)-month avg"
+            return String(localized: "\(months)-month avg")
         }
     }
 
@@ -2034,11 +2087,12 @@ struct BodyHomeTrendCardPresentation: Identifiable {
         calendar: Calendar,
         date: Date
     ) -> [HealthTrendCalendarPoint] {
+        // The window covers full days ending yesterday: today's in-progress data
+        // would bias the recent average low for cumulative metrics (steps, energy).
         let currentDayStart = calendar.startOfDay(for: date)
-        let startDate = calendar.date(byAdding: .day, value: -(dayCount - 1), to: currentDayStart)
+        let startDate = calendar.date(byAdding: .day, value: -dayCount, to: currentDayStart)
             ?? currentDayStart
-        let endDate = calendar.date(byAdding: .day, value: 1, to: currentDayStart)
-            ?? date
+        let endDate = currentDayStart
         let pointsByDay = Dictionary(grouping: series.points.filter { point in
             point.date >= startDate && point.date < endDate
         }) {
@@ -2169,8 +2223,27 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         let result: BodyHomeTrendCardPresentation.WindowResult?
     }
 
+    /// Full-equality snapshot of every input the metric-card build reads; an exact
+    /// key, so the cached models can never go stale. Comparing the snapshots is
+    /// COW-cheap because the cached copy shares buffers with the store's values
+    /// until a refresh publishes new ones.
+    struct MetricCardsInputs: Equatable {
+        let summary: HealthSummarySnapshot
+        let trends: HealthTrendSnapshot
+        let weightUnitPreference: BodyValueFormat.WeightUnitPreference
+        let energyUnitPreference: BodyValueFormat.EnergyUnitPreference
+        let temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
+        let showSleepScore: Bool
+        let sleepDurationGoalMinutes: Int
+        let dayStart: Date
+        let previewDayCount: Int
+        let localeIdentifier: String
+        let timeZoneIdentifier: String
+    }
+
     private var entries: [CacheKey: Entry] = [:]
     private var wristTemperatureBaselineEntry: (fingerprint: Fingerprint, baseline: Double?)?
+    private var metricCardsEntry: (inputs: MetricCardsInputs, cardsByKind: [HealthMetricKind: BodyHealthMetricCard.Model])?
 
     func result(
         for kind: HealthMetricKind,
@@ -2192,6 +2265,22 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         )
         entries[key] = Entry(fingerprint: fingerprint, result: result)
         return result
+    }
+
+    /// Memoizes the full set of summary metric-card models. Rebuilding them
+    /// re-derives every card's preview point set (sort + day grouping over each
+    /// series), so `body` only pays that cost when an input actually changes.
+    func metricCards(
+        inputs: MetricCardsInputs,
+        build: () -> [BodyHealthMetricCard.Model]
+    ) -> [HealthMetricKind: BodyHealthMetricCard.Model] {
+        if let entry = metricCardsEntry, entry.inputs == inputs {
+            return entry.cardsByKind
+        }
+
+        let cardsByKind = Dictionary(uniqueKeysWithValues: build().map { ($0.kind, $0) })
+        metricCardsEntry = (inputs, cardsByKind)
+        return cardsByKind
     }
 
     /// Memoizes the Skin Temperature baseline median — its stable-line

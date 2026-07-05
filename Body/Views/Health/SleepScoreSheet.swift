@@ -164,7 +164,7 @@ private func bodySleepScoreColor(for kind: SleepScoreCategory.Kind, accentColor:
         return accentColor
     case .continuity:
         return Color(red: 0.14, green: 0.72, blue: 0.42)
-    case .startTime:
+    case .consistency:
         return Color(red: 0.10, green: 0.58, blue: 1.00)
     case .rem:
         return Color(red: 0.42, green: 0.80, blue: 1.00)

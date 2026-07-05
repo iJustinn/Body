@@ -1244,13 +1244,23 @@ actor HealthKitFetchEngine {
 
     nonisolated static let heartRateReuseMinimumAge: TimeInterval = 24 * 60 * 60
 
+    /// How close the cached samples' first/last dates must sit to the workout's
+    /// start/end for the payload to count as complete. A payload cached during a
+    /// partial Watch sync can be non-empty yet missing the opening minutes (the
+    /// warm-up ramp), and would otherwise be reused forever once the workout ages
+    /// past `heartRateReuseMinimumAge`. Watch workouts sample HR every few
+    /// seconds, so a complete payload starts within seconds of the workout;
+    /// sparse payloads (phone-only, third-party) simply re-fetch each load.
+    nonisolated static let heartRateReuseCoverageTolerance: TimeInterval = 30
+
     /// Workouts whose cached heart-rate payload can be reused on a passive
     /// resume. All conditions must hold: identity + dates match the fresh
     /// `HKWorkout` (small tolerance against float drift; an edited workout
-    /// falls out), the cached samples are non-empty (a workout that synced
-    /// before its HR samples did re-fetches), and the workout ended over
-    /// `heartRateReuseMinimumAge` ago — by then a partial Watch sync has
-    /// resolved, so the cached payload is complete and immutable.
+    /// falls out), the cached samples are non-empty and cover the workout window
+    /// edge-to-edge within `heartRateReuseCoverageTolerance` (a payload cached
+    /// mid-sync that misses the opening ramp re-fetches), and the workout ended
+    /// over `heartRateReuseMinimumAge` ago — by then a partial Watch sync has
+    /// resolved, so the re-fetched payload is complete and immutable.
     nonisolated static func heartRateReuseEligibleWorkoutIDs(
         workouts: [(id: UUID, startDate: Date, duration: TimeInterval)],
         cachedSummaries: [UUID: WorkoutSummary],
@@ -1263,7 +1273,11 @@ actor HealthKitFetchEngine {
             guard let cached = cachedSummaries[workout.id],
                   abs(cached.startDate.timeIntervalSince(workout.startDate)) <= dateTolerance,
                   abs(cached.duration - workout.duration) <= dateTolerance,
-                  cached.heartRateSamples?.isEmpty == false,
+                  let samples = cached.heartRateSamples, !samples.isEmpty,
+                  let firstSampleDate = samples.map(\.date).min(),
+                  let lastSampleDate = samples.map(\.date).max(),
+                  firstSampleDate.timeIntervalSince(workout.startDate) <= heartRateReuseCoverageTolerance,
+                  endDate.timeIntervalSince(lastSampleDate) <= heartRateReuseCoverageTolerance,
                   now.timeIntervalSince(endDate) > heartRateReuseMinimumAge else {
                 continue
             }

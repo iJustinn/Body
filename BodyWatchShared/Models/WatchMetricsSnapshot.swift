@@ -159,6 +159,22 @@ struct WatchMetric: Codable, Equatable, Identifiable {
 
     /// The tint to render: the carried dynamic `tint`, else the kind default.
     var resolvedTint: WatchMetricColor { tint ?? WatchMetricKindKey.tint(forKind: kind) }
+
+    /// This metric with its reading cleared to the builder's empty state
+    /// ("--", no score/fill/value), keeping identity + chart context (kind,
+    /// title, weekly, ranges). Reuses the file's existing "--" sentinel (see
+    /// `hasValue`) so it matches the value the snapshot builder emits for a
+    /// metric it has no reading for. Used by `WatchMetricsSnapshot.sanitized`.
+    func cleared() -> WatchMetric {
+        var metric = self
+        metric.displayValue = "--"
+        metric.unit = ""
+        metric.score = nil
+        metric.fillFraction = 0
+        metric.rawValue = nil
+        metric.liveUpdatedAt = nil
+        return metric
+    }
 }
 
 /// Schema evolution: the phone and watch can run different builds, so any new
@@ -172,6 +188,14 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// longer computes its own). Kept for schema compatibility with older
     /// snapshots; the merge decides by recency + value presence.
     var source: String? = nil
+    /// The calendar day the carried Sleep metric belongs to (the sleep
+    /// session's day), stamped by the snapshot builder. Lets the watch re-check
+    /// at DISPLAY time — via `sanitized(asOf:)` — that a persisted snapshot's
+    /// Sleep still belongs to today; the phone's build-time `SleepSummary.asOf`
+    /// guard can't cover a snapshot that outlives midnight in the App Group
+    /// cache. Optional so snapshots from before this field decode (nil ⇒
+    /// unknown, treated as not-today by `sanitized`).
+    var sleepNight: Date? = nil
 
     /// Pushed data older than this is stale: the watch app live-refreshes
     /// HR/HRV past it, and the complication timeline re-checks on the same
@@ -190,13 +214,13 @@ struct WatchMetricsSnapshot: Codable, Equatable {
         generatedAt: .distantPast,
         lastRefreshDate: nil,
         metrics: [
-            WatchMetric(kind: WatchMetricKindKey.readiness, title: "Readiness", displayValue: "78", unit: "%", score: 78, fillFraction: 0.78, rawValue: 78, rangeMin: 0, rangeMax: 100, levelMin: 65, levelMax: 79, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)),
-            WatchMetric(kind: WatchMetricKindKey.sleep, title: "Sleep", displayValue: "7h 32m", unit: "", score: 85, fillFraction: 0.85, rawValue: 85, rangeMin: 0, rangeMax: 100),
-            WatchMetric(kind: WatchMetricKindKey.heartRate, title: "Heart Rate", displayValue: "62", unit: "bpm", score: nil, fillFraction: 0.45, rawValue: 62, rangeMin: 54, rangeMax: 72),
-            WatchMetric(kind: WatchMetricKindKey.heartRateVariability, title: "HRV", displayValue: "48", unit: "ms", score: nil, fillFraction: 0.60, rawValue: 48, rangeMin: 30, rangeMax: 60),
-            WatchMetric(kind: WatchMetricKindKey.restingHeartRate, title: "Resting HR", displayValue: "56", unit: "bpm", score: nil, fillFraction: 0.70, rawValue: 56, rangeMin: 52, rangeMax: 64),
-            WatchMetric(kind: WatchMetricKindKey.trainingLoad, title: "Training Load", displayValue: "1.05", unit: "", score: nil, fillFraction: 0.53, rawValue: 1.05, rangeMin: 0, rangeMax: 2, levelMin: 0.8, levelMax: 1.3, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)),
-            WatchMetric(kind: WatchMetricKindKey.wristTemperature, title: "Skin Temp", displayValue: "93.4", unit: "°F", score: nil, fillFraction: 0.50, rawValue: 34.1, rangeMin: 33.8, rangeMax: 34.4)
+            WatchMetric(kind: WatchMetricKindKey.readiness, title: String(localized: "Readiness", table: "BodyWatchShared"), displayValue: "78", unit: "%", score: 78, fillFraction: 0.78, rawValue: 78, rangeMin: 0, rangeMax: 100, levelMin: 65, levelMax: 79, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)),
+            WatchMetric(kind: WatchMetricKindKey.sleep, title: String(localized: "Sleep", table: "BodyWatchShared"), displayValue: "7h 32m", unit: "", score: 85, fillFraction: 0.85, rawValue: 85, rangeMin: 0, rangeMax: 100),
+            WatchMetric(kind: WatchMetricKindKey.heartRate, title: String(localized: "Heart Rate", table: "BodyWatchShared"), displayValue: "62", unit: "bpm", score: nil, fillFraction: 0.45, rawValue: 62, rangeMin: 54, rangeMax: 72),
+            WatchMetric(kind: WatchMetricKindKey.heartRateVariability, title: String(localized: "HRV", table: "BodyWatchShared"), displayValue: "48", unit: "ms", score: nil, fillFraction: 0.60, rawValue: 48, rangeMin: 30, rangeMax: 60),
+            WatchMetric(kind: WatchMetricKindKey.restingHeartRate, title: String(localized: "Resting HR", table: "BodyWatchShared"), displayValue: "56", unit: "bpm", score: nil, fillFraction: 0.70, rawValue: 56, rangeMin: 52, rangeMax: 64),
+            WatchMetric(kind: WatchMetricKindKey.trainingLoad, title: String(localized: "Training Load", table: "BodyWatchShared"), displayValue: "1.05", unit: "", score: nil, fillFraction: 0.53, rawValue: 1.05, rangeMin: 0, rangeMax: 2, levelMin: 0.8, levelMax: 1.3, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)),
+            WatchMetric(kind: WatchMetricKindKey.wristTemperature, title: String(localized: "Skin Temp", table: "BodyWatchShared"), displayValue: "93.4", unit: "°F", score: nil, fillFraction: 0.50, rawValue: 34.1, rangeMin: 33.8, rangeMax: 34.4)
         ]
     )
 
@@ -208,6 +232,34 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// snapshot. Shared by the watch dashboard and its settings list.
     var orderedMetrics: [WatchMetric] {
         WatchMetricKindKey.displayOrder.compactMap { metric(forKind: $0) }
+    }
+
+    /// Display-time staleness guard mirroring the phone's build-time
+    /// `SleepSummary.asOf`: a persisted snapshot (App Group cache) can outlive
+    /// midnight, so re-check that its carried Sleep metric still belongs to
+    /// `now`'s day. When `sleepNight` is a prior day — or unknown (nil, e.g. a
+    /// snapshot built before this field existed, or by an older phone) — the
+    /// Sleep metric is cleared to the builder's "--"/nil-score empty state so
+    /// the watch app and complications never show yesterday's sleep as today's.
+    /// A blanked legacy snapshot is corrected on the next phone push (at most
+    /// one sync away), which we prefer over presenting a night we can't verify.
+    func sanitized(asOf now: Date = Date()) -> WatchMetricsSnapshot {
+        // Sleep is the only date-bound metric; nothing to do if it's absent or
+        // still belongs to today.
+        guard metric(forKind: WatchMetricKindKey.sleep) != nil,
+              !isSleepNightCurrent(asOf: now) else { return self }
+        var copy = self
+        copy.metrics = metrics.map { $0.kind == WatchMetricKindKey.sleep ? $0.cleared() : $0 }
+        return copy
+    }
+
+    private func isSleepNightCurrent(asOf now: Date) -> Bool {
+        guard let sleepNight else { return false }
+        // Same day-boundary convention as `SleepSummary.asOf` (Gregorian, local
+        // time zone). `Calendar.bodyGregorian` isn't linked into the watch
+        // widget target, but it only differs by `firstWeekday`, which doesn't
+        // affect `isDate(_:inSameDayAs:)`.
+        return Calendar(identifier: .gregorian).isDate(sleepNight, inSameDayAs: now)
     }
 }
 

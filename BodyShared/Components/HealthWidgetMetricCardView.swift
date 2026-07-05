@@ -114,12 +114,12 @@ struct HealthWidgetMetricCardView: View {
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(metric.tintColor.opacity(0.55))
 
-            Text("No \(metric.title) data")
+            Text(String(localized: "No \(metric.title) data", table: "BodyShared"))
                 .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
 
-            Text("Open Body to sync")
+            Text(String(localized: "Open Body to sync", table: "BodyShared"))
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundColor(.secondary.opacity(0.7))
         }

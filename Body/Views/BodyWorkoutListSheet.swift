@@ -72,7 +72,7 @@ enum BodyWorkoutListSelection: Identifiable {
               let date = Calendar.bodyGregorian.date(
                 from: DateComponents(year: parts[0], month: parts[1], day: parts[2])
               ) else {
-            return "Day \(day.day)"
+            return String(localized: "Day \(day.day)")
         }
 
         return date.formatted(.dateTime.weekday(.wide).month(.wide).day())

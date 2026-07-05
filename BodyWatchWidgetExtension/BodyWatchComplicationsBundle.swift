@@ -51,7 +51,7 @@ struct ReadinessComplication: Widget {
     var body: some WidgetConfiguration {
         metricComplication(
             widgetKind: "BodyWatchReadiness", metricKind: WatchMetricKindKey.readiness,
-            displayName: "Readiness", description: "Your readiness ring."
+            displayName: String(localized: "Readiness"), description: String(localized: "Your readiness ring.")
         )
     }
 }
@@ -60,7 +60,7 @@ struct SleepComplication: Widget {
     var body: some WidgetConfiguration {
         metricComplication(
             widgetKind: "BodyWatchSleep", metricKind: WatchMetricKindKey.sleep,
-            displayName: "Sleep", description: "Your sleep score ring."
+            displayName: String(localized: "Sleep"), description: String(localized: "Your sleep score ring.")
         )
     }
 }
@@ -69,7 +69,7 @@ struct HeartRateComplication: Widget {
     var body: some WidgetConfiguration {
         metricComplication(
             widgetKind: "BodyWatchHeartRate", metricKind: WatchMetricKindKey.heartRate,
-            displayName: "Heart Rate", description: "Your heart rate ring."
+            displayName: String(localized: "Heart Rate"), description: String(localized: "Your heart rate ring.")
         )
     }
 }
@@ -78,7 +78,7 @@ struct HRVComplication: Widget {
     var body: some WidgetConfiguration {
         metricComplication(
             widgetKind: "BodyWatchHRV", metricKind: WatchMetricKindKey.heartRateVariability,
-            displayName: "HRV", description: "Your heart rate variability ring."
+            displayName: String(localized: "HRV"), description: String(localized: "Your heart rate variability ring.")
         )
     }
 }
@@ -87,7 +87,7 @@ struct RestingHeartRateComplication: Widget {
     var body: some WidgetConfiguration {
         metricComplication(
             widgetKind: "BodyWatchRestingHeartRate", metricKind: WatchMetricKindKey.restingHeartRate,
-            displayName: "Resting HR", description: "Your resting heart rate ring."
+            displayName: String(localized: "Resting HR"), description: String(localized: "Your resting heart rate ring.")
         )
     }
 }
@@ -96,7 +96,7 @@ struct TrainingLoadComplication: Widget {
     var body: some WidgetConfiguration {
         metricComplication(
             widgetKind: "BodyWatchTrainingLoad", metricKind: WatchMetricKindKey.trainingLoad,
-            displayName: "Training Load", description: "Your training load ring."
+            displayName: String(localized: "Training Load"), description: String(localized: "Your training load ring.")
         )
     }
 }
@@ -105,7 +105,7 @@ struct SkinTemperatureComplication: Widget {
     var body: some WidgetConfiguration {
         metricComplication(
             widgetKind: "BodyWatchSkinTemperature", metricKind: WatchMetricKindKey.wristTemperature,
-            displayName: "Skin Temp", description: "Your skin temperature ring."
+            displayName: String(localized: "Skin Temp"), description: String(localized: "Your skin temperature ring.")
         )
     }
 }

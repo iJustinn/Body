@@ -335,7 +335,7 @@ enum ReadinessScoreCalculator {
                 kind: .autonomic,
                 score: Int(recoveryCore(fromZScore: autonomic.combinedZScore).rounded()),
                 weight: 30,
-                message: "Heart signals compared with your baseline."
+                message: String(localized: "Heart signals compared with your baseline.", table: "BodyMetricsKit")
             ))
             bestBaselineDayCounts.append(autonomic.bestBaselineDayCount)
         }
@@ -344,7 +344,7 @@ enum ReadinessScoreCalculator {
                 kind: .sleep,
                 score: sleep.componentScore,
                 weight: 30,
-                message: "Sleep amount and continuity."
+                message: String(localized: "Sleep amount and continuity.", table: "BodyMetricsKit")
             ))
             bestBaselineDayCounts.append(sleep.historyDayCount)
         }
@@ -353,7 +353,7 @@ enum ReadinessScoreCalculator {
                 kind: .training,
                 score: training.componentScore,
                 weight: 25,
-                message: "Recent load relative to your longer baseline."
+                message: String(localized: "Recent load relative to your longer baseline.", table: "BodyMetricsKit")
             ))
             bestBaselineDayCounts.append(training.pointCount)
         }
@@ -362,7 +362,7 @@ enum ReadinessScoreCalculator {
                 kind: .vitals,
                 score: vitals.componentScore,
                 weight: 15,
-                message: "Breathing, oxygen, and temperature anomalies."
+                message: String(localized: "Breathing, oxygen, and temperature anomalies.", table: "BodyMetricsKit")
             ))
             bestBaselineDayCounts.append(vitals.bestBaselineDayCount)
         }
@@ -390,7 +390,7 @@ enum ReadinessScoreCalculator {
             confidence: confidence,
             components: components,
             drivers: drivers.isEmpty
-                ? [ReadinessDriver(kind: .mostlyTypical, message: "Readiness signals are mostly typical.", impact: 0)]
+                ? [ReadinessDriver(kind: .mostlyTypical, message: String(localized: "Readiness signals are mostly typical.", table: "BodyMetricsKit"), impact: 0)]
                 : drivers
         )
     }
@@ -571,7 +571,7 @@ enum ReadinessScoreCalculator {
             if progress > 0 {
                 drivers.append(ReadinessDriver(
                     kind: .hrvBelowBaseline,
-                    message: "HRV is below baseline.",
+                    message: String(localized: "HRV is below baseline.", table: "BodyMetricsKit"),
                     impact: progress
                 ))
             }
@@ -586,7 +586,7 @@ enum ReadinessScoreCalculator {
             if progress > 0 {
                 drivers.append(ReadinessDriver(
                     kind: .heartRateAboveBaseline,
-                    message: "Resting heart rate is above baseline.",
+                    message: String(localized: "Resting heart rate is above baseline.", table: "BodyMetricsKit"),
                     impact: progress
                 ))
             }
@@ -631,7 +631,7 @@ enum ReadinessScoreCalculator {
         if durationProgress < 0.85 {
             drivers.append(ReadinessDriver(
                 kind: .sleepDurationBelowGoal,
-                message: "Sleep duration is below goal.",
+                message: String(localized: "Sleep duration is below goal.", table: "BodyMetricsKit"),
                 impact: 1 - durationProgress
             ))
         }
@@ -646,7 +646,7 @@ enum ReadinessScoreCalculator {
                 if continuityProgress < 0.65 {
                     drivers.append(ReadinessDriver(
                         kind: .sleepFragmented,
-                        message: "Sleep was more fragmented than usual.",
+                        message: String(localized: "Sleep was more fragmented than usual.", table: "BodyMetricsKit"),
                         impact: 1 - continuityProgress
                     ))
                 }
@@ -705,7 +705,7 @@ enum ReadinessScoreCalculator {
 
         appendHighSideAnomaly(
             kind: .respiratoryRateAboveBaseline,
-            message: "Respiratory rate is above baseline.",
+            message: String(localized: "Respiratory rate is above baseline.", table: "BodyMetricsKit"),
             date: date,
             metric: .respiratoryRate,
             context: context,
@@ -715,7 +715,7 @@ enum ReadinessScoreCalculator {
         )
         appendHighSideAnomaly(
             kind: .wristTemperatureAboveBaseline,
-            message: "Skin temperature is above baseline.",
+            message: String(localized: "Skin temperature is above baseline.", table: "BodyMetricsKit"),
             date: date,
             metric: .wristTemperature,
             context: context,
@@ -735,7 +735,7 @@ enum ReadinessScoreCalculator {
                 baselineCounts.append(reading.baseline.validDayCount)
                 drivers.append(ReadinessDriver(
                     kind: .oxygenSaturationLow,
-                    message: "Blood oxygen is below its usual range.",
+                    message: String(localized: "Blood oxygen is below its usual range.", table: "BodyMetricsKit"),
                     impact: progress
                 ))
             }
@@ -792,7 +792,7 @@ enum ReadinessScoreCalculator {
             scoreFromPenaltyProgress(progress, base: 70, minimum: 20),
             ReadinessDriver(
                 kind: .trainingLoadElevated,
-                message: "Training load is elevated.",
+                message: String(localized: "Training load is elevated.", table: "BodyMetricsKit"),
                 impact: progress
             )
         )

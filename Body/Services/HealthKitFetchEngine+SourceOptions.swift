@@ -90,7 +90,7 @@ extension HealthKitFetchEngine {
                     let sourceNameKeys = Set(sources.map { source in
                         BodyHealthDataSourceOption.individualSourceIdentityKey(
                             bundleIdentifier: source.bundleIdentifier,
-                            name: displayName(for: source)
+                            name: identityName(for: source)
                         )
                     })
                     return sourceNameKeys.count > 1 ? bundleIdentifier : nil
@@ -99,46 +99,43 @@ extension HealthKitFetchEngine {
         for source in sortedSources {
             let sourceID = BodyHealthDataSourceOption.individualSourceID(
                 bundleIdentifier: source.bundleIdentifier,
-                name: displayName(for: source),
+                name: identityName(for: source),
                 disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(source.bundleIdentifier)
             )
             sourcesByID[sourceID, default: []].append(source)
         }
 
         let groupedSources = Dictionary(grouping: sortedSources) { source in
-            BodyHealthDataSourceOption.normalizedSourceName(displayName(for: source))
+            BodyHealthDataSourceOption.normalizedSourceName(identityName(for: source))
         }
         for group in groupedSources.values where group.count > 1 {
-            let displayName = displayName(for: group[0])
-            sourcesByID[BodyHealthDataSourceOption.combinedSourceID(for: displayName)] = group
+            sourcesByID[BodyHealthDataSourceOption.combinedSourceID(for: identityName(for: group[0]))] = group
         }
 
         let options: [BodyHealthDataSourceOption]
         if combinesHealthDataSourcesByName {
             options = groupedSources.values.map { group in
-                let displayName = displayName(for: group[0])
                 let optionID = group.count > 1
-                    ? BodyHealthDataSourceOption.combinedSourceID(for: displayName)
+                    ? BodyHealthDataSourceOption.combinedSourceID(for: identityName(for: group[0]))
                     : BodyHealthDataSourceOption.individualSourceID(
                         bundleIdentifier: group[0].bundleIdentifier,
-                        name: displayName,
+                        name: identityName(for: group[0]),
                         disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(group[0].bundleIdentifier)
                     )
                 return BodyHealthDataSourceOption(
                     id: optionID,
-                    name: BodyHealthDataSourceOption.combinedSourceDisplayName(for: displayName)
+                    name: BodyHealthDataSourceOption.combinedSourceDisplayName(for: displayName(for: group[0]))
                 )
             }
         } else {
             options = sortedSources.map { source in
-                let displayName = displayName(for: source)
                 return BodyHealthDataSourceOption(
                     id: BodyHealthDataSourceOption.individualSourceID(
                         bundleIdentifier: source.bundleIdentifier,
-                        name: displayName,
+                        name: identityName(for: source),
                         disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(source.bundleIdentifier)
                     ),
-                    name: displayName
+                    name: displayName(for: source)
                 )
             }
         }
@@ -156,17 +153,42 @@ extension HealthKitFetchEngine {
 
     private func displayName(for source: HKSource) -> String {
         let trimmedName = source.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedName.isEmpty ? String(localized: "Unknown Source") : trimmedName
+    }
+
+    /// Locale-stable name used for persisted option IDs and grouping keys. A
+    /// blank source name falls back to a fixed English string so switching the
+    /// app language never re-keys the same HealthKit source and drops the user's
+    /// selected source override. Only `displayName(for:)` is localized.
+    private func identityName(for source: HKSource) -> String {
+        let trimmedName = source.name.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedName.isEmpty ? "Unknown Source" : trimmedName
     }
 
     private func fetchHealthDataSources(for sampleTypes: [HKSampleType]) async -> [HKSource] {
+        // Fan the per-sample-type `HKSourceQuery` round-trips out concurrently
+        // instead of awaiting them one at a time. Results are collected by
+        // index so the merge below can replay the exact same first-wins,
+        // iteration-order precedence as the old serial loop.
+        var resultsByIndex = [[HKSource]](repeating: [], count: sampleTypes.count)
+        await withTaskGroup(of: IndexedSources.self) { group in
+            for (index, sampleType) in sampleTypes.enumerated() {
+                group.addTask {
+                    IndexedSources(index: index, sources: await self.fetchHealthDataSources(for: sampleType))
+                }
+            }
+
+            for await result in group {
+                resultsByIndex[result.index] = result.sources
+            }
+        }
+
         var sourcesByIdentifier: [String: HKSource] = [:]
-        for sampleType in sampleTypes {
-            let sources = await fetchHealthDataSources(for: sampleType)
+        for sources in resultsByIndex {
             for source in sources {
                 let sourceKey = BodyHealthDataSourceOption.individualSourceIdentityKey(
                     bundleIdentifier: source.bundleIdentifier,
-                    name: displayName(for: source)
+                    name: identityName(for: source)
                 )
                 if sourcesByIdentifier[sourceKey] == nil {
                     sourcesByIdentifier[sourceKey] = source
@@ -174,6 +196,18 @@ extension HealthKitFetchEngine {
             }
         }
         return Array(sourcesByIdentifier.values)
+    }
+
+    /// One sample type's discovered sources, carried out of the concurrent
+    /// fetch task group, tagged with its original index so the merge can
+    /// replay first-wins precedence in the same order as a serial loop.
+    /// `@unchecked Sendable` mirrors `KindSources` above — sound because
+    /// `HKSource` is immutable metadata that HealthKit just doesn't annotate
+    /// `Sendable`. A raw tuple can't be marked `@unchecked Sendable`, hence
+    /// this wrapper struct.
+    private struct IndexedSources: @unchecked Sendable {
+        let index: Int
+        let sources: [HKSource]
     }
 
     private func fetchHealthDataSources(for sampleType: HKSampleType) async -> [HKSource] {

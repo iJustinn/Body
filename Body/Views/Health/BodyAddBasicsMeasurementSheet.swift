@@ -107,7 +107,7 @@ struct BodyAddBasicsMeasurementSheet: View {
     }
 
     private func measurementCard<Content: View>(
-        title: String,
+        title: LocalizedStringKey,
         isOn: Binding<Bool>,
         @ViewBuilder content: () -> Content
     ) -> some View {
@@ -235,7 +235,7 @@ struct BodyAddBasicsMeasurementSheet: View {
                 dismiss()
             } catch {
                 isSaving = false
-                errorMessage = "Body couldn't save to Apple Health. Make sure Body is allowed to update Weight and Body Fat in Settings › Health › Data Access & Devices."
+                errorMessage = String(localized: "Body couldn't save to Apple Health. Make sure Body is allowed to update Weight and Body Fat in Settings › Health › Data Access & Devices.")
             }
         }
     }

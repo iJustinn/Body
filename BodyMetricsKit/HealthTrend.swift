@@ -10,6 +10,7 @@ import Foundation
 struct RecordedReadinessEntry: Codable, Equatable {
     var date: Date   // calendar.startOfDay of the recorded day
     var score: Int
+    var includedSleep: Bool? = nil   // nil = legacy record (pre-flag), unknown
 }
 
 struct HealthTrendSnapshot: Codable, Equatable {
@@ -1404,6 +1405,26 @@ struct HealthTrendSeries: Codable, Equatable {
 
     func point(on date: Date) -> HealthTrendDataPoint? {
         points.first { $0.date == date }
+    }
+
+    /// Latest finite point value on or before `date`, no older than `maxAgeDays`.
+    /// Unlike `point(on:)` (exact-Date equality), this tolerates sparse daily series —
+    /// e.g. "the resting HR in effect on the day of an old workout".
+    func latestValue(
+        onOrBefore date: Date,
+        maxAgeDays: Int,
+        calendar: Calendar = .bodyGregorian
+    ) -> Double? {
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: date))
+            ?? date
+        guard let earliest = calendar.date(byAdding: .day, value: -maxAgeDays, to: calendar.startOfDay(for: date)) else {
+            return nil
+        }
+
+        let eligible = points.filter {
+            $0.date < dayEnd && $0.date >= earliest && $0.value.isFinite
+        }
+        return eligible.max(by: { $0.date < $1.date })?.value
     }
 
     /// Overlay frozen morning records onto the series, replacing each recorded

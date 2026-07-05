@@ -38,22 +38,22 @@ enum HealthWidgetMetric: String, Codable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .readiness: return "Readiness"
-        case .heartRate: return "Heart Rate"
-        case .restingHeartRate: return "Resting Heart Rate"
-        case .heartRateVariability: return "HRV"
-        case .respiratoryRate: return "Respiratory Rate"
-        case .oxygenSaturation: return "Blood Oxygen"
-        case .sleep: return "Sleep"
-        case .wristTemperature: return "Skin Temperature"
-        case .steps: return "Steps"
-        case .activeEnergy: return "Active Energy"
-        case .restingEnergy: return "Resting Energy"
-        case .exerciseMinutes: return "Exercise Minutes"
-        case .trainingLoad: return "Training Load"
-        case .timeInDaylight: return "Time In Daylight"
-        case .bodyMass: return "Weight"
-        case .bodyFatPercentage: return "Body Fat"
+        case .readiness: return String(localized: "Readiness", table: "BodyShared")
+        case .heartRate: return String(localized: "Heart Rate", table: "BodyShared")
+        case .restingHeartRate: return String(localized: "Resting Heart Rate", table: "BodyShared")
+        case .heartRateVariability: return String(localized: "HRV", table: "BodyShared")
+        case .respiratoryRate: return String(localized: "Respiratory Rate", table: "BodyShared")
+        case .oxygenSaturation: return String(localized: "Blood Oxygen", table: "BodyShared")
+        case .sleep: return String(localized: "Sleep", table: "BodyShared")
+        case .wristTemperature: return String(localized: "Skin Temperature", table: "BodyShared")
+        case .steps: return String(localized: "Steps", table: "BodyShared")
+        case .activeEnergy: return String(localized: "Active Energy", table: "BodyShared")
+        case .restingEnergy: return String(localized: "Resting Energy", table: "BodyShared")
+        case .exerciseMinutes: return String(localized: "Exercise Minutes", table: "BodyShared")
+        case .trainingLoad: return String(localized: "Training Load", table: "BodyShared")
+        case .timeInDaylight: return String(localized: "Time In Daylight", table: "BodyShared")
+        case .bodyMass: return String(localized: "Weight", table: "BodyShared")
+        case .bodyFatPercentage: return String(localized: "Body Fat", table: "BodyShared")
         }
     }
 
@@ -120,8 +120,8 @@ enum HealthWidgetTrendRange: String, Codable, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .week: return "Week"
-        case .month: return "Month"
+        case .week: return String(localized: "Week", table: "BodyShared")
+        case .month: return String(localized: "Month", table: "BodyShared")
         }
     }
 
@@ -271,10 +271,10 @@ enum HealthWidgetSleepStage: String, Codable, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .awake: return "Awake"
-        case .rem: return "REM"
-        case .core: return "Core"
-        case .deep: return "Deep"
+        case .awake: return String(localized: "Awake", table: "BodyShared")
+        case .rem: return String(localized: "REM", table: "BodyShared")
+        case .core: return String(localized: "Core", table: "BodyShared")
+        case .deep: return String(localized: "Deep", table: "BodyShared")
         }
     }
 
@@ -338,6 +338,20 @@ struct HealthWidgetSleepStages: Codable, Equatable {
     }
 
     static let empty = HealthWidgetSleepStages(night: nil, sourceName: nil, segments: [])
+
+    /// True when `night` is missing or isn't the same calendar day as `date` —
+    /// i.e. these stages can't be trusted as belonging to `date`'s night and
+    /// must not be displayed as if they were "tonight's" sleep. A snapshot
+    /// persisted to the App Group before midnight still holds a legitimately
+    /// current "last night" at write time; the widget timeline just re-reads
+    /// that cache every ~30 min without rebuilding, so staleness must be
+    /// re-checked again at load/display time. A nil `night` is treated as
+    /// stale, matching how `SleepSummary.matchesDay` never trusts a missing
+    /// date (BodyMetricsKit/Sleep.swift).
+    func isStale(asOf date: Date, calendar: Calendar = .bodyGregorian) -> Bool {
+        guard let night else { return true }
+        return !calendar.isDate(night, inSameDayAs: date)
+    }
 }
 
 // MARK: - Snapshot
@@ -363,6 +377,29 @@ struct HealthWidgetSnapshot: Codable, Equatable {
 
     var isEmpty: Bool {
         metricTrends.allSatisfy { !$0.hasAnyData } && sleep.isEmpty
+    }
+
+    /// Blanks sleep data that's gone stale since this snapshot was persisted.
+    /// `HealthWidgetSnapshotBuilder` already guards against carrying over a
+    /// stale night when the phone rebuilds the snapshot (`SleepSummary.asOf`),
+    /// but a snapshot written to the App Group before midnight still holds a
+    /// valid "last night" at write time — the widget timeline just re-reads
+    /// that cache every ~30 min without rebuilding it. Widget providers call
+    /// this with the current `Date()` at entry-build time so widgets never
+    /// keep showing yesterday's sleep after midnight. Only blanks the
+    /// "current sleep" style displays (`sleep` stages, the `.sleep` metric's
+    /// `displayValues`); the week/month trend series are per-day dated
+    /// history, not stale carry-over, and are left untouched.
+    func sanitizingStaleSleep(asOf date: Date, calendar: Calendar = .bodyGregorian) -> HealthWidgetSnapshot {
+        guard sleep.isStale(asOf: date, calendar: calendar) else { return self }
+        var sanitized = self
+        sanitized.sleep = .empty
+        if let index = sanitized.metricTrends.firstIndex(where: { $0.metric == .sleep }) {
+            sanitized.metricTrends[index].displayValues = sanitized.metricTrends[index].displayValues.map { _ in
+                HealthWidgetDisplayValue(value: "--", unit: "")
+            }
+        }
+        return sanitized
     }
 
     static let empty = HealthWidgetSnapshot()

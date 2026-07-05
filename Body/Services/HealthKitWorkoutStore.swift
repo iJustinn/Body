@@ -34,6 +34,14 @@ struct BodyWorkoutMonthKey: Hashable {
     }
 }
 
+/// The recent same-type history used to build a workout's 30-day metric comparisons.
+/// `isComplete` is false while any spanned month is still loading, so the UI can
+/// distinguish "loading" from genuinely sparse history.
+struct WorkoutComparisonContext {
+    let priorWorkouts: [WorkoutSummary]
+    let isComplete: Bool
+}
+
 struct BodyHealthCacheStatus: Equatable {
     let hasHealthDashboardData: Bool
     let workoutMonthCount: Int
@@ -46,17 +54,21 @@ struct BodyHealthCacheStatus: Equatable {
     }
 
     var summaryText: String {
-        isEmpty ? "Empty" : "Cached"
+        guard !isEmpty else { return String(localized: "Empty") }
+        // `diskSizeBytes` is refreshed off the main actor (`refreshCacheDiskSize`), so it's
+        // still 0 in the window between a non-empty cache loading and that stat landing.
+        // Show the generic "Cached" until then rather than a misleading "Zero KB".
+        return diskSizeBytes > 0 ? formattedDiskSize : String(localized: "Cached")
     }
 
     var detailLines: [String] {
         [
             hasHealthDashboardData
-                ? "Health summary, trend, or Activity Ring data is available in the local dashboard cache."
-                : "Health dashboard cache is empty.",
-            "\(workoutMonthCount) workout \(monthWord(for: workoutMonthCount)) cached with \(workoutCount) \(workoutWord(for: workoutCount)).",
-            "\(activityRingMonthCount) Activity Ring \(monthWord(for: activityRingMonthCount)) cached.",
-            "On-disk size: \(formattedDiskSize)."
+                ? String(localized: "Health summary, trend, or Activity Ring data is available in the local dashboard cache.")
+                : String(localized: "Health dashboard cache is empty."),
+            String(localized: "\(workoutMonthCount) workout \(monthWord(for: workoutMonthCount)) cached with \(workoutCount) \(workoutWord(for: workoutCount))."),
+            String(localized: "\(activityRingMonthCount) Activity Ring \(monthWord(for: activityRingMonthCount)) cached."),
+            String(localized: "On-disk size: \(formattedDiskSize).")
         ]
     }
 
@@ -67,11 +79,11 @@ struct BodyHealthCacheStatus: Equatable {
     }
 
     private func monthWord(for count: Int) -> String {
-        count == 1 ? "month" : "months"
+        count == 1 ? String(localized: "month") : String(localized: "months")
     }
 
     private func workoutWord(for count: Int) -> String {
-        count == 1 ? "workout" : "workouts"
+        count == 1 ? String(localized: "workout") : String(localized: "workouts")
     }
 }
 
@@ -95,6 +107,13 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// the cached snapshot value so an edit shows immediately; the snapshot's
     /// baked-in effort catches up on the next workout refresh.
     @Published private(set) var workoutEffortOverrides: [UUID: Double] = [:]
+    /// Workouts whose saved effort was an accepted suggestion (saved unchanged from
+    /// the pre-filled estimate). `WorkoutEffortEstimator` excludes these from its
+    /// calibration so it never learns from its own output; a manual re-rate removes
+    /// the ID again. Device-local: persisted in `UserDefaults` as an ordered
+    /// `[String]` capped at `suggestionAcceptedEffortIDsCap` (oldest dropped first).
+    @Published private(set) var suggestionAcceptedEffortWorkoutIDs: Set<UUID> =
+        HealthKitWorkoutStore.loadSuggestionAcceptedEffortIDs()
     @Published private(set) var healthSummary: HealthSummarySnapshot = .empty
     @Published private(set) var healthTrends: HealthTrendSnapshot = .empty
     @Published private(set) var activityRingHistory: ActivityRingHistorySnapshot = .empty
@@ -133,6 +152,11 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// sheet is reopened. HealthKit read access is opaque, so authorization gates
     /// clear the cache before any stale positive or negative route result sticks.
     private var routeCache: [UUID: WorkoutRoute?] = [:]
+    /// Session cache of a workout's raw distance samples keyed by UUID, feeding the
+    /// detail Splits section. Empty results are cached only for workouts that ended
+    /// more than 24 h ago; recent workouts may still be syncing from the watch, so
+    /// their empty reads are retried on the next sheet open.
+    private var distanceSampleCache: [UUID: WorkoutSplitData] = [:]
     private var loadedMonthKeys: Set<BodyWorkoutMonthKey> = []
     private var monthLoadOrder: [BodyWorkoutMonthKey] = []
     private var loadedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
@@ -297,26 +321,26 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     var healthSyncStatusSummaryText: String {
         if isRefreshing {
-            return "Refreshing"
+            return String(localized: "Refreshing")
         }
 
         switch authorizationState {
         case .unknown:
-            return lastSuccessfulRefreshDate == nil ? "Not Synced" : healthSyncStatusLastRefreshText
+            return lastSuccessfulRefreshDate == nil ? String(localized: "Not Synced") : healthSyncStatusLastRefreshText
         case .unavailable:
-            return "Unavailable"
+            return String(localized: "Unavailable")
         case .authorized:
             return healthSyncStatusLastRefreshText
         case .denied:
-            return "Denied"
+            return String(localized: "Denied")
         case .failed:
-            return "Failed"
+            return String(localized: "Failed")
         }
     }
 
     var healthSyncStatusLastRefreshText: String {
         guard let date = lastSuccessfulRefreshDate else {
-            return "Not yet refreshed"
+            return String(localized: "Not yet refreshed")
         }
 
         return date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
@@ -324,22 +348,22 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     var healthSyncStatusDetailText: String {
         if isRefreshing {
-            return "Body is refreshing Apple Health data now."
+            return String(localized: "Body is refreshing Apple Health data now.")
         }
 
         switch authorizationState {
         case .unknown:
             return lastSuccessfulRefreshDate == nil
-                ? "Body has not completed a HealthKit refresh in this app session."
-                : "Body has cached Health data from a previous refresh."
+                ? String(localized: "Body has not completed a HealthKit refresh in this app session.")
+                : String(localized: "Body has cached Health data from a previous refresh.")
         case .unavailable:
-            return "Apple Health is not available on this device."
+            return String(localized: "Apple Health is not available on this device.")
         case .authorized:
-            return "Body can read the Health data permissions enabled below."
+            return String(localized: "Body can read the Health data permissions enabled below.")
         case .denied:
-            return "Health access was denied. Review Body's permissions in Apple Health or iOS Settings."
+            return String(localized: "Health access was denied. Review Body's permissions in Apple Health or iOS Settings.")
         case .failed(let message):
-            return "The last refresh failed: \(message)"
+            return String(localized: "The last refresh failed: \(message)")
         }
     }
 
@@ -384,7 +408,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
-            healthDataNotice = "Apple Health is not available on this device."
+            healthDataNotice = String(localized: "Apple Health is not available on this device.")
             return
         }
 
@@ -409,7 +433,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
-            healthDataNotice = "Apple Health is not available on this device."
+            healthDataNotice = String(localized: "Apple Health is not available on this device.")
             return
         }
 
@@ -496,6 +520,32 @@ final class HealthKitWorkoutStore: ObservableObject {
         Task { await refreshAfterWrite(.trainingLoad) }
     }
 
+    nonisolated private static let suggestionAcceptedEffortIDsKey = "workoutEffortSuggestionAcceptedIDs"
+    nonisolated private static let suggestionAcceptedEffortIDsCap = 300
+
+    nonisolated private static func loadSuggestionAcceptedEffortIDs() -> Set<UUID> {
+        let stored = UserDefaults.standard.stringArray(forKey: suggestionAcceptedEffortIDsKey) ?? []
+        return Set(stored.compactMap(UUID.init(uuidString:)))
+    }
+
+    /// Records whether a workout's saved effort was an accepted suggestion (saved
+    /// unchanged from the pre-filled estimate). Call on every effort save: `true`
+    /// marks the rating as machine-derived, any other save clears the mark so the
+    /// rating counts as genuine again.
+    func setEffortSuggestionAccepted(_ accepted: Bool, workoutID: UUID) {
+        var stored = UserDefaults.standard.stringArray(forKey: Self.suggestionAcceptedEffortIDsKey) ?? []
+        let idString = workoutID.uuidString
+        stored.removeAll { $0 == idString }
+        if accepted {
+            stored.append(idString)
+            if stored.count > Self.suggestionAcceptedEffortIDsCap {
+                stored.removeFirst(stored.count - Self.suggestionAcceptedEffortIDsCap)
+            }
+        }
+        UserDefaults.standard.set(stored, forKey: Self.suggestionAcceptedEffortIDsKey)
+        suggestionAcceptedEffortWorkoutIDs = Set(stored.compactMap(UUID.init(uuidString:)))
+    }
+
     /// Loads the GPS route + city label for a workout's detail map hero, or `nil`
     /// when the workout has no readable route. Cached per session (including the
     /// no-route result), so it's safe to call on every detail-sheet open.
@@ -516,6 +566,32 @@ final class HealthKitWorkoutStore: ObservableObject {
         return route
     }
 
+    /// Loads a workout's raw distance samples and recorded split segments for the
+    /// detail Splits section, or `.empty` when the activity isn't pace/speed-tracked
+    /// or has no usable distance data. Cached per session; an empty read is cached
+    /// only when the workout ended more than 24 h ago, so a still-syncing recent
+    /// workout is retried on reopen.
+    func loadWorkoutSplitData(for workout: WorkoutSummary) async -> WorkoutSplitData {
+        guard workout.type.paceStyle == .distancePace || workout.type.paceStyle == .speed else {
+            return .empty
+        }
+
+        if let cached = distanceSampleCache[workout.id] {
+            return cached
+        }
+
+        let data = await engine.workoutSplitData(workoutID: workout.id)
+        if !data.distanceSamples.isEmpty {
+            distanceSampleCache[workout.id] = data
+        } else {
+            let endDate = workout.startDate.addingTimeInterval(max(0, workout.duration))
+            if Date().timeIntervalSince(endDate) > 24 * 60 * 60 {
+                distanceSampleCache[workout.id] = data
+            }
+        }
+        return data
+    }
+
     /// Estimated max heart rate (220 − age) from Apple Health, anchoring the
     /// workout-detail heart-rate zones. `nil` when no birth date is readable, so the
     /// caller falls back to the session's peak HR.
@@ -526,6 +602,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     private func requestHealthKitAuthorization() async throws {
         try await engine.requestAuthorization()
         routeCache.removeAll()
+        distanceSampleCache.removeAll()
     }
 
     /// Loads the intraday day-sample sidecar (split out of the launch-critical
@@ -683,7 +760,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
-            healthDataNotice = "Apple Health is not available on this device."
+            healthDataNotice = String(localized: "Apple Health is not available on this device.")
             return
         }
 
@@ -720,6 +797,12 @@ final class HealthKitWorkoutStore: ObservableObject {
         await engine.setPermissionSelection(nextSelection)
         if permission == .workouts {
             routeCache.removeAll()
+            distanceSampleCache.removeAll()
+        } else if permission == .workoutMetrics {
+            // Cached split data carries per-split step cadence, which rides on the
+            // Workout Metrics permission — drop it so a toggle change isn't served
+            // stale cadence from a read taken under the previous selection.
+            distanceSampleCache.removeAll()
         }
         await applyPermissionSelectionToCachedData()
 
@@ -1102,6 +1185,63 @@ final class HealthKitWorkoutStore: ObservableObject {
         loadedMonthKeys.contains(BodyWorkoutMonthKey(month: month, year: year))
     }
 
+    /// Workouts in the half-open 30 days before `workout` (excluding it) — same-type
+    /// only by default, all types when `matchingTypeOnly` is false (the effort
+    /// estimator prefers same-type but falls back across types) — read only from
+    /// already-loaded snapshots. Pure — no fetch, no `Task` — so it is safe to call
+    /// from a SwiftUI computed property. `isComplete` uses `loadedMonthKeys` (the true
+    /// load signal), not `monthSnapshots` membership, which is seeded with a
+    /// placeholder at launch and left populated after `clearWorkoutSnapshots`.
+    func comparisonContext(for workout: WorkoutSummary, matchingTypeOnly: Bool = true) -> WorkoutComparisonContext {
+        let calendar = Calendar.bodyGregorian
+        guard let windowStart = calendar.date(byAdding: .day, value: -30, to: workout.startDate) else {
+            return WorkoutComparisonContext(priorWorkouts: [], isComplete: false)
+        }
+
+        let keys = comparisonMonthKeys(for: workout, calendar: calendar)
+        let isComplete = keys.allSatisfy { loadedMonthKeys.contains($0) }
+
+        let priors = keys
+            .compactMap { monthSnapshots[$0] }
+            .flatMap { $0.days }
+            .flatMap { $0.workouts }
+            .filter { prior in
+                (!matchingTypeOnly || prior.type == workout.type)
+                    && prior.id != workout.id
+                    && prior.startDate >= windowStart
+                    && prior.startDate < workout.startDate
+            }
+
+        return WorkoutComparisonContext(priorWorkouts: priors, isComplete: isComplete)
+    }
+
+    /// Loads any month the 30-day comparison window overlaps that isn't cached yet.
+    /// Call from `.task(id:)`, never from the synchronous `comparisonContext`.
+    func ensureComparisonMonthsLoaded(for workout: WorkoutSummary) async {
+        let keys = comparisonMonthKeys(for: workout, calendar: .bodyGregorian)
+        for key in keys where !loadedMonthKeys.contains(key) {
+            await loadMonthIfNeeded(month: key.month, year: key.year)
+        }
+    }
+
+    /// Every month key the `[start - 30d, start)` window touches — up to 3 (a workout
+    /// early in a month reaches back across two prior months).
+    private func comparisonMonthKeys(for workout: WorkoutSummary, calendar: Calendar) -> [BodyWorkoutMonthKey] {
+        guard let windowStart = calendar.date(byAdding: .day, value: -30, to: workout.startDate),
+              var cursor = calendar.dateInterval(of: .month, for: windowStart)?.start,
+              let endMonthStart = calendar.dateInterval(of: .month, for: workout.startDate)?.start else {
+            return [BodyWorkoutMonthKey(date: workout.startDate, calendar: calendar)]
+        }
+
+        var keys: [BodyWorkoutMonthKey] = []
+        while cursor <= endMonthStart {
+            keys.append(BodyWorkoutMonthKey(date: cursor, calendar: calendar))
+            guard let next = calendar.date(byAdding: .month, value: 1, to: cursor) else { break }
+            cursor = next
+        }
+        return keys
+    }
+
     func loadRecentWorkoutMonthsIfNeeded(date: Date = Date()) async {
         guard !isRefreshing, !needsInitialHealthDataLoad else {
             return
@@ -1230,7 +1370,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
-            healthDataNotice = "Apple Health is not available on this device."
+            healthDataNotice = String(localized: "Apple Health is not available on this device.")
             hasMoreActivityRingHistory = false
             return
         }
@@ -1376,7 +1516,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
-            healthDataNotice = "Apple Health is not available on this device."
+            healthDataNotice = String(localized: "Apple Health is not available on this device.")
             return
         }
 
@@ -1425,7 +1565,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         persistedDaySamplesHydration = nil
         lastSuccessfulRefreshDate = nil
         authorizationState = .unknown
-        healthDataNotice = "Local cache cleared. Refresh to load Apple Health data again."
+        healthDataNotice = String(localized: "Local cache cleared. Refresh to load Apple Health data again.")
 
         WorkoutSnapshotStore.delete()
         WorkoutSnapshotStore.deletePrevious()
@@ -1693,7 +1833,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationState = .unavailable
-            healthDataNotice = "Apple Health is not available on this device."
+            healthDataNotice = String(localized: "Apple Health is not available on this device.")
             return
         }
 
@@ -2050,17 +2190,38 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// workout-only refresh must not look fresh to the watch, or it would
     /// suppress the watch's own stale-triggered live HR/HRV refresh.
     func publishWatchSnapshot() {
-        var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
-            summary: healthSummary,
-            trends: healthTrends,
-            lastRefreshDate: lastVitalsRefreshDate,
-            permissionSelection: permissionSelection,
-            temperatureUnitPreference: HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference(),
-            idealSleepDuration: Self.storedIdealSleepDuration(),
-            showSleepScore: HealthWidgetSnapshotBuilder.storedShowSleepScore()
-        )
-        snapshot.source = "phone"
-        WatchConnectivityPublisher.shared.send(snapshot)
+        // Capture on the main actor exactly what the builder + send read today,
+        // then build off-actor on the serial persist queue and hop back to `send`
+        // — mirroring `saveHealthWidgetSnapshot`. `now` stamps `generatedAt` at
+        // capture time so the queue's FIFO order is the send order, and the
+        // permission value is paired at capture time so a queued build can't ship
+        // a newer selection.
+        let summary = healthSummary
+        let trends = healthTrends
+        let lastRefreshDate = lastVitalsRefreshDate
+        let permissionSelection = permissionSelection
+        let temperatureUnitPreference = HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference()
+        let idealSleepDuration = Self.storedIdealSleepDuration()
+        let showSleepScore = HealthWidgetSnapshotBuilder.storedShowSleepScore()
+        let now = Date()
+        let permissionRawValue = BodyHealthPermissionSelection.load().rawValue
+
+        Self.snapshotPersistQueue.async {
+            var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
+                summary: summary,
+                trends: trends,
+                lastRefreshDate: lastRefreshDate,
+                permissionSelection: permissionSelection,
+                temperatureUnitPreference: temperatureUnitPreference,
+                idealSleepDuration: idealSleepDuration,
+                showSleepScore: showSleepScore,
+                now: now
+            )
+            snapshot.source = "phone"
+            Task { @MainActor in
+                WatchConnectivityPublisher.shared.send(snapshot, permissionRawValue: permissionRawValue)
+            }
+        }
     }
 
     /// Builds the slim widget snapshot from the current trends, sleep stages,
@@ -2265,7 +2426,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     private func updateHealthDataNotice() {
         guard !permissionSelection.enabledPermissions.isEmpty else {
-            healthDataNotice = "All Apple Health data permissions are turned off in Settings."
+            healthDataNotice = String(localized: "All Apple Health data permissions are turned off in Settings.")
             return
         }
 
@@ -2274,7 +2435,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
 
-        healthDataNotice = "No Apple Health data was found. If you expected data, check Body's permissions in the Health app."
+        healthDataNotice = String(localized: "No Apple Health data was found. If you expected data, check Body's permissions in the Health app.")
     }
 
     private func handleRefreshError(_ error: Error) {
@@ -2560,13 +2721,13 @@ enum HealthKitWorkoutError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .authorizationDenied:
-            return "Apple Health access was not granted."
+            return String(localized: "Apple Health access was not granted.")
         case .authorizationStatusUnknown:
-            return "Apple Health access could not be confirmed."
+            return String(localized: "Apple Health access could not be confirmed.")
         case .workoutNotFound:
-            return "That workout could not be found in Apple Health."
+            return String(localized: "That workout could not be found in Apple Health.")
         case .workoutEffortUnavailable:
-            return "Workout effort isn't available on this device."
+            return String(localized: "Workout effort isn't available on this device.")
         }
     }
 }

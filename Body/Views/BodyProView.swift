@@ -40,7 +40,7 @@ struct BodyProView: View {
     private var statusText: String? {
         switch purchaseState {
         case .pending:
-            return "Your purchase is pending approval. Body Pro unlocks once it's approved."
+            return String(localized: "Your purchase is pending approval. Body Pro unlocks once it's approved.")
         case .failed(let message):
             return message
         default:
@@ -154,8 +154,11 @@ struct BodyProView: View {
             .disabled(isPurchaseFlowActive)
         }
         .offerCodeRedemption(isPresented: $showRedeemSheet) { _ in
-            // Redemptions also arrive via Transaction.updates; refresh proactively.
-            Task { await proStore?.refreshEntitlement() }
+            // Sync with the App Store so RevenueCat ingests the redeemed transaction, then
+            // re-resolve the entitlement. (Offer codes are a subscription mechanism; for
+            // this lifetime non-consumable the path is best-effort — worth revisiting
+            // whether promo-code redemption belongs here at all.)
+            Task { await proStore?.refreshAfterRedemption() }
         }
     }
 }
@@ -449,32 +452,32 @@ private struct BodyProFeature: Identifiable {
     static let defaultFeatures = [
         BodyProFeature(
             id: "longer-range-charts",
-            title: "Longer-Range Charts",
-            detail: "Open month, six-month, and year views for metric charts.",
+            title: String(localized: "Longer-Range Charts"),
+            detail: String(localized: "Open month, six-month, and year views for metric charts."),
             iconName: "chart.line.uptrend.xyaxis"
         ),
         BodyProFeature(
             id: "full-day-history",
-            title: "Full Day History",
-            detail: "Open any past day in the metric and sleep day views, beyond the most recent three.",
+            title: String(localized: "Full Day History"),
+            detail: String(localized: "Open any past day in the metric and sleep day views, beyond the most recent three."),
             iconName: "calendar"
         ),
         BodyProFeature(
             id: "custom-backgrounds",
-            title: "Custom Backgrounds",
-            detail: "Personalize the app background with your own color mixes and saved profiles.",
+            title: String(localized: "Custom Backgrounds"),
+            detail: String(localized: "Personalize the app background with your own color mixes and saved profiles."),
             iconName: "paintpalette.fill"
         ),
         BodyProFeature(
             id: "secondary-source",
-            title: "Secondary Data Source",
-            detail: "Compare a secondary data source on your metric charts.",
+            title: String(localized: "Secondary Data Source"),
+            detail: String(localized: "Compare a secondary data source on your metric charts."),
             iconName: "square.stack.3d.up.fill"
         ),
         BodyProFeature(
             id: "body-widgets",
-            title: "Body Widgets",
-            detail: "Use Body widgets to keep workout and metric context on the Home Screen.",
+            title: String(localized: "Body Widgets"),
+            detail: String(localized: "Use Body widgets to keep workout and metric context on the Home Screen."),
             iconName: "square.grid.2x2.fill"
         )
     ]

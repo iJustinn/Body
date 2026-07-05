@@ -341,7 +341,7 @@ struct BodyActivityRingsDetailView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var calendarMonths: [ActivityRingCalendarMonth] = []
-    @State private var scrollPosition = ScrollPosition(idType: String.self)
+    @State private var scrollPosition = ScrollPosition(idType: String.self, edge: .bottom)
     @State private var isAwayFromToday = false
     @State private var isNearTop = false
     @State private var isUnderfilled = true
@@ -369,6 +369,7 @@ struct BodyActivityRingsDetailView: View {
         var isNearTop: Bool
         var isUnderfilled: Bool
         var isAwayFromToday: Bool
+        var isOverscrolledPastBottom: Bool
     }
 
     var body: some View {
@@ -394,7 +395,9 @@ struct BodyActivityRingsDetailView: View {
             ScrollLoadSignals(
                 isNearTop: geometry.contentOffset.y + geometry.contentInsets.top < olderMonthLoadThreshold,
                 isUnderfilled: geometry.contentSize.height - geometry.containerSize.height < olderMonthLoadThreshold,
-                isAwayFromToday: geometry.contentSize.height - geometry.containerSize.height - geometry.contentOffset.y > awayFromTodayThreshold
+                isAwayFromToday: geometry.contentSize.height - geometry.containerSize.height - geometry.contentOffset.y > awayFromTodayThreshold,
+                isOverscrolledPastBottom: geometry.contentSize.height - geometry.containerSize.height >= olderMonthLoadThreshold
+                    && geometry.contentOffset.y - geometry.contentInsets.bottom > geometry.contentSize.height - geometry.containerSize.height + 1
             )
         } action: { _, signals in
             if isNearTop != signals.isNearTop {
@@ -402,6 +405,12 @@ struct BodyActivityRingsDetailView: View {
             }
             if isUnderfilled != signals.isUnderfilled {
                 isUnderfilled = signals.isUnderfilled
+            }
+            if signals.isOverscrolledPastBottom, !hasUserInteracted {
+                // Deferred: mutating the scroll position inside the geometry
+                // callback feeds a new geometry change back into the same
+                // frame ("tried to update multiple times per frame").
+                Task { pinToCurrentMonth() }
             }
             if isAwayFromToday != signals.isAwayFromToday {
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -436,6 +445,7 @@ struct BodyActivityRingsDetailView: View {
         }
         .task {
             refreshCalendarMonths()
+            pinToCurrentMonth()
             loadOlderMonthsIfNeeded()
         }
         .onChange(of: isNearTop) { _, nearTop in
@@ -481,6 +491,20 @@ struct BodyActivityRingsDetailView: View {
                 }
             }
         }
+    }
+
+    /// Anchors the current month's bottom to the viewport until the user
+    /// scrolls. ID-based on purpose: edge-based positions (the initial value
+    /// and `scrollTo(edge:)`) resolve against LazyVStack's *estimated* total
+    /// height and can strand the offset whole screens past the real content
+    /// bottom once rows materialize; an ID position resolves against the
+    /// current month's actual layout and persists through materialization
+    /// and older-month prepends until the user takes over.
+    private func pinToCurrentMonth() {
+        guard !hasUserInteracted, let currentMonthID = displayedCalendarMonths.last?.id else {
+            return
+        }
+        scrollPosition.scrollTo(id: currentMonthID, anchor: .bottom)
     }
 
     private var todayToolbarButton: some View {
@@ -677,19 +701,19 @@ private struct BodyActivityRingCalendarDayCell: View {
     private var accessibilityLabel: String {
         let dateText = day.date.formatted(.dateTime.month(.wide).day())
         guard day.hasData else {
-            return "\(dateText), no activity ring data"
+            return String(localized: "\(dateText), no activity ring data")
         }
 
-        let completionText = day.summary.isCompleted ? ", completed" : ""
-        return "\(dateText)\(completionText), Move \(metricText(day.summary.move)), Exercise \(metricText(day.summary.exercise)), Stand \(metricText(day.summary.stand))"
+        let completionText = day.summary.isCompleted ? String(localized: ", completed") : ""
+        return String(localized: "\(dateText)\(completionText), Move \(metricText(day.summary.move)), Exercise \(metricText(day.summary.exercise)), Stand \(metricText(day.summary.stand))")
     }
 
     private func metricText(_ metric: ActivityRingMetric) -> String {
         guard let value = metric.value, let goal = metric.goal else {
-            return "no data"
+            return String(localized: "no data")
         }
 
-        return "\(Int(value.rounded())) of \(Int(goal.rounded()))"
+        return String(localized: "\(Int(value.rounded())) of \(Int(goal.rounded()))")
     }
 }
 
@@ -832,9 +856,17 @@ private struct BodyActivityRingMetricRow: View {
     let unit: String
     let color: Color
 
+    private var localizedTitle: String {
+        String(localized: String.LocalizationValue(title))
+    }
+
+    private var localizedUnit: String {
+        String(localized: String.LocalizationValue(unit))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(title)
+            Text(localizedTitle)
                 .font(.system(.subheadline, design: .rounded))
                 .fontWeight(.semibold)
                 .foregroundColor(.primary)
@@ -847,14 +879,14 @@ private struct BodyActivityRingMetricRow: View {
                     minimumScaleFactor: 0.65
                 )
 
-                Text(unit)
+                Text(localizedUnit)
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundColor(metricTextColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(title) \(valueText) \(unit)")
+            .accessibilityLabel(String(localized: "\(localizedTitle) \(valueText) \(localizedUnit)"))
         }
     }
 

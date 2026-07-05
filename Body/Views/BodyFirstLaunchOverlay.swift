@@ -107,10 +107,10 @@ struct BodyFirstLaunchLoadOverlay: View {
 
     private var primaryButtonTitle: String {
         if isLoading {
-            return "Loading Health Data…"
+            return String(localized: "Loading Health Data…")
         }
 
-        return hasAttemptedLoad ? "Try Again" : "Load Health Data"
+        return hasAttemptedLoad ? String(localized: "Try Again") : String(localized: "Load Health Data")
     }
 
     /// Failed attempts leave `needsInitialHealthDataLoad` true and surface

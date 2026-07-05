@@ -185,7 +185,7 @@ struct WorkoutCalendarView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel(for: day))
-        .accessibilityHint(WorkoutCalendarDaySelection.isSelectable(day, hasSelectionHandler: onSelectDay != nil) ? "Open workouts for this day" : "")
+        .accessibilityHint(WorkoutCalendarDaySelection.isSelectable(day, hasSelectionHandler: onSelectDay != nil) ? String(localized: "Open workouts for this day", table: "BodyShared") : "")
     }
 
     private var calendarCells: [WorkoutDaySummary?] {
@@ -226,12 +226,16 @@ struct WorkoutCalendarView: View {
     private func accessibilityLabel(for day: WorkoutDaySummary) -> String {
         let dateText = accessibleDateText(for: day)
         guard day.workoutCount > 0 else {
-            return "\(dateText), no workouts"
+            return String(localized: "\(dateText), no workouts", table: "BodyShared")
         }
 
         let workoutCountText = BodyValueFormat.workoutCountText(day.workoutCount)
-        let workoutTypeText = day.primaryWorkoutType?.displayName ?? "workout"
-        return "\(dateText), \(workoutCountText), \(workoutTypeText)"
+        let workoutTypeText = day.primaryWorkoutType?.displayName ?? String(localized: "workout", table: "BodyShared")
+        return String(
+            localized: "calendar.day.workouts.summary",
+            defaultValue: "\(dateText), \(workoutCountText), \(workoutTypeText)",
+            table: "BodyShared"
+        )
     }
 
     private func accessibleDateText(for day: WorkoutDaySummary) -> String {
@@ -240,7 +244,7 @@ struct WorkoutCalendarView: View {
               let date = Calendar.bodyGregorian.date(
                 from: DateComponents(year: components[0], month: components[1], day: components[2])
               ) else {
-            return "Day \(day.day)"
+            return String(localized: "Day \(day.day)", table: "BodyShared")
         }
 
         return date.formatted(.dateTime.month(.wide).day())

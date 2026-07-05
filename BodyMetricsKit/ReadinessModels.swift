@@ -50,17 +50,17 @@ enum ReadinessStatus: String, Codable, Equatable {
     var title: String {
         switch self {
         case .prime:
-            return "Prime"
+            return String(localized: "Prime", table: "BodyMetricsKit")
         case .high:
-            return "High"
+            return String(localized: "High", table: "BodyMetricsKit")
         case .moderate:
-            return "Moderate"
+            return String(localized: "Moderate", table: "BodyMetricsKit")
         case .low:
-            return "Low"
+            return String(localized: "Low", table: "BodyMetricsKit")
         case .poor:
-            return "Poor"
+            return String(localized: "Poor", table: "BodyMetricsKit")
         case .unavailable:
-            return "Needs Data"
+            return String(localized: "Needs Data", table: "BodyMetricsKit")
         }
     }
 
@@ -84,17 +84,17 @@ enum ReadinessStatus: String, Codable, Equatable {
     var explanation: String {
         switch self {
         case .prime:
-            return "Strong readiness signals. Most training is on the table."
+            return String(localized: "Strong readiness signals. Most training is on the table.", table: "BodyMetricsKit")
         case .high:
-            return "Well prepared. Normal training should be fine."
+            return String(localized: "Well prepared. Normal training should be fine.", table: "BodyMetricsKit")
         case .moderate:
-            return "Decent readiness. Keep load controlled."
+            return String(localized: "Decent readiness. Keep load controlled.", table: "BodyMetricsKit")
         case .low:
-            return "Readiness is lagging. Favor easy work or rest."
+            return String(localized: "Readiness is lagging. Favor easy work or rest.", table: "BodyMetricsKit")
         case .poor:
-            return "Rest or keep it very light until signals rebound."
+            return String(localized: "Rest or keep it very light until signals rebound.", table: "BodyMetricsKit")
         case .unavailable:
-            return "More Apple Health history is needed before scoring."
+            return String(localized: "More Apple Health history is needed before scoring.", table: "BodyMetricsKit")
         }
     }
 
@@ -190,13 +190,13 @@ enum ReadinessConfidence: String, Codable, Equatable {
     var title: String {
         switch self {
         case .high:
-            return "High confidence"
+            return String(localized: "High confidence", table: "BodyMetricsKit")
         case .medium:
-            return "Medium confidence"
+            return String(localized: "Medium confidence", table: "BodyMetricsKit")
         case .low:
-            return "Provisional"
+            return String(localized: "Provisional", table: "BodyMetricsKit")
         case .unavailable:
-            return "Needs more data"
+            return String(localized: "Needs more data", table: "BodyMetricsKit")
         }
     }
 }
@@ -210,13 +210,13 @@ enum ReadinessComponentKind: String, Codable, CaseIterable, Equatable {
     var title: String {
         switch self {
         case .autonomic:
-            return "Autonomic"
+            return String(localized: "Autonomic", table: "BodyMetricsKit")
         case .sleep:
-            return "Sleep"
+            return String(localized: "Sleep", table: "BodyMetricsKit")
         case .training:
-            return "Training"
+            return String(localized: "Training", table: "BodyMetricsKit")
         case .vitals:
-            return "Vitals"
+            return String(localized: "Vitals", table: "BodyMetricsKit")
         }
     }
 }
@@ -269,4 +269,144 @@ struct ReadinessSummary: Codable, Equatable {
         components: [],
         drivers: []
     )
+
+    /// Metric-aware explanation for the Home star hero: names the signal currently
+    /// moving today's score, keyed to the strongest active driver. Falls back to the
+    /// generic band `explanation` when nothing stands out is unresolved. The static
+    /// per-band legend elsewhere keeps using `status.explanation`.
+    var heroExplanation: String {
+        status.heroExplanation(forDriver: drivers.first?.kind ?? .mostlyTypical)
+    }
+}
+
+extension ReadinessStatus {
+    /// One authored sentence per real signal, per band — so the hero says what is
+    /// actually driving readiness (short sleep, high load, soft HRV, …) instead of a
+    /// single generic line. `.unavailable` and the `.needsMoreData` driver fall back to
+    /// the generic `explanation` (the "needs more history" caveat).
+    func heroExplanation(forDriver driver: ReadinessDriverKind) -> String {
+        if self == .unavailable || driver == .needsMoreData {
+            return explanation
+        }
+
+        switch self {
+        case .prime:
+            switch driver {
+            case .hrvBelowBaseline:
+                return String(localized: "Readiness is prime even with HRV a touch under baseline. You're primed to train.", table: "BodyMetricsKit")
+            case .heartRateAboveBaseline:
+                return String(localized: "Resting heart rate is slightly higher than your baseline, but every other signal is strong. Prime to go.", table: "BodyMetricsKit")
+            case .sleepDurationBelowGoal:
+                return String(localized: "Sleep ran a little short, yet recovery still landed in the prime range.", table: "BodyMetricsKit")
+            case .sleepFragmented:
+                return String(localized: "Sleep was a bit broken, but your recovery signals still read prime.", table: "BodyMetricsKit")
+            case .trainingLoadElevated:
+                return String(localized: "Load is building and you've absorbed it. Readiness is prime for a hard effort.", table: "BodyMetricsKit")
+            case .respiratoryRateAboveBaseline:
+                return String(localized: "Breathing rate is a hair high, but nothing's holding you back. Prime to train.", table: "BodyMetricsKit")
+            case .oxygenSaturationLow:
+                return String(localized: "Blood oxygen dipped slightly, though overall readiness is prime.", table: "BodyMetricsKit")
+            case .wristTemperatureAboveBaseline:
+                return String(localized: "Skin temperature is a touch high, but recovery still reads prime.", table: "BodyMetricsKit")
+            case .mostlyTypical:
+                return String(localized: "Every signal is on or above baseline. You're primed for your hardest training.", table: "BodyMetricsKit")
+            case .needsMoreData:
+                return explanation
+            }
+        case .high:
+            switch driver {
+            case .hrvBelowBaseline:
+                return String(localized: "HRV is a little under baseline, but recovery is solid. Normal training is fine.", table: "BodyMetricsKit")
+            case .heartRateAboveBaseline:
+                return String(localized: "Resting heart rate is slightly higher than your baseline, yet you're well prepared for a normal day.", table: "BodyMetricsKit")
+            case .sleepDurationBelowGoal:
+                return String(localized: "Sleep was a bit short, but readiness is high. A normal session should feel good.", table: "BodyMetricsKit")
+            case .sleepFragmented:
+                return String(localized: "Sleep was somewhat restless, though your signals still read high. Train as planned.", table: "BodyMetricsKit")
+            case .trainingLoadElevated:
+                return String(localized: "Training load is up and you're handling it well. Readiness stays high.", table: "BodyMetricsKit")
+            case .respiratoryRateAboveBaseline:
+                return String(localized: "Breathing rate is slightly high, but you're well recovered. Normal training is fine.", table: "BodyMetricsKit")
+            case .oxygenSaturationLow:
+                return String(localized: "Blood oxygen is a touch low, yet overall readiness is high.", table: "BodyMetricsKit")
+            case .wristTemperatureAboveBaseline:
+                return String(localized: "Skin temperature is a little high, but recovery reads high. Train as planned.", table: "BodyMetricsKit")
+            case .mostlyTypical:
+                return String(localized: "Your signals sit comfortably above baseline. You're well prepared to train.", table: "BodyMetricsKit")
+            case .needsMoreData:
+                return explanation
+            }
+        case .moderate:
+            switch driver {
+            case .hrvBelowBaseline:
+                return String(localized: "HRV is running below baseline. Readiness is okay, but keep the load controlled.", table: "BodyMetricsKit")
+            case .heartRateAboveBaseline:
+                return String(localized: "Resting heart rate is higher than your baseline. Readiness is moderate; hold the intensity back.", table: "BodyMetricsKit")
+            case .sleepDurationBelowGoal:
+                return String(localized: "Sleep came up short last night, so keep today's training moderate.", table: "BodyMetricsKit")
+            case .sleepFragmented:
+                return String(localized: "Restless sleep has readiness at a moderate level. Keep the effort in check.", table: "BodyMetricsKit")
+            case .trainingLoadElevated:
+                return String(localized: "Recent load is elevated. Readiness is moderate, so manage the intensity.", table: "BodyMetricsKit")
+            case .respiratoryRateAboveBaseline:
+                return String(localized: "Breathing rate is above baseline. Readiness is moderate; keep it measured.", table: "BodyMetricsKit")
+            case .oxygenSaturationLow:
+                return String(localized: "Blood oxygen is below your norm, nudging readiness to moderate. Keep load controlled.", table: "BodyMetricsKit")
+            case .wristTemperatureAboveBaseline:
+                return String(localized: "Skin temperature is above baseline. Readiness is moderate, so keep it measured.", table: "BodyMetricsKit")
+            case .mostlyTypical:
+                return String(localized: "Signals are mostly typical. Readiness is decent, so keep the load controlled.", table: "BodyMetricsKit")
+            case .needsMoreData:
+                return explanation
+            }
+        case .low:
+            switch driver {
+            case .hrvBelowBaseline:
+                return String(localized: "HRV is sitting below your baseline and recovery is still catching up. Favor easy work.", table: "BodyMetricsKit")
+            case .heartRateAboveBaseline:
+                return String(localized: "Resting heart rate is higher than your baseline, so your system hasn't fully settled. Keep it light.", table: "BodyMetricsKit")
+            case .sleepDurationBelowGoal:
+                return String(localized: "Short sleep last night is the main drag on today's readiness.", table: "BodyMetricsKit")
+            case .sleepFragmented:
+                return String(localized: "Broken, restless sleep is holding readiness back. Ease into the day.", table: "BodyMetricsKit")
+            case .trainingLoadElevated:
+                return String(localized: "Recent training load has piled up and readiness is paying for it. Favor recovery.", table: "BodyMetricsKit")
+            case .respiratoryRateAboveBaseline:
+                return String(localized: "Overnight breathing rate is elevated, a sign of extra load. Take it easy.", table: "BodyMetricsKit")
+            case .oxygenSaturationLow:
+                return String(localized: "Blood oxygen dipped below your norm. Go gently until it recovers.", table: "BodyMetricsKit")
+            case .wristTemperatureAboveBaseline:
+                return String(localized: "Skin temperature is above baseline, often an early strain or illness cue. Keep it light.", table: "BodyMetricsKit")
+            case .mostlyTypical:
+                return String(localized: "Signals are mixed but nothing stands out. Readiness is simply low today. Favor easy work.", table: "BodyMetricsKit")
+            case .needsMoreData:
+                return explanation
+            }
+        case .poor:
+            switch driver {
+            case .hrvBelowBaseline:
+                return String(localized: "HRV is well below baseline and your body needs recovery. Rest or keep it very light.", table: "BodyMetricsKit")
+            case .heartRateAboveBaseline:
+                return String(localized: "Resting heart rate is markedly higher than your baseline. Prioritize rest until it settles.", table: "BodyMetricsKit")
+            case .sleepDurationBelowGoal:
+                return String(localized: "Very little sleep last night has readiness low. Rest is the priority today.", table: "BodyMetricsKit")
+            case .sleepFragmented:
+                return String(localized: "Badly broken sleep has left you short on recovery. Keep it very light or rest.", table: "BodyMetricsKit")
+            case .trainingLoadElevated:
+                return String(localized: "Training load has outpaced recovery and readiness is low. Back off and rest.", table: "BodyMetricsKit")
+            case .respiratoryRateAboveBaseline:
+                return String(localized: "Breathing rate is well above baseline, a strong load or illness cue. Rest up.", table: "BodyMetricsKit")
+            case .oxygenSaturationLow:
+                return String(localized: "Blood oxygen is notably low. Take it very easy until it recovers.", table: "BodyMetricsKit")
+            case .wristTemperatureAboveBaseline:
+                return String(localized: "Skin temperature is well above baseline, a common illness signal. Rest today.", table: "BodyMetricsKit")
+            case .mostlyTypical:
+                return String(localized: "Multiple signals are down together and readiness is poor. Rest or keep it very light.", table: "BodyMetricsKit")
+            case .needsMoreData:
+                return explanation
+            }
+        case .unavailable:
+            return explanation
+        }
+    }
 }

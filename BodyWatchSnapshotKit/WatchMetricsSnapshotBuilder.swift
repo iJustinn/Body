@@ -32,9 +32,18 @@ enum WatchMetricsSnapshotBuilder {
         // hid. `.heart` gates HR, HRV, and Resting HR.
         var metrics: [WatchMetric] = [readinessMetric(summary.readiness)]
 
+        // The trusted night's day, carried on the snapshot so the watch can
+        // re-run the staleness guard at display time on a snapshot that outlived
+        // midnight in its cache (see `WatchMetricsSnapshot.sanitized`).
+        var sleepNight: Date? = nil
+
         if permissionSelection.includes(.sleep) {
+            // Guards against carrying over a stale, previously-completed night
+            // after midnight before today's own sleep session exists.
+            let trustedSleep = summary.sleep.asOf(now)
+            sleepNight = trustedSleep?.stageSnapshot.date
             metrics.append(sleepMetric(
-                summary.sleep,
+                trustedSleep,
                 recentSleepHistory: trends.sleepHistory,
                 idealSleepDuration: idealSleepDuration,
                 showScore: showSleepScore
@@ -42,17 +51,17 @@ enum WatchMetricsSnapshotBuilder {
         }
         if permissionSelection.includes(.heart) {
             metrics.append(rangeMetric(
-                kind: WatchMetricKindKey.heartRate, title: "Heart Rate", value: summary.heartRate.value,
+                kind: WatchMetricKindKey.heartRate, title: String(localized: "Heart Rate", table: "BodyWatchSnapshotKit"), value: summary.heartRate.value,
                 unit: "bpm", decimals: 0,
                 seriesValues: values(trends.heartRate)
             ))
             metrics.append(rangeMetric(
-                kind: WatchMetricKindKey.heartRateVariability, title: "HRV", value: summary.heartRateVariability.value,
+                kind: WatchMetricKindKey.heartRateVariability, title: String(localized: "HRV", table: "BodyWatchSnapshotKit"), value: summary.heartRateVariability.value,
                 unit: "ms", decimals: 0,
                 seriesValues: values(trends.heartRateVariability)
             ))
             metrics.append(rangeMetric(
-                kind: WatchMetricKindKey.restingHeartRate, title: "Resting HR", value: summary.restingHeartRate.value,
+                kind: WatchMetricKindKey.restingHeartRate, title: String(localized: "Resting HR", table: "BodyWatchSnapshotKit"), value: summary.restingHeartRate.value,
                 unit: "bpm", decimals: 0,
                 seriesValues: values(trends.restingHeartRate), invert: true
             ))
@@ -94,7 +103,7 @@ enum WatchMetricsSnapshotBuilder {
             stampedMetric.weekly = weeklyValues(forKind: metric.kind)
             return stampedMetric
         }
-        return WatchMetricsSnapshot(generatedAt: now, lastRefreshDate: lastRefreshDate, metrics: stamped)
+        return WatchMetricsSnapshot(generatedAt: now, lastRefreshDate: lastRefreshDate, metrics: stamped, sleepNight: sleepNight)
     }
 
     // MARK: - Per-metric builders
@@ -104,7 +113,7 @@ enum WatchMetricsSnapshotBuilder {
         let status = ReadinessStatus.status(for: score)
         return WatchMetric(
             kind: WatchMetricKindKey.readiness,
-            title: "Readiness",
+            title: String(localized: "Readiness", table: "BodyWatchSnapshotKit"),
             displayValue: score.map { "\($0)" } ?? "--",
             unit: score == nil ? "" : "%",
             score: score,
@@ -129,7 +138,7 @@ enum WatchMetricsSnapshotBuilder {
     }
 
     private static func sleepMetric(
-        _ sleep: SleepSummary,
+        _ sleep: SleepSummary?,
         recentSleepHistory: SleepHistorySnapshot,
         idealSleepDuration: TimeInterval,
         showScore: Bool
@@ -139,18 +148,18 @@ enum WatchMetricsSnapshotBuilder {
         // Compute the score with the user's sleep-duration goal + recent history
         // for vitals baselines, matching the iPhone (the bare `sleep.score` would
         // use the 8h default + empty history and diverge from the phone).
-        let total = showScore
-            ? SleepScoreSummary(
-                sleep: sleep,
+        let total = (showScore ? sleep : nil).flatMap {
+            SleepScoreSummary(
+                sleep: $0,
                 idealSleepDuration: idealSleepDuration,
                 recentSleepHistory: recentSleepHistory,
-                on: sleep.stageSnapshot.date
+                on: $0.stageSnapshot.date
             )?.total
-            : nil
+        }
         return WatchMetric(
             kind: WatchMetricKindKey.sleep,
-            title: "Sleep",
-            displayValue: sleep.duration.map { BodyValueFormat.sleepDurationText(for: $0) } ?? "--",
+            title: String(localized: "Sleep", table: "BodyWatchSnapshotKit"),
+            displayValue: sleep?.duration.map { BodyValueFormat.sleepDurationText(for: $0) } ?? "--",
             unit: "",
             score: total,
             fillFraction: total.map { Double($0) / 100 } ?? 0,
@@ -186,7 +195,7 @@ enum WatchMetricsSnapshotBuilder {
         let interval = TrainingLoadInterval.interval(for: value)
         return WatchMetric(
             kind: WatchMetricKindKey.trainingLoad,
-            title: "Training Load",
+            title: String(localized: "Training Load", table: "BodyWatchSnapshotKit"),
             displayValue: value.map { BodyValueFormat.numberText($0, decimals: 2) } ?? "--",
             unit: "",
             score: nil,
@@ -217,7 +226,7 @@ enum WatchMetricsSnapshotBuilder {
         let display = celsius.map { BodyValueFormat.temperatureDisplay(celsius: $0, temperatureUnitPreference: pref) }
         return WatchMetric(
             kind: WatchMetricKindKey.wristTemperature,
-            title: "Skin Temp",
+            title: String(localized: "Skin Temp", table: "BodyWatchSnapshotKit"),
             displayValue: display?.value ?? "--",
             unit: display?.unit ?? "",
             score: nil,

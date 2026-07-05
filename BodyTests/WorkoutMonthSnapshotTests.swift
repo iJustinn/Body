@@ -155,7 +155,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.detailIconName, "map.fill")
-        XCTAssertEqual(presentation.detailText, "1.4 km")
+        XCTAssertEqual(presentation.detailText, "1.40 km")
         XCTAssertEqual(presentation.trailingEnergyText, "77 kcal")
     }
 
@@ -163,14 +163,14 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let locale = Locale(identifier: "en_US")
 
         XCTAssertEqual(BodyValueFormat.massDisplay(kilograms: 69.3, locale: locale).unit, "lb")
-        XCTAssertEqual(BodyValueFormat.distanceText(meters: 1_609.344, locale: locale), "1.0 mi")
+        XCTAssertEqual(BodyValueFormat.distanceText(meters: 1_609.344, locale: locale), "1.00 mi")
     }
 
     func testBodyValueFormatUsesMetricUnitsOutsideUSLocale() {
         let locale = Locale(identifier: "en_GB")
 
         XCTAssertEqual(BodyValueFormat.massDisplay(kilograms: 69.3, locale: locale).unit, "kg")
-        XCTAssertEqual(BodyValueFormat.distanceText(meters: 1_000, locale: locale), "1.0 km")
+        XCTAssertEqual(BodyValueFormat.distanceText(meters: 1_000, locale: locale), "1.00 km")
     }
 
     func testBodyValueFormatMassDisplaySupportsPrecisionOverride() {
@@ -191,7 +191,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
         XCTAssertEqual(
             BodyValueFormat.distanceText(meters: 1_000, locale: usMetricLocale),
-            "1.0 km"
+            "1.00 km"
         )
     }
 
@@ -213,7 +213,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 locale: metricLocale,
                 unitPreference: .imperial
             ),
-            "1.0 mi"
+            "1.00 mi"
         )
     }
 
@@ -234,7 +234,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 locale: locale,
                 distanceUnitPreference: .kilometers
             ),
-            "1.6 km"
+            "1.61 km"
         )
         XCTAssertEqual(
             BodyValueFormat.energyText(
@@ -292,7 +292,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(presentation.activeEnergyText, "416 kcal")
         XCTAssertEqual(presentation.totalEnergyText, "482 kcal")
         XCTAssertEqual(presentation.averageHeartRateText, "122 BPM")
-        XCTAssertEqual(presentation.distanceText, "1.0 km")
+        XCTAssertEqual(presentation.distanceText, "1.00 km")
         XCTAssertEqual(presentation.effortText, "7 Hard")
         XCTAssertEqual(presentation.effortPresentation?.intensity, .hard)
         XCTAssertEqual(presentation.effortPresentation?.segmentFills, [1, 1, 1, 0.5, 0])
@@ -555,7 +555,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             "Active Kcal", "Total Kcal", "Avg Heart Rate", "Max Heart Rate",
             "Cadence", "Avg Power", "Cardio Fitness"
         ])
-        XCTAssertEqual(presentation.heroDistanceValue, "5.0")
+        XCTAssertEqual(presentation.heroDistanceValue, "5.00")
         XCTAssertEqual(presentation.heroDistanceUnit, "km")
         XCTAssertFalse(presentation.detailMetrics.map(\.kind).contains(.distance))
         let byTitle = Dictionary(uniqueKeysWithValues: presentation.detailMetrics.map { ($0.title, $0.value) })
@@ -598,7 +598,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(presentation.detailMetrics.first { $0.title == "Cadence" }?.kind, .cyclingCadence)
         XCTAssertTrue(presentation.detailMetrics.map(\.kind).contains(.speed))
         XCTAssertFalse(presentation.detailMetrics.map(\.kind).contains(.cardioFitness))
-        XCTAssertEqual(presentation.heroDistanceValue, "30.0")
+        XCTAssertEqual(presentation.heroDistanceValue, "30.00")
         XCTAssertEqual(presentation.heroDistanceUnit, "km")
         XCTAssertFalse(presentation.detailMetrics.map(\.kind).contains(.distance))
     }
@@ -628,7 +628,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(byTitle["Swim Strokes"], "600")
         XCTAssertTrue(presentation.detailMetrics.map(\.kind).contains(.swimPace))
         XCTAssertTrue(presentation.detailMetrics.map(\.kind).contains(.strokeCount))
-        XCTAssertEqual(presentation.heroDistanceValue, "1.5")
+        XCTAssertEqual(presentation.heroDistanceValue, "1.50")
         XCTAssertEqual(presentation.heroDistanceUnit, "km")
         XCTAssertFalse(presentation.detailMetrics.map(\.kind).contains(.distance))
     }
@@ -770,6 +770,44 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(ReadinessStatus.moderate.explanation.contains("controlled"))
         XCTAssertTrue(ReadinessStatus.low.explanation.contains("easy"))
         XCTAssertTrue(ReadinessStatus.poor.explanation.contains("Rest"))
+    }
+
+    func testReadinessHeroExplanationIsMetricKeyedPerBandAndDriver() {
+        let realStatuses: [ReadinessStatus] = [.prime, .high, .moderate, .low, .poor]
+        let drivers: [ReadinessDriverKind] = [
+            .hrvBelowBaseline, .heartRateAboveBaseline, .sleepDurationBelowGoal,
+            .sleepFragmented, .trainingLoadElevated, .respiratoryRateAboveBaseline,
+            .oxygenSaturationLow, .wristTemperatureAboveBaseline, .mostlyTypical, .needsMoreData
+        ]
+
+        // Every band × signal resolves to non-empty hero copy.
+        for status in realStatuses {
+            for driver in drivers {
+                XCTAssertFalse(status.heroExplanation(forDriver: driver).isEmpty, "\(status) \(driver)")
+            }
+        }
+
+        // The sentence names the metric actually moving the score.
+        XCTAssertTrue(ReadinessStatus.low.heroExplanation(forDriver: .sleepDurationBelowGoal).lowercased().contains("sleep"))
+        XCTAssertTrue(ReadinessStatus.low.heroExplanation(forDriver: .hrvBelowBaseline).contains("HRV"))
+        XCTAssertTrue(ReadinessStatus.poor.heroExplanation(forDriver: .trainingLoadElevated).lowercased().contains("load"))
+
+        // needsMoreData and the unavailable band fall back to the generic legend copy.
+        XCTAssertEqual(ReadinessStatus.low.heroExplanation(forDriver: .needsMoreData), ReadinessStatus.low.explanation)
+        XCTAssertEqual(ReadinessStatus.unavailable.heroExplanation(forDriver: .mostlyTypical), ReadinessStatus.unavailable.explanation)
+
+        // ReadinessSummary keys off the strongest driver (drivers.first); no drivers → mostlyTypical.
+        let dragged = ReadinessSummary(
+            score: 55,
+            status: .low,
+            confidence: .high,
+            components: [],
+            drivers: [ReadinessDriver(kind: .sleepDurationBelowGoal, message: "", impact: 0.4)]
+        )
+        XCTAssertEqual(dragged.heroExplanation, ReadinessStatus.low.heroExplanation(forDriver: .sleepDurationBelowGoal))
+
+        let typical = ReadinessSummary(score: 98, status: .prime, confidence: .high, components: [], drivers: [])
+        XCTAssertEqual(typical.heroExplanation, ReadinessStatus.prime.heroExplanation(forDriver: .mostlyTypical))
     }
 
     func testReadinessRobustBaselineUsesMedianAndMad() throws {
@@ -1718,9 +1756,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
         let currentDayStart = calendar.startOfDay(for: currentDate)
-        let points = try (-27...0).map { offset -> HealthTrendDataPoint in
+        let points = try (-28...(-1)).map { offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
-            let value = offset < -6 ? 70.0 : 56.0
+            let value = offset < -7 ? 70.0 : 56.0
             return HealthTrendDataPoint(date: date, value: value)
         }
 
@@ -1751,13 +1789,46 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(averageLineSegments.recent.upperBound, 270, accuracy: 0.001)
     }
 
+    func testHomeTrendCardPresentationExcludesTodaysPartialData() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
+        let currentDayStart = calendar.startOfDay(for: currentDate)
+        // Same shape as the resting-heart-rate test, plus a partial value for today
+        // (e.g. a cumulative metric mid-day) that must not skew the recent average.
+        let points = try (-28...0).map { offset -> HealthTrendDataPoint in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
+            let value: Double
+            if offset == 0 {
+                value = 1
+            } else {
+                value = offset < -7 ? 70.0 : 56.0
+            }
+            return HealthTrendDataPoint(date: date, value: value)
+        }
+
+        let presentation = try XCTUnwrap(BodyHomeTrendCardPresentation.make(
+            kind: .restingHeartRate,
+            title: "Resting Heart Rate",
+            series: HealthTrendSeries(points: points),
+            chartStyle: .line,
+            valueFormatter: { "\(Int($0.rounded())) BPM" },
+            messageStyle: .average(subject: "your resting heart rate"),
+            calendar: calendar,
+            date: currentDate
+        ))
+
+        XCTAssertEqual(presentation.baselineAverage, 70, accuracy: 0.001)
+        XCTAssertEqual(presentation.recentAverage, 56, accuracy: 0.001)
+        XCTAssertFalse(presentation.calendarPoints.contains { $0.date >= currentDayStart })
+    }
+
     func testHomeTrendCardPresentationCanDetectLongerRecentTrendWindow() throws {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
         let currentDayStart = calendar.startOfDay(for: currentDate)
-        let points = try (-27...0).map { offset -> HealthTrendDataPoint in
+        let points = try (-28...(-1)).map { offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
-            let value = offset < -22 ? 9_000.0 : 5_000.0
+            let value = offset < -23 ? 9_000.0 : 5_000.0
             return HealthTrendDataPoint(date: date, value: value)
         }
 
@@ -1909,9 +1980,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
         let currentDayStart = calendar.startOfDay(for: currentDate)
-        let points = try (-27...0).map { offset -> HealthTrendDataPoint in
+        let points = try (-28...(-1)).map { offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
-            let value = offset > -3 ? 200.0 : 100.0
+            let value = offset > -4 ? 200.0 : 100.0
             return HealthTrendDataPoint(date: date, value: value)
         }
 
@@ -1942,7 +2013,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
         let currentDayStart = calendar.startOfDay(for: currentDate)
-        let points = try (-6...0).map { offset -> HealthTrendDataPoint in
+        let points = try (-7...(-1)).map { offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
             return HealthTrendDataPoint(date: date, value: 56)
         }
@@ -1963,9 +2034,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28, hour: 12)))
         let currentDayStart = calendar.startOfDay(for: currentDate)
-        let points = try (-27...0).map { offset -> HealthTrendDataPoint in
+        let points = try (-28...(-1)).map { offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: currentDayStart))
-            let value = offset < -6 ? 100.0 : 100.5
+            let value = offset < -7 ? 100.0 : 100.5
             return HealthTrendDataPoint(date: date, value: value)
         }
 
@@ -2357,13 +2428,13 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let today = calendar.startOfDay(for: Date())
         // Older 21 days vs. recent 7 days (same shape the resting-heart-rate test
         // proves resolves to a 7-day recent window).
-        let weightPoints = try (-27...0).map { offset -> HealthTrendDataPoint in
+        let weightPoints = try (-28...(-1)).map { offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: today))
-            return HealthTrendDataPoint(date: date, value: offset < -6 ? 72.0 : 69.0) // kilograms
+            return HealthTrendDataPoint(date: date, value: offset < -7 ? 72.0 : 69.0) // kilograms
         }
-        let bodyFatPoints = try (-27...0).map { offset -> HealthTrendDataPoint in
+        let bodyFatPoints = try (-28...(-1)).map { offset -> HealthTrendDataPoint in
             let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: today))
-            return HealthTrendDataPoint(date: date, value: offset < -6 ? 25.0 : 20.0) // already 0–100
+            return HealthTrendDataPoint(date: date, value: offset < -7 ? 25.0 : 20.0) // already 0–100
         }
 
         var trends = HealthTrendSnapshot.empty
@@ -2758,6 +2829,13 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(BodyDateSliderTileLabel.primaryText(for: oldestRecentDay, today: today, calendar: calendar), "Sun")
         XCTAssertEqual(BodyDateSliderTileLabel.primaryText(for: olderCurrentMonthDay, today: today, calendar: calendar), "May")
         XCTAssertEqual(BodyDateSliderTileLabel.primaryText(for: olderPriorMonthDay, today: today, calendar: calendar), "Apr")
+    }
+
+    func testDateSliderTileDayNumberLabelOmitsLocalizedDaySuffix() throws {
+        let calendar = Calendar.bodyGregorian
+        let date = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 3)))
+
+        XCTAssertEqual(BodyDateSliderTileLabel.dayNumberText(for: date, calendar: calendar), "3")
     }
 
     func testSleepHistoryFindsSummaryByCalendarDay() throws {
@@ -3492,7 +3570,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(customGoalScore.total, 100)
     }
 
-    func testSleepScorePenalizesStartTimeDeviationFromRecentBaseline() throws {
+    func testSleepScorePenalizesConsistencyDeviationFromRecentBaseline() throws {
         let calendar = Calendar.bodyGregorian
         let currentDay = try XCTUnwrap(calendar.date(
             from: DateComponents(year: 2026, month: 5, day: 15)
@@ -3546,11 +3624,141 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             calendar: calendar
         ))
 
-        XCTAssertEqual(score.total, 78)
-        XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .startTime])
-        XCTAssertEqual(score.category(for: .startTime)?.points, 0)
-        XCTAssertEqual(score.category(for: .startTime)?.maximumPoints, 10)
-        XCTAssertEqual(score.category(for: .startTime)?.valueDescription, "3h off")
+        XCTAssertEqual(score.total, 69)
+        XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .consistency])
+        XCTAssertEqual(score.category(for: .consistency)?.points, 0)
+        XCTAssertEqual(score.category(for: .consistency)?.maximumPoints, 15)
+        XCTAssertEqual(score.category(for: .consistency)?.valueDescription, "3h off")
+    }
+
+    func testSleepScoreConsistencyPenalizesWakeTimeDeviationAlone() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDay = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15)
+        ))
+        let currentStart = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 14, hour: 23)
+        ))
+        let history = SleepHistorySnapshot(days: try (1...14).map { day -> SleepDaySummary in
+            let sleepDay = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 5, day: day)
+            ))
+            let sleepStart = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 5, day: day - 1, hour: 23)
+            ))
+
+            return SleepDaySummary(
+                date: sleepDay,
+                summary: SleepSummary(
+                    duration: 8 * 60 * 60,
+                    stageSnapshot: SleepStageSnapshot(
+                        date: sleepDay,
+                        segments: [
+                            SleepStageSegment(
+                                stage: .core,
+                                startDate: sleepStart,
+                                endDate: sleepStart.addingTimeInterval(8 * 60 * 60)
+                            )
+                        ]
+                    )
+                )
+            )
+        })
+        func consistencyPoints(sleepHours: Double) throws -> Int {
+            let summary = SleepSummary(
+                duration: sleepHours * 60 * 60,
+                stageSnapshot: SleepStageSnapshot(
+                    date: currentDay,
+                    segments: [
+                        SleepStageSegment(
+                            stage: .core,
+                            startDate: currentStart,
+                            endDate: currentStart.addingTimeInterval(sleepHours * 60 * 60)
+                        )
+                    ]
+                )
+            )
+            let score = try XCTUnwrap(SleepScoreSummary(
+                sleep: summary,
+                recentSleepHistory: history,
+                on: currentDay,
+                calendar: calendar
+            ))
+            return try XCTUnwrap(score.category(for: .consistency)?.points)
+        }
+
+        // Bed time matches the baseline in both nights; only the wake time moves.
+        XCTAssertEqual(try consistencyPoints(sleepHours: 8), 15)
+        XCTAssertEqual(try consistencyPoints(sleepHours: 5), 9)
+    }
+
+    func testSleepScoreOmitsConsistencyWithSparseOrAmbiguousBaseline() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDay = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15)
+        ))
+        let currentStart = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 14, hour: 23)
+        ))
+        let currentSummary = SleepSummary(
+            duration: 8 * 60 * 60,
+            stageSnapshot: SleepStageSnapshot(
+                date: currentDay,
+                segments: [
+                    SleepStageSegment(
+                        stage: .core,
+                        startDate: currentStart,
+                        endDate: currentStart.addingTimeInterval(8 * 60 * 60)
+                    )
+                ]
+            )
+        )
+        func history(startHours: [Int]) throws -> SleepHistorySnapshot {
+            SleepHistorySnapshot(days: try startHours.enumerated().map { index, hour -> SleepDaySummary in
+                let sleepDay = try XCTUnwrap(calendar.date(
+                    from: DateComponents(year: 2026, month: 5, day: 10 + index)
+                ))
+                let sleepStart = try XCTUnwrap(calendar.date(
+                    from: DateComponents(year: 2026, month: 5, day: 10 + index, hour: hour)
+                ))
+
+                return SleepDaySummary(
+                    date: sleepDay,
+                    summary: SleepSummary(
+                        duration: 6 * 60 * 60,
+                        stageSnapshot: SleepStageSnapshot(
+                            date: sleepDay,
+                            segments: [
+                                SleepStageSegment(
+                                    stage: .core,
+                                    startDate: sleepStart,
+                                    endDate: sleepStart.addingTimeInterval(6 * 60 * 60)
+                                )
+                            ]
+                        )
+                    )
+                )
+            })
+        }
+
+        // Fewer than 3 baseline nights: category omitted.
+        let sparse = try XCTUnwrap(SleepScoreSummary(
+            sleep: currentSummary,
+            recentSleepHistory: try history(startHours: [23, 23]),
+            on: currentDay,
+            calendar: calendar
+        ))
+        XCTAssertNil(sparse.category(for: .consistency))
+
+        // Baseline times spread evenly around the clock cancel out in the
+        // circular average: category omitted rather than scored against noise.
+        let ambiguous = try XCTUnwrap(SleepScoreSummary(
+            sleep: currentSummary,
+            recentSleepHistory: try history(startHours: [23, 11, 23, 11]),
+            on: currentDay,
+            calendar: calendar
+        ))
+        XCTAssertNil(ambiguous.category(for: .consistency))
     }
 
     func testSleepScoreCommentSummarizesScoreBand() {
@@ -3654,15 +3862,18 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             try sleepScore(on: night, history: history).total
         }
 
-        XCTAssertLessThanOrEqual(totals[3], 63)
-        XCTAssertLessThanOrEqual(totals[5], 65)
+        // Crash nights keep some credit from a steady schedule now that
+        // consistency is scored, so the low band sits a touch higher than the
+        // pre-consistency calibration.
+        XCTAssertLessThanOrEqual(totals[3], 65)
+        XCTAssertLessThanOrEqual(totals[5], 66)
         XCTAssertLessThanOrEqual(totals[12], 64)
         XCTAssertGreaterThanOrEqual(totals[10], 84)
         XCTAssertGreaterThanOrEqual(totals[9], 80)
 
         let mean = Double(totals.reduce(0, +)) / Double(totals.count)
-        XCTAssertGreaterThanOrEqual(mean, 72)
-        XCTAssertLessThanOrEqual(mean, 80)
+        XCTAssertGreaterThanOrEqual(mean, 74)
+        XCTAssertLessThanOrEqual(mean, 82)
         let spread = try XCTUnwrap(totals.max()) - (try XCTUnwrap(totals.min()))
         XCTAssertGreaterThanOrEqual(spread, 25)
     }

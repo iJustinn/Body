@@ -2,9 +2,11 @@
 //  HealthWidgetSleepStagesView.swift
 //  Body
 //
-//  Medium-widget content that charts the most recent night's sleep stages for
-//  the primary source. Mirrors the in-app hypnogram (BodySleepStageChart) but
-//  without interaction, and adds a compact stage-duration legend.
+//  Medium-widget content that charts today's sleep stages for the primary
+//  source, once available (empty until today's own sleep session is
+//  recorded — a prior night's stages are never carried over). Mirrors the
+//  in-app hypnogram (BodySleepStageChart) but without interaction, and adds a
+//  compact stage-duration legend.
 //
 
 import Charts
@@ -43,7 +45,7 @@ struct HealthWidgetSleepStagesView: View {
                 .foregroundStyle(HealthWidgetSleepStage.core.color)
                 .accessibilityHidden(true)
 
-            Text("Sleep Stages")
+            Text(String(localized: "Sleep Stages", table: "BodyShared"))
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundColor(HealthWidgetSleepStage.core.color)
                 .lineLimit(1)
@@ -151,11 +153,11 @@ struct HealthWidgetSleepStagesView: View {
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(HealthWidgetSleepStage.core.color.opacity(0.55))
 
-            Text("No sleep data")
+            Text(String(localized: "No sleep data yet", table: "BodyShared"))
                 .font(.system(size: 14, weight: .bold, design: .rounded))
                 .foregroundColor(.secondary)
 
-            Text("Open Body to sync")
+            Text(String(localized: "Syncs after tonight's sleep", table: "BodyShared"))
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .foregroundColor(.secondary.opacity(0.7))
         }

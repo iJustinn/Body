@@ -326,7 +326,7 @@ struct BodyHealthMetricTrendChart: View {
     }
 
     private var barSelectionEyebrow: String {
-        selectedRange.chartAggregationDayCount > 1 ? "AVG" : "TOTAL"
+        selectedRange.chartAggregationDayCount > 1 ? String(localized: "AVG") : String(localized: "TOTAL")
     }
 
     private func chartSelectionText(for value: Double) -> String {
@@ -352,7 +352,7 @@ struct BodyHealthMetricTrendChart: View {
         return [
             primary,
             BodyChartSelectionValue(
-                title: "Baseline",
+                title: String(localized: "Baseline"),
                 value: baselineDeviationFormatter(deviation),
                 color: Color.secondary.opacity(0.55)
             )
@@ -480,11 +480,11 @@ struct BodyHealthMetricDayChart: View {
         title: String,
         color: Color,
         secondaryColor: Color = Color(red: 0.58, green: 0.36, blue: 0.98),
-        primarySourceName: String = "Primary",
-        secondarySourceName: String = "Secondary",
+        primarySourceName: String = String(localized: "Primary"),
+        secondarySourceName: String = String(localized: "Secondary"),
         valueFormatter: @escaping (Double) -> String,
         contextIntervals: [BodyHealthMetricDayContextInterval] = [],
-        aggregationLabel: String = "HOURLY AVG",
+        aggregationLabel: String = String(localized: "HOURLY AVG"),
         includesSampleBreakdown: Bool = true
     ) {
         self.day = day

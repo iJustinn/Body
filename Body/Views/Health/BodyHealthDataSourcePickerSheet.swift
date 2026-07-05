@@ -99,8 +99,8 @@ struct BodyHealthDataSourcePickerSheet: View {
     }
 
     private func sourceSection(
-        title: String,
-        detail: String,
+        title: LocalizedStringKey,
+        detail: LocalizedStringKey,
         options: [BodyHealthDataSourceOption],
         selectedOption: BodyHealthDataSourceOption,
         role: SourceRole
@@ -140,7 +140,7 @@ struct BodyHealthDataSourcePickerSheet: View {
             updateSelection(option, role: role)
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: optionIconName(for: role))
+                Image(systemName: rowIconName(for: option, role: role))
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundColor(accentColor)
                     .frame(width: 34, height: 34)
@@ -179,12 +179,23 @@ struct BodyHealthDataSourcePickerSheet: View {
         .disabled(isSelected || isSelectionLocked)
     }
 
+    private func rowIconName(for option: BodyHealthDataSourceOption, role: SourceRole) -> String {
+        if option.isAllSources || option.isNoComparison {
+            return optionIconName(for: role)
+        }
+        return BodyHealthSourceIcon.systemImageName(
+            name: option.name,
+            bundleIdentifier: option.iconBundleIdentifierHint,
+            fallback: optionIconName(for: role)
+        )
+    }
+
     private func optionIconName(for role: SourceRole) -> String {
         switch role {
         case .primary:
-            return "heart.text.square.fill"
+            return "heart.text.square"
         case .secondary:
-            return "square.stack.3d.up.fill"
+            return "square.text.square"
         }
     }
 

@@ -55,6 +55,10 @@ struct BodyReadinessHeroLabel: View {
 
     let readiness: ReadinessSummary
 
+    /// Today's frozen morning score (undrained, captured ~10 min after wake), so the
+    /// starting value stays visible once the live score drains below it.
+    let morningScore: Int?
+
     /// Animated score for the big number — counts up from 0 on launch and rolls to each
     /// new value, kept roughly in sync with the backdrop fill's rise.
     @State private var displayedScore = 0
@@ -66,7 +70,16 @@ struct BodyReadinessHeroLabel: View {
     }
 
     private var headline: String {
-        status == .unavailable ? "Readiness" : "\(status.title) Readiness"
+        status == .unavailable ? String(localized: "Readiness") : String(localized: "\(status.title) Readiness")
+    }
+
+    /// Shown only when today's live score has dropped below the morning value, so the
+    /// user can still read where the day started at a glance.
+    private var startedTodayText: String? {
+        guard let morning = morningScore,
+              let current = readiness.score,
+              morning > current else { return nil }
+        return String(localized: "Started today with \(morning)%")
     }
 
     private var statusTextAnimation: Animation? {
@@ -139,18 +152,29 @@ struct BodyReadinessHeroLabel: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
 
-            Text(status.explanation)
+            Text(readiness.heroExplanation)
                 .font(.system(size: 15, weight: .medium, design: .rounded))
                 .opacity(0.92)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if let startedTodayText {
+                Text(startedTodayText)
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .opacity(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
     private var accessibilityLabel: String {
         guard let score = readiness.score else {
-            return "Readiness, needs more data"
+            return String(localized: "Readiness, needs more data")
         }
-        return "Readiness \(score) percent, \(status.title)"
+        var label = String(localized: "Readiness \(score) percent, \(status.title)")
+        if let morning = morningScore, morning > score {
+            label += String(localized: ", started today at \(morning) percent")
+        }
+        return label
     }
 }
 

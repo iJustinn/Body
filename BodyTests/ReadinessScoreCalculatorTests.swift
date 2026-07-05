@@ -751,12 +751,201 @@ final class ReadinessScoreCalculatorTests: XCTestCase {
     func testRecordedReadinessSurvivesCodableRoundTrip() throws {
         let calendar = Calendar.bodyGregorian
         let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let dayBefore = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: scoreDay))
+        let twoDaysBefore = try XCTUnwrap(calendar.date(byAdding: .day, value: -2, to: scoreDay))
         var trends = HealthTrendSnapshot.empty
-        trends.recordedReadiness = [RecordedReadinessEntry(date: scoreDay, score: 77)]
+        trends.recordedReadiness = [
+            RecordedReadinessEntry(date: scoreDay, score: 77, includedSleep: true),
+            RecordedReadinessEntry(date: dayBefore, score: 55, includedSleep: false),
+            RecordedReadinessEntry(date: twoDaysBefore, score: 60, includedSleep: nil)
+        ]
 
         let data = try JSONEncoder().encode(trends)
         let decoded = try JSONDecoder().decode(HealthTrendSnapshot.self, from: data)
         XCTAssertEqual(decoded.recordedReadiness, trends.recordedReadiness)
+    }
+
+    func testSleeplessMorningRecordUpgradesOnceWhenSleepArrives() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let wake = scoreDay.addingTimeInterval(7 * 3_600)
+        let sleepTrends = moderateDayTrends(on: scoreDay, calendar: calendar)
+        var sleeplessTrends = sleepTrends
+        sleeplessTrends.sleepHistory = SleepHistorySnapshot(days: [])
+
+        // Freeze before today's sleep synced → record tagged includedSleep == false.
+        let frozen = HealthDashboardSnapshot(summary: .empty, trends: sleeplessTrends)
+            .recalculatingReadiness(
+                on: scoreDay, calendar: calendar, wakeTime: wake,
+                now: scoreDay.addingTimeInterval(11 * 3_600), freezesRecordedReadiness: true
+            )
+        let sleeplessRecord = try XCTUnwrap(frozen.trends.recordedReadiness.first)
+        XCTAssertEqual(sleeplessRecord.includedSleep, false)
+
+        // A short, fragmented night syncs — clearly lower than the sleepless score.
+        var sleepArrivedTrends = sleeplessTrends
+        sleepArrivedTrends.sleepHistory = SleepHistorySnapshot(days: [
+            SleepDaySummary(
+                date: scoreDay,
+                summary: SleepSummary(
+                    duration: 4.0 * 3_600,
+                    stageSnapshot: stageSnapshot(on: scoreDay, asleepHours: 4.0, awakeHours: 1.0, calendar: calendar)
+                )
+            )
+        ])
+
+        // Sleep syncs; recompute swaps in the sleep-inclusive score, once.
+        var withSleep = frozen
+        withSleep.trends.sleepHistory = sleepArrivedTrends.sleepHistory
+        let upgraded = withSleep.recalculatingReadiness(
+            on: scoreDay, calendar: calendar, wakeTime: wake,
+            now: scoreDay.addingTimeInterval(12 * 3_600), freezesRecordedReadiness: true
+        )
+        let expected = try XCTUnwrap(
+            ReadinessScoreCalculator.summary(on: scoreDay, healthSummary: .empty, trends: sleepArrivedTrends, calendar: calendar).score
+        )
+        let record = try XCTUnwrap(upgraded.trends.recordedReadiness.first)
+        XCTAssertEqual(upgraded.trends.recordedReadiness.count, 1)
+        XCTAssertEqual(record.includedSleep, true)
+        XCTAssertEqual(record.score, expected)
+        XCTAssertNotEqual(record.score, sleeplessRecord.score, "sleep-inclusive score replaces the sleepless one")
+    }
+
+    func testUpgradedRecordImmuneToFurtherRecomputes() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let wake = scoreDay.addingTimeInterval(7 * 3_600)
+        let sleepTrends = moderateDayTrends(on: scoreDay, calendar: calendar)
+        var sleeplessTrends = sleepTrends
+        sleeplessTrends.sleepHistory = SleepHistorySnapshot(days: [])
+
+        let frozen = HealthDashboardSnapshot(summary: .empty, trends: sleeplessTrends)
+            .recalculatingReadiness(
+                on: scoreDay, calendar: calendar, wakeTime: wake,
+                now: scoreDay.addingTimeInterval(11 * 3_600), freezesRecordedReadiness: true
+            )
+        var withSleep = frozen
+        withSleep.trends.sleepHistory = sleepTrends.sleepHistory
+        let upgraded = withSleep.recalculatingReadiness(
+            on: scoreDay, calendar: calendar, wakeTime: wake,
+            now: scoreDay.addingTimeInterval(12 * 3_600), freezesRecordedReadiness: true
+        )
+        let upgradedRecord = try XCTUnwrap(upgraded.trends.recordedReadiness.first)
+        XCTAssertEqual(upgradedRecord.includedSleep, true)
+
+        // Crash today's HRV and recompute again: the upgraded record must not move.
+        var mutated = upgraded
+        mutated.trends.heartRateVariability = constantSeries(baseline: 60, today: 15, on: scoreDay, calendar: calendar)
+        let after = mutated.recalculatingReadiness(
+            on: scoreDay, calendar: calendar, wakeTime: wake,
+            now: scoreDay.addingTimeInterval(13 * 3_600), freezesRecordedReadiness: true
+        )
+        XCTAssertEqual(after.trends.recordedReadiness.count, 1)
+        XCTAssertEqual(after.trends.recordedReadiness.first, upgradedRecord, "upgraded record is immune to later recomputes")
+    }
+
+    func testRecordFrozenWithSleepIsNeverReplaced() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let wake = scoreDay.addingTimeInterval(7 * 3_600)
+        let trends = moderateDayTrends(on: scoreDay, calendar: calendar)
+
+        let frozen = HealthDashboardSnapshot(summary: .empty, trends: trends)
+            .recalculatingReadiness(
+                on: scoreDay, calendar: calendar, wakeTime: wake,
+                now: scoreDay.addingTimeInterval(11 * 3_600), freezesRecordedReadiness: true
+            )
+        let record = try XCTUnwrap(frozen.trends.recordedReadiness.first)
+        XCTAssertEqual(record.includedSleep, true, "frozen with today's sleep present")
+
+        // A later recompute — sleep still present — must never replace it.
+        var mutated = frozen
+        mutated.trends.heartRateVariability = constantSeries(baseline: 60, today: 15, on: scoreDay, calendar: calendar)
+        let after = mutated.recalculatingReadiness(
+            on: scoreDay, calendar: calendar, wakeTime: wake,
+            now: scoreDay.addingTimeInterval(12 * 3_600), freezesRecordedReadiness: true
+        )
+        XCTAssertEqual(after.trends.recordedReadiness.first, record, "a sleep-inclusive record is never replaced")
+    }
+
+    func testLegacyNilFlagRecordUpgradesWhenSleepArrives() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let wake = scoreDay.addingTimeInterval(7 * 3_600)
+        var trends = moderateDayTrends(on: scoreDay, calendar: calendar)
+        // Legacy record persisted before the flag existed → includedSleep nil.
+        trends.recordedReadiness = [RecordedReadinessEntry(date: scoreDay, score: 42, includedSleep: nil)]
+
+        let snapshot = HealthDashboardSnapshot(summary: .empty, trends: trends)
+            .recalculatingReadiness(
+                on: scoreDay, calendar: calendar, wakeTime: wake,
+                now: scoreDay.addingTimeInterval(11 * 3_600), freezesRecordedReadiness: true
+            )
+        let expected = try XCTUnwrap(
+            ReadinessScoreCalculator.summary(on: scoreDay, healthSummary: .empty, trends: moderateDayTrends(on: scoreDay, calendar: calendar), calendar: calendar).score
+        )
+        let record = try XCTUnwrap(snapshot.trends.recordedReadiness.first)
+        XCTAssertEqual(snapshot.trends.recordedReadiness.count, 1)
+        XCTAssertEqual(record.includedSleep, true)
+        XCTAssertEqual(record.score, expected)
+        XCTAssertNotEqual(record.score, 42, "legacy nil-flag record is replaced by the sleep-inclusive score")
+    }
+
+    func testUpgradeBlockedOutsideScoreDayWindow() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let wake = scoreDay.addingTimeInterval(7 * 3_600)
+        var trends = moderateDayTrends(on: scoreDay, calendar: calendar)
+        let sleepless = RecordedReadinessEntry(date: scoreDay, score: 42, includedSleep: false)
+        trends.recordedReadiness = [sleepless]
+
+        // Sleep is present now, but the recompute runs past the score day's end,
+        // so the freeze window is closed and the record must not be rewritten.
+        let snapshot = HealthDashboardSnapshot(summary: .empty, trends: trends)
+            .recalculatingReadiness(
+                on: scoreDay, calendar: calendar, wakeTime: wake,
+                now: scoreDay.addingTimeInterval(25 * 3_600), freezesRecordedReadiness: true
+            )
+        XCTAssertEqual(snapshot.trends.recordedReadiness, [sleepless])
+    }
+
+    func testLegacyRecordedReadinessJSONDecodesWithNilFlag() throws {
+        // A record persisted before the includedSleep flag existed omits the key.
+        let json = Data(#"{"date":0,"score":77}"#.utf8)
+        let decoded = try JSONDecoder().decode(RecordedReadinessEntry.self, from: json)
+        XCTAssertNil(decoded.includedSleep)
+        XCTAssertEqual(decoded.score, 77)
+        XCTAssertEqual(decoded.date, Date(timeIntervalSinceReferenceDate: 0))
+    }
+
+    func testReapplyingActivityReadinessUpgradesSleeplessRecord() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let wake = scoreDay.addingTimeInterval(7 * 3_600)
+        let sleepTrends = moderateDayTrends(on: scoreDay, calendar: calendar)
+        var sleeplessTrends = sleepTrends
+        sleeplessTrends.sleepHistory = SleepHistorySnapshot(days: [])
+
+        let frozen = HealthDashboardSnapshot(summary: .empty, trends: sleeplessTrends)
+            .recalculatingReadiness(
+                on: scoreDay, calendar: calendar, wakeTime: wake,
+                now: scoreDay.addingTimeInterval(11 * 3_600), freezesRecordedReadiness: true
+            )
+        XCTAssertEqual(frozen.trends.recordedReadiness.first?.includedSleep, false)
+
+        var withSleep = frozen
+        withSleep.trends.sleepHistory = sleepTrends.sleepHistory
+        let upgraded = withSleep.reapplyingActivityReadiness(
+            on: scoreDay, calendar: calendar, wakeTime: wake,
+            now: scoreDay.addingTimeInterval(12 * 3_600), freezesRecordedReadiness: true
+        )
+        let expected = try XCTUnwrap(
+            ReadinessScoreCalculator.summary(on: scoreDay, healthSummary: .empty, trends: sleepTrends, calendar: calendar).score
+        )
+        let record = try XCTUnwrap(upgraded.trends.recordedReadiness.first)
+        XCTAssertEqual(upgraded.trends.recordedReadiness.count, 1)
+        XCTAssertEqual(record.includedSleep, true)
+        XCTAssertEqual(record.score, expected)
     }
 
     func testReplacingReadinessMetricPreservesRecordedReadiness() throws {

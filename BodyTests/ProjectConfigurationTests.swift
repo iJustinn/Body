@@ -1245,13 +1245,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.5;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 11;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.7;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 7;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
-        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.5;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 11;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.7;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 7;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1286,7 +1286,16 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.5 (build 11)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.7 (build 7)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.7 (build 5)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.7 (build 3)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.7 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.7 (build 1)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.6 (build 5)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.6 (build 3)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.6 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.6 (build 1)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 11)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 10)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 9)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.5 (build 8)**"))
@@ -1304,6 +1313,24 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.7 (build 7)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.7 build 7."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.7 (build 5)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.7 build 5."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.7 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.7 build 3."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.7 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.7 build 2."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.7 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.7 build 1."))
+        XCTAssertFalse(versionHistory.contains("## 0.9.6 (build 5)"))
+        XCTAssertFalse(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.6 build 5."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.6 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.6 build 3."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.6 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.6 build 2."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.6 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.6 build 1."))
         XCTAssertTrue(versionHistory.contains("## 0.9.5 (build 11)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.5 build 11."))
         XCTAssertTrue(versionHistory.contains("## 0.9.5 (build 10)"))
@@ -1387,7 +1414,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.3.4 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.3.3 (build 2)**"))
         XCTAssertFalse(settingsSource.contains(#"?? "1""#))
-        XCTAssertGreaterThanOrEqual(settingsSource.occurrenceCount(of: #"?? "Unknown""#), 4)
+        // Version fallbacks are localized; both literal and String(localized:) forms count.
+        XCTAssertGreaterThanOrEqual(
+            settingsSource.occurrenceCount(of: #"?? "Unknown""#)
+                + settingsSource.occurrenceCount(of: #"?? String(localized: "Unknown")"#),
+            4
+        )
     }
 
     func testHealthKitUsageDescriptionListsRequestedHealthCategories() throws {
@@ -1424,7 +1456,9 @@ final class ProjectConfigurationTests: XCTestCase {
         // is no close button — the zoom transition's drag-to-dismiss returns to the card.
         XCTAssertTrue(workoutsSource.contains(".navigationDestination(item: $selectedWorkoutForDetails) { workout in"))
         XCTAssertTrue(workoutsSource.contains(".navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))"))
-        XCTAssertTrue(workoutsSource.contains("route = await workoutStore.loadWorkoutRoute(for: workout)"))
+        XCTAssertTrue(workoutsSource.contains("async let loadedRoute = workoutStore.loadWorkoutRoute(for: workout)"))
+        XCTAssertTrue(workoutsSource.contains("async let loadedSplitData = workoutStore.loadWorkoutSplitData(for: workout)"))
+        XCTAssertTrue(workoutsSource.contains("route = await loadedRoute"))
         XCTAssertTrue(workoutsSource.contains(".ignoresSafeArea(edges: .top)"))
         XCTAssertTrue(workoutsSource.contains(".toolbar(.hidden, for: .navigationBar)"))
         XCTAssertFalse(sheetBlock.contains(#"Image(systemName: "xmark")"#))
@@ -1455,8 +1489,19 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-v0.9.5`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.5 build 11)"))
+        XCTAssertTrue(testPlan.contains("branch `body-v0.9.7`"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.7 build 7)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.7 build 5)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.7 build 3)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.7 build 2)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.7 build 1)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.6 build 5)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.6 build 3)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.6 build 2)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.6 build 1)"))
+        XCTAssertFalse(testPlan.contains("branch `body-v0.9.6`"))
+        XCTAssertFalse(testPlan.contains("branch `body-v0.9.5`"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.5 build 11)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.5 build 10)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.5 build 9)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.5 build 8)"))
@@ -1697,7 +1742,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(appearanceSource.contains("case .readiness:"))
         XCTAssertTrue(settingsSource.contains("if card.isBeta"))
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("Beta v3")"#), 1)
-        XCTAssertFalse(settingsSource.contains(#"Text("Beta v2")"#))
+        XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("Beta v2")"#), 1)
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.defaultTrendRangeKey)"))
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey)"))
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey)"))
@@ -1876,31 +1921,60 @@ final class ProjectConfigurationTests: XCTestCase {
         }
     }
 
-    /// Pins the StoreKit monetization wiring that can't be exercised without StoreKitTest
-    /// and a running store: the product id, verified/non-revoked entitlement filtering,
-    /// pending (Ask-to-Buy) handling, and the shared App Group flag. The persistence and
-    /// change-notification behavior of that flag is exercised at runtime in
-    /// `BodyProEntitlementTests`.
-    func testBodyProStoreStoreKitWiringIsGuarded() throws {
+    /// Pins the RevenueCat monetization wiring that can't be exercised without a configured
+    /// SDK and a running store: the entitlement source of truth, purchase/restore/pending
+    /// handling, the absence of the retired native-StoreKit plumbing, and the shared App
+    /// Group flag. The persistence and change-notification behavior of that flag is exercised
+    /// at runtime in `BodyProEntitlementTests`.
+    func testBodyProStoreRevenueCatWiringIsGuarded() throws {
         let storeSource = try text(at: "Body/Services/BodyProStore.swift")
+        let configSource = try text(at: "Body/Services/RevenueCatConfiguration.swift")
         let entitlementSource = try text(at: "BodyShared/Services/BodyProEntitlement.swift")
         let widgetSource = try text(at: "BodyWidgetExtension/HealthMetricWidget.swift")
 
-        // Product id / config path: the single non-consumable that unlocks Pro.
+        // Backed by RevenueCat, keyed to the single non-consumable that unlocks Pro. The
+        // product id is retained — the store fetches it directly for the display price.
+        XCTAssertTrue(storeSource.contains("import RevenueCat"))
         XCTAssertTrue(storeSource.contains(#"static let lifetimeProductID = "com.zihengthedeveloper.body.pro.lifetime""#))
+        XCTAssertTrue(storeSource.contains("static let entitlementID"))
 
-        // Revocation handling: only a verified, non-revoked transaction for our product
-        // counts as unlocked.
-        XCTAssertTrue(storeSource.contains("transaction.productID == Self.lifetimeProductID"))
-        XCTAssertTrue(storeSource.contains("transaction.revocationDate == nil"))
-        XCTAssertTrue(storeSource.contains("guard case .verified(let transaction) = verification else"))
-        XCTAssertTrue(storeSource.contains("applyEntitlement(transaction.revocationDate == nil)"))
+        // Entitlement source of truth: RevenueCat CustomerInfo. The stream catches
+        // this-device / post-call updates; purchase / restore / customerInfo cover the rest.
+        XCTAssertTrue(storeSource.contains("Purchases.shared.customerInfoStream"))
+        XCTAssertTrue(storeSource.contains("Purchases.shared.purchase(product:"))
+        XCTAssertTrue(storeSource.contains("Purchases.shared.restorePurchases()"))
+        XCTAssertTrue(storeSource.contains("entitlements[Self.entitlementID]?.isActive == true"))
+
+        // The explicit launch/foreground refresh must force a network fetch, not read the
+        // stale local cache — otherwise refunds / other-device purchases never propagate.
+        // `.fetchCurrent` is the non-default policy that guarantees this.
+        XCTAssertTrue(storeSource.contains("customerInfo(fetchPolicy: .fetchCurrent)"))
 
         // Pending (Ask-to-Buy / SCA): a pending purchase never unlocks, and the pending
         // state clears once the entitlement actually unlocks (so Restore/Redeem re-enable).
-        XCTAssertTrue(storeSource.contains("case .pending:"))
-        XCTAssertTrue(storeSource.contains("purchaseState = .pending"))
+        XCTAssertTrue(storeSource.contains(".paymentPendingError"))
         XCTAssertTrue(storeSource.contains("if unlocked && purchaseState == .pending"))
+
+        // Migration guards: the native StoreKit plumbing is gone. RevenueCat verifies,
+        // encodes revocation into `isActive`, and auto-finishes transactions; re-introducing
+        // any of these would double-handle purchases or fight the SDK (observer mode).
+        XCTAssertFalse(storeSource.contains("Transaction.updates"))
+        XCTAssertFalse(storeSource.contains("Transaction.currentEntitlements"))
+        XCTAssertFalse(storeSource.contains("transaction.finish()"))
+        XCTAssertFalse(storeSource.contains("AppStore.sync()"))
+        XCTAssertFalse(storeSource.contains("purchasesAreCompletedBy: .myApp"))
+        XCTAssertFalse(storeSource.contains("recordPurchase"))
+
+        // Configuration: one auditable place for the public key + entitlement id, configured
+        // once, using RevenueCat's default (SDK-completed) purchase mode. The key and
+        // entitlement id must be the real dashboard values — a reverted placeholder key or a
+        // wrong entitlement identifier would silently make every entitlement read inactive.
+        XCTAssertTrue(configSource.contains(#"static let publicAPIKey = "appl_"#))
+        XCTAssertFalse(configSource.contains("REPLACE_ME"))
+        XCTAssertFalse(configSource.contains("test_iZhxBFYdgodhOoQkJoDgLpmweay"))
+        XCTAssertTrue(configSource.contains(#"static let proEntitlementID = "Body: Health Dashboard Pro""#))
+        XCTAssertTrue(configSource.contains("guard !Purchases.isConfigured"))
+        XCTAssertTrue(configSource.contains("Purchases.configure(with:"))
 
         // Shared App Group flag: synchronous source of truth for the widget process and
         // the non-SwiftUI stores; falls back to locked and posts only on a real change.
@@ -1929,6 +2003,56 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(breakdownSource.contains("return 2"))
         XCTAssertTrue(breakdownSource.contains("case .widgetLarge:"))
         XCTAssertTrue(breakdownSource.contains("return 5"))
+    }
+
+    func testProjectDeclaresSimplifiedChineseLocalization() throws {
+        let project = try text(at: "body.xcodeproj/project.pbxproj")
+        XCTAssertTrue(project.contains(#""zh-Hans","#))
+        XCTAssertTrue(project.contains("developmentRegion = en;"))
+    }
+
+    func testChineseLocalizationCatalogsAreComplete() throws {
+        let catalogPaths = [
+            "Body/Localizable.xcstrings",
+            "Body/InfoPlist.xcstrings",
+            "BodyMetricsKit/BodyMetricsKit.xcstrings",
+            "BodyShared/BodyShared.xcstrings",
+            "BodyWatchShared/BodyWatchShared.xcstrings",
+            "BodyWatchSnapshotKit/BodyWatchSnapshotKit.xcstrings",
+            "BodyWatch/Localizable.xcstrings",
+            "BodyWatch/InfoPlist.xcstrings",
+            "BodyWidgetExtension/Localizable.xcstrings",
+            "BodyWatchWidgetExtension/Localizable.xcstrings"
+        ]
+
+        for path in catalogPaths {
+            let data = try Data(contentsOf: projectRoot.appendingPathComponent(path))
+            let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any], path)
+            XCTAssertEqual(root["sourceLanguage"] as? String, "en", path)
+            let strings = try XCTUnwrap(root["strings"] as? [String: Any], path)
+            XCTAssertFalse(strings.isEmpty, "\(path) has no entries")
+
+            for (key, rawEntry) in strings {
+                // Xcode's string-catalog build phase intermittently re-injects an
+                // empty-key placeholder ("" with no localizations) into the app
+                // catalog on recompile. It is never user-facing, so skip it rather
+                // than fail the Chinese-coverage check on every unrelated UI change.
+                if key.isEmpty { continue }
+
+                let entry = try XCTUnwrap(rawEntry as? [String: Any], "\(path) \(key)")
+                let localizations = try XCTUnwrap(entry["localizations"] as? [String: Any], "\(path) \(key)")
+                for language in ["en", "zh-Hans"] {
+                    let localization = try XCTUnwrap(
+                        localizations[language] as? [String: Any],
+                        "\(path) \(key) missing \(language)"
+                    )
+                    let unit = try XCTUnwrap(localization["stringUnit"] as? [String: Any], "\(path) \(key) \(language)")
+                    XCTAssertEqual(unit["state"] as? String, "translated", "\(path) \(key) \(language)")
+                    let value = try XCTUnwrap(unit["value"] as? String, "\(path) \(key) \(language)")
+                    XCTAssertFalse(value.isEmpty, "\(path) \(key) \(language)")
+                }
+            }
+        }
     }
 
     private var projectRoot: URL {

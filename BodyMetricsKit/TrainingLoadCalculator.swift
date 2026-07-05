@@ -164,13 +164,13 @@ enum TrainingLoadInterval: Hashable {
     var title: String {
         switch self {
         case .stopTraining:
-            return "Resting"
+            return String(localized: "Resting", table: "BodyMetricsKit")
         case .optimal:
-            return "Optimal"
+            return String(localized: "Optimal", table: "BodyMetricsKit")
         case .mediumInjuryRisk:
-            return "Medium Injury Risk"
+            return String(localized: "Medium Injury Risk", table: "BodyMetricsKit")
         case .highInjuryRisk:
-            return "High Injury Risk"
+            return String(localized: "High Injury Risk", table: "BodyMetricsKit")
         }
     }
 

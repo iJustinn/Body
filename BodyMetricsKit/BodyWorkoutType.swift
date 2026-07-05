@@ -102,6 +102,10 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     var displayName: String {
+        String(localized: String.LocalizationValue(englishDisplayName), table: "BodyMetricsKit")
+    }
+
+    private var englishDisplayName: String {
         switch self {
         case .walking:
             return "Walk"

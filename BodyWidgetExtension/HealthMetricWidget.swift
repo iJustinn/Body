@@ -65,7 +65,8 @@ struct HealthMetricProvider: AppIntentTimelineProvider {
     ) -> HealthMetricEntry {
         let metric = (configuration.metric ?? .readiness).widgetMetric
         let loaded = HealthWidgetSnapshotStore.load()
-        let snapshot = loaded ?? (usePlaceholderWhenEmpty ? .placeholder : .empty)
+        let snapshot = (loaded ?? (usePlaceholderWhenEmpty ? .placeholder : .empty))
+            .sanitizingStaleSleep(asOf: Date())
         return entry(
             snapshot: snapshot,
             metric: metric,

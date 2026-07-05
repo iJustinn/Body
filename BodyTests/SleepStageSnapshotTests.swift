@@ -64,4 +64,28 @@ final class SleepStageSnapshotTests: XCTestCase {
     func testEmptySnapshotHasZeroMergedDuration() {
         XCTAssertEqual(SleepStageSnapshot.empty.mergedAsleepDuration, 0)
     }
+
+    func testSleepStartAndEndDatesExcludeAwakeSegments() {
+        // Leading and trailing awake segments bound the in-bed window but not
+        // the asleep window.
+        let snapshot = SleepStageSnapshot(date: date(0), segments: [
+            SleepStageSegment(stage: .awake, startDate: date(0), endDate: date(0, 30)),
+            SleepStageSegment(stage: .core, startDate: date(0, 30), endDate: date(7)),
+            SleepStageSegment(stage: .awake, startDate: date(7), endDate: date(7, 45))
+        ])
+
+        XCTAssertEqual(snapshot.sleepStartDate, date(0, 30))
+        XCTAssertEqual(snapshot.sleepEndDate, date(7))
+        XCTAssertEqual(snapshot.dateInterval?.end, date(7, 45))
+    }
+
+    func testSleepStartAndEndDatesAreNilWithoutAsleepSegments() {
+        let awakeOnly = SleepStageSnapshot(date: date(0), segments: [
+            SleepStageSegment(stage: .awake, startDate: date(0), endDate: date(1))
+        ])
+
+        XCTAssertNil(awakeOnly.sleepStartDate)
+        XCTAssertNil(awakeOnly.sleepEndDate)
+        XCTAssertNil(SleepStageSnapshot.empty.sleepEndDate)
+    }
 }

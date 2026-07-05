@@ -103,6 +103,13 @@ struct BodyHealthMetricDetailModel {
 enum BodyDateSliderTileLabel {
     private static let recentWeekDayCount = 7
 
+    static func dayNumberText(
+        for date: Date,
+        calendar: Calendar = .bodyGregorian
+    ) -> String {
+        String(calendar.component(.day, from: date))
+    }
+
     static func primaryText(
         for date: Date,
         today: Date = Date(),
@@ -410,7 +417,7 @@ struct BodyHealthMetricDetailView: View {
             )
             .ignoresSafeArea()
         }
-        .navigationTitle(model.title)
+        .navigationTitle(String(localized: String.LocalizationValue(model.title)))
         .navigationBarTitleDisplayMode(.inline)
         .tint(model.symbolColor)
         .accentColor(model.symbolColor)
@@ -812,9 +819,11 @@ struct BodyHealthMetricDetailView: View {
                 }
             } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: "heart.text.square.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(model.symbolColor)
+                    ForEach(Array(dataSourceFooterIconNames.enumerated()), id: \.offset) { _, iconName in
+                        Image(systemName: iconName)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(model.symbolColor)
+                    }
 
                     Text(dataSourceFooterText(defaultText: dataSourceText.sourceText))
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
@@ -837,6 +846,40 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
+    private var dataSourceFooterIconNames: [String] {
+        guard model.kind.supportsHealthDataSourceSelection else {
+            return ["heart.text.square.fill"]
+        }
+
+        let primary = workoutStore.selectedHealthDataSourceOption(for: model.kind)
+        let primaryIcon = primary.isAllSources
+            ? "heart.text.square"
+            : BodyHealthSourceIcon.systemImageName(
+                name: primary.name,
+                bundleIdentifier: primary.iconBundleIdentifierHint,
+                fallback: "heart.text.square"
+            )
+
+        guard model.kind.supportsSecondaryHealthDataSourceSelection else {
+            return [primaryIcon]
+        }
+
+        let secondary = workoutStore.selectedSecondaryHealthDataSourceOption(for: model.kind)
+        guard !secondary.isNoComparison else {
+            return [primaryIcon]
+        }
+
+        let secondaryIcon = secondary.isAllSources
+            ? "square.text.square"
+            : BodyHealthSourceIcon.systemImageName(
+                name: secondary.name,
+                bundleIdentifier: secondary.iconBundleIdentifierHint,
+                fallback: "square.text.square"
+            )
+
+        return [primaryIcon, secondaryIcon]
+    }
+
     private func dataSourceFooterText(defaultText: String) -> String {
         guard model.kind.supportsHealthDataSourceSelection else {
             return defaultText
@@ -852,7 +895,7 @@ struct BodyHealthMetricDetailView: View {
             return primaryName
         }
 
-        return "\(primaryName) vs \(secondaryOption.name)"
+        return String(localized: "\(primaryName) vs \(secondaryOption.name)")
     }
 
     // Apple Watch–style immersive header, shared by every metric. The metric-tint→
@@ -882,12 +925,26 @@ struct BodyHealthMetricDetailView: View {
 
             metricHeroValueRow
 
+            if sleepDataUnavailableForToday {
+                Text("No sleep data yet")
+                    .font(.system(.body, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            }
+
             metricBreakdownChart
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
         .padding(.bottom, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var sleepDataUnavailableForToday: Bool {
+        model.kind == .sleep &&
+            model.sleepDuration == nil &&
+            (model.sleepStageSnapshot?.isEmpty ?? true) &&
+            (model.sleepVitals?.isEmpty ?? true)
     }
 
     // The per-metric cards that scroll below the hero (unchanged from the prior
@@ -989,7 +1046,10 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter
             )
         } else if usesRangeTrendChart, let metricRangeHeaderText {
-            averageHeaderText(metricRangeHeaderText, prefix: "Range")
+            averageHeaderText(
+                metricRangeHeaderText,
+                prefix: String(localized: "chart.legendRange", defaultValue: "Range")
+            )
         } else if let averageTrendText {
             VStack(alignment: .trailing, spacing: 4) {
                 averageHeaderText(averageTrendText)
@@ -1145,7 +1205,7 @@ struct BodyHealthMetricDetailView: View {
             HStack(alignment: .top, spacing: 12) {
                 ForEach(basicsRangeMetrics) { metric in
                     VStack(alignment: .center, spacing: 5) {
-                        Text(metric.title)
+                        Text(String(localized: String.LocalizationValue(metric.title)))
                             .font(.system(.caption, design: .rounded))
                             .fontWeight(.semibold)
                             .foregroundColor(.secondary)
@@ -1386,7 +1446,7 @@ struct BodyHealthMetricDetailView: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(row.title)
+                Text(String(localized: String.LocalizationValue(row.title)))
                     .font(.system(size: 17, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
                     .lineLimit(1)
@@ -1432,9 +1492,9 @@ struct BodyHealthMetricDetailView: View {
     private var selectedMetricDayAggregationLabel: String {
         switch model.kind {
         case .activeEnergy, .steps:
-            return "HOURLY TOTAL"
+            return String(localized: "HOURLY TOTAL")
         default:
-            return "HOURLY AVG"
+            return String(localized: "HOURLY AVG")
         }
     }
 
@@ -1515,6 +1575,7 @@ struct BodyHealthMetricDetailView: View {
         // lock badge, and routes a tap to the paywall instead of changing the selection.
         let isLocked = isDatePickerDateLocked(dayStart)
         let primaryText = BodyDateSliderTileLabel.primaryText(for: dayStart, today: today, calendar: calendar)
+        let dayNumberText = BodyDateSliderTileLabel.dayNumberText(for: dayStart, calendar: calendar)
         let tileFill = Color.primary.opacity(isFuture ? 0.03 : 0.06)
         let tileStroke: Color = isSelected
             ? dateSliderSelectionColor
@@ -1533,7 +1594,7 @@ struct BodyHealthMetricDetailView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.74)
 
-                Text(dayStart.formatted(.dateTime.day()))
+                Text(dayNumberText)
                     .font(.system(size: 27, weight: .bold, design: .rounded))
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -1714,11 +1775,11 @@ struct BodyHealthMetricDetailView: View {
         _ snapshot: SleepStageSnapshot,
         title: String = "Sleep Stages",
         sourceName: String? = nil,
-        emptyMessage: String = "No sleep stages for this day"
+        emptyMessage: LocalizedStringKey = "No sleep stages for this day"
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text(title)
+                Text(String(localized: String.LocalizationValue(title)))
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
 
@@ -1812,9 +1873,9 @@ struct BodyHealthMetricDetailView: View {
         let descriptions = SleepStage.allCases.map { stage -> String in
             let duration = snapshot.duration(for: stage)
             let percent = total > 0 ? Int((duration / total * 100).rounded()) : 0
-            return "\(stage.displayName) \(percent) percent, \(BodyValueFormat.durationText(for: duration))"
+            return String(localized: "\(stage.displayName) \(percent) percent, \(BodyValueFormat.durationText(for: duration))")
         }
-        return "Sleep stage breakdown. " + descriptions.joined(separator: ". ") + "."
+        return String(localized: "Sleep stage breakdown. \(descriptions.joined(separator: ". ")).")
     }
 
     private func sleepStageChartIdentity(for snapshot: SleepStageSnapshot) -> String {
@@ -1949,7 +2010,7 @@ struct BodyHealthMetricDetailView: View {
 
         if let heartRate = vitals.heartRate {
             rows.append(SleepVitalDisplayRow(
-                title: "Heart Rate",
+                title: String(localized: "Heart Rate"),
                 value: BodyValueFormat.numberText(heartRate.rounded(), decimals: 0),
                 unit: "BPM",
                 symbolName: "heart.fill",
@@ -1961,7 +2022,7 @@ struct BodyHealthMetricDetailView: View {
 
         if let heartRateVariability = vitals.heartRateVariability {
             rows.append(SleepVitalDisplayRow(
-                title: "Pressure",
+                title: String(localized: "Pressure"),
                 value: BodyValueFormat.numberText(heartRateVariability.rounded(), decimals: 0),
                 unit: "ms HRV",
                 symbolName: "waveform.path.ecg",
@@ -1973,7 +2034,7 @@ struct BodyHealthMetricDetailView: View {
 
         if let respiratoryRate = vitals.respiratoryRate {
             rows.append(SleepVitalDisplayRow(
-                title: "Respiratory",
+                title: String(localized: "Respiratory"),
                 value: BodyValueFormat.numberText(respiratoryRate.rounded(), decimals: 0),
                 unit: "br/min",
                 symbolName: "lungs.fill",
@@ -1989,7 +2050,7 @@ struct BodyHealthMetricDetailView: View {
                 temperatureUnitPreference: selectedTemperatureUnitPreference
             )
             rows.append(SleepVitalDisplayRow(
-                title: "Skin Temperature",
+                title: String(localized: "Skin Temperature"),
                 value: display.value,
                 unit: display.unit,
                 symbolName: "thermometer.medium",
@@ -2001,7 +2062,7 @@ struct BodyHealthMetricDetailView: View {
 
         if let oxygenSaturation = vitals.oxygenSaturation {
             rows.append(SleepVitalDisplayRow(
-                title: "Blood Oxygen",
+                title: String(localized: "Blood Oxygen"),
                 value: BodyValueFormat.numberText(oxygenSaturation.rounded(), decimals: 0),
                 unit: "%",
                 symbolName: "drop.fill",
@@ -2013,7 +2074,7 @@ struct BodyHealthMetricDetailView: View {
 
         if let duration {
             rows.append(SleepVitalDisplayRow(
-                title: "Sleep Duration",
+                title: String(localized: "Sleep Duration"),
                 value: BodyValueFormat.sleepDurationText(for: duration),
                 unit: "",
                 symbolName: "bed.double.fill",
@@ -2203,7 +2264,10 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
-    private func averageHeaderText(_ text: String, prefix: String = "Avg") -> some View {
+    private func averageHeaderText(
+        _ text: String,
+        prefix: String = String(localized: "detail.avgPrefix", defaultValue: "Avg")
+    ) -> some View {
         Text("\(prefix) \(text)")
             .font(.system(.subheadline, design: .rounded))
             .fontWeight(.semibold)

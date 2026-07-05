@@ -171,7 +171,7 @@ struct BodyTrainingLoadIntervalBreakdownChart: View {
     }
 
     private func dayText(for dayCount: Int) -> String {
-        dayCount == 1 ? "1 day" : "\(dayCount) days"
+        dayCount == 1 ? String(localized: "1 day") : String(localized: "\(dayCount) days")
     }
 
     private func percentageText(for entry: TrainingLoadIntervalBreakdownEntry) -> String {

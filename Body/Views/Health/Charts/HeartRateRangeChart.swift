@@ -35,7 +35,7 @@ struct BodyHeartRateRangeTrendChart: View {
         selectedRange: BodyHealthTrendRange,
         rangeSeries: HealthTrendRangeSeries,
         secondaryRangeSeries: HealthTrendRangeSeries? = nil,
-        primarySourceName: String = "Primary",
+        primarySourceName: String = String(localized: "Primary"),
         secondarySourceName: String? = nil,
         symbolColor: Color,
         secondaryColor: Color = Color(red: 0.58, green: 0.36, blue: 0.98),
@@ -130,7 +130,7 @@ struct BodyHeartRateRangeTrendChart: View {
                             overflowResolution: bodyChartSelectionOverflowResolution
                         ) {
                             BodyChartSelectionAnnotation(
-                                eyebrow: "RANGE",
+                                eyebrow: String(localized: "RANGE"),
                                 values: selectedValues(for: selectedRangePoint, lowValue: lowValue, highValue: highValue),
                                 date: selectedRangePoint.date,
                                 dateText: bodyChartSelectionDateText(for: selectedRangePoint)
@@ -271,7 +271,7 @@ struct BodyHeartRateRangeTrendChart: View {
 
         var values = [
             BodyChartSelectionValue(
-                title: "Range",
+                title: String(localized: "chart.legendRange", defaultValue: "Range"),
                 value: "\(valueFormatter(lowValue))-\(valueFormatter(highValue))",
                 color: Color.secondary
             )
@@ -345,7 +345,7 @@ struct BodyHeartRateRangeTrendChart: View {
             }
 
             return BodyHeartRateRangeAverageEntry(
-                sourceName: secondarySourceName ?? "Secondary",
+                sourceName: secondarySourceName ?? String(localized: "Secondary"),
                 sourceRole: .secondary,
                 date: point.date,
                 value: value

@@ -16,11 +16,11 @@ struct BodyWidgetLockedView: View {
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundStyle(.yellow)
 
-            Text("Body Pro")
+            Text(String(localized: "Body Pro", table: "BodyShared"))
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundStyle(.primary)
 
-            Text("Unlock Body widgets in the app")
+            Text(String(localized: "Unlock Body widgets in the app", table: "BodyShared"))
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
