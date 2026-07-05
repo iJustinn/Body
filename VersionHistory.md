@@ -1,5 +1,9 @@
 # Version History
 
+## 0.9.8 (build 1)
+
+- Updated the app, widget, watch, and test bundle version to 0.9.8 build 1.
+
 ## 0.9.7 (build 7)
 
 - Updated the app, widget, watch, and test bundle version to 0.9.7 build 7.
