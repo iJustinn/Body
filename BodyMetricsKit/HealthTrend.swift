@@ -724,6 +724,22 @@ struct HealthTrendSnapshot: Codable, Equatable {
     func filtered(by selection: BodyHealthPermissionSelection) -> HealthTrendSnapshot {
         var filtered = self
 
+        // Strips a per-night vitals field from every cached sleep-history day
+        // so a disabled permission can't keep driving readiness via the
+        // overnight series in `ReadinessScoreCalculator` (mirrors the same
+        // fields being nil'd on `HealthSummarySnapshot.filtered`'s current-day
+        // sleep summary).
+        func strippingSleepVitals(
+            _ history: SleepHistorySnapshot,
+            _ mutate: (inout SleepVitalsSummary) -> Void
+        ) -> SleepHistorySnapshot {
+            SleepHistorySnapshot(days: history.days.map { day in
+                var day = day
+                mutate(&day.summary.vitals)
+                return day
+            })
+        }
+
         if !selection.includes(.sleep) {
             filtered.sleep = .empty
             filtered.sleepSecondary = .empty
@@ -745,6 +761,14 @@ struct HealthTrendSnapshot: Codable, Equatable {
             filtered.restingHeartRateDaySamplesSecondary = .empty
             filtered.heartRateVariabilityDaySamples = .empty
             filtered.heartRateVariabilityDaySamplesSecondary = .empty
+            filtered.sleepHistory = strippingSleepVitals(filtered.sleepHistory) {
+                $0.heartRate = nil
+                $0.heartRateVariability = nil
+            }
+            filtered.sleepHistorySecondary = strippingSleepVitals(filtered.sleepHistorySecondary) {
+                $0.heartRate = nil
+                $0.heartRateVariability = nil
+            }
         }
         if !selection.includes(.basics) {
             filtered.bodyMass = .empty
@@ -757,11 +781,23 @@ struct HealthTrendSnapshot: Codable, Equatable {
             filtered.oxygenSaturationRangesSecondary = .empty
             filtered.oxygenSaturationDaySamples = .empty
             filtered.oxygenSaturationDaySamplesSecondary = .empty
+            filtered.sleepHistory = strippingSleepVitals(filtered.sleepHistory) {
+                $0.oxygenSaturation = nil
+            }
+            filtered.sleepHistorySecondary = strippingSleepVitals(filtered.sleepHistorySecondary) {
+                $0.oxygenSaturation = nil
+            }
         }
         if !selection.includes(.respiratory) {
             filtered.respiratoryRate = .empty
             filtered.respiratoryRateRanges = .empty
             filtered.respiratoryRateDaySamples = .empty
+            filtered.sleepHistory = strippingSleepVitals(filtered.sleepHistory) {
+                $0.respiratoryRate = nil
+            }
+            filtered.sleepHistorySecondary = strippingSleepVitals(filtered.sleepHistorySecondary) {
+                $0.respiratoryRate = nil
+            }
         }
         if !selection.includes(.energy) {
             filtered.activeEnergy = .empty
@@ -780,6 +816,12 @@ struct HealthTrendSnapshot: Codable, Equatable {
         }
         if !selection.includes(.wristTemperature) {
             filtered.wristTemperature = .empty
+            filtered.sleepHistory = strippingSleepVitals(filtered.sleepHistory) {
+                $0.wristTemperatureCelsius = nil
+            }
+            filtered.sleepHistorySecondary = strippingSleepVitals(filtered.sleepHistorySecondary) {
+                $0.wristTemperatureCelsius = nil
+            }
         }
         if !selection.includes(.timeInDaylight) {
             filtered.timeInDaylight = .empty
@@ -1005,14 +1047,26 @@ private func bodyTrendAggregationBuckets<Point>(
     from points: [Point],
     aggregationDayCount: Int
 ) -> [ArraySlice<Point>] {
-    var ranges = stride(from: 0, to: points.count, by: aggregationDayCount).map { startIndex in
-        startIndex..<min(startIndex + aggregationDayCount, points.count)
+    guard aggregationDayCount > 0, !points.isEmpty else {
+        return []
     }
 
-    if let finalRange = ranges.last,
-       finalRange.count < aggregationDayCount,
+    // Points run oldest → newest ending at today. Anchor bucketing from the
+    // newest day backwards so a leftover partial bucket falls on the oldest
+    // end, not the newest — otherwise today's reading gets silently dropped.
+    var ranges: [Range<Int>] = []
+    var endIndex = points.count
+    while endIndex > 0 {
+        let startIndex = max(endIndex - aggregationDayCount, 0)
+        ranges.append(startIndex..<endIndex)
+        endIndex = startIndex
+    }
+    ranges.reverse()
+
+    if let firstRange = ranges.first,
+       firstRange.count < aggregationDayCount,
        ranges.count > 1 {
-        ranges.removeLast()
+        ranges.removeFirst()
     }
 
     return ranges.map { points[$0] }

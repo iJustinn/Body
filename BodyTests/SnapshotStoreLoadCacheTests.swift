@@ -121,4 +121,68 @@ final class SnapshotStoreLoadCacheTests: XCTestCase {
         XCTAssertNil(WorkoutSnapshotStore.load(fileURL: fileURL))
         XCTAssertNil(WorkoutSnapshotStore.load(fileURL: fileURL))
     }
+
+    // MARK: - loadCurrentOrPreviousIfEmpty (M16: live timelines must never see fabricated data)
+
+    func testLoadCurrentOrPreviousIfEmptyReturnsHonestEmptySnapshotWhenFilesAbsentLive() throws {
+        let currentFileURL = try uniqueFileURL()
+        let previousFileURL = try uniqueFileURL()
+
+        let result = WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty(
+            usePlaceholderWhenEmpty: false,
+            currentFileURL: currentFileURL,
+            previousFileURL: previousFileURL
+        )
+
+        XCTAssertEqual(result.workoutCount, 0)
+        XCTAssertNotEqual(result.workoutCount, WorkoutMonthSnapshot.placeholder.workoutCount)
+    }
+
+    func testLoadCurrentOrPreviousIfEmptyReturnsPlaceholderOnlyWhenExplicitlyRequestedForPreview() throws {
+        let currentFileURL = try uniqueFileURL()
+        let previousFileURL = try uniqueFileURL()
+
+        let result = WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty(
+            usePlaceholderWhenEmpty: true,
+            currentFileURL: currentFileURL,
+            previousFileURL: previousFileURL
+        )
+
+        XCTAssertEqual(result.workoutCount, WorkoutMonthSnapshot.placeholder.workoutCount)
+        XCTAssertGreaterThan(result.workoutCount, 0)
+    }
+
+    func testLoadCurrentOrPreviousIfEmptyStillFallsBackToPreviousMonthWhenCurrentIsEmpty() throws {
+        let currentFileURL = try uniqueFileURL()
+        let previousFileURL = try uniqueFileURL()
+
+        let emptyCurrent = WorkoutMonthSnapshot.make(month: 6, year: 2026, workouts: [], calendar: .bodyGregorian)
+        let populatedPrevious = WorkoutMonthSnapshot.make(
+            month: 5,
+            year: 2026,
+            workouts: [
+                WorkoutSummary(
+                    id: UUID(),
+                    type: .running,
+                    startDate: try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 5, day: 20, hour: 9))),
+                    duration: 1_800,
+                    activeEnergyKilocalories: 200,
+                    distanceMeters: 3_000,
+                    sourceName: "Test"
+                )
+            ],
+            calendar: .bodyGregorian
+        )
+
+        WorkoutSnapshotStore.save(emptyCurrent, fileURL: currentFileURL)
+        WorkoutSnapshotStore.save(populatedPrevious, fileURL: previousFileURL)
+
+        let result = WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty(
+            usePlaceholderWhenEmpty: false,
+            currentFileURL: currentFileURL,
+            previousFileURL: previousFileURL
+        )
+
+        XCTAssertEqual(result, populatedPrevious)
+    }
 }

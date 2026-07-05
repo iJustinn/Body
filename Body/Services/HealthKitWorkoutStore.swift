@@ -215,7 +215,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     init(
-        initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrSeedPlaceholder(),
+        initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrPlaceholder(),
         initialHealthDashboardSnapshot: HealthDashboardSnapshot = HealthDashboardSnapshotStore.loadOrEmpty(),
         initialPermissionSelection: BodyHealthPermissionSelection = BodyHealthPermissionSelection.load(),
         initialHealthDataSourceSelection: BodyHealthDataSourceSelection = BodyHealthDataSourceSelection.load(),
@@ -707,6 +707,21 @@ final class HealthKitWorkoutStore: ObservableObject {
             )
         }
 
+        // A refresh may have started while the engine fetches above were
+        // suspended. It captured `healthTrends` before these day samples existed
+        // and will overwrite our write below when it completes — dropping the
+        // just-loaded intraday series and persisting that regression. Wait for
+        // any in-flight refresh (the loop covers a fresh one claiming the slot
+        // before we resume), then merge onto the now-current `healthTrends`.
+        // There is no suspension point between the loop exit and the write, so
+        // on the MainActor nothing can clobber it.
+        while isRefreshing {
+            await awaitNextRefreshCompletion()
+            guard !Task.isCancelled else {
+                return
+            }
+        }
+
         let mergedPrimary: HealthTrendSeries
         let mergedSecondary: HealthTrendSeries
         if usesHourlyBuckets {
@@ -714,14 +729,16 @@ final class HealthKitWorkoutStore: ObservableObject {
             mergedSecondary = secondarySamples
         } else {
             mergedPrimary = HealthKitFetchEngine.mergeIntradaySamples(
-                existing: cachedPrimary,
+                existing: healthTrends.daySeries(for: kind),
                 incoming: primarySamples,
-                windowStart: interval.start
+                windowStart: interval.start,
+                refetchStart: primaryFetchStart
             )
             mergedSecondary = HealthKitFetchEngine.mergeIntradaySamples(
-                existing: cachedSecondary,
+                existing: healthTrends.secondaryDaySeries(for: kind),
                 incoming: secondarySamples,
-                windowStart: interval.start
+                windowStart: interval.start,
+                refetchStart: secondaryFetchStart
             )
         }
 
@@ -807,6 +824,14 @@ final class HealthKitWorkoutStore: ObservableObject {
         await applyPermissionSelectionToCachedData()
 
         if isEnabled {
+            // A refresh may be in flight (resume/pull-to-refresh); its
+            // `isRefreshing` guard would otherwise silently drop this refetch,
+            // leaving old-permission data on screen. Mirror the secondary-source
+            // variants: wait it out, then refetch under the new selection.
+            await awaitNextRefreshCompletion()
+            guard !Task.isCancelled else {
+                return
+            }
             await requestAuthorizationAndRefresh()
         } else {
             updateHealthDataNotice()
@@ -900,6 +925,15 @@ final class HealthKitWorkoutStore: ObservableObject {
         UserDefaults.standard.set(combines, forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey)
         await engine.setCombinesHealthDataSourcesByName(combines)
         await fetchHealthDataSourceOptions(calendar: .bodyGregorian)
+
+        // Wait out any in-flight refresh so the `isRefreshing` guard in
+        // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
+        // (matches the secondary-source variants).
+        await awaitNextRefreshCompletion()
+        guard !Task.isCancelled else {
+            return
+        }
+
         await requestAuthorizationAndRefresh()
     }
 
@@ -918,6 +952,15 @@ final class HealthKitWorkoutStore: ObservableObject {
         nextSecondarySelection.save()
         await engine.setHealthDataSourceSelection(nextSelection)
         await engine.setSecondaryHealthDataSourceSelection(nextSecondarySelection)
+
+        // Wait out any in-flight refresh so the `isRefreshing` guard in
+        // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
+        // (matches the secondary-source variants).
+        await awaitNextRefreshCompletion()
+        guard !Task.isCancelled else {
+            return
+        }
+
         await requestAuthorizationAndRefresh()
     }
 
@@ -950,6 +993,15 @@ final class HealthKitWorkoutStore: ObservableObject {
         healthDataSourceSelection = nextSelection
         nextSelection.save()
         await engine.setHealthDataSourceSelection(nextSelection)
+
+        // Wait out any in-flight refresh so the `isRefreshing` guard in
+        // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
+        // (matches the secondary-source variants).
+        await awaitNextRefreshCompletion()
+        guard !Task.isCancelled else {
+            return
+        }
+
         await requestAuthorizationAndRefresh()
     }
 
@@ -2168,10 +2220,21 @@ final class HealthKitWorkoutStore: ObservableObject {
         saveHealthWidgetSnapshot()
     }
 
-    private func markRefreshSucceeded(date: Date, refreshedVitals: Bool, publishesWatch: Bool = true) {
-        lastSuccessfulRefreshDate = date
-        HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(date)
+    /// Internal (not private) so tests can assert the TTL gating below without
+    /// a HealthKit round trip.
+    func markRefreshSucceeded(date: Date, refreshedVitals: Bool, publishesWatch: Bool = true) {
+        // `lastSuccessfulRefreshDate` arms the 5-minute dashboard-freshness TTL
+        // (`syncWhenAppBecomesActive`, and the cold-start path that restores the
+        // persisted value), so only refreshes that actually refetched the
+        // dashboard vitals may set it. Lazy history loads (month paging, older
+        // ring months), single-metric refreshes, and workout-only warm resumes
+        // must not re-arm it — otherwise paging history or resuming repeatedly
+        // keeps the TTL fresh and the vitals refresh is skipped indefinitely.
+        // Those paths keep their own throttling (`lastAppEntrySyncDate`,
+        // `loadedMonthKeys`/`loadingMonthKeys`), which this does not feed.
         if refreshedVitals {
+            lastSuccessfulRefreshDate = date
+            HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(date)
             lastVitalsRefreshDate = date
         }
         // The full-refresh paths suppress this and publish once after the
@@ -2367,7 +2430,42 @@ final class HealthKitWorkoutStore: ObservableObject {
         monthSnapshots[BodyWorkoutMonthKey(month: emptySnapshot.month, year: emptySnapshot.year)] = emptySnapshot
         loadedMonthKeys.removeAll()
         monthLoadOrder.removeAll()
-        BodyWidgetReloadCoalescer.shared.requestReload()
+
+        // The in-memory clear above leaves the App Group JSON untouched, but the
+        // widget re-reads it via `loadCurrentOrPreviousIfEmpty()` and the app
+        // re-reads it on cold start — so rewrite both persisted month files
+        // emptied too. This clears the workout data at rest on opt-out instead
+        // of leaving it for the widget to re-render, mirroring
+        // `sanitizeWorkoutMetricsSnapshots`. Preserving each file's month
+        // identity and `generatedAt` keeps the rewrite change-deduped, so the
+        // repeated clears on refresh paths while the permission stays off don't
+        // rewrite disk or reload widgets again. Route through the persist queue
+        // so this load-modify-write can't interleave with a concurrent refresh
+        // save, and request the widget reload only after the wipe lands
+        // (a pre-wipe reload would rebuild the widget from the un-wiped file).
+        Self.snapshotPersistQueue.async {
+            func emptied(_ snapshot: WorkoutMonthSnapshot) -> WorkoutMonthSnapshot {
+                WorkoutMonthSnapshot.make(
+                    month: snapshot.month,
+                    year: snapshot.year,
+                    workouts: [],
+                    calendar: calendar,
+                    generatedAt: snapshot.generatedAt
+                )
+            }
+            var widgetReloadNeeded = false
+            if let current = WorkoutSnapshotStore.load(),
+               WorkoutSnapshotStore.save(emptied(current)) {
+                widgetReloadNeeded = true
+            }
+            if let previous = WorkoutSnapshotStore.loadPrevious(),
+               WorkoutSnapshotStore.savePrevious(emptied(previous)) {
+                widgetReloadNeeded = true
+            }
+            if widgetReloadNeeded {
+                Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
+            }
+        }
     }
 
     /// Strips the Workout Metrics detail fields (VO₂max, power, both cadences, swim
@@ -2378,19 +2476,28 @@ final class HealthKitWorkoutStore: ObservableObject {
     private func sanitizeWorkoutMetricsSnapshots(calendar: Calendar = .bodyGregorian) {
         snapshot = snapshot.removingWorkoutMetrics(calendar: calendar)
         monthSnapshots = monthSnapshots.mapValues { $0.removingWorkoutMetrics(calendar: calendar) }
-        BodyWidgetReloadCoalescer.shared.requestReload()
 
         // The in-memory strip above leaves the App Group JSON untouched, but the
         // widget reads it via `loadCurrentOrPreviousIfEmpty()` and the app
         // re-reads it on cold start — so rewrite both persisted month files
         // stripped too. This clears the data at rest on opt-out instead of
         // waiting for the next refresh to overwrite the current-month file.
-        Task.detached(priority: .utility) {
-            if let current = WorkoutSnapshotStore.load() {
-                WorkoutSnapshotStore.save(current.removingWorkoutMetrics(calendar: calendar))
+        // Route through the persist queue so this load-modify-write can't
+        // interleave with a concurrent refresh save and resurrect the stripped
+        // metrics, and request the widget reload only after the rewrite lands
+        // (otherwise the widget can rebuild from the un-stripped file first).
+        Self.snapshotPersistQueue.async {
+            var widgetReloadNeeded = false
+            if let current = WorkoutSnapshotStore.load(),
+               WorkoutSnapshotStore.save(current.removingWorkoutMetrics(calendar: calendar)) {
+                widgetReloadNeeded = true
             }
-            if let previous = WorkoutSnapshotStore.loadPrevious() {
-                WorkoutSnapshotStore.savePrevious(previous.removingWorkoutMetrics(calendar: calendar))
+            if let previous = WorkoutSnapshotStore.loadPrevious(),
+               WorkoutSnapshotStore.savePrevious(previous.removingWorkoutMetrics(calendar: calendar)) {
+                widgetReloadNeeded = true
+            }
+            if widgetReloadNeeded {
+                Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
             }
         }
     }
@@ -2411,16 +2518,19 @@ final class HealthKitWorkoutStore: ObservableObject {
             return monthSnapshots[previousKey]
         }()
 
-        Task.detached(priority: .utility) {
+        // Route through the shared persist queue (not a bare `Task.detached`) so
+        // two successive refreshes' month saves keep FIFO enqueue order — an
+        // earlier save must never land after a later one and stale the widget.
+        Self.snapshotPersistQueue.async {
             var widgetReloadNeeded = WorkoutSnapshotStore.save(snapshotToSave)
             if let previousSnapshotToSave,
                WorkoutSnapshotStore.savePrevious(previousSnapshotToSave) {
                 widgetReloadNeeded = true
             }
             if widgetReloadNeeded {
-                await BodyWidgetReloadCoalescer.shared.requestReload()
+                Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
             }
-            await self.refreshCacheDiskSize()
+            Task { @MainActor in await self.refreshCacheDiskSize() }
         }
     }
 

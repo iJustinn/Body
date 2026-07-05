@@ -514,6 +514,44 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertTrue(store.loadingActivityRingMonthKeys.isEmpty)
     }
 
+    /// A lazy-load-style success (`refreshedVitals: false` — month paging, older
+    /// ring history, single-metric or workout-only refreshes) must not arm the
+    /// dashboard-freshness TTL, in memory or in the persisted timestamp;
+    /// otherwise paging history keeps the TTL fresh and warm resumes skip the
+    /// vitals refresh indefinitely. Only a vitals-refreshing success arms it.
+    @MainActor
+    func testMarkRefreshSucceededOnlyArmsFreshnessTTLWhenVitalsRefreshed() throws {
+        let preservedRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
+        HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
+        defer {
+            HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
+            if let preservedRefreshDate {
+                HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(preservedRefreshDate)
+            }
+        }
+
+        let store = HealthKitWorkoutStore(
+            initialSnapshot: WorkoutMonthSnapshot.make(
+                month: 5,
+                year: 2026,
+                workouts: [],
+                calendar: .bodyGregorian
+            ),
+            initialHealthDashboardSnapshot: .empty
+        )
+        XCTAssertNil(store.lastSuccessfulRefreshDate)
+
+        let lazyLoadDate = Date(timeIntervalSince1970: 1_700_000_000)
+        store.markRefreshSucceeded(date: lazyLoadDate, refreshedVitals: false, publishesWatch: false)
+        XCTAssertNil(store.lastSuccessfulRefreshDate)
+        XCTAssertNil(HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate())
+
+        let vitalsRefreshDate = Date(timeIntervalSince1970: 1_700_000_100)
+        store.markRefreshSucceeded(date: vitalsRefreshDate, refreshedVitals: true, publishesWatch: false)
+        XCTAssertEqual(store.lastSuccessfulRefreshDate, vitalsRefreshDate)
+        XCTAssertEqual(HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate(), vitalsRefreshDate)
+    }
+
     @MainActor
     func testWorkoutStoreInitStripsStaleLoadedMonthsOlderThanEarliestData() throws {
         let calendar = Calendar.bodyGregorian
@@ -711,11 +749,15 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(segments[1].endDate, unspecifiedEnd)
     }
 
-    func testIntradayFetchStartUsesWindowStartOrNextCachedSample() throws {
+    func testIntradayFetchStartBacksUpByOverlapWindow() throws {
         let calendar = Calendar.bodyGregorian
         let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
-        let cachedSampleDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 3, hour: 7)))
-        let staleSampleDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 28, hour: 7)))
+        // Newest cached point is well inside the window; backing up 48h stays
+        // inside the window, so the overlap anchor wins.
+        let cachedSampleDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 5, hour: 7)))
+        // Newest cached point is close to the window start; backing up 48h would
+        // fall before it, so the fetch clamps to windowStart.
+        let nearStartSampleDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 2, hour: 7)))
 
         XCTAssertEqual(
             HealthKitFetchEngine.incrementalFetchStart(after: .empty, windowStart: windowStart),
@@ -726,22 +768,24 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
                 after: HealthTrendSeries(points: [HealthTrendDataPoint(date: cachedSampleDate, value: 61)]),
                 windowStart: windowStart
             ),
-            cachedSampleDate.addingTimeInterval(0.001)
+            cachedSampleDate.addingTimeInterval(-HealthKitFetchEngine.incrementalOverlapWindow)
         )
         XCTAssertEqual(
             HealthKitFetchEngine.incrementalFetchStart(
-                after: HealthTrendSeries(points: [HealthTrendDataPoint(date: staleSampleDate, value: 61)]),
+                after: HealthTrendSeries(points: [HealthTrendDataPoint(date: nearStartSampleDate, value: 61)]),
                 windowStart: windowStart
             ),
             windowStart
         )
     }
 
-    func testMergeIntradaySamplesDropsExpiredCacheAndAppendsIncomingSamples() throws {
+    func testMergeIntradaySamplesDropsExpiredCacheAndReplacesRefetchWindow() throws {
         let calendar = Calendar.bodyGregorian
         let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
         let expiredDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 30, hour: 23)))
         let keptDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1, hour: 1)))
+        // Refetch window opens at day 2; the incoming series is authoritative from there.
+        let refetchStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 2)))
         let incomingDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 2, hour: 1)))
 
         let merged = HealthKitFetchEngine.mergeIntradaySamples(
@@ -752,11 +796,165 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
             incoming: HealthTrendSeries(points: [
                 HealthTrendDataPoint(date: incomingDate, value: 62)
             ]),
-            windowStart: windowStart
+            windowStart: windowStart,
+            refetchStart: refetchStart
         )
 
         XCTAssertEqual(merged.points.map(\.date), [keptDate, incomingDate])
         XCTAssertEqual(merged.points.map(\.value), [61, 62])
+    }
+
+    func testMergeIntradaySamplesReconcilesBackfilledSampleInsideOverlap() throws {
+        // Regression for H1: a sample timestamped earlier than the newest cached
+        // point arrives late (Watch batch sync / third-party backfill). Because
+        // the refetch window covers its timestamp, the authoritative `incoming`
+        // series carries both the backfilled point and the previously-cached one,
+        // and the merge yields them in order with no duplication.
+        let calendar = Calendar.bodyGregorian
+        let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let refetchStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 4, hour: 6)))
+        let cachedNewest = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 5, hour: 8)))
+        let backfilledDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 5, hour: 7)))
+
+        let merged = HealthKitFetchEngine.mergeIntradaySamples(
+            existing: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: cachedNewest, value: 70)
+            ]),
+            // Refetch returns the whole overlap window: the late backfill plus the
+            // already-cached point (HealthKit hands back everything it now holds).
+            incoming: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: backfilledDate, value: 55),
+                HealthTrendDataPoint(date: cachedNewest, value: 70)
+            ]),
+            windowStart: windowStart,
+            refetchStart: refetchStart
+        )
+
+        XCTAssertEqual(merged.points.map(\.date), [backfilledDate, cachedNewest])
+        XCTAssertEqual(merged.points.map(\.value), [55, 70])
+    }
+
+    // MARK: - M7: HealthKit query failure vs empty result
+
+    func testResolvedTrendSeriesKeepsCacheWhenFetchFailed() throws {
+        // A `nil` fetched value models a failed HealthKit query (device locked,
+        // store unavailable, XPC drop) — the cached series must survive rather
+        // than being blanked.
+        let cached = HealthTrendSeries(points: [
+            HealthTrendDataPoint(
+                date: try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 5, day: 5))),
+                value: 61
+            )
+        ])
+
+        XCTAssertEqual(
+            HealthKitFetchEngine.resolvedTrendSeries(fetched: nil, cached: cached),
+            cached
+        )
+    }
+
+    func testResolvedTrendSeriesReplacesCacheOnSuccessEvenWhenEmpty() throws {
+        // A non-nil fetched value replaces the cache — including a genuinely
+        // empty successful result and the intentionally empty series produced
+        // when a permission is toggled off (both are "authoritative empty",
+        // distinct from a failed query's `nil`).
+        let cached = HealthTrendSeries(points: [
+            HealthTrendDataPoint(
+                date: try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 5, day: 5))),
+                value: 61
+            )
+        ])
+        let fresh = HealthTrendSeries(points: [
+            HealthTrendDataPoint(
+                date: try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 5, day: 6))),
+                value: 64
+            )
+        ])
+
+        XCTAssertEqual(
+            HealthKitFetchEngine.resolvedTrendSeries(fetched: fresh, cached: cached),
+            fresh
+        )
+        // Permission-off / authoritative-empty clears the cache.
+        XCTAssertEqual(
+            HealthKitFetchEngine.resolvedTrendSeries(fetched: .empty, cached: cached),
+            .empty
+        )
+    }
+
+    func testResolvedTrendSeriesAppliesToSleepHistorySnapshot() throws {
+        // The same merge protects the sleep history that feeds readiness: a
+        // failed sleep query keeps the cached nights; a successful empty result
+        // clears them.
+        let cached = SleepHistorySnapshot(days: [
+            SleepDaySummary(
+                date: try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 5, day: 5))),
+                summary: SleepSummary(duration: 7 * 3_600)
+            )
+        ])
+
+        XCTAssertEqual(
+            HealthKitFetchEngine.resolvedTrendSeries(fetched: SleepHistorySnapshot?.none, cached: cached),
+            cached
+        )
+        XCTAssertEqual(
+            HealthKitFetchEngine.resolvedTrendSeries(fetched: SleepHistorySnapshot.empty, cached: cached),
+            .empty
+        )
+    }
+
+    func testMergeIntradaySamplesRefetchStartNeverPrecedesWindowStart() throws {
+        // When the cache's newest point sits within the overlap window of
+        // windowStart, incrementalFetchStart clamps refetchStart to windowStart,
+        // so the whole cached series is authoritative-replaced by the refetch.
+        let calendar = Calendar.bodyGregorian
+        let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let cachedSampleDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1, hour: 12)))
+        let refetchStart = HealthKitFetchEngine.incrementalFetchStart(
+            after: HealthTrendSeries(points: [HealthTrendDataPoint(date: cachedSampleDate, value: 61)]),
+            windowStart: windowStart
+        )
+        XCTAssertEqual(refetchStart, windowStart)
+
+        let incomingDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1, hour: 12)))
+        let merged = HealthKitFetchEngine.mergeIntradaySamples(
+            existing: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: cachedSampleDate, value: 61)
+            ]),
+            incoming: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: incomingDate, value: 63)
+            ]),
+            windowStart: windowStart,
+            refetchStart: refetchStart
+        )
+
+        // No point kept before refetchStart (== windowStart); refetch replaces all.
+        XCTAssertEqual(merged.points.map(\.date), [incomingDate])
+        XCTAssertEqual(merged.points.map(\.value), [63])
+    }
+
+    func testMergeIntradaySamplesEmptyIncomingDeletesOnlyInsideRefetchWindow() throws {
+        // Empty incoming with a real refetch window means HealthKit now holds
+        // nothing in [refetchStart, end] — the samples there were deleted, so
+        // dropping them is correct. Points before refetchStart are untouched.
+        let calendar = Calendar.bodyGregorian
+        let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let keptDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 2, hour: 1)))
+        let refetchStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 4)))
+        let deletedDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 5, hour: 7)))
+
+        let merged = HealthKitFetchEngine.mergeIntradaySamples(
+            existing: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: keptDate, value: 61),
+                HealthTrendDataPoint(date: deletedDate, value: 62)
+            ]),
+            incoming: .empty,
+            windowStart: windowStart,
+            refetchStart: refetchStart
+        )
+
+        XCTAssertEqual(merged.points.map(\.date), [keptDate])
+        XCTAssertEqual(merged.points.map(\.value), [61])
     }
 
     func testAverageVitalValuesPartitionsSamplesPerNightInterval() throws {

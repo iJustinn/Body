@@ -64,7 +64,10 @@ extension HealthKitFetchEngine {
         }
     }
 
-    func fetchTrainingLoadSeries(calendar: Calendar) async -> HealthTrendSeries {
+    /// Returns `nil` when the underlying workout fetch throws (a query failure,
+    /// not an empty history), so the assembly layer keeps the cached series
+    /// instead of blanking training load.
+    func fetchTrainingLoadSeries(calendar: Calendar) async -> HealthTrendSeries? {
         let end = anchorDate ?? Date()
         let window = trainingLoadWorkoutsWindow(calendar: calendar)
 
@@ -77,7 +80,8 @@ extension HealthKitFetchEngine {
                 calendar: calendar
             )
         } catch {
-            return .empty
+            Self.logTrendQueryFailure("trainingLoad", error: error)
+            return nil
         }
     }
 }

@@ -37,6 +37,80 @@ final class BodyWorkoutTypeTests: XCTestCase {
         XCTAssertLessThanOrEqual(components.luminance, 0.501)
     }
 
+    // MARK: - Tolerant decoding (M23)
+
+    func testDecodingUnknownRawValueFallsBackToOther() throws {
+        let json = Data("\"someFutureWorkoutType\"".utf8)
+
+        let decoded = try JSONDecoder().decode(BodyWorkoutType.self, from: json)
+
+        XCTAssertEqual(decoded, .other)
+    }
+
+    func testDecodingKnownRawValueStillDecodesToThatCase() throws {
+        let json = Data("\"running\"".utf8)
+
+        let decoded = try JSONDecoder().decode(BodyWorkoutType.self, from: json)
+
+        XCTAssertEqual(decoded, .running)
+    }
+
+    func testWorkoutSummaryDecodesUnknownWorkoutTypeAsOtherInsteadOfThrowing() throws {
+        let json = Data("""
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "type": "someFutureWorkoutType",
+          "startDate": 780000000.0,
+          "duration": 1800,
+          "sourceName": "Apple Health"
+        }
+        """.utf8)
+
+        let decoded = try JSONDecoder().decode(WorkoutSummary.self, from: json)
+
+        XCTAssertEqual(decoded.type, .other)
+        XCTAssertEqual(decoded.duration, 1800)
+        XCTAssertEqual(decoded.sourceName, "Apple Health")
+    }
+
+    func testWorkoutMonthSnapshotDecodesUnknownWorkoutTypeWithoutLosingOtherWorkouts() throws {
+        let snapshot = WorkoutMonthSnapshot.make(
+            month: 5,
+            year: 2026,
+            workouts: [
+                workout(day: 6, type: .running, duration: 2_400),
+                workout(day: 9, type: .strengthTraining, duration: 3_600)
+            ],
+            calendar: .bodyGregorian
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        var json = String(decoding: try encoder.encode(snapshot), as: UTF8.self)
+
+        // Simulate a version-skewed writer (e.g. the watch app) that persisted a
+        // workout type this build doesn't recognize yet.
+        json = json.replacingOccurrences(of: "\"type\":\"running\"", with: "\"type\":\"someFutureWorkoutType\"")
+
+        let decoded = try JSONDecoder().decode(WorkoutMonthSnapshot.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.workoutCount, 2)
+        XCTAssertEqual(decoded.day(6)?.workouts.first?.type, .other)
+        XCTAssertEqual(decoded.day(9)?.workouts.first?.type, .strengthTraining)
+    }
+
+    private func workout(day: Int, type: BodyWorkoutType, duration: TimeInterval) -> WorkoutSummary {
+        WorkoutSummary(
+            id: UUID(uuidString: "00000000-0000-0000-0000-\(String(format: "%012d", day))") ?? UUID(),
+            type: type,
+            startDate: Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 5, day: day, hour: 8)) ?? Date(),
+            duration: duration,
+            activeEnergyKilocalories: 100,
+            distanceMeters: 1_000,
+            sourceName: "Tests"
+        )
+    }
+
     private func hexValue(for color: Color) throws -> UInt32 {
         let components = try colorComponents(for: color)
         let red = UInt32((components.red * 255).rounded())

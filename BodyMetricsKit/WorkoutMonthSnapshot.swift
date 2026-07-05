@@ -195,6 +195,23 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
         makePlaceholder(generatedAt: Date(), calendar: .bodyGregorian)
     }
 
+    /// A truthful "no data yet" snapshot for the current month/year — unlike
+    /// `.placeholder`, this contains no fabricated workouts. Used wherever
+    /// live (non-preview) data is unavailable so views render an honest empty
+    /// state instead of sample content masquerading as real history.
+    static var empty: WorkoutMonthSnapshot {
+        makeEmpty(generatedAt: Date(), calendar: .bodyGregorian)
+    }
+
+    static func makeEmpty(
+        generatedAt: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> WorkoutMonthSnapshot {
+        let month = calendar.component(.month, from: generatedAt)
+        let year = calendar.component(.year, from: generatedAt)
+        return make(month: month, year: year, workouts: [], calendar: calendar, generatedAt: generatedAt)
+    }
+
     static func makePlaceholder(
         generatedAt: Date = Date(),
         calendar: Calendar = .bodyGregorian

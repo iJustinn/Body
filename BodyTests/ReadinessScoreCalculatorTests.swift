@@ -318,6 +318,52 @@ final class ReadinessScoreCalculatorTests: XCTestCase {
         )
     }
 
+    /// H2 regression: disabling Heart must strip the cached per-night HR/HRV
+    /// vitals inside `sleepHistory`, not just the whole-day trend series —
+    /// otherwise `ReadinessScoreCalculator`'s overnight-preferred path keeps
+    /// scoring vitals the user turned off.
+    func testFilteringHeartPermissionStripsSleepHistoryVitals() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let heartDisabled = BodyHealthPermissionSelection.defaultValue.setting(.heart, isEnabled: false)
+
+        let overnightCrashed = autonomicTrends(
+            on: scoreDay,
+            overnightNights: 20,
+            overnightHRVToday: 30,
+            calendar: calendar
+        )
+
+        let filtered = overnightCrashed.filtered(by: heartDisabled)
+
+        XCTAssertFalse(overnightCrashed.sleepHistory.days.isEmpty)
+        XCTAssertTrue(filtered.sleepHistory.days.allSatisfy { day in
+            day.summary.vitals.heartRate == nil && day.summary.vitals.heartRateVariability == nil
+        })
+        // Sleep itself is governed by `.sleep`, not `.heart` — duration must survive.
+        XCTAssertTrue(filtered.sleepHistory.days.allSatisfy { $0.summary.duration == 7.9 * 3_600 })
+
+        let normalOvernight = autonomicTrends(
+            on: scoreDay,
+            overnightNights: 20,
+            overnightHRVToday: 60,
+            calendar: calendar
+        ).filtered(by: heartDisabled)
+
+        let crashedScore = try XCTUnwrap(ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: filtered, calendar: calendar
+        ).score)
+        let normalScore = try XCTUnwrap(ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: normalOvernight, calendar: calendar
+        ).score)
+
+        XCTAssertEqual(
+            crashedScore,
+            normalScore,
+            "once Heart is disabled, crashed overnight HRV must no longer influence the score"
+        )
+    }
+
     /// Fewer than 14 overnight nights → the metric is not overnight-qualified
     /// and scoring must match the whole-day-only behavior exactly.
     func testSparseOvernightHistoryFallsBackToWholeDay() throws {
