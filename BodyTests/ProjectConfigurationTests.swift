@@ -267,6 +267,20 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(whyBlock.contains("ForEach(readiness.components)"))
     }
 
+    func testBasicsTrendCardsRouteThroughRegisteredNavigationDestination() throws {
+        let source = try bodyHomeViewText()
+
+        // The Basics page's Weight/Body Fat trend cards must push a `HomeMetricRoute`
+        // (the type registered via `.navigationDestination(for: HomeMetricRoute.self)`
+        // on the Home stack that hosts this page), not a bare `HealthMetricKind` — no
+        // `navigationDestination(for: HealthMetricKind.self)` is registered anywhere,
+        // which would make the cards inert.
+        XCTAssertTrue(source.contains("NavigationLink(value: HomeMetricRoute.trend(kind))"))
+        XCTAssertFalse(source.contains("NavigationLink(value: kind)"))
+        XCTAssertTrue(source.contains(".navigationDestination(for: HomeMetricRoute.self)"))
+        XCTAssertFalse(source.contains(".navigationDestination(for: HealthMetricKind.self)"))
+    }
+
     func testMetricDetailHeaderIconMatchesHomeMetricCardTintTreatment() throws {
         let source = try bodyHomeViewText()
         let cardIconStart = try XCTUnwrap(source.range(of: "Image(systemName: metric.symbolName)")?.lowerBound)

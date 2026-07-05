@@ -499,8 +499,9 @@ struct BodyHealthMetricDetailView: View {
 
     // The combined Basics page has no trend card of its own (the `.basics` kind maps
     // to no `BodyHomeTrendCardKind`), so surface the standalone Weight and Body Fat
-    // trend cards here. Tapping pushes that metric's focused detail via the stack's
-    // HealthMetricKind navigationDestination.
+    // trend cards here. This page is only ever pushed onto the Home stack (see
+    // `BodyHomeView`), so tapping pushes that metric's focused detail via the same
+    // `HomeMetricRoute` navigationDestination the home trends section uses.
     @ViewBuilder
     private func basicsMetricTrendCard(for kind: HealthMetricKind) -> some View {
         if let card = BodyHomeTrendCardFactory.card(
@@ -512,7 +513,7 @@ struct BodyHealthMetricDetailView: View {
             includesStable: true,
             cache: trendComputationCache
         ) {
-            NavigationLink(value: kind) {
+            NavigationLink(value: HomeMetricRoute.trend(kind)) {
                 BodyHomeTrendCard(model: card)
             }
             .buttonStyle(.plain)
