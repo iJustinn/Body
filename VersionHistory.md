@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.8 (build 5)
+
+- **Readiness now says when it's still waiting on last night's sleep.** Past midnight but before you wake, today's sleep session isn't recorded yet, so Readiness is computed from your other signals as usual — the score is unchanged. The hero line under the number now reads "Today's sleep data isn't in yet. Get some rest and check back later for a more accurate result." (with a Simplified Chinese translation) instead of a signal-specific explanation, until today's sleep lands.
+- Updated the app, widget, watch, and test bundle version to 0.9.8 build 5.
+
 ## 0.9.8 (build 3)
 
 - **Very low Readiness no longer crashes straight to 0% after a workout.** Once the day's activity drain brings today's live Readiness down to its raw zero, the score now shows **5%** and eases down only 1% for every further 5% of deficit — so it reaches 0% only when the underlying score is 25 points or more into the red. The softening never lifts the number above where the day started, and the frozen "Started today with NN%" value and the history chart are unchanged.
