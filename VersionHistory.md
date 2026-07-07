@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.8 (build 3)
+
+- **Very low Readiness no longer crashes straight to 0% after a workout.** Once the day's activity drain brings today's live Readiness down to its raw zero, the score now shows **5%** and eases down only 1% for every further 5% of deficit — so it reaches 0% only when the underlying score is 25 points or more into the red. The softening never lifts the number above where the day started, and the frozen "Started today with NN%" value and the history chart are unchanged.
+- Updated the app, widget, watch, and test bundle version to 0.9.8 build 3.
+
 ## 0.9.8 (build 2)
 
 - **The Basics detail page's Weight and Body Fat trend cards now morph into their detail screens.** Tapping either card zooms it into that metric's focused detail using the same card→detail transition the Home cards use, instead of a flat push. (Reduce Motion cross-fades, as elsewhere.)
