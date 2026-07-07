@@ -1,5 +1,12 @@
 # Version History
 
+## 0.9.8 (build 2)
+
+- **The Basics detail page's Weight and Body Fat trend cards now morph into their detail screens.** Tapping either card zooms it into that metric's focused detail using the same card→detail transition the Home cards use, instead of a flat push. (Reduce Motion cross-fades, as elsewhere.)
+- **Auto-Apply Effort (opt-in, off by default).** A new toggle in Settings ▸ Metrics ▸ Effort Suggestions automatically saves Body's predicted effort to Apple Health for unrated workouts that ended 1–48 hours ago and have heart-rate data — the 1-hour wait lets a rating synced from your Apple Watch land first, and nothing older than 2 days is touched. It detects a denied write and switches itself back off. The Effort Suggestions sheet is now split into two sections (Effort Suggestions and Auto-Apply Effort), each with its own explanation.
+- The Simplified Chinese term for "workout" changed from 体能训练 to 运动 across the app.
+- Updated the app, widget, watch, and test bundle version to 0.9.8 build 2.
+
 ## 0.9.8 (build 1)
 
 - Updated the app, widget, watch, and test bundle version to 0.9.8 build 1.
