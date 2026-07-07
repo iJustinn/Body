@@ -5557,6 +5557,182 @@
           }
         }
       }
+    },
+    "Today's workout took some energy out of you, but readiness is still high. You can carry on with your training." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's workout took some energy out of you, but readiness is still high. You can carry on with your training."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的运动消耗了一些精力，但状态依然良好，后续的训练依然可以继续。"
+          }
+        }
+      }
+    },
+    "Today's workout has lowered your readiness. This is training load, not under recovery. Focus on resting for the rest of the day." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's workout has lowered your readiness. This is training load, not under recovery. Focus on resting for the rest of the day."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的运动拉低了状态，这是训练消耗，并非恢复不足。今天建议休息为主。"
+          }
+        }
+      }
+    },
+    "Your lower readiness is mainly from today's workout. It reflects the effort you put in, not poor recovery. Give your body some rest for the rest of the day." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your lower readiness is mainly from today's workout. It reflects the effort you put in, not poor recovery. Give your body some rest for the rest of the day."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "状态偏低主要是今天运动所致，反映的是你付出的努力，而非恢复不佳。接下来的时间给身体放松一下。"
+          }
+        }
+      }
+    },
+    "You've done enough training today. You've reached training fatigue, and doing more could risk injury. Prioritize rest and recovery." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You've done enough training today. You've reached training fatigue, and doing more could risk injury. Prioritize rest and recovery."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的运动已经达标。已经达到训练疲劳，再进行训练有可能导致受伤，请优先休息与恢复。"
+          }
+        }
+      }
+    },
+    "You've already worked out today and readiness is still prime. There's room to push a little harder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You've already worked out today and readiness is still prime. There's room to push a little harder."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天已经运动过，状态依然出色，可以再上点强度。"
+          }
+        }
+      }
+    },
+    "A light activity today nudged your readiness down a little, but it's still high. Train as planned." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A light activity today nudged your readiness down a little, but it's still high. Train as planned."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的轻度活动让状态略有下降，但状态依然良好，可按计划训练。"
+          }
+        }
+      }
+    },
+    "Today's activity was light, so your moderate readiness mainly reflects your recovery signals. Keep the load controlled." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's activity was light, so your moderate readiness mainly reflects your recovery signals. Keep the load controlled."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天只是轻度活动，中等状态主要反映身体的恢复信号。注意控制负荷。"
+          }
+        }
+      }
+    },
+    "Only a light activity today, so your low readiness mainly reflects your recovery signals, not training." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only a light activity today, so your low readiness mainly reflects your recovery signals, not training."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天只是轻度活动，偏低的状态主要来自身体的恢复信号，而非训练。"
+          }
+        }
+      }
+    },
+    "Just a light activity today. Your poor readiness reflects your recovery signals, so rest well to recover better." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Just a light activity today. Your poor readiness reflects your recovery signals, so rest well to recover better."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天只是轻度活动，较差的状态来自身体的恢复信号。请多休息让身体更好的恢复。"
+          }
+        }
+      }
+    },
+    "Today's workout was very demanding, taking readiness from an exceptional state all the way down to a low point. That's a big training load, so some active recovery for the rest of the day would help." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's workout was very demanding, taking readiness from an exceptional state all the way down to a low point. That's a big training load, so some active recovery for the rest of the day would help."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的运动强度非常大，从极其出色的状态一路降至低谷。这是相当大的训练消耗，接下来的时间进行一些主动恢复会更有帮助。"
+          }
+        }
+      }
+    },
+    "Today's workout brought readiness from high down to low. That was a considerable session, so rest and recover fully for the rest of the day." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's workout brought readiness from high down to low. That was a considerable session, so rest and recover fully for the rest of the day."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的运动让身体状态从良好降至偏低，这是不小的消耗。今天余下的时间请充分休息和恢复。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
