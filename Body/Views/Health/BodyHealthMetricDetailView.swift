@@ -308,6 +308,9 @@ struct BodyHealthMetricDetailView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     let model: BodyHealthMetricDetailModel
+    /// Shared with `BodyHomeView` so the Basics page's Weight/Body Fat cards are zoom sources for
+    /// their detail push; nil off that stack (e.g. the readiness overlay), where they never render.
+    let zoomNamespace: Namespace.ID?
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
@@ -332,9 +335,11 @@ struct BodyHealthMetricDetailView: View {
 
     init(
         model: BodyHealthMetricDetailModel,
-        initialTrendRange: BodyHealthTrendRange = BodyHealthTrendRange.defaultValue
+        initialTrendRange: BodyHealthTrendRange = BodyHealthTrendRange.defaultValue,
+        zoomNamespace: Namespace.ID? = nil
     ) {
         self.model = model
+        self.zoomNamespace = zoomNamespace
         _selectedTrendRangeSelection = State(initialValue: initialTrendRange)
     }
 
@@ -501,7 +506,9 @@ struct BodyHealthMetricDetailView: View {
     // to no `BodyHomeTrendCardKind`), so surface the standalone Weight and Body Fat
     // trend cards here. This page is only ever pushed onto the Home stack (see
     // `BodyHomeView`), so tapping pushes that metric's focused detail via the same
-    // `HomeMetricRoute` navigationDestination the home trends section uses.
+    // `HomeMetricRoute` navigationDestination the home trends section uses. The push
+    // uses the `.basicsTrend` route (not `.trend`) so each card's zoom-morph source has
+    // a distinct id from the same-kind home trends card one nav level below.
     @ViewBuilder
     private func basicsMetricTrendCard(for kind: HealthMetricKind) -> some View {
         if let card = BodyHomeTrendCardFactory.card(
@@ -513,10 +520,24 @@ struct BodyHealthMetricDetailView: View {
             includesStable: true,
             cache: trendComputationCache
         ) {
-            NavigationLink(value: HomeMetricRoute.trend(kind)) {
-                BodyHomeTrendCard(model: card)
+            NavigationLink(value: HomeMetricRoute.basicsTrend(kind)) {
+                basicsTrendZoomSource(BodyHomeTrendCard(model: card), for: kind)
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    /// Wraps a Basics trend card as its card→detail zoom (morph) source when the Home stack's
+    /// namespace is available — mirroring `BodyHomeTrendsSection`, with the 28pt corner clip so
+    /// the source hugs the card. Falls back to a plain card when no namespace was supplied.
+    @ViewBuilder
+    private func basicsTrendZoomSource(_ card: BodyHomeTrendCard, for kind: HealthMetricKind) -> some View {
+        if let zoomNamespace {
+            card.matchedTransitionSource(id: HomeMetricRoute.basicsTrend(kind), in: zoomNamespace) {
+                $0.clipShape(.rect(cornerRadius: 28, style: .continuous))
+            }
+        } else {
+            card
         }
     }
 

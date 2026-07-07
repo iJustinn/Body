@@ -346,6 +346,7 @@ private struct BodyHomeBackgroundScrollDim: View {
 enum HomeMetricRoute: Hashable {
     case metric(HealthMetricKind)   // grid card or the readiness star hero
     case trend(HealthMetricKind)    // home trends section card
+    case basicsTrend(HealthMetricKind)  // Basics detail page's Weight/Body Fat trend card — a distinct id from `.trend` so its zoom source doesn't collide with the same-kind home trends card one nav level below
     case activityRings              // activity rings card
 }
 
@@ -440,10 +441,11 @@ struct BodyHomeView: View {
             .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
             .navigationDestination(for: HomeMetricRoute.self) { route in
                 switch route {
-                case .metric(let kind), .trend(let kind):
+                case .metric(let kind), .trend(let kind), .basicsTrend(let kind):
                     BodyHealthMetricDetailView(
                         model: detailModel(for: kind),
-                        initialTrendRange: defaultTrendRange
+                        initialTrendRange: defaultTrendRange,
+                        zoomNamespace: metricZoom
                     )
                     .navigationTransition(.zoom(sourceID: route, in: metricZoom))
                 case .activityRings:
