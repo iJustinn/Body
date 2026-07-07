@@ -41,6 +41,15 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    func testReadinessAwaitingSleepHeroResolvesInBodyMetricsKitCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+
+        try assertKeysTranslated(
+            ["Today's sleep data isn't in yet. Get some rest and check back later for a more accurate result."],
+            in: catalog
+        )
+    }
+
     private func assertKeysTranslated(_ keys: [String], in catalog: [String: Any]) throws {
         for key in keys {
             let entry = try XCTUnwrap(catalog[key] as? [String: Any], "missing catalog entry for \(key)")

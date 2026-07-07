@@ -196,7 +196,9 @@ final class ActivityReadinessImpactTests: XCTestCase {
             score: score,
             status: ReadinessStatus.status(for: score),
             confidence: .high,
-            components: [],
+            // Today's sleep is present (a normally-computed morning score) so the hero keys off
+            // the driver/drain wording, not the "awaiting today's sleep" line.
+            components: [ReadinessComponent(kind: .sleep, score: score, weight: 30, message: "")],
             drivers: [ReadinessDriver(kind: .mostlyTypical, message: "", impact: 0)]
         )
     }

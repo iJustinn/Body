@@ -5558,6 +5558,23 @@
         }
       }
     },
+    "Today's sleep data isn't in yet. Get some rest and check back later for a more accurate result." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's sleep data isn't in yet. Get some rest and check back later for a more accurate result."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的睡眠数据还没同步，好好休息，稍后再回来查看更准确的结果。"
+          }
+        }
+      }
+    },
     "Today's workout took some energy out of you, but readiness is still high. You can carry on with your training." : {
       "localizations" : {
         "en" : {

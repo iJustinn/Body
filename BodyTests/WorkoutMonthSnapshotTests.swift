@@ -824,17 +824,45 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(ReadinessStatus.unavailable.heroExplanation(forDriver: .mostlyTypical), ReadinessStatus.unavailable.explanation)
 
         // ReadinessSummary keys off the strongest driver (drivers.first); no drivers → mostlyTypical.
+        // Today's sleep is present so the hero keys off the driver wording, not the
+        // "awaiting today's sleep" line.
+        let sleepComponent = ReadinessComponent(kind: .sleep, score: 80, weight: 30, message: "")
         let dragged = ReadinessSummary(
             score: 55,
             status: .low,
             confidence: .high,
-            components: [],
+            components: [sleepComponent],
             drivers: [ReadinessDriver(kind: .sleepDurationBelowGoal, message: "", impact: 0.4)]
         )
         XCTAssertEqual(dragged.heroExplanation, ReadinessStatus.low.heroExplanation(forDriver: .sleepDurationBelowGoal))
 
-        let typical = ReadinessSummary(score: 98, status: .prime, confidence: .high, components: [], drivers: [])
+        let typical = ReadinessSummary(score: 98, status: .prime, confidence: .high, components: [sleepComponent], drivers: [])
         XCTAssertEqual(typical.heroExplanation, ReadinessStatus.prime.heroExplanation(forDriver: .mostlyTypical))
+    }
+
+    func testReadinessHeroExplanationAwaitsTodaysSleepWhenSleepComponentMissing() {
+        let awaitingSleep = String(localized: "Today's sleep data isn't in yet. Get some rest and check back later for a more accurate result.", table: "BodyMetricsKit")
+
+        // Score computed from the other signals, but today's sleep session isn't recorded yet
+        // (no .sleep component) → the hero waits on sleep instead of naming a driver.
+        let withoutSleep = ReadinessSummary(
+            score: 82,
+            status: .high,
+            confidence: .low,
+            components: [ReadinessComponent(kind: .autonomic, score: 82, weight: 30, message: "")],
+            drivers: [ReadinessDriver(kind: .mostlyTypical, message: "", impact: 0)]
+        )
+        XCTAssertEqual(withoutSleep.heroExplanation, awaitingSleep)
+
+        // Once sleep lands the hero returns to the driver-keyed copy.
+        var withSleep = withoutSleep
+        withSleep.components.append(ReadinessComponent(kind: .sleep, score: 82, weight: 30, message: ""))
+        XCTAssertNotEqual(withSleep.heroExplanation, awaitingSleep)
+        XCTAssertEqual(withSleep.heroExplanation, ReadinessStatus.high.heroExplanation(forDriver: .mostlyTypical))
+
+        // No data at all stays the generic "needs more history" copy, not the awaiting-sleep line.
+        XCTAssertEqual(ReadinessSummary.unavailable.heroExplanation, ReadinessStatus.unavailable.explanation)
+        XCTAssertNotEqual(ReadinessSummary.unavailable.heroExplanation, awaitingSleep)
     }
 
     func testReadinessRobustBaselineUsesMedianAndMad() throws {
