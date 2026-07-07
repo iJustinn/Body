@@ -77,12 +77,14 @@ extension HealthKitFetchEngine {
     nonisolated static func sleepSummary(
         from samples: [HKCategorySample],
         date: Date,
-        showsSubMinuteAwakeStages: Bool = true
+        showsSubMinuteAwakeStages: Bool = true,
+        showsLeadingTrailingAwakeStages: Bool = true
     ) -> SleepSummary? {
         BodySleepSampleParser.sleepSummary(
             from: samples,
             date: date,
-            showsSubMinuteAwakeStages: showsSubMinuteAwakeStages
+            showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
+            showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
         )
     }
 
@@ -92,11 +94,13 @@ extension HealthKitFetchEngine {
 
     nonisolated static func sleepStageSegments(
         from samples: [HKCategorySample],
-        showsSubMinuteAwakeStages: Bool = true
+        showsSubMinuteAwakeStages: Bool = true,
+        showsLeadingTrailingAwakeStages: Bool = true
     ) -> [SleepStageSegment] {
         BodySleepSampleParser.sleepStageSegments(
             from: samples,
-            showsSubMinuteAwakeStages: showsSubMinuteAwakeStages
+            showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
+            showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
         )
     }
 

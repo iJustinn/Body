@@ -26,6 +26,7 @@ extension HealthKitFetchEngine {
         let predicate = combinedPredicate(startDate: startDate, endDate: endDate, sourceKind: .sleep)
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
+        let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
 
         let summary: SleepSummary? = await withCheckedContinuation { continuation in
             let query = HKSampleQuery(
@@ -44,7 +45,8 @@ extension HealthKitFetchEngine {
                     Self.sleepSummary(
                         from: daySamples,
                         date: day,
-                        showsSubMinuteAwakeStages: showsSubMinuteAwakeStages
+                        showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
+                        showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
                     )
                 }
 
@@ -96,6 +98,7 @@ extension HealthKitFetchEngine {
         )
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
+        let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
 
         let days: [SleepDaySummary]? = await withCheckedContinuation { continuation in
             let query = HKSampleQuery(
@@ -120,7 +123,8 @@ extension HealthKitFetchEngine {
                     guard let summary = Self.sleepSummary(
                         from: daySamples,
                         date: day,
-                        showsSubMinuteAwakeStages: showsSubMinuteAwakeStages
+                        showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
+                        showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
                     ) else {
                         return nil
                     }

@@ -729,6 +729,20 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertFalse(BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(defaults: defaults))
     }
 
+    func testSleepStageDisplayPreferenceDefaultsToShowingLeadingTrailingAwake() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertEqual(BodyAppearancePreference.showsLeadingTrailingAwakeSleepStagesKey, "showsLeadingTrailingAwakeSleepStages")
+        XCTAssertTrue(BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages(defaults: defaults))
+
+        defaults.set(false, forKey: BodyAppearancePreference.showsLeadingTrailingAwakeSleepStagesKey)
+        XCTAssertFalse(BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages(defaults: defaults))
+    }
+
     func testSleepStageAxisLabelsUseSingleLetterAbbreviations() {
         XCTAssertEqual(SleepStage.allCases.map(\.axisLabel), ["A", "R", "C", "D"])
     }

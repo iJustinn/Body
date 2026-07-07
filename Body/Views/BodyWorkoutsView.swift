@@ -1318,24 +1318,10 @@ struct BodyWorkoutDetailSheet: View {
 
     /// Everything the effort estimator needs, read synchronously from already-published
     /// store state — no fetches, safe to call from the tap handler on the main actor.
+    /// Delegates to the store so the detail view and the auto-apply pass build the
+    /// estimator input identically.
     private func effortEstimateInput() -> WorkoutEffortEstimator.Input {
-        let context = workoutStore.comparisonContext(for: workout, matchingTypeOnly: false)
-        let calendar = Calendar.bodyGregorian
-        let workoutDay = calendar.startOfDay(for: workout.startDate)
-        return WorkoutEffortEstimator.Input(
-            workout: workout,
-            userMaxHeartRate: resolvedMaxHeartRate,
-            restingHeartRate: workoutStore.healthTrends.restingHeartRate
-                .latestValue(onOrBefore: workout.startDate, maxAgeDays: 45)
-                ?? workoutStore.healthSummary.restingHeartRate.value,
-            priorWorkouts: context.priorWorkouts,
-            priorRatingOverrides: workoutStore.workoutEffortOverrides,
-            suggestionAcceptedWorkoutIDs: workoutStore.suggestionAcceptedEffortWorkoutIDs,
-            isHistoryComplete: context.isComplete,
-            morningReadiness: workoutStore.healthTrends.recordedReadiness
-                .first { calendar.startOfDay(for: $0.date) == workoutDay }?
-                .score
-        )
+        workoutStore.effortEstimateInput(for: workout, maxHeartRate: resolvedMaxHeartRate)
     }
 
     private func heartRateSection(presentation: WorkoutDetailPresentation) -> some View {
