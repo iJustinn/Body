@@ -145,7 +145,7 @@ struct BodySettingsView: View {
             }
             .padding(18)
             .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
-            .bodyCardBackground(cornerRadius: 28, translucent: true)
+            .bodyCardBackground(cornerRadius: 26, translucent: true)
         }
         .buttonStyle(.plain)
     }
@@ -1305,8 +1305,8 @@ private struct BodyHomeBackgroundSheet: View {
                     }
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-            .bodyCardBackground(translucent: true)
+            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .bodyCardBackground(cornerRadius: 26, translucent: true)
         }
     }
 
@@ -2706,7 +2706,7 @@ private struct BodyAppIconOption: Identifiable, Equatable {
 }
 
 private enum BodySettingsTypography {
-    static let sectionTitleFontSize: CGFloat = 29
+    static let sectionTitleFontSize: CGFloat = 25
 }
 
 private struct BodySettingsCardSection<Content: View>: View {
@@ -2727,7 +2727,7 @@ private struct BodySettingsCardSection<Content: View>: View {
             VStack(spacing: 0) {
                 content
             }
-            .bodyCardBackground(translucent: true)
+            .bodyCardBackground(cornerRadius: 26, translucent: true)
         }
     }
 }
@@ -2764,7 +2764,8 @@ private struct BodySettingsRowLabel: View {
 
             accessoryIcon
         }
-        .padding(.horizontal, 18)
+        .padding(.leading, 14)
+        .padding(.trailing, 18)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
         .contentShape(Rectangle())

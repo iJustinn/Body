@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.8 (build 6)
+
+- Settings polish: section titles are slightly smaller, section and Body Pro entry cards have a slightly smaller corner radius, and each settings row's leading icon sits a touch closer to the left edge.
+- Updated the app, widget, watch, and test bundle version to 0.9.8 build 6.
+
 ## 0.9.8 (build 5)
 
 - **Readiness now says when it's still waiting on last night's sleep.** Past midnight but before you wake, today's sleep session isn't recorded yet, so Readiness is computed from your other signals as usual — the score is unchanged. The hero line under the number now reads "Today's sleep data isn't in yet. Get some rest and check back later for a more accurate result." (with a Simplified Chinese translation) instead of a signal-specific explanation, until today's sleep lands.
