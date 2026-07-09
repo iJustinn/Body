@@ -3439,7 +3439,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "快"
+            "value" : "眼"
           }
         }
       }
@@ -5747,6 +5747,70 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "今天的运动让身体状态从良好降至偏低，这是不小的消耗。今天余下的时间请充分休息和恢复。"
+          }
+        }
+      }
+    },
+    "sleep.bar.awake" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awake"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清醒"
+          }
+        }
+      }
+    },
+    "sleep.bar.rem" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "REM"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "眼动"
+          }
+        }
+      }
+    },
+    "sleep.bar.core" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Core"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "核心"
+          }
+        }
+      }
+    },
+    "sleep.bar.deep" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deep"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深度"
           }
         }
       }

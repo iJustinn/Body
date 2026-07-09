@@ -7817,6 +7817,119 @@
           }
         }
       }
+    },
+    "Restorative" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restorative"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复性睡眠"
+          }
+        }
+      }
+    },
+    "About Restorative Sleep" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Restorative Sleep"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于恢复性睡眠"
+          }
+        }
+      }
+    },
+    "Restorative %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restorative %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复性睡眠 %@"
+          }
+        }
+      }
+    },
+    "Restorative %lld percent, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restorative %1$lld percent, %2$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复性睡眠 百分之 %1$lld，%2$@"
+          }
+        }
+      }
+    },
+    "Restorative sleep is your Deep and REM time combined, the portion of the night that does the most to repair the body and consolidate memory. Deep sleep drives physical recovery while REM supports learning and mood. The total below the stage breakdown sums both stages and shows them as a share of your time in bed, so you can see how much of the night went toward genuine recovery." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restorative sleep is your Deep and REM time combined, the portion of the night that does the most to repair the body and consolidate memory. Deep sleep drives physical recovery while REM supports learning and mood. The total below the stage breakdown sums both stages and shows them as a share of your time in bed, so you can see how much of the night went toward genuine recovery."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复性睡眠是你的深度睡眠和快速眼动睡眠时间的总和，是夜间对身体修复和记忆巩固最有帮助的部分。深度睡眠促进身体恢复，而快速眼动睡眠有助于学习和情绪调节。睡眠阶段明细下方的总计将这两个阶段相加，并显示它们在你卧床时间中所占的比例，让你了解夜间有多少时间真正用于恢复。"
+          }
+        }
+      }
+    },
+    "sleep.bar.restorative" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restorative"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复"
+          }
+        }
+      }
+    },
+    "Sleep stage breakdown. %@. %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep stage breakdown. %1$@. %2$@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠阶段细分：%1$@。%2$@。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

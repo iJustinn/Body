@@ -232,6 +232,11 @@ struct SleepStageSnapshot: Codable, Equatable {
         duration(for: .awake)
     }
 
+    /// Deep + REM combined — the "restorative" recovery portion of sleep.
+    var restorativeDuration: TimeInterval {
+        duration(for: .deep) + duration(for: .rem)
+    }
+
     var asleepDuration: TimeInterval {
         SleepStage.sleepStages.reduce(0) { partialResult, stage in
             partialResult + duration(for: stage)
@@ -861,6 +866,22 @@ enum SleepStage: String, CaseIterable, Codable, Equatable, Identifiable {
             return String(localized: "C", table: "BodyMetricsKit")
         case .deep:
             return String(localized: "D", table: "BodyMetricsKit")
+        }
+    }
+
+    /// Compact stage name for the per-stage breakdown bars. English matches
+    /// `displayName`, but localizations may use shorter forms to keep the label
+    /// column narrow (e.g. Simplified Chinese uses two-character names).
+    var barChartLabel: String {
+        switch self {
+        case .awake:
+            return String(localized: "sleep.bar.awake", defaultValue: "Awake", table: "BodyMetricsKit")
+        case .rem:
+            return String(localized: "sleep.bar.rem", defaultValue: "REM", table: "BodyMetricsKit")
+        case .core:
+            return String(localized: "sleep.bar.core", defaultValue: "Core", table: "BodyMetricsKit")
+        case .deep:
+            return String(localized: "sleep.bar.deep", defaultValue: "Deep", table: "BodyMetricsKit")
         }
     }
 

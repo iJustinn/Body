@@ -978,6 +978,7 @@ struct BodyHealthMetricDetailView: View {
             sleepDatePicker
             selectedSleepCards
             detailTrendComparisonCard
+            aboutRestorativeSleepCard
             if showSleepScore {
                 aboutSleepScoreCard
             }
@@ -1868,23 +1869,42 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private func sleepStageDurationSummary(_ snapshot: SleepStageSnapshot) -> some View {
-        HStack(spacing: 10) {
-            ForEach(SleepStage.allCases) { stage in
-                VStack(alignment: .center, spacing: 7) {
-                    Rectangle()
-                        .fill(stage.bodyChartColor)
-                        .frame(width: 28, height: 3)
+        let restorative = snapshot.restorativeDuration
 
-                    Text(BodyValueFormat.durationText(for: snapshot.duration(for: stage)))
-                        .font(.system(.callout, design: .rounded))
-                        .fontWeight(.bold)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .multilineTextAlignment(.center)
+        return VStack(spacing: 10) {
+            HStack(spacing: 0) {
+                ForEach(Array(SleepStage.allCases.enumerated()), id: \.element) { index, stage in
+                    if index > 0 {
+                        Spacer(minLength: 8)
+                    }
+
+                    VStack(alignment: .center, spacing: 7) {
+                        Rectangle()
+                            .fill(stage.bodyChartColor)
+                            .frame(width: 28, height: 3)
+
+                        Text(BodyValueFormat.durationText(for: snapshot.duration(for: stage)))
+                            .font(.system(.callout, design: .rounded))
+                            .fontWeight(.bold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
             }
+            .frame(maxWidth: .infinity)
+
+            Divider()
+
+            Text("Restorative \(BodyValueFormat.durationText(for: restorative))")
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -1897,7 +1917,10 @@ struct BodyHealthMetricDetailView: View {
             let percent = total > 0 ? Int((duration / total * 100).rounded()) : 0
             return String(localized: "\(stage.displayName) \(percent) percent, \(BodyValueFormat.durationText(for: duration))")
         }
-        return String(localized: "Sleep stage breakdown. \(descriptions.joined(separator: ". ")).")
+        let restorative = snapshot.restorativeDuration
+        let restorativePercent = total > 0 ? Int((restorative / total * 100).rounded()) : 0
+        let restorativeDescription = String(localized: "Restorative \(restorativePercent) percent, \(BodyValueFormat.durationText(for: restorative))")
+        return String(localized: "Sleep stage breakdown. \(descriptions.joined(separator: ". ")). \(restorativeDescription).")
     }
 
     private func sleepStageChartIdentity(for snapshot: SleepStageSnapshot) -> String {
@@ -1969,6 +1992,23 @@ struct BodyHealthMetricDetailView: View {
         }
 
         return sleepConsistencyCache.model(entries: entries, calendar: calendar)
+    }
+
+    private var aboutRestorativeSleepCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("About Restorative Sleep")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+
+            Text("Restorative sleep is your Deep and REM time combined, the portion of the night that does the most to repair the body and consolidate memory. Deep sleep drives physical recovery while REM supports learning and mood. The total below the stage breakdown sums both stages and shows them as a share of your time in bed, so you can see how much of the night went toward genuine recovery.")
+                .font(.system(.body, design: .rounded))
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(translucent: true)
     }
 
     private var aboutSleepScoreCard: some View {
