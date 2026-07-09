@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.8 (build 8)
+
+- **Sleep detail now surfaces restorative sleep (Deep + REM combined).** The stage breakdown shows a Restorative total in both views: the duration view adds a Restorative duration line under the per-stage durations (separated by a divider), and the bar chart adds a dedicated Restorative bar with its own optimal-range band (≈33–48% of time in bed), percentage, and duration. A new About Restorative Sleep card above the About Sleep Score card explains the metric. In Simplified Chinese the stage timeline y-axis reads 醒/眼/核/深 and the breakdown bars use shortened stage names 清醒/眼动/核心/深度/恢复. Long or localized stage labels no longer wrap; the bar shrinks to fit the text instead.
+- Updated the app, widget, watch, and test bundle version to 0.9.8 build 8.
+
 ## 0.9.8 (build 7)
 
 - Trend detail pages give month, six-month, and year charts more right-side breathing room and a left-biased start. Month keeps a half-bucket (12h) leading nudge with a 28h trailing edge; six-month and year charts pin the first mark to the left wall (no leading padding) with a 1.5-bucket trailing edge (9 days / 18 days). This applies to single-source line, range, and bar charts and to the line/range source-comparison charts; the two-source paired-bar comparison chart stays symmetric so its offset outer bars aren't clipped.
