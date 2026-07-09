@@ -167,16 +167,24 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("func bodyHealthDetailChartTrailingDatePadding(for selectedRange: BodyHealthTrendRange) -> TimeInterval"))
         XCTAssertTrue(source.contains("let rangeScaledPadding = Double(selectedRange.axisStrideDayCount) * 24 * 60 * 60 * 0.55"))
         XCTAssertTrue(source.contains("return max(bodyHealthDetailChartMinimumTrailingDatePadding, rangeScaledPadding)"))
-        XCTAssertTrue(source.contains("func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange, immersive: Bool = false, immersivePairedBars: Bool = false) -> ClosedRange<Date>"))
+        XCTAssertTrue(source.contains("func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange, immersive: Bool = false, immersivePairedBars: Bool = false, pairedBarComparison: Bool = false) -> ClosedRange<Date>"))
         // Immersive charts (Y axis hidden) pad each edge by ~half a data bucket so the
         // first/last bar or point fits without clipping and no empty day appears. Week
-        // single-mark charts bias slightly right (less space left, more right); paired-
-        // bar comparison charts stay symmetric. Non-immersive charts keep the small
-        // leading padding and favor right-side padding (room for the trailing label).
+        // single-mark charts bias slightly right (less space left, more right). Month charts
+        // keep a half-bucket leading nudge with a full-bucket trailing; six-month/year charts
+        // pin the first mark to the left wall (no leading padding) with a 1.5-bucket trailing.
+        // Only the two-source paired-bar comparison chart is excluded and stays symmetric.
+        // Non-immersive charts keep the small leading padding and favor right-side padding.
         XCTAssertTrue(source.contains("let bucketSeconds = Double(selectedRange.chartAggregationDayCount) * 24 * 60 * 60"))
         XCTAssertTrue(source.contains("if selectedRange == .recentWeek && !immersivePairedBars {"))
         XCTAssertTrue(source.contains("leadingDatePadding = 2 * 60 * 60"))
         XCTAssertTrue(source.contains("trailingDatePadding = 26 * 60 * 60"))
+        XCTAssertTrue(source.contains("} else if !pairedBarComparison && selectedRange == .recentMonth {"))
+        XCTAssertTrue(source.contains("leadingDatePadding = bucketSeconds * 0.5"))
+        XCTAssertTrue(source.contains("trailingDatePadding = 28 * 60 * 60"))
+        XCTAssertTrue(source.contains("} else if !pairedBarComparison && (selectedRange == .recentSixMonths || selectedRange == .recentYear) {"))
+        XCTAssertTrue(source.contains("leadingDatePadding = 0"))
+        XCTAssertTrue(source.contains("trailingDatePadding = bucketSeconds * 1.5"))
         XCTAssertTrue(source.contains("let halfBucketPadding = bucketSeconds * 0.5"))
         XCTAssertTrue(source.contains("leadingDatePadding = bodyHealthDetailChartLeadingDatePadding"))
         XCTAssertTrue(source.contains("trailingDatePadding = bodyHealthDetailChartTrailingDatePadding(for: selectedRange)"))
@@ -190,7 +198,11 @@ final class ProjectConfigurationTests: XCTestCase {
         )
         XCTAssertEqual(
             source.occurrenceCount(of: "immersive: immersive, immersivePairedBars: true)"),
-            2
+            1
+        )
+        XCTAssertEqual(
+            source.occurrenceCount(of: "immersive: immersive, immersivePairedBars: true, pairedBarComparison: true)"),
+            1
         )
         XCTAssertFalse(source.contains("bodyHealthDetailChartTrailingDatePadding: TimeInterval = 36 * 60 * 60"))
         XCTAssertFalse(source.contains("let leadingPadding: TimeInterval = 6 * 60 * 60"))
@@ -221,13 +233,55 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(immersivePairedWeekDomain.lowerBound.timeIntervalSince(startDate), -12 * hour, accuracy: 0.001)
         XCTAssertEqual(immersivePairedWeekDomain.upperBound.timeIntervalSince(endDate), 12 * hour, accuracy: 0.001)
 
+        // Immersive month charts keep a half-bucket (12h) leading nudge with a 28h trailing
+        // padding.
+        let immersiveMonthDomain = bodyHealthDetailChartXDomain(
+            for: dates,
+            selectedRange: .recentMonth,
+            immersive: true
+        )
+        XCTAssertEqual(immersiveMonthDomain.lowerBound.timeIntervalSince(startDate), -12 * hour, accuracy: 0.001)
+        XCTAssertEqual(immersiveMonthDomain.upperBound.timeIntervalSince(endDate), 28 * hour, accuracy: 0.001)
+
+        // Single-source six-month charts pin the first mark to the left wall (no leading
+        // padding) with a 1.5-bucket trailing padding (9 days).
         let immersiveSixMonthDomain = bodyHealthDetailChartXDomain(
             for: dates,
             selectedRange: .recentSixMonths,
             immersive: true
         )
-        XCTAssertEqual(immersiveSixMonthDomain.lowerBound.timeIntervalSince(startDate), -3 * day, accuracy: 0.001)
-        XCTAssertEqual(immersiveSixMonthDomain.upperBound.timeIntervalSince(endDate), 3 * day, accuracy: 0.001)
+        XCTAssertEqual(immersiveSixMonthDomain.lowerBound.timeIntervalSince(startDate), 0, accuracy: 0.001)
+        XCTAssertEqual(immersiveSixMonthDomain.upperBound.timeIntervalSince(endDate), 9 * day, accuracy: 0.001)
+
+        // Single-source year charts do the same: no leading padding, trailing 18 days.
+        let immersiveYearDomain = bodyHealthDetailChartXDomain(
+            for: dates,
+            selectedRange: .recentYear,
+            immersive: true
+        )
+        XCTAssertEqual(immersiveYearDomain.lowerBound.timeIntervalSince(startDate), 0, accuracy: 0.001)
+        XCTAssertEqual(immersiveYearDomain.upperBound.timeIntervalSince(endDate), 18 * day, accuracy: 0.001)
+
+        // The two-source paired-bar comparison chart keeps symmetric padding.
+        let pairedBarSixMonthDomain = bodyHealthDetailChartXDomain(
+            for: dates,
+            selectedRange: .recentSixMonths,
+            immersive: true,
+            immersivePairedBars: true,
+            pairedBarComparison: true
+        )
+        XCTAssertEqual(pairedBarSixMonthDomain.lowerBound.timeIntervalSince(startDate), -3 * day, accuracy: 0.001)
+        XCTAssertEqual(pairedBarSixMonthDomain.upperBound.timeIntervalSince(endDate), 3 * day, accuracy: 0.001)
+
+        // Line/range comparison charts (paired bars but not the bar variant) still bias left.
+        let rangeComparisonSixMonthDomain = bodyHealthDetailChartXDomain(
+            for: dates,
+            selectedRange: .recentSixMonths,
+            immersive: true,
+            immersivePairedBars: true
+        )
+        XCTAssertEqual(rangeComparisonSixMonthDomain.lowerBound.timeIntervalSince(startDate), 0, accuracy: 0.001)
+        XCTAssertEqual(rangeComparisonSixMonthDomain.upperBound.timeIntervalSince(endDate), 9 * day, accuracy: 0.001)
 
         let emptyDateDomain = bodyHealthDetailChartXDomain(
             for: [],
@@ -1279,12 +1333,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.8;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 6;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 7;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.8;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 6;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 7;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1319,7 +1373,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.8 (build 6)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.8 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.8 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.8 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.8 (build 2)**"))
@@ -1351,6 +1405,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.8 (build 7)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.8 build 7."))
         XCTAssertTrue(versionHistory.contains("## 0.9.8 (build 6)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.8 build 6."))
         XCTAssertTrue(versionHistory.contains("## 0.9.8 (build 5)"))
@@ -1538,7 +1594,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-0.9.8`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.8 build 6)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.8 build 7)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.8 build 5)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.8 build 3)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.8 build 2)"))

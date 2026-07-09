@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.8 (build 7)
+
+- Trend detail pages give month, six-month, and year charts more right-side breathing room and a left-biased start. Month keeps a half-bucket (12h) leading nudge with a 28h trailing edge; six-month and year charts pin the first mark to the left wall (no leading padding) with a 1.5-bucket trailing edge (9 days / 18 days). This applies to single-source line, range, and bar charts and to the line/range source-comparison charts; the two-source paired-bar comparison chart stays symmetric so its offset outer bars aren't clipped.
+- Updated the app, widget, watch, and test bundle version to 0.9.8 build 7.
+
 ## 0.9.8 (build 6)
 
 - Settings polish: section titles are slightly smaller, section and Body Pro entry cards have a slightly smaller corner radius, and each settings row's leading icon sits a touch closer to the left edge.

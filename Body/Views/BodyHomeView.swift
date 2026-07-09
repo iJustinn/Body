@@ -21,7 +21,7 @@ func bodyHealthDetailChartTrailingDatePadding(for selectedRange: BodyHealthTrend
     return max(bodyHealthDetailChartMinimumTrailingDatePadding, rangeScaledPadding)
 }
 
-func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange, immersive: Bool = false, immersivePairedBars: Bool = false) -> ClosedRange<Date> {
+func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTrendRange, immersive: Bool = false, immersivePairedBars: Bool = false, pairedBarComparison: Bool = false) -> ClosedRange<Date> {
     // Immersive charts hide the Y axis and fill the plot width. Pad each edge by about
     // half a data bucket so the first/last bar (or point) sits fully inside the plot
     // without clipping and no empty day appears. Non-immersive charts keep the small
@@ -38,6 +38,21 @@ func bodyHealthDetailChartXDomain(for dates: [Date], selectedRange: BodyHealthTr
             // sit asymmetrically within the day.
             leadingDatePadding = 2 * 60 * 60
             trailingDatePadding = 26 * 60 * 60
+        } else if !pairedBarComparison && selectedRange == .recentMonth {
+            // Month charts keep a half-bucket (12h) leading nudge but stretch the trailing
+            // edge to 28h of breathing room. Excludes the two-source paired-bar comparison
+            // chart (it stays symmetric).
+            leadingDatePadding = bucketSeconds * 0.5
+            trailingDatePadding = 28 * 60 * 60
+        } else if !pairedBarComparison && (selectedRange == .recentSixMonths || selectedRange == .recentYear) {
+            // Six-month and year charts pin the first point or bar to the left wall (no
+            // leading padding) and give the trailing edge one and a half buckets of
+            // breathing room (9 days at six months, 18 days at year). Only the two-source
+            // paired-bar comparison chart is excluded (it stays symmetric so its offset
+            // outer bars aren't clipped); single-source charts and the line/range
+            // comparison charts all get this.
+            leadingDatePadding = 0
+            trailingDatePadding = bucketSeconds * 1.5
         } else {
             let halfBucketPadding = bucketSeconds * 0.5
             leadingDatePadding = halfBucketPadding
