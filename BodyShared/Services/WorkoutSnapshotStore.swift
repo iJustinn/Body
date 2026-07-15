@@ -164,17 +164,16 @@ enum WorkoutSnapshotStore {
         }
     }
 
-    /// Single launch-path read: returns the cached current-month snapshot,
-    /// seeding the preview placeholder on first launch so widgets have
-    /// content before HealthKit authorization. Replaces the separate seed +
-    /// load calls that decoded the same file twice at launch.
-    static func loadOrSeedPlaceholder() -> WorkoutMonthSnapshot {
-        if let snapshot = load() {
-            return snapshot
-        }
-
-        save(.placeholder)
-        return .placeholder
+    /// Single launch-path read: returns the cached current-month snapshot, or
+    /// an in-memory sample placeholder — never persisted — so the app has
+    /// content to show before HealthKit authorization completes on a fresh
+    /// install. This used to also write the placeholder to the shared App
+    /// Group file so widgets would render before authorization, but that made
+    /// widgets present fabricated workouts as the user's real history; widgets
+    /// now route live loads through `loadCurrentOrPreviousIfEmpty` instead, so
+    /// nothing on disk needs seeding anymore.
+    static func loadOrPlaceholder(fileURL: URL? = snapshotFileURL) -> WorkoutMonthSnapshot {
+        load(fileURL: fileURL) ?? .placeholder
     }
 
     @discardableResult
@@ -186,15 +185,27 @@ enum WorkoutSnapshotStore {
         load(fileURL: previousSnapshotFileURL)
     }
 
-    static func loadCurrentOrPreviousIfEmpty() -> WorkoutMonthSnapshot {
-        let current = load()
+    /// - Parameter usePlaceholderWhenEmpty: When both the current- and
+    ///   previous-month files are absent/empty, `true` returns the fabricated
+    ///   sample `.placeholder` (widget gallery / `context.isPreview` only);
+    ///   `false` returns an honest empty snapshot for the current month
+    ///   (live timelines — a fresh install must never render sample workouts
+    ///   as if they were real).
+    /// - Parameters currentFileURL/previousFileURL: overridable for tests;
+    ///   production callers use the shared App Group files.
+    static func loadCurrentOrPreviousIfEmpty(
+        usePlaceholderWhenEmpty: Bool,
+        currentFileURL: URL? = snapshotFileURL,
+        previousFileURL: URL? = previousSnapshotFileURL
+    ) -> WorkoutMonthSnapshot {
+        let current = load(fileURL: currentFileURL)
         if let current, current.workoutCount > 0 {
             return current
         }
-        if let previous = loadPrevious(), previous.workoutCount > 0 {
+        if let previous = load(fileURL: previousFileURL), previous.workoutCount > 0 {
             return previous
         }
-        return current ?? .placeholder
+        return current ?? (usePlaceholderWhenEmpty ? .placeholder : .empty)
     }
 
     static func exists(fileURL: URL? = snapshotFileURL) -> Bool {

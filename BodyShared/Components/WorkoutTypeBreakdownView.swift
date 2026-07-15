@@ -41,7 +41,7 @@ struct WorkoutTypeBreakdownView: View {
     }
 
     private var distributionTotal: TimeInterval {
-        displayedBreakdown.reduce(0) { $0 + $1.duration }
+        snapshot.workoutTypeBreakdown.reduce(0) { $0 + $1.duration }
     }
 
     private var maxDuration: TimeInterval {

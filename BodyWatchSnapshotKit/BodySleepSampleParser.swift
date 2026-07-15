@@ -17,7 +17,8 @@ enum BodySleepSampleParser {
     static func sleepSummary(
         from samples: [HKCategorySample],
         date: Date,
-        showsSubMinuteAwakeStages: Bool = true
+        showsSubMinuteAwakeStages: Bool = true,
+        showsLeadingTrailingAwakeStages: Bool = true
     ) -> SleepSummary? {
         let duration = sleepDuration(from: samples)
         guard duration > 0 else {
@@ -30,7 +31,8 @@ enum BodySleepSampleParser {
                 date: date,
                 segments: sleepStageSegments(
                     from: samples,
-                    showsSubMinuteAwakeStages: showsSubMinuteAwakeStages
+                    showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
+                    showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
                 )
             )
         )
@@ -44,7 +46,8 @@ enum BodySleepSampleParser {
 
     static func sleepStageSegments(
         from samples: [HKCategorySample],
-        showsSubMinuteAwakeStages: Bool = true
+        showsSubMinuteAwakeStages: Bool = true,
+        showsLeadingTrailingAwakeStages: Bool = true
     ) -> [SleepStageSegment] {
         let explicitSegments = samples.compactMap { sample -> SleepStageSegment? in
             guard let stage = sleepStage(for: sample, includeUnspecified: false) else {
@@ -79,7 +82,44 @@ enum BodySleepSampleParser {
             }
         }
 
-        return (explicitSegments + unspecifiedSegments).sorted { $0.startDate < $1.startDate }
+        let sortedSegments = (explicitSegments + unspecifiedSegments)
+            .sorted { $0.startDate < $1.startDate }
+        guard showsLeadingTrailingAwakeStages else {
+            return trimmingAwakeOutsideSleepWindow(sortedSegments)
+        }
+        return sortedSegments
+    }
+
+    /// Drops `.awake` segments that fall entirely outside the asleep window
+    /// (leading time in bed before sleep onset, trailing time awake before
+    /// getting up), clamping any awake that straddles a boundary so it can't
+    /// extend the timeline past real sleep. Interior awake (mid-night wake) is
+    /// preserved. Defined by the sleep window rather than array edges so it stays
+    /// correct when multi-source samples overlap. Returns `[]` when there's no
+    /// asleep stage to anchor.
+    static func trimmingAwakeOutsideSleepWindow(_ segments: [SleepStageSegment]) -> [SleepStageSegment] {
+        let asleepSegments = segments.filter { SleepStage.sleepStages.contains($0.stage) }
+        guard let windowStart = asleepSegments.map(\.startDate).min(),
+              let windowEnd = asleepSegments.map(\.endDate).max() else {
+            return []
+        }
+
+        return segments.compactMap { segment in
+            guard segment.stage == .awake else {
+                return segment
+            }
+            guard segment.endDate > windowStart, segment.startDate < windowEnd else {
+                return nil
+            }
+
+            let clampedStart = max(segment.startDate, windowStart)
+            let clampedEnd = min(segment.endDate, windowEnd)
+            guard clampedEnd > clampedStart else {
+                return nil
+            }
+
+            return SleepStageSegment(stage: .awake, startDate: clampedStart, endDate: clampedEnd)
+        }
     }
 
     /// Total asleep time with overlapping/aggregate samples merged into their

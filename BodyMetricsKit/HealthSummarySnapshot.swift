@@ -739,9 +739,12 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         return updated
     }
 
-    /// Returns the summary with the same-day activity drain subtracted from the
-    /// live score (floored at 0, status recomputed). Display only.
-    private static func draining(
+    /// Returns the summary with the same-day activity drain subtracted from the live
+    /// score. The very low end is softened (`ActivityReadinessImpact.displayedScore`):
+    /// once the raw score reaches 0 we show 5% and ease toward 0% only past a −25
+    /// deficit, capped so drain never lifts an already-low baseline. Status recomputed.
+    /// Display only. `internal` (not `private`) so tests can exercise the cap directly.
+    static func draining(
         _ summary: ReadinessSummary,
         with workouts: [WorkoutSummary]
     ) -> ReadinessSummary {
@@ -753,9 +756,19 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             return summary
         }
         var drained = summary
-        let newScore = max(0, score - Int(drain.rounded()))
+        // Soften the very low end: once the raw (possibly negative) score reaches 0 we
+        // show 5% and ease 1% per further 5% of deficit, hitting 0% only at −25 or lower.
+        // Cap at the undrained score so drain can never lift an already-low baseline.
+        let roundedDrain = Int(drain.rounded())
+        let raw = score - roundedDrain
+        let newScore = min(score, ActivityReadinessImpact.displayedScore(forRawScore: raw))
         drained.score = newScore
         drained.status = ReadinessStatus.status(for: newScore)
+        // Record the pre-drain score (for the pre-drain band) and the actual drain magnitude,
+        // so the hero sizes the drop from the real effort even when the display clamps the score
+        // (a hard session on an already-low morning would otherwise look like a light activity).
+        drained.activityDrainMorningScore = score
+        drained.activityDrainPoints = roundedDrain
         return drained
     }
 

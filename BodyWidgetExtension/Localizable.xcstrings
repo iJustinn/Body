@@ -603,7 +603,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "查看本月的体能训练日。"
+            "value": "查看本月的运动日。"
           }
         }
       }
@@ -620,7 +620,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按类型查看本月的体能训练时长。"
+            "value": "按类型查看本月的运动时长。"
           }
         }
       }
@@ -722,7 +722,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "体能训练日历"
+            "value": "运动日历"
           }
         }
       }
@@ -739,7 +739,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "体能训练类型"
+            "value": "运动类型"
           }
         }
       }

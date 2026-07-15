@@ -29,7 +29,7 @@ extension HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .restingHeartRate,
                 sourceOption: secondaryOption
-            )
+            ) ?? .empty
         case .activeEnergy:
             return await fetchDailyCumulativeQuantitySeries(
                 for: .activeEnergyBurned,
@@ -37,7 +37,7 @@ extension HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .activeEnergy,
                 sourceOption: secondaryOption
-            )
+            ) ?? .empty
         case .restingEnergy:
             return await fetchDailyCumulativeQuantitySeries(
                 for: .basalEnergyBurned,
@@ -45,7 +45,7 @@ extension HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .restingEnergy,
                 sourceOption: secondaryOption
-            )
+            ) ?? .empty
         case .exerciseMinutes:
             return await fetchDailyCumulativeQuantitySeries(
                 for: .appleExerciseTime,
@@ -53,7 +53,7 @@ extension HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .exerciseMinutes,
                 sourceOption: secondaryOption
-            )
+            ) ?? .empty
         case .steps:
             return await fetchDailyCumulativeQuantitySeries(
                 for: .stepCount,
@@ -61,7 +61,7 @@ extension HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .steps,
                 sourceOption: secondaryOption
-            )
+            ) ?? .empty
         case .basics,
              .readiness,
              .heartRate,
@@ -88,7 +88,7 @@ extension HealthKitFetchEngine {
             calendar: calendar,
             sourceOption: secondaryOption,
             hydrateVitals: false
-        )
+        ) ?? .empty
     }
 
     func fetchSecondaryDaySamples(

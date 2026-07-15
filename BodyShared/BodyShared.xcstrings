@@ -13,7 +13,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@，无体能训练"
+            "value": "%@，无运动"
           }
         }
       }
@@ -302,7 +302,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "暂无体能训练"
+            "value": "暂无运动"
           }
         }
       }
@@ -336,7 +336,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "查看当天体能训练"
+            "value": "查看当天运动"
           }
         }
       }
@@ -625,7 +625,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "体能训练"
+            "value": "运动"
           }
         }
       }

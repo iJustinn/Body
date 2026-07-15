@@ -766,6 +766,35 @@ private struct BodyWorkoutExpenseStyleRow: View {
     }
 }
 
+/// Holds the workout detail sheet's live scroll offset. Kept as a standalone
+/// `@Observable` so writing it on each scroll frame only invalidates the map-dim
+/// overlay that reads `offset` instead of all of `BodyWorkoutDetailSheet`, whose body
+/// rebuilds the comparison/splits/HR derivations on every evaluation.
+/// (Mirrors `BodyHomeScrollState`.)
+@Observable
+private final class BodyWorkoutDetailScrollState {
+    var offset: CGFloat = 0
+}
+
+/// Dims the fixed route-map hero as the sheet content floats up over it. Reads
+/// `scrollState.offset` itself so only this overlay re-renders per scroll frame, not
+/// all of `BodyWorkoutDetailSheet`.
+private struct BodyWorkoutMapDimOverlay: View {
+    let scrollState: BodyWorkoutDetailScrollState
+    let mapHeight: CGFloat
+
+    private var opacity: Double {
+        let progress = min(max(scrollState.offset / mapHeight, 0), 1)
+        return progress * 0.95
+    }
+
+    var body: some View {
+        Color.black
+            .opacity(opacity)
+            .allowsHitTesting(false)
+    }
+}
+
 struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
@@ -787,7 +816,11 @@ struct BodyWorkoutDetailSheet: View {
     @State private var editorPrefilledFromSuggestion = false
     @State private var route: WorkoutRoute?
     @State private var splitData: WorkoutSplitData = .empty
-    @State private var scrollOffset: CGFloat = 0
+    /// Live scroll offset, held in an `@Observable` so writing it on every scroll frame
+    /// only invalidates the map-dim overlay that reads it — not the whole sheet, whose
+    /// body rebuilds the comparison/splits/HR-chart derivations on each evaluation.
+    /// (Mirrors `BodyHomeScrollState`.)
+    @State private var scrollState = BodyWorkoutDetailScrollState()
     @State private var showsFullScreenRouteMap = false
     @Namespace private var routeMapZoom
     /// Age-estimated max HR (220 − age) from Apple Health, loaded once to anchor the
@@ -824,10 +857,10 @@ struct BodyWorkoutDetailSheet: View {
                     .frame(height: mapHeight)
                     .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
                     .overlay {
-                        // Dim the map as the content floats up over it.
-                        Color.black
-                            .opacity(mapDimOpacity)
-                            .allowsHitTesting(false)
+                        // Dim the map as the content floats up over it. Reads
+                        // `scrollState.offset` itself so only this layer re-renders per
+                        // scroll frame, not all of the sheet.
+                        BodyWorkoutMapDimOverlay(scrollState: scrollState, mapHeight: mapHeight)
                     }
                     .frame(maxHeight: .infinity, alignment: .top)
                     .ignoresSafeArea(edges: .top)
@@ -843,7 +876,7 @@ struct BodyWorkoutDetailSheet: View {
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentOffset.y
             } action: { _, offset in
-                scrollOffset = offset
+                scrollState.offset = offset
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -869,17 +902,6 @@ struct BodyWorkoutDetailSheet: View {
         .onChange(of: showWorkoutEffortSuggestions) { refreshPrediction() }
     }
 
-    /// The fixed route map sits behind the scroll content; as the content slides
-    /// up over it the map dims toward black so the sheet reads as one surface
-    /// lifting off the map instead of a banner scrolling away.
-    private var mapDimOpacity: Double {
-        guard route != nil else {
-            return 0
-        }
-        let progress = min(max(scrollOffset / mapHeight, 0), 1)
-        return progress * 0.95
-    }
-
     @ViewBuilder
     private var sheetBackdrop: some View {
         // Pre-iOS-26 has no Liquid Glass, so the detail uses an opaque base
@@ -900,7 +922,12 @@ struct BodyWorkoutDetailSheet: View {
     }
 
     private var compactWorkoutContent: some View {
-        VStack(spacing: 0) {
+        // Build the presentation once per body pass and thread it to the sections that
+        // read it. It calls `comparisonContext(for:)` and constructs a full
+        // `WorkoutDetailPresentation`, so evaluating it once per section (four of them)
+        // wasted that work on every store publish.
+        let presentation = presentation
+        return VStack(spacing: 0) {
             if route != nil {
                 // Transparent gap that reveals the map background above; the
                 // content below floats over it with no backing of its own. The
@@ -919,14 +946,14 @@ struct BodyWorkoutDetailSheet: View {
             }
 
             VStack(spacing: 18) {
-                topEntryPanel
-                workoutDetailsCard
+                topEntryPanel(presentation: presentation)
+                workoutDetailsCard(presentation: presentation)
                 effortCard
                 if let splitsPresentation {
                     BodyWorkoutSplitsCard(presentation: splitsPresentation)
                 }
-                heartRateSection
-                sourceFooter
+                heartRateSection(presentation: presentation)
+                sourceFooter(presentation: presentation)
             }
             .padding(.horizontal, 20)
             .padding(.top, route == nil ? 18 : 24)
@@ -935,7 +962,7 @@ struct BodyWorkoutDetailSheet: View {
         }
     }
 
-    private var topEntryPanel: some View {
+    private func topEntryPanel(presentation: WorkoutDetailPresentation) -> some View {
         HStack(alignment: .bottom, spacing: 16) {
             VStack(alignment: .leading, spacing: 12) {
                 Image(systemName: workout.type.symbolName)
@@ -1015,7 +1042,7 @@ struct BodyWorkoutDetailSheet: View {
         }
     }
 
-    private var workoutDetailsCard: some View {
+    private func workoutDetailsCard(presentation: WorkoutDetailPresentation) -> some View {
         let metrics = presentation.detailMetrics
         let showsComparisonLegend = metrics.contains { $0.comparison != nil }
         return VStack(alignment: .leading, spacing: 18) {
@@ -1291,27 +1318,13 @@ struct BodyWorkoutDetailSheet: View {
 
     /// Everything the effort estimator needs, read synchronously from already-published
     /// store state — no fetches, safe to call from the tap handler on the main actor.
+    /// Delegates to the store so the detail view and the auto-apply pass build the
+    /// estimator input identically.
     private func effortEstimateInput() -> WorkoutEffortEstimator.Input {
-        let context = workoutStore.comparisonContext(for: workout, matchingTypeOnly: false)
-        let calendar = Calendar.bodyGregorian
-        let workoutDay = calendar.startOfDay(for: workout.startDate)
-        return WorkoutEffortEstimator.Input(
-            workout: workout,
-            userMaxHeartRate: resolvedMaxHeartRate,
-            restingHeartRate: workoutStore.healthTrends.restingHeartRate
-                .latestValue(onOrBefore: workout.startDate, maxAgeDays: 45)
-                ?? workoutStore.healthSummary.restingHeartRate.value,
-            priorWorkouts: context.priorWorkouts,
-            priorRatingOverrides: workoutStore.workoutEffortOverrides,
-            suggestionAcceptedWorkoutIDs: workoutStore.suggestionAcceptedEffortWorkoutIDs,
-            isHistoryComplete: context.isComplete,
-            morningReadiness: workoutStore.healthTrends.recordedReadiness
-                .first { calendar.startOfDay(for: $0.date) == workoutDay }?
-                .score
-        )
+        workoutStore.effortEstimateInput(for: workout, maxHeartRate: resolvedMaxHeartRate)
     }
 
-    private var heartRateSection: some View {
+    private func heartRateSection(presentation: WorkoutDetailPresentation) -> some View {
         BodyWorkoutHeartRateChartCard(
             samples: presentation.heartRateSamples,
             maxHeartRate: resolvedMaxHeartRate ?? workout.maximumHeartRateBeatsPerMinute
@@ -1326,7 +1339,7 @@ struct BodyWorkoutDetailSheet: View {
         }
     }
 
-    private var sourceFooter: some View {
+    private func sourceFooter(presentation: WorkoutDetailPresentation) -> some View {
         HStack(spacing: 7) {
             Image(systemName: "heart.text.square.fill")
                 .font(.system(size: 15, weight: .semibold))
@@ -1823,17 +1836,21 @@ private struct BodyWorkoutHeartRateChartCard: View {
     /// Anchors the zone bands (% of this value); nil hides the zone breakdown.
     var maxHeartRate: Double?
 
+    /// Sorts and derives the chart's axis bounds from `samples` only when the sample
+    /// set actually changes — not on every body pass (e.g. when `maxHeartRate` resolves
+    /// after the chart first renders). The derivation sorts the full HR series, so this
+    /// keeps a long workout's chart from re-sorting on unrelated re-renders.
+    @State private var metricsCache = HeartRateMetricsCache()
+
     var body: some View {
-        let cachedMetrics: BodyWorkoutHeartRateChartMetrics? = samples.isEmpty
-            ? nil
-            : BodyWorkoutHeartRateChartMetrics(samples: samples)
+        let metrics = metricsCache.metrics(for: samples)
         let zones = maxHeartRate.flatMap {
             WorkoutHeartRateZones.zones(samples: samples, maxHeartRate: $0)
         }
 
         return VStack(alignment: .leading, spacing: 14) {
-            header(metrics: cachedMetrics)
-            chartView(metrics: cachedMetrics)
+            header(metrics: metrics)
+            chartView(metrics: metrics)
             if let zones {
                 BodyWorkoutHeartRateZoneChart(zones: zones)
                     .padding(.top, 6)
@@ -1880,6 +1897,25 @@ private struct BodyWorkoutHeartRateChartCard: View {
             }
             .frame(height: 210)
         }
+    }
+}
+
+/// Memoizes the HR chart's derived metrics so the O(n log n) sample sort runs once per
+/// distinct sample set rather than on every card body pass. Held via `@State` in the
+/// card, so it persists across the view struct's recreations. Samples are downsampled
+/// (≤96 points), so the equality check is cheap.
+private final class HeartRateMetricsCache {
+    private var cachedSamples: [WorkoutHeartRateSample]?
+    private var cachedMetrics: BodyWorkoutHeartRateChartMetrics?
+
+    func metrics(for samples: [WorkoutHeartRateSample]) -> BodyWorkoutHeartRateChartMetrics? {
+        if let cachedSamples, cachedSamples == samples {
+            return cachedMetrics
+        }
+        let metrics = samples.isEmpty ? nil : BodyWorkoutHeartRateChartMetrics(samples: samples)
+        cachedSamples = samples
+        cachedMetrics = metrics
+        return metrics
     }
 }
 

@@ -262,6 +262,20 @@ struct ReadinessSummary: Codable, Equatable {
     var components: [ReadinessComponent]
     var drivers: [ReadinessDriver]
 
+    /// The morning (pre-drain) score when today's workouts have drained the live tile, else
+    /// nil. Non-nil marks "a workout pulled today's tile down"; the hero derives the pre-drain
+    /// band from it for the deep-drop copy. The *size* of the drop comes from
+    /// `activityDrainPoints`, not this minus the displayed score. Optional so snapshots
+    /// persisted before this field decode as nil (no drain).
+    var activityDrainMorningScore: Int?
+
+    /// Points the workout actually drained (pre-softening/clamping), or nil when no drain.
+    /// The hero sizes the drop from THIS: when the morning score sits near the floor, a
+    /// demanding session is clamped in the display (e.g. 8% → 0%), so the visible delta
+    /// understates the effort and would misread as a light activity. Optional so pre-existing
+    /// snapshots decode as nil.
+    var activityDrainPoints: Int?
+
     static let unavailable = ReadinessSummary(
         score: nil,
         status: .unavailable,
@@ -274,8 +288,27 @@ struct ReadinessSummary: Codable, Equatable {
     /// moving today's score, keyed to the strongest active driver. Falls back to the
     /// generic band `explanation` when nothing stands out is unresolved. The static
     /// per-band legend elsewhere keeps using `status.explanation`.
+    ///
+    /// When today's workouts drained the live score (`activityDrainMorningScore` set),
+    /// the workout-aware explanation takes over so the hero attributes the drop to
+    /// training instead of the (now-misleading) morning driver.
     var heroExplanation: String {
-        status.heroExplanation(forDriver: drivers.first?.kind ?? .mostlyTypical)
+        // Past midnight before wake, today's sleep session isn't recorded yet, so the
+        // sleep component drops out while the score still computes from the other signals.
+        // Keep the number as-is but tell the user we're still waiting on sleep.
+        if score != nil, !components.contains(where: { $0.kind == .sleep }) {
+            return String(localized: "Today's sleep data isn't in yet. Get some rest and check back later for a more accurate result.", table: "BodyMetricsKit")
+        }
+        if let morningScore = activityDrainMorningScore {
+            // Size the drop from the actual drain; fall back to the displayed delta only for
+            // legacy snapshots that recorded the morning score before `activityDrainPoints` existed.
+            let drain = activityDrainPoints ?? (morningScore - (score ?? morningScore))
+            return status.activityDrainHeroExplanation(
+                morningStatus: ReadinessStatus.status(for: morningScore),
+                drain: drain
+            )
+        }
+        return status.heroExplanation(forDriver: drivers.first?.kind ?? .mostlyTypical)
     }
 }
 
@@ -405,6 +438,59 @@ extension ReadinessStatus {
             case .needsMoreData:
                 return explanation
             }
+        case .unavailable:
+            return explanation
+        }
+    }
+
+    /// Points of same-day drain (morning − current score) at or above which today's
+    /// activity reads as real training rather than a light activity — so the hero
+    /// attributes the dip to the workout even when the band did not change. A genuinely
+    /// light session drains only a few points; a real workout drains well into double digits.
+    static let meaningfulActivityDrain = 10
+
+    /// Hero explanation for when today's workouts drained the live score. `morningStatus`
+    /// is the band before the drain and `drain` is how many points the workout actually
+    /// removed (pre-softening, so a floor-clamped display doesn't shrink it). A drain of
+    /// `meaningfulActivityDrain`+ reads as real training (earned training fatigue), whether or
+    /// not the band changed; a smaller drain reads as a light activity, with the status still
+    /// reflecting recovery signals. `.unavailable` can't occur here (a drained score is always
+    /// numeric) but falls back safely.
+    func activityDrainHeroExplanation(morningStatus: ReadinessStatus, drain: Int) -> String {
+        if drain >= Self.meaningfulActivityDrain {
+            switch self {
+            case .high:
+                return String(localized: "Today's workout took some energy out of you, but readiness is still high. You can carry on with your training.", table: "BodyMetricsKit")
+            case .moderate:
+                return String(localized: "Today's workout has lowered your readiness. This is training load, not under recovery. Focus on resting for the rest of the day.", table: "BodyMetricsKit")
+            case .low:
+                // A crash from the top bands to Low is a serious same-day drop worth its own line.
+                switch morningStatus {
+                case .prime:
+                    return String(localized: "Today's workout was very demanding, taking readiness from an exceptional state all the way down to a low point. That's a big training load, so some active recovery for the rest of the day would help.", table: "BodyMetricsKit")
+                case .high:
+                    return String(localized: "Today's workout brought readiness from high down to low. That was a considerable session, so rest and recover fully for the rest of the day.", table: "BodyMetricsKit")
+                default:
+                    return String(localized: "Your lower readiness is mainly from today's workout. It reflects the effort you put in, not poor recovery. Give your body some rest for the rest of the day.", table: "BodyMetricsKit")
+                }
+            case .poor:
+                return String(localized: "You've done enough training today. You've reached training fatigue, and doing more could risk injury. Prioritize rest and recovery.", table: "BodyMetricsKit")
+            case .prime, .unavailable:
+                return explanation
+            }
+        }
+
+        switch self {
+        case .prime:
+            return String(localized: "You've already worked out today and readiness is still prime. There's room to push a little harder.", table: "BodyMetricsKit")
+        case .high:
+            return String(localized: "A light activity today nudged your readiness down a little, but it's still high. Train as planned.", table: "BodyMetricsKit")
+        case .moderate:
+            return String(localized: "Today's activity was light, so your moderate readiness mainly reflects your recovery signals. Keep the load controlled.", table: "BodyMetricsKit")
+        case .low:
+            return String(localized: "Only a light activity today, so your low readiness mainly reflects your recovery signals, not training.", table: "BodyMetricsKit")
+        case .poor:
+            return String(localized: "Just a light activity today. Your poor readiness reflects your recovery signals, so rest well to recover better.", table: "BodyMetricsKit")
         case .unavailable:
             return explanation
         }

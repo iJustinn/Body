@@ -26,12 +26,32 @@ enum ActivityReadinessImpact {
     static let strainScale = 250.0
     /// Hard ceiling on the summed drain — caps "up to ~two status bands".
     static let totalDrainCap = 45.0
+    /// Lowest score shown once same-day drain has pushed the raw score to zero.
+    /// Below the floor the displayed value eases down instead of snapping to 0.
+    static let displayFloor = 5
+    /// Raw-score deficit that removes one displayed point below the floor.
+    static let displayEaseStep = 5
 
     /// Total readiness points to subtract from the live score for the given workouts.
     /// Callers pass only the current wake cycle's post-wake workouts.
     static func drainPoints(workouts: [WorkoutSummary]) -> Double {
         let total = workouts.reduce(0.0) { $0 + perWorkoutDrain($1) }
         return min(totalDrainCap, total)
+    }
+
+    /// Maps the raw drained score (baseline − drain, which may be negative once the
+    /// drain exceeds the baseline) onto a softened displayed value. A raw score of 0
+    /// maps to `displayFloor` (5) instead of a demoralizing 0; each further
+    /// `displayEaseStep` (5) points of deficit removes one displayed point, so the
+    /// value reaches 0 only at −25 or lower. Raw scores at or above the floor are
+    /// returned unchanged.
+    ///
+    /// - Note: Callers cap the result at the undrained score so an already-low baseline
+    ///   is never lifted above where it started (see `HealthDashboardSnapshot.draining`).
+    static func displayedScore(forRawScore raw: Int) -> Int {
+        guard raw < displayFloor else { return raw }
+        let deficit = max(0, -raw)
+        return max(0, displayFloor - deficit / displayEaseStep)
     }
 
     /// Drain contributed by one workout: a saturating function of its effective

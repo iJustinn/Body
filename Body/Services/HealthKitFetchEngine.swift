@@ -5,6 +5,7 @@
 
 import Foundation
 import HealthKit
+import os
 
 /// Off-main-actor engine that owns all HealthKit fetching for `HealthKitWorkoutStore`.
 ///
@@ -52,6 +53,35 @@ actor HealthKitFetchEngine {
     var confirmedNoEffortWorkoutIDs: Set<UUID> = []
 
     nonisolated static let effortConfirmationAge: TimeInterval = 48 * 60 * 60
+
+    nonisolated static let logger = Logger(
+        subsystem: "com.zihengthedeveloper.Body",
+        category: "HealthKitFetchEngine"
+    )
+
+    /// A HealthKit query callback fired with no result (`errorDatabaseInaccessible`
+    /// on a locked device, `errorHealthDataUnavailable`, or a transient XPC drop).
+    /// The trend fetch helpers resume with `nil` in that case so the assembly
+    /// layer keeps the previously cached series instead of blanking it, and this
+    /// records the failure. No health values are logged.
+    nonisolated static func logTrendQueryFailure(_ context: String, error: Error?) {
+        logger.error(
+            "HealthKit trend query failed (\(context, privacy: .public)); keeping cached series. \(error?.localizedDescription ?? "no error object", privacy: .public)"
+        )
+    }
+
+    /// Resolves a freshly fetched trend series against the cached one. A `nil`
+    /// `fetched` means the HealthKit query itself failed (device locked, store
+    /// unavailable, XPC drop) rather than genuinely returning no data, so the
+    /// previously cached series is kept. A non-nil `fetched` — including an
+    /// intentionally empty series produced when a permission is toggled off —
+    /// replaces the cache.
+    nonisolated static func resolvedTrendSeries<Series>(
+        fetched: Series?,
+        cached: Series
+    ) -> Series {
+        fetched ?? cached
+    }
 
     struct TrainingLoadWorkoutsWindow: Equatable {
         let start: Date
@@ -529,7 +559,7 @@ actor HealthKitFetchEngine {
         sourceKind: HealthMetricKind? = nil,
         sourceOption: BodyHealthDataSourceOption? = nil,
         valueTransform: @escaping (Double) -> Double = { $0 }
-    ) async -> HealthTrendSeries {
+    ) async -> HealthTrendSeries? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .empty
         }
@@ -563,9 +593,10 @@ actor HealthKitFetchEngine {
                 intervalComponents: intervalComponents
             )
 
-            query.initialResultsHandler = { _, statisticsCollection, _ in
+            query.initialResultsHandler = { _, statisticsCollection, error in
                 guard let statisticsCollection else {
-                    continuation.resume(returning: .empty)
+                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
+                    continuation.resume(returning: nil)
                     return
                 }
 
@@ -681,7 +712,7 @@ actor HealthKitFetchEngine {
         sourceKind: HealthMetricKind? = nil,
         sourceOption: BodyHealthDataSourceOption? = nil,
         valueTransform: @escaping (Double) -> Double = { $0 }
-    ) async -> (HealthTrendSeries, HealthTrendRangeSeries) {
+    ) async -> (HealthTrendSeries, HealthTrendRangeSeries)? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return (.empty, .empty)
         }
@@ -707,9 +738,10 @@ actor HealthKitFetchEngine {
                 intervalComponents: intervalComponents
             )
 
-            query.initialResultsHandler = { _, statisticsCollection, _ in
+            query.initialResultsHandler = { _, statisticsCollection, error in
                 guard let statisticsCollection else {
-                    continuation.resume(returning: (.empty, .empty))
+                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
+                    continuation.resume(returning: nil)
                     return
                 }
 
@@ -806,7 +838,7 @@ actor HealthKitFetchEngine {
             valueTransform: valueTransform
         )
 
-        guard let latestPoint = series.points.last else {
+        guard let latestPoint = series?.points.last else {
             return nil
         }
 
@@ -947,7 +979,7 @@ actor HealthKitFetchEngine {
         sourceKind: HealthMetricKind? = nil,
         sourceOption: BodyHealthDataSourceOption? = nil,
         valueTransform: @escaping (Double) -> Double = { $0 }
-    ) async -> HealthTrendSeries {
+    ) async -> HealthTrendSeries? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .empty
         }
@@ -971,9 +1003,10 @@ actor HealthKitFetchEngine {
                 intervalComponents: intervalComponents
             )
 
-            query.initialResultsHandler = { _, statisticsCollection, _ in
+            query.initialResultsHandler = { _, statisticsCollection, error in
                 guard let statisticsCollection else {
-                    continuation.resume(returning: .empty)
+                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
+                    continuation.resume(returning: nil)
                     return
                 }
 
@@ -1865,7 +1898,7 @@ actor HealthKitFetchEngine {
         let cachedStepsDaySamples = cachedTrends.stepsDaySamples
         let cachedStepsDaySamplesSecondary = cachedTrends.stepsDaySamplesSecondary
 
-        async let sleepHistory = fetchDashboardMetricIfNeeded(.sleep, selection: selection, default: SleepHistorySnapshot.empty) {
+        async let sleepHistory: SleepHistorySnapshot? = fetchDashboardMetricIfNeeded(.sleep, selection: selection, default: SleepHistorySnapshot.empty) {
             await fetchDailySleepHistory(calendar: calendar)
         }
         async let sleepHistorySecondary = fetchSecondaryDashboardMetricIfNeeded(
@@ -1876,7 +1909,7 @@ actor HealthKitFetchEngine {
         ) {
             await fetchSecondarySleepHistory(calendar: calendar)
         }
-        async let restingHeartRate = fetchDashboardMetricIfNeeded(.restingHeartRate, selection: selection, default: HealthTrendSeries.empty) {
+        async let restingHeartRate: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.restingHeartRate, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .restingHeartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
@@ -1893,7 +1926,7 @@ actor HealthKitFetchEngine {
         ) {
             await fetchSecondaryTrend(for: .restingHeartRate, calendar: calendar)
         }
-        async let heartRatePair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchDashboardMetricIfNeeded(
+        async let heartRatePair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDashboardMetricIfNeeded(
             .heartRate,
             selection: selection,
             default: (HealthTrendSeries.empty, HealthTrendRangeSeries.empty)
@@ -1913,7 +1946,7 @@ actor HealthKitFetchEngine {
         ) {
             await fetchSecondaryRangeTrend(for: .heartRate, calendar: calendar)
         }
-        async let bodyMass = fetchDashboardMetricIfNeeded(.bodyMass, selection: selection, default: HealthTrendSeries.empty) {
+        async let bodyMass: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.bodyMass, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .bodyMass,
                 unit: .gramUnit(with: .kilo),
@@ -1922,7 +1955,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .basics
             )
         }
-        async let bodyFatPercentage = fetchDashboardMetricIfNeeded(.bodyFatPercentage, selection: selection, default: HealthTrendSeries.empty) {
+        async let bodyFatPercentage: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.bodyFatPercentage, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .bodyFatPercentage,
                 unit: .percent(),
@@ -1932,7 +1965,7 @@ actor HealthKitFetchEngine {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         }
-        async let heartRateVariabilityPair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchDashboardMetricIfNeeded(
+        async let heartRateVariabilityPair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDashboardMetricIfNeeded(
             .heartRateVariability,
             selection: selection,
             default: (HealthTrendSeries.empty, HealthTrendRangeSeries.empty)
@@ -1952,7 +1985,7 @@ actor HealthKitFetchEngine {
         ) {
             await fetchSecondaryRangeTrend(for: .heartRateVariability, calendar: calendar)
         }
-        async let respiratoryRatePair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchDashboardMetricIfNeeded(
+        async let respiratoryRatePair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDashboardMetricIfNeeded(
             .respiratoryRate,
             selection: selection,
             default: (HealthTrendSeries.empty, HealthTrendRangeSeries.empty)
@@ -1964,7 +1997,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .respiratoryRate
             )
         }
-        async let oxygenSaturationPair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchDashboardMetricIfNeeded(
+        async let oxygenSaturationPair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDashboardMetricIfNeeded(
             .oxygenSaturation,
             selection: selection,
             default: (HealthTrendSeries.empty, HealthTrendRangeSeries.empty)
@@ -1985,7 +2018,7 @@ actor HealthKitFetchEngine {
         ) {
             await fetchSecondaryRangeTrend(for: .oxygenSaturation, calendar: calendar)
         }
-        async let bodyMassIndex = fetchDashboardMetricIfNeeded(.bodyMassIndex, selection: selection, default: HealthTrendSeries.empty) {
+        async let bodyMassIndex: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.bodyMassIndex, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .bodyMassIndex,
                 unit: .count(),
@@ -1994,7 +2027,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .basics
             )
         }
-        async let activeEnergy = fetchDashboardMetricIfNeeded(.activeEnergy, selection: selection, default: HealthTrendSeries.empty) {
+        async let activeEnergy: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.activeEnergy, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyCumulativeQuantitySeries(
                 for: .activeEnergyBurned,
                 unit: .kilocalorie(),
@@ -2010,7 +2043,7 @@ actor HealthKitFetchEngine {
         ) {
             await fetchSecondaryTrend(for: .activeEnergy, calendar: calendar)
         }
-        async let restingEnergy = fetchDashboardMetricIfNeeded(.restingEnergy, selection: selection, default: HealthTrendSeries.empty) {
+        async let restingEnergy: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.restingEnergy, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyCumulativeQuantitySeries(
                 for: .basalEnergyBurned,
                 unit: .kilocalorie(),
@@ -2026,7 +2059,7 @@ actor HealthKitFetchEngine {
         ) {
             await fetchSecondaryTrend(for: .restingEnergy, calendar: calendar)
         }
-        async let exerciseMinutes = fetchDashboardMetricIfNeeded(.exerciseMinutes, selection: selection, default: HealthTrendSeries.empty) {
+        async let exerciseMinutes: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.exerciseMinutes, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyCumulativeQuantitySeries(
                 for: .appleExerciseTime,
                 unit: .minute(),
@@ -2042,10 +2075,10 @@ actor HealthKitFetchEngine {
         ) {
             await fetchSecondaryTrend(for: .exerciseMinutes, calendar: calendar)
         }
-        async let trainingLoad = fetchDashboardMetricIfNeeded(.trainingLoad, selection: selection, default: HealthTrendSeries.empty) {
+        async let trainingLoad: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.trainingLoad, selection: selection, default: HealthTrendSeries.empty) {
             await fetchTrainingLoadSeries(calendar: calendar)
         }
-        async let wristTemperature = fetchDashboardMetricIfNeeded(.wristTemperature, selection: selection, default: HealthTrendSeries.empty) {
+        async let wristTemperature: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.wristTemperature, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyQuantitySeries(
                 for: .appleSleepingWristTemperature,
                 unit: .degreeCelsius(),
@@ -2054,7 +2087,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .wristTemperature
             )
         }
-        async let timeInDaylight = fetchDashboardMetricIfNeeded(.timeInDaylight, selection: selection, default: HealthTrendSeries.empty) {
+        async let timeInDaylight: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.timeInDaylight, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyCumulativeQuantitySeries(
                 for: .timeInDaylight,
                 unit: .minute(),
@@ -2062,7 +2095,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .timeInDaylight
             )
         }
-        async let steps = fetchDashboardMetricIfNeeded(.steps, selection: selection, default: HealthTrendSeries.empty) {
+        async let steps: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.steps, selection: selection, default: HealthTrendSeries.empty) {
             await fetchDailyCumulativeQuantitySeries(
                 for: .stepCount,
                 unit: .count(),
@@ -2079,22 +2112,38 @@ actor HealthKitFetchEngine {
             await fetchSecondaryTrend(for: .steps, calendar: calendar)
         }
 
-        let fetchedSleepHistory = await sleepHistory
+        // A `nil` fetched value means the HealthKit query failed (device locked,
+        // store unavailable, XPC drop) rather than returning no data, so keep the
+        // cached series instead of blanking it. A non-nil value — including the
+        // intentionally empty series produced by a permission toggle-off in
+        // `fetchDashboardMetricIfNeeded` — replaces the cache.
+        let fetchedSleepHistory = Self.resolvedTrendSeries(
+            fetched: await sleepHistory,
+            cached: cachedTrends.sleepHistory
+        )
         let fetchedSleepHistorySecondary = await sleepHistorySecondary
-        let (fetchedHeartRate, fetchedHeartRateRanges) = await heartRatePair
-        let (fetchedHeartRateVariability, fetchedHeartRateVariabilityRanges) = await heartRateVariabilityPair
-        let (fetchedRespiratoryRate, fetchedRespiratoryRateRanges) = await respiratoryRatePair
-        let (fetchedOxygenSaturation, fetchedOxygenSaturationRanges) = await oxygenSaturationPair
+        let fetchedHeartRatePair = await heartRatePair
+        let fetchedHeartRate = Self.resolvedTrendSeries(fetched: fetchedHeartRatePair?.0, cached: cachedTrends.heartRate)
+        let fetchedHeartRateRanges = Self.resolvedTrendSeries(fetched: fetchedHeartRatePair?.1, cached: cachedTrends.heartRateRanges)
+        let fetchedHeartRateVariabilityPair = await heartRateVariabilityPair
+        let fetchedHeartRateVariability = Self.resolvedTrendSeries(fetched: fetchedHeartRateVariabilityPair?.0, cached: cachedTrends.heartRateVariability)
+        let fetchedHeartRateVariabilityRanges = Self.resolvedTrendSeries(fetched: fetchedHeartRateVariabilityPair?.1, cached: cachedTrends.heartRateVariabilityRanges)
+        let fetchedRespiratoryRatePair = await respiratoryRatePair
+        let fetchedRespiratoryRate = Self.resolvedTrendSeries(fetched: fetchedRespiratoryRatePair?.0, cached: cachedTrends.respiratoryRate)
+        let fetchedRespiratoryRateRanges = Self.resolvedTrendSeries(fetched: fetchedRespiratoryRatePair?.1, cached: cachedTrends.respiratoryRateRanges)
+        let fetchedOxygenSaturationPair = await oxygenSaturationPair
+        let fetchedOxygenSaturation = Self.resolvedTrendSeries(fetched: fetchedOxygenSaturationPair?.0, cached: cachedTrends.oxygenSaturation)
+        let fetchedOxygenSaturationRanges = Self.resolvedTrendSeries(fetched: fetchedOxygenSaturationPair?.1, cached: cachedTrends.oxygenSaturationRanges)
         return await HealthTrendSnapshot(
             sleep: fetchedSleepHistory.durationSeries,
             sleepSecondary: fetchedSleepHistorySecondary.durationSeries,
             heartRate: fetchedHeartRate,
             heartRateRanges: fetchedHeartRateRanges,
             heartRateRangesSecondary: heartRateRangesSecondary,
-            restingHeartRate: restingHeartRate,
+            restingHeartRate: Self.resolvedTrendSeries(fetched: restingHeartRate, cached: cachedTrends.restingHeartRate),
             restingHeartRateSecondary: restingHeartRateSecondary,
-            bodyMass: bodyMass,
-            bodyFatPercentage: bodyFatPercentage,
+            bodyMass: Self.resolvedTrendSeries(fetched: bodyMass, cached: cachedTrends.bodyMass),
+            bodyFatPercentage: Self.resolvedTrendSeries(fetched: bodyFatPercentage, cached: cachedTrends.bodyFatPercentage),
             heartRateVariability: fetchedHeartRateVariability,
             heartRateVariabilityRanges: fetchedHeartRateVariabilityRanges,
             heartRateVariabilityRangesSecondary: heartRateVariabilityRangesSecondary,
@@ -2103,17 +2152,17 @@ actor HealthKitFetchEngine {
             oxygenSaturation: fetchedOxygenSaturation,
             oxygenSaturationRanges: fetchedOxygenSaturationRanges,
             oxygenSaturationRangesSecondary: oxygenSaturationRangesSecondary,
-            bodyMassIndex: bodyMassIndex,
-            activeEnergy: activeEnergy,
+            bodyMassIndex: Self.resolvedTrendSeries(fetched: bodyMassIndex, cached: cachedTrends.bodyMassIndex),
+            activeEnergy: Self.resolvedTrendSeries(fetched: activeEnergy, cached: cachedTrends.activeEnergy),
             activeEnergySecondary: activeEnergySecondary,
-            restingEnergy: restingEnergy,
+            restingEnergy: Self.resolvedTrendSeries(fetched: restingEnergy, cached: cachedTrends.restingEnergy),
             restingEnergySecondary: restingEnergySecondary,
-            exerciseMinutes: exerciseMinutes,
+            exerciseMinutes: Self.resolvedTrendSeries(fetched: exerciseMinutes, cached: cachedTrends.exerciseMinutes),
             exerciseMinutesSecondary: exerciseMinutesSecondary,
-            trainingLoad: trainingLoad,
-            wristTemperature: wristTemperature,
-            timeInDaylight: timeInDaylight,
-            steps: steps,
+            trainingLoad: Self.resolvedTrendSeries(fetched: trainingLoad, cached: cachedTrends.trainingLoad),
+            wristTemperature: Self.resolvedTrendSeries(fetched: wristTemperature, cached: cachedTrends.wristTemperature),
+            timeInDaylight: Self.resolvedTrendSeries(fetched: timeInDaylight, cached: cachedTrends.timeInDaylight),
+            steps: Self.resolvedTrendSeries(fetched: steps, cached: cachedTrends.steps),
             stepsSecondary: stepsSecondary,
             sleepHistory: fetchedSleepHistory,
             sleepHistorySecondary: fetchedSleepHistorySecondary,
@@ -2150,7 +2199,12 @@ actor HealthKitFetchEngine {
         let interval = recentHealthTrendInterval(calendar: calendar)
         let fetchStart = Self.incrementalFetchStart(after: cached, windowStart: interval.start)
         guard fetchStart < interval.end else {
-            return Self.mergeIntradaySamples(existing: cached, incoming: .empty, windowStart: interval.start)
+            return Self.mergeIntradaySamples(
+                existing: cached,
+                incoming: .empty,
+                windowStart: interval.start,
+                refetchStart: fetchStart
+            )
         }
 
         let incoming = await fetchIntradayDaySamples(
@@ -2159,7 +2213,12 @@ actor HealthKitFetchEngine {
             startDate: fetchStart,
             endDate: interval.end
         )
-        return Self.mergeIntradaySamples(existing: cached, incoming: incoming, windowStart: interval.start)
+        return Self.mergeIntradaySamples(
+            existing: cached,
+            incoming: incoming,
+            windowStart: interval.start,
+            refetchStart: fetchStart
+        )
     }
 
     func fetchHealthDashboardSnapshot(
@@ -2194,7 +2253,10 @@ actor HealthKitFetchEngine {
             async let sleepSummary = fetchSleepSummary(calendar: calendar)
             async let sleepHistory = fetchDailySleepHistory(calendar: calendar)
             async let sleepHistorySecondary = fetchSecondarySleepHistory(calendar: calendar)
-            let fetchedSleepHistory = await sleepHistory
+            // A failed sleep query keeps the cached history (which feeds
+            // readiness) rather than blanking it; a successful empty result
+            // still replaces it. See `resolvedTrendSeries`.
+            let fetchedSleepHistory = await sleepHistory ?? existing.trends.sleepHistory
             let fetchedSleepHistorySecondary = await sleepHistorySecondary
 
             summary.sleep = await sleepSummary ?? HealthSummarySnapshot.empty.sleep
@@ -2211,14 +2273,14 @@ actor HealthKitFetchEngine {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
             async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
-            async let bodyMassTrend = fetchDailyQuantitySeries(
+            async let bodyMassTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .bodyMass,
                 unit: .gramUnit(with: .kilo),
                 aggregation: .latest,
                 calendar: calendar,
                 sourceKind: .basics
             )
-            async let bodyFatPercentageTrend = fetchDailyQuantitySeries(
+            async let bodyFatPercentageTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .bodyFatPercentage,
                 unit: .percent(),
                 aggregation: .latest,
@@ -2226,7 +2288,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .basics,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
-            async let bodyMassIndexTrend = fetchDailyQuantitySeries(
+            async let bodyMassIndexTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .bodyMassIndex,
                 unit: .count(),
                 aggregation: .latest,
@@ -2237,16 +2299,16 @@ actor HealthKitFetchEngine {
             summary.bodyMass = await bodyMass ?? HealthSummarySnapshot.empty.bodyMass
             summary.bodyFatPercentage = await bodyFatPercentage ?? HealthSummarySnapshot.empty.bodyFatPercentage
             summary.bodyMassIndex = await bodyMassIndex ?? HealthSummarySnapshot.empty.bodyMassIndex
-            trends.bodyMass = await bodyMassTrend
-            trends.bodyFatPercentage = await bodyFatPercentageTrend
-            trends.bodyMassIndex = await bodyMassIndexTrend
+            trends.bodyMass = await bodyMassTrend ?? existing.trends.bodyMass
+            trends.bodyFatPercentage = await bodyFatPercentageTrend ?? existing.trends.bodyFatPercentage
+            trends.bodyMassIndex = await bodyMassIndexTrend ?? existing.trends.bodyMassIndex
         case .heartRate:
             async let heartRate = latestQuantity(
                 for: .heartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 sourceKind: .heartRate
             )
-            async let heartRatePair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchDailyQuantityAverageAndRangeSeries(
+            async let heartRatePair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDailyQuantityAverageAndRangeSeries(
                 for: .heartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 calendar: calendar,
@@ -2261,9 +2323,9 @@ actor HealthKitFetchEngine {
             async let heartRateDaySamplesSecondary = fetchSecondaryDaySamples(for: .heartRate, calendar: calendar)
 
             summary.heartRate = await heartRate ?? HealthSummarySnapshot.empty.heartRate
-            let (fetchedHeartRateTrend, fetchedHeartRateRanges) = await heartRatePair
-            trends.heartRate = fetchedHeartRateTrend
-            trends.heartRateRanges = fetchedHeartRateRanges
+            let fetchedHeartRatePair = await heartRatePair
+            trends.heartRate = fetchedHeartRatePair?.0 ?? existing.trends.heartRate
+            trends.heartRateRanges = fetchedHeartRatePair?.1 ?? existing.trends.heartRateRanges
             trends.heartRateRangesSecondary = await heartRateRangesSecondary
             trends.heartRateDaySamples = await heartRateDaySamples
             trends.heartRateDaySamplesSecondary = await heartRateDaySamplesSecondary
@@ -2273,7 +2335,7 @@ actor HealthKitFetchEngine {
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 sourceKind: .restingHeartRate
             )
-            async let restingHeartRateTrend = fetchDailyQuantitySeries(
+            async let restingHeartRateTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .restingHeartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 aggregation: .average,
@@ -2292,13 +2354,13 @@ actor HealthKitFetchEngine {
             )
 
             summary.restingHeartRate = await restingHeartRate ?? HealthSummarySnapshot.empty.restingHeartRate
-            trends.restingHeartRate = await restingHeartRateTrend
+            trends.restingHeartRate = await restingHeartRateTrend ?? existing.trends.restingHeartRate
             trends.restingHeartRateSecondary = await restingHeartRateSecondaryTrend
             trends.restingHeartRateDaySamples = await restingHeartRateDaySamples
             trends.restingHeartRateDaySamplesSecondary = await restingHeartRateDaySamplesSecondary
         case .bodyMass:
             async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
-            async let bodyMassTrend = fetchDailyQuantitySeries(
+            async let bodyMassTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .bodyMass,
                 unit: .gramUnit(with: .kilo),
                 aggregation: .latest,
@@ -2307,7 +2369,7 @@ actor HealthKitFetchEngine {
             )
 
             summary.bodyMass = await bodyMass ?? HealthSummarySnapshot.empty.bodyMass
-            trends.bodyMass = await bodyMassTrend
+            trends.bodyMass = await bodyMassTrend ?? existing.trends.bodyMass
         case .bodyFatPercentage:
             async let bodyFatPercentage = latestQuantity(
                 for: .bodyFatPercentage,
@@ -2315,7 +2377,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .basics,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
-            async let bodyFatPercentageTrend = fetchDailyQuantitySeries(
+            async let bodyFatPercentageTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .bodyFatPercentage,
                 unit: .percent(),
                 aggregation: .latest,
@@ -2325,14 +2387,14 @@ actor HealthKitFetchEngine {
             )
 
             summary.bodyFatPercentage = await bodyFatPercentage ?? HealthSummarySnapshot.empty.bodyFatPercentage
-            trends.bodyFatPercentage = await bodyFatPercentageTrend
+            trends.bodyFatPercentage = await bodyFatPercentageTrend ?? existing.trends.bodyFatPercentage
         case .heartRateVariability:
             async let heartRateVariability = latestQuantity(
                 for: .heartRateVariabilitySDNN,
                 unit: .secondUnit(with: .milli),
                 sourceKind: .heartRateVariability
             )
-            async let heartRateVariabilityPair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchDailyQuantityAverageAndRangeSeries(
+            async let heartRateVariabilityPair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDailyQuantityAverageAndRangeSeries(
                 for: .heartRateVariabilitySDNN,
                 unit: .secondUnit(with: .milli),
                 calendar: calendar,
@@ -2353,9 +2415,9 @@ actor HealthKitFetchEngine {
             )
 
             summary.heartRateVariability = await heartRateVariability ?? HealthSummarySnapshot.empty.heartRateVariability
-            let (fetchedHeartRateVariabilityTrend, fetchedHeartRateVariabilityRanges) = await heartRateVariabilityPair
-            trends.heartRateVariability = fetchedHeartRateVariabilityTrend
-            trends.heartRateVariabilityRanges = fetchedHeartRateVariabilityRanges
+            let fetchedHeartRateVariabilityPair = await heartRateVariabilityPair
+            trends.heartRateVariability = fetchedHeartRateVariabilityPair?.0 ?? existing.trends.heartRateVariability
+            trends.heartRateVariabilityRanges = fetchedHeartRateVariabilityPair?.1 ?? existing.trends.heartRateVariabilityRanges
             trends.heartRateVariabilityRangesSecondary = await heartRateVariabilityRangesSecondary
             trends.heartRateVariabilityDaySamples = await heartRateVariabilityDaySamples
             trends.heartRateVariabilityDaySamplesSecondary = await heartRateVariabilityDaySamplesSecondary
@@ -2365,7 +2427,7 @@ actor HealthKitFetchEngine {
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 sourceKind: .respiratoryRate
             )
-            async let respiratoryRatePair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchDailyQuantityAverageAndRangeSeries(
+            async let respiratoryRatePair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDailyQuantityAverageAndRangeSeries(
                 for: .respiratoryRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 calendar: calendar,
@@ -2378,9 +2440,9 @@ actor HealthKitFetchEngine {
             )
 
             summary.respiratoryRate = await respiratoryRate ?? HealthSummarySnapshot.empty.respiratoryRate
-            let (fetchedRespiratoryRateTrend, fetchedRespiratoryRateRanges) = await respiratoryRatePair
-            trends.respiratoryRate = fetchedRespiratoryRateTrend
-            trends.respiratoryRateRanges = fetchedRespiratoryRateRanges
+            let fetchedRespiratoryRatePair = await respiratoryRatePair
+            trends.respiratoryRate = fetchedRespiratoryRatePair?.0 ?? existing.trends.respiratoryRate
+            trends.respiratoryRateRanges = fetchedRespiratoryRatePair?.1 ?? existing.trends.respiratoryRateRanges
             trends.respiratoryRateDaySamples = await respiratoryRateDaySamples
         case .oxygenSaturation:
             async let oxygenSaturation = latestQuantity(
@@ -2389,7 +2451,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .oxygenSaturation,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
-            async let oxygenSaturationPair: (HealthTrendSeries, HealthTrendRangeSeries) = fetchDailyQuantityAverageAndRangeSeries(
+            async let oxygenSaturationPair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDailyQuantityAverageAndRangeSeries(
                 for: .oxygenSaturation,
                 unit: .percent(),
                 calendar: calendar,
@@ -2411,15 +2473,15 @@ actor HealthKitFetchEngine {
             )
 
             summary.oxygenSaturation = await oxygenSaturation ?? HealthSummarySnapshot.empty.oxygenSaturation
-            let (fetchedOxygenSaturationTrend, fetchedOxygenSaturationRanges) = await oxygenSaturationPair
-            trends.oxygenSaturation = fetchedOxygenSaturationTrend
-            trends.oxygenSaturationRanges = fetchedOxygenSaturationRanges
+            let fetchedOxygenSaturationPair = await oxygenSaturationPair
+            trends.oxygenSaturation = fetchedOxygenSaturationPair?.0 ?? existing.trends.oxygenSaturation
+            trends.oxygenSaturationRanges = fetchedOxygenSaturationPair?.1 ?? existing.trends.oxygenSaturationRanges
             trends.oxygenSaturationRangesSecondary = await oxygenSaturationRangesSecondary
             trends.oxygenSaturationDaySamples = await oxygenSaturationDaySamples
             trends.oxygenSaturationDaySamplesSecondary = await oxygenSaturationDaySamplesSecondary
         case .bodyMassIndex:
             async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
-            async let bodyMassIndexTrend = fetchDailyQuantitySeries(
+            async let bodyMassIndexTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .bodyMassIndex,
                 unit: .count(),
                 aggregation: .latest,
@@ -2428,7 +2490,7 @@ actor HealthKitFetchEngine {
             )
 
             summary.bodyMassIndex = await bodyMassIndex ?? HealthSummarySnapshot.empty.bodyMassIndex
-            trends.bodyMassIndex = await bodyMassIndexTrend
+            trends.bodyMassIndex = await bodyMassIndexTrend ?? existing.trends.bodyMassIndex
         case .activeEnergy:
             async let activeEnergy = dailyCumulativeQuantitySummary(
                 for: .activeEnergyBurned,
@@ -2436,7 +2498,7 @@ actor HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .activeEnergy
             )
-            async let activeEnergyTrend = fetchDailyCumulativeQuantitySeries(
+            async let activeEnergyTrend: HealthTrendSeries? = fetchDailyCumulativeQuantitySeries(
                 for: .activeEnergyBurned,
                 unit: .kilocalorie(),
                 calendar: calendar,
@@ -2455,7 +2517,7 @@ actor HealthKitFetchEngine {
             )
 
             summary.activeEnergy = await activeEnergy ?? HealthSummarySnapshot.empty.activeEnergy
-            trends.activeEnergy = await activeEnergyTrend
+            trends.activeEnergy = await activeEnergyTrend ?? existing.trends.activeEnergy
             trends.activeEnergySecondary = await activeEnergySecondaryTrend
             trends.activeEnergyDaySamples = await activeEnergyDaySamples
             trends.activeEnergyDaySamplesSecondary = await activeEnergyDaySamplesSecondary
@@ -2466,7 +2528,7 @@ actor HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .restingEnergy
             )
-            async let restingEnergyTrend = fetchDailyCumulativeQuantitySeries(
+            async let restingEnergyTrend: HealthTrendSeries? = fetchDailyCumulativeQuantitySeries(
                 for: .basalEnergyBurned,
                 unit: .kilocalorie(),
                 calendar: calendar,
@@ -2475,7 +2537,7 @@ actor HealthKitFetchEngine {
             async let restingEnergySecondaryTrend = fetchSecondaryTrend(for: .restingEnergy, calendar: calendar)
 
             summary.restingEnergy = await restingEnergy ?? HealthSummarySnapshot.empty.restingEnergy
-            trends.restingEnergy = await restingEnergyTrend
+            trends.restingEnergy = await restingEnergyTrend ?? existing.trends.restingEnergy
             trends.restingEnergySecondary = await restingEnergySecondaryTrend
         case .exerciseMinutes:
             async let exerciseMinutes = dailyCumulativeQuantitySummary(
@@ -2484,7 +2546,7 @@ actor HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .exerciseMinutes
             )
-            async let exerciseMinutesTrend = fetchDailyCumulativeQuantitySeries(
+            async let exerciseMinutesTrend: HealthTrendSeries? = fetchDailyCumulativeQuantitySeries(
                 for: .appleExerciseTime,
                 unit: .minute(),
                 calendar: calendar,
@@ -2493,14 +2555,14 @@ actor HealthKitFetchEngine {
             async let exerciseMinutesSecondaryTrend = fetchSecondaryTrend(for: .exerciseMinutes, calendar: calendar)
 
             summary.exerciseMinutes = await exerciseMinutes ?? HealthSummarySnapshot.empty.exerciseMinutes
-            trends.exerciseMinutes = await exerciseMinutesTrend
+            trends.exerciseMinutes = await exerciseMinutesTrend ?? existing.trends.exerciseMinutes
             trends.exerciseMinutesSecondary = await exerciseMinutesSecondaryTrend
         case .trainingLoad:
             async let trainingLoad = fetchTrainingLoadSummary(calendar: calendar)
             async let trainingLoadTrend = fetchTrainingLoadSeries(calendar: calendar)
 
             summary.trainingLoad = await trainingLoad ?? HealthSummarySnapshot.empty.trainingLoad
-            trends.trainingLoad = await trainingLoadTrend
+            trends.trainingLoad = await trainingLoadTrend ?? existing.trends.trainingLoad
         case .wristTemperature:
             async let wristTemperature = dailyQuantitySummary(
                 for: .appleSleepingWristTemperature,
@@ -2509,7 +2571,7 @@ actor HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .wristTemperature
             )
-            async let wristTemperatureTrend = fetchDailyQuantitySeries(
+            async let wristTemperatureTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .appleSleepingWristTemperature,
                 unit: .degreeCelsius(),
                 aggregation: .average,
@@ -2518,7 +2580,7 @@ actor HealthKitFetchEngine {
             )
 
             summary.wristTemperature = await wristTemperature ?? HealthSummarySnapshot.empty.wristTemperature
-            trends.wristTemperature = await wristTemperatureTrend
+            trends.wristTemperature = await wristTemperatureTrend ?? existing.trends.wristTemperature
         case .timeInDaylight:
             async let timeInDaylight = dailyCumulativeQuantitySummary(
                 for: .timeInDaylight,
@@ -2526,7 +2588,7 @@ actor HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .timeInDaylight
             )
-            async let timeInDaylightTrend = fetchDailyCumulativeQuantitySeries(
+            async let timeInDaylightTrend: HealthTrendSeries? = fetchDailyCumulativeQuantitySeries(
                 for: .timeInDaylight,
                 unit: .minute(),
                 calendar: calendar,
@@ -2534,7 +2596,7 @@ actor HealthKitFetchEngine {
             )
 
             summary.timeInDaylight = await timeInDaylight ?? HealthSummarySnapshot.empty.timeInDaylight
-            trends.timeInDaylight = await timeInDaylightTrend
+            trends.timeInDaylight = await timeInDaylightTrend ?? existing.trends.timeInDaylight
         case .steps:
             async let steps = dailyCumulativeQuantitySummary(
                 for: .stepCount,
@@ -2542,7 +2604,7 @@ actor HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .steps
             )
-            async let stepsTrend = fetchDailyCumulativeQuantitySeries(
+            async let stepsTrend: HealthTrendSeries? = fetchDailyCumulativeQuantitySeries(
                 for: .stepCount,
                 unit: .count(),
                 calendar: calendar,
@@ -2561,7 +2623,7 @@ actor HealthKitFetchEngine {
             )
 
             summary.steps = await steps ?? HealthSummarySnapshot.empty.steps
-            trends.steps = await stepsTrend
+            trends.steps = await stepsTrend ?? existing.trends.steps
             trends.stepsSecondary = await stepsSecondaryTrend
             trends.stepsDaySamples = await stepsDaySamples
             trends.stepsDaySamplesSecondary = await stepsDaySamplesSecondary

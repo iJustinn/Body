@@ -7,12 +7,23 @@ import SwiftUI
 
 enum BodySleepStageDisplayPreference {
     static let defaultShowsSubMinuteAwakeStages = true
+    static let defaultShowsLeadingTrailingAwakeStages = true
 
     static func showsSubMinuteAwakeStages(defaults: UserDefaults = .standard) -> Bool {
         guard let storedValue = defaults.object(
             forKey: BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey
         ) as? Bool else {
             return defaultShowsSubMinuteAwakeStages
+        }
+
+        return storedValue
+    }
+
+    static func showsLeadingTrailingAwakeStages(defaults: UserDefaults = .standard) -> Bool {
+        guard let storedValue = defaults.object(
+            forKey: BodyAppearancePreference.showsLeadingTrailingAwakeSleepStagesKey
+        ) as? Bool else {
+            return defaultShowsLeadingTrailingAwakeStages
         }
 
         return storedValue

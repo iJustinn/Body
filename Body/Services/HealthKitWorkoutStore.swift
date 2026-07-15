@@ -215,7 +215,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     init(
-        initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrSeedPlaceholder(),
+        initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrPlaceholder(),
         initialHealthDashboardSnapshot: HealthDashboardSnapshot = HealthDashboardSnapshotStore.loadOrEmpty(),
         initialPermissionSelection: BodyHealthPermissionSelection = BodyHealthPermissionSelection.load(),
         initialHealthDataSourceSelection: BodyHealthDataSourceSelection = BodyHealthDataSourceSelection.load(),
@@ -249,7 +249,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             permissionSelection: initialPermissionSelection,
             healthDataSourceSelection: initialHealthDataSourceSelection,
             combinesHealthDataSourcesByName: initialCombinesHealthDataSourcesByName,
-            idealSleepDuration: initialIdealSleepDuration
+            idealSleepDuration: initialIdealSleepDuration,
+            showsSubMinuteAwakeStages: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
+            showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
         )
         let initialTrends = initialHealthDashboardSnapshot.trends
         let hasStaleReadinessOverlay = !initialTrends.recordedReadiness.isEmpty
@@ -546,6 +548,293 @@ final class HealthKitWorkoutStore: ObservableObject {
         suggestionAcceptedEffortWorkoutIDs = Set(stored.compactMap(UUID.init(uuidString:)))
     }
 
+    // MARK: - Auto-apply predicted effort
+
+    /// Presents the workout-effort write-permission sheet at the point of intent (when
+    /// the user turns Auto-Apply on), then reports whether write access ended up
+    /// authorized so the toggle can reset itself on denial instead of appearing on while
+    /// refreshes silently fail. (Share authorization, unlike read, is reportable.)
+    @discardableResult
+    func requestWorkoutEffortWriteAuthorization() async -> Bool {
+        try? await engine.requestWorkoutEffortWriteAuthorization()
+        return await engine.isWorkoutEffortWriteAuthorized()
+    }
+
+    /// Everything the effort estimator needs, read synchronously from already-published
+    /// store state — no fetches. Shared by the workout detail view (which passes its
+    /// resolved max HR) and the auto-apply pass (which resolves max HR once per batch).
+    func effortEstimateInput(for workout: WorkoutSummary, maxHeartRate: Double?) -> WorkoutEffortEstimator.Input {
+        let context = comparisonContext(for: workout, matchingTypeOnly: false)
+        let calendar = Calendar.bodyGregorian
+        let workoutDay = calendar.startOfDay(for: workout.startDate)
+        return WorkoutEffortEstimator.Input(
+            workout: workout,
+            userMaxHeartRate: maxHeartRate,
+            restingHeartRate: healthTrends.restingHeartRate
+                .latestValue(onOrBefore: workout.startDate, maxAgeDays: 45)
+                ?? healthSummary.restingHeartRate.value,
+            priorWorkouts: context.priorWorkouts,
+            priorRatingOverrides: workoutEffortOverrides,
+            suggestionAcceptedWorkoutIDs: suggestionAcceptedEffortWorkoutIDs,
+            isHistoryComplete: context.isComplete,
+            morningReadiness: healthTrends.recordedReadiness
+                .first { calendar.startOfDay(for: $0.date) == workoutDay }?
+                .score
+        )
+    }
+
+    private var isAutoApplyingEffort = false
+    /// Workouts auto-applied this session — excluded so a session that keeps the
+    /// engine's score-less cache warm can't re-write them.
+    private var autoAppliedWorkoutIDs: Set<UUID> = []
+    /// Workouts found already rated by a fresh read at write time — cached so a rating
+    /// that won't disappear isn't re-queried every refresh. Low-confidence (no-HR)
+    /// workouts are deliberately *not* cached here: their HR can arrive late, so they
+    /// stay eligible for re-estimation on later refreshes within the window.
+    private var autoApplySkippedWorkoutIDs: Set<UUID> = []
+    /// Cap on effort *writes* per refresh (not candidates examined), so a burst of
+    /// no-HR skips can't starve older heart-rate-eligible workouts.
+    private static let maxAutoAppliedEffortPerRefresh = 25
+    /// Bound the per-refresh candidate scan.
+    private static let maxAutoApplyEffortExamined = 200
+    /// Auto-apply eligibility window, measured from a workout's end time. Body waits at
+    /// least this long so a rating from the Apple Watch can sync first...
+    private static let autoApplyMinWorkoutAge: TimeInterval = 60 * 60          // 1 hour
+    /// ...and never touches anything older than this, so auto-apply only fills workouts
+    /// that ended within the last two days.
+    private static let autoApplyMaxWorkoutAge: TimeInterval = 48 * 60 * 60     // 48 hours
+
+    /// The workout-month keys the auto-apply window (`now - maxAge` … `now`) can span:
+    /// always the current month, plus the prior month when the window reaches back before
+    /// this month began. Auto-apply derives its scan keys from this — independent of which
+    /// months a given refresh happened to fetch — so a workout from the last days of the
+    /// prior month still gets filled early in a new month (e.g. a June 30 workout on July
+    /// 1) instead of being missed until a cross-month refresh. `maxAge` is a parameter (as
+    /// in `autoApplyEligibleWorkouts`) so this stays a pure, nonisolated helper.
+    nonisolated static func autoApplyWindowMonthKeys(now: Date, maxAge: TimeInterval, calendar: Calendar) -> [BodyWorkoutMonthKey] {
+        var keys = [BodyWorkoutMonthKey(
+            month: calendar.component(.month, from: now),
+            year: calendar.component(.year, from: now)
+        )]
+        let windowStart = now.addingTimeInterval(-maxAge)
+        if !calendar.isDate(windowStart, equalTo: now, toGranularity: .month) {
+            keys.append(BodyWorkoutMonthKey(
+                month: calendar.component(.month, from: windowStart),
+                year: calendar.component(.year, from: windowStart)
+            ))
+        }
+        return keys
+    }
+
+    /// Pure selection rule for auto-apply, factored out for unit testing: unrated
+    /// workouts (`effortLevel == nil`) whose end time (`startDate + duration`) falls in
+    /// the `[minAge, maxAge]` window and that aren't excluded by session state, returned
+    /// newest first.
+    nonisolated static func autoApplyEligibleWorkouts(
+        _ workouts: [WorkoutSummary],
+        now: Date,
+        minAge: TimeInterval,
+        maxAge: TimeInterval,
+        overriddenIDs: Set<UUID>,
+        appliedIDs: Set<UUID>,
+        skippedIDs: Set<UUID>
+    ) -> [WorkoutSummary] {
+        workouts
+            .filter { workout in
+                guard workout.effortLevel == nil else { return false }
+                let endDate = workout.startDate.addingTimeInterval(max(0, workout.duration))
+                let age = now.timeIntervalSince(endDate)
+                let id = workout.id
+                return age >= minAge
+                    && age <= maxAge
+                    && !overriddenIDs.contains(id)
+                    && !appliedIDs.contains(id)
+                    && !skippedIDs.contains(id)
+            }
+            .sorted { $0.startDate > $1.startDate }
+    }
+
+    /// One eligible workout paired with its precomputed effort score, or a `nil` score
+    /// when there's no usable (medium/high-confidence heart-rate) estimate — so it's
+    /// skipped without consuming the write budget.
+    struct AutoApplyEffortCandidate {
+        let workoutID: UUID
+        let score: Int?
+    }
+
+    /// The HealthKit write side effects the auto-apply loop performs, injected so the
+    /// loop's branch handling can run against a fake in tests instead of the live engine.
+    struct AutoApplyEffortWriter {
+        let write: (UUID, Double) async throws -> HealthKitFetchEngine.AutoApplyEffortOutcome
+        let isWriteAuthorized: () async -> Bool
+    }
+
+    /// What the auto-apply write loop decided, returned as plain data for the caller to
+    /// apply to store state (so the loop itself stays pure of store/engine state).
+    struct AutoApplyEffortLoopResult: Equatable {
+        var writtenScores: [UUID: Double] = [:]
+        var appliedIDs: Set<UUID> = []
+        var alreadyRatedIDs: Set<UUID> = []
+        var writeAuthRevoked = false
+    }
+
+    /// Runs the effort-write loop over precomputed `candidates`, writing at most
+    /// `maxWrites` predictions through `writer`. Candidates with a `nil` score are
+    /// skipped without consuming the budget; `.alreadyRated` is recorded so it isn't
+    /// retried; `.unresolved` is left for a later refresh; and a save failure stops the
+    /// batch, flagging `writeAuthRevoked` when write access is no longer authorized. All
+    /// side effects go through `writer`, so every branch is unit-testable without a live
+    /// engine or a constructed store.
+    @MainActor
+    static func runAutoApplyEffortLoop(
+        candidates: [AutoApplyEffortCandidate],
+        maxWrites: Int,
+        writer: AutoApplyEffortWriter
+    ) async -> AutoApplyEffortLoopResult {
+        var result = AutoApplyEffortLoopResult()
+        for candidate in candidates {
+            if result.appliedIDs.count >= maxWrites {
+                break
+            }
+            guard let score = candidate.score else {
+                continue
+            }
+            do {
+                switch try await writer.write(candidate.workoutID, Double(score)) {
+                case .written:
+                    result.writtenScores[candidate.workoutID] = Double(score)
+                    result.appliedIDs.insert(candidate.workoutID)
+                case .alreadyRated:
+                    result.alreadyRatedIDs.insert(candidate.workoutID)
+                case .unresolved:
+                    break
+                }
+            } catch {
+                if await !writer.isWriteAuthorized() {
+                    result.writeAuthRevoked = true
+                }
+                break
+            }
+        }
+        return result
+    }
+
+    /// When the opt-in Auto-Apply setting is on, writes Body's predicted effort to
+    /// unrated workouts that ended between `autoApplyMinWorkoutAge` (1h) and
+    /// `autoApplyMaxWorkoutAge` (48h) ago: the 1h floor gives an Apple Watch rating time
+    /// to sync first, and the 48h ceiling means older history is never touched. The
+    /// authoritative "still unrated?" check is a fresh read at write time
+    /// (`engine.autoApplyWorkoutEffort`), so a rating that landed since the last refresh
+    /// is never overwritten. Only medium/high-confidence (heart-rate-based) estimates are
+    /// written; each is marked as an accepted suggestion so the estimator never trains on
+    /// its own output. Runs from the primary foreground refreshes after the dashboard
+    /// snapshot has committed, so resting-HR / readiness inputs are current.
+    func autoApplyPredictedEffortIfNeeded(monthKeys: [BodyWorkoutMonthKey]) async {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: BodyAppearancePreference.autoApplyWorkoutEffortKey),
+              defaults.object(forKey: BodyAppearancePreference.showWorkoutEffortSuggestionsKey) as? Bool ?? true,
+              permissionSelection.includes(.workouts),
+              !isAutoApplyingEffort else {
+            return
+        }
+        // No write-auth gate here: the write path only ever calls `HKHealthStore.save`,
+        // which never shows the permission sheet (that's requested once, at opt-in). If
+        // write access isn't granted the save simply fails and the batch stops via its
+        // `catch` — so we never block or prompt from a refresh.
+        isAutoApplyingEffort = true
+        defer { isAutoApplyingEffort = false }
+
+        let now = Date()
+        // Always scan the months the 48h window spans (not just the months this refresh
+        // fetched), so a pass that only touched the current month still fills a
+        // prior-month workout that's inside the window early in a new month.
+        let windowKeys = Self.autoApplyWindowMonthKeys(now: now, maxAge: Self.autoApplyMaxWorkoutAge, calendar: Calendar.bodyGregorian)
+        let scanKeys = Set(monthKeys).union(windowKeys)
+        // The window's months must be in memory to be scanned. A fresh-dashboard resume
+        // (current month only) or the immediate opt-in pass may not have the prior month
+        // loaded, so fetch any absent window month before scanning — otherwise a workout
+        // in it (e.g. Jun 30 on Jul 1) is invisible here and ages out of the 48h window.
+        let missingWindowKeys = Set(windowKeys).filter { monthSnapshots[$0] == nil }
+        if !missingWindowKeys.isEmpty {
+            try? await refresh(monthKeys: missingWindowKeys, calendar: Calendar.bodyGregorian)
+        }
+        var allWorkouts: [WorkoutSummary] = []
+        for key in scanKeys {
+            guard let snapshot = monthSnapshots[key] else { continue }
+            for day in snapshot.days {
+                allWorkouts.append(contentsOf: day.workouts)
+            }
+        }
+        let eligible = Self.autoApplyEligibleWorkouts(
+            allWorkouts,
+            now: now,
+            minAge: Self.autoApplyMinWorkoutAge,
+            maxAge: Self.autoApplyMaxWorkoutAge,
+            overriddenIDs: Set(workoutEffortOverrides.keys),
+            appliedIDs: autoAppliedWorkoutIDs,
+            skippedIDs: autoApplySkippedWorkoutIDs
+        )
+        guard !eligible.isEmpty else {
+            return
+        }
+        let maxHeartRate = await userMaxHeartRate()
+        // Precompute each candidate's score up front. Estimates read only prior
+        // (older) workouts, and candidates are processed newest-first, so an in-batch
+        // write never feeds a later estimate — precomputing is equivalent to estimating
+        // lazily but keeps the write loop pure and testable. A low-confidence (no-HR)
+        // estimate yields a nil score: it's skipped without consuming the write budget
+        // and, crucially, not cached — HR can arrive late, so it stays eligible for a
+        // later refresh within the 48h window.
+        let candidates: [AutoApplyEffortCandidate] = eligible
+            .prefix(Self.maxAutoApplyEffortExamined)
+            .map { workout in
+                let input = effortEstimateInput(for: workout, maxHeartRate: maxHeartRate)
+                let estimate = WorkoutEffortEstimator.estimate(for: input)
+                let score = estimate.flatMap { $0.confidence == .low ? nil : $0.score }
+                return AutoApplyEffortCandidate(workoutID: workout.id, score: score)
+            }
+
+        let writer = AutoApplyEffortWriter(
+            write: { [engine] workoutID, score in
+                try await engine.autoApplyWorkoutEffort(workoutID: workoutID, score: score)
+            },
+            isWriteAuthorized: { [engine] in
+                await engine.isWorkoutEffortWriteAuthorized()
+            }
+        )
+        let result = await Self.runAutoApplyEffortLoop(
+            candidates: candidates,
+            maxWrites: Self.maxAutoAppliedEffortPerRefresh,
+            writer: writer
+        )
+
+        for (workoutID, score) in result.writtenScores {
+            workoutEffortOverrides[workoutID] = score
+            setEffortSuggestionAccepted(true, workoutID: workoutID)
+        }
+        autoAppliedWorkoutIDs.formUnion(result.appliedIDs)
+        autoApplySkippedWorkoutIDs.formUnion(result.alreadyRatedIDs) // rated since last refresh; don't retry
+        if result.writeAuthRevoked {
+            // A save failed because write access was revoked (turned off in Settings
+            // after opt-in). Switch Auto-Apply off so the persisted toggle reflects
+            // reality instead of silently failing every refresh; a transient HealthKit
+            // error leaves it on and retryable on the next refresh.
+            UserDefaults.standard.set(false, forKey: BodyAppearancePreference.autoApplyWorkoutEffortKey)
+        }
+        if !result.appliedIDs.isEmpty {
+            Task { await refreshAfterWrite(.trainingLoad) }
+        }
+    }
+
+    /// Runs an auto-apply pass over the recent window right away — used when the user
+    /// flips Auto-Apply on, so eligible recent (1-48h) workouts fill immediately instead
+    /// of waiting for the next foreground refresh. The batch derives and loads the
+    /// window's month keys itself (current + prior near a boundary), so no keys are
+    /// needed here.
+    func autoApplyPredictedEffortNow() async {
+        await autoApplyPredictedEffortIfNeeded(monthKeys: [])
+    }
+
     /// Loads the GPS route + city label for a workout's detail map hero, or `nil`
     /// when the workout has no readable route. Cached per session (including the
     /// no-route result), so it's safe to call on every detail-sheet open.
@@ -707,6 +996,21 @@ final class HealthKitWorkoutStore: ObservableObject {
             )
         }
 
+        // A refresh may have started while the engine fetches above were
+        // suspended. It captured `healthTrends` before these day samples existed
+        // and will overwrite our write below when it completes — dropping the
+        // just-loaded intraday series and persisting that regression. Wait for
+        // any in-flight refresh (the loop covers a fresh one claiming the slot
+        // before we resume), then merge onto the now-current `healthTrends`.
+        // There is no suspension point between the loop exit and the write, so
+        // on the MainActor nothing can clobber it.
+        while isRefreshing {
+            await awaitNextRefreshCompletion()
+            guard !Task.isCancelled else {
+                return
+            }
+        }
+
         let mergedPrimary: HealthTrendSeries
         let mergedSecondary: HealthTrendSeries
         if usesHourlyBuckets {
@@ -714,14 +1018,16 @@ final class HealthKitWorkoutStore: ObservableObject {
             mergedSecondary = secondarySamples
         } else {
             mergedPrimary = HealthKitFetchEngine.mergeIntradaySamples(
-                existing: cachedPrimary,
+                existing: healthTrends.daySeries(for: kind),
                 incoming: primarySamples,
-                windowStart: interval.start
+                windowStart: interval.start,
+                refetchStart: primaryFetchStart
             )
             mergedSecondary = HealthKitFetchEngine.mergeIntradaySamples(
-                existing: cachedSecondary,
+                existing: healthTrends.secondaryDaySeries(for: kind),
                 incoming: secondarySamples,
-                windowStart: interval.start
+                windowStart: interval.start,
+                refetchStart: secondaryFetchStart
             )
         }
 
@@ -807,6 +1113,14 @@ final class HealthKitWorkoutStore: ObservableObject {
         await applyPermissionSelectionToCachedData()
 
         if isEnabled {
+            // A refresh may be in flight (resume/pull-to-refresh); its
+            // `isRefreshing` guard would otherwise silently drop this refetch,
+            // leaving old-permission data on screen. Mirror the secondary-source
+            // variants: wait it out, then refetch under the new selection.
+            await awaitNextRefreshCompletion()
+            guard !Task.isCancelled else {
+                return
+            }
             await requestAuthorizationAndRefresh()
         } else {
             updateHealthDataNotice()
@@ -900,6 +1214,15 @@ final class HealthKitWorkoutStore: ObservableObject {
         UserDefaults.standard.set(combines, forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey)
         await engine.setCombinesHealthDataSourcesByName(combines)
         await fetchHealthDataSourceOptions(calendar: .bodyGregorian)
+
+        // Wait out any in-flight refresh so the `isRefreshing` guard in
+        // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
+        // (matches the secondary-source variants).
+        await awaitNextRefreshCompletion()
+        guard !Task.isCancelled else {
+            return
+        }
+
         await requestAuthorizationAndRefresh()
     }
 
@@ -918,6 +1241,15 @@ final class HealthKitWorkoutStore: ObservableObject {
         nextSecondarySelection.save()
         await engine.setHealthDataSourceSelection(nextSelection)
         await engine.setSecondaryHealthDataSourceSelection(nextSecondarySelection)
+
+        // Wait out any in-flight refresh so the `isRefreshing` guard in
+        // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
+        // (matches the secondary-source variants).
+        await awaitNextRefreshCompletion()
+        guard !Task.isCancelled else {
+            return
+        }
+
         await requestAuthorizationAndRefresh()
     }
 
@@ -950,6 +1282,15 @@ final class HealthKitWorkoutStore: ObservableObject {
         healthDataSourceSelection = nextSelection
         nextSelection.save()
         await engine.setHealthDataSourceSelection(nextSelection)
+
+        // Wait out any in-flight refresh so the `isRefreshing` guard in
+        // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
+        // (matches the secondary-source variants).
+        await awaitNextRefreshCompletion()
+        guard !Task.isCancelled else {
+            return
+        }
+
         await requestAuthorizationAndRefresh()
     }
 
@@ -1595,9 +1936,15 @@ final class HealthKitWorkoutStore: ObservableObject {
         let wakeCycleSleepEnd = healthSummary.sleep.stageSnapshot.dateInterval?.end
         let wakeCycleStart = Self.wakeCycleStart(now: date, sleepEnd: wakeCycleSleepEnd, calendar: calendar)
         let wakeCycleCrossesMonth = !calendar.isDate(wakeCycleStart, equalTo: date, toGranularity: .month)
+        // Early in a new month the 48h auto-apply window still reaches into the prior
+        // month, so refresh it too when Auto-Apply is on — otherwise that month's
+        // snapshot stays stale/absent and a workout from its last days (e.g. Jun 30 on
+        // Jul 1) is never scanned and can age out of the window before a manual refresh.
+        let autoApplyNeedsPriorMonth = UserDefaults.standard.bool(forKey: BodyAppearancePreference.autoApplyWorkoutEffortKey)
+            && Self.autoApplyWindowMonthKeys(now: date, maxAge: Self.autoApplyMaxWorkoutAge, calendar: calendar).count > 1
         let monthCount: Int
         if intent == .passiveResume {
-            monthCount = wakeCycleCrossesMonth ? 2 : 1
+            monthCount = (wakeCycleCrossesMonth || autoApplyNeedsPriorMonth) ? 2 : 1
         } else {
             monthCount = Self.recentChartMonthCount
         }
@@ -1658,6 +2005,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             await reapplyActivityReadinessAfterWorkouts(date: date, calendar: calendar)
             publishWatchSnapshot()
             updateHealthDataNotice()
+            // Workouts + dashboard have both committed here, so resting-HR / readiness
+            // inputs are current for the estimator.
+            await autoApplyPredictedEffortIfNeeded(monthKeys: Array(keys))
         } catch {
             handleRefreshError(error)
         }
@@ -1721,6 +2071,11 @@ final class HealthKitWorkoutStore: ObservableObject {
             await reapplyActivityReadinessAfterWorkouts(date: refreshDate, calendar: calendar)
             publishWatchSnapshot()
             updateHealthDataNotice()
+            // Auto-apply for the refreshed month on every path (dashboard refresh AND the
+            // Workouts-tab / warm-resume `refreshWorkoutMonth`, which passes
+            // `updatesHealthSummary == false`). The 1-48h window self-limits candidates to
+            // recent workouts, so browsing an older month simply finds none.
+            await autoApplyPredictedEffortIfNeeded(monthKeys: [key])
         } catch {
             handleRefreshError(error)
         }
@@ -2168,10 +2523,21 @@ final class HealthKitWorkoutStore: ObservableObject {
         saveHealthWidgetSnapshot()
     }
 
-    private func markRefreshSucceeded(date: Date, refreshedVitals: Bool, publishesWatch: Bool = true) {
-        lastSuccessfulRefreshDate = date
-        HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(date)
+    /// Internal (not private) so tests can assert the TTL gating below without
+    /// a HealthKit round trip.
+    func markRefreshSucceeded(date: Date, refreshedVitals: Bool, publishesWatch: Bool = true) {
+        // `lastSuccessfulRefreshDate` arms the 5-minute dashboard-freshness TTL
+        // (`syncWhenAppBecomesActive`, and the cold-start path that restores the
+        // persisted value), so only refreshes that actually refetched the
+        // dashboard vitals may set it. Lazy history loads (month paging, older
+        // ring months), single-metric refreshes, and workout-only warm resumes
+        // must not re-arm it — otherwise paging history or resuming repeatedly
+        // keeps the TTL fresh and the vitals refresh is skipped indefinitely.
+        // Those paths keep their own throttling (`lastAppEntrySyncDate`,
+        // `loadedMonthKeys`/`loadingMonthKeys`), which this does not feed.
         if refreshedVitals {
+            lastSuccessfulRefreshDate = date
+            HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(date)
             lastVitalsRefreshDate = date
         }
         // The full-refresh paths suppress this and publish once after the
@@ -2278,7 +2644,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         permissionSelection: BodyHealthPermissionSelection,
         healthDataSourceSelection: BodyHealthDataSourceSelection,
         combinesHealthDataSourcesByName: Bool,
-        idealSleepDuration: TimeInterval
+        idealSleepDuration: TimeInterval,
+        showsSubMinuteAwakeStages: Bool,
+        showsLeadingTrailingAwakeStages: Bool
     ) -> String {
         let permissions = readinessInputPermissions
             .sorted { $0.rawValue < $1.rawValue }
@@ -2292,7 +2660,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         // change makes the frozen morning records stale. Encode the effective
         // (clamped) goal minutes so changing it drops and recomputes them.
         let sleepGoalMinutes = Int((idealSleepDuration / 60).rounded())
-        return "p[\(permissions)];s[\(sources)];c[\(combinesHealthDataSourcesByName ? "1" : "0")];g[\(sleepGoalMinutes)]"
+        // Sleep-stage display prefs change the parsed segments, and thus the
+        // readiness sleep-continuity input (awake duration / sleep window), so
+        // toggling either must drop and recompute the frozen morning records too.
+        let awakeFlags = "a[\(showsSubMinuteAwakeStages ? "1" : "0")];l[\(showsLeadingTrailingAwakeStages ? "1" : "0")]"
+        return "p[\(permissions)];s[\(sources)];c[\(combinesHealthDataSourcesByName ? "1" : "0")];g[\(sleepGoalMinutes)];\(awakeFlags)"
     }
 
     private func readinessRecordContextSignature() -> String {
@@ -2300,7 +2672,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             permissionSelection: permissionSelection,
             healthDataSourceSelection: healthDataSourceSelection,
             combinesHealthDataSourcesByName: combinesHealthDataSourcesByName,
-            idealSleepDuration: Self.storedIdealSleepDuration()
+            idealSleepDuration: Self.storedIdealSleepDuration(),
+            showsSubMinuteAwakeStages: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
+            showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
         )
     }
 
@@ -2367,7 +2741,42 @@ final class HealthKitWorkoutStore: ObservableObject {
         monthSnapshots[BodyWorkoutMonthKey(month: emptySnapshot.month, year: emptySnapshot.year)] = emptySnapshot
         loadedMonthKeys.removeAll()
         monthLoadOrder.removeAll()
-        BodyWidgetReloadCoalescer.shared.requestReload()
+
+        // The in-memory clear above leaves the App Group JSON untouched, but the
+        // widget re-reads it via `loadCurrentOrPreviousIfEmpty()` and the app
+        // re-reads it on cold start — so rewrite both persisted month files
+        // emptied too. This clears the workout data at rest on opt-out instead
+        // of leaving it for the widget to re-render, mirroring
+        // `sanitizeWorkoutMetricsSnapshots`. Preserving each file's month
+        // identity and `generatedAt` keeps the rewrite change-deduped, so the
+        // repeated clears on refresh paths while the permission stays off don't
+        // rewrite disk or reload widgets again. Route through the persist queue
+        // so this load-modify-write can't interleave with a concurrent refresh
+        // save, and request the widget reload only after the wipe lands
+        // (a pre-wipe reload would rebuild the widget from the un-wiped file).
+        Self.snapshotPersistQueue.async {
+            func emptied(_ snapshot: WorkoutMonthSnapshot) -> WorkoutMonthSnapshot {
+                WorkoutMonthSnapshot.make(
+                    month: snapshot.month,
+                    year: snapshot.year,
+                    workouts: [],
+                    calendar: calendar,
+                    generatedAt: snapshot.generatedAt
+                )
+            }
+            var widgetReloadNeeded = false
+            if let current = WorkoutSnapshotStore.load(),
+               WorkoutSnapshotStore.save(emptied(current)) {
+                widgetReloadNeeded = true
+            }
+            if let previous = WorkoutSnapshotStore.loadPrevious(),
+               WorkoutSnapshotStore.savePrevious(emptied(previous)) {
+                widgetReloadNeeded = true
+            }
+            if widgetReloadNeeded {
+                Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
+            }
+        }
     }
 
     /// Strips the Workout Metrics detail fields (VO₂max, power, both cadences, swim
@@ -2378,19 +2787,28 @@ final class HealthKitWorkoutStore: ObservableObject {
     private func sanitizeWorkoutMetricsSnapshots(calendar: Calendar = .bodyGregorian) {
         snapshot = snapshot.removingWorkoutMetrics(calendar: calendar)
         monthSnapshots = monthSnapshots.mapValues { $0.removingWorkoutMetrics(calendar: calendar) }
-        BodyWidgetReloadCoalescer.shared.requestReload()
 
         // The in-memory strip above leaves the App Group JSON untouched, but the
         // widget reads it via `loadCurrentOrPreviousIfEmpty()` and the app
         // re-reads it on cold start — so rewrite both persisted month files
         // stripped too. This clears the data at rest on opt-out instead of
         // waiting for the next refresh to overwrite the current-month file.
-        Task.detached(priority: .utility) {
-            if let current = WorkoutSnapshotStore.load() {
-                WorkoutSnapshotStore.save(current.removingWorkoutMetrics(calendar: calendar))
+        // Route through the persist queue so this load-modify-write can't
+        // interleave with a concurrent refresh save and resurrect the stripped
+        // metrics, and request the widget reload only after the rewrite lands
+        // (otherwise the widget can rebuild from the un-stripped file first).
+        Self.snapshotPersistQueue.async {
+            var widgetReloadNeeded = false
+            if let current = WorkoutSnapshotStore.load(),
+               WorkoutSnapshotStore.save(current.removingWorkoutMetrics(calendar: calendar)) {
+                widgetReloadNeeded = true
             }
-            if let previous = WorkoutSnapshotStore.loadPrevious() {
-                WorkoutSnapshotStore.savePrevious(previous.removingWorkoutMetrics(calendar: calendar))
+            if let previous = WorkoutSnapshotStore.loadPrevious(),
+               WorkoutSnapshotStore.savePrevious(previous.removingWorkoutMetrics(calendar: calendar)) {
+                widgetReloadNeeded = true
+            }
+            if widgetReloadNeeded {
+                Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
             }
         }
     }
@@ -2411,16 +2829,19 @@ final class HealthKitWorkoutStore: ObservableObject {
             return monthSnapshots[previousKey]
         }()
 
-        Task.detached(priority: .utility) {
+        // Route through the shared persist queue (not a bare `Task.detached`) so
+        // two successive refreshes' month saves keep FIFO enqueue order — an
+        // earlier save must never land after a later one and stale the widget.
+        Self.snapshotPersistQueue.async {
             var widgetReloadNeeded = WorkoutSnapshotStore.save(snapshotToSave)
             if let previousSnapshotToSave,
                WorkoutSnapshotStore.savePrevious(previousSnapshotToSave) {
                 widgetReloadNeeded = true
             }
             if widgetReloadNeeded {
-                await BodyWidgetReloadCoalescer.shared.requestReload()
+                Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
             }
-            await self.refreshCacheDiskSize()
+            Task { @MainActor in await self.refreshCacheDiskSize() }
         }
     }
 

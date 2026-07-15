@@ -26,6 +26,7 @@ extension HealthKitFetchEngine {
         let predicate = combinedPredicate(startDate: startDate, endDate: endDate, sourceKind: .sleep)
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
+        let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
 
         let summary: SleepSummary? = await withCheckedContinuation { continuation in
             let query = HKSampleQuery(
@@ -44,7 +45,8 @@ extension HealthKitFetchEngine {
                     Self.sleepSummary(
                         from: daySamples,
                         date: day,
-                        showsSubMinuteAwakeStages: showsSubMinuteAwakeStages
+                        showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
+                        showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
                     )
                 }
 
@@ -69,11 +71,16 @@ extension HealthKitFetchEngine {
         return summary
     }
 
+    /// Returns `nil` when the sleep query itself fails (device locked, store
+    /// unavailable) rather than genuinely returning no nights, so the assembly
+    /// layer keeps the cached sleep history — which feeds readiness — instead of
+    /// blanking it. Permission-off and a missing sample type still return an
+    /// (intentionally cleared) empty snapshot.
     func fetchDailySleepHistory(
         calendar: Calendar,
         sourceOption: BodyHealthDataSourceOption? = nil,
         hydrateVitals: Bool = true
-    ) async -> SleepHistorySnapshot {
+    ) async -> SleepHistorySnapshot? {
         guard permissionSelection.includes(.sleep) else {
             return .empty
         }
@@ -91,14 +98,21 @@ extension HealthKitFetchEngine {
         )
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
+        let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
 
-        let days: [SleepDaySummary] = await withCheckedContinuation { continuation in
+        let days: [SleepDaySummary]? = await withCheckedContinuation { continuation in
             let query = HKSampleQuery(
                 sampleType: sleepType,
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [sort]
-            ) { _, samples, _ in
+            ) { _, samples, error in
+                guard let samples else {
+                    Self.logTrendQueryFailure("sleepAnalysis", error: error)
+                    continuation.resume(returning: nil)
+                    return
+                }
+
                 let sleepSamples = (samples as? [HKCategorySample] ?? [])
                     .filter(Self.isSleepTimelineSample)
                 let samplesByDay = Dictionary(grouping: sleepSamples) {
@@ -109,7 +123,8 @@ extension HealthKitFetchEngine {
                     guard let summary = Self.sleepSummary(
                         from: daySamples,
                         date: day,
-                        showsSubMinuteAwakeStages: showsSubMinuteAwakeStages
+                        showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
+                        showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
                     ) else {
                         return nil
                     }
@@ -122,6 +137,10 @@ extension HealthKitFetchEngine {
             }
 
             healthStore.execute(query)
+        }
+
+        guard let days else {
+            return nil
         }
 
         guard hydrateVitals else {

@@ -343,14 +343,51 @@ struct BodySleepStageOptimalRangeChart: View {
             ForEach(SleepStage.allCases) { stage in
                 row(for: stage)
             }
+            Divider()
+            restorativeRow
             legend
+        }
+    }
+
+    private var restorativeRow: some View {
+        let restorativeDuration = snapshot.restorativeDuration
+        let fraction = totalDuration > 0 ? restorativeDuration / totalDuration : 0
+
+        return HStack(spacing: columnSpacing) {
+            Text(String(localized: "sleep.bar.restorative", defaultValue: "Restorative"))
+                .font(.system(.callout, design: .rounded))
+                .fontWeight(.bold)
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: stageLabelWidth, alignment: .leading)
+
+            track(fraction: fraction, color: restorativeChartColor, range: restorativeOptimalRange)
+                .frame(maxWidth: .infinity)
+                .frame(height: trackHeight)
+
+            Text("\(Int((fraction * 100).rounded()))%")
+                .font(.system(.callout, design: .rounded))
+                .fontWeight(.bold)
+                .foregroundColor(.primary)
+                .frame(width: percentColumnWidth, alignment: .trailing)
+
+            Text(BodyValueFormat.durationText(for: restorativeDuration))
+                .font(.system(.callout, design: .rounded))
+                .fontWeight(.bold)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(width: durationColumnWidth, alignment: .trailing)
         }
     }
 
     private var header: some View {
         HStack(spacing: columnSpacing) {
             Text("Stage")
-                .frame(width: stageLabelWidth, alignment: .leading)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: stageLabelWidth, alignment: .leading)
             Spacer(minLength: 0)
             Text("Pct.")
                 .frame(width: percentColumnWidth, alignment: .trailing)
@@ -367,13 +404,15 @@ struct BodySleepStageOptimalRangeChart: View {
         let fraction = totalDuration > 0 ? stageDuration / totalDuration : 0
 
         return HStack(spacing: columnSpacing) {
-            Text(stage.displayName)
+            Text(stage.barChartLabel)
                 .font(.system(.callout, design: .rounded))
                 .fontWeight(.semibold)
                 .foregroundColor(.primary)
-                .frame(width: stageLabelWidth, alignment: .leading)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: stageLabelWidth, alignment: .leading)
 
-            track(for: stage, fraction: fraction)
+            track(fraction: fraction, color: stage.bodyChartColor, range: stage.optimalPercentageRange)
                 .frame(maxWidth: .infinity)
                 .frame(height: trackHeight)
 
@@ -393,10 +432,8 @@ struct BodySleepStageOptimalRangeChart: View {
         }
     }
 
-    private func track(for stage: SleepStage, fraction: Double) -> some View {
-        let range = stage.optimalPercentageRange
-
-        return GeometryReader { proxy in
+    private func track(fraction: Double, color: Color, range: ClosedRange<Double>) -> some View {
+        GeometryReader { proxy in
             let width = proxy.size.width
             let bandWidth = max(0, CGFloat(range.upperBound - range.lowerBound) * width)
             let bandOffset = CGFloat(range.lowerBound) * width
@@ -408,7 +445,7 @@ struct BodySleepStageOptimalRangeChart: View {
                     .frame(height: barHeight)
 
                 Capsule()
-                    .fill(stage.bodyChartColor)
+                    .fill(color)
                     .frame(width: fillWidth, height: barHeight)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: fraction)
 
@@ -419,6 +456,16 @@ struct BodySleepStageOptimalRangeChart: View {
             .frame(height: trackHeight)
         }
     }
+
+    /// Deep + REM combined. Its optimal band is the sum of the Deep and REM
+    /// reference ranges (≈ 33–48% of time in bed).
+    private var restorativeOptimalRange: ClosedRange<Double> {
+        let deep = SleepStage.deep.optimalPercentageRange
+        let rem = SleepStage.rem.optimalPercentageRange
+        return (deep.lowerBound + rem.lowerBound)...(deep.upperBound + rem.upperBound)
+    }
+
+    private let restorativeChartColor = Color(red: 0.45, green: 0.42, blue: 0.95)
 
     private var optimalBand: some View {
         RoundedRectangle(cornerRadius: 4, style: .continuous)

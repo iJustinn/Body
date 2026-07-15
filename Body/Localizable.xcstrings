@@ -1,6 +1,166 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Auto-Apply Needs Permission" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto-Apply Needs Permission"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动填写需要权限"
+          }
+        }
+      }
+    },
+    "Auto-Apply needs permission to update Workouts in Apple Health. Allow it in Settings › Health › Data Access & Devices › Body, then switch Auto-Apply back on." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto-Apply needs permission to update Workouts in Apple Health. Allow it in Settings › Health › Data Access & Devices › Body, then switch Auto-Apply back on."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动填写需要更新运动数据的权限。请前往设置 › 健康 › 数据访问与设备 › Body 中允许后，再重新开启自动填写。"
+          }
+        }
+      }
+    },
+    "About an hour after a workout ends. Body waits so a rating from your Apple Watch has time to sync first." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About an hour after a workout ends. Body waits so a rating from your Apple Watch has time to sync first."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运动结束约一小时后。Body 会先等待，好让 Apple Watch 的评分有时间先同步过来。"
+          }
+        }
+      }
+    },
+    "Only the past 2 days. Body fills workouts that ended within the last 48 hours and leaves older ones alone." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only the past 2 days. Body fills workouts that ended within the last 48 hours and leaves older ones alone."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅限最近两天。Body 只填写在过去 48 小时内结束的运动，更早的运动不会改动。"
+          }
+        }
+      }
+    },
+    "When on, Body fills in effort for you, but only when it's confident. Some workouts get filled and others are left for you to rate:" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When on, Body fills in effort for you, but only when it's confident. Some workouts get filled and others are left for you to rate:"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启后，Body 会替你填写强度，但只在足够有把握时才填写。有些运动会被自动填写，有些则留给你自己评分："
+          }
+        }
+      }
+    },
+    "Unrated only. Body never changes an effort you or your Apple Watch already set." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unrated only. Body never changes an effort you or your Apple Watch already set."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅限未评分：Body 绝不会改动你或你的 Apple Watch 已设置的强度。"
+          }
+        }
+      }
+    },
+    "Enough data. Only workouts with heart-rate data get a prediction; sessions without heart rate stay blank for you to rate." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enough data. Only workouts with heart-rate data get a prediction; sessions without heart rate stay blank for you to rate."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "数据充足时：只有包含心率数据的运动才会获得预测；没有心率的运动会留空，交由你评分。"
+          }
+        }
+      }
+    },
+    "Auto-Apply Effort" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto-Apply Effort"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动填写强度"
+          }
+        }
+      }
+    },
+    "Save predictions to unrated workouts" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save predictions to unrated workouts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为未评分的运动保存预测强度"
+          }
+        }
+      }
+    },
+    "Re-rate any workout anytime to override Body's value." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Re-rate any workout anytime to override Body's value."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你可以随时重新为任何运动评分，以覆盖 Body 填写的数值。"
+          }
+        }
+      }
+    },
     "" : {
 
     },
@@ -1390,7 +1550,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body 未能将强度评分保存到健康 App。请前往设置 › 健康 › 数据访问与设备，确认已允许 Body 更新体能训练数据。"
+            "value" : "Body 未能将强度评分保存到健康 App。请前往设置 › 健康 › 数据访问与设备，确认已允许 Body 更新运动数据。"
           }
         }
       }
@@ -1693,7 +1853,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body 为每次体能训练预测的强度"
+            "value" : "Body 为每次运动预测的强度"
           }
         }
       }
@@ -3020,7 +3180,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "筛选体能训练"
+            "value" : "筛选运动"
           }
         }
       }
@@ -3409,6 +3569,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "在睡眠阶段中包含极短的清醒片段"
+          }
+        }
+      }
+    },
+    "Show Awake at Start & End" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Awake at Start & End"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示开始和结束时的清醒片段"
           }
         }
       }
@@ -4291,7 +4468,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "这一天没有睡眠或体能训练心率数据"
+            "value" : "这一天没有睡眠或运动心率数据"
           }
         }
       }
@@ -4389,7 +4566,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "本月没有体能训练类型"
+            "value" : "本月没有运动类型"
           }
         }
       }
@@ -4405,7 +4582,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%2$lld年%1$@没有体能训练"
+            "value" : "%2$lld年%1$@没有运动"
           }
         }
       }
@@ -4421,7 +4598,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "没有符合所选条件的体能训练。"
+            "value" : "没有符合所选条件的运动。"
           }
         }
       }
@@ -4437,7 +4614,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "未找到体能训练"
+            "value" : "未找到运动"
           }
         }
       }
@@ -5582,7 +5759,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜索体能训练"
+            "value" : "搜索运动"
           }
         }
       }
@@ -5681,7 +5858,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "选择要显示的体能训练类型"
+            "value" : "选择要显示的运动类型"
           }
         }
       }
@@ -5816,6 +5993,23 @@
         }
       }
     },
+    "Include leading and trailing Awake in sleep stages" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Include leading and trailing Awake in sleep stages"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在睡眠阶段中包含开头和结尾的清醒片段"
+          }
+        }
+      }
+    },
     "Show Background" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5893,7 +6087,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "显示在主页、体能训练和设置中"
+            "value" : "显示在主页、运动和设置中"
           }
         }
       }
@@ -5941,7 +6135,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "显示体能训练详情"
+            "value" : "显示运动详情"
           }
         }
       }
@@ -6209,7 +6403,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "为体能训练排序"
+            "value" : "为运动排序"
           }
         }
       }
@@ -6577,7 +6771,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在健康 App 中找不到该体能训练。"
+            "value" : "在健康 App 中找不到该运动。"
           }
         }
       }
@@ -6810,7 +7004,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "请尝试在筛选中选择更多体能训练类型"
+            "value" : "请尝试在筛选中选择更多运动类型"
           }
         }
       }
@@ -6946,7 +7140,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "使用 Body 小组件，在主屏幕上随时了解体能训练和指标动态。"
+            "value" : "使用 Body 小组件，在主屏幕上随时了解运动和指标动态。"
           }
         }
       }
@@ -7114,7 +7308,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "开启后，Body 会根据可用的体能训练、心率、近期历史和恢复状态数据，为每次体能训练估算 1 到 10 的强度。该建议会出现在体能训练详情中，并预填尚未评分的强度；你保存的评分始终优先，未修改就采纳的建议不会计入未来校准。"
+            "value" : "开启后，Body 会根据可用的运动、心率、近期历史和恢复状态数据，为每次运动估算 1 到 10 的强度。该建议会出现在运动详情中，并预填尚未评分的强度；你保存的评分始终优先，未修改就采纳的建议不会计入未来校准。"
           }
         }
       }
@@ -7148,7 +7342,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "次体能训练"
+            "value" : "次运动"
           }
         }
       }
@@ -7164,7 +7358,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "体能训练强度"
+            "value" : "运动强度"
           }
         }
       }
@@ -7181,7 +7375,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "此设备不支持体能训练强度。"
+            "value" : "此设备不支持运动强度。"
           }
         }
       }
@@ -7232,7 +7426,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "体能训练类型"
+            "value" : "运动类型"
           }
         }
       }
@@ -7248,7 +7442,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "体能训练类型"
+            "value" : "运动类型"
           }
         }
       }
@@ -7264,7 +7458,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "次体能训练"
+            "value" : "次运动"
           }
         }
       }
@@ -7281,7 +7475,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "体能训练"
+            "value" : "运动"
           }
         }
       }
@@ -7620,6 +7814,119 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "区间"
+          }
+        }
+      }
+    },
+    "Restorative" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restorative"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复性睡眠"
+          }
+        }
+      }
+    },
+    "About Restorative Sleep" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Restorative Sleep"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于恢复性睡眠"
+          }
+        }
+      }
+    },
+    "Restorative %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restorative %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复性睡眠 %@"
+          }
+        }
+      }
+    },
+    "Restorative %lld percent, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restorative %1$lld percent, %2$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复性睡眠 百分之 %1$lld，%2$@"
+          }
+        }
+      }
+    },
+    "Restorative sleep is your Deep and REM time combined, the portion of the night that does the most to repair the body and consolidate memory. Deep sleep drives physical recovery while REM supports learning and mood. The total below the stage breakdown sums both stages and shows them as a share of your time in bed, so you can see how much of the night went toward genuine recovery." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restorative sleep is your Deep and REM time combined, the portion of the night that does the most to repair the body and consolidate memory. Deep sleep drives physical recovery while REM supports learning and mood. The total below the stage breakdown sums both stages and shows them as a share of your time in bed, so you can see how much of the night went toward genuine recovery."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复性睡眠是你的深度睡眠和快速眼动睡眠时间的总和，是夜间对身体修复和记忆巩固最有帮助的部分。深度睡眠促进身体恢复，而快速眼动睡眠有助于学习和情绪调节。睡眠阶段明细下方的总计将这两个阶段相加，并显示它们在你卧床时间中所占的比例，让你了解夜间有多少时间真正用于恢复。"
+          }
+        }
+      }
+    },
+    "sleep.bar.restorative" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restorative"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复"
+          }
+        }
+      }
+    },
+    "Sleep stage breakdown. %@. %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep stage breakdown. %1$@. %2$@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠阶段细分：%1$@。%2$@。"
           }
         }
       }

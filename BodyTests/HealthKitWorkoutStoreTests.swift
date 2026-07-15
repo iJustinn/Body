@@ -514,6 +514,44 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertTrue(store.loadingActivityRingMonthKeys.isEmpty)
     }
 
+    /// A lazy-load-style success (`refreshedVitals: false` — month paging, older
+    /// ring history, single-metric or workout-only refreshes) must not arm the
+    /// dashboard-freshness TTL, in memory or in the persisted timestamp;
+    /// otherwise paging history keeps the TTL fresh and warm resumes skip the
+    /// vitals refresh indefinitely. Only a vitals-refreshing success arms it.
+    @MainActor
+    func testMarkRefreshSucceededOnlyArmsFreshnessTTLWhenVitalsRefreshed() throws {
+        let preservedRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
+        HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
+        defer {
+            HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
+            if let preservedRefreshDate {
+                HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(preservedRefreshDate)
+            }
+        }
+
+        let store = HealthKitWorkoutStore(
+            initialSnapshot: WorkoutMonthSnapshot.make(
+                month: 5,
+                year: 2026,
+                workouts: [],
+                calendar: .bodyGregorian
+            ),
+            initialHealthDashboardSnapshot: .empty
+        )
+        XCTAssertNil(store.lastSuccessfulRefreshDate)
+
+        let lazyLoadDate = Date(timeIntervalSince1970: 1_700_000_000)
+        store.markRefreshSucceeded(date: lazyLoadDate, refreshedVitals: false, publishesWatch: false)
+        XCTAssertNil(store.lastSuccessfulRefreshDate)
+        XCTAssertNil(HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate())
+
+        let vitalsRefreshDate = Date(timeIntervalSince1970: 1_700_000_100)
+        store.markRefreshSucceeded(date: vitalsRefreshDate, refreshedVitals: true, publishesWatch: false)
+        XCTAssertEqual(store.lastSuccessfulRefreshDate, vitalsRefreshDate)
+        XCTAssertEqual(HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate(), vitalsRefreshDate)
+    }
+
     @MainActor
     func testWorkoutStoreInitStripsStaleLoadedMonthsOlderThanEarliestData() throws {
         let calendar = Calendar.bodyGregorian
@@ -711,11 +749,100 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(segments[1].endDate, unspecifiedEnd)
     }
 
-    func testIntradayFetchStartUsesWindowStartOrNextCachedSample() throws {
+    func testSleepStageSegmentsTrimLeadingAndTrailingAwakeWhenEnabled() throws {
+        let calendar = Calendar.bodyGregorian
+        let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))
+        let leadingAwakeStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 0)))
+        let coreStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 1)))
+        let coreEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 2)))
+        let interiorAwakeEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 2, minute: 30)))
+        let remEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 4)))
+        let trailingAwakeEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 5)))
+
+        let samples = [
+            HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.awake.rawValue, start: leadingAwakeStart, end: coreStart),
+            HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.asleepCore.rawValue, start: coreStart, end: coreEnd),
+            HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.awake.rawValue, start: coreEnd, end: interiorAwakeEnd),
+            HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.asleepREM.rawValue, start: interiorAwakeEnd, end: remEnd),
+            HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.awake.rawValue, start: remEnd, end: trailingAwakeEnd)
+        ]
+
+        // Default keeps the leading/trailing awake blocks.
+        let untrimmed = HealthKitFetchEngine.sleepStageSegments(from: samples)
+        XCTAssertEqual(untrimmed.map(\.stage), [SleepStage.awake, .core, .awake, .rem, .awake])
+
+        // Enabled: leading + trailing awake dropped, interior awake preserved.
+        let trimmed = HealthKitFetchEngine.sleepStageSegments(from: samples, showsLeadingTrailingAwakeStages: false)
+        XCTAssertEqual(trimmed.map(\.stage), [SleepStage.core, .awake, .rem])
+        XCTAssertEqual(trimmed.first?.startDate, coreStart)
+        XCTAssertEqual(trimmed.last?.endDate, remEnd)
+    }
+
+    func testSleepStageSegmentsTrimClampsOverlappingTrailingAwake() throws {
+        let calendar = Calendar.bodyGregorian
+        let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))
+        let coreStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 13, hour: 1)))
+        let coreEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 13, hour: 5)))
+        // Awake starts before the sleep window ends but runs past it, so it is not
+        // the last segment by start date — the naive drop-last-run would miss it.
+        let awakeStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 13, hour: 4, minute: 30)))
+        let awakeEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 13, hour: 6)))
+
+        let samples = [
+            HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.asleepCore.rawValue, start: coreStart, end: coreEnd),
+            HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.awake.rawValue, start: awakeStart, end: awakeEnd)
+        ]
+
+        let trimmed = HealthKitFetchEngine.sleepStageSegments(from: samples, showsLeadingTrailingAwakeStages: false)
+        // The overlapping awake is clamped to the sleep window end, so the timeline
+        // never extends past real sleep.
+        XCTAssertEqual(trimmed.last?.stage, .awake)
+        XCTAssertEqual(trimmed.last?.endDate, coreEnd)
+        XCTAssertEqual(trimmed.map(\.endDate).max(), coreEnd)
+    }
+
+    func testSleepStageSegmentsTrimReturnsEmptyForAwakeOnlyNight() throws {
+        let calendar = Calendar.bodyGregorian
+        let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))
+        let awakeStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 14, hour: 2)))
+        let awakeEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 14, hour: 3)))
+        let samples = [
+            HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.awake.rawValue, start: awakeStart, end: awakeEnd)
+        ]
+
+        XCTAssertTrue(HealthKitFetchEngine.sleepStageSegments(from: samples, showsLeadingTrailingAwakeStages: false).isEmpty)
+        // Default (shows leading/trailing awake) leaves the awake segment untouched.
+        XCTAssertEqual(HealthKitFetchEngine.sleepStageSegments(from: samples).map(\.stage), [SleepStage.awake])
+    }
+
+    func testReadinessRecordSignatureChangesWithSleepStagePreferences() {
+        func signature(showsSubMinuteAwake: Bool, showsLeadingTrailingAwake: Bool) -> String {
+            HealthKitWorkoutStore.readinessRecordContextSignature(
+                permissionSelection: .defaultValue,
+                healthDataSourceSelection: .defaultValue,
+                combinesHealthDataSourcesByName: false,
+                idealSleepDuration: 8 * 60 * 60,
+                showsSubMinuteAwakeStages: showsSubMinuteAwake,
+                showsLeadingTrailingAwakeStages: showsLeadingTrailingAwake
+            )
+        }
+
+        let base = signature(showsSubMinuteAwake: true, showsLeadingTrailingAwake: true)
+        // Toggling either sleep-stage parser preference must change the signature so
+        // frozen morning readiness records are invalidated and recomputed.
+        XCTAssertNotEqual(base, signature(showsSubMinuteAwake: true, showsLeadingTrailingAwake: false))
+        XCTAssertNotEqual(base, signature(showsSubMinuteAwake: false, showsLeadingTrailingAwake: true))
+    }
+
+    func testIntradayFetchStartBacksUpByOverlapWindow() throws {
         let calendar = Calendar.bodyGregorian
         let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
-        let cachedSampleDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 3, hour: 7)))
-        let staleSampleDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 28, hour: 7)))
+        // Newest cached point is well inside the window; backing up 48h stays
+        // inside the window, so the overlap anchor wins.
+        let cachedSampleDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 5, hour: 7)))
+        // Newest cached point is close to the window start; backing up 48h would
+        // fall before it, so the fetch clamps to windowStart.
+        let nearStartSampleDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 2, hour: 7)))
 
         XCTAssertEqual(
             HealthKitFetchEngine.incrementalFetchStart(after: .empty, windowStart: windowStart),
@@ -726,22 +853,24 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
                 after: HealthTrendSeries(points: [HealthTrendDataPoint(date: cachedSampleDate, value: 61)]),
                 windowStart: windowStart
             ),
-            cachedSampleDate.addingTimeInterval(0.001)
+            cachedSampleDate.addingTimeInterval(-HealthKitFetchEngine.incrementalOverlapWindow)
         )
         XCTAssertEqual(
             HealthKitFetchEngine.incrementalFetchStart(
-                after: HealthTrendSeries(points: [HealthTrendDataPoint(date: staleSampleDate, value: 61)]),
+                after: HealthTrendSeries(points: [HealthTrendDataPoint(date: nearStartSampleDate, value: 61)]),
                 windowStart: windowStart
             ),
             windowStart
         )
     }
 
-    func testMergeIntradaySamplesDropsExpiredCacheAndAppendsIncomingSamples() throws {
+    func testMergeIntradaySamplesDropsExpiredCacheAndReplacesRefetchWindow() throws {
         let calendar = Calendar.bodyGregorian
         let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
         let expiredDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 30, hour: 23)))
         let keptDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1, hour: 1)))
+        // Refetch window opens at day 2; the incoming series is authoritative from there.
+        let refetchStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 2)))
         let incomingDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 2, hour: 1)))
 
         let merged = HealthKitFetchEngine.mergeIntradaySamples(
@@ -752,11 +881,165 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
             incoming: HealthTrendSeries(points: [
                 HealthTrendDataPoint(date: incomingDate, value: 62)
             ]),
-            windowStart: windowStart
+            windowStart: windowStart,
+            refetchStart: refetchStart
         )
 
         XCTAssertEqual(merged.points.map(\.date), [keptDate, incomingDate])
         XCTAssertEqual(merged.points.map(\.value), [61, 62])
+    }
+
+    func testMergeIntradaySamplesReconcilesBackfilledSampleInsideOverlap() throws {
+        // Regression for H1: a sample timestamped earlier than the newest cached
+        // point arrives late (Watch batch sync / third-party backfill). Because
+        // the refetch window covers its timestamp, the authoritative `incoming`
+        // series carries both the backfilled point and the previously-cached one,
+        // and the merge yields them in order with no duplication.
+        let calendar = Calendar.bodyGregorian
+        let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let refetchStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 4, hour: 6)))
+        let cachedNewest = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 5, hour: 8)))
+        let backfilledDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 5, hour: 7)))
+
+        let merged = HealthKitFetchEngine.mergeIntradaySamples(
+            existing: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: cachedNewest, value: 70)
+            ]),
+            // Refetch returns the whole overlap window: the late backfill plus the
+            // already-cached point (HealthKit hands back everything it now holds).
+            incoming: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: backfilledDate, value: 55),
+                HealthTrendDataPoint(date: cachedNewest, value: 70)
+            ]),
+            windowStart: windowStart,
+            refetchStart: refetchStart
+        )
+
+        XCTAssertEqual(merged.points.map(\.date), [backfilledDate, cachedNewest])
+        XCTAssertEqual(merged.points.map(\.value), [55, 70])
+    }
+
+    // MARK: - M7: HealthKit query failure vs empty result
+
+    func testResolvedTrendSeriesKeepsCacheWhenFetchFailed() throws {
+        // A `nil` fetched value models a failed HealthKit query (device locked,
+        // store unavailable, XPC drop) — the cached series must survive rather
+        // than being blanked.
+        let cached = HealthTrendSeries(points: [
+            HealthTrendDataPoint(
+                date: try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 5, day: 5))),
+                value: 61
+            )
+        ])
+
+        XCTAssertEqual(
+            HealthKitFetchEngine.resolvedTrendSeries(fetched: nil, cached: cached),
+            cached
+        )
+    }
+
+    func testResolvedTrendSeriesReplacesCacheOnSuccessEvenWhenEmpty() throws {
+        // A non-nil fetched value replaces the cache — including a genuinely
+        // empty successful result and the intentionally empty series produced
+        // when a permission is toggled off (both are "authoritative empty",
+        // distinct from a failed query's `nil`).
+        let cached = HealthTrendSeries(points: [
+            HealthTrendDataPoint(
+                date: try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 5, day: 5))),
+                value: 61
+            )
+        ])
+        let fresh = HealthTrendSeries(points: [
+            HealthTrendDataPoint(
+                date: try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 5, day: 6))),
+                value: 64
+            )
+        ])
+
+        XCTAssertEqual(
+            HealthKitFetchEngine.resolvedTrendSeries(fetched: fresh, cached: cached),
+            fresh
+        )
+        // Permission-off / authoritative-empty clears the cache.
+        XCTAssertEqual(
+            HealthKitFetchEngine.resolvedTrendSeries(fetched: .empty, cached: cached),
+            .empty
+        )
+    }
+
+    func testResolvedTrendSeriesAppliesToSleepHistorySnapshot() throws {
+        // The same merge protects the sleep history that feeds readiness: a
+        // failed sleep query keeps the cached nights; a successful empty result
+        // clears them.
+        let cached = SleepHistorySnapshot(days: [
+            SleepDaySummary(
+                date: try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 5, day: 5))),
+                summary: SleepSummary(duration: 7 * 3_600)
+            )
+        ])
+
+        XCTAssertEqual(
+            HealthKitFetchEngine.resolvedTrendSeries(fetched: SleepHistorySnapshot?.none, cached: cached),
+            cached
+        )
+        XCTAssertEqual(
+            HealthKitFetchEngine.resolvedTrendSeries(fetched: SleepHistorySnapshot.empty, cached: cached),
+            .empty
+        )
+    }
+
+    func testMergeIntradaySamplesRefetchStartNeverPrecedesWindowStart() throws {
+        // When the cache's newest point sits within the overlap window of
+        // windowStart, incrementalFetchStart clamps refetchStart to windowStart,
+        // so the whole cached series is authoritative-replaced by the refetch.
+        let calendar = Calendar.bodyGregorian
+        let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let cachedSampleDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1, hour: 12)))
+        let refetchStart = HealthKitFetchEngine.incrementalFetchStart(
+            after: HealthTrendSeries(points: [HealthTrendDataPoint(date: cachedSampleDate, value: 61)]),
+            windowStart: windowStart
+        )
+        XCTAssertEqual(refetchStart, windowStart)
+
+        let incomingDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1, hour: 12)))
+        let merged = HealthKitFetchEngine.mergeIntradaySamples(
+            existing: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: cachedSampleDate, value: 61)
+            ]),
+            incoming: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: incomingDate, value: 63)
+            ]),
+            windowStart: windowStart,
+            refetchStart: refetchStart
+        )
+
+        // No point kept before refetchStart (== windowStart); refetch replaces all.
+        XCTAssertEqual(merged.points.map(\.date), [incomingDate])
+        XCTAssertEqual(merged.points.map(\.value), [63])
+    }
+
+    func testMergeIntradaySamplesEmptyIncomingDeletesOnlyInsideRefetchWindow() throws {
+        // Empty incoming with a real refetch window means HealthKit now holds
+        // nothing in [refetchStart, end] — the samples there were deleted, so
+        // dropping them is correct. Points before refetchStart are untouched.
+        let calendar = Calendar.bodyGregorian
+        let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let keptDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 2, hour: 1)))
+        let refetchStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 4)))
+        let deletedDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 5, hour: 7)))
+
+        let merged = HealthKitFetchEngine.mergeIntradaySamples(
+            existing: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: keptDate, value: 61),
+                HealthTrendDataPoint(date: deletedDate, value: 62)
+            ]),
+            incoming: .empty,
+            windowStart: windowStart,
+            refetchStart: refetchStart
+        )
+
+        XCTAssertEqual(merged.points.map(\.date), [keptDate])
+        XCTAssertEqual(merged.points.map(\.value), [61])
     }
 
     func testAverageVitalValuesPartitionsSamplesPerNightInterval() throws {
@@ -1082,6 +1365,255 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
             distanceMeters: 1_000,
             sourceName: "Tests"
         )
+    }
+
+    // MARK: - Auto-apply effort eligibility
+
+    func testAutoApplyEligibleWorkoutsRespectsWindowAndExclusions() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let hour: TimeInterval = 3600
+        func workout(id: UUID = UUID(), endedHoursAgo: Double, effort: Double? = nil) -> WorkoutSummary {
+            let start = now.addingTimeInterval(-(endedHoursAgo * hour) - hour)
+            return WorkoutSummary(id: id, type: .running, startDate: start, duration: hour, effortLevel: effort)
+        }
+        let inWindow = workout(endedHoursAgo: 3)            // unrated, 3h old -> eligible
+        let tooNew = workout(endedHoursAgo: 0.5)            // 30 min old -> excluded (< 1h)
+        let tooOld = workout(endedHoursAgo: 60)             // 60h old -> excluded (> 48h)
+        let rated = workout(endedHoursAgo: 3, effort: 6)    // already rated -> excluded
+        let overriddenID = UUID(), appliedID = UUID(), skippedID = UUID()
+        let overridden = workout(id: overriddenID, endedHoursAgo: 3)
+        let applied = workout(id: appliedID, endedHoursAgo: 3)
+        let skipped = workout(id: skippedID, endedHoursAgo: 3)
+
+        let result = HealthKitWorkoutStore.autoApplyEligibleWorkouts(
+            [tooOld, inWindow, tooNew, rated, overridden, applied, skipped],
+            now: now,
+            minAge: hour,
+            maxAge: 48 * hour,
+            overriddenIDs: [overriddenID],
+            appliedIDs: [appliedID],
+            skippedIDs: [skippedID]
+        )
+        XCTAssertEqual(result.map(\.id), [inWindow.id])
+    }
+
+    func testAutoApplyEligibleWorkoutsIncludesWindowBoundariesNewestFirst() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let hour: TimeInterval = 3600
+        func workout(endedHoursAgo: Double) -> WorkoutSummary {
+            WorkoutSummary(
+                type: .running,
+                startDate: now.addingTimeInterval(-(endedHoursAgo * hour) - hour),
+                duration: hour
+            )
+        }
+        let exactlyOneHour = workout(endedHoursAgo: 1)   // age == minAge -> included (inclusive)
+        let middle = workout(endedHoursAgo: 10)
+        let exactly48Hours = workout(endedHoursAgo: 48)  // age == maxAge -> included (inclusive)
+
+        let result = HealthKitWorkoutStore.autoApplyEligibleWorkouts(
+            [exactly48Hours, exactlyOneHour, middle],
+            now: now,
+            minAge: hour,
+            maxAge: 48 * hour,
+            overriddenIDs: [],
+            appliedIDs: [],
+            skippedIDs: []
+        )
+        XCTAssertEqual(result.map(\.id), [exactlyOneHour.id, middle.id, exactly48Hours.id])
+    }
+
+    func testAutoApplyWindowMonthKeysSpansPriorMonthNearBoundary() throws {
+        let calendar = Calendar.bodyGregorian
+
+        // Mid-month: the 48h window stays inside the current month -> current month only.
+        let midMonth = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 7, day: 15, hour: 12)))
+        XCTAssertEqual(
+            HealthKitWorkoutStore.autoApplyWindowMonthKeys(now: midMonth, maxAge: 48 * 3600, calendar: calendar),
+            [BodyWorkoutMonthKey(month: 7, year: 2026)]
+        )
+
+        // Early in the month: now - 48h falls in the prior month -> both months.
+        let earlyMonth = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 9)))
+        XCTAssertEqual(
+            HealthKitWorkoutStore.autoApplyWindowMonthKeys(now: earlyMonth, maxAge: 48 * 3600, calendar: calendar),
+            [BodyWorkoutMonthKey(month: 7, year: 2026), BodyWorkoutMonthKey(month: 6, year: 2026)]
+        )
+
+        // Across a year boundary: January 1 reaches back into the prior December.
+        let newYear = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 1, hour: 6)))
+        XCTAssertEqual(
+            HealthKitWorkoutStore.autoApplyWindowMonthKeys(now: newYear, maxAge: 48 * 3600, calendar: calendar),
+            [BodyWorkoutMonthKey(month: 1, year: 2026), BodyWorkoutMonthKey(month: 12, year: 2025)]
+        )
+    }
+
+    // MARK: - Auto-apply effort write loop
+
+    private enum FakeWriteError: Error { case saveFailed }
+
+    /// Scripts the injected write path so `runAutoApplyEffortLoop`'s branch handling can
+    /// be exercised without a live HealthKit engine.
+    @MainActor
+    private final class FakeAutoApplyWriter {
+        enum Behavior {
+            case outcome(HealthKitFetchEngine.AutoApplyEffortOutcome)
+            case failure
+        }
+        var script: [UUID: Behavior] = [:]
+        var authorizedAfterFailure = true
+        private(set) var writeCalls: [UUID] = []
+        private(set) var authChecks = 0
+
+        func makeWriter() -> HealthKitWorkoutStore.AutoApplyEffortWriter {
+            HealthKitWorkoutStore.AutoApplyEffortWriter(
+                write: { id, _ in
+                    self.writeCalls.append(id)
+                    switch self.script[id] {
+                    case .outcome(let outcome): return outcome
+                    case .failure: throw FakeWriteError.saveFailed
+                    case .none: return .unresolved
+                    }
+                },
+                isWriteAuthorized: {
+                    self.authChecks += 1
+                    return self.authorizedAfterFailure
+                }
+            )
+        }
+    }
+
+    @MainActor
+    func testAutoApplyLoopRecordsEachWriteOutcomeAndSkipsNilScores() async {
+        let written = UUID(), rated = UUID(), unresolved = UUID(), noEstimate = UUID()
+        let fake = FakeAutoApplyWriter()
+        fake.script = [
+            written: .outcome(.written),
+            rated: .outcome(.alreadyRated),
+            unresolved: .outcome(.unresolved)
+        ]
+        let candidates = [
+            HealthKitWorkoutStore.AutoApplyEffortCandidate(workoutID: written, score: 7),
+            HealthKitWorkoutStore.AutoApplyEffortCandidate(workoutID: rated, score: 5),
+            HealthKitWorkoutStore.AutoApplyEffortCandidate(workoutID: unresolved, score: 6),
+            HealthKitWorkoutStore.AutoApplyEffortCandidate(workoutID: noEstimate, score: nil)
+        ]
+
+        let result = await HealthKitWorkoutStore.runAutoApplyEffortLoop(
+            candidates: candidates,
+            maxWrites: 25,
+            writer: fake.makeWriter()
+        )
+
+        XCTAssertEqual(result.writtenScores, [written: 7])
+        XCTAssertEqual(result.appliedIDs, [written])
+        XCTAssertEqual(result.alreadyRatedIDs, [rated])
+        XCTAssertFalse(result.writeAuthRevoked)
+        // The nil-score candidate is skipped before any write is attempted.
+        XCTAssertEqual(fake.writeCalls, [written, rated, unresolved])
+    }
+
+    @MainActor
+    func testAutoApplyLoopCapCountsWritesSoNoHRSkipsDontStarveOlderWorkouts() async {
+        // Newest candidates have no usable estimate (nil score); older ones do. Skips
+        // must not consume the write budget, so both HR-eligible workouts still get
+        // written under a cap of 2.
+        let newestNoHR = UUID(), secondNoHR = UUID(), olderA = UUID(), olderB = UUID()
+        let fake = FakeAutoApplyWriter()
+        fake.script = [olderA: .outcome(.written), olderB: .outcome(.written)]
+        let candidates = [
+            HealthKitWorkoutStore.AutoApplyEffortCandidate(workoutID: newestNoHR, score: nil),
+            HealthKitWorkoutStore.AutoApplyEffortCandidate(workoutID: secondNoHR, score: nil),
+            HealthKitWorkoutStore.AutoApplyEffortCandidate(workoutID: olderA, score: 8),
+            HealthKitWorkoutStore.AutoApplyEffortCandidate(workoutID: olderB, score: 4)
+        ]
+
+        let result = await HealthKitWorkoutStore.runAutoApplyEffortLoop(
+            candidates: candidates,
+            maxWrites: 2,
+            writer: fake.makeWriter()
+        )
+
+        XCTAssertEqual(result.appliedIDs, [olderA, olderB])
+        XCTAssertEqual(fake.writeCalls, [olderA, olderB])
+    }
+
+    @MainActor
+    func testAutoApplyLoopStopsAtWriteCap() async {
+        let first = UUID(), second = UUID(), third = UUID()
+        let fake = FakeAutoApplyWriter()
+        fake.script = [
+            first: .outcome(.written),
+            second: .outcome(.written),
+            third: .outcome(.written)
+        ]
+        let candidates = [first, second, third].map {
+            HealthKitWorkoutStore.AutoApplyEffortCandidate(workoutID: $0, score: 5)
+        }
+
+        let result = await HealthKitWorkoutStore.runAutoApplyEffortLoop(
+            candidates: candidates,
+            maxWrites: 2,
+            writer: fake.makeWriter()
+        )
+
+        XCTAssertEqual(result.appliedIDs.count, 2)
+        // The third candidate is never written: the cap check breaks before it.
+        XCTAssertEqual(fake.writeCalls, [first, second])
+        XCTAssertNil(result.writtenScores[third])
+    }
+
+    @MainActor
+    func testAutoApplyLoopDisablesToggleWhenWriteAuthRevoked() async {
+        let written = UUID(), failed = UUID(), afterFailure = UUID()
+        let fake = FakeAutoApplyWriter()
+        fake.authorizedAfterFailure = false // access revoked after opt-in
+        fake.script = [
+            written: .outcome(.written),
+            failed: .failure,
+            afterFailure: .outcome(.written)
+        ]
+        let candidates = [written, failed, afterFailure].map {
+            HealthKitWorkoutStore.AutoApplyEffortCandidate(workoutID: $0, score: 6)
+        }
+
+        let result = await HealthKitWorkoutStore.runAutoApplyEffortLoop(
+            candidates: candidates,
+            maxWrites: 25,
+            writer: fake.makeWriter()
+        )
+
+        XCTAssertTrue(result.writeAuthRevoked)
+        XCTAssertEqual(result.appliedIDs, [written])
+        // The batch stops at the failure; the candidate after it is never attempted.
+        XCTAssertEqual(fake.writeCalls, [written, failed])
+        XCTAssertEqual(fake.authChecks, 1)
+    }
+
+    @MainActor
+    func testAutoApplyLoopKeepsToggleOnForTransientWriteFailure() async {
+        let written = UUID(), failed = UUID(), afterFailure = UUID()
+        let fake = FakeAutoApplyWriter()
+        fake.authorizedAfterFailure = true // still authorized -> transient error
+        fake.script = [
+            written: .outcome(.written),
+            failed: .failure,
+            afterFailure: .outcome(.written)
+        ]
+        let candidates = [written, failed, afterFailure].map {
+            HealthKitWorkoutStore.AutoApplyEffortCandidate(workoutID: $0, score: 6)
+        }
+
+        let result = await HealthKitWorkoutStore.runAutoApplyEffortLoop(
+            candidates: candidates,
+            maxWrites: 25,
+            writer: fake.makeWriter()
+        )
+
+        XCTAssertFalse(result.writeAuthRevoked)
+        XCTAssertEqual(result.appliedIDs, [written])
+        XCTAssertEqual(fake.writeCalls, [written, failed])
+        XCTAssertEqual(fake.authChecks, 1)
     }
 
     private struct LegacyHealthDashboardSnapshot: Codable {

@@ -90,13 +90,25 @@ extension HealthKitFetchEngine {
     // MARK: - Workout effort
 
     /// Presents the HealthKit *write* permission sheet for workout effort the
-    /// first time it's needed.
+    /// first time it's needed. Once HealthKit has recorded a decision (granted or
+    /// denied) the request status is `.unnecessary`, so this becomes a no-op —
+    /// mirroring the read-auth path (`requestAuthorization()`), so repeatedly saving
+    /// an effort or re-toggling Auto-Apply never re-invokes the system flow. (The
+    /// iOS Simulator does not persist HealthKit authorization reliably and may
+    /// re-prompt across rebuilds regardless; a real device asks only once.)
     func requestWorkoutEffortWriteAuthorization() async throws {
         guard let effortType = HKQuantityType.quantityType(forIdentifier: .workoutEffortScore) else {
             return
         }
 
         let shareTypes: Set<HKSampleType> = [effortType]
+        let status = try await healthStore.statusForAuthorizationRequest(
+            toShare: shareTypes,
+            read: Set<HKObjectType>()
+        )
+        guard status != .unnecessary else {
+            return
+        }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             healthStore.requestAuthorization(toShare: shareTypes, read: Set<HKObjectType>()) { success, error in
                 if let error {
@@ -108,6 +120,17 @@ extension HealthKitFetchEngine {
                 }
             }
         }
+    }
+
+    /// Whether Body currently has permission to *write* workout effort. Share (write)
+    /// authorization is reportable — unlike read, where a denial is deliberately
+    /// indistinguishable from "no data" — so the settings toggle can detect a denied
+    /// write and reset itself instead of appearing on while every refresh silently fails.
+    func isWorkoutEffortWriteAuthorized() -> Bool {
+        guard let effortType = HKObjectType.quantityType(forIdentifier: .workoutEffortScore) else {
+            return false
+        }
+        return healthStore.authorizationStatus(for: effortType) == .sharingAuthorized
     }
 
     /// Saves a manual effort rating (1–10) for the workout with `workoutID` and
@@ -163,6 +186,34 @@ extension HealthKitFetchEngine {
         }
 
         await deleteEffortSamples(staleEffortSamples)
+    }
+
+    /// Outcome of an auto-apply effort write attempt.
+    enum AutoApplyEffortOutcome {
+        case written        // a predicted-effort sample was saved
+        case alreadyRated   // a rating already exists (Body or another source); skip for good
+        case unresolved     // the effort query couldn't be resolved; retry on a later refresh
+    }
+
+    /// Auto-apply variant of `saveWorkoutEffort`, and the authoritative "still unrated?"
+    /// gate for the recent (1-48h) auto-apply window. It re-reads effort *fresh*
+    /// (uncached) right before writing, so a rating that synced from the Apple Watch
+    /// after the last refresh is never shadowed by our `now`-stamped sample. It writes
+    /// ONLY when the read positively returns no saved effort; a failed read yields
+    /// `.unresolved` (retryable) rather than a blind write.
+    func autoApplyWorkoutEffort(workoutID: UUID, score: Double) async throws -> AutoApplyEffortOutcome {
+        guard let workout = await fetchWorkout(id: workoutID) else {
+            return .unresolved
+        }
+        switch await BodyWorkoutEffortFetcher.savedEffortOutcome(for: workout, store: healthStore) {
+        case .found:
+            return .alreadyRated
+        case .failed:
+            return .unresolved
+        case .noSavedEffort:
+            try await saveWorkoutEffort(workoutID: workoutID, score: score)
+            return .written
+        }
     }
 
     // Internal (not private) so the peer `+Route` extension can resolve a

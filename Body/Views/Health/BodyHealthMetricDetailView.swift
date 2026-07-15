@@ -308,6 +308,9 @@ struct BodyHealthMetricDetailView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     let model: BodyHealthMetricDetailModel
+    /// Shared with `BodyHomeView` so the Basics page's Weight/Body Fat cards are zoom sources for
+    /// their detail push; nil off that stack (e.g. the readiness overlay), where they never render.
+    let zoomNamespace: Namespace.ID?
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
@@ -332,9 +335,11 @@ struct BodyHealthMetricDetailView: View {
 
     init(
         model: BodyHealthMetricDetailModel,
-        initialTrendRange: BodyHealthTrendRange = BodyHealthTrendRange.defaultValue
+        initialTrendRange: BodyHealthTrendRange = BodyHealthTrendRange.defaultValue,
+        zoomNamespace: Namespace.ID? = nil
     ) {
         self.model = model
+        self.zoomNamespace = zoomNamespace
         _selectedTrendRangeSelection = State(initialValue: initialTrendRange)
     }
 
@@ -499,8 +504,11 @@ struct BodyHealthMetricDetailView: View {
 
     // The combined Basics page has no trend card of its own (the `.basics` kind maps
     // to no `BodyHomeTrendCardKind`), so surface the standalone Weight and Body Fat
-    // trend cards here. Tapping pushes that metric's focused detail via the stack's
-    // HealthMetricKind navigationDestination.
+    // trend cards here. This page is only ever pushed onto the Home stack (see
+    // `BodyHomeView`), so tapping pushes that metric's focused detail via the same
+    // `HomeMetricRoute` navigationDestination the home trends section uses. The push
+    // uses the `.basicsTrend` route (not `.trend`) so each card's zoom-morph source has
+    // a distinct id from the same-kind home trends card one nav level below.
     @ViewBuilder
     private func basicsMetricTrendCard(for kind: HealthMetricKind) -> some View {
         if let card = BodyHomeTrendCardFactory.card(
@@ -512,10 +520,24 @@ struct BodyHealthMetricDetailView: View {
             includesStable: true,
             cache: trendComputationCache
         ) {
-            NavigationLink(value: kind) {
-                BodyHomeTrendCard(model: card)
+            NavigationLink(value: HomeMetricRoute.basicsTrend(kind)) {
+                basicsTrendZoomSource(BodyHomeTrendCard(model: card), for: kind)
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    /// Wraps a Basics trend card as its card→detail zoom (morph) source when the Home stack's
+    /// namespace is available — mirroring `BodyHomeTrendsSection`, with the 28pt corner clip so
+    /// the source hugs the card. Falls back to a plain card when no namespace was supplied.
+    @ViewBuilder
+    private func basicsTrendZoomSource(_ card: BodyHomeTrendCard, for kind: HealthMetricKind) -> some View {
+        if let zoomNamespace {
+            card.matchedTransitionSource(id: HomeMetricRoute.basicsTrend(kind), in: zoomNamespace) {
+                $0.clipShape(.rect(cornerRadius: 28, style: .continuous))
+            }
+        } else {
+            card
         }
     }
 
@@ -956,6 +978,7 @@ struct BodyHealthMetricDetailView: View {
             sleepDatePicker
             selectedSleepCards
             detailTrendComparisonCard
+            aboutRestorativeSleepCard
             if showSleepScore {
                 aboutSleepScoreCard
             }
@@ -1846,23 +1869,42 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private func sleepStageDurationSummary(_ snapshot: SleepStageSnapshot) -> some View {
-        HStack(spacing: 10) {
-            ForEach(SleepStage.allCases) { stage in
-                VStack(alignment: .center, spacing: 7) {
-                    Rectangle()
-                        .fill(stage.bodyChartColor)
-                        .frame(width: 28, height: 3)
+        let restorative = snapshot.restorativeDuration
 
-                    Text(BodyValueFormat.durationText(for: snapshot.duration(for: stage)))
-                        .font(.system(.callout, design: .rounded))
-                        .fontWeight(.bold)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .multilineTextAlignment(.center)
+        return VStack(spacing: 10) {
+            HStack(spacing: 0) {
+                ForEach(Array(SleepStage.allCases.enumerated()), id: \.element) { index, stage in
+                    if index > 0 {
+                        Spacer(minLength: 8)
+                    }
+
+                    VStack(alignment: .center, spacing: 7) {
+                        Rectangle()
+                            .fill(stage.bodyChartColor)
+                            .frame(width: 28, height: 3)
+
+                        Text(BodyValueFormat.durationText(for: snapshot.duration(for: stage)))
+                            .font(.system(.callout, design: .rounded))
+                            .fontWeight(.bold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
             }
+            .frame(maxWidth: .infinity)
+
+            Divider()
+
+            Text("Restorative \(BodyValueFormat.durationText(for: restorative))")
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -1875,7 +1917,10 @@ struct BodyHealthMetricDetailView: View {
             let percent = total > 0 ? Int((duration / total * 100).rounded()) : 0
             return String(localized: "\(stage.displayName) \(percent) percent, \(BodyValueFormat.durationText(for: duration))")
         }
-        return String(localized: "Sleep stage breakdown. \(descriptions.joined(separator: ". ")).")
+        let restorative = snapshot.restorativeDuration
+        let restorativePercent = total > 0 ? Int((restorative / total * 100).rounded()) : 0
+        let restorativeDescription = String(localized: "Restorative \(restorativePercent) percent, \(BodyValueFormat.durationText(for: restorative))")
+        return String(localized: "Sleep stage breakdown. \(descriptions.joined(separator: ". ")). \(restorativeDescription).")
     }
 
     private func sleepStageChartIdentity(for snapshot: SleepStageSnapshot) -> String {
@@ -1947,6 +1992,23 @@ struct BodyHealthMetricDetailView: View {
         }
 
         return sleepConsistencyCache.model(entries: entries, calendar: calendar)
+    }
+
+    private var aboutRestorativeSleepCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("About Restorative Sleep")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+
+            Text("Restorative sleep is your Deep and REM time combined, the portion of the night that does the most to repair the body and consolidate memory. Deep sleep drives physical recovery while REM supports learning and mood. The total below the stage breakdown sums both stages and shows them as a share of your time in bed, so you can see how much of the night went toward genuine recovery.")
+                .font(.system(.body, design: .rounded))
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(translucent: true)
     }
 
     private var aboutSleepScoreCard: some View {

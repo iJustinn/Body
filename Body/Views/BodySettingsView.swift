@@ -21,12 +21,14 @@ struct BodySettingsView: View {
     // re-publishes the phone-owned watch prefs immediately.
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey) private var showsSubMinuteAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsSubMinuteAwakeStages
+    @AppStorage(BodyAppearancePreference.showsLeadingTrailingAwakeSleepStagesKey) private var showsLeadingTrailingAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsLeadingTrailingAwakeStages
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
     @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var homeBackgroundEnabled = true
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
+    @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @State private var activeSheet: BodySettingsSheet?
     @State private var showBodyProPaywall = false
@@ -98,6 +100,11 @@ struct BodySettingsView: View {
                     await workoutStore.requestAuthorizationAndRefresh()
                 }
             }
+            .onChange(of: showsLeadingTrailingAwakeSleepStages) {
+                Task {
+                    await workoutStore.requestAuthorizationAndRefresh()
+                }
+            }
             // Re-publish the watch snapshot when a display pref changes so the
             // watch reflects it without waiting for the next refresh.
             .onChange(of: sleepDurationGoalMinutes) { workoutStore.publishWatchSnapshot() }
@@ -138,7 +145,7 @@ struct BodySettingsView: View {
             }
             .padding(18)
             .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
-            .bodyCardBackground(cornerRadius: 28, translucent: true)
+            .bodyCardBackground(cornerRadius: 26, translucent: true)
         }
         .buttonStyle(.plain)
     }
@@ -594,11 +601,16 @@ struct BodySettingsView: View {
         case .dayView:
             BodyMetricDayViewSettingsSheet(selection: metricDayViewSelection)
         case .effortSuggestions:
-            BodyEffortSuggestionsSettingsSheet(isEnabled: $showWorkoutEffortSuggestions)
+            BodyEffortSuggestionsSettingsSheet(
+                isEnabled: $showWorkoutEffortSuggestions,
+                autoApply: $autoApplyWorkoutEffort,
+                workoutStore: workoutStore
+            )
         case .sleepDurationGoal:
             BodySleepSettingsSheet(
                 goalMinutes: sleepDurationGoal,
-                showsSubMinuteAwakeStages: $showsSubMinuteAwakeSleepStages
+                showsSubMinuteAwakeStages: $showsSubMinuteAwakeSleepStages,
+                showsLeadingTrailingAwakeStages: $showsLeadingTrailingAwakeSleepStages
             )
         case .units:
             BodyUnitPreferencePickerSheet(
@@ -800,6 +812,7 @@ extension BodyValueFormat.TemperatureUnitPreference: BodyUnitPreferenceOption { 
 private struct BodySleepSettingsSheet: View {
     @Binding var goalMinutes: Int
     @Binding var showsSubMinuteAwakeStages: Bool
+    @Binding var showsLeadingTrailingAwakeStages: Bool
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Sleep") {
@@ -848,6 +861,39 @@ private struct BodySleepSettingsSheet: View {
                         .labelsHidden()
                         .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                         .accessibilityValue(showsSubMinuteAwakeStages ? "On" : "Off")
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+
+                HStack(spacing: 14) {
+                    BodySettingsIconTile(
+                        iconName: "waveform.path.ecg",
+                        color: Color(red: 1.00, green: 0.31, blue: 0.22)
+                    )
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Show Awake at Start & End")
+                            .font(.system(.headline, design: .rounded))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+
+                        Text("Include leading and trailing Awake in sleep stages")
+                            .font(.system(.subheadline, design: .rounded))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Toggle("Show Awake at Start & End", isOn: $showsLeadingTrailingAwakeStages)
+                        .labelsHidden()
+                        .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                        .accessibilityValue(showsLeadingTrailingAwakeStages ? "On" : "Off")
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 14)
@@ -1259,8 +1305,8 @@ private struct BodyHomeBackgroundSheet: View {
                     }
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-            .bodyCardBackground(translucent: true)
+            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .bodyCardBackground(cornerRadius: 26, translucent: true)
         }
     }
 
@@ -1778,21 +1824,85 @@ private struct BodySleepScoreToggleRow: View {
 
 private struct BodyEffortSuggestionsSettingsSheet: View {
     @Binding var isEnabled: Bool
+    @Binding var autoApply: Bool
+    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    @State private var showsWorkoutEffortWriteDenied = false
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Effort Suggestions") {
-            VStack(alignment: .leading, spacing: 12) {
-                BodySettingsCardSection("Workout Effort") {
-                    BodyEffortSuggestionToggleRow(isEnabled: $isEnabled)
+            VStack(alignment: .leading, spacing: 22) {
+                // Each setting sits in its own section so its footer explains only that
+                // option.
+                VStack(alignment: .leading, spacing: 12) {
+                    BodySettingsCardSection("Workout Effort") {
+                        BodyEffortSuggestionToggleRow(isEnabled: $isEnabled)
+                    }
+
+                    Text("When on, Body estimates a 1-10 effort for each workout from available workout, heart-rate, recent history, and readiness data. The suggestion appears on workout details and pre-fills unrated effort edits; your saved ratings stay in control, and unchanged accepted suggestions are excluded from future calibration.")
+                        .font(.system(.footnote, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 4)
                 }
 
-                Text("When on, Body estimates a 1-10 effort for each workout from available workout, heart-rate, recent history, and readiness data. The suggestion appears on workout details and pre-fills unrated effort edits; your saved ratings stay in control, and unchanged accepted suggestions are excluded from future calibration.")
-                    .font(.system(.footnote, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 4)
+                VStack(alignment: .leading, spacing: 12) {
+                    BodySettingsCardSection("Auto-Apply Effort") {
+                        BodyAutoApplyEffortToggleRow(isEnabled: $autoApply)
+                            // Subordinate to Effort Suggestions: no prediction to apply
+                            // while suggestions are off.
+                            .disabled(!isEnabled)
+                            .opacity(isEnabled ? 1 : 0.4)
+                    }
+                    // Request write access at the moment of intent. If the user denies it,
+                    // reset the toggle and explain; otherwise fill eligible recent workouts
+                    // right away instead of waiting for the next refresh.
+                    .onChange(of: autoApply) {
+                        guard autoApply else { return }
+                        Task {
+                            if await workoutStore.requestWorkoutEffortWriteAuthorization() {
+                                await workoutStore.autoApplyPredictedEffortNow()
+                            } else {
+                                autoApply = false
+                                showsWorkoutEffortWriteDenied = true
+                            }
+                        }
+                    }
+                    .alert("Auto-Apply Needs Permission", isPresented: $showsWorkoutEffortWriteDenied) {
+                        Button("OK", role: .cancel) {}
+                    } message: {
+                        Text("Auto-Apply needs permission to update Workouts in Apple Health. Allow it in Settings › Health › Data Access & Devices › Body, then switch Auto-Apply back on.")
+                    }
+
+                    autoApplyExplanation
+                }
             }
+        }
+    }
+
+    // Spells out the auto-apply eligibility rules so it's clear why some unrated
+    // workouts get filled and others are left blank.
+    private var autoApplyExplanation: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("When on, Body fills in effort for you, but only when it's confident. Some workouts get filled and others are left for you to rate:")
+                .fontWeight(.semibold)
+            autoApplyRule("Unrated only. Body never changes an effort you or your Apple Watch already set.")
+            autoApplyRule("About an hour after a workout ends. Body waits so a rating from your Apple Watch has time to sync first.")
+            autoApplyRule("Only the past 2 days. Body fills workouts that ended within the last 48 hours and leaves older ones alone.")
+            autoApplyRule("Enough data. Only workouts with heart-rate data get a prediction; sessions without heart rate stay blank for you to rate.")
+            Text("Re-rate any workout anytime to override Body's value.")
+                .fontWeight(.semibold)
+        }
+        .font(.system(.footnote, design: .rounded))
+        .foregroundColor(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 4)
+    }
+
+    private func autoApplyRule(_ text: LocalizedStringKey) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(verbatim: "•")
+            Text(text)
         }
     }
 }
@@ -1835,6 +1945,46 @@ private struct BodyEffortSuggestionToggleRow: View {
             Spacer(minLength: 12)
 
             Toggle("Effort Suggestions", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct BodyAutoApplyEffortToggleRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(
+                iconName: "wand.and.stars",
+                color: .purple
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Auto-Apply Effort")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("Save predictions to unrated workouts")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Auto-Apply Effort", isOn: $isEnabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                 .accessibilityValue(isEnabled ? "On" : "Off")
@@ -2556,7 +2706,7 @@ private struct BodyAppIconOption: Identifiable, Equatable {
 }
 
 private enum BodySettingsTypography {
-    static let sectionTitleFontSize: CGFloat = 29
+    static let sectionTitleFontSize: CGFloat = 25
 }
 
 private struct BodySettingsCardSection<Content: View>: View {
@@ -2577,7 +2727,7 @@ private struct BodySettingsCardSection<Content: View>: View {
             VStack(spacing: 0) {
                 content
             }
-            .bodyCardBackground(translucent: true)
+            .bodyCardBackground(cornerRadius: 26, translucent: true)
         }
     }
 }
@@ -2614,7 +2764,8 @@ private struct BodySettingsRowLabel: View {
 
             accessoryIcon
         }
-        .padding(.horizontal, 18)
+        .padding(.leading, 14)
+        .padding(.trailing, 18)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
         .contentShape(Rectangle())

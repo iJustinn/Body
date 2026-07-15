@@ -56,23 +56,31 @@ struct WorkoutCalendarProvider: AppIntentTimelineProvider {
         for configuration: BodyWidgetConfigurationIntent,
         in context: Context
     ) async -> WorkoutCalendarEntry {
-        loadEntry(configuration: configuration, isPro: context.isPreview || BodyProEntitlement.isUnlocked)
+        loadEntry(
+            configuration: configuration,
+            usePlaceholderWhenEmpty: context.isPreview,
+            isPro: context.isPreview || BodyProEntitlement.isUnlocked
+        )
     }
 
     func timeline(
         for configuration: BodyWidgetConfigurationIntent,
         in context: Context
     ) async -> Timeline<WorkoutCalendarEntry> {
-        let entry = loadEntry(configuration: configuration, isPro: BodyProEntitlement.isUnlocked)
+        let entry = loadEntry(configuration: configuration, usePlaceholderWhenEmpty: false, isPro: BodyProEntitlement.isUnlocked)
         let nextRefresh = Calendar.bodyGregorian.date(byAdding: .minute, value: 30, to: entry.date) ?? entry.date.addingTimeInterval(1_800)
         return Timeline(entries: [entry], policy: .after(nextRefresh))
     }
 
-    private func loadEntry(configuration: BodyWidgetConfigurationIntent, isPro: Bool) -> WorkoutCalendarEntry {
+    private func loadEntry(
+        configuration: BodyWidgetConfigurationIntent,
+        usePlaceholderWhenEmpty: Bool,
+        isPro: Bool
+    ) -> WorkoutCalendarEntry {
         WorkoutCalendarEntry(
             date: Date(),
             background: configuration.background ?? .system,
-            snapshot: WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty(),
+            snapshot: WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty(usePlaceholderWhenEmpty: usePlaceholderWhenEmpty),
             isPro: isPro
         )
     }

@@ -408,7 +408,7 @@ struct BodyHealthSourceComparisonBarChart: View {
         self.finiteEntries = allEntries.filter { $0.value?.isFinite == true }
 
         let domainDates = allEntries.map(\.chartDate)
-        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive, immersivePairedBars: true)
+        self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive, immersivePairedBars: true, pairedBarComparison: true)
         self.chartYDomain = BodyHealthMetricTrendChart.computeYDomain(
             from: finiteEntries.compactMap(\.value),
             chartStyle: .bar

@@ -99,6 +99,15 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
     case underwaterDiving
     case other
 
+    /// Custom decoding so a rawValue this build doesn't recognize (e.g. a newer app
+    /// version adding a workout case) falls back to `.other` instead of throwing and
+    /// aborting the whole snapshot decode — these values cross the iOS app/watch/widget
+    /// process boundary via App Group files that can be version-skewed.
+    init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        self = BodyWorkoutType(rawValue: rawValue) ?? .other
+    }
+
     var id: String { rawValue }
 
     var displayName: String {

@@ -318,6 +318,52 @@ final class ReadinessScoreCalculatorTests: XCTestCase {
         )
     }
 
+    /// H2 regression: disabling Heart must strip the cached per-night HR/HRV
+    /// vitals inside `sleepHistory`, not just the whole-day trend series —
+    /// otherwise `ReadinessScoreCalculator`'s overnight-preferred path keeps
+    /// scoring vitals the user turned off.
+    func testFilteringHeartPermissionStripsSleepHistoryVitals() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let heartDisabled = BodyHealthPermissionSelection.defaultValue.setting(.heart, isEnabled: false)
+
+        let overnightCrashed = autonomicTrends(
+            on: scoreDay,
+            overnightNights: 20,
+            overnightHRVToday: 30,
+            calendar: calendar
+        )
+
+        let filtered = overnightCrashed.filtered(by: heartDisabled)
+
+        XCTAssertFalse(overnightCrashed.sleepHistory.days.isEmpty)
+        XCTAssertTrue(filtered.sleepHistory.days.allSatisfy { day in
+            day.summary.vitals.heartRate == nil && day.summary.vitals.heartRateVariability == nil
+        })
+        // Sleep itself is governed by `.sleep`, not `.heart` — duration must survive.
+        XCTAssertTrue(filtered.sleepHistory.days.allSatisfy { $0.summary.duration == 7.9 * 3_600 })
+
+        let normalOvernight = autonomicTrends(
+            on: scoreDay,
+            overnightNights: 20,
+            overnightHRVToday: 60,
+            calendar: calendar
+        ).filtered(by: heartDisabled)
+
+        let crashedScore = try XCTUnwrap(ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: filtered, calendar: calendar
+        ).score)
+        let normalScore = try XCTUnwrap(ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: normalOvernight, calendar: calendar
+        ).score)
+
+        XCTAssertEqual(
+            crashedScore,
+            normalScore,
+            "once Heart is disabled, crashed overnight HRV must no longer influence the score"
+        )
+    }
+
     /// Fewer than 14 overnight nights → the metric is not overnight-qualified
     /// and scoring must match the whole-day-only behavior exactly.
     func testSparseOvernightHistoryFallsBackToWholeDay() throws {
@@ -535,6 +581,68 @@ final class ReadinessScoreCalculatorTests: XCTestCase {
         XCTAssertLessThan(live, undrained, "live tile should drop after a hard workout")
         let todayHistory = try XCTUnwrap(snapshot.trends.readiness.point(on: scoreDay)?.value)
         XCTAssertEqual(Int(todayHistory), undrained, "history today point must stay at the undrained morning value")
+    }
+
+    // MARK: - Low-end display softening (draining call-site: raw-before-clamp + cap)
+
+    private func readinessSummary(score: Int?) -> ReadinessSummary {
+        ReadinessSummary(
+            score: score,
+            status: ReadinessStatus.status(for: score ?? 0),
+            confidence: .low,
+            components: [],
+            drivers: []
+        )
+    }
+
+    private func drainWorkout(minutes: Double, effort: Double, type: BodyWorkoutType = .running) -> WorkoutSummary {
+        WorkoutSummary(
+            type: type,
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            duration: minutes * 60,
+            effortLevel: effort
+        )
+    }
+
+    func testDrainingSoftensRawZeroToFivePercent() {
+        // A workout whose (rounded) drain equals the baseline pushes the raw score to 0.
+        let run = drainWorkout(minutes: 60, effort: 9)
+        let drain = Int(ActivityReadinessImpact.drainPoints(workouts: [run]).rounded())
+        XCTAssertGreaterThanOrEqual(drain, 5, "fixture must drain enough for the floor to apply")
+        let drained = HealthDashboardSnapshot.draining(readinessSummary(score: drain), with: [run])
+        XCTAssertEqual(drained.score, 5, "raw 0 should show the 5% floor, not 0")
+    }
+
+    func testDrainingEasesOnePointBelowFloor() {
+        // Baseline set 5 below the drain → raw −5 → one point below the floor.
+        let run = drainWorkout(minutes: 60, effort: 9)
+        let drain = Int(ActivityReadinessImpact.drainPoints(workouts: [run]).rounded())
+        let drained = HealthDashboardSnapshot.draining(readinessSummary(score: drain - 5), with: [run])
+        XCTAssertEqual(drained.score, 4, "raw −5 should ease one point below the 5% floor")
+    }
+
+    func testDrainingNeverLiftsAnAlreadyLowBaseline() {
+        // The bug the adversarial review caught: a tiny drain on a 4% baseline must NOT
+        // raise the shown score to the 5% floor (that would read as a workout *raising*
+        // readiness). The cap holds it at the undrained baseline.
+        let walk = drainWorkout(minutes: 8, effort: 2, type: .walking)
+        XCTAssertGreaterThanOrEqual(
+            ActivityReadinessImpact.drainPoints(workouts: [walk]), 0.5,
+            "fixture must clear the drain gate"
+        )
+        let drained = HealthDashboardSnapshot.draining(readinessSummary(score: 4), with: [walk])
+        XCTAssertEqual(drained.score, 4, "drain must never push the displayed score above the baseline")
+    }
+
+    func testDrainingShowsZeroOnlyAtDeepDeficit() {
+        // Baseline 20 with the drain capped at 45 → raw −25 → displayed 0.
+        let heavy = (0..<5).map { _ in drainWorkout(minutes: 180, effort: 10) }
+        XCTAssertEqual(
+            ActivityReadinessImpact.drainPoints(workouts: heavy),
+            ActivityReadinessImpact.totalDrainCap, accuracy: 0.0001
+        )
+        let drained = HealthDashboardSnapshot.draining(readinessSummary(score: 20), with: heavy)
+        XCTAssertEqual(drained.score, 0)
     }
 
     func testDrainAppliesWithoutFreezing() throws {
