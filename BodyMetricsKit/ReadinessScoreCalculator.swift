@@ -93,6 +93,7 @@ enum ReadinessScoreCalculator {
             let currentDaySleep = ReadinessScoreCalculator.currentDaySleepSummary(
                 healthSummary.sleep,
                 for: today,
+                today: today,
                 calendar: calendar
             )
             let overnightSeriesByMetric: [ReadinessMetric: HealthTrendSeries] = [
@@ -275,7 +276,8 @@ enum ReadinessScoreCalculator {
         healthSummary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
         idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
-        calendar: Calendar = .bodyGregorian
+        calendar: Calendar = .bodyGregorian,
+        today: Date = Date()
     ) -> ReadinessSummary {
         readinessSummary(
             on: date,
@@ -283,10 +285,11 @@ enum ReadinessScoreCalculator {
             trends: trends,
             idealSleepDuration: idealSleepDuration,
             calendar: calendar,
+            today: today,
             context: ReadinessDailySeriesContext(
                 trends: trends,
                 healthSummary: healthSummary,
-                today: Date(),
+                today: today,
                 calendar: calendar
             )
         )
@@ -298,6 +301,7 @@ enum ReadinessScoreCalculator {
         trends: HealthTrendSnapshot,
         idealSleepDuration: TimeInterval,
         calendar: Calendar,
+        today: Date,
         context: ReadinessDailySeriesContext
     ) -> ReadinessSummary {
         let autonomic = autonomicAssessment(on: date, context: context)
@@ -306,7 +310,8 @@ enum ReadinessScoreCalculator {
             healthSummary: healthSummary,
             trends: trends,
             idealSleepDuration: idealSleepDuration,
-            calendar: calendar
+            calendar: calendar,
+            today: today
         )
         let training = trainingAssessment(on: date, trends: trends, context: context)
         let vitals = vitalsAssessment(on: date, context: context)
@@ -453,7 +458,8 @@ enum ReadinessScoreCalculator {
         startDate: Date,
         endDate: Date,
         idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
-        calendar: Calendar = .bodyGregorian
+        calendar: Calendar = .bodyGregorian,
+        today: Date = Date()
     ) -> HealthTrendSeries {
         var points: [HealthTrendDataPoint] = []
         var day = calendar.startOfDay(for: startDate)
@@ -466,7 +472,7 @@ enum ReadinessScoreCalculator {
         let context = ReadinessDailySeriesContext(
             trends: trends,
             healthSummary: healthSummary,
-            today: Date(),
+            today: today,
             calendar: calendar
         )
         while day <= endDay {
@@ -476,6 +482,7 @@ enum ReadinessScoreCalculator {
                 trends: trends,
                 idealSleepDuration: idealSleepDuration,
                 calendar: calendar,
+                today: today,
                 context: context
             )
             if let score = readiness.score {
@@ -608,12 +615,13 @@ enum ReadinessScoreCalculator {
         healthSummary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
         idealSleepDuration: TimeInterval,
-        calendar: Calendar
+        calendar: Calendar,
+        today: Date
     ) -> SleepAssessment? {
         let sleepSummary = trends.sleepHistory.summary(
             on: date,
-            currentDaySummary: currentDaySleepSummary(healthSummary.sleep, for: date, calendar: calendar),
-            today: Date(),
+            currentDaySummary: currentDaySleepSummary(healthSummary.sleep, for: date, today: today, calendar: calendar),
+            today: today,
             calendar: calendar
         )
         guard let sleepSummary, let duration = sleepSummary.duration, duration > 0 else {
@@ -664,6 +672,7 @@ enum ReadinessScoreCalculator {
     private static func currentDaySleepSummary(
         _ summary: SleepSummary,
         for date: Date,
+        today: Date,
         calendar: Calendar
     ) -> SleepSummary? {
         guard summary.duration != nil || !summary.stageSnapshot.isEmpty || !summary.vitals.isEmpty else {
@@ -674,7 +683,7 @@ enum ReadinessScoreCalculator {
             return calendar.isDate(summaryDate, inSameDayAs: date) ? summary : nil
         }
 
-        return calendar.isDate(date, inSameDayAs: Date()) ? summary : nil
+        return calendar.isDate(date, inSameDayAs: today) ? summary : nil
     }
 
     private static func trainingAssessment(

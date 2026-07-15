@@ -191,7 +191,7 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testWorkoutStoreClearLocalCacheResetsInMemorySnapshotsAndStatus() throws {
+    func testWorkoutStoreClearLocalCacheResetsInMemorySnapshotsAndStatus() async throws {
         let calendar = Calendar.bodyGregorian
         let initialSnapshot = WorkoutMonthSnapshot.make(
             month: 5,
@@ -207,7 +207,7 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertFalse(store.cacheStatus.isEmpty)
         XCTAssertEqual(store.cacheStatus.summaryText, "Cached")
 
-        store.clearLocalCache(date: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 16))))
+        await store.clearLocalCache(date: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 16))))
 
         XCTAssertEqual(store.snapshot.workoutCount, 0)
         XCTAssertTrue(store.healthSummary.isEmpty)

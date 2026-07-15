@@ -15,14 +15,27 @@ enum ActivityRingOlderHistoryProbe {
     case failed
 }
 
+/// Result of a dashboard ring-history / backfill fetch: the resolved snapshot
+/// plus whether the underlying activity-summary query FAILED (as opposed to
+/// genuinely returning no days). The store ORs `hadQueryFailure` with the
+/// summary/trend bits before advancing the freshness TTL, so a transient ring
+/// failure withholds the TTL and the next resume retries. A permission-off or
+/// selection-off result is a genuine empty (`hadQueryFailure: false`).
+struct ActivityRingHistoryFetchResult {
+    let history: ActivityRingHistorySnapshot
+    let hadQueryFailure: Bool
+
+    static let empty = ActivityRingHistoryFetchResult(history: .empty, hadQueryFailure: false)
+}
+
 // Activity Rings summary (one day) and history (range of days, plus the
 // per-month-key overload that pages back through older months). The shared
 // `activityRingHistoryInterval` and `activityRingSummary` helpers live on
 // the main engine file and the sample-parsers extension respectively.
 extension HealthKitFetchEngine {
-    func fetchActivityRingSummary(calendar: Calendar, date: Date = Date()) async -> ActivityRingSummary {
+    func fetchActivityRingSummary(calendar: Calendar, date: Date = Date()) async -> QueryOutcome<ActivityRingSummary> {
         guard permissionSelection.includes(.activityRings) else {
-            return .empty
+            return .success(nil)
         }
 
         let dateComponents = Self.activityDateComponents(for: date, calendar: calendar)
@@ -32,16 +45,17 @@ extension HealthKitFetchEngine {
 
         do {
             guard let summary = try await descriptor.result(for: healthStore).first else {
-                return .empty
+                return .success(nil)
             }
 
-            return Self.activityRingSummary(from: summary)
+            return .success(Self.activityRingSummary(from: summary))
         } catch {
-            return .empty
+            Self.logTrendQueryFailure("activityRings", error: error)
+            return .failure
         }
     }
 
-    func fetchActivityRingHistory(calendar: Calendar, date: Date = Date()) async -> ActivityRingHistorySnapshot {
+    func fetchActivityRingHistory(calendar: Calendar, date: Date = Date()) async -> ActivityRingHistoryFetchResult {
         guard permissionSelection.includes(.activityRings) else {
             return .empty
         }
@@ -64,7 +78,7 @@ extension HealthKitFetchEngine {
         calendar: Calendar,
         selection: BodyDashboardFetchSelection,
         date: Date = Date()
-    ) async -> ActivityRingHistorySnapshot {
+    ) async -> ActivityRingHistoryFetchResult {
         guard selection.includesActivityRings else {
             return .empty
         }
@@ -76,7 +90,7 @@ extension HealthKitFetchEngine {
         calendar: Calendar,
         selection: BodyDashboardFetchSelection,
         date: Date = Date()
-    ) async -> ActivityRingHistorySnapshot {
+    ) async -> ActivityRingHistoryFetchResult {
         guard selection.includesActivityRings else {
             return .empty
         }
@@ -94,7 +108,7 @@ extension HealthKitFetchEngine {
     func fetchActivityRingBackfillHistory(
         calendar: Calendar,
         date: Date = Date()
-    ) async -> ActivityRingHistorySnapshot {
+    ) async -> ActivityRingHistoryFetchResult {
         guard permissionSelection.includes(.activityRings) else {
             return .empty
         }
@@ -128,26 +142,33 @@ extension HealthKitFetchEngine {
             .sorted { $0.date < $1.date }
 
             guard let earliestDay = days.first else {
-                return ActivityRingHistorySnapshot(
-                    days: [],
-                    loadedMonthKeys: Self.recentActivityRingMonthKeys(
-                        count: HealthKitWorkoutStore.recentChartMonthCount,
-                        from: date,
-                        calendar: calendar
-                    )
+                return ActivityRingHistoryFetchResult(
+                    history: ActivityRingHistorySnapshot(
+                        days: [],
+                        loadedMonthKeys: Self.recentActivityRingMonthKeys(
+                            count: HealthKitWorkoutStore.recentChartMonthCount,
+                            from: date,
+                            calendar: calendar
+                        )
+                    ),
+                    hadQueryFailure: false
                 )
             }
 
-            return ActivityRingHistorySnapshot(
-                days: days,
-                loadedMonthKeys: Self.activityRingMonthKeySpan(
-                    from: earliestDay.date,
-                    to: end,
-                    calendar: calendar
-                )
+            return ActivityRingHistoryFetchResult(
+                history: ActivityRingHistorySnapshot(
+                    days: days,
+                    loadedMonthKeys: Self.activityRingMonthKeySpan(
+                        from: earliestDay.date,
+                        to: end,
+                        calendar: calendar
+                    )
+                ),
+                hadQueryFailure: false
             )
         } catch {
-            return .empty
+            Self.logTrendQueryFailure("activityRingBackfill", error: error)
+            return ActivityRingHistoryFetchResult(history: .empty, hadQueryFailure: true)
         }
     }
 
@@ -167,12 +188,14 @@ extension HealthKitFetchEngine {
             return ActivityRingHistorySnapshot(days: [], loadedMonthKeys: [monthKey])
         }
 
+        // Older-month pagination doesn't feed the freshness TTL, so it consumes
+        // just the resolved snapshot and drops the failure bit.
         return await fetchActivityRingHistory(
             start: start,
             end: end,
             loadedMonthKeys: [monthKey],
             calendar: calendar
-        )
+        ).history
     }
 
     private func fetchActivityRingHistory(
@@ -180,7 +203,7 @@ extension HealthKitFetchEngine {
         end: Date,
         loadedMonthKeys: [ActivityRingMonthKey],
         calendar: Calendar
-    ) async -> ActivityRingHistorySnapshot {
+    ) async -> ActivityRingHistoryFetchResult {
         guard permissionSelection.includes(.activityRings) else {
             return .empty
         }
@@ -205,10 +228,14 @@ extension HealthKitFetchEngine {
             }
             .sorted { $0.date < $1.date }
 
-            return ActivityRingHistorySnapshot(days: days, loadedMonthKeys: loadedMonthKeys)
-                .filteringDaysToLoadedMonths(calendar: calendar)
+            return ActivityRingHistoryFetchResult(
+                history: ActivityRingHistorySnapshot(days: days, loadedMonthKeys: loadedMonthKeys)
+                    .filteringDaysToLoadedMonths(calendar: calendar),
+                hadQueryFailure: false
+            )
         } catch {
-            return .empty
+            Self.logTrendQueryFailure("activityRingHistory", error: error)
+            return ActivityRingHistoryFetchResult(history: .empty, hadQueryFailure: true)
         }
     }
 

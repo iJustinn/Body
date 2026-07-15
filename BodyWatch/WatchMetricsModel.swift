@@ -62,11 +62,36 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         }
         guard let data = context["snapshot"] as? Data,
               let received = WatchMetricsSnapshot.decoded(from: data),
-              received.generatedAt > snapshot.generatedAt else { return }
-        // Sanitize AFTER merging: a snapshot built before midnight can be
+              let resolved = Self.resolvedSnapshot(applying: received, over: snapshot) else { return }
+        // Sanitize AFTER resolving: a snapshot built before midnight can be
         // delivered after it, and the merge's don't-downgrade rule can also
-        // resurrect a stale local sleep value over an incoming blank one.
-        apply(merging(received).sanitized())
+        // resurrect a stale local sleep value over an incoming blank one. (A
+        // reset tombstone carries no Sleep metric, so sanitizing is a no-op for
+        // it.)
+        apply(resolved.sanitized())
+    }
+
+    /// The snapshot to persist for `received` arriving over `current`, or `nil`
+    /// when `received` doesn't supersede (no change). Pure so the reset-vs-merge
+    /// routing and the blank/live-preserve merge are unit-testable without the
+    /// WatchConnectivity + store singletons.
+    ///
+    /// A Clear-Cache reset (`isReset == true`) is handled BEFORE the merge: the
+    /// tombstone REPLACES the current snapshot outright — the blank-preserve rule
+    /// in `merging(_:over:)` would otherwise resurrect the stale local values it
+    /// cleared. The tombstone keeps its own `publisherEpoch`/`revision`, so once
+    /// persisted a delayed lower-revision same-epoch push can't bring the data
+    /// back (the caller persists it via `WatchMetricsSnapshotStore.save`, never a
+    /// delete, so that ordering also survives a watch restart). A normal push
+    /// takes the unchanged merge path. `nonisolated` since it only reads its
+    /// arguments — no main-actor state.
+    nonisolated static func resolvedSnapshot(
+        applying received: WatchMetricsSnapshot,
+        over current: WatchMetricsSnapshot
+    ) -> WatchMetricsSnapshot? {
+        guard received.supersedes(current) else { return nil }
+        if received.isReset == true { return received }
+        return merging(received, over: current)
     }
 
     /// Adopts the phone's health-permission selection (phone-authoritative,
@@ -92,12 +117,18 @@ final class WatchMetricsModel: NSObject, ObservableObject {
 
     /// Keep a locally-measured live reading (HR/HRV) over the incoming value
     /// when it's still the freshest — a workout-only phone refresh re-sends old
-    /// vitals, which must not roll back a live reading.
-    private func merging(_ received: WatchMetricsSnapshot) -> WatchMetricsSnapshot {
+    /// vitals, which must not roll back a live reading. Static + `current`-taking
+    /// so `resolvedSnapshot(applying:over:)` can exercise it purely; behavior is
+    /// unchanged from the prior instance form. `nonisolated` so the nonisolated
+    /// resolver can call it synchronously.
+    nonisolated private static func merging(
+        _ received: WatchMetricsSnapshot,
+        over current: WatchMetricsSnapshot
+    ) -> WatchMetricsSnapshot {
         let receivedVitalsDate = received.lastRefreshDate ?? .distantPast
         var merged = received
         merged.metrics = received.metrics.map { metric in
-            guard let local = snapshot.metric(forKind: metric.kind) else { return metric }
+            guard let local = current.metric(forKind: metric.kind) else { return metric }
 
             // Preserve a locally-measured live reading (HR/HRV) over the incoming
             // value when it's newer than the vitals the phone snapshot was built
@@ -173,12 +204,22 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         // older HR/HRV under a fresh snapshot timestamp, and a snapshot-level
         // check would then suppress this refresh while the vitals on screen are
         // stale.
-        let liveFreshness = [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability]
+        let now = Date()
+        let liveMetrics = [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability]
             .compactMap { snapshot.metric(forKind: $0) }
-            .compactMap { $0.liveUpdatedAt ?? $0.computedAt }
-            .min()
-        guard let freshness = liveFreshness ?? snapshot.lastRefreshDate else { return true }
-        return Date().timeIntervalSince(freshness) > WatchMetricsSnapshot.staleInterval
+        guard !liveMetrics.isEmpty else {
+            // No watch-measurable metric present: fall back to snapshot freshness.
+            guard let lastRefresh = snapshot.lastRefreshDate else { return true }
+            return now.timeIntervalSince(lastRefresh) > WatchMetricsSnapshot.staleInterval
+        }
+        // Evaluate each live metric independently against its per-kind freshness
+        // limit (HR 30 min, HRV 4h). A single shared window would either thrash
+        // HR or, having just accepted a multi-hour-old HRV sample, instantly
+        // re-stale it and wedge the live-read loop.
+        return liveMetrics.contains { metric in
+            guard let measuredAt = metric.liveUpdatedAt ?? metric.computedAt else { return true }
+            return now.timeIntervalSince(measuredAt) > WatchMetricKindKey.liveFreshnessLimit(forKind: metric.kind)
+        }
     }
 
     /// Manual dashboard refresh (top-left button): force a live HR/HRV reading
@@ -215,10 +256,10 @@ final class WatchMetricsModel: NSObject, ObservableObject {
 
         var metrics = snapshot.metrics
         if let heartRate {
-            metrics = updating(metrics, kind: WatchMetricKindKey.heartRate, value: heartRate, decimals: 0, unit: "bpm")
+            metrics = updating(metrics, kind: WatchMetricKindKey.heartRate, value: heartRate.value, measuredAt: heartRate.measuredAt, decimals: 0, unit: "bpm")
         }
         if let hrv {
-            metrics = updating(metrics, kind: WatchMetricKindKey.heartRateVariability, value: hrv, decimals: 0, unit: "ms")
+            metrics = updating(metrics, kind: WatchMetricKindKey.heartRateVariability, value: hrv.value, measuredAt: hrv.measuredAt, decimals: 0, unit: "ms")
         }
 
         // Don't advance `generatedAt` on a local live refresh: a newer phone
@@ -229,7 +270,7 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         apply(updated)
     }
 
-    private func updating(_ metrics: [WatchMetric], kind: String, value: Double, decimals: Int, unit: String) -> [WatchMetric] {
+    private func updating(_ metrics: [WatchMetric], kind: String, value: Double, measuredAt: Date, decimals: Int, unit: String) -> [WatchMetric] {
         guard let index = metrics.firstIndex(where: { $0.kind == kind }) else { return metrics }
         var result = metrics
         var metric = result[index]
@@ -237,7 +278,10 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         metric.unit = unit
         metric.rawValue = value
         metric.fillFraction = WatchRingFill.fraction(of: value, min: metric.rangeMin, max: metric.rangeMax)
-        metric.liveUpdatedAt = Date()
+        // Stamp the sample's own measurement time (not `Date()`): the per-kind
+        // staleness check must see the reading's true age, so an accepted
+        // multi-hour-old HRV sample isn't treated as if it were just measured.
+        metric.liveUpdatedAt = measuredAt
         result[index] = metric
         return result
     }

@@ -20,9 +20,12 @@ extension HealthKitFetchEngine {
     /// fetched, access is denied, or the summed sample meters diverge more than 5%
     /// from the workout's recorded distance — the same total the summary parsing
     /// reads (`totalDistance` or the attached statistic), which guards against
-    /// multi-source overlap the raw sample walk doesn't dedupe.
-    func workoutSplitData(workoutID: UUID) async -> WorkoutSplitData {
-        guard let workout = await fetchWorkout(id: workoutID) else {
+    /// multi-source overlap the raw sample walk doesn't dedupe. Any read FAILURE
+    /// (a dismissed detail sheet's cancellation, a locked-device error, or an XPC
+    /// drop) is propagated instead so the caller can tell "no splits" from "didn't
+    /// finish reading" and not cache a false empty.
+    func workoutSplitData(workoutID: UUID) async throws -> WorkoutSplitData {
+        guard let workout = try await fetchWorkout(id: workoutID) else {
             return .empty
         }
 
@@ -52,61 +55,65 @@ extension HealthKitFetchEngine {
             }
         }
 
-        do {
-            let descriptor = HKQuantitySeriesSampleQueryDescriptor(
-                predicate: .quantitySample(
-                    type: distanceType,
-                    predicate: HKQuery.predicateForObjects(from: workout)
-                ),
-                options: [.orderByQuantitySampleStartDate]
-            )
+        // Any read FAILURE here (cancellation, locked device, XPC drop) propagates
+        // rather than collapsing to `.empty`, so the caller doesn't negative-cache a
+        // false empty for a workout that actually has splits. The divergence guard
+        // below still returns a genuine `.empty` non-throwing.
+        let descriptor = HKQuantitySeriesSampleQueryDescriptor(
+            predicate: .quantitySample(
+                type: distanceType,
+                predicate: HKQuery.predicateForObjects(from: workout)
+            ),
+            options: [.orderByQuantitySampleStartDate]
+        )
 
-            var samples: [WorkoutDistanceSample] = []
-            for try await result in descriptor.results(for: healthStore) {
-                samples.append(WorkoutDistanceSample(
-                    startDate: result.dateInterval.start,
-                    endDate: result.dateInterval.end,
-                    meters: result.quantity.doubleValue(for: .meter())
-                ))
-            }
-            samples.sort { $0.startDate < $1.startDate }
-
-            // Total-validation guard: compare the summed sample meters to the
-            // workout's recorded total. When no recorded total is available the
-            // distance lives only in these samples, so there's nothing to overlap
-            // and the samples pass through.
-            let recordedTotal = workout.totalDistance?.doubleValue(for: .meter())
-                ?? workout.statistics(for: distanceType)?.sumQuantity()?.doubleValue(for: .meter())
-            if let recordedTotal, recordedTotal > 0 {
-                let summed = samples.reduce(0) { $0 + $1.meters }
-                // Keep a tight 5% ceiling to reject multi-source overlap (samples
-                // summing well *above* the recorded total — the double counting the
-                // raw walk can't dedupe), but loosen the floor to the same 15% the
-                // calculator's segment path tolerates for early-run GPS undercount,
-                // so a legitimately undercounting workout isn't discarded here before
-                // the calculator can recover its recorded splits.
-                guard summed <= recordedTotal * 1.05, summed >= recordedTotal * 0.85 else {
-                    return .empty
-                }
-            }
-
-            return WorkoutSplitData(
-                distanceSamples: samples,
-                segments: segments,
-                stepSamples: await workoutStepSamples(for: workout, type: type)
-            )
-        } catch {
-            return .empty
+        var samples: [WorkoutDistanceSample] = []
+        for try await result in descriptor.results(for: healthStore) {
+            samples.append(WorkoutDistanceSample(
+                startDate: result.dateInterval.start,
+                endDate: result.dateInterval.end,
+                meters: result.quantity.doubleValue(for: .meter())
+            ))
         }
+        samples.sort { $0.startDate < $1.startDate }
+
+        // Total-validation guard: compare the summed sample meters to the
+        // workout's recorded total. When no recorded total is available the
+        // distance lives only in these samples, so there's nothing to overlap
+        // and the samples pass through.
+        let recordedTotal = workout.totalDistance?.doubleValue(for: .meter())
+            ?? workout.statistics(for: distanceType)?.sumQuantity()?.doubleValue(for: .meter())
+        if let recordedTotal, recordedTotal > 0 {
+            let summed = samples.reduce(0) { $0 + $1.meters }
+            // Keep a tight 5% ceiling to reject multi-source overlap (samples
+            // summing well *above* the recorded total — the double counting the
+            // raw walk can't dedupe), but loosen the floor to the same 15% the
+            // calculator's segment path tolerates for early-run GPS undercount,
+            // so a legitimately undercounting workout isn't discarded here before
+            // the calculator can recover its recorded splits.
+            guard summed <= recordedTotal * 1.05, summed >= recordedTotal * 0.85 else {
+                return .empty
+            }
+        }
+
+        return WorkoutSplitData(
+            distanceSamples: samples,
+            segments: segments,
+            stepSamples: try await workoutStepSamples(for: workout, type: type)
+        )
     }
 
     /// Timestamped step increments from the workout's own step samples, for the
     /// per-split cadence column. `predicateForObjects(from:)` scopes the read to
     /// the workout's associated samples, avoiding the iPhone/Watch double counting
     /// a plain time-window query would sweep in (same rationale as the average
-    /// step cadence statistics query). Empty for non-stepping activities or on
-    /// any read error.
-    private func workoutStepSamples(for workout: HKWorkout, type: BodyWorkoutType) async -> [WorkoutStepSample] {
+    /// step cadence statistics query). Empty for non-stepping activities or when
+    /// the Workout Metrics permission is opted out. Any read FAILURE propagates
+    /// (same rationale as the distance walk above) rather than collapsing to an
+    /// empty cadence column — the store's catch returns `.empty` UNCACHED, so a
+    /// transient failure just retries on reopen instead of silently losing
+    /// cadence for the rest of the session.
+    private func workoutStepSamples(for workout: HKWorkout, type: BodyWorkoutType) async throws -> [WorkoutStepSample] {
         guard type.supportsStepCadence,
               let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount) else {
             return []
@@ -116,32 +123,29 @@ extension HealthKitFetchEngine {
         // cadence path (`fetchStepCadence` is gated by `.workoutMetrics`). Without this
         // the split sidecar would surface cadence whenever `.stepCount` happens to be
         // authorized via the separate Steps toggle, ignoring the Workout Metrics opt-out.
-        return await fetchIfPermitted(.workoutMetrics, default: []) {
-            await readWorkoutStepSamples(for: workout, stepType: stepType)
-        }
-    }
-
-    private func readWorkoutStepSamples(for workout: HKWorkout, stepType: HKQuantityType) async -> [WorkoutStepSample] {
-        do {
-            let descriptor = HKQuantitySeriesSampleQueryDescriptor(
-                predicate: .quantitySample(
-                    type: stepType,
-                    predicate: HKQuery.predicateForObjects(from: workout)
-                ),
-                options: [.orderByQuantitySampleStartDate]
-            )
-
-            var samples: [WorkoutStepSample] = []
-            for try await result in descriptor.results(for: healthStore) {
-                samples.append(WorkoutStepSample(
-                    startDate: result.dateInterval.start,
-                    endDate: result.dateInterval.end,
-                    count: result.quantity.doubleValue(for: .count())
-                ))
-            }
-            return samples.sorted { $0.startDate < $1.startDate }
-        } catch {
+        guard permissionSelection.includes(.workoutMetrics) else {
             return []
         }
+        return try await readWorkoutStepSamples(for: workout, stepType: stepType)
+    }
+
+    private func readWorkoutStepSamples(for workout: HKWorkout, stepType: HKQuantityType) async throws -> [WorkoutStepSample] {
+        let descriptor = HKQuantitySeriesSampleQueryDescriptor(
+            predicate: .quantitySample(
+                type: stepType,
+                predicate: HKQuery.predicateForObjects(from: workout)
+            ),
+            options: [.orderByQuantitySampleStartDate]
+        )
+
+        var samples: [WorkoutStepSample] = []
+        for try await result in descriptor.results(for: healthStore) {
+            samples.append(WorkoutStepSample(
+                startDate: result.dateInterval.start,
+                endDate: result.dateInterval.end,
+                count: result.quantity.doubleValue(for: .count())
+            ))
+        }
+        return samples.sorted { $0.startDate < $1.startDate }
     }
 }

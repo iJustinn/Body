@@ -13,12 +13,16 @@ import HealthKit
 // `mergeIntradaySamples`) implement the incremental-merge boundary the
 // store uses when calling `fetchIntradayDaySamples` with a non-empty cache.
 extension HealthKitFetchEngine {
+    /// Returns `nil` when the underlying sample query fails (device locked,
+    /// store unavailable, XPC drop, or an unresolved source selection) so the
+    /// store keeps the cached day-sample series instead of blanking it; a
+    /// successful empty result still replaces it.
     func fetchIntradayDaySamples(
         for kind: HealthMetricKind,
         calendar: Calendar,
         startDate: Date? = nil,
         endDate: Date? = nil
-    ) async -> HealthTrendSeries {
+    ) async -> HealthTrendSeries? {
         switch kind {
         case .heartRate:
             return await fetchQuantitySampleSeries(

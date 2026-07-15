@@ -21,7 +21,7 @@ enum ReadinessStatus: String, Codable, Equatable {
         }
 
         switch score {
-        case 95...100:
+        case 95...:
             return .prime
         case 80...94:
             return .high

@@ -310,6 +310,17 @@ struct BodyHealthDataSourceSelection: Equatable {
         return BodyHealthDataSourceSelection(defaultOption: defaultOption, selectedOptions: nextOptions)
     }
 
+    /// Stable digest of the selected primary sources, mirroring
+    /// `BodyHealthSecondaryDataSourceSelection.signature`. Stamped onto the
+    /// day-sample sidecar so hydration can reject intraday samples captured
+    /// under a different source selection (H6).
+    var signature: String {
+        (["default=\(defaultOption.id)"] + selectedOptions
+            .sorted { $0.key.rawValue < $1.key.rawValue }
+            .map { "\($0.key.rawValue)=\($0.value.id)" })
+            .joined(separator: "|")
+    }
+
     static func storedValue(from rawValue: String) -> BodyHealthDataSourceSelection {
         let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedValue.isEmpty, let data = trimmedValue.data(using: .utf8) else {

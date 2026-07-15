@@ -300,7 +300,8 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         XCTAssertEqual(presentation.title, "Strength")
         XCTAssertEqual(presentation.dateTitle, "Mon, May 11")
-        XCTAssertEqual(presentation.timeRangeText, "15:57-16:58")
+        // Foundation separates time and AM/PM with U+202F (narrow no-break space).
+        XCTAssertEqual(presentation.timeRangeText, "3:57\u{202F}PM-4:58\u{202F}PM")
         XCTAssertEqual(presentation.durationClockText, "1:00:39")
         XCTAssertEqual(presentation.activeEnergyText, "416 kcal")
         XCTAssertEqual(presentation.totalEnergyText, "482 kcal")
@@ -369,6 +370,73 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(TrainingLoadCalculator.load(for: defaultEffortWorkout)), 100, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(TrainingLoadCalculator.load(for: cappedEffortWorkout)), 100, accuracy: 0.001)
         XCTAssertNil(TrainingLoadCalculator.load(for: invalidWorkout))
+    }
+
+    func testTrainingLoadExcludesUnresolvedEffort() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 12, hour: 7)
+        ))
+        // Failed effort lookup with no cached fallback (H12): excluded from load
+        // rather than counted as the fabricated default 5.
+        let unresolvedWorkout = WorkoutSummary(
+            type: .running,
+            startDate: startDate,
+            duration: 20 * 60,
+            effortLevel: nil,
+            effortUnresolved: true
+        )
+        XCTAssertNil(TrainingLoadCalculator.load(for: unresolvedWorkout))
+
+        // A genuinely unrated workout (flag nil/false) keeps the intentional
+        // default 5 → 20 min × 5 = 100, unchanged by the new flag.
+        let unratedDefaultFlag = WorkoutSummary(
+            type: .running,
+            startDate: startDate,
+            duration: 20 * 60,
+            effortLevel: nil,
+            effortUnresolved: false
+        )
+        XCTAssertEqual(try XCTUnwrap(TrainingLoadCalculator.load(for: unratedDefaultFlag)), 100, accuracy: 0.001)
+        let unratedNilFlag = WorkoutSummary(
+            type: .running,
+            startDate: startDate,
+            duration: 20 * 60
+        )
+        XCTAssertEqual(try XCTUnwrap(TrainingLoadCalculator.load(for: unratedNilFlag)), 100, accuracy: 0.001)
+
+        // A rated workout stays counted even if the flag is somehow set — a real
+        // fetched/cached score means it isn't unresolved. (Belt-and-suspenders:
+        // the resolver never sets the flag alongside a score.)
+        let ratedWorkout = WorkoutSummary(
+            type: .running,
+            startDate: startDate,
+            duration: 30 * 60,
+            effortLevel: 7,
+            effortUnresolved: false
+        )
+        XCTAssertEqual(try XCTUnwrap(TrainingLoadCalculator.load(for: ratedWorkout)), 210, accuracy: 0.001)
+    }
+
+    func testTrainingLoadDailySeriesDropsUnresolvedWorkoutDay() throws {
+        let calendar = Calendar.bodyGregorian
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 12, hour: 7)))
+        // The only workout on its day is unresolved → that day contributes zero
+        // load, exactly as if the workout weren't there (no fabricated spike).
+        let unresolvedOnly = [
+            WorkoutSummary(type: .running, startDate: day, duration: 40 * 60, effortLevel: nil, effortUnresolved: true)
+        ]
+        let excludedSeries = TrainingLoadCalculator.dailySeries(
+            from: unresolvedOnly,
+            startDate: day,
+            endDate: day,
+            calendar: calendar
+        )
+        // No positive load anywhere → ratio series has no finite chronic base, so
+        // it stays empty, matching an empty-workout day.
+        XCTAssertEqual(
+            excludedSeries,
+            TrainingLoadCalculator.dailySeries(from: [], startDate: day, endDate: day, calendar: calendar)
+        )
     }
 
     func testTrainingLoadCalculatorBuildsTrainingLoadRatioSeries() throws {
@@ -2184,6 +2252,64 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(sanitized.averageHeartRateBeatsPerMinute, 150)
         XCTAssertEqual(sanitized.maximumHeartRateBeatsPerMinute, 175)
         XCTAssertEqual(sanitized.effortLevel, 6)
+    }
+
+    func testRemovingWorkoutMetricsPreservesEffortUnresolvedFlag() throws {
+        // `removingWorkoutMetrics()` reconstructs the summary field-by-field and is
+        // rewritten to disk when Workout Metrics is disabled. If it dropped
+        // `effortUnresolved`, an excluded workout would silently revert to the
+        // fabricated default-5 load (H12 / Codex finding #5).
+        let unresolved = WorkoutSummary(
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 2_000_000),
+            duration: 1_200,
+            effortLevel: nil,
+            effortUnresolved: true,
+            cardioFitnessVO2Max: 48
+        )
+        let sanitized = unresolved.removingWorkoutMetrics()
+        XCTAssertEqual(sanitized.effortUnresolved, true)
+        XCTAssertNil(sanitized.cardioFitnessVO2Max)
+        XCTAssertNil(TrainingLoadCalculator.load(for: sanitized))
+
+        // A resolved summary keeps its nil flag through the same round-trip.
+        let resolved = WorkoutSummary(
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 2_000_000),
+            duration: 1_200,
+            effortLevel: 5
+        )
+        XCTAssertNil(resolved.removingWorkoutMetrics().effortUnresolved)
+    }
+
+    func testWorkoutSummaryEffortUnresolvedSurvivesCodableRoundTrip() throws {
+        let unresolved = WorkoutSummary(
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 3_000_000),
+            duration: 900,
+            effortLevel: nil,
+            effortUnresolved: true
+        )
+        let encoded = try JSONEncoder().encode(unresolved)
+        let decoded = try JSONDecoder().decode(WorkoutSummary.self, from: encoded)
+        XCTAssertEqual(decoded.effortUnresolved, true)
+        XCTAssertEqual(decoded, unresolved)
+
+        // A nil flag is omitted from the encoded bytes (synthesized `encodeIfPresent`),
+        // so old snapshots lack the key and the M10 byte-dedupe only sees a change
+        // when the flag actually flips. Re-decoding still yields nil (resolved), so
+        // legacy workouts keep counting as the default-5 rating rather than dropping.
+        let resolved = WorkoutSummary(
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 3_000_000),
+            duration: 900,
+            effortLevel: 5
+        )
+        let resolvedEncoded = try JSONEncoder().encode(resolved)
+        let resolvedJSON = try XCTUnwrap(String(data: resolvedEncoded, encoding: .utf8))
+        XCTAssertFalse(resolvedJSON.contains("effortUnresolved"))
+        let resolvedDecoded = try JSONDecoder().decode(WorkoutSummary.self, from: resolvedEncoded)
+        XCTAssertNil(resolvedDecoded.effortUnresolved)
     }
 
     func testExpandedPermissionMigrationAddsNewTogglesForLegacySelections() throws {
@@ -4205,7 +4331,6 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let snapshot = HealthWidgetSnapshotBuilder.make(
             trends: trends,
             summary: summary,
-            sleepStageSnapshot: night.summary.stageSnapshot,
             temperatureUnitPreference: .celsius,
             energyUnitPreference: .kilojoules,
             weightUnitPreference: .kilograms,
@@ -4223,7 +4348,6 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let emptySnapshot = HealthWidgetSnapshotBuilder.make(
             trends: trends,
             summary: summary,
-            sleepStageSnapshot: .empty,
             temperatureUnitPreference: .celsius,
             energyUnitPreference: .kilojoules,
             weightUnitPreference: .kilograms,

@@ -106,6 +106,13 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     let averageHeartRateBeatsPerMinute: Double?
     let maximumHeartRateBeatsPerMinute: Double?
     let effortLevel: Double?
+    /// `true` when the effort lookup FAILED for a workout that had no cached
+    /// score (H12) — its `effortLevel` is neither a real rating nor a trustworthy
+    /// default, so `TrainingLoadCalculator.load` excludes it rather than counting
+    /// it as the default effort. Optional so old persisted snapshots decode `nil`
+    /// (genuinely unrated / resolved), and so the M10 byte-dedupe only sees a
+    /// change when the flag actually flips.
+    let effortUnresolved: Bool?
     let heartRateSamples: [WorkoutHeartRateSample]?
     let elevationAscendedMeters: Double?
     let averagePowerWatts: Double?
@@ -126,6 +133,7 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         averageHeartRateBeatsPerMinute: Double? = nil,
         maximumHeartRateBeatsPerMinute: Double? = nil,
         effortLevel: Double? = nil,
+        effortUnresolved: Bool? = nil,
         heartRateSamples: [WorkoutHeartRateSample] = [],
         elevationAscendedMeters: Double? = nil,
         averagePowerWatts: Double? = nil,
@@ -145,6 +153,7 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         self.averageHeartRateBeatsPerMinute = averageHeartRateBeatsPerMinute
         self.maximumHeartRateBeatsPerMinute = maximumHeartRateBeatsPerMinute
         self.effortLevel = effortLevel
+        self.effortUnresolved = effortUnresolved
         self.heartRateSamples = heartRateSamples
         self.elevationAscendedMeters = elevationAscendedMeters
         self.averagePowerWatts = averagePowerWatts
@@ -172,6 +181,7 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
             averageHeartRateBeatsPerMinute: averageHeartRateBeatsPerMinute,
             maximumHeartRateBeatsPerMinute: maximumHeartRateBeatsPerMinute,
             effortLevel: effortLevel,
+            effortUnresolved: effortUnresolved,
             heartRateSamples: heartRateSamples ?? [],
             elevationAscendedMeters: elevationAscendedMeters,
             averagePowerWatts: nil,
@@ -501,14 +511,14 @@ struct WorkoutDetailPresentation: Equatable {
         timeRangeText = [
             Self.formattedDate(
                 workout.startDate,
-                dateFormat: "HH:mm",
+                template: "jm",
                 calendar: calendar,
                 locale: locale,
                 timeZone: timeZone
             ),
             Self.formattedDate(
                 endDate,
-                dateFormat: "HH:mm",
+                template: "jm",
                 calendar: calendar,
                 locale: locale,
                 timeZone: timeZone
@@ -716,21 +726,6 @@ struct WorkoutDetailPresentation: Equatable {
         }
 
         detailMetrics = metrics
-    }
-
-    private static func formattedDate(
-        _ date: Date,
-        dateFormat: String,
-        calendar: Calendar,
-        locale: Locale,
-        timeZone: TimeZone
-    ) -> String {
-        BodyDateFormatterCache.formatter(
-            dateFormat: dateFormat,
-            calendar: calendar,
-            locale: locale,
-            timeZone: timeZone
-        ).string(from: date)
     }
 
     private static func formattedDate(

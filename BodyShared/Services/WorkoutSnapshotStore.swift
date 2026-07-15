@@ -62,8 +62,32 @@ enum WorkoutSnapshotStore {
             return false
         }
 
-        if let existing = try? Data(contentsOf: fileURL), existing == data {
-            return false
+        if let existing = try? Data(contentsOf: fileURL) {
+            if existing == data {
+                return false
+            }
+            // A periodic re-save with unchanged content still gets a fresh
+            // `generatedAt` from the caller, which would otherwise defeat the
+            // byte-compare above and bump `generatedAt` on every call — and
+            // `generatedAt` doubles as a cache key (search corpus, clear-cache
+            // dedupe). Re-encode the incoming snapshot with the on-disk
+            // `generatedAt` substituted in; if that now matches the on-disk
+            // bytes, the content is unchanged and the write (and its new
+            // timestamp) is skipped.
+            if let existingSnapshot = try? JSONDecoder().decode(WorkoutMonthSnapshot.self, from: existing) {
+                let restampedSnapshot = WorkoutMonthSnapshot(
+                    month: snapshot.month,
+                    year: snapshot.year,
+                    generatedAt: existingSnapshot.generatedAt,
+                    days: snapshot.days,
+                    schemaVersion: snapshot.schemaVersion
+                )
+                let restampedEncoder = JSONEncoder()
+                restampedEncoder.outputFormatting = [.sortedKeys]
+                if let restamped = try? restampedEncoder.encode(restampedSnapshot), restamped == existing {
+                    return false
+                }
+            }
         }
 
         do {

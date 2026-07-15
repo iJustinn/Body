@@ -18,6 +18,14 @@ enum TrainingLoadCalculator {
             return nil
         }
 
+        // A failed-and-uncached effort lookup (H12) is excluded from load rather
+        // than counted as the default effort — otherwise a transient query failure
+        // fabricates a mid-intensity workout in the acute/chronic EWA. A genuinely
+        // unrated workout keeps the intentional default below.
+        if workout.effortUnresolved == true {
+            return nil
+        }
+
         let effort = workout.effortLevel.map(clampedEffortLevel) ?? defaultEffortLevel
         let load = (workout.duration / 60) * effort
         return load.isFinite && load > 0 ? load : nil

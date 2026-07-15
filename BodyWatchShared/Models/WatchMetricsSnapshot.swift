@@ -78,6 +78,22 @@ enum WatchMetricKindKey {
         default: return "heart.text.square"
         }
     }
+
+    /// How old a locally-measured live reading (or the accepted HealthKit
+    /// sample) may be before the watch treats that metric as stale. Evaluated
+    /// PER KIND: heart rate moves minute-to-minute (30 min), HRV is a slow
+    /// overnight metric (4h). A single shared window would either thrash HR or
+    /// instantly re-stale a freshly-accepted multi-hour-old HRV, wedging the
+    /// live-read loop. Used by both `WatchHealthStore` (sample acceptance) and
+    /// `WatchMetricsModel.isStale`. Kinds without a live path fall back to the
+    /// snapshot-level stale interval.
+    static func liveFreshnessLimit(forKind kind: String) -> TimeInterval {
+        switch kind {
+        case heartRate: return 30 * 60
+        case heartRateVariability: return 4 * 60 * 60
+        default: return WatchMetricsSnapshot.staleInterval
+        }
+    }
 }
 
 /// Deep-link scheme shared by the watch complications (`widgetURL`) and the
@@ -197,6 +213,30 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// unknown, treated as not-today by `sanitized`).
     var sleepNight: Date? = nil
 
+    /// Identifies the phone install that produced this snapshot: a UUID
+    /// persisted in phone UserDefaults, regenerated on reinstall / data reset.
+    /// Together with `revision` it lets the watch order snapshots WITHOUT
+    /// trusting the device clock — a rollback can't make a stale payload outrank
+    /// a newer one (see `supersedes`). Optional so a legacy payload (no epoch,
+    /// from an older phone) still decodes and falls back to the `generatedAt`
+    /// rule.
+    var publisherEpoch: String? = nil
+    /// Monotonic counter WITHIN `publisherEpoch`, persisted and advanced on the
+    /// phone each time it publishes. Authoritative over `generatedAt` when the
+    /// epochs match, so it survives a clock rollback. Optional/defaulted for
+    /// schema evolution; a watch-local live HR/HRV refresh never advances it.
+    var revision: UInt64? = nil
+
+    /// Set by the phone's Clear-Cache path: this is a reset tombstone — empty
+    /// metrics that the watch must ADOPT (replacing its snapshot) rather than
+    /// blank-preserve merge, so cleared data doesn't linger. It still rides the
+    /// normal `(publisherEpoch, revision)` ordering (`supersedes`), so a stale
+    /// lower-revision push can't resurrect the data it cleared, and the watch
+    /// persists it as a tombstone to keep that ordering across a restart.
+    /// Optional so phone/watch version skew still decodes (an older watch just
+    /// merges the empty-metrics payload, which clears it anyway).
+    var isReset: Bool? = nil
+
     /// Pushed data older than this is stale: the watch app live-refreshes
     /// HR/HRV past it, and the complication timeline re-checks on the same
     /// cadence.
@@ -226,6 +266,29 @@ struct WatchMetricsSnapshot: Codable, Equatable {
 
     func metric(forKind kind: String) -> WatchMetric? {
         metrics.first { $0.kind == kind }
+    }
+
+    /// Whether this snapshot should replace `other` on the watch — the ordering
+    /// that survives a device-clock rollback. When both carry the same
+    /// `publisherEpoch`, the monotonic `revision` is authoritative (a rolled-back
+    /// clock can't let an older payload's `generatedAt` outrank a newer one);
+    /// equal revisions tie-break on `generatedAt`. A different or unknown epoch
+    /// means a reinstall/reset produced this payload, so accept it and adopt its
+    /// epoch (reinstall wins). When neither side carries an epoch (a legacy
+    /// payload), fall back to the plain `generatedAt` rule.
+    func supersedes(_ other: WatchMetricsSnapshot) -> Bool {
+        switch (publisherEpoch, other.publisherEpoch) {
+        case let (epoch?, otherEpoch?) where epoch == otherEpoch:
+            let revision = revision ?? 0
+            let otherRevision = other.revision ?? 0
+            return revision == otherRevision
+                ? generatedAt > other.generatedAt
+                : revision > otherRevision
+        case (nil, nil):
+            return generatedAt > other.generatedAt
+        default:
+            return true
+        }
     }
 
     /// Metrics in dashboard display order, skipping any kind absent from this

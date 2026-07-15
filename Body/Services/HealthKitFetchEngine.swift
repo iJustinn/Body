@@ -83,6 +83,79 @@ actor HealthKitFetchEngine {
         fetched ?? cached
     }
 
+    /// Outcome of a single summary-leaf query. Distinguishes a query FAILURE
+    /// (device locked, store unavailable, XPC drop — resolver keeps the cached
+    /// value) from a genuine absence (`.success(nil)` — no samples, permission
+    /// off, or selection off — resolver clears the tile). Mirrors the trend
+    /// convention (`resolvedTrendSeries`) without a `Value??` double-optional.
+    enum QueryOutcome<Value> {
+        case success(Value?)
+        case failure
+
+        var isFailure: Bool {
+            if case .failure = self { return true }
+            return false
+        }
+
+        /// The successfully fetched value (`nil` for confirmed-absent or failure).
+        var successValue: Value? {
+            switch self {
+            case .success(let value):
+                return value
+            case .failure:
+                return nil
+            }
+        }
+
+        /// The successfully fetched value, or `fallback` for confirmed-absent /
+        /// failure. Used where a leaf feeds a best-effort aggregate that cannot
+        /// keep a per-item cache (e.g. sleep-history nocturnal vitals).
+        func valueOr(_ fallback: Value) -> Value {
+            successValue ?? fallback
+        }
+    }
+
+    /// Resolves a freshly fetched summary leaf against the cached value. A
+    /// `.failure` means the HealthKit query itself failed rather than genuinely
+    /// returning no data, so the previously cached value is kept. A `.success`
+    /// — including an intentionally absent value produced when a permission or
+    /// source selection is toggled off — replaces the cache. Mirrors
+    /// `resolvedTrendSeries`.
+    nonisolated static func resolvedSummaryValue<Value>(
+        fetched: QueryOutcome<Value>,
+        cached: Value?
+    ) -> Value? {
+        switch fetched {
+        case .success(let value):
+            return value
+        case .failure:
+            return cached
+        }
+    }
+
+    /// Result of `fetchHealthSummary`: the resolved snapshot plus whether any
+    /// leaf query failed. When a leaf failed the store still publishes/persists
+    /// the resolved (cache-preserving) snapshot but skips advancing the
+    /// freshness TTL, so the next resume retries instead of trusting a partial
+    /// result as 5-minutes-fresh.
+    struct HealthSummaryFetchResult {
+        let summary: HealthSummarySnapshot
+        let hadQueryFailure: Bool
+    }
+
+    /// Result of `fetchHealthTrends`: the resolved trend snapshot plus whether
+    /// ANY trend leaf query failed — primary series (nil from
+    /// `resolvedTrendSeries`), secondary series (resolved against the cached
+    /// secondary value), or a nocturnal sleep-vital query. Mirrors
+    /// `HealthSummaryFetchResult`: the store still publishes/persists the
+    /// resolved (cache-preserving) snapshot but ORs this bit with the summary's
+    /// and the ring-history bits before deciding whether to advance the
+    /// freshness TTL, so any failed leaf makes the next resume retry.
+    struct HealthTrendFetchResult {
+        let trends: HealthTrendSnapshot
+        let hadQueryFailure: Bool
+    }
+
     struct TrainingLoadWorkoutsWindow: Equatable {
         let start: Date
         let end: Date
@@ -315,6 +388,69 @@ actor HealthKitFetchEngine {
 
     // MARK: - Predicates
 
+    /// Tri-state resolution of a metric's source selection into a query
+    /// predicate. `.unresolved` (a specific source is selected but source
+    /// discovery has not succeeded for this kind this process) must SKIP the
+    /// query with failure semantics — otherwise a nil predicate would silently
+    /// query every source and show all-source data for a custom-source user
+    /// (H4). `.allSources` intentionally applies no source filter (all-sources
+    /// / no-comparison selection, or a genuinely deleted source whose discovery
+    /// nonetheless succeeded).
+    enum SourceQueryResolution {
+        case allSources
+        case predicate(NSPredicate)
+        case unresolved
+    }
+
+    func sourceQueryResolution(
+        for kind: HealthMetricKind,
+        option explicitOption: BodyHealthDataSourceOption? = nil
+    ) -> SourceQueryResolution {
+        let option = explicitOption ?? healthDataSourceSelection.option(for: kind)
+        guard !option.isAllSources, !option.isNoComparison else {
+            return .allSources
+        }
+
+        // A specific source is selected. Absent `healthSourcesByKind[kind]`
+        // means discovery has not succeeded for this kind this process (never
+        // ran, or failed and kept no prior map) — the selection is unresolved,
+        // so skip rather than fall back to all sources. A present-but-missing
+        // id means discovery succeeded and the source is genuinely gone, so
+        // fall back to all sources.
+        guard let discoveredSources = healthSourcesByKind[kind] else {
+            return .unresolved
+        }
+        guard let sources = discoveredSources[option.id], !sources.isEmpty else {
+            return .allSources
+        }
+
+        guard sources.count > 1 else {
+            guard let source = sources.first else {
+                return .allSources
+            }
+            return .predicate(HKQuery.predicateForObjects(from: source))
+        }
+
+        let sourcePredicates = sources.map { source in
+            HKQuery.predicateForObjects(from: source)
+        }
+        return .predicate(NSCompoundPredicate(orPredicateWithSubpredicates: sourcePredicates))
+    }
+
+    /// Whether a metric's source selection is unresolved — a specific source is
+    /// chosen but discovery has not succeeded for this kind this process. Leaf
+    /// fetches consult this to skip the query with failure semantics (keeping
+    /// the cache) instead of querying all sources through a nil predicate.
+    func sourceSelectionUnresolved(
+        for kind: HealthMetricKind,
+        option explicitOption: BodyHealthDataSourceOption? = nil
+    ) -> Bool {
+        if case .unresolved = sourceQueryResolution(for: kind, option: explicitOption) {
+            return true
+        }
+        return false
+    }
+
     private func sourcePredicate(for kind: HealthMetricKind) -> NSPredicate? {
         sourcePredicate(for: kind, option: nil)
     }
@@ -323,24 +459,10 @@ actor HealthKitFetchEngine {
         for kind: HealthMetricKind,
         option explicitOption: BodyHealthDataSourceOption? = nil
     ) -> NSPredicate? {
-        let option = explicitOption ?? healthDataSourceSelection.option(for: kind)
-        guard !option.isAllSources,
-              !option.isNoComparison,
-              let sources = healthSourcesByKind[kind]?[option.id],
-              !sources.isEmpty else {
-            return nil
+        if case .predicate(let predicate) = sourceQueryResolution(for: kind, option: explicitOption) {
+            return predicate
         }
-
-        guard sources.count > 1 else {
-            return sources.first.map { source in
-                HKQuery.predicateForObjects(from: source)
-            }
-        }
-
-        let sourcePredicates = sources.map { source in
-            HKQuery.predicateForObjects(from: source)
-        }
-        return NSCompoundPredicate(orPredicateWithSubpredicates: sourcePredicates)
+        return nil
     }
 
     func combinedPredicate(
@@ -392,6 +514,32 @@ actor HealthKitFetchEngine {
         let end = anchorOrDate
         let currentDayStart = calendar.startOfDay(for: anchorOrDate)
         let oldestPastOffset = BodyHealthTrendRange.maximumDayCount - 1
+        let start = calendar.date(byAdding: .day, value: -oldestPastOffset, to: currentDayStart)
+            ?? end.addingTimeInterval(-TimeInterval(oldestPastOffset) * 86_400)
+        return (start, end)
+    }
+
+    /// Window for lazy-loaded intraday raw/hourly samples (the per-metric
+    /// detail chart). Unlike the 365-day daily trend charts, the intraday
+    /// picker is only reachable across the recent-month window
+    /// (`BodyHealthMetricDetailView` uses `BodyHealthTrendRange.recentMonth`),
+    /// so fetching raw samples over the full trend window pulls tens of
+    /// thousands of samples the UI never shows. Cover the recent-month reach
+    /// plus a two-day margin for the 48h incremental overlap; daily trend
+    /// charts are unaffected (they use `recentHealthTrendInterval`).
+    func intradayDaySampleInterval(calendar: Calendar, date: Date = Date()) -> (start: Date, end: Date) {
+        Self.intradayDaySampleInterval(calendar: calendar, anchor: anchorDate, date: date)
+    }
+
+    nonisolated static func intradayDaySampleInterval(
+        calendar: Calendar,
+        anchor: Date?,
+        date: Date = Date()
+    ) -> (start: Date, end: Date) {
+        let anchorOrDate = anchor ?? date
+        let end = anchorOrDate
+        let currentDayStart = calendar.startOfDay(for: anchorOrDate)
+        let oldestPastOffset = BodyHealthTrendRange.recentMonth.dayCount + 2
         let start = calendar.date(byAdding: .day, value: -oldestPastOffset, to: currentDayStart)
             ?? end.addingTimeInterval(-TimeInterval(oldestPastOffset) * 86_400)
         return (start, end)
@@ -507,6 +655,33 @@ actor HealthKitFetchEngine {
         return option
     }
 
+    /// nil `discoveredNonemptyIDs` = discovery unresolved for this kind → keep the
+    /// stored option so leaf queries skip with failure semantics via
+    /// `sourceSelectionUnresolved` (H4). Discovered-but-absent (or empty bucket) →
+    /// `absentFallback` (`.allSources` / `.noComparison`).
+    nonisolated static func resolvedSourceOption(
+        _ option: BodyHealthDataSourceOption,
+        discoveredNonemptyIDs: Set<String>?,
+        absentFallback: BodyHealthDataSourceOption
+    ) -> BodyHealthDataSourceOption {
+        guard let ids = discoveredNonemptyIDs else {
+            return option
+        }
+        guard ids.contains(option.id) else {
+            return absentFallback
+        }
+        return option
+    }
+
+    /// IDs whose `[HKSource]` bucket is non-empty for this kind, mirroring
+    /// `sourceQueryResolution`'s `!sources.isEmpty` rule. Absent
+    /// `healthSourcesByKind[kind]` (discovery unresolved this process) yields nil.
+    private func discoveredNonemptyHealthSourceIDs(for kind: HealthMetricKind) -> Set<String>? {
+        healthSourcesByKind[kind].map { bucket in
+            Set(bucket.filter { !$0.value.isEmpty }.keys)
+        }
+    }
+
     func resolvedHealthDataSourceOption(
         _ option: BodyHealthDataSourceOption,
         for kind: HealthMetricKind
@@ -517,11 +692,14 @@ actor HealthKitFetchEngine {
             return option.isNoComparison ? .allSources : option
         }
 
-        guard healthSourcesByKind[kind]?[option.id]?.isEmpty == false else {
-            return .allSources
-        }
-
-        return option
+        // Discovery hasn't populated this kind yet (nil bucket) — keep the stored
+        // selection so leaf queries skip with failure semantics (H4) rather than
+        // collapsing to All Sources. Only a discovered-and-absent source falls back.
+        return Self.resolvedSourceOption(
+            option,
+            discoveredNonemptyIDs: discoveredNonemptyHealthSourceIDs(for: kind),
+            absentFallback: .allSources
+        )
     }
 
     func resolvedSecondaryHealthDataSourceOption(
@@ -537,11 +715,14 @@ actor HealthKitFetchEngine {
             return option
         }
 
-        guard healthSourcesByKind[kind]?[option.id]?.isEmpty == false else {
-            return .noComparison
-        }
-
-        return option
+        // Discovery hasn't populated this kind yet — keep the stored secondary
+        // selection so leaf queries skip with failure semantics (H4) instead of
+        // collapsing to No Comparison. Only a discovered-and-absent source falls back.
+        return Self.resolvedSourceOption(
+            option,
+            discoveredNonemptyIDs: discoveredNonemptyHealthSourceIDs(for: kind),
+            absentFallback: .noComparison
+        )
     }
 
     // MARK: - Quantity / sample helpers
@@ -562,6 +743,9 @@ actor HealthKitFetchEngine {
     ) async -> HealthTrendSeries? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .empty
+        }
+        if let sourceKind, sourceSelectionUnresolved(for: sourceKind, option: sourceOption) {
+            return nil
         }
 
         let interval = recentHealthTrendInterval(calendar: calendar)
@@ -641,9 +825,15 @@ actor HealthKitFetchEngine {
         sourceKind: HealthMetricKind? = nil,
         sourceOption: BodyHealthDataSourceOption? = nil,
         valueTransform: @escaping (Double) -> Double = { $0 }
-    ) async -> HealthTrendRangeSeries {
+    ) async -> HealthTrendRangeSeries? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .empty
+        }
+        // Unresolved source selection: `nil` (a query failure) so the caller keeps
+        // the cached series rather than silently querying all sources, matching
+        // the primary `fetchDailyQuantitySeries` convention.
+        if let sourceKind, sourceSelectionUnresolved(for: sourceKind, option: sourceOption) {
+            return nil
         }
 
         let interval = recentHealthTrendInterval(calendar: calendar)
@@ -667,9 +857,10 @@ actor HealthKitFetchEngine {
                 intervalComponents: intervalComponents
             )
 
-            query.initialResultsHandler = { _, statisticsCollection, _ in
+            query.initialResultsHandler = { _, statisticsCollection, error in
                 guard let statisticsCollection else {
-                    continuation.resume(returning: .empty)
+                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
+                    continuation.resume(returning: nil)
                     return
                 }
 
@@ -715,6 +906,9 @@ actor HealthKitFetchEngine {
     ) async -> (HealthTrendSeries, HealthTrendRangeSeries)? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return (.empty, .empty)
+        }
+        if let sourceKind, sourceSelectionUnresolved(for: sourceKind, option: sourceOption) {
+            return nil
         }
 
         let interval = recentHealthTrendInterval(calendar: calendar)
@@ -788,9 +982,12 @@ actor HealthKitFetchEngine {
         aggregation: DailyQuantityAggregation,
         sourceKind: HealthMetricKind? = nil,
         valueTransform: @escaping (Double) -> Double = { $0 }
-    ) async -> HealthMetricSummary? {
+    ) async -> QueryOutcome<HealthMetricSummary> {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
-            return nil
+            return .success(nil)
+        }
+        if let sourceKind, sourceSelectionUnresolved(for: sourceKind) {
+            return .failure
         }
 
         let predicate = combinedPredicate(startDate: startDate, endDate: endDate, sourceKind: sourceKind)
@@ -802,19 +999,24 @@ actor HealthKitFetchEngine {
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [sort]
-            ) { _, samples, _ in
-                let quantitySamples = samples as? [HKQuantitySample] ?? []
+            ) { _, samples, error in
+                guard let samples else {
+                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
+                    continuation.resume(returning: .failure)
+                    return
+                }
+                let quantitySamples = samples.compactMap { $0 as? HKQuantitySample }
                 guard let value = Self.dailyQuantityValue(
                     from: quantitySamples,
                     unit: unit,
                     aggregation: aggregation,
                     valueTransform: valueTransform
                 ) else {
-                    continuation.resume(returning: nil)
+                    continuation.resume(returning: .success(nil))
                     return
                 }
 
-                continuation.resume(returning: HealthMetricSummary(value: value))
+                continuation.resume(returning: .success(HealthMetricSummary(value: value)))
             }
 
             healthStore.execute(query)
@@ -828,7 +1030,7 @@ actor HealthKitFetchEngine {
         calendar: Calendar,
         sourceKind: HealthMetricKind? = nil,
         valueTransform: @escaping (Double) -> Double = { $0 }
-    ) async -> HealthMetricSummary? {
+    ) async -> QueryOutcome<HealthMetricSummary> {
         let series = await fetchDailyQuantitySeries(
             for: identifier,
             unit: unit,
@@ -838,11 +1040,14 @@ actor HealthKitFetchEngine {
             valueTransform: valueTransform
         )
 
-        guard let latestPoint = series?.points.last else {
-            return nil
+        guard let series else {
+            return .failure
+        }
+        guard let latestPoint = series.points.last else {
+            return .success(nil)
         }
 
-        return HealthMetricSummary(value: latestPoint.value)
+        return .success(HealthMetricSummary(value: latestPoint.value))
     }
 
     private func dailyCumulativeQuantitySummary(
@@ -851,9 +1056,12 @@ actor HealthKitFetchEngine {
         calendar: Calendar,
         sourceKind: HealthMetricKind? = nil,
         valueTransform: @escaping (Double) -> Double = { $0 }
-    ) async -> HealthMetricSummary? {
+    ) async -> QueryOutcome<HealthMetricSummary> {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
-            return nil
+            return .success(nil)
+        }
+        if let sourceKind, sourceSelectionUnresolved(for: sourceKind) {
+            return .failure
         }
 
         // Today's bucket only: a day with no samples yet reports nil so the
@@ -879,9 +1087,10 @@ actor HealthKitFetchEngine {
                 intervalComponents: intervalComponents
             )
 
-            query.initialResultsHandler = { _, statisticsCollection, _ in
+            query.initialResultsHandler = { _, statisticsCollection, error in
                 guard let statisticsCollection else {
-                    continuation.resume(returning: nil)
+                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
+                    continuation.resume(returning: .failure)
                     return
                 }
 
@@ -897,7 +1106,7 @@ actor HealthKitFetchEngine {
                     }
                 }
 
-                continuation.resume(returning: latestValue.map(HealthMetricSummary.init(value:)))
+                continuation.resume(returning: .success(latestValue.map(HealthMetricSummary.init(value:))))
             }
 
             healthStore.execute(query)
@@ -913,12 +1122,15 @@ actor HealthKitFetchEngine {
         valueTransform: @escaping (Double) -> Double = { $0 },
         startDate: Date? = nil,
         endDate: Date? = nil
-    ) async -> HealthTrendSeries {
+    ) async -> HealthTrendSeries? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .empty
         }
+        if let sourceKind, sourceSelectionUnresolved(for: sourceKind, option: sourceOption) {
+            return nil
+        }
 
-        let interval = recentHealthTrendInterval(calendar: calendar)
+        let interval = intradayDaySampleInterval(calendar: calendar)
         let effectiveStart = startDate ?? interval.start
         let effectiveEnd = endDate ?? interval.end
         let predicate = combinedPredicate(
@@ -940,9 +1152,10 @@ actor HealthKitFetchEngine {
                 intervalComponents: intervalComponents
             )
 
-            query.initialResultsHandler = { _, statisticsCollection, _ in
+            query.initialResultsHandler = { _, statisticsCollection, error in
                 guard let statisticsCollection else {
-                    continuation.resume(returning: .empty)
+                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
+                    continuation.resume(returning: nil)
                     return
                 }
 
@@ -982,6 +1195,9 @@ actor HealthKitFetchEngine {
     ) async -> HealthTrendSeries? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .empty
+        }
+        if let sourceKind, sourceSelectionUnresolved(for: sourceKind, option: sourceOption) {
+            return nil
         }
 
         let interval = recentHealthTrendInterval(calendar: calendar)
@@ -1041,9 +1257,12 @@ actor HealthKitFetchEngine {
         unit: HKUnit,
         sourceKind: HealthMetricKind? = nil,
         valueTransform: @escaping (Double) -> Double = { $0 }
-    ) async -> HealthMetricSummary? {
+    ) async -> QueryOutcome<HealthMetricSummary> {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
-            return nil
+            return .success(nil)
+        }
+        if let sourceKind, sourceSelectionUnresolved(for: sourceKind) {
+            return .failure
         }
 
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
@@ -1055,18 +1274,22 @@ actor HealthKitFetchEngine {
                 predicate: predicate,
                 limit: 1,
                 sortDescriptors: [sort]
-            ) { _, samples, _ in
-                let quantitySamples = samples as? [HKQuantitySample] ?? []
+            ) { _, samples, error in
+                guard let samples else {
+                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
+                    continuation.resume(returning: .failure)
+                    return
+                }
 
-                guard let sample = quantitySamples.first else {
-                    continuation.resume(returning: nil)
+                guard let sample = samples.compactMap({ $0 as? HKQuantitySample }).first else {
+                    continuation.resume(returning: .success(nil))
                     return
                 }
 
                 let value = sample.quantity.doubleValue(for: unit)
                 continuation.resume(
-                    returning: HealthMetricSummary(
-                        value: valueTransform(value)
+                    returning: .success(
+                        HealthMetricSummary(value: valueTransform(value))
                     )
                 )
             }
@@ -1084,12 +1307,15 @@ actor HealthKitFetchEngine {
         valueTransform: @escaping (Double) -> Double = { $0 },
         startDate: Date? = nil,
         endDate: Date? = nil
-    ) async -> HealthTrendSeries {
+    ) async -> HealthTrendSeries? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .empty
         }
+        if let sourceKind, sourceSelectionUnresolved(for: sourceKind, option: sourceOption) {
+            return nil
+        }
 
-        let interval = recentHealthTrendInterval(calendar: calendar)
+        let interval = intradayDaySampleInterval(calendar: calendar)
         let predicate = combinedPredicate(
             startDate: startDate ?? interval.start,
             endDate: endDate ?? interval.end,
@@ -1098,26 +1324,66 @@ actor HealthKitFetchEngine {
         )
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
 
-        return await withCheckedContinuation { continuation in
-            let query = HKSampleQuery(
+        // Cancellation (dismissed detail view, superseded refresh) stops the
+        // in-flight query and resumes with `nil` — the same as a query failure —
+        // so the store keeps the cached intraday series rather than merging a
+        // partial one. See `runCancellableQuery`.
+        return await runCancellableQuery(cancelledValue: nil) { resume in
+            HKSampleQuery(
                 sampleType: quantityType,
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [sort]
-            ) { _, samples, _ in
-                let points = (samples as? [HKQuantitySample] ?? []).compactMap { sample -> HealthTrendDataPoint? in
-                    let value = valueTransform(sample.quantity.doubleValue(for: unit))
+            ) { _, samples, error in
+                guard let samples else {
+                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
+                    resume(nil)
+                    return
+                }
+                let points = samples.compactMap { sample -> HealthTrendDataPoint? in
+                    guard let quantitySample = sample as? HKQuantitySample else {
+                        return nil
+                    }
+                    let value = valueTransform(quantitySample.quantity.doubleValue(for: unit))
                     guard value.isFinite else {
                         return nil
                     }
 
-                    return HealthTrendDataPoint(date: sample.endDate, value: value)
+                    return HealthTrendDataPoint(date: quantitySample.endDate, value: value)
                 }
 
-                continuation.resume(returning: HealthTrendSeries(points: points))
+                resume(HealthTrendSeries(points: points))
             }
+        }
+    }
 
-            healthStore.execute(query)
+    // MARK: - Cancellable queries
+
+    /// Runs an `HKQuery` built by `makeQuery` under Task cancellation. `makeQuery`
+    /// receives a `resume` closure it must call exactly once from the query's
+    /// callback; on cancellation the in-flight query is stopped and `cancelledValue`
+    /// is resumed instead. Both call sites build the query INSIDE the continuation,
+    /// so cancellation can land before the query is installed — a lock-protected
+    /// state machine installs the query only if cancellation hasn't already fired,
+    /// resumes exactly once, and drops a late HealthKit callback.
+    func runCancellableQuery<Value>(
+        cancelledValue: @Sendable @autoclosure @escaping () -> Value,
+        makeQuery: (@escaping (Value) -> Void) -> HKQuery
+    ) async -> Value {
+        let coordinator = CancellableQueryCoordinator<Value>(
+            execute: { [healthStore] in healthStore.execute($0) },
+            stop: { [healthStore] in healthStore.stop($0) }
+        )
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                coordinator.install(
+                    continuation: continuation,
+                    cancelledValue: cancelledValue(),
+                    makeQuery: makeQuery
+                )
+            }
+        } onCancel: {
+            coordinator.cancel(cancelledValue: cancelledValue())
         }
     }
 
@@ -1127,6 +1393,7 @@ actor HealthKitFetchEngine {
         month: Int,
         year: Int,
         calendar: Calendar,
+        allowsHeartRateReuse: Bool = false,
         reusableSummariesByID: [UUID: WorkoutSummary] = [:]
     ) async throws -> [WorkoutSummary] {
         let start = calendar.date(from: DateComponents(year: year, month: month, day: 1)) ?? Date()
@@ -1135,6 +1402,7 @@ actor HealthKitFetchEngine {
             startDate: start,
             endDate: end,
             includesHeartRateSamples: true,
+            allowsHeartRateReuse: allowsHeartRateReuse,
             reusableSummariesByID: reusableSummariesByID
         )
     }
@@ -1144,40 +1412,49 @@ actor HealthKitFetchEngine {
         endDate: Date,
         includesHeartRateSamples: Bool,
         includesDetailMetrics: Bool = true,
+        allowsHeartRateReuse: Bool = false,
         reusableSummariesByID: [UUID: WorkoutSummary] = [:]
     ) async throws -> [WorkoutSummary] {
         let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: [.strictStartDate])
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
 
-        let workouts: [HKWorkout] = try await withCheckedThrowingContinuation { continuation in
-            let query = HKSampleQuery(
+        // Cancellation (superseded refresh, dismissed month) stops the in-flight
+        // query and throws `CancellationError`, so the caller (and training load)
+        // treats it as a failure and keeps its cache rather than blanking the
+        // month. See `runCancellableQuery`.
+        let workoutsResult: Result<[HKWorkout], Error> = await runCancellableQuery(
+            cancelledValue: .failure(CancellationError())
+        ) { resume in
+            HKSampleQuery(
                 sampleType: HKObjectType.workoutType(),
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [sort]
             ) { _, samples, error in
                 if let error {
-                    continuation.resume(throwing: error)
+                    resume(.failure(error))
                     return
                 }
 
-                continuation.resume(returning: samples as? [HKWorkout] ?? [])
+                resume(.success(samples as? [HKWorkout] ?? []))
             }
-
-            healthStore.execute(query)
         }
+        let workouts = try workoutsResult.get()
 
         guard !workouts.isEmpty else {
             return []
         }
 
         // Finished workouts whose HR payload was already fetched this session
-        // skip the batched HR query — passive resumes only (user-initiated
-        // paths pass an empty reuse map, so every pull-to-refresh remains a
-        // full HR reconcile). The workout list above is always fetched fresh.
+        // skip the batched HR query — passive resumes only (`allowsHeartRateReuse`;
+        // user-initiated paths pass `false`, so every pull-to-refresh remains a
+        // full HR reconcile). `reusableSummariesByID` is now always supplied (the
+        // effort/HR failure fallback below reads it), so the HR-reuse skip gates
+        // on the explicit flag rather than the map being non-empty. The workout
+        // list above is always fetched fresh.
         let reusedHeartRateIDs: Set<UUID>
         if includesHeartRateSamples,
-           !reusableSummariesByID.isEmpty,
+           allowsHeartRateReuse,
            permissionSelection.includes(.heart) {
             reusedHeartRateIDs = Self.heartRateReuseEligibleWorkoutIDs(
                 workouts: workouts.map { (id: $0.uuid, startDate: $0.startDate, duration: $0.duration) },
@@ -1192,12 +1469,16 @@ actor HealthKitFetchEngine {
         // Fan-out per-workout HK work: HR samples in a single batched query,
         // effort levels in parallel (HKWorkoutEffortScore is queried via a
         // per-workout relationship predicate, so it cannot be batched the same
-        // way HR samples can).
-        async let heartRateSamplesByWorkoutID: [UUID: [WorkoutHeartRateSample]] = {
+        // way HR samples can). A `nil` HR result means the batched query failed
+        // (device locked, XPC drop) — distinct from an empty result — so the
+        // assembly can reuse each workout's cached payload instead of blanking.
+        async let heartRateSamplesByWorkoutID: [UUID: [WorkoutHeartRateSample]]? = {
             guard includesHeartRateSamples, !workoutsNeedingHeartRate.isEmpty else {
-                return [:]
+                return [UUID: [WorkoutHeartRateSample]]()
             }
-            return await fetchIfPermitted(.heart, default: [:]) {
+            // Permission-off yields an empty (non-nil) map — never a failure — so
+            // the HR-batch-failure reuse below only triggers on a real error.
+            return await fetchIfPermitted(.heart, default: [UUID: [WorkoutHeartRateSample]]()) {
                 await fetchHeartRateSamples(forWorkouts: workoutsNeedingHeartRate)
             }
         }()
@@ -1213,47 +1494,91 @@ actor HealthKitFetchEngine {
         // as nil, so gating them on the HR skip would leave a reused workout
         // permanently missing them until a user-initiated refresh; fetching for
         // all workouts backfills those on the next passive resume. The reuse
-        // branch below still falls back to the cached value if the read is
-        // permission-gated.
-        async let cardioFitnessByWorkoutID: [UUID: Double] = {
+        // branch below no longer resurrects a cached detail field on a
+        // permission-gated read: a permission-off read yields a genuine
+        // `nil`/empty (see `fetchIfPermitted` below), not a failure, and
+        // `includesWorkoutMetrics` nils the fields in the summary constructor.
+        // VO₂max returns `nil` on a query FAILURE (like the HR batch); cadence and
+        // distance return the per-workout `failedIDs` set. A `.workoutMetrics`-off
+        // (or `.workouts`-off) selection yields a genuine empty, never a failure.
+        async let cardioFitnessByWorkoutID: [UUID: Double]? = {
             guard includesDetailMetrics else { return [:] }
             return await fetchIfPermitted(.workoutMetrics, default: [:]) {
                 await fetchCardioFitness(forWorkouts: workouts)
             }
         }()
-        async let stepCadenceByWorkoutID: [UUID: Double] = {
-            guard includesDetailMetrics else { return [:] }
-            return await fetchIfPermitted(.workoutMetrics, default: [:]) {
+        async let stepCadenceByWorkoutID: (values: [UUID: Double], failedIDs: Set<UUID>) = {
+            guard includesDetailMetrics else { return (values: [:], failedIDs: []) }
+            return await fetchIfPermitted(.workoutMetrics, default: (values: [:], failedIDs: [])) {
                 await fetchStepCadence(forWorkouts: workouts)
             }
         }()
-        async let workoutDistanceByWorkoutID: [UUID: Double] = {
-            guard includesDetailMetrics else { return [:] }
-            return await fetchIfPermitted(.workouts, default: [:]) {
+        async let workoutDistanceByWorkoutID: (values: [UUID: Double], failedIDs: Set<UUID>) = {
+            guard includesDetailMetrics else { return (values: [:], failedIDs: []) }
+            return await fetchIfPermitted(.workouts, default: (values: [:], failedIDs: [])) {
                 await fetchWorkoutDistances(forWorkouts: workouts)
             }
         }()
 
         let resolvedHeartRateSamples = await heartRateSamplesByWorkoutID
-        let resolvedEffortLevels = await fetchedEffortLevels
+        let (resolvedEffortLevels, failedEffortIDs) = await fetchedEffortLevels
         let resolvedCardioFitness = await cardioFitnessByWorkoutID
-        let resolvedStepCadence = await stepCadenceByWorkoutID
-        let resolvedWorkoutDistance = await workoutDistanceByWorkoutID
+        let (resolvedStepCadence, failedStepCadenceIDs) = await stepCadenceByWorkoutID
+        let (resolvedWorkoutDistance, failedWorkoutDistanceIDs) = await workoutDistanceByWorkoutID
         let includesWorkoutMetrics = permissionSelection.includes(.workoutMetrics)
+        // The batched HR query failed (not empty) — reuse cached payloads below.
+        let heartRateBatchFailed = includesHeartRateSamples && resolvedHeartRateSamples == nil
+        // The whole VO₂max query failed — reuse each workout's cached value below.
+        let cardioFitnessFailed = resolvedCardioFitness == nil
 
         var summaries: [WorkoutSummary] = []
         summaries.reserveCapacity(workouts.count)
         for workout in workouts {
-            if reusedHeartRateIDs.contains(workout.uuid),
-               let cached = reusableSummariesByID[workout.uuid] {
+            let cachedSummary = reusableSummariesByID[workout.uuid]
+            let effortLevel = Self.resolvedWorkoutEffortLevel(
+                fetchedEffort: resolvedEffortLevels[workout.uuid],
+                workoutFailed: failedEffortIDs.contains(workout.uuid),
+                cachedEffort: cachedSummary?.effortLevel
+            )
+            // Stored as `true` only when unresolved, else `nil` (never `false`), so
+            // a resolved workout stays byte-identical to a legacy snapshot that
+            // predates the field and the M10 dedupe only re-saves on a real flip.
+            let effortUnresolved: Bool? = Self.resolvedWorkoutEffortUnresolved(
+                fetchedEffort: resolvedEffortLevels[workout.uuid],
+                workoutFailed: failedEffortIDs.contains(workout.uuid),
+                cachedEffort: cachedSummary?.effortLevel
+            ) ? true : nil
+            // On a query FAILURE for a detail metric, reuse the workout's cached
+            // value instead of blanking the field; a successful absence clears it —
+            // including in the reuse branch below, which must not resurrect a
+            // confirmed-absent field from the cached summary (H12).
+            let resolvedVO2 = Self.resolvedWorkoutDetailMetric(
+                fetched: resolvedCardioFitness?[workout.uuid],
+                failed: cardioFitnessFailed,
+                cached: cachedSummary?.cardioFitnessVO2Max
+            )
+            let resolvedCadence = Self.resolvedWorkoutDetailMetric(
+                fetched: resolvedStepCadence[workout.uuid],
+                failed: failedStepCadenceIDs.contains(workout.uuid),
+                cached: cachedSummary?.averageStepCadenceSPM
+            )
+            let resolvedDistance = Self.resolvedWorkoutDetailMetric(
+                fetched: resolvedWorkoutDistance[workout.uuid],
+                failed: failedWorkoutDistanceIDs.contains(workout.uuid),
+                cached: cachedSummary?.distanceMeters
+            )
+
+            if let cached = cachedSummary,
+               reusedHeartRateIDs.contains(workout.uuid) || heartRateBatchFailed {
                 summaries.append(
                     Self.summary(
                         for: workout,
                         reusingHeartRateFrom: cached,
-                        effortLevel: resolvedEffortLevels[workout.uuid],
-                        cardioFitnessVO2Max: resolvedCardioFitness[workout.uuid] ?? cached.cardioFitnessVO2Max,
-                        averageStepCadenceSPM: resolvedStepCadence[workout.uuid] ?? cached.averageStepCadenceSPM,
-                        resolvedDistanceMeters: resolvedWorkoutDistance[workout.uuid],
+                        effortLevel: effortLevel,
+                        effortUnresolved: effortUnresolved,
+                        cardioFitnessVO2Max: resolvedVO2,
+                        averageStepCadenceSPM: resolvedCadence,
+                        resolvedDistanceMeters: resolvedDistance,
                         includesWorkoutMetrics: includesWorkoutMetrics
                     )
                 )
@@ -1261,11 +1586,12 @@ actor HealthKitFetchEngine {
                 summaries.append(
                     Self.summary(
                         for: workout,
-                        heartRateSamples: resolvedHeartRateSamples[workout.uuid] ?? [],
-                        effortLevel: resolvedEffortLevels[workout.uuid],
-                        cardioFitnessVO2Max: resolvedCardioFitness[workout.uuid],
-                        averageStepCadenceSPM: resolvedStepCadence[workout.uuid],
-                        resolvedDistanceMeters: resolvedWorkoutDistance[workout.uuid],
+                        heartRateSamples: resolvedHeartRateSamples?[workout.uuid] ?? [],
+                        effortLevel: effortLevel,
+                        effortUnresolved: effortUnresolved,
+                        cardioFitnessVO2Max: resolvedVO2,
+                        averageStepCadenceSPM: resolvedCadence,
+                        resolvedDistanceMeters: resolvedDistance,
                         includesWorkoutMetrics: includesWorkoutMetrics
                     )
                 )
@@ -1322,7 +1648,11 @@ actor HealthKitFetchEngine {
     /// Single HK query for the union of all workout time ranges; samples are
     /// partitioned per workout in-memory afterward. Replaces the prior O(workouts)
     /// sequential `HKSampleQuery` round-trips inside `fetchWorkoutSummaries`.
-    private func fetchHeartRateSamples(forWorkouts workouts: [HKWorkout]) async -> [UUID: [WorkoutHeartRateSample]] {
+    /// Returns `nil` when the batched heart-rate query itself fails (device
+    /// locked, store unavailable) rather than genuinely returning no samples,
+    /// so the assembly reuses each workout's cached HR payload instead of
+    /// blanking it.
+    private func fetchHeartRateSamples(forWorkouts workouts: [HKWorkout]) async -> [UUID: [WorkoutHeartRateSample]]? {
         guard !workouts.isEmpty,
               let heartRateType = HKObjectType.quantityType(forIdentifier: .heartRate) else {
             return [:]
@@ -1341,17 +1671,26 @@ actor HealthKitFetchEngine {
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
         let heartRateUnit = HKUnit.count().unitDivided(by: .minute())
 
-        let samples: [HKQuantitySample] = await withCheckedContinuation { continuation in
+        let samples: [HKQuantitySample]? = await withCheckedContinuation { continuation in
             let query = HKSampleQuery(
                 sampleType: heartRateType,
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [sort]
-            ) { _, samples, _ in
-                continuation.resume(returning: samples as? [HKQuantitySample] ?? [])
+            ) { _, samples, error in
+                guard let samples else {
+                    Self.logTrendQueryFailure("workoutHeartRate", error: error)
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: samples.compactMap { $0 as? HKQuantitySample })
             }
 
             healthStore.execute(query)
+        }
+
+        guard let samples else {
+            return nil
         }
 
         let heartRateSamples = samples.compactMap { sample -> WorkoutHeartRateSample? in
@@ -1441,9 +1780,55 @@ actor HealthKitFetchEngine {
         )
     }
 
-    private func fetchEffortLevels(forWorkouts workouts: [HKWorkout]) async -> [UUID: Double] {
+    /// Effort score for a workout, applying the H12 failure fallback: use the
+    /// freshly fetched score; on an effort-query FAILURE for a workout with no
+    /// fetched score, reuse the cached summary's score so a transient failure
+    /// doesn't reset a rated workout to the default. Failed with no prior keeps
+    /// `nil` (the default rating), avoiding series holes.
+    nonisolated static func resolvedWorkoutEffortLevel(
+        fetchedEffort: Double?,
+        workoutFailed: Bool,
+        cachedEffort: Double?
+    ) -> Double? {
+        if let fetchedEffort {
+            return fetchedEffort
+        }
+        return workoutFailed ? cachedEffort : nil
+    }
+
+    /// Whether a workout's effort is *unresolved* (H12): the effort query FAILED
+    /// for a workout with neither a fetched score nor a cached score, so its
+    /// `effortLevel` is neither a real rating nor a trustworthy default.
+    /// `TrainingLoadCalculator.load` excludes unresolved workouts rather than
+    /// counting them as the default effort. A failure that falls back to a cached
+    /// score is resolved; a genuine no-score (query succeeded) is unrated, not
+    /// unresolved, and keeps the intentional default.
+    nonisolated static func resolvedWorkoutEffortUnresolved(
+        fetchedEffort: Double?,
+        workoutFailed: Bool,
+        cachedEffort: Double?
+    ) -> Bool {
+        fetchedEffort == nil && workoutFailed && cachedEffort == nil
+    }
+
+    /// Detail metric (VO₂max, step cadence, distance) for a workout, applying
+    /// the H12 failure fallback: on a query FAILURE, reuse the cached value;
+    /// on success, use the fetched value — including `nil`, which is a
+    /// CONFIRMED absence and must clear the field rather than fall back to a
+    /// stale cached value.
+    nonisolated static func resolvedWorkoutDetailMetric(
+        fetched: Double?,
+        failed: Bool,
+        cached: Double?
+    ) -> Double? {
+        failed ? cached : fetched
+    }
+
+    private func fetchEffortLevels(
+        forWorkouts workouts: [HKWorkout]
+    ) async -> (levels: [UUID: Double], failedIDs: Set<UUID>) {
         guard !workouts.isEmpty else {
-            return [:]
+            return ([:], [])
         }
 
         let candidateIDs = Self.effortFetchCandidateIDs(
@@ -1459,9 +1844,9 @@ actor HealthKitFetchEngine {
         // concurrency instead of one in-flight HK query per workout in the
         // month (multiple months refresh concurrently on top of this).
         let maxConcurrentQueries = 12
-        let (fetched, completedIDs) = await withTaskGroup(
+        let (fetched, completedIDs, failedIDs) = await withTaskGroup(
             of: (UUID, BodyWorkoutEffortOutcome).self,
-            returning: ([UUID: Double], Set<UUID>).self
+            returning: ([UUID: Double], Set<UUID>, Set<UUID>).self
         ) { group in
             var nextIndex = 0
             while nextIndex < min(maxConcurrentQueries, candidates.count) {
@@ -1474,6 +1859,7 @@ actor HealthKitFetchEngine {
 
             var results: [UUID: Double] = [:]
             var completed: Set<UUID> = []
+            var failed: Set<UUID> = []
             for await (id, outcome) in group {
                 switch outcome {
                 case .found(let effort):
@@ -1482,7 +1868,7 @@ actor HealthKitFetchEngine {
                 case .noSavedEffort:
                     completed.insert(id)
                 case .failed:
-                    break
+                    failed.insert(id)
                 }
                 if nextIndex < candidates.count {
                     let workout = candidates[nextIndex]
@@ -1492,7 +1878,7 @@ actor HealthKitFetchEngine {
                     nextIndex += 1
                 }
             }
-            return (results, completed)
+            return (results, completed, failed)
         }
 
         // Single post-gather cache mutation: no mid-stream writes a concurrent
@@ -1517,7 +1903,10 @@ actor HealthKitFetchEngine {
                 results[workout.uuid] = effort
             }
         }
-        return results
+        // Failed candidates that ended up with a process-cached score (a prior
+        // refresh found one) are no longer "failed with no data" — drop them so
+        // the assembly only reuses the cached summary for genuinely missing IDs.
+        return (levels: results, failedIDs: failedIDs.subtracting(results.keys))
     }
 
     private func fetchSavedEffortLevel(for workout: HKWorkout) async -> BodyWorkoutEffortOutcome {
@@ -1531,7 +1920,10 @@ actor HealthKitFetchEngine {
     /// short grace for the post-workout write). There is deliberately no
     /// multi-day lookback — an indoor or reading-less workout shows nothing
     /// rather than inheriting an earlier outdoor workout's stale VO₂max.
-    private func fetchCardioFitness(forWorkouts workouts: [HKWorkout]) async -> [UUID: Double] {
+    /// Returns `nil` when the sample query itself FAILED (device locked, XPC
+    /// drop) — distinct from an empty map — so the assembly reuses each workout's
+    /// cached VO₂max instead of blanking it (like `fetchHeartRateSamples`).
+    private func fetchCardioFitness(forWorkouts workouts: [HKWorkout]) async -> [UUID: Double]? {
         let eligible = workouts.filter {
             HealthKitWorkoutStore.workoutType(for: $0.workoutActivityType).supportsCardioFitness
                 && !Self.isIndoorWorkout($0)
@@ -1551,18 +1943,30 @@ actor HealthKitFetchEngine {
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
         let unit = HKUnit(from: "ml/kg*min")
 
-        let samples: [HKQuantitySample] = await withCheckedContinuation { continuation in
+        let samplesOutcome: QueryOutcome<[HKQuantitySample]> = await withCheckedContinuation { continuation in
             let query = HKSampleQuery(
                 sampleType: vo2MaxType,
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [sort]
-            ) { _, samples, _ in
-                continuation.resume(returning: samples as? [HKQuantitySample] ?? [])
+            ) { _, samples, error in
+                guard let samples = samples as? [HKQuantitySample] else {
+                    Self.logTrendQueryFailure(HKQuantityTypeIdentifier.vo2Max.rawValue, error: error)
+                    continuation.resume(returning: .failure)
+                    return
+                }
+                continuation.resume(returning: .success(samples))
             }
             healthStore.execute(query)
         }
 
+        let samples: [HKQuantitySample]
+        switch samplesOutcome {
+        case .failure:
+            return nil
+        case .success(let value):
+            samples = value ?? []
+        }
         guard !samples.isEmpty else { return [:] }
         let readings = samples.map { (endDate: $0.endDate, value: $0.quantity.doubleValue(for: unit)) }
 
@@ -1594,20 +1998,22 @@ actor HealthKitFetchEngine {
     /// source-deduplicated aggregation), then divided by the workout's minutes.
     /// One relationship-scoped query per workout — pooled with bounded
     /// concurrency, like effort scores (months refresh concurrently on top).
-    private func fetchStepCadence(forWorkouts workouts: [HKWorkout]) async -> [UUID: Double] {
+    private func fetchStepCadence(
+        forWorkouts workouts: [HKWorkout]
+    ) async -> (values: [UUID: Double], failedIDs: Set<UUID>) {
         let eligible = workouts.filter {
             HealthKitWorkoutStore.workoutType(for: $0.workoutActivityType).supportsStepCadence
                 && $0.duration > 0
         }
         guard !eligible.isEmpty,
               let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount) else {
-            return [:]
+            return (values: [:], failedIDs: [])
         }
 
         let maxConcurrentQueries = 12
         return await withTaskGroup(
-            of: (UUID, Double?).self,
-            returning: [UUID: Double].self
+            of: (UUID, QueryOutcome<Double>).self,
+            returning: (values: [UUID: Double], failedIDs: Set<UUID>).self
         ) { group in
             var nextIndex = 0
             while nextIndex < min(maxConcurrentQueries, eligible.count) {
@@ -1619,9 +2025,15 @@ actor HealthKitFetchEngine {
             }
 
             var results: [UUID: Double] = [:]
-            for await (id, cadence) in group {
-                if let cadence {
-                    results[id] = cadence
+            var failed: Set<UUID> = []
+            for await (id, outcome) in group {
+                switch outcome {
+                case .success(let cadence):
+                    if let cadence {
+                        results[id] = cadence
+                    }
+                case .failure:
+                    failed.insert(id)
                 }
                 if nextIndex < eligible.count {
                     let workout = eligible[nextIndex]
@@ -1631,30 +2043,42 @@ actor HealthKitFetchEngine {
                     nextIndex += 1
                 }
             }
-            return results
+            return (values: results, failedIDs: failed)
         }
     }
 
     /// Steps associated with `workout` (cumulative-sum statistics over the
     /// workout's own samples, deduplicated across sources by HealthKit) divided
-    /// by its duration in minutes. Returns nil when no steps are attributed.
-    private func stepCadence(for workout: HKWorkout, stepType: HKQuantityType) async -> Double? {
+    /// by its duration in minutes. `.success(nil)` when no steps are attributed;
+    /// `.failure` when the statistics query itself failed (so the assembly reuses
+    /// the cached cadence instead of blanking it).
+    private func stepCadence(for workout: HKWorkout, stepType: HKQuantityType) async -> QueryOutcome<Double> {
         let minutes = workout.duration / 60
-        guard minutes > 0 else { return nil }
+        guard minutes > 0 else { return .success(nil) }
 
-        let totalSteps: Double? = await withCheckedContinuation { continuation in
+        let totalStepsOutcome: QueryOutcome<Double> = await withCheckedContinuation { continuation in
             let query = HKStatisticsQuery(
                 quantityType: stepType,
                 quantitySamplePredicate: HKQuery.predicateForObjects(from: workout),
                 options: .cumulativeSum
-            ) { _, statistics, _ in
-                continuation.resume(returning: statistics?.sumQuantity()?.doubleValue(for: .count()))
+            ) { _, statistics, error in
+                guard let statistics else {
+                    Self.logTrendQueryFailure(HKQuantityTypeIdentifier.stepCount.rawValue, error: error)
+                    continuation.resume(returning: .failure)
+                    return
+                }
+                continuation.resume(returning: .success(statistics.sumQuantity()?.doubleValue(for: .count())))
             }
             healthStore.execute(query)
         }
 
-        guard let totalSteps, totalSteps > 0 else { return nil }
-        return totalSteps / minutes
+        switch totalStepsOutcome {
+        case .failure:
+            return .failure
+        case .success(let totalSteps):
+            guard let totalSteps, totalSteps > 0 else { return .success(nil) }
+            return .success(totalSteps / minutes)
+        }
     }
 
     /// Total distance (m) per distance-tracking workout that lacks the legacy
@@ -1662,19 +2086,21 @@ actor HealthKitFetchEngine {
     /// workout's *associated* samples (not `HKWorkout.statistics(for:)`), so it's
     /// read per workout via `predicateForObjects(from:)` + `.cumulativeSum`,
     /// source-deduplicated by HealthKit. One query per workout, bounded concurrency.
-    private func fetchWorkoutDistances(forWorkouts workouts: [HKWorkout]) async -> [UUID: Double] {
+    private func fetchWorkoutDistances(
+        forWorkouts workouts: [HKWorkout]
+    ) async -> (values: [UUID: Double], failedIDs: Set<UUID>) {
         let eligible = workouts.filter {
             $0.totalDistance == nil
                 && HealthKitFetchEngine.distanceQuantityTypeIdentifier(
                     for: HealthKitWorkoutStore.workoutType(for: $0.workoutActivityType)
                 ) != nil
         }
-        guard !eligible.isEmpty else { return [:] }
+        guard !eligible.isEmpty else { return (values: [:], failedIDs: []) }
 
         let maxConcurrentQueries = 12
         return await withTaskGroup(
-            of: (UUID, Double?).self,
-            returning: [UUID: Double].self
+            of: (UUID, QueryOutcome<Double>).self,
+            returning: (values: [UUID: Double], failedIDs: Set<UUID>).self
         ) { group in
             var nextIndex = 0
             while nextIndex < min(maxConcurrentQueries, eligible.count) {
@@ -1684,9 +2110,15 @@ actor HealthKitFetchEngine {
             }
 
             var results: [UUID: Double] = [:]
-            for await (id, distance) in group {
-                if let distance {
-                    results[id] = distance
+            var failed: Set<UUID> = []
+            for await (id, outcome) in group {
+                switch outcome {
+                case .success(let distance):
+                    if let distance {
+                        results[id] = distance
+                    }
+                case .failure:
+                    failed.insert(id)
                 }
                 if nextIndex < eligible.count {
                     let workout = eligible[nextIndex]
@@ -1694,32 +2126,44 @@ actor HealthKitFetchEngine {
                     nextIndex += 1
                 }
             }
-            return results
+            return (values: results, failedIDs: failed)
         }
     }
 
     /// Distance (m) attributed to `workout`'s own samples — cumulative-sum over the
-    /// activity's distance type. Returns nil when no distance is attributed.
-    private func workoutDistanceMeters(for workout: HKWorkout) async -> Double? {
+    /// activity's distance type. `.success(nil)` when no distance is attributed;
+    /// `.failure` when the statistics query itself failed (so the assembly reuses
+    /// the cached distance instead of blanking it).
+    private func workoutDistanceMeters(for workout: HKWorkout) async -> QueryOutcome<Double> {
         let type = HealthKitWorkoutStore.workoutType(for: workout.workoutActivityType)
         guard let identifier = HealthKitFetchEngine.distanceQuantityTypeIdentifier(for: type),
               let distanceType = HKQuantityType.quantityType(forIdentifier: identifier) else {
-            return nil
+            return .success(nil)
         }
 
-        let meters: Double? = await withCheckedContinuation { continuation in
+        let metersOutcome: QueryOutcome<Double> = await withCheckedContinuation { continuation in
             let query = HKStatisticsQuery(
                 quantityType: distanceType,
                 quantitySamplePredicate: HKQuery.predicateForObjects(from: workout),
                 options: .cumulativeSum
-            ) { _, statistics, _ in
-                continuation.resume(returning: statistics?.sumQuantity()?.doubleValue(for: .meter()))
+            ) { _, statistics, error in
+                guard let statistics else {
+                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
+                    continuation.resume(returning: .failure)
+                    return
+                }
+                continuation.resume(returning: .success(statistics.sumQuantity()?.doubleValue(for: .meter())))
             }
             healthStore.execute(query)
         }
 
-        guard let meters, meters > 0 else { return nil }
-        return meters
+        switch metersOutcome {
+        case .failure:
+            return .failure
+        case .success(let meters):
+            guard let meters, meters > 0 else { return .success(nil) }
+            return .success(meters)
+        }
     }
 
     // Sleep summary + history + per-day vitals hydration live in
@@ -1744,32 +2188,33 @@ actor HealthKitFetchEngine {
 
     func fetchHealthSummary(
         calendar: Calendar,
-        selection: BodyDashboardFetchSelection = .defaultValue
-    ) async -> HealthSummarySnapshot {
-        async let activityRings = fetchDashboardActivityRingsIfNeeded(selection: selection, default: ActivityRingSummary.empty) {
+        selection: BodyDashboardFetchSelection = .defaultValue,
+        cachedSummary: HealthSummarySnapshot? = nil
+    ) async -> HealthSummaryFetchResult {
+        async let activityRings: QueryOutcome<ActivityRingSummary> = fetchDashboardActivityRingsIfNeeded(selection: selection, default: .success(nil)) {
             await fetchActivityRingSummary(calendar: calendar)
         }
-        async let sleep: SleepSummary? = fetchDashboardMetricIfNeeded(.sleep, selection: selection, default: nil) {
+        async let sleep: QueryOutcome<SleepSummary> = fetchDashboardMetricIfNeeded(.sleep, selection: selection, default: .success(nil)) {
             await fetchSleepSummary(calendar: calendar)
         }
-        async let heartRate: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.heartRate, selection: selection, default: nil) {
+        async let heartRate: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.heartRate, selection: selection, default: .success(nil)) {
             await latestQuantity(
                 for: .heartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 sourceKind: .heartRate
             )
         }
-        async let restingHeartRate: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.restingHeartRate, selection: selection, default: nil) {
+        async let restingHeartRate: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.restingHeartRate, selection: selection, default: .success(nil)) {
             await latestQuantity(
                 for: .restingHeartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 sourceKind: .restingHeartRate
             )
         }
-        async let bodyMass: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.bodyMass, selection: selection, default: nil) {
+        async let bodyMass: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.bodyMass, selection: selection, default: .success(nil)) {
             await latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
         }
-        async let bodyFatPercentage: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.bodyFatPercentage, selection: selection, default: nil) {
+        async let bodyFatPercentage: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.bodyFatPercentage, selection: selection, default: .success(nil)) {
             await latestQuantity(
                 for: .bodyFatPercentage,
                 unit: .percent(),
@@ -1777,21 +2222,21 @@ actor HealthKitFetchEngine {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         }
-        async let heartRateVariability: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.heartRateVariability, selection: selection, default: nil) {
+        async let heartRateVariability: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.heartRateVariability, selection: selection, default: .success(nil)) {
             await latestQuantity(
                 for: .heartRateVariabilitySDNN,
                 unit: .secondUnit(with: .milli),
                 sourceKind: .heartRateVariability
             )
         }
-        async let respiratoryRate: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.respiratoryRate, selection: selection, default: nil) {
+        async let respiratoryRate: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.respiratoryRate, selection: selection, default: .success(nil)) {
             await latestQuantity(
                 for: .respiratoryRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 sourceKind: .respiratoryRate
             )
         }
-        async let oxygenSaturation: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.oxygenSaturation, selection: selection, default: nil) {
+        async let oxygenSaturation: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.oxygenSaturation, selection: selection, default: .success(nil)) {
             await latestQuantity(
                 for: .oxygenSaturation,
                 unit: .percent(),
@@ -1799,10 +2244,10 @@ actor HealthKitFetchEngine {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         }
-        async let bodyMassIndex: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.bodyMassIndex, selection: selection, default: nil) {
+        async let bodyMassIndex: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.bodyMassIndex, selection: selection, default: .success(nil)) {
             await latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
         }
-        async let activeEnergy: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.activeEnergy, selection: selection, default: nil) {
+        async let activeEnergy: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.activeEnergy, selection: selection, default: .success(nil)) {
             await dailyCumulativeQuantitySummary(
                 for: .activeEnergyBurned,
                 unit: .kilocalorie(),
@@ -1810,7 +2255,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .activeEnergy
             )
         }
-        async let restingEnergy: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.restingEnergy, selection: selection, default: nil) {
+        async let restingEnergy: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.restingEnergy, selection: selection, default: .success(nil)) {
             await dailyCumulativeQuantitySummary(
                 for: .basalEnergyBurned,
                 unit: .kilocalorie(),
@@ -1818,7 +2263,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .restingEnergy
             )
         }
-        async let exerciseMinutes: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.exerciseMinutes, selection: selection, default: nil) {
+        async let exerciseMinutes: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.exerciseMinutes, selection: selection, default: .success(nil)) {
             await dailyCumulativeQuantitySummary(
                 for: .appleExerciseTime,
                 unit: .minute(),
@@ -1826,10 +2271,10 @@ actor HealthKitFetchEngine {
                 sourceKind: .exerciseMinutes
             )
         }
-        async let trainingLoad: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.trainingLoad, selection: selection, default: nil) {
+        async let trainingLoad: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.trainingLoad, selection: selection, default: .success(nil)) {
             await fetchTrainingLoadSummary(calendar: calendar)
         }
-        async let wristTemperature: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.wristTemperature, selection: selection, default: nil) {
+        async let wristTemperature: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.wristTemperature, selection: selection, default: .success(nil)) {
             await dailyQuantitySummary(
                 for: .appleSleepingWristTemperature,
                 unit: .degreeCelsius(),
@@ -1838,7 +2283,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .wristTemperature
             )
         }
-        async let timeInDaylight: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.timeInDaylight, selection: selection, default: nil) {
+        async let timeInDaylight: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.timeInDaylight, selection: selection, default: .success(nil)) {
             await dailyCumulativeQuantitySummary(
                 for: .timeInDaylight,
                 unit: .minute(),
@@ -1846,7 +2291,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .timeInDaylight
             )
         }
-        async let steps: HealthMetricSummary? = fetchDashboardMetricIfNeeded(.steps, selection: selection, default: nil) {
+        async let steps: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.steps, selection: selection, default: .success(nil)) {
             await dailyCumulativeQuantitySummary(
                 for: .stepCount,
                 unit: .count(),
@@ -1855,32 +2300,65 @@ actor HealthKitFetchEngine {
             )
         }
 
-        return await HealthSummarySnapshot(
-            activityRings: activityRings,
-            sleep: sleep ?? HealthSummarySnapshot.empty.sleep,
-            heartRate: heartRate ?? HealthSummarySnapshot.empty.heartRate,
-            restingHeartRate: restingHeartRate ?? HealthSummarySnapshot.empty.restingHeartRate,
-            bodyMass: bodyMass ?? HealthSummarySnapshot.empty.bodyMass,
-            bodyFatPercentage: bodyFatPercentage ?? HealthSummarySnapshot.empty.bodyFatPercentage,
-            heartRateVariability: heartRateVariability ?? HealthSummarySnapshot.empty.heartRateVariability,
-            respiratoryRate: respiratoryRate ?? HealthSummarySnapshot.empty.respiratoryRate,
-            oxygenSaturation: oxygenSaturation ?? HealthSummarySnapshot.empty.oxygenSaturation,
-            bodyMassIndex: bodyMassIndex ?? HealthSummarySnapshot.empty.bodyMassIndex,
-            activeEnergy: activeEnergy ?? HealthSummarySnapshot.empty.activeEnergy,
-            restingEnergy: restingEnergy ?? HealthSummarySnapshot.empty.restingEnergy,
-            exerciseMinutes: exerciseMinutes ?? HealthSummarySnapshot.empty.exerciseMinutes,
-            trainingLoad: trainingLoad ?? HealthSummarySnapshot.empty.trainingLoad,
-            wristTemperature: wristTemperature ?? HealthSummarySnapshot.empty.wristTemperature,
-            timeInDaylight: timeInDaylight ?? HealthSummarySnapshot.empty.timeInDaylight,
-            steps: steps ?? HealthSummarySnapshot.empty.steps
+        // Resolve each leaf against the cached value: a `.failure` keeps the
+        // cached field (only when the store passed `cachedSummary`, i.e. the
+        // primary-source + permission signature still matches), a `.success`
+        // — including a confirmed-absent / off value — replaces it. If ANY
+        // leaf failed, the store skips advancing the freshness TTL so the next
+        // resume retries instead of trusting a partial result.
+        var anyLeafFailed = false
+        func resolve<Value>(_ outcome: QueryOutcome<Value>, _ cached: Value?) -> Value? {
+            if outcome.isFailure {
+                anyLeafFailed = true
+            }
+            return Self.resolvedSummaryValue(fetched: outcome, cached: cached)
+        }
+
+        let resolvedActivityRings = resolve(await activityRings, cachedSummary?.activityRings)
+        let resolvedSleep = resolve(await sleep, cachedSummary?.sleep)
+        let resolvedHeartRate = resolve(await heartRate, cachedSummary?.heartRate)
+        let resolvedRestingHeartRate = resolve(await restingHeartRate, cachedSummary?.restingHeartRate)
+        let resolvedBodyMass = resolve(await bodyMass, cachedSummary?.bodyMass)
+        let resolvedBodyFatPercentage = resolve(await bodyFatPercentage, cachedSummary?.bodyFatPercentage)
+        let resolvedHeartRateVariability = resolve(await heartRateVariability, cachedSummary?.heartRateVariability)
+        let resolvedRespiratoryRate = resolve(await respiratoryRate, cachedSummary?.respiratoryRate)
+        let resolvedOxygenSaturation = resolve(await oxygenSaturation, cachedSummary?.oxygenSaturation)
+        let resolvedBodyMassIndex = resolve(await bodyMassIndex, cachedSummary?.bodyMassIndex)
+        let resolvedActiveEnergy = resolve(await activeEnergy, cachedSummary?.activeEnergy)
+        let resolvedRestingEnergy = resolve(await restingEnergy, cachedSummary?.restingEnergy)
+        let resolvedExerciseMinutes = resolve(await exerciseMinutes, cachedSummary?.exerciseMinutes)
+        let resolvedTrainingLoad = resolve(await trainingLoad, cachedSummary?.trainingLoad)
+        let resolvedWristTemperature = resolve(await wristTemperature, cachedSummary?.wristTemperature)
+        let resolvedTimeInDaylight = resolve(await timeInDaylight, cachedSummary?.timeInDaylight)
+        let resolvedSteps = resolve(await steps, cachedSummary?.steps)
+
+        let snapshot = HealthSummarySnapshot(
+            activityRings: resolvedActivityRings ?? HealthSummarySnapshot.empty.activityRings,
+            sleep: resolvedSleep ?? HealthSummarySnapshot.empty.sleep,
+            heartRate: resolvedHeartRate ?? HealthSummarySnapshot.empty.heartRate,
+            restingHeartRate: resolvedRestingHeartRate ?? HealthSummarySnapshot.empty.restingHeartRate,
+            bodyMass: resolvedBodyMass ?? HealthSummarySnapshot.empty.bodyMass,
+            bodyFatPercentage: resolvedBodyFatPercentage ?? HealthSummarySnapshot.empty.bodyFatPercentage,
+            heartRateVariability: resolvedHeartRateVariability ?? HealthSummarySnapshot.empty.heartRateVariability,
+            respiratoryRate: resolvedRespiratoryRate ?? HealthSummarySnapshot.empty.respiratoryRate,
+            oxygenSaturation: resolvedOxygenSaturation ?? HealthSummarySnapshot.empty.oxygenSaturation,
+            bodyMassIndex: resolvedBodyMassIndex ?? HealthSummarySnapshot.empty.bodyMassIndex,
+            activeEnergy: resolvedActiveEnergy ?? HealthSummarySnapshot.empty.activeEnergy,
+            restingEnergy: resolvedRestingEnergy ?? HealthSummarySnapshot.empty.restingEnergy,
+            exerciseMinutes: resolvedExerciseMinutes ?? HealthSummarySnapshot.empty.exerciseMinutes,
+            trainingLoad: resolvedTrainingLoad ?? HealthSummarySnapshot.empty.trainingLoad,
+            wristTemperature: resolvedWristTemperature ?? HealthSummarySnapshot.empty.wristTemperature,
+            timeInDaylight: resolvedTimeInDaylight ?? HealthSummarySnapshot.empty.timeInDaylight,
+            steps: resolvedSteps ?? HealthSummarySnapshot.empty.steps
         )
+        return HealthSummaryFetchResult(summary: snapshot, hadQueryFailure: anyLeafFailed)
     }
 
     func fetchHealthTrends(
         calendar: Calendar,
         cachedTrends: HealthTrendSnapshot,
         selection: BodyDashboardFetchSelection = .defaultValue
-    ) async -> HealthTrendSnapshot {
+    ) async -> HealthTrendFetchResult {
         // Preserve any intraday daySamples that have already been lazy-loaded for
         // the metric detail views — fetching them is expensive (~50k HR samples)
         // and they are not displayed on the Home dashboard.
@@ -1898,10 +2376,10 @@ actor HealthKitFetchEngine {
         let cachedStepsDaySamples = cachedTrends.stepsDaySamples
         let cachedStepsDaySamplesSecondary = cachedTrends.stepsDaySamplesSecondary
 
-        async let sleepHistory: SleepHistorySnapshot? = fetchDashboardMetricIfNeeded(.sleep, selection: selection, default: SleepHistorySnapshot.empty) {
-            await fetchDailySleepHistory(calendar: calendar)
+        async let sleepHistory: SleepHistoryFetchResult = fetchDashboardMetricIfNeeded(.sleep, selection: selection, default: .empty) {
+            await fetchDailySleepHistory(calendar: calendar, cachedSleepHistory: cachedTrends.sleepHistory)
         }
-        async let sleepHistorySecondary = fetchSecondaryDashboardMetricIfNeeded(
+        async let sleepHistorySecondary: SleepHistorySnapshot? = fetchSecondaryDashboardMetricIfNeeded(
             for: .sleep,
             selection: selection,
             permission: .sleep,
@@ -1918,7 +2396,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .restingHeartRate
             )
         }
-        async let restingHeartRateSecondary = fetchSecondaryDashboardMetricIfNeeded(
+        async let restingHeartRateSecondary: HealthTrendSeries? = fetchSecondaryDashboardMetricIfNeeded(
             for: .restingHeartRate,
             selection: selection,
             permission: .heart,
@@ -1938,7 +2416,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .heartRate
             )
         }
-        async let heartRateRangesSecondary = fetchSecondaryDashboardMetricIfNeeded(
+        async let heartRateRangesSecondary: HealthTrendRangeSeries? = fetchSecondaryDashboardMetricIfNeeded(
             for: .heartRate,
             selection: selection,
             permission: .heart,
@@ -1977,7 +2455,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .heartRateVariability
             )
         }
-        async let heartRateVariabilityRangesSecondary = fetchSecondaryDashboardMetricIfNeeded(
+        async let heartRateVariabilityRangesSecondary: HealthTrendRangeSeries? = fetchSecondaryDashboardMetricIfNeeded(
             for: .heartRateVariability,
             selection: selection,
             permission: .heart,
@@ -2010,7 +2488,7 @@ actor HealthKitFetchEngine {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         }
-        async let oxygenSaturationRangesSecondary = fetchSecondaryDashboardMetricIfNeeded(
+        async let oxygenSaturationRangesSecondary: HealthTrendRangeSeries? = fetchSecondaryDashboardMetricIfNeeded(
             for: .oxygenSaturation,
             selection: selection,
             permission: .bloodOxygen,
@@ -2035,7 +2513,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .activeEnergy
             )
         }
-        async let activeEnergySecondary = fetchSecondaryDashboardMetricIfNeeded(
+        async let activeEnergySecondary: HealthTrendSeries? = fetchSecondaryDashboardMetricIfNeeded(
             for: .activeEnergy,
             selection: selection,
             permission: .energy,
@@ -2051,7 +2529,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .restingEnergy
             )
         }
-        async let restingEnergySecondary = fetchSecondaryDashboardMetricIfNeeded(
+        async let restingEnergySecondary: HealthTrendSeries? = fetchSecondaryDashboardMetricIfNeeded(
             for: .restingEnergy,
             selection: selection,
             permission: .energy,
@@ -2067,7 +2545,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .exerciseMinutes
             )
         }
-        async let exerciseMinutesSecondary = fetchSecondaryDashboardMetricIfNeeded(
+        async let exerciseMinutesSecondary: HealthTrendSeries? = fetchSecondaryDashboardMetricIfNeeded(
             for: .exerciseMinutes,
             selection: selection,
             permission: .exerciseMinutes,
@@ -2103,7 +2581,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .steps
             )
         }
-        async let stepsSecondary = fetchSecondaryDashboardMetricIfNeeded(
+        async let stepsSecondary: HealthTrendSeries? = fetchSecondaryDashboardMetricIfNeeded(
             for: .steps,
             selection: selection,
             permission: .steps,
@@ -2112,58 +2590,73 @@ actor HealthKitFetchEngine {
             await fetchSecondaryTrend(for: .steps, calendar: calendar)
         }
 
-        // A `nil` fetched value means the HealthKit query failed (device locked,
-        // store unavailable, XPC drop) rather than returning no data, so keep the
-        // cached series instead of blanking it. A non-nil value — including the
-        // intentionally empty series produced by a permission toggle-off in
-        // `fetchDashboardMetricIfNeeded` — replaces the cache.
-        let fetchedSleepHistory = Self.resolvedTrendSeries(
-            fetched: await sleepHistory,
-            cached: cachedTrends.sleepHistory
-        )
-        let fetchedSleepHistorySecondary = await sleepHistorySecondary
+        // Resolve every leaf against its cached value and record whether ANY
+        // leaf query failed. A `nil` fetched value means the HealthKit query
+        // failed (device locked, store unavailable, XPC drop) rather than
+        // returning no data, so keep the cached series instead of blanking it and
+        // flag the failure. A non-nil value — including the intentionally empty
+        // series produced by a permission or comparison toggle-off — replaces the
+        // cache. Secondary leaves resolve against their own cached secondary
+        // value, same rule as primaries. The store ORs `hadQueryFailure` with the
+        // summary and ring-history bits before advancing the freshness TTL.
+        var hadQueryFailure = false
+        func resolved<Series>(_ fetched: Series?, cached: Series) -> Series {
+            if fetched == nil {
+                hadQueryFailure = true
+            }
+            return fetched ?? cached
+        }
+
+        let sleepHistoryResult = await sleepHistory
+        // A non-nil sleep history can still carry a failed nocturnal vital (merged
+        // from cache in `hydrateSleepVitals`); withhold the TTL for that too.
+        if sleepHistoryResult.vitalsHadFailure {
+            hadQueryFailure = true
+        }
+        let fetchedSleepHistory = resolved(sleepHistoryResult.history, cached: cachedTrends.sleepHistory)
+        let fetchedSleepHistorySecondary = resolved(await sleepHistorySecondary, cached: cachedTrends.sleepHistorySecondary)
         let fetchedHeartRatePair = await heartRatePair
-        let fetchedHeartRate = Self.resolvedTrendSeries(fetched: fetchedHeartRatePair?.0, cached: cachedTrends.heartRate)
-        let fetchedHeartRateRanges = Self.resolvedTrendSeries(fetched: fetchedHeartRatePair?.1, cached: cachedTrends.heartRateRanges)
+        let fetchedHeartRate = resolved(fetchedHeartRatePair?.0, cached: cachedTrends.heartRate)
+        let fetchedHeartRateRanges = resolved(fetchedHeartRatePair?.1, cached: cachedTrends.heartRateRanges)
         let fetchedHeartRateVariabilityPair = await heartRateVariabilityPair
-        let fetchedHeartRateVariability = Self.resolvedTrendSeries(fetched: fetchedHeartRateVariabilityPair?.0, cached: cachedTrends.heartRateVariability)
-        let fetchedHeartRateVariabilityRanges = Self.resolvedTrendSeries(fetched: fetchedHeartRateVariabilityPair?.1, cached: cachedTrends.heartRateVariabilityRanges)
+        let fetchedHeartRateVariability = resolved(fetchedHeartRateVariabilityPair?.0, cached: cachedTrends.heartRateVariability)
+        let fetchedHeartRateVariabilityRanges = resolved(fetchedHeartRateVariabilityPair?.1, cached: cachedTrends.heartRateVariabilityRanges)
         let fetchedRespiratoryRatePair = await respiratoryRatePair
-        let fetchedRespiratoryRate = Self.resolvedTrendSeries(fetched: fetchedRespiratoryRatePair?.0, cached: cachedTrends.respiratoryRate)
-        let fetchedRespiratoryRateRanges = Self.resolvedTrendSeries(fetched: fetchedRespiratoryRatePair?.1, cached: cachedTrends.respiratoryRateRanges)
+        let fetchedRespiratoryRate = resolved(fetchedRespiratoryRatePair?.0, cached: cachedTrends.respiratoryRate)
+        let fetchedRespiratoryRateRanges = resolved(fetchedRespiratoryRatePair?.1, cached: cachedTrends.respiratoryRateRanges)
         let fetchedOxygenSaturationPair = await oxygenSaturationPair
-        let fetchedOxygenSaturation = Self.resolvedTrendSeries(fetched: fetchedOxygenSaturationPair?.0, cached: cachedTrends.oxygenSaturation)
-        let fetchedOxygenSaturationRanges = Self.resolvedTrendSeries(fetched: fetchedOxygenSaturationPair?.1, cached: cachedTrends.oxygenSaturationRanges)
-        return await HealthTrendSnapshot(
+        let fetchedOxygenSaturation = resolved(fetchedOxygenSaturationPair?.0, cached: cachedTrends.oxygenSaturation)
+        let fetchedOxygenSaturationRanges = resolved(fetchedOxygenSaturationPair?.1, cached: cachedTrends.oxygenSaturationRanges)
+        let trends = HealthTrendSnapshot(
             sleep: fetchedSleepHistory.durationSeries,
             sleepSecondary: fetchedSleepHistorySecondary.durationSeries,
             heartRate: fetchedHeartRate,
             heartRateRanges: fetchedHeartRateRanges,
-            heartRateRangesSecondary: heartRateRangesSecondary,
-            restingHeartRate: Self.resolvedTrendSeries(fetched: restingHeartRate, cached: cachedTrends.restingHeartRate),
-            restingHeartRateSecondary: restingHeartRateSecondary,
-            bodyMass: Self.resolvedTrendSeries(fetched: bodyMass, cached: cachedTrends.bodyMass),
-            bodyFatPercentage: Self.resolvedTrendSeries(fetched: bodyFatPercentage, cached: cachedTrends.bodyFatPercentage),
+            heartRateRangesSecondary: resolved(await heartRateRangesSecondary, cached: cachedTrends.heartRateRangesSecondary),
+            restingHeartRate: resolved(await restingHeartRate, cached: cachedTrends.restingHeartRate),
+            restingHeartRateSecondary: resolved(await restingHeartRateSecondary, cached: cachedTrends.restingHeartRateSecondary),
+            bodyMass: resolved(await bodyMass, cached: cachedTrends.bodyMass),
+            bodyFatPercentage: resolved(await bodyFatPercentage, cached: cachedTrends.bodyFatPercentage),
             heartRateVariability: fetchedHeartRateVariability,
             heartRateVariabilityRanges: fetchedHeartRateVariabilityRanges,
-            heartRateVariabilityRangesSecondary: heartRateVariabilityRangesSecondary,
+            heartRateVariabilityRangesSecondary: resolved(await heartRateVariabilityRangesSecondary, cached: cachedTrends.heartRateVariabilityRangesSecondary),
             respiratoryRate: fetchedRespiratoryRate,
             respiratoryRateRanges: fetchedRespiratoryRateRanges,
             oxygenSaturation: fetchedOxygenSaturation,
             oxygenSaturationRanges: fetchedOxygenSaturationRanges,
-            oxygenSaturationRangesSecondary: oxygenSaturationRangesSecondary,
-            bodyMassIndex: Self.resolvedTrendSeries(fetched: bodyMassIndex, cached: cachedTrends.bodyMassIndex),
-            activeEnergy: Self.resolvedTrendSeries(fetched: activeEnergy, cached: cachedTrends.activeEnergy),
-            activeEnergySecondary: activeEnergySecondary,
-            restingEnergy: Self.resolvedTrendSeries(fetched: restingEnergy, cached: cachedTrends.restingEnergy),
-            restingEnergySecondary: restingEnergySecondary,
-            exerciseMinutes: Self.resolvedTrendSeries(fetched: exerciseMinutes, cached: cachedTrends.exerciseMinutes),
-            exerciseMinutesSecondary: exerciseMinutesSecondary,
-            trainingLoad: Self.resolvedTrendSeries(fetched: trainingLoad, cached: cachedTrends.trainingLoad),
-            wristTemperature: Self.resolvedTrendSeries(fetched: wristTemperature, cached: cachedTrends.wristTemperature),
-            timeInDaylight: Self.resolvedTrendSeries(fetched: timeInDaylight, cached: cachedTrends.timeInDaylight),
-            steps: Self.resolvedTrendSeries(fetched: steps, cached: cachedTrends.steps),
-            stepsSecondary: stepsSecondary,
+            oxygenSaturationRangesSecondary: resolved(await oxygenSaturationRangesSecondary, cached: cachedTrends.oxygenSaturationRangesSecondary),
+            bodyMassIndex: resolved(await bodyMassIndex, cached: cachedTrends.bodyMassIndex),
+            activeEnergy: resolved(await activeEnergy, cached: cachedTrends.activeEnergy),
+            activeEnergySecondary: resolved(await activeEnergySecondary, cached: cachedTrends.activeEnergySecondary),
+            restingEnergy: resolved(await restingEnergy, cached: cachedTrends.restingEnergy),
+            restingEnergySecondary: resolved(await restingEnergySecondary, cached: cachedTrends.restingEnergySecondary),
+            exerciseMinutes: resolved(await exerciseMinutes, cached: cachedTrends.exerciseMinutes),
+            exerciseMinutesSecondary: resolved(await exerciseMinutesSecondary, cached: cachedTrends.exerciseMinutesSecondary),
+            trainingLoad: resolved(await trainingLoad, cached: cachedTrends.trainingLoad),
+            wristTemperature: resolved(await wristTemperature, cached: cachedTrends.wristTemperature),
+            timeInDaylight: resolved(await timeInDaylight, cached: cachedTrends.timeInDaylight),
+            steps: resolved(await steps, cached: cachedTrends.steps),
+            stepsSecondary: resolved(await stepsSecondary, cached: cachedTrends.stepsSecondary),
             sleepHistory: fetchedSleepHistory,
             sleepHistorySecondary: fetchedSleepHistorySecondary,
             heartRateDaySamples: cachedHeartRateDaySamples,
@@ -2182,6 +2675,7 @@ actor HealthKitFetchEngine {
             recordedReadiness: cachedTrends.recordedReadiness,
             recordedReadinessContext: cachedTrends.recordedReadinessContext
         )
+        return HealthTrendFetchResult(trends: trends, hadQueryFailure: hadQueryFailure)
     }
 
     /// Incremental day-sample refetch for the per-metric detail refresh:
@@ -2196,7 +2690,7 @@ actor HealthKitFetchEngine {
         cached: HealthTrendSeries,
         calendar: Calendar
     ) async -> HealthTrendSeries {
-        let interval = recentHealthTrendInterval(calendar: calendar)
+        let interval = intradayDaySampleInterval(calendar: calendar)
         let fetchStart = Self.incrementalFetchStart(after: cached, windowStart: interval.start)
         guard fetchStart < interval.end else {
             return Self.mergeIntradaySamples(
@@ -2207,12 +2701,16 @@ actor HealthKitFetchEngine {
             )
         }
 
-        let incoming = await fetchIntradayDaySamples(
+        // A failed sample query returns nil — keep the cached series rather than
+        // dropping it to whatever the merge would produce from an empty fetch.
+        guard let incoming = await fetchIntradayDaySamples(
             for: kind,
             calendar: calendar,
             startDate: fetchStart,
             endDate: interval.end
-        )
+        ) else {
+            return cached
+        }
         return Self.mergeIntradaySamples(
             existing: cached,
             incoming: incoming,
@@ -2251,15 +2749,15 @@ actor HealthKitFetchEngine {
             break
         case .sleep:
             async let sleepSummary = fetchSleepSummary(calendar: calendar)
-            async let sleepHistory = fetchDailySleepHistory(calendar: calendar)
+            async let sleepHistory = fetchDailySleepHistory(calendar: calendar, cachedSleepHistory: existing.trends.sleepHistory)
             async let sleepHistorySecondary = fetchSecondarySleepHistory(calendar: calendar)
             // A failed sleep query keeps the cached history (which feeds
             // readiness) rather than blanking it; a successful empty result
             // still replaces it. See `resolvedTrendSeries`.
-            let fetchedSleepHistory = await sleepHistory ?? existing.trends.sleepHistory
-            let fetchedSleepHistorySecondary = await sleepHistorySecondary
+            let fetchedSleepHistory = await sleepHistory.history ?? existing.trends.sleepHistory
+            let fetchedSleepHistorySecondary = await sleepHistorySecondary ?? existing.trends.sleepHistorySecondary
 
-            summary.sleep = await sleepSummary ?? HealthSummarySnapshot.empty.sleep
+            summary.sleep = Self.resolvedSummaryValue(fetched: await sleepSummary, cached: existing.summary.sleep) ?? HealthSummarySnapshot.empty.sleep
             trends.sleep = fetchedSleepHistory.durationSeries
             trends.sleepSecondary = fetchedSleepHistorySecondary.durationSeries
             trends.sleepHistory = fetchedSleepHistory
@@ -2296,9 +2794,9 @@ actor HealthKitFetchEngine {
                 sourceKind: .basics
             )
 
-            summary.bodyMass = await bodyMass ?? HealthSummarySnapshot.empty.bodyMass
-            summary.bodyFatPercentage = await bodyFatPercentage ?? HealthSummarySnapshot.empty.bodyFatPercentage
-            summary.bodyMassIndex = await bodyMassIndex ?? HealthSummarySnapshot.empty.bodyMassIndex
+            summary.bodyMass = Self.resolvedSummaryValue(fetched: await bodyMass, cached: existing.summary.bodyMass) ?? HealthSummarySnapshot.empty.bodyMass
+            summary.bodyFatPercentage = Self.resolvedSummaryValue(fetched: await bodyFatPercentage, cached: existing.summary.bodyFatPercentage) ?? HealthSummarySnapshot.empty.bodyFatPercentage
+            summary.bodyMassIndex = Self.resolvedSummaryValue(fetched: await bodyMassIndex, cached: existing.summary.bodyMassIndex) ?? HealthSummarySnapshot.empty.bodyMassIndex
             trends.bodyMass = await bodyMassTrend ?? existing.trends.bodyMass
             trends.bodyFatPercentage = await bodyFatPercentageTrend ?? existing.trends.bodyFatPercentage
             trends.bodyMassIndex = await bodyMassIndexTrend ?? existing.trends.bodyMassIndex
@@ -2322,13 +2820,13 @@ actor HealthKitFetchEngine {
             )
             async let heartRateDaySamplesSecondary = fetchSecondaryDaySamples(for: .heartRate, calendar: calendar)
 
-            summary.heartRate = await heartRate ?? HealthSummarySnapshot.empty.heartRate
+            summary.heartRate = Self.resolvedSummaryValue(fetched: await heartRate, cached: existing.summary.heartRate) ?? HealthSummarySnapshot.empty.heartRate
             let fetchedHeartRatePair = await heartRatePair
             trends.heartRate = fetchedHeartRatePair?.0 ?? existing.trends.heartRate
             trends.heartRateRanges = fetchedHeartRatePair?.1 ?? existing.trends.heartRateRanges
-            trends.heartRateRangesSecondary = await heartRateRangesSecondary
+            trends.heartRateRangesSecondary = await heartRateRangesSecondary ?? existing.trends.heartRateRangesSecondary
             trends.heartRateDaySamples = await heartRateDaySamples
-            trends.heartRateDaySamplesSecondary = await heartRateDaySamplesSecondary
+            trends.heartRateDaySamplesSecondary = await heartRateDaySamplesSecondary ?? existing.trends.heartRateDaySamplesSecondary
         case .restingHeartRate:
             async let restingHeartRate = latestQuantity(
                 for: .restingHeartRate,
@@ -2353,11 +2851,11 @@ actor HealthKitFetchEngine {
                 calendar: calendar
             )
 
-            summary.restingHeartRate = await restingHeartRate ?? HealthSummarySnapshot.empty.restingHeartRate
+            summary.restingHeartRate = Self.resolvedSummaryValue(fetched: await restingHeartRate, cached: existing.summary.restingHeartRate) ?? HealthSummarySnapshot.empty.restingHeartRate
             trends.restingHeartRate = await restingHeartRateTrend ?? existing.trends.restingHeartRate
-            trends.restingHeartRateSecondary = await restingHeartRateSecondaryTrend
+            trends.restingHeartRateSecondary = await restingHeartRateSecondaryTrend ?? existing.trends.restingHeartRateSecondary
             trends.restingHeartRateDaySamples = await restingHeartRateDaySamples
-            trends.restingHeartRateDaySamplesSecondary = await restingHeartRateDaySamplesSecondary
+            trends.restingHeartRateDaySamplesSecondary = await restingHeartRateDaySamplesSecondary ?? existing.trends.restingHeartRateDaySamplesSecondary
         case .bodyMass:
             async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
             async let bodyMassTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
@@ -2368,7 +2866,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .basics
             )
 
-            summary.bodyMass = await bodyMass ?? HealthSummarySnapshot.empty.bodyMass
+            summary.bodyMass = Self.resolvedSummaryValue(fetched: await bodyMass, cached: existing.summary.bodyMass) ?? HealthSummarySnapshot.empty.bodyMass
             trends.bodyMass = await bodyMassTrend ?? existing.trends.bodyMass
         case .bodyFatPercentage:
             async let bodyFatPercentage = latestQuantity(
@@ -2386,7 +2884,7 @@ actor HealthKitFetchEngine {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
 
-            summary.bodyFatPercentage = await bodyFatPercentage ?? HealthSummarySnapshot.empty.bodyFatPercentage
+            summary.bodyFatPercentage = Self.resolvedSummaryValue(fetched: await bodyFatPercentage, cached: existing.summary.bodyFatPercentage) ?? HealthSummarySnapshot.empty.bodyFatPercentage
             trends.bodyFatPercentage = await bodyFatPercentageTrend ?? existing.trends.bodyFatPercentage
         case .heartRateVariability:
             async let heartRateVariability = latestQuantity(
@@ -2414,13 +2912,13 @@ actor HealthKitFetchEngine {
                 calendar: calendar
             )
 
-            summary.heartRateVariability = await heartRateVariability ?? HealthSummarySnapshot.empty.heartRateVariability
+            summary.heartRateVariability = Self.resolvedSummaryValue(fetched: await heartRateVariability, cached: existing.summary.heartRateVariability) ?? HealthSummarySnapshot.empty.heartRateVariability
             let fetchedHeartRateVariabilityPair = await heartRateVariabilityPair
             trends.heartRateVariability = fetchedHeartRateVariabilityPair?.0 ?? existing.trends.heartRateVariability
             trends.heartRateVariabilityRanges = fetchedHeartRateVariabilityPair?.1 ?? existing.trends.heartRateVariabilityRanges
-            trends.heartRateVariabilityRangesSecondary = await heartRateVariabilityRangesSecondary
+            trends.heartRateVariabilityRangesSecondary = await heartRateVariabilityRangesSecondary ?? existing.trends.heartRateVariabilityRangesSecondary
             trends.heartRateVariabilityDaySamples = await heartRateVariabilityDaySamples
-            trends.heartRateVariabilityDaySamplesSecondary = await heartRateVariabilityDaySamplesSecondary
+            trends.heartRateVariabilityDaySamplesSecondary = await heartRateVariabilityDaySamplesSecondary ?? existing.trends.heartRateVariabilityDaySamplesSecondary
         case .respiratoryRate:
             async let respiratoryRate = latestQuantity(
                 for: .respiratoryRate,
@@ -2439,7 +2937,7 @@ actor HealthKitFetchEngine {
                 calendar: calendar
             )
 
-            summary.respiratoryRate = await respiratoryRate ?? HealthSummarySnapshot.empty.respiratoryRate
+            summary.respiratoryRate = Self.resolvedSummaryValue(fetched: await respiratoryRate, cached: existing.summary.respiratoryRate) ?? HealthSummarySnapshot.empty.respiratoryRate
             let fetchedRespiratoryRatePair = await respiratoryRatePair
             trends.respiratoryRate = fetchedRespiratoryRatePair?.0 ?? existing.trends.respiratoryRate
             trends.respiratoryRateRanges = fetchedRespiratoryRatePair?.1 ?? existing.trends.respiratoryRateRanges
@@ -2472,13 +2970,13 @@ actor HealthKitFetchEngine {
                 calendar: calendar
             )
 
-            summary.oxygenSaturation = await oxygenSaturation ?? HealthSummarySnapshot.empty.oxygenSaturation
+            summary.oxygenSaturation = Self.resolvedSummaryValue(fetched: await oxygenSaturation, cached: existing.summary.oxygenSaturation) ?? HealthSummarySnapshot.empty.oxygenSaturation
             let fetchedOxygenSaturationPair = await oxygenSaturationPair
             trends.oxygenSaturation = fetchedOxygenSaturationPair?.0 ?? existing.trends.oxygenSaturation
             trends.oxygenSaturationRanges = fetchedOxygenSaturationPair?.1 ?? existing.trends.oxygenSaturationRanges
-            trends.oxygenSaturationRangesSecondary = await oxygenSaturationRangesSecondary
+            trends.oxygenSaturationRangesSecondary = await oxygenSaturationRangesSecondary ?? existing.trends.oxygenSaturationRangesSecondary
             trends.oxygenSaturationDaySamples = await oxygenSaturationDaySamples
-            trends.oxygenSaturationDaySamplesSecondary = await oxygenSaturationDaySamplesSecondary
+            trends.oxygenSaturationDaySamplesSecondary = await oxygenSaturationDaySamplesSecondary ?? existing.trends.oxygenSaturationDaySamplesSecondary
         case .bodyMassIndex:
             async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
             async let bodyMassIndexTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
@@ -2489,7 +2987,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .basics
             )
 
-            summary.bodyMassIndex = await bodyMassIndex ?? HealthSummarySnapshot.empty.bodyMassIndex
+            summary.bodyMassIndex = Self.resolvedSummaryValue(fetched: await bodyMassIndex, cached: existing.summary.bodyMassIndex) ?? HealthSummarySnapshot.empty.bodyMassIndex
             trends.bodyMassIndex = await bodyMassIndexTrend ?? existing.trends.bodyMassIndex
         case .activeEnergy:
             async let activeEnergy = dailyCumulativeQuantitySummary(
@@ -2516,11 +3014,11 @@ actor HealthKitFetchEngine {
                 calendar: calendar
             )
 
-            summary.activeEnergy = await activeEnergy ?? HealthSummarySnapshot.empty.activeEnergy
+            summary.activeEnergy = Self.resolvedSummaryValue(fetched: await activeEnergy, cached: existing.summary.activeEnergy) ?? HealthSummarySnapshot.empty.activeEnergy
             trends.activeEnergy = await activeEnergyTrend ?? existing.trends.activeEnergy
-            trends.activeEnergySecondary = await activeEnergySecondaryTrend
-            trends.activeEnergyDaySamples = await activeEnergyDaySamples
-            trends.activeEnergyDaySamplesSecondary = await activeEnergyDaySamplesSecondary
+            trends.activeEnergySecondary = await activeEnergySecondaryTrend ?? existing.trends.activeEnergySecondary
+            trends.activeEnergyDaySamples = await activeEnergyDaySamples ?? existing.trends.activeEnergyDaySamples
+            trends.activeEnergyDaySamplesSecondary = await activeEnergyDaySamplesSecondary ?? existing.trends.activeEnergyDaySamplesSecondary
         case .restingEnergy:
             async let restingEnergy = dailyCumulativeQuantitySummary(
                 for: .basalEnergyBurned,
@@ -2536,9 +3034,9 @@ actor HealthKitFetchEngine {
             )
             async let restingEnergySecondaryTrend = fetchSecondaryTrend(for: .restingEnergy, calendar: calendar)
 
-            summary.restingEnergy = await restingEnergy ?? HealthSummarySnapshot.empty.restingEnergy
+            summary.restingEnergy = Self.resolvedSummaryValue(fetched: await restingEnergy, cached: existing.summary.restingEnergy) ?? HealthSummarySnapshot.empty.restingEnergy
             trends.restingEnergy = await restingEnergyTrend ?? existing.trends.restingEnergy
-            trends.restingEnergySecondary = await restingEnergySecondaryTrend
+            trends.restingEnergySecondary = await restingEnergySecondaryTrend ?? existing.trends.restingEnergySecondary
         case .exerciseMinutes:
             async let exerciseMinutes = dailyCumulativeQuantitySummary(
                 for: .appleExerciseTime,
@@ -2554,14 +3052,14 @@ actor HealthKitFetchEngine {
             )
             async let exerciseMinutesSecondaryTrend = fetchSecondaryTrend(for: .exerciseMinutes, calendar: calendar)
 
-            summary.exerciseMinutes = await exerciseMinutes ?? HealthSummarySnapshot.empty.exerciseMinutes
+            summary.exerciseMinutes = Self.resolvedSummaryValue(fetched: await exerciseMinutes, cached: existing.summary.exerciseMinutes) ?? HealthSummarySnapshot.empty.exerciseMinutes
             trends.exerciseMinutes = await exerciseMinutesTrend ?? existing.trends.exerciseMinutes
-            trends.exerciseMinutesSecondary = await exerciseMinutesSecondaryTrend
+            trends.exerciseMinutesSecondary = await exerciseMinutesSecondaryTrend ?? existing.trends.exerciseMinutesSecondary
         case .trainingLoad:
             async let trainingLoad = fetchTrainingLoadSummary(calendar: calendar)
             async let trainingLoadTrend = fetchTrainingLoadSeries(calendar: calendar)
 
-            summary.trainingLoad = await trainingLoad ?? HealthSummarySnapshot.empty.trainingLoad
+            summary.trainingLoad = Self.resolvedSummaryValue(fetched: await trainingLoad, cached: existing.summary.trainingLoad) ?? HealthSummarySnapshot.empty.trainingLoad
             trends.trainingLoad = await trainingLoadTrend ?? existing.trends.trainingLoad
         case .wristTemperature:
             async let wristTemperature = dailyQuantitySummary(
@@ -2579,7 +3077,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .wristTemperature
             )
 
-            summary.wristTemperature = await wristTemperature ?? HealthSummarySnapshot.empty.wristTemperature
+            summary.wristTemperature = Self.resolvedSummaryValue(fetched: await wristTemperature, cached: existing.summary.wristTemperature) ?? HealthSummarySnapshot.empty.wristTemperature
             trends.wristTemperature = await wristTemperatureTrend ?? existing.trends.wristTemperature
         case .timeInDaylight:
             async let timeInDaylight = dailyCumulativeQuantitySummary(
@@ -2595,7 +3093,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .timeInDaylight
             )
 
-            summary.timeInDaylight = await timeInDaylight ?? HealthSummarySnapshot.empty.timeInDaylight
+            summary.timeInDaylight = Self.resolvedSummaryValue(fetched: await timeInDaylight, cached: existing.summary.timeInDaylight) ?? HealthSummarySnapshot.empty.timeInDaylight
             trends.timeInDaylight = await timeInDaylightTrend ?? existing.trends.timeInDaylight
         case .steps:
             async let steps = dailyCumulativeQuantitySummary(
@@ -2622,11 +3120,11 @@ actor HealthKitFetchEngine {
                 calendar: calendar
             )
 
-            summary.steps = await steps ?? HealthSummarySnapshot.empty.steps
+            summary.steps = Self.resolvedSummaryValue(fetched: await steps, cached: existing.summary.steps) ?? HealthSummarySnapshot.empty.steps
             trends.steps = await stepsTrend ?? existing.trends.steps
-            trends.stepsSecondary = await stepsSecondaryTrend
-            trends.stepsDaySamples = await stepsDaySamples
-            trends.stepsDaySamplesSecondary = await stepsDaySamplesSecondary
+            trends.stepsSecondary = await stepsSecondaryTrend ?? existing.trends.stepsSecondary
+            trends.stepsDaySamples = await stepsDaySamples ?? existing.trends.stepsDaySamples
+            trends.stepsDaySamplesSecondary = await stepsDaySamplesSecondary ?? existing.trends.stepsDaySamplesSecondary
         }
 
         return HealthDashboardSnapshot(summary: summary, trends: trends)
@@ -2634,4 +3132,133 @@ actor HealthKitFetchEngine {
 
     // Static, pure-function helpers (sleep stage parsing, ring summary mapping,
     // workout downsampling, etc.) live in `HealthKitFetchEngine+SampleParsers.swift`.
+}
+
+/// Lock-protected state machine backing `HealthKitFetchEngine.runCancellableQuery`.
+/// The query is built inside the continuation, so cancellation can arrive before
+/// installation; the states below make installation, completion, and cancellation
+/// mutually exclusive and resume the continuation exactly once. Because the lock is
+/// never held across `execute`/`stop`, `install` runs the query through an
+/// `.executing` phase and re-checks the state once `execute` returns: a cancel that
+/// slips into the unlock→execute window flips to `.cancelledAwaitingStop` and defers
+/// the single `stop` to that re-check, so the just-executed query is stopped exactly
+/// once and never leaks (M15). HK callbacks fire off the actor, so all state
+/// transitions take the lock. `@unchecked Sendable` is sound because every access is
+/// lock-guarded.
+final class CancellableQueryCoordinator<Value>: @unchecked Sendable {
+    private enum State {
+        case pendingNoQuery
+        case executing(HKQuery)
+        case pendingWithQuery(HKQuery)
+        case cancelledAwaitingStop(HKQuery)
+        case cancelled
+        case completed
+    }
+
+    private let lock = NSLock()
+    private let execute: @Sendable (HKQuery) -> Void
+    private let stop: @Sendable (HKQuery) -> Void
+    private var state: State = .pendingNoQuery
+    private var continuation: CheckedContinuation<Value, Never>?
+
+    init(
+        execute: @escaping @Sendable (HKQuery) -> Void,
+        stop: @escaping @Sendable (HKQuery) -> Void
+    ) {
+        self.execute = execute
+        self.stop = stop
+    }
+
+    /// Builds and executes the query unless cancellation already fired, in which
+    /// case it resumes immediately with `cancelledValue` and never touches HK. While
+    /// `execute` runs the lock is released and the state is `.executing`; the re-check
+    /// afterwards either arms the normal `.pendingWithQuery` state or, if cancel
+    /// slipped into that window, issues the single deferred `stop`.
+    func install(
+        continuation: CheckedContinuation<Value, Never>,
+        cancelledValue: Value,
+        makeQuery: (@escaping (Value) -> Void) -> HKQuery
+    ) {
+        lock.lock()
+        switch state {
+        case .cancelled:
+            state = .completed
+            lock.unlock()
+            continuation.resume(returning: cancelledValue)
+        case .pendingNoQuery:
+            self.continuation = continuation
+            let query = makeQuery { [weak self] value in
+                self?.complete(value)
+            }
+            state = .executing(query)
+            lock.unlock()
+            execute(query)
+            lock.lock()
+            switch state {
+            case .executing:
+                // Neither cancel nor the HK callback fired during `execute`; arm the
+                // normal path so a later cancel stops the query itself.
+                state = .pendingWithQuery(query)
+                lock.unlock()
+            case .cancelledAwaitingStop:
+                // Cancel landed in the unlock→execute window and already resumed the
+                // continuation; issue the single deferred stop for the executed query.
+                state = .cancelled
+                lock.unlock()
+                stop(query)
+            case .completed:
+                // The HK callback won the race while `.executing`; already resumed.
+                lock.unlock()
+            case .pendingNoQuery, .pendingWithQuery, .cancelled:
+                // Unreachable: only `cancel`/`complete` transition out of `.executing`.
+                lock.unlock()
+            }
+        case .executing, .pendingWithQuery, .cancelledAwaitingStop, .completed:
+            // `install` runs exactly once; these are unreachable.
+            lock.unlock()
+        }
+    }
+
+    private func complete(_ value: Value) {
+        lock.lock()
+        switch state {
+        case .executing, .pendingWithQuery:
+            state = .completed
+            let continuation = self.continuation
+            self.continuation = nil
+            lock.unlock()
+            continuation?.resume(returning: value)
+        case .pendingNoQuery, .cancelledAwaitingStop, .cancelled, .completed:
+            // Already cancelled or completed — drop the late HK callback.
+            lock.unlock()
+        }
+    }
+
+    func cancel(cancelledValue: Value) {
+        lock.lock()
+        switch state {
+        case .pendingNoQuery:
+            // Continuation not yet installed; mark cancelled so `install` resumes
+            // immediately without ever running the query.
+            state = .cancelled
+            lock.unlock()
+        case .executing(let query):
+            // Cancel raced into the unlock→execute window: resume now but leave the
+            // stop to `install`'s re-check, which owns the just-executed query.
+            let continuation = self.continuation
+            self.continuation = nil
+            state = .cancelledAwaitingStop(query)
+            lock.unlock()
+            continuation?.resume(returning: cancelledValue)
+        case .pendingWithQuery(let query):
+            state = .cancelled
+            let continuation = self.continuation
+            self.continuation = nil
+            lock.unlock()
+            stop(query)
+            continuation?.resume(returning: cancelledValue)
+        case .cancelledAwaitingStop, .cancelled, .completed:
+            lock.unlock()
+        }
+    }
 }

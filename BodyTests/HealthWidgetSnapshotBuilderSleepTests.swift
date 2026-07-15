@@ -45,7 +45,6 @@ final class HealthWidgetSnapshotBuilderSleepTests: XCTestCase {
         return HealthWidgetSnapshotBuilder.make(
             trends: .empty,
             summary: summary,
-            sleepStageSnapshot: stageSnapshot,
             temperatureUnitPreference: .celsius,
             energyUnitPreference: .kilojoules,
             weightUnitPreference: .kilograms,

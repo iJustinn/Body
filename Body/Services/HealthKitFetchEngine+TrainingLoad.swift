@@ -47,20 +47,23 @@ extension HealthKitFetchEngine {
         return try await task.value
     }
 
-    func fetchTrainingLoadSummary(calendar: Calendar) async -> HealthMetricSummary? {
+    func fetchTrainingLoadSummary(calendar: Calendar) async -> QueryOutcome<HealthMetricSummary> {
         let date = anchorDate ?? Date()
         let window = trainingLoadWorkoutsWindow(calendar: calendar)
 
         do {
             let workouts = try await sharedTrainingLoadWorkouts(window: window)
-            return TrainingLoadCalculator.summary(
-                on: date,
-                from: workouts,
-                startDate: window.start,
-                calendar: calendar
+            return .success(
+                TrainingLoadCalculator.summary(
+                    on: date,
+                    from: workouts,
+                    startDate: window.start,
+                    calendar: calendar
+                )
             )
         } catch {
-            return nil
+            Self.logTrendQueryFailure("trainingLoad", error: error)
+            return .failure
         }
     }
 

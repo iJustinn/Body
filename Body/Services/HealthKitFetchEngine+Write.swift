@@ -144,7 +144,7 @@ extension HealthKitFetchEngine {
             throw HealthKitWorkoutError.workoutEffortUnavailable
         }
 
-        guard let workout = await fetchWorkout(id: workoutID) else {
+        guard let workout = try await fetchWorkout(id: workoutID) else {
             throw HealthKitWorkoutError.workoutNotFound
         }
 
@@ -202,7 +202,10 @@ extension HealthKitFetchEngine {
     /// ONLY when the read positively returns no saved effort; a failed read yields
     /// `.unresolved` (retryable) rather than a blind write.
     func autoApplyWorkoutEffort(workoutID: UUID, score: Double) async throws -> AutoApplyEffortOutcome {
-        guard let workout = await fetchWorkout(id: workoutID) else {
+        // A failed lookup (throw) and a genuinely absent workout (nil) both map
+        // to `.unresolved` so a transient failure retries on a later refresh
+        // instead of blind-writing a predicted effort.
+        guard let workout = try? await fetchWorkout(id: workoutID) else {
             return .unresolved
         }
         switch await BodyWorkoutEffortFetcher.savedEffortOutcome(for: workout, store: healthStore) {
@@ -217,15 +220,22 @@ extension HealthKitFetchEngine {
     }
 
     // Internal (not private) so the peer `+Route` extension can resolve a
-    // workout by UUID before querying its `HKWorkoutRoute`.
-    func fetchWorkout(id: UUID) async -> HKWorkout? {
-        await withCheckedContinuation { (continuation: CheckedContinuation<HKWorkout?, Never>) in
+    // workout by UUID before querying its `HKWorkoutRoute`. Throws on a query
+    // FAILURE (device locked, XPC drop) so callers can distinguish it from a
+    // genuinely absent workout (`nil` without error); route/splits propagate
+    // that error rather than caching a false empty.
+    func fetchWorkout(id: UUID) async throws -> HKWorkout? {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<HKWorkout?, Error>) in
             let query = HKSampleQuery(
                 sampleType: HKObjectType.workoutType(),
                 predicate: HKQuery.predicateForObject(with: id),
                 limit: 1,
                 sortDescriptors: nil
-            ) { _, samples, _ in
+            ) { _, samples, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
                 continuation.resume(returning: samples?.first as? HKWorkout)
             }
             healthStore.execute(query)

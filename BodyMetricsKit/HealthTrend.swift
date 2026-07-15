@@ -5,12 +5,46 @@
 
 import Foundation
 
+/// The atomic readiness inputs that were present when a score was computed.
+/// Coverage is compared as a set so a frozen morning record can be replaced by a
+/// later, strictly richer one when a single input (e.g. HRV) syncs late — the
+/// component kinds (`.autonomic`/`.sleep`/`.vitals`) stay identical in that case,
+/// so they cannot detect the change (H11). Derived from the snapshot fields that
+/// feed `ReadinessScoreCalculator`.
+struct ReadinessCoverage: OptionSet, Hashable, Codable {
+    let rawValue: Int
+
+    init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    static let hrv = ReadinessCoverage(rawValue: 1 << 0)
+    static let restingHeartRate = ReadinessCoverage(rawValue: 1 << 1)
+    static let sleepDuration = ReadinessCoverage(rawValue: 1 << 2)
+    static let sleepContinuity = ReadinessCoverage(rawValue: 1 << 3)
+    static let trainingLoad = ReadinessCoverage(rawValue: 1 << 4)
+    static let respiratoryRate = ReadinessCoverage(rawValue: 1 << 5)
+    static let oxygenSaturation = ReadinessCoverage(rawValue: 1 << 6)
+    static let wristTemperature = ReadinessCoverage(rawValue: 1 << 7)
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self.init(rawValue: try container.decode(Int.self))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
 /// A frozen daily readiness record: the morning score (captured ~10 min after
 /// wake) that the history charts display. Immune to later intra-day changes.
 struct RecordedReadinessEntry: Codable, Equatable {
     var date: Date   // calendar.startOfDay of the recorded day
     var score: Int
     var includedSleep: Bool? = nil   // nil = legacy record (pre-flag), unknown
+    var coverage: ReadinessCoverage? = nil   // nil = legacy record (pre-coverage)
 }
 
 struct HealthTrendSnapshot: Codable, Equatable {
@@ -880,6 +914,44 @@ struct HealthTrendSnapshot: Codable, Equatable {
         return stripped
     }
 
+    /// Strips only the PRIMARY intraday day-sample series for a single metric
+    /// kind. The per-kind source setter uses this so switching one metric's
+    /// source invalidates just that chart's cached other-source points (H6a)
+    /// without blanking every other metric detail chart. Kinds without intraday
+    /// day samples are no-ops.
+    func strippingPrimaryDaySamples(for kind: HealthMetricKind) -> HealthTrendSnapshot {
+        var stripped = self
+        switch kind {
+        case .heartRate:
+            stripped.heartRateDaySamples = .empty
+        case .restingHeartRate:
+            stripped.restingHeartRateDaySamples = .empty
+        case .heartRateVariability:
+            stripped.heartRateVariabilityDaySamples = .empty
+        case .respiratoryRate:
+            stripped.respiratoryRateDaySamples = .empty
+        case .oxygenSaturation:
+            stripped.oxygenSaturationDaySamples = .empty
+        case .activeEnergy:
+            stripped.activeEnergyDaySamples = .empty
+        case .steps:
+            stripped.stepsDaySamples = .empty
+        case .sleep,
+             .readiness,
+             .basics,
+             .bodyMass,
+             .bodyFatPercentage,
+             .bodyMassIndex,
+             .restingEnergy,
+             .exerciseMinutes,
+             .trainingLoad,
+             .wristTemperature,
+             .timeInDaylight:
+            break
+        }
+        return stripped
+    }
+
     /// Fills only the `*DaySamples` fields that are still empty, so a sidecar
     /// decoded after launch never overwrites samples a refresh or detail-view
     /// lazy load has already fetched in this session.
@@ -928,10 +1000,31 @@ struct HealthTrendSnapshot: Codable, Equatable {
     }
 }
 
+/// The source + permission selection a day-sample sidecar was captured under.
+/// Stamped onto the sidecar so `hydratePersistedDaySamplesIfNeeded` can reject
+/// a sidecar written under a now-different selection instead of merging stale
+/// other-source intraday points (H6).
+struct HealthTrendDaySampleSignatures: Equatable {
+    var primarySelectionSignature: String
+    var secondarySelectionSignature: String
+    var permissionSignature: String
+    /// The combine-sources-by-name flag the samples were captured under. A flip
+    /// changes how per-source values are merged, so hydration must reject a
+    /// sidecar stamped under the other setting even when the source signatures
+    /// still match (H6b).
+    var combinesHealthDataSourcesByName: Bool
+}
+
 /// Sidecar payload holding the lazily loaded intraday sample series, persisted
 /// separately from `HealthDashboardSnapshot` so cold launch decodes only the
 /// small summary + daily-trend payload on the main thread.
 struct HealthTrendDaySampleSnapshot: Codable, Equatable {
+    /// Current sidecar schema. A `nil` `schemaVersion` marks a legacy sidecar
+    /// written before the source/permission stamps existed. Bumped 1→2 when the
+    /// combine-sources flag joined the stamps (H6b); a v1 sidecar predates it and
+    /// is dropped one-time on hydration (`scopedForHydration` accepts v2 only).
+    static let currentSchemaVersion = 2
+
     var heartRateDaySamples: HealthTrendSeries
     var heartRateDaySamplesSecondary: HealthTrendSeries
     var restingHeartRateDaySamples: HealthTrendSeries
@@ -945,8 +1038,22 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
     var activeEnergyDaySamplesSecondary: HealthTrendSeries
     var stepsDaySamples: HealthTrendSeries
     var stepsDaySamplesSecondary: HealthTrendSeries
+    /// `nil` on a legacy (pre-scoping) sidecar; set to `currentSchemaVersion`
+    /// once the source/permission stamps below are recorded.
+    var schemaVersion: Int?
+    /// Selection signatures the samples were captured under. `nil` on a legacy
+    /// sidecar. `permissionSignature` records the capture-time permission set;
+    /// hydration enforces removals by live-filtering against the *current*
+    /// permission selection, so a permission toggle never invalidates
+    /// source-matched data.
+    var primarySelectionSignature: String?
+    var secondarySelectionSignature: String?
+    var permissionSignature: String?
+    /// The combine-sources-by-name flag the samples were captured under. `nil` on
+    /// a legacy/v1 sidecar (which fails closed on hydration anyway).
+    var combinesHealthDataSourcesByName: Bool?
 
-    init(trends: HealthTrendSnapshot) {
+    init(trends: HealthTrendSnapshot, signatures: HealthTrendDaySampleSignatures? = nil) {
         heartRateDaySamples = trends.heartRateDaySamples
         heartRateDaySamplesSecondary = trends.heartRateDaySamplesSecondary
         restingHeartRateDaySamples = trends.restingHeartRateDaySamples
@@ -960,6 +1067,89 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         activeEnergyDaySamplesSecondary = trends.activeEnergyDaySamplesSecondary
         stepsDaySamples = trends.stepsDaySamples
         stepsDaySamplesSecondary = trends.stepsDaySamplesSecondary
+        schemaVersion = signatures == nil ? nil : Self.currentSchemaVersion
+        primarySelectionSignature = signatures?.primarySelectionSignature
+        secondarySelectionSignature = signatures?.secondarySelectionSignature
+        permissionSignature = signatures?.permissionSignature
+        combinesHealthDataSourcesByName = signatures?.combinesHealthDataSourcesByName
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case heartRateDaySamples
+        case heartRateDaySamplesSecondary
+        case restingHeartRateDaySamples
+        case restingHeartRateDaySamplesSecondary
+        case heartRateVariabilityDaySamples
+        case heartRateVariabilityDaySamplesSecondary
+        case respiratoryRateDaySamples
+        case oxygenSaturationDaySamples
+        case oxygenSaturationDaySamplesSecondary
+        case activeEnergyDaySamples
+        case activeEnergyDaySamplesSecondary
+        case stepsDaySamples
+        case stepsDaySamplesSecondary
+        case schemaVersion
+        case primarySelectionSignature
+        case secondarySelectionSignature
+        case permissionSignature
+        case combinesHealthDataSourcesByName
+    }
+
+    // Every field decodes with `decodeIfPresent` + a default so a legacy sidecar
+    // (13 series fields, no stamps) — or a partially written one — still loads
+    // instead of failing the whole sidecar decode (L10).
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        heartRateDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .heartRateDaySamples
+        ) ?? .empty
+        heartRateDaySamplesSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .heartRateDaySamplesSecondary
+        ) ?? .empty
+        restingHeartRateDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .restingHeartRateDaySamples
+        ) ?? .empty
+        restingHeartRateDaySamplesSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .restingHeartRateDaySamplesSecondary
+        ) ?? .empty
+        heartRateVariabilityDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .heartRateVariabilityDaySamples
+        ) ?? .empty
+        heartRateVariabilityDaySamplesSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .heartRateVariabilityDaySamplesSecondary
+        ) ?? .empty
+        respiratoryRateDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .respiratoryRateDaySamples
+        ) ?? .empty
+        oxygenSaturationDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .oxygenSaturationDaySamples
+        ) ?? .empty
+        oxygenSaturationDaySamplesSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .oxygenSaturationDaySamplesSecondary
+        ) ?? .empty
+        activeEnergyDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .activeEnergyDaySamples
+        ) ?? .empty
+        activeEnergyDaySamplesSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .activeEnergyDaySamplesSecondary
+        ) ?? .empty
+        stepsDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .stepsDaySamples
+        ) ?? .empty
+        stepsDaySamplesSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .stepsDaySamplesSecondary
+        ) ?? .empty
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
+        primarySelectionSignature = try container.decodeIfPresent(
+            String.self, forKey: .primarySelectionSignature
+        )
+        secondarySelectionSignature = try container.decodeIfPresent(
+            String.self, forKey: .secondarySelectionSignature
+        )
+        permissionSignature = try container.decodeIfPresent(String.self, forKey: .permissionSignature)
+        combinesHealthDataSourcesByName = try container.decodeIfPresent(
+            Bool.self, forKey: .combinesHealthDataSourcesByName
+        )
     }
 
     var isEmpty: Bool {
@@ -976,6 +1166,79 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
             activeEnergyDaySamplesSecondary.isEmpty &&
             stepsDaySamples.isEmpty &&
             stepsDaySamplesSecondary.isEmpty
+    }
+
+    /// Returns a copy safe to merge into the live trends during sidecar
+    /// hydration: intraday series whose source scope no longer matches the
+    /// current selection are dropped per-scope, and series whose permission is
+    /// currently off are stripped (mirrors `HealthTrendSnapshot.filtered(by:)`).
+    ///
+    /// Only a current-schema (v2) sidecar carries the full source + combine
+    /// stamps, so acceptance gates on `schemaVersion == currentSchemaVersion`
+    /// EXACTLY: a legacy (`nil`), v1, or unknown-future sidecar fails closed for
+    /// BOTH scopes and is dropped one-time (the next stamped save re-writes it as
+    /// v2, self-healing). A scope matches only when its selection signature AND
+    /// the combine-sources flag both match (H6b).
+    func scopedForHydration(
+        currentPrimarySignature: String,
+        currentSecondarySignature: String,
+        currentCombinesByName: Bool,
+        permission: BodyHealthPermissionSelection
+    ) -> HealthTrendDaySampleSnapshot {
+        var scoped = self
+
+        let isCurrentSchema = schemaVersion == Self.currentSchemaVersion
+        let combineMatches = combinesHealthDataSourcesByName == currentCombinesByName
+        let primaryScopeMatches = isCurrentSchema
+            && combineMatches
+            && primarySelectionSignature == currentPrimarySignature
+        let secondaryScopeMatches = isCurrentSchema
+            && combineMatches
+            && secondarySelectionSignature == currentSecondarySignature
+
+        if !primaryScopeMatches {
+            scoped.heartRateDaySamples = .empty
+            scoped.restingHeartRateDaySamples = .empty
+            scoped.heartRateVariabilityDaySamples = .empty
+            scoped.respiratoryRateDaySamples = .empty
+            scoped.oxygenSaturationDaySamples = .empty
+            scoped.activeEnergyDaySamples = .empty
+            scoped.stepsDaySamples = .empty
+        }
+        if !secondaryScopeMatches {
+            scoped.heartRateDaySamplesSecondary = .empty
+            scoped.restingHeartRateDaySamplesSecondary = .empty
+            scoped.heartRateVariabilityDaySamplesSecondary = .empty
+            scoped.oxygenSaturationDaySamplesSecondary = .empty
+            scoped.activeEnergyDaySamplesSecondary = .empty
+            scoped.stepsDaySamplesSecondary = .empty
+        }
+
+        if !permission.includes(.heart) {
+            scoped.heartRateDaySamples = .empty
+            scoped.heartRateDaySamplesSecondary = .empty
+            scoped.restingHeartRateDaySamples = .empty
+            scoped.restingHeartRateDaySamplesSecondary = .empty
+            scoped.heartRateVariabilityDaySamples = .empty
+            scoped.heartRateVariabilityDaySamplesSecondary = .empty
+        }
+        if !permission.includes(.respiratory) {
+            scoped.respiratoryRateDaySamples = .empty
+        }
+        if !permission.includes(.bloodOxygen) {
+            scoped.oxygenSaturationDaySamples = .empty
+            scoped.oxygenSaturationDaySamplesSecondary = .empty
+        }
+        if !permission.includes(.energy) {
+            scoped.activeEnergyDaySamples = .empty
+            scoped.activeEnergyDaySamplesSecondary = .empty
+        }
+        if !permission.includes(.steps) {
+            scoped.stepsDaySamples = .empty
+            scoped.stepsDaySamplesSecondary = .empty
+        }
+
+        return scoped
     }
 }
 
