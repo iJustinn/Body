@@ -1,5 +1,12 @@
 # Version History
 
+## 0.9.9 (build 1)
+
+- Hardened HealthKit refreshes so transient failures preserve source-scoped cached data, sleep sessions remain intact across midnight, workout detail reads retry instead of caching failed results, and readiness/training-load inputs distinguish missing data from failed queries.
+- Made cache clearing and companion delivery authoritative with generation guards, versioned day-sample provenance, monotonic Watch revisions, and a persisted Watch reset tombstone.
+- Improved settings, Body Pro recovery states, widget preference updates, accessibility motion handling, required-reason privacy manifests, and regression coverage across the iOS and Watch targets.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 1.
+
 ## 0.9.8 (build 8)
 
 - **Sleep detail now surfaces restorative sleep (Deep + REM combined).** The stage breakdown shows a Restorative total in both views: the duration view adds a Restorative duration line under the per-stage durations (separated by a divider), and the bar chart adds a dedicated Restorative bar with its own optimal-range band (≈33–48% of time in bed), percentage, and duration. A new About Restorative Sleep card above the About Sleep Score card explains the metric. In Simplified Chinese the stage timeline y-axis reads 醒/眼/核/深 and the breakdown bars use shortened stage names 清醒/眼动/核心/深度/恢复. Long or localized stage labels no longer wrap; the bar shrinks to fit the text instead.
