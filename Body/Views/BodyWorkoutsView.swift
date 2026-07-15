@@ -10,7 +10,8 @@ struct BodyWorkoutsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedMonth = Calendar.bodyGregorian.component(.month, from: Date())
     @State private var selectedYear = Calendar.bodyGregorian.component(.year, from: Date())
-    @State private var pendingMonthSelection: BodyMonthYear?
+    @State private var pendingMonthSelection: PendingMonthSelection?
+    @State private var monthLoadTasks: [String: Task<Bool, Never>] = [:]
     @State private var searchText = ""
     @State private var showingFilterSheet = false
     @State private var showingMonthPicker = false
@@ -424,34 +425,63 @@ struct BodyWorkoutsView: View {
             return true
         }
 
-        pendingMonthSelection = monthYear
+        // First-wins latch: a fresh token identifies this request so a stale
+        // completion (e.g. a load that finishes after the 15s timeout already
+        // cleared the overlay, or after a different month was tapped) can't
+        // navigate. Whichever of the load task or the 15s sleeper resolves the
+        // token first wins; the other no-ops.
+        let token = UUID()
+        pendingMonthSelection = PendingMonthSelection(request: token, monthYear: monthYear)
+
+        // Reuse a single in-flight load per month so repeated taps of a hung
+        // month await the same task instead of stacking new calls onto the
+        // store's non-cancellation-aware continuations.
+        let loadTask = monthLoadTask(for: monthYear)
         Task {
-            let didLoad = await withTaskGroup(of: Bool?.self) { group in
-                group.addTask {
-                    await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)
-                }
-                group.addTask {
-                    try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
-                    return nil
-                }
-                let result = await group.next() ?? nil
-                group.cancelAll()
-                return result
-            }
-            await MainActor.run {
-                guard pendingMonthSelection == monthYear else {
-                    return
-                }
-
-                if didLoad == true {
-                    applyMonthSelection(monthYear)
-                }
-
-                pendingMonthSelection = nil
-            }
+            let didLoad = await loadTask.value
+            await finishPendingMonthSelection(token: token, didLoad: didLoad)
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
+            await finishPendingMonthSelection(token: token, didLoad: nil)
         }
 
         return false
+    }
+
+    /// Returns the in-flight load task for `monthYear`, creating (and retaining)
+    /// one if none exists so concurrent/repeat requests share a single load.
+    private func monthLoadTask(for monthYear: BodyMonthYear) -> Task<Bool, Never> {
+        let key = monthYear.id
+        if let existing = monthLoadTasks[key] {
+            return existing
+        }
+
+        let task = Task { @MainActor in
+            let didLoad = await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)
+            monthLoadTasks.removeValue(forKey: key)
+            return didLoad
+        }
+        monthLoadTasks[key] = task
+        return task
+    }
+
+    /// Resolves the pending month request identified by `token`. Applies the
+    /// selection only when the token still matches and the load succeeded; a
+    /// timeout (`didLoad == nil`) or failed load just clears the overlay.
+    /// Always clears pending state on a token match so a late load completion
+    /// never auto-navigates — the next tap hits `hasLoadedSnapshot` instantly.
+    @MainActor
+    private func finishPendingMonthSelection(token: UUID, didLoad: Bool?) {
+        guard let pending = pendingMonthSelection, pending.request == token else {
+            return
+        }
+
+        if didLoad == true {
+            applyMonthSelection(pending.monthYear)
+        }
+
+        pendingMonthSelection = nil
     }
 
     private func applyMonthSelection(_ monthYear: BodyMonthYear) {
@@ -518,6 +548,14 @@ struct BodyWorkoutsView: View {
     }
 }
 
+/// Identifies an in-flight month-selection request. The `request` token lets a
+/// completion apply only to the exact request that started it, so a stale load
+/// (finishing after a timeout or a different month tap) cannot navigate.
+private struct PendingMonthSelection: Equatable {
+    let request: UUID
+    let monthYear: BodyMonthYear
+}
+
 /// Caches the lowercased search fields (`type`, `source`, formatted `date`) for
 /// each workout in the currently selected month, avoiding recomputation on
 /// every keystroke. Invalidated whenever the snapshot identity, locale, or
@@ -549,16 +587,19 @@ private final class BodyWorkoutSearchCorpusCache {
 
         guard key == currentKey else {
             key = currentKey
-            storedEntries = Dictionary(uniqueKeysWithValues: workouts.map { workout in
-                (
-                    workout.id,
+            storedEntries = Dictionary(
+                workouts.map { workout in
                     (
-                        typeText: workout.type.displayName.lowercased(),
-                        sourceText: workout.sourceName.lowercased(),
-                        dateText: dateSearchText(workout.startDate)
+                        workout.id,
+                        (
+                            typeText: workout.type.displayName.lowercased(),
+                            sourceText: workout.sourceName.lowercased(),
+                            dateText: dateSearchText(workout.startDate)
+                        )
                     )
-                )
-            })
+                },
+                uniquingKeysWith: { _, latest in latest }
+            )
             return storedEntries
         }
 

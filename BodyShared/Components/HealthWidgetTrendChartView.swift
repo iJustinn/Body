@@ -209,24 +209,42 @@ struct HealthWidgetTrendPlot: View {
         in size: CGSize,
         domain: ClosedRange<Double>
     ) -> Path {
-        Path { path in
-            var started = false
-            for (index, point) in points.enumerated() {
-                guard let value = point.value, value.isFinite else {
-                    continue
-                }
-                let position = CGPoint(
-                    x: xPosition(index: index, count: points.count, width: size.width),
-                    y: yPosition(for: value, in: size.height, domain: domain)
-                )
-                if started {
-                    path.addLine(to: position)
-                } else {
-                    path.move(to: position)
-                    started = true
+        let positions: [CGPoint?] = points.enumerated().map { index, point in
+            guard let value = point.value, value.isFinite else {
+                return nil
+            }
+            return CGPoint(
+                x: xPosition(index: index, count: points.count, width: size.width),
+                y: yPosition(for: value, in: size.height, domain: domain)
+            )
+        }
+
+        return Path { path in
+            for run in contiguousRuns(positions) where run.count > 1 {
+                path.move(to: run[0])
+                for point in run.dropFirst() {
+                    path.addLine(to: point)
                 }
             }
         }
+    }
+
+    /// Runs of consecutive non-nil positions, split on each nil (missing-data)
+    /// gap — a straight line across a gap would misleadingly imply interpolated
+    /// data (precedent: `WatchSparklineView.contiguousRuns`).
+    private func contiguousRuns(_ points: [CGPoint?]) -> [[CGPoint]] {
+        var runs: [[CGPoint]] = []
+        var current: [CGPoint] = []
+        for point in points {
+            if let point {
+                current.append(point)
+            } else if !current.isEmpty {
+                runs.append(current)
+                current = []
+            }
+        }
+        if !current.isEmpty { runs.append(current) }
+        return runs
     }
 
     private func barPlot(

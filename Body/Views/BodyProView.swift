@@ -18,7 +18,8 @@ struct BodyProView: View {
     private let features = BodyProFeature.defaultFeatures
 
     private var isPro: Bool { proStore?.isPro ?? false }
-    private var displayPrice: String { proStore?.displayPrice ?? "$9.99" }
+    private var displayPrice: String? { proStore?.displayPrice }
+    private var productLoadFailed: Bool { proStore?.productLoadFailed ?? false }
     private var purchaseState: BodyProStore.PurchaseState { proStore?.purchaseState ?? .idle }
 
     /// `false` only during the first entitlement resolve. Until it flips, the purchase
@@ -26,13 +27,26 @@ struct BodyProView: View {
     /// before their entitlement loads. Treated as resolved when there is no store.
     private var hasResolved: Bool { proStore?.hasResolved ?? true }
 
-    /// A purchase, restore, or pending approval is in flight — purchase/restore/redeem
-    /// are disabled so the actions can't overlap.
+    /// A purchase, restore, or pending approval is in flight — the (re-)purchase action is
+    /// disabled so it can't overlap or double-fire while already awaiting Ask-to-Buy approval.
     private var isPurchaseFlowActive: Bool {
         switch purchaseState {
         case .purchasing, .restoring, .pending:
             return true
         case .idle, .failed:
+            return false
+        }
+    }
+
+    /// Restore/Redeem only need to guard against an in-flight purchase or restore — a
+    /// `.pending` Ask-to-Buy approval doesn't touch either of those flows, so both stay
+    /// enabled in that state (the buyer may still want to restore a different purchase or
+    /// redeem a code while waiting on approval).
+    private var isRestoreOrRedeemDisabled: Bool {
+        switch purchaseState {
+        case .purchasing, .restoring:
+            return true
+        case .idle, .pending, .failed:
             return false
         }
     }
@@ -80,7 +94,7 @@ struct BodyProView: View {
                 BodyProOwnedCard()
             } else if !hasResolved {
                 BodyProCheckingCard()
-            } else {
+            } else if let displayPrice {
                 BodyProPurchaseOptionCard(
                     price: displayPrice,
                     isPurchasing: purchaseState == .purchasing,
@@ -88,6 +102,12 @@ struct BodyProView: View {
                 ) {
                     Task { await proStore?.purchase() }
                 }
+            } else if productLoadFailed {
+                BodyProUnavailableCard {
+                    Task { await proStore?.loadProduct() }
+                }
+            } else {
+                BodyProLoadingPriceCard()
             }
         }
     }
@@ -138,7 +158,7 @@ struct BodyProView: View {
             .buttonStyle(.bordered)
             .buttonBorderShape(.roundedRectangle(radius: 16))
             .tint(BodyProPalette.gold)
-            .disabled(isPurchaseFlowActive)
+            .disabled(isRestoreOrRedeemDisabled)
 
             Button {
                 Task { await proStore?.restore() }
@@ -151,7 +171,7 @@ struct BodyProView: View {
             .buttonStyle(.bordered)
             .buttonBorderShape(.roundedRectangle(radius: 16))
             .tint(BodyProPalette.gold)
-            .disabled(isPurchaseFlowActive)
+            .disabled(isRestoreOrRedeemDisabled)
         }
         .offerCodeRedemption(isPresented: $showRedeemSheet) { _ in
             // Sync with the App Store so RevenueCat ingests the redeemed transaction, then
@@ -181,6 +201,7 @@ private struct BodyProHeroView: View {
 }
 
 private struct BodyProFlippableIcon: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var isShowingBack = false
     @State private var rotationDegrees = 0.0
     @State private var isFlipping = false
@@ -216,6 +237,12 @@ private struct BodyProFlippableIcon: View {
         playFlipHaptic()
 
         let nextIsShowingBack = !isShowingBack
+
+        guard !reduceMotion else {
+            isShowingBack = nextIsShowingBack
+            return
+        }
+
         isFlipping = true
 
         withAnimation(.easeIn(duration: 0.18)) {
@@ -362,6 +389,47 @@ private struct BodyProCheckingCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(cornerRadius: 24, translucent: true)
+    }
+}
+
+private struct BodyProLoadingPriceCard: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            ProgressView()
+
+            Text("Loading price…")
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+
+            Spacer(minLength: 8)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(cornerRadius: 24, translucent: true)
+    }
+}
+
+private struct BodyProUnavailableCard: View {
+    let onRetry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Text("Body Pro is temporarily unavailable.")
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+
+            Spacer(minLength: 8)
+
+            Button(action: onRetry) {
+                Text("Retry")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+            }
+            .buttonStyle(.bordered)
+            .tint(BodyProPalette.gold)
+        }
+        .padding(16)
         .bodyCardBackground(cornerRadius: 24, translucent: true)
     }
 }

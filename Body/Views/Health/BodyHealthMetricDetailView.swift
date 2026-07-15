@@ -2352,20 +2352,17 @@ final class BodyMetricDaySeriesCache: ObservableObject {
 
     private struct Key: Equatable {
         let day: Date
-        let pointCount: Int
-        let firstDate: Date?
-        let lastDate: Date?
+        let source: HealthTrendSeries
     }
 
     private var entriesBySlot: [Slot: (key: Key, series: HealthTrendSeries)] = [:]
 
     func daySeries(from series: HealthTrendSeries, on day: Date, slot: Slot) -> HealthTrendSeries {
-        let key = Key(
-            day: day,
-            pointCount: series.points.count,
-            firstDate: series.points.first?.date,
-            lastDate: series.points.last?.date
-        )
+        let key = Key(day: day, source: series)
+        // `source == series` is the true identity check (a same-count/first/last
+        // coincidence previously could false-positive on a changed middle point);
+        // Array's COW fast path keeps the common unchanged-render case O(1) since
+        // `series` is usually the same buffer as last render, not a re-diffed copy.
         if let entry = entriesBySlot[slot], entry.key == key {
             return entry.series
         }

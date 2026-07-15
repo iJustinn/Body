@@ -454,6 +454,7 @@ struct BodyHomeView: View {
                 }
             }
             .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
+            .accessibilityHidden(readinessDetailPresented)
             .navigationDestination(for: HomeMetricRoute.self) { route in
                 switch route {
                 case .metric(let kind), .trend(let kind), .basicsTrend(let kind):
@@ -475,6 +476,7 @@ struct BodyHomeView: View {
         .overlay {
             if readinessDetailPresented {
                 readinessDetailOverlay
+                    .accessibilityAddTraits(.isModal)
                     .transition(.opacity)
             }
         }

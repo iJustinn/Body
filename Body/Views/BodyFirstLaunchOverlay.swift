@@ -16,6 +16,7 @@ struct BodyFirstLaunchLoadOverlay: View {
     @State private var isLoading = false
     @State private var hasAttemptedLoad = false
     @State private var isDismissedForSession = false
+    var onPresentationChange: (Bool) -> Void = { _ in }
 
     var body: some View {
         Group {
@@ -26,10 +27,17 @@ struct BodyFirstLaunchLoadOverlay: View {
 
                     card
                 }
+                .accessibilityAddTraits(.isModal)
                 .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.25), value: isPresented)
+        .onAppear {
+            onPresentationChange(isPresented)
+        }
+        .onChange(of: isPresented) { _, newValue in
+            onPresentationChange(newValue)
+        }
     }
 
     private var isPresented: Bool {

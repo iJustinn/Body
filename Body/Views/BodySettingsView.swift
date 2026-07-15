@@ -97,20 +97,23 @@ struct BodySettingsView: View {
             }
             .onChange(of: showsSubMinuteAwakeSleepStages) {
                 Task {
-                    await workoutStore.requestAuthorizationAndRefresh()
+                    await workoutStore.refetchAfterSleepDisplayPreferenceChange()
                 }
             }
             .onChange(of: showsLeadingTrailingAwakeSleepStages) {
                 Task {
-                    await workoutStore.requestAuthorizationAndRefresh()
+                    await workoutStore.refetchAfterSleepDisplayPreferenceChange()
                 }
             }
-            // Re-publish the watch snapshot when a display pref changes so the
-            // watch reflects it without waiting for the next refresh.
-            .onChange(of: sleepDurationGoalMinutes) { workoutStore.publishWatchSnapshot() }
-            .onChange(of: selectedTemperatureUnitRawValue) { workoutStore.publishWatchSnapshot() }
-            .onChange(of: followsSystemUnits) { workoutStore.publishWatchSnapshot() }
-            .onChange(of: showSleepScore) { workoutStore.publishWatchSnapshot() }
+            // Republish both companion snapshots (widget + watch) when a
+            // formatting-only pref changes, without waiting for the next
+            // refresh.
+            .onChange(of: sleepDurationGoalMinutes) { workoutStore.republishCompanionSnapshots() }
+            .onChange(of: selectedTemperatureUnitRawValue) { workoutStore.republishCompanionSnapshots() }
+            .onChange(of: followsSystemUnits) { workoutStore.republishCompanionSnapshots() }
+            .onChange(of: showSleepScore) { workoutStore.republishCompanionSnapshots() }
+            .onChange(of: selectedEnergyUnitRawValue) { workoutStore.republishCompanionSnapshots() }
+            .onChange(of: selectedWeightUnitRawValue) { workoutStore.republishCompanionSnapshots() }
         }
     }
 
@@ -1609,28 +1612,41 @@ private struct BodyHomeBackgroundProfileSwatch: View {
 private struct BodyHomeBackgroundPreview: View {
     let colors: [Color]
     @Binding var separators: [Double]
+    /// Live positions while a handle is being dragged; the @AppStorage-backed
+    /// `separators` binding is only written once, on gesture end, so a drag no
+    /// longer persists (and re-encodes the raw string) on every frame.
+    @State private var draftSeparators: [Double]?
 
     var body: some View {
+        let activeSeparators = draftSeparators ?? separators
         GeometryReader { geo in
             let width = geo.size.width
 
             ZStack(alignment: .topLeading) {
-                BodyActivityRingsCard.heroBackground(colors: colors, separators: separators)
+                BodyActivityRingsCard.heroBackground(colors: colors, separators: activeSeparators)
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
-                ForEach(separators.indices, id: \.self) { index in
+                ForEach(activeSeparators.indices, id: \.self) { index in
                     BodyHomeBackgroundSeparatorHandle()
                         .frame(width: 30, height: geo.size.height)
                         .contentShape(Rectangle())
-                        .position(x: CGFloat(separators[index]) * width, y: geo.size.height / 2)
+                        .position(x: CGFloat(activeSeparators[index]) * width, y: geo.size.height / 2)
                         .gesture(
                             DragGesture(minimumDistance: 0, coordinateSpace: .named("bgPreview"))
                                 .onChanged { value in
                                     guard width > 0 else { return }
+                                    var working = draftSeparators ?? separators
                                     let raw = Double(value.location.x / width)
-                                    let lower = index > 0 ? separators[index - 1] + 0.06 : 0.06
-                                    let upper = index < separators.count - 1 ? separators[index + 1] - 0.06 : 0.94
-                                    separators[index] = min(max(raw, lower), upper)
+                                    let lower = index > 0 ? working[index - 1] + 0.06 : 0.06
+                                    let upper = index < working.count - 1 ? working[index + 1] - 0.06 : 0.94
+                                    working[index] = min(max(raw, lower), upper)
+                                    draftSeparators = working
+                                }
+                                .onEnded { _ in
+                                    if let draftSeparators {
+                                        separators = draftSeparators
+                                    }
+                                    draftSeparators = nil
                                 }
                         )
                 }
@@ -1665,10 +1681,15 @@ private struct BodyHomeBackgroundSeparatorHandle: View {
 /// sets that color's hue from the angle and saturation from the distance to the center.
 private struct BodyHomeBackgroundColorWheel: View {
     @Binding var colors: [Color]
+    /// Live bubble colors while one is being dragged; the @AppStorage-backed
+    /// `colors` binding is only written once, on gesture end, so a drag no longer
+    /// persists (and re-encodes the raw string) on every frame.
+    @State private var draftColors: [Color]?
 
     private let bubbleSizes: [CGFloat] = [66, 50, 58]
 
     var body: some View {
+        let activeColors = draftColors ?? colors
         GeometryReader { geo in
             let side = min(geo.size.width, geo.size.height)
             let radius = side / 2
@@ -1688,17 +1709,25 @@ private struct BodyHomeBackgroundColorWheel: View {
                 .clipShape(Circle())
                 .position(center)
 
-                ForEach(colors.indices, id: \.self) { index in
+                ForEach(activeColors.indices, id: \.self) { index in
                     Circle()
-                        .fill(colors[index])
+                        .fill(activeColors[index])
                         .overlay(Circle().strokeBorder(.white, lineWidth: 4))
                         .frame(width: bubbleSize(index), height: bubbleSize(index))
                         .shadow(color: .black.opacity(0.25), radius: 3, y: 2)
-                        .position(position(for: colors[index], center: center, radius: radius))
+                        .position(position(for: activeColors[index], center: center, radius: radius))
                         .gesture(
                             DragGesture(minimumDistance: 0, coordinateSpace: .named("colorWheel"))
                                 .onChanged { value in
-                                    colors[index] = Self.color(at: value.location, center: center, radius: radius)
+                                    var working = draftColors ?? colors
+                                    working[index] = Self.color(at: value.location, center: center, radius: radius)
+                                    draftColors = working
+                                }
+                                .onEnded { _ in
+                                    if let draftColors {
+                                        colors = draftColors
+                                    }
+                                    draftColors = nil
                                 }
                         )
                 }
@@ -1827,6 +1856,10 @@ private struct BodyEffortSuggestionsSettingsSheet: View {
     @Binding var autoApply: Bool
     @ObservedObject var workoutStore: HealthKitWorkoutStore
     @State private var showsWorkoutEffortWriteDenied = false
+    /// Retains the immediate opt-in auto-apply pass so switching Auto-Apply off
+    /// (or leaving the sheet) cancels the in-flight batch instead of letting it
+    /// finish writing after the user reversed the decision.
+    @State private var autoApplyTask: Task<Void, Never>?
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Effort Suggestions") {
@@ -1858,8 +1891,15 @@ private struct BodyEffortSuggestionsSettingsSheet: View {
                     // reset the toggle and explain; otherwise fill eligible recent workouts
                     // right away instead of waiting for the next refresh.
                     .onChange(of: autoApply) {
-                        guard autoApply else { return }
-                        Task {
+                        guard autoApply else {
+                            // Turned off: cancel any in-flight opt-in pass so it
+                            // stops mid-batch instead of finishing writes.
+                            autoApplyTask?.cancel()
+                            autoApplyTask = nil
+                            return
+                        }
+                        autoApplyTask?.cancel()
+                        autoApplyTask = Task {
                             if await workoutStore.requestWorkoutEffortWriteAuthorization() {
                                 await workoutStore.autoApplyPredictedEffortNow()
                             } else {
@@ -1877,6 +1917,10 @@ private struct BodyEffortSuggestionsSettingsSheet: View {
                     autoApplyExplanation
                 }
             }
+        }
+        .onDisappear {
+            autoApplyTask?.cancel()
+            autoApplyTask = nil
         }
     }
 
@@ -2528,7 +2572,9 @@ private struct BodyCacheSettingsSheet: View {
                         .padding(.leading, 76)
 
                     Button(role: .destructive) {
-                        workoutStore.clearLocalCache()
+                        Task {
+                            await workoutStore.clearLocalCache()
+                        }
                     } label: {
                         BodySettingsRowLabel(
                             title: "Clear Cache",
@@ -2538,7 +2584,9 @@ private struct BodyCacheSettingsSheet: View {
                             accessory: .chevron
                         )
                     }
+                    .disabled(workoutStore.isRefreshing)
                     .buttonStyle(.plain)
+                    .opacity(workoutStore.isRefreshing ? 0.65 : 1)
                 }
                 .bodyCardBackground(translucent: true)
             }

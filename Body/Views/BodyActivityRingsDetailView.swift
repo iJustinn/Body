@@ -735,6 +735,8 @@ private struct BodyScaledActivityRingGraphic: View {
 }
 
 struct BodyActivityRingsCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let summary: ActivityRingSummary
     /// `true` renders the card chrome-free for the home-page star hero (the rings +
     /// numbers sit directly on the tinted gradient backdrop).
@@ -766,7 +768,7 @@ struct BodyActivityRingsCard: View {
 
                     if summary.isCompleted {
                         BodyActivityRingCompletionStar(ringSize: ringSize)
-                            .transition(.opacity)
+                            .transition(reduceMotion ? .identity : .opacity)
                             .zIndex(BodyActivityRingCompletionStarGeometry.foregroundZIndex)
                     }
                 }
@@ -774,7 +776,7 @@ struct BodyActivityRingsCard: View {
                 .scaleEffect(heroRingScale)
                 .frame(width: ringSize * heroRingScale, height: ringSize * heroRingScale)
                 .padding(.leading, 12)
-                .animation(.easeInOut(duration: 0.35), value: summary.isCompleted)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: summary.isCompleted)
                 .accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
