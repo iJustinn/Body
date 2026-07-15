@@ -905,10 +905,13 @@ final class ProjectConfigurationTests: XCTestCase {
         // The summary call now lives inside the tap-to-toggle Button (durations <-> optimal
         // ranges), a little deeper in the card body, so widen the inspected window.
         XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("sleepStageDurationSummary(snapshot)"))
-        XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("HStack(spacing: 10)"))
+        // The restorative-sleep breakdown wraps the stage row in a VStack and
+        // spaces stages with explicit Spacers (HStack(spacing: 0) + enumerated
+        // ForEach) rather than the old fixed-spacing HStack.
+        XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("HStack(spacing: 0)"))
         XCTAssertFalse(sleepStageCardAndSummaryBlock.contains("LazyVGrid"))
         XCTAssertFalse(sleepStageCardAndSummaryBlock.contains("GridItem(.flexible(), spacing: 10)"))
-        XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("ForEach(SleepStage.allCases)"))
+        XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("ForEach(Array(SleepStage.allCases.enumerated()), id: \\.element)"))
         XCTAssertFalse(sleepStageCardAndSummaryBlock.contains("Text(stage.displayName)"))
         XCTAssertFalse(sleepStageCardAndSummaryBlock.contains("Circle()"))
         XCTAssertTrue(sleepStageCardAndSummaryBlock.contains("Rectangle()"))
@@ -1107,8 +1110,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(storeSource.contains("@Published private(set) var secondaryHealthDataSourceSelection"))
         XCTAssertTrue(storeSource.contains("func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind)"))
         XCTAssertTrue(storeSource.contains("func updateSecondaryHealthDataSource(for kind: HealthMetricKind"))
-        XCTAssertTrue(engineSource.contains("func fetchSecondaryTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendSeries"))
-        XCTAssertTrue(engineSource.contains("func fetchSecondaryRangeTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendRangeSeries"))
+        XCTAssertTrue(engineSource.contains("func fetchSecondaryTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendSeries?"))
+        XCTAssertTrue(engineSource.contains("func fetchSecondaryRangeTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendRangeSeries?"))
         XCTAssertTrue(engineSource.contains("let secondaryOption = selectedSecondaryHealthDataSourceOption(for: kind)"))
         XCTAssertTrue(engineSource.contains("sourceOption: secondaryOption"))
         XCTAssertTrue(engineSource.contains("trends.activeEnergySecondary = await activeEnergySecondaryTrend"))
@@ -1128,6 +1131,23 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(snapshotSource.contains("next.restingEnergySecondary = refreshed.restingEnergySecondary"))
     }
 
+    func testWorkoutDetailMetricReuseBranchDoesNotResurrectCachedValues() throws {
+        // H12 regression guard: the cached-HR-reuse branch used to pass
+        // `resolvedVO2 ?? cached.cardioFitnessVO2Max` / `resolvedCadence ??
+        // cached.averageStepCadenceSPM`, so a successful query confirming a
+        // detail metric absent could never clear the field on a passive
+        // resume. Both fallbacks must stay gone, and all three call sites
+        // must route through `resolvedWorkoutDetailMetric`.
+        let engineSource = try healthKitFetchEngineText()
+
+        XCTAssertFalse(engineSource.contains("?? cached.cardioFitnessVO2Max"))
+        XCTAssertFalse(engineSource.contains("?? cached.averageStepCadenceSPM"))
+        XCTAssertTrue(engineSource.contains("nonisolated static func resolvedWorkoutDetailMetric("))
+        XCTAssertTrue(engineSource.contains("fetched: resolvedCardioFitness?[workout.uuid]"))
+        XCTAssertTrue(engineSource.contains("fetched: resolvedStepCadence[workout.uuid]"))
+        XCTAssertTrue(engineSource.contains("fetched: resolvedWorkoutDistance[workout.uuid]"))
+    }
+
     func testSecondarySleepStageHistorySkipsVitalsHydration() throws {
         let sleepSource = try text(at: "Body/Services/HealthKitFetchEngine+Sleep.swift")
         let secondarySource = try text(at: "Body/Services/HealthKitFetchEngine+Secondary.swift")
@@ -1142,7 +1162,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(fetchSleepHistoryBlock.contains("hydrateVitals: Bool = true"))
         XCTAssertTrue(fetchSleepHistoryBlock.contains("guard hydrateVitals else {"))
-        XCTAssertTrue(fetchSleepHistoryBlock.contains("return SleepHistorySnapshot(days: days)"))
+        XCTAssertTrue(fetchSleepHistoryBlock.contains("return SleepHistoryFetchResult(history: SleepHistorySnapshot(days: days), vitalsHadFailure: false)"))
         XCTAssertTrue(sleepSource.contains("BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()"))
         XCTAssertTrue(sleepSource.contains("showsSubMinuteAwakeStages: showsSubMinuteAwakeStages"))
         XCTAssertTrue(sleepSource.contains("BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()"))
@@ -1291,20 +1311,46 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testPrivacyManifestsDeclareUserDefaultsAndNoTracking() throws {
-        for path in ["Body/PrivacyInfo.xcprivacy", "BodyWidgetExtension/PrivacyInfo.xcprivacy"] {
+        // Per-target expected categories: app + iOS widget + watch app declare both
+        // UserDefaults and FileTimestamp access; the watch widget (no UserDefaults use)
+        // declares FileTimestamp only.
+        let expectedCategoriesByPath: [String: Set<String>] = [
+            "Body/PrivacyInfo.xcprivacy": ["NSPrivacyAccessedAPICategoryUserDefaults", "NSPrivacyAccessedAPICategoryFileTimestamp"],
+            "BodyWidgetExtension/PrivacyInfo.xcprivacy": ["NSPrivacyAccessedAPICategoryUserDefaults", "NSPrivacyAccessedAPICategoryFileTimestamp"],
+            "BodyWatch/PrivacyInfo.xcprivacy": ["NSPrivacyAccessedAPICategoryUserDefaults", "NSPrivacyAccessedAPICategoryFileTimestamp"],
+            "BodyWatchWidgetExtension/PrivacyInfo.xcprivacy": ["NSPrivacyAccessedAPICategoryFileTimestamp"],
+        ]
+
+        for (path, expectedCategories) in expectedCategoriesByPath {
             let manifest = try propertyList(at: path)
             XCTAssertEqual(manifest["NSPrivacyTracking"] as? Bool, false, path)
             XCTAssertEqual((manifest["NSPrivacyCollectedDataTypes"] as? [Any])?.isEmpty, true, path)
 
             let accessedAPITypes = try XCTUnwrap(manifest["NSPrivacyAccessedAPITypes"] as? [[String: Any]], path)
-            let userDefaultsDeclaration = accessedAPITypes.first {
-                $0["NSPrivacyAccessedAPIType"] as? String == "NSPrivacyAccessedAPICategoryUserDefaults"
+            let declaredCategories = Set(accessedAPITypes.compactMap { $0["NSPrivacyAccessedAPIType"] as? String })
+            XCTAssertEqual(declaredCategories, expectedCategories, path)
+
+            if expectedCategories.contains("NSPrivacyAccessedAPICategoryUserDefaults") {
+                let userDefaultsDeclaration = accessedAPITypes.first {
+                    $0["NSPrivacyAccessedAPIType"] as? String == "NSPrivacyAccessedAPICategoryUserDefaults"
+                }
+                XCTAssertEqual(
+                    userDefaultsDeclaration?["NSPrivacyAccessedAPITypeReasons"] as? [String],
+                    ["CA92.1"],
+                    path
+                )
             }
-            XCTAssertEqual(
-                userDefaultsDeclaration?["NSPrivacyAccessedAPITypeReasons"] as? [String],
-                ["CA92.1"],
-                path
-            )
+
+            if expectedCategories.contains("NSPrivacyAccessedAPICategoryFileTimestamp") {
+                let fileTimestampDeclaration = accessedAPITypes.first {
+                    $0["NSPrivacyAccessedAPIType"] as? String == "NSPrivacyAccessedAPICategoryFileTimestamp"
+                }
+                XCTAssertEqual(
+                    fileTimestampDeclaration?["NSPrivacyAccessedAPITypeReasons"] as? [String],
+                    ["C617.1"],
+                    path
+                )
+            }
         }
     }
 
@@ -1332,13 +1378,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.8;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 8;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.9;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
-        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.8;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 8;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.9;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 1;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1373,7 +1419,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.8 (build 8)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.9 (build 1)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.8 (build 8)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.8 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.8 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.8 (build 3)**"))
@@ -1406,6 +1453,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.9 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.9 build 1."))
         XCTAssertTrue(versionHistory.contains("## 0.9.8 (build 8)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.8 build 8."))
         XCTAssertTrue(versionHistory.contains("## 0.9.8 (build 7)"))
@@ -1593,11 +1642,38 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains(".toolbar(.hidden, for: .navigationBar)"))
     }
 
+    func testWorkoutStepSamplesPropagateReadFailuresInsteadOfSwallowingErrors() throws {
+        let splitsSource = try text(at: "Body/Services/HealthKitFetchEngine+Splits.swift")
+
+        // H8: a cancelled/transient step-sample read (dismissed detail sheet, XPC
+        // drop) must propagate like the distance/route reads and `fetchWorkout(id:)`
+        // already do, instead of collapsing to an empty cadence column that the
+        // store then caches as confirmed data for the rest of the session.
+        XCTAssertTrue(splitsSource.contains("private func workoutStepSamples(for workout: HKWorkout, type: BodyWorkoutType) async throws -> [WorkoutStepSample]"))
+        XCTAssertTrue(splitsSource.contains("private func readWorkoutStepSamples(for workout: HKWorkout, stepType: HKQuantityType) async throws -> [WorkoutStepSample]"))
+        XCTAssertTrue(splitsSource.contains("stepSamples: try await workoutStepSamples(for: workout, type: type)"))
+        XCTAssertFalse(splitsSource.contains("catch {\n            return []\n        }"))
+
+        // The store's catch must keep returning an UNCACHED `.empty` so a retry on
+        // reopen can recover — it must not also write the negative result into
+        // `distanceSampleCache`, which would make it permanent for the session.
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let loadStart = try XCTUnwrap(storeSource.range(of: "func loadWorkoutSplitData(for workout: WorkoutSummary) async -> WorkoutSplitData")?.lowerBound)
+        let loadBlock = String(storeSource[loadStart...].prefix(900))
+        let catchStart = try XCTUnwrap(loadBlock.range(of: "} catch {")?.lowerBound)
+        let catchBlock = String(loadBlock[catchStart...].prefix(195))
+
+        XCTAssertTrue(catchBlock.contains("return .empty"))
+        XCTAssertFalse(catchBlock.contains("distanceSampleCache["))
+    }
+
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-0.9.8`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.8 build 8)"))
+        XCTAssertTrue(testPlan.contains("branch `body-0.9.9`"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.9 build 1)"))
+        XCTAssertFalse(testPlan.contains("branch `body-0.9.8`"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.8 build 8)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.8 build 7)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.8 build 5)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.8 build 3)"))
@@ -1652,14 +1728,18 @@ final class ProjectConfigurationTests: XCTestCase {
     func testWorkoutsMonthLoadUsesPullToRefreshOverlay() throws {
         let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
 
-        XCTAssertTrue(workoutsSource.contains("@State private var pendingMonthSelection: BodyMonthYear?"))
+        XCTAssertTrue(workoutsSource.contains("@State private var pendingMonthSelection: PendingMonthSelection?"))
         XCTAssertTrue(workoutsSource.contains(".bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing || pendingMonthSelection != nil)"))
         XCTAssertFalse(workoutsSource.contains("BodyWorkoutMonthLoadingBanner"))
-        XCTAssertTrue(workoutsSource.contains("pendingMonthSelection = monthYear"))
+        XCTAssertFalse(workoutsSource.contains("withTaskGroup"))
+        XCTAssertTrue(workoutsSource.contains("pendingMonthSelection = PendingMonthSelection(request: token, monthYear: monthYear)"))
         XCTAssertTrue(workoutsSource.contains("await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)"))
-        XCTAssertTrue(workoutsSource.contains("guard pendingMonthSelection == monthYear else"))
+        XCTAssertTrue(workoutsSource.contains("private func monthLoadTask(for monthYear: BodyMonthYear) -> Task<Bool, Never>"))
+        XCTAssertTrue(workoutsSource.contains("func finishPendingMonthSelection(token: UUID, didLoad: Bool?)"))
+        XCTAssertTrue(workoutsSource.contains("guard let pending = pendingMonthSelection, pending.request == token else"))
+        XCTAssertTrue(workoutsSource.contains("try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)"))
         XCTAssertTrue(workoutsSource.contains("if didLoad == true {"))
-        XCTAssertTrue(workoutsSource.contains("applyMonthSelection(monthYear)"))
+        XCTAssertTrue(workoutsSource.contains("applyMonthSelection(pending.monthYear)"))
         XCTAssertTrue(workoutsSource.contains("return false"))
     }
 
@@ -2015,14 +2095,20 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(bodyProSource.contains("proStore?.purchase()"))
         XCTAssertTrue(bodyProSource.contains("proStore?.restore()"))
         XCTAssertTrue(bodyProSource.contains("offerCodeRedemption"))
-        // Resolve-gating: a checking state shows until entitlement resolves, and
-        // purchase/restore/redeem are disabled while a purchase flow is active.
+        // Resolve-gating: a checking state shows until entitlement resolves, the
+        // purchase action is disabled while a flow is active, and Restore/Redeem
+        // stay available during a pending (Ask-to-Buy/SCA) approval.
         XCTAssertTrue(bodyProSource.contains("hasResolved"))
         XCTAssertTrue(bodyProSource.contains("BodyProCheckingCard"))
         XCTAssertTrue(bodyProSource.contains("isPurchaseFlowActive"))
+        XCTAssertTrue(bodyProSource.contains("isRestoreOrRedeemDisabled"))
         XCTAssertFalse(bodyProSource.contains("not available in this build"))
         XCTAssertTrue(bodyProSource.contains("Future Pro Updates"))
-        XCTAssertTrue(bodyProSource.contains("$9.99"))
+        // No guessed storefront price: a loading placeholder shows until the
+        // StoreKit product resolves, and an unavailable/retry card on failure.
+        XCTAssertFalse(bodyProSource.contains("$9.99"))
+        XCTAssertTrue(bodyProSource.contains("Loading price…"))
+        XCTAssertTrue(bodyProSource.contains("BodyProUnavailableCard"))
         XCTAssertFalse(bodyProSource.contains("$0.89"))
         XCTAssertFalse(bodyProSource.contains("$2.59"))
         XCTAssertFalse(bodyProSource.contains("$8.99"))
