@@ -439,11 +439,11 @@ struct BodyWorkoutsView: View {
         let loadTask = monthLoadTask(for: monthYear)
         Task {
             let didLoad = await loadTask.value
-            await finishPendingMonthSelection(token: token, didLoad: didLoad)
+            finishPendingMonthSelection(token: token, didLoad: didLoad)
         }
         Task {
             try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
-            await finishPendingMonthSelection(token: token, didLoad: nil)
+            finishPendingMonthSelection(token: token, didLoad: nil)
         }
 
         return false
