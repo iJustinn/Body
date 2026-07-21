@@ -701,6 +701,126 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(segments[2].endDate, minuteAwakeEnd)
     }
 
+    func testSleepSummaryReadsTimeZoneFromMainSleepSession() throws {
+        let calendar = Calendar.bodyGregorian
+        let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12)))
+        let mainStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 11, hour: 23)))
+        let mainEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 7)))
+        let napStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 14)))
+        let napEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 14, minute: 30)))
+
+        let summary = try XCTUnwrap(HealthKitFetchEngine.sleepSummary(
+            from: [
+                // A short nap from another source with a different zone must not win.
+                HKCategorySample(
+                    type: sleepType,
+                    value: HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+                    start: napStart,
+                    end: napEnd,
+                    metadata: [HKMetadataKeyTimeZone: "America/New_York"]
+                ),
+                HKCategorySample(
+                    type: sleepType,
+                    value: HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+                    start: mainStart,
+                    end: mainEnd,
+                    metadata: [HKMetadataKeyTimeZone: "Europe/London"]
+                )
+            ],
+            date: day
+        ))
+
+        XCTAssertEqual(summary.stageSnapshot.timeZoneIdentifier, "Europe/London")
+    }
+
+    func testSleepSummaryTimeZoneIgnoresNapSampleLongerThanEachMainStageSample() throws {
+        let calendar = Calendar.bodyGregorian
+        let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12)))
+        let mainStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 11, hour: 23)))
+        let napStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 14)))
+        let napEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 16)))
+
+        // The main night is split into hour-long stage samples, each individually
+        // shorter than the single two-hour nap sample from another zone; the
+        // night's aggregated main session must still supply the zone.
+        var samples = (0..<8).map { hour in
+            HKCategorySample(
+                type: sleepType,
+                value: HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+                start: mainStart.addingTimeInterval(TimeInterval(hour) * 3_600),
+                end: mainStart.addingTimeInterval(TimeInterval(hour + 1) * 3_600),
+                metadata: [HKMetadataKeyTimeZone: "Europe/London"]
+            )
+        }
+        samples.append(HKCategorySample(
+            type: sleepType,
+            value: HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+            start: napStart,
+            end: napEnd,
+            metadata: [HKMetadataKeyTimeZone: "America/New_York"]
+        ))
+
+        let summary = try XCTUnwrap(HealthKitFetchEngine.sleepSummary(from: samples, date: day))
+
+        XCTAssertEqual(summary.stageSnapshot.timeZoneIdentifier, "Europe/London")
+    }
+
+    func testSleepSummaryTimeZoneStaysNilWhenOnlyNapCarriesMetadata() throws {
+        let calendar = Calendar.bodyGregorian
+        let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12)))
+        let mainStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 11, hour: 23)))
+        let mainEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 7)))
+        let napStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 14)))
+        let napEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 16)))
+
+        let summary = try XCTUnwrap(HealthKitFetchEngine.sleepSummary(
+            from: [
+                HKCategorySample(
+                    type: sleepType,
+                    value: HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+                    start: mainStart,
+                    end: mainEnd
+                ),
+                // A zone known only for the nap must not label the main night.
+                HKCategorySample(
+                    type: sleepType,
+                    value: HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+                    start: napStart,
+                    end: napEnd,
+                    metadata: [HKMetadataKeyTimeZone: "America/New_York"]
+                )
+            ],
+            date: day
+        ))
+
+        XCTAssertNil(summary.stageSnapshot.timeZoneIdentifier)
+    }
+
+    func testSleepSummaryLeavesTimeZoneNilWithoutMetadata() throws {
+        let calendar = Calendar.bodyGregorian
+        let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12)))
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 11, hour: 23)))
+        let end = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 7)))
+
+        let summary = try XCTUnwrap(HealthKitFetchEngine.sleepSummary(
+            from: [
+                HKCategorySample(
+                    type: sleepType,
+                    value: HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+                    start: start,
+                    end: end
+                )
+            ],
+            date: day
+        ))
+
+        XCTAssertNil(summary.stageSnapshot.timeZoneIdentifier)
+    }
+
     func testSleepStageSegmentsCanHideSubMinuteAwakeSamples() throws {
         let calendar = Calendar.bodyGregorian
         let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))

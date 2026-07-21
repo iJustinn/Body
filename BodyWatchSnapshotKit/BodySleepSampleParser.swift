@@ -33,9 +33,41 @@ enum BodySleepSampleParser {
                     from: samples,
                     showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
                     showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
-                )
+                ),
+                timeZoneIdentifier: timeZoneIdentifier(from: samples)
             )
         )
+    }
+
+    /// The zone the night was recorded in (`HKMetadataKeyTimeZone`). A wake-day
+    /// snapshot flattens every session of the day (naps included), so the zone
+    /// comes from the main session only — a nap in another zone, even one whose
+    /// single sample outlasts the main night's individual stage samples, must
+    /// not label the night. Within the main session, per-zone asleep durations
+    /// are aggregated so a detailed night split into short stage samples still
+    /// outweighs any stray sample. `nil` when no main-session asleep sample
+    /// carries the metadata.
+    static func timeZoneIdentifier(from samples: [HKCategorySample]) -> String? {
+        guard let mainSession = BodySleepSessionizer.mainSession(
+            in: BodySleepSessionizer.sessions(from: samples)
+        ) else {
+            return nil
+        }
+
+        var durationByZone: [String: TimeInterval] = [:]
+        for sample in mainSession.samples where isAsleep(sample) {
+            guard let identifier = sample.metadata?[HKMetadataKeyTimeZone] as? String else {
+                continue
+            }
+            durationByZone[identifier, default: 0] += sample.endDate.timeIntervalSince(sample.startDate)
+        }
+
+        return durationByZone.max { lhs, rhs in
+            if lhs.value == rhs.value {
+                return lhs.key > rhs.key
+            }
+            return lhs.value < rhs.value
+        }?.key
     }
 
     /// A sample belongs on the sleep timeline if it's an asleep stage or an

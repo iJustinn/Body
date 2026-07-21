@@ -3951,6 +3951,117 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertNil(ambiguous.category(for: .consistency))
     }
 
+    // MARK: - Timezone-aware consistency
+
+    func testConsistencyKeepsFullCreditForFirstThreeNightsInNewZone() throws {
+        let newYork = "America/New_York"
+        let london = "Europe/London"
+        // 14 nights at home in New York, then the first London nights on the same
+        // local 23:00–07:00 schedule (absolute UTC shifted +5h). Scored in each
+        // night's own zone, the deviation stays zero → full credit.
+        var history = try zonedNights((2...15).map { (day: $0, zone: newYork) })
+        let londonNights = try [16, 17, 18].map {
+            try zonedNight(wakeMonth: 6, wakeDay: $0, sleptZone: london)
+        }
+
+        for (index, night) in londonNights.enumerated() {
+            let score = try zonedScore(for: night, history: history)
+            let consistency = try XCTUnwrap(score.category(for: .consistency), "London night \(index + 1)")
+            XCTAssertEqual(consistency.points, 15, "London night \(index + 1)")
+            XCTAssertEqual(consistency.maximumPoints, 15, "London night \(index + 1)")
+            history.append(night)
+        }
+    }
+
+    func testConsistencyDropsCategoryFromFourthNightInNewZone() throws {
+        let newYork = "America/New_York"
+        let london = "Europe/London"
+        let baseline = try zonedNights((2...15).map { (day: $0, zone: newYork) })
+        let earlierLondon = try zonedNights((16...18).map { (day: $0, zone: london) })
+        let fourthLondon = try zonedNight(wakeMonth: 6, wakeDay: 19, sleptZone: london)
+
+        // Window (days 5–18) now holds 3 London nights + 11 foreign New York
+        // nights: streak 4 and foreignCount 11 both exceed the limit → dropped.
+        let score = try zonedScore(for: fourthLondon, history: baseline + earlierLondon)
+        XCTAssertNil(score.category(for: .consistency))
+        XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity])
+    }
+
+    func testConsistencyReturnsOnceForeignNightsAgeOutOfWindow() throws {
+        let newYork = "America/New_York"
+        let london = "Europe/London"
+        // Home in New York through day 12, then a long London stay. By day 24 only
+        // 3 New York nights (days 10–12) remain inside the 14-night window, so
+        // foreignCount is back at the limit and the category is scored again.
+        let newYorkNights = try zonedNights((2...12).map { (day: $0, zone: newYork) })
+        let londonNights = try zonedNights((13...23).map { (day: $0, zone: london) })
+        let tonight = try zonedNight(wakeMonth: 6, wakeDay: 24, sleptZone: london)
+
+        let score = try zonedScore(for: tonight, history: newYorkNights + londonNights)
+        let consistency = try XCTUnwrap(score.category(for: .consistency))
+        XCTAssertEqual(consistency.points, 15)
+    }
+
+    func testConsistencyKeepsCategoryReturningHomeAfterShortTrip() throws {
+        let newYork = "America/New_York"
+        let london = "Europe/London"
+        // Home, a 3-night London trip, then the first night back. The window holds
+        // exactly 3 foreign nights, so a short excursion doesn't drop the score.
+        let homeBefore = try zonedNights((8...18).map { (day: $0, zone: newYork) })
+        let trip = try zonedNights((19...21).map { (day: $0, zone: london) })
+        let tonight = try zonedNight(wakeMonth: 6, wakeDay: 22, sleptZone: newYork)
+
+        let score = try zonedScore(for: tonight, history: homeBefore + trip)
+        let consistency = try XCTUnwrap(score.category(for: .consistency))
+        XCTAssertEqual(consistency.points, 15)
+    }
+
+    func testConsistencyTreatsEqualOffsetZonesAsSameZone() throws {
+        let toronto = "America/Toronto"
+        let newYork = "America/New_York"
+        // Ten Toronto nights then four New York nights — different identifiers but
+        // the same EDT offset in June, so none count as foreign and the category
+        // is kept and scored. Identifier-only logic would drop it (streak 5 and 10
+        // "foreign" nights), so a present, full-credit category proves equivalence.
+        let torontoNights = try zonedNights((2...11).map { (day: $0, zone: toronto) })
+        let newYorkNights = try zonedNights((12...15).map { (day: $0, zone: newYork) })
+        let tonight = try zonedNight(wakeMonth: 6, wakeDay: 16, sleptZone: newYork)
+
+        let score = try zonedScore(for: tonight, history: torontoNights + newYorkNights)
+        let consistency = try XCTUnwrap(score.category(for: .consistency))
+        XCTAssertEqual(consistency.points, 15)
+    }
+
+    func testConsistencyIgnoresDSTTransitionWithinOneZone() throws {
+        let newYork = "America/New_York"
+        // Nights straddling the Nov 1 2026 fall-back, all in America/New_York on a
+        // fixed 23:00–07:00 local schedule. Same identifier ⇒ never foreign, and
+        // per-night local clocks keep the deviation at zero despite the offset flip
+        // (a naive per-instant offset compare would read pre-DST nights as foreign).
+        let october = try zonedNights((27...31).map { (day: $0, zone: newYork) }, month: 10)
+        let november = try zonedNights((1...9).map { (day: $0, zone: newYork) }, month: 11)
+        let tonight = try zonedNight(wakeMonth: 11, wakeDay: 10, sleptZone: newYork)
+
+        let score = try zonedScore(for: tonight, history: october + november)
+        let consistency = try XCTUnwrap(score.category(for: .consistency))
+        XCTAssertEqual(consistency.points, 15)
+    }
+
+    func testConsistencyWithoutMetadataStillPenalizesZoneShift() throws {
+        let newYork = "America/New_York"
+        let london = "Europe/London"
+        // Exactly the pre-change problem: the same local schedule after +5h travel
+        // but with no zone metadata, so every night is read in the scoring zone and
+        // the shifted clocks inflate the deviation — unchanged legacy behavior.
+        let baseline = try zonedNights((2...15).map { (day: $0, zone: newYork) }, stampZone: false)
+        let tonight = try zonedNight(wakeMonth: 6, wakeDay: 16, sleptZone: london, stampZone: false)
+
+        let score = try zonedScore(for: tonight, history: baseline)
+        let consistency = try XCTUnwrap(score.category(for: .consistency))
+        XCTAssertEqual(consistency.points, 0)
+        XCTAssertEqual(consistency.valueDescription, "5h off")
+    }
+
     func testSleepScoreCommentSummarizesScoreBand() {
         XCTAssertEqual(SleepScoreSummary.comment(for: 95), "Excellent sleep readiness for this day.")
         XCTAssertEqual(SleepScoreSummary.comment(for: 84), "Strong sleep with small room to improve.")
@@ -5274,6 +5385,92 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             sleep: day.summary,
             recentSleepHistory: history,
             on: day.date
+        ))
+    }
+
+    // MARK: - Timezone-aware consistency helpers
+
+    /// A gregorian calendar pinned to a fixed zone so the timezone-consistency
+    /// tests are deterministic regardless of the test machine's zone.
+    private func fixedCalendar(_ identifier: String) throws -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.firstWeekday = 1
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: identifier))
+        return calendar
+    }
+
+    /// One single-core-stage night whose bed/wake wall-clock times (default
+    /// 23:00 the prior evening through 07:00) are interpreted in `sleptZone`,
+    /// optionally stamping `timeZoneIdentifier` (`stampZone: false` models an old
+    /// cache with no metadata). The night's `date` is noon of the wake day in
+    /// `scoringZone` so windowing buckets it deterministically.
+    private func zonedNight(
+        wakeMonth: Int,
+        wakeDay: Int,
+        sleptZone: String,
+        bedHour: Int = 23,
+        wakeHour: Int = 7,
+        stampZone: Bool = true,
+        scoringZone: String = "UTC"
+    ) throws -> SleepDaySummary {
+        let sleptCalendar = try fixedCalendar(sleptZone)
+        let scoringCalendar = try fixedCalendar(scoringZone)
+        let wakeDayStart = try XCTUnwrap(sleptCalendar.date(
+            from: DateComponents(year: 2026, month: wakeMonth, day: wakeDay)
+        ))
+        let previousDayStart = try XCTUnwrap(sleptCalendar.date(byAdding: .day, value: -1, to: wakeDayStart))
+        let previousComponents = sleptCalendar.dateComponents([.year, .month, .day], from: previousDayStart)
+        // Build from wall-clock components (not by adding hours) so a DST day
+        // still yields the intended local clock times.
+        let bed = try XCTUnwrap(sleptCalendar.date(from: DateComponents(
+            year: previousComponents.year,
+            month: previousComponents.month,
+            day: previousComponents.day,
+            hour: bedHour
+        )))
+        let wake = try XCTUnwrap(sleptCalendar.date(from: DateComponents(
+            year: 2026, month: wakeMonth, day: wakeDay, hour: wakeHour
+        )))
+        let dayDate = try XCTUnwrap(scoringCalendar.date(from: DateComponents(
+            year: 2026, month: wakeMonth, day: wakeDay, hour: 12
+        )))
+
+        return SleepDaySummary(
+            date: dayDate,
+            summary: SleepSummary(
+                duration: wake.timeIntervalSince(bed),
+                stageSnapshot: SleepStageSnapshot(
+                    date: dayDate,
+                    segments: [SleepStageSegment(stage: .core, startDate: bed, endDate: wake)],
+                    timeZoneIdentifier: stampZone ? sleptZone : nil
+                )
+            )
+        )
+    }
+
+    private func zonedNights(
+        _ specs: [(day: Int, zone: String)],
+        month: Int = 6,
+        stampZone: Bool = true
+    ) throws -> [SleepDaySummary] {
+        try specs.map {
+            try zonedNight(wakeMonth: month, wakeDay: $0.day, sleptZone: $0.zone, stampZone: stampZone)
+        }
+    }
+
+    /// Scores `night` against `history` in a fixed scoring zone. The scored
+    /// night's own zone comes from its snapshot metadata; `scoringZone` supplies
+    /// the wake-day bucketing window and the fallback for no-metadata nights.
+    private func zonedScore(
+        for night: SleepDaySummary,
+        history: [SleepDaySummary],
+        scoringZone: String = "UTC"
+    ) throws -> SleepScoreSummary {
+        try XCTUnwrap(SleepScoreSummary(
+            sleep: night.summary,
+            recentSleepHistory: SleepHistorySnapshot(days: history),
+            on: night.date,
+            calendar: try fixedCalendar(scoringZone)
         ))
     }
 }

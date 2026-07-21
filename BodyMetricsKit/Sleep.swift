@@ -205,6 +205,11 @@ struct SleepVitalReferenceRange: Equatable {
 struct SleepStageSnapshot: Codable, Equatable {
     var date: Date?
     var segments: [SleepStageSegment]
+    /// Time zone the night was recorded in (`HKMetadataKeyTimeZone`), so a
+    /// night's clock times can be read in the zone it was slept in rather than
+    /// the device's current zone. Optional and defaulted so old caches decode as
+    /// `nil` and all existing call sites compile unchanged.
+    var timeZoneIdentifier: String? = nil
 
     var isEmpty: Bool {
         segments.isEmpty
@@ -289,6 +294,21 @@ struct SleepStageSnapshot: Codable, Equatable {
     }
 
     static let empty = SleepStageSnapshot(date: nil, segments: [])
+}
+
+/// The calendar to read a night's clock times in: a copy of `calendar` whose
+/// time zone is the zone the night was recorded in, falling back to the
+/// calendar's own zone when the metadata is absent or unresolvable. With no
+/// metadata the result is `calendar` unchanged, so behavior matches today.
+private func perNightCalendar(_ calendar: Calendar, for snapshot: SleepStageSnapshot) -> Calendar {
+    guard let identifier = snapshot.timeZoneIdentifier,
+          let zone = TimeZone(identifier: identifier) else {
+        return calendar
+    }
+
+    var perNight = calendar
+    perNight.timeZone = zone
+    return perNight
 }
 
 struct SleepScoreSummary: Equatable {
@@ -486,7 +506,7 @@ struct SleepScoreSummary: Equatable {
             value: -Self.consistencyBaselineDayCount,
             to: scoringDay
         ) ?? scoringDay.addingTimeInterval(-TimeInterval(Self.consistencyBaselineDayCount) * Self.secondsPerDay)
-        let baselineNights = recentSleepHistory.days.compactMap { day -> (start: Date, end: Date)? in
+        let baselineNights = recentSleepHistory.days.compactMap { day -> (day: Date, start: Date, end: Date, calendar: Calendar)? in
             let dayDate = calendar.startOfDay(for: day.date)
             guard dayDate < scoringDay, dayDate >= oldestBaselineDay,
                   let start = day.summary.stageSnapshot.sleepStartDate,
@@ -494,21 +514,51 @@ struct SleepScoreSummary: Equatable {
                 return nil
             }
 
-            return (start, end)
+            return (dayDate, start, end, perNightCalendar(calendar, for: day.summary.stageSnapshot))
         }
 
-        guard baselineNights.count >= Self.minimumConsistencyBaselineCount,
-              let baselineStartSeconds = circularAverageSeconds(for: baselineNights.map(\.start), calendar: calendar),
-              let baselineEndSeconds = circularAverageSeconds(for: baselineNights.map(\.end), calendar: calendar) else {
+        guard baselineNights.count >= Self.minimumConsistencyBaselineCount else {
+            return nil
+        }
+
+        // Score every night in the zone it was slept in. Tonight's zone `Z` is the
+        // reference; two zones are equivalent when they name the same zone or sit
+        // at the same UTC offset at tonight's sleep start (absorbs DST and equates
+        // clock-identical zones like New_York/Toronto without straddle artifacts).
+        let tonightCalendar = perNightCalendar(calendar, for: sleep.stageSnapshot)
+        let foreignCount = baselineNights.filter {
+            !zonesEquivalent($0.calendar.timeZone, tonightCalendar.timeZone, at: sleepStartDate)
+        }.count
+        // Tonight plus the most-recent run of baseline nights still equivalent to
+        // `Z` (descending by day; data-gap days don't break the run).
+        var streak = 1
+        for night in baselineNights.sorted(by: { $0.day > $1.day }) {
+            guard zonesEquivalent(night.calendar.timeZone, tonightCalendar.timeZone, at: sleepStartDate) else {
+                break
+            }
+            streak += 1
+        }
+        // A short stay (≤3 nights either direction) keeps a meaningful local-clock
+        // score; a longer stay drops the category until the window re-fills.
+        if streak > Self.consistencyForeignStreakLimit, foreignCount > Self.consistencyForeignNightLimit {
+            return nil
+        }
+
+        guard let baselineStartSeconds = circularAverageSeconds(
+                  for: baselineNights.map { (date: $0.start, calendar: $0.calendar) }
+              ),
+              let baselineEndSeconds = circularAverageSeconds(
+                  for: baselineNights.map { (date: $0.end, calendar: $0.calendar) }
+              ) else {
             return nil
         }
 
         let startDeviation = circularDeviationSeconds(
-            from: secondsSinceStartOfDay(sleepStartDate, calendar: calendar),
+            from: secondsSinceStartOfDay(sleepStartDate, calendar: tonightCalendar),
             to: baselineStartSeconds
         )
         let endDeviation = circularDeviationSeconds(
-            from: secondsSinceStartOfDay(sleepEndDate, calendar: calendar),
+            from: secondsSinceStartOfDay(sleepEndDate, calendar: tonightCalendar),
             to: baselineEndSeconds
         )
         let deviation = (startDeviation + endDeviation) / 2
@@ -696,13 +746,20 @@ struct SleepScoreSummary: Equatable {
         )
     }
 
-    private static func circularAverageSeconds(for dates: [Date], calendar: Calendar) -> TimeInterval? {
-        guard !dates.isEmpty else {
+    /// Two zones are equivalent if they name the same zone or share a UTC offset
+    /// at `instant` (one shared instant, so DST within a zone is absorbed and
+    /// clock-identical zones compare equal without DST-straddle false negatives).
+    private static func zonesEquivalent(_ lhs: TimeZone, _ rhs: TimeZone, at instant: Date) -> Bool {
+        lhs.identifier == rhs.identifier || lhs.secondsFromGMT(for: instant) == rhs.secondsFromGMT(for: instant)
+    }
+
+    private static func circularAverageSeconds(for nights: [(date: Date, calendar: Calendar)]) -> TimeInterval? {
+        guard !nights.isEmpty else {
             return nil
         }
 
-        let angles = dates.map {
-            secondsSinceStartOfDay($0, calendar: calendar) / Self.secondsPerDay * 2 * Double.pi
+        let angles = nights.map {
+            secondsSinceStartOfDay($0.date, calendar: $0.calendar) / Self.secondsPerDay * 2 * Double.pi
         }
         let averageX = angles.reduce(0) { $0 + cos($1) } / Double(angles.count)
         let averageY = angles.reduce(0) { $0 + sin($1) } / Double(angles.count)
@@ -770,6 +827,11 @@ struct SleepScoreSummary: Equatable {
     private static let minimumConsistencyBaselineCount = 3
     private static let consistencyFullCreditDeviation: TimeInterval = 45 * 60
     private static let consistencyNoCreditDeviation: TimeInterval = 150 * 60
+    /// Zone-change tolerance: keep the category while the current zone's run is at
+    /// most this many nights, or while at most this many baseline nights remain in
+    /// a differing zone; beyond both, drop it until the window re-fills.
+    private static let consistencyForeignStreakLimit = 3
+    private static let consistencyForeignNightLimit = 3
     private static let vitalsBaselineDayCount = 14
     private static let minimumVitalsBaselineCount = 5
     private static let decompressionSteepness = 0.45
@@ -938,13 +1000,16 @@ struct SleepConsistencyNight: Equatable, Identifiable {
 
 /// Day-by-day bed-to-wake bars positioned by time of day, with offsets
 /// expressed in hours relative to each wake day's midnight (pre-midnight
-/// bedtimes are negative). Each night is canonicalized into the Apple-style
-/// sleep day spanning 18:00 to 18:00 (offsets -6..<18); a session crossing
-/// 18:00 wraps into a second span that re-enters from the top of the window.
-/// Offsets use elapsed time from midnight, so positions and the 18:00 cut can
-/// drift by up to an hour on a DST-change night. Columns stay keyed to the
-/// calendar day the sleep ended (matching the rest of the app), even when an
-/// evening-only session is drawn in the prior evening's band.
+/// bedtimes are negative). Each night's midnight is taken in the zone it was
+/// recorded in (`HKMetadataKeyTimeZone`), falling back to the passed calendar's
+/// zone when metadata is absent, so a time-zone change doesn't inflate the
+/// spread. Each night is canonicalized into the Apple-style sleep day spanning
+/// 18:00 to 18:00 (offsets -6..<18); a session crossing 18:00 wraps into a
+/// second span that re-enters from the top of the window. Offsets use elapsed
+/// time from midnight, so positions and the 18:00 cut can drift by up to an hour
+/// on a DST-change night. Columns stay keyed to the calendar day the sleep ended
+/// (matching the rest of the app), even when an evening-only session is drawn in
+/// the prior evening's band.
 struct SleepConsistencyChartModel: Equatable {
     var days: [Date]
     var nights: [SleepConsistencyNight]
@@ -966,7 +1031,7 @@ struct SleepConsistencyChartModel: Equatable {
                 return nil
             }
 
-            let dayStart = calendar.startOfDay(for: entry.day)
+            let dayStart = perNightCalendar(calendar, for: snapshot).startOfDay(for: entry.day)
             let rawBedOffset = interval.start.timeIntervalSince(dayStart) / 3_600
             let windowShift = 24 * ((rawBedOffset - sleepDayWindowHours.lowerBound) / 24).rounded(.down)
             let bedOffset = rawBedOffset - windowShift
