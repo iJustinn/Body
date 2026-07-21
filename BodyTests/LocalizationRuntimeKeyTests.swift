@@ -32,6 +32,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Kilometer %@, %@",
             "Mile %@, %@",
             "Fastest split",
+            "Slowest split",
             "Average heart rate %@ BPM",
             "Pace",
             "Speed",

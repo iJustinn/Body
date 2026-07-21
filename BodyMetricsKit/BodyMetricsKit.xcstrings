@@ -4490,6 +4490,23 @@
         }
       }
     },
+    "Slowest split" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slowest split"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最慢分段"
+          }
+        }
+      }
+    },
     "Snow Sports" : {
       "extractionState" : "manual",
       "localizations" : {

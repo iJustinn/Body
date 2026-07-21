@@ -1762,6 +1762,9 @@ private struct BodyWorkoutSplitsCard: View {
     /// Fastest-split highlight, matching the BPM readout on the Heart Rate card.
     private static let fastestColor = BodyWorkoutHeartRateChart.referenceLineColor
 
+    /// Slowest-split highlight, matching Zone 5 on the heart-rate zone breakdown.
+    private static let slowestColor = Color(red: 1.0, green: 0.27, blue: 0.31)
+
     // Column geometry mirrors the heart-rate zone breakdown so the two cards align.
     private let indexWidth: CGFloat = 24
     private let valueWidth: CGFloat = 72
@@ -1816,7 +1819,9 @@ private struct BodyWorkoutSplitsCard: View {
     }
 
     private func splitRow(_ row: WorkoutSplitsPresentation.Row) -> some View {
-        let color = row.isFastest ? Self.fastestColor : Color.primary
+        let color = row.isFastest
+            ? Self.fastestColor
+            : (row.isSlowest ? Self.slowestColor : Color.primary)
         return HStack(spacing: 10) {
             Text(row.indexText)
                 .font(.system(size: 16, weight: .bold, design: .rounded))
@@ -1863,7 +1868,9 @@ private struct BodyWorkoutSplitsCard: View {
                 Capsule(style: .continuous)
                     .fill(Color.secondary.opacity(0.16))
                 Capsule(style: .continuous)
-                    .fill(row.isFastest ? Self.fastestColor : Color.secondary)
+                    .fill(row.isFastest
+                        ? Self.fastestColor
+                        : (row.isSlowest ? Self.slowestColor : Color.secondary))
                     // Floor the width at the bar height so the shortest (fastest) split
                     // reads as a circle rather than a stub.
                     .frame(width: max(geometry.size.width * row.barFraction, barHeight))

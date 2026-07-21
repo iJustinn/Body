@@ -279,6 +279,7 @@ struct WorkoutSplitsPresentation: Equatable {
         let cadenceText: String?       // average steps/min over the split, nil when no steps
         let barFraction: Double        // 0…1 of the slowest split, so fastest = shortest bar
         let isFastest: Bool
+        let isSlowest: Bool
         let isPartial: Bool
         let accessibilityLabel: String
     }
@@ -307,6 +308,14 @@ struct WorkoutSplitsPresentation: Equatable {
             return nil
         }
         let fastestID = fastest.id
+
+        // Slowest highlight mirrors the fastest one: complete splits only. The strict
+        // comparison keeps the two flags mutually exclusive — with a single complete
+        // split, or every split at identical pace, `max` and `min` land on different
+        // rows that aren't meaningfully faster or slower, so neither earns the red.
+        let slowestID = completeSplits
+            .min(by: { Self.speed($0) < Self.speed($1) })
+            .flatMap { Self.speed($0) < Self.speed(fastest) ? $0.id : nil }
 
         let useMiles = distanceUnitPreference == .miles
         let unitMeters = useMiles ? 1_609.344 : 1_000.0
@@ -353,6 +362,7 @@ struct WorkoutSplitsPresentation: Equatable {
                 ? (split.durationSeconds / split.distanceMeters) / slowestPace
                 : 0
             let isFastest = split.id == fastestID
+            let isSlowest = split.id == slowestID
             var accessibilityLabel = useMiles
                 ? String(localized: "Mile \(indexText), \(valueText)", table: "BodyMetricsKit")
                 : String(localized: "Kilometer \(indexText), \(valueText)", table: "BodyMetricsKit")
@@ -365,6 +375,9 @@ struct WorkoutSplitsPresentation: Equatable {
             if isFastest {
                 accessibilityLabel += ", " + String(localized: "Fastest split", table: "BodyMetricsKit")
             }
+            if isSlowest {
+                accessibilityLabel += ", " + String(localized: "Slowest split", table: "BodyMetricsKit")
+            }
             return Row(
                 id: split.id,
                 indexText: indexText,
@@ -373,6 +386,7 @@ struct WorkoutSplitsPresentation: Equatable {
                 cadenceText: cadenceText,
                 barFraction: barFraction,
                 isFastest: isFastest,
+                isSlowest: isSlowest,
                 isPartial: split.isPartial,
                 accessibilityLabel: accessibilityLabel
             )
