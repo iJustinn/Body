@@ -117,6 +117,22 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertFalse(dateOfBirthOnly.contains(dateOfBirth))
     }
 
+    /// Pins the sync badge's "can this refresh dispatch any query" oracle:
+    /// dependent-only selections (child toggles without their parents) yield an
+    /// EMPTY read set, so `ranQueries` must be false and the badge must not
+    /// confirm "Health data updated" for such a refresh.
+    func testDependentOnlyPermissionSelectionsYieldNoReadTypes() {
+        XCTAssertTrue(HealthKitWorkoutStore.readObjectTypes(
+            for: BodyHealthPermissionSelection(enabledPermissions: [.dateOfBirth, .workoutMetrics])
+        ).isEmpty)
+        XCTAssertTrue(HealthKitWorkoutStore.readObjectTypes(
+            for: BodyHealthPermissionSelection(enabledPermissions: [])
+        ).isEmpty)
+        XCTAssertFalse(HealthKitWorkoutStore.readObjectTypes(
+            for: BodyHealthPermissionSelection(enabledPermissions: [.workouts, .workoutMetrics])
+        ).isEmpty)
+    }
+
     func testHealthDashboardSnapshotStoreWritesCachedHomeDataToFileNotUserDefaults() throws {
         let suiteName = "BodyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -1734,6 +1750,92 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(result.appliedIDs, [written])
         XCTAssertEqual(fake.writeCalls, [written, failed])
         XCTAssertEqual(fake.authChecks, 1)
+    }
+
+    // MARK: - Sync-badge success signal
+
+    @MainActor
+    func testSyncBadgeSignalAdvancesOnlyForUserVisibleGenuineSuccess() {
+        let store = HealthKitWorkoutStore(
+            initialSnapshot: WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian)
+        )
+        XCTAssertEqual(store.syncBadgeSuccessCount, 0)
+
+        // A lazy month/ring load reaches success WITHOUT `isRefreshing`
+        // (advancesSyncBadge defaults false) — it must not move the badge signal.
+        store.markRefreshSucceeded(date: Date(), refreshedVitals: false, publishesWatch: false)
+        XCTAssertEqual(store.syncBadgeSuccessCount, 0)
+
+        // A user-visible refresh whose queries failed (cached values preserved)
+        // is not a genuine fetch — still no advance.
+        store.markRefreshSucceeded(
+            date: Date(),
+            refreshedVitals: true,
+            publishesWatch: false,
+            hadQueryFailure: true,
+            advancesSyncBadge: true
+        )
+        XCTAssertEqual(store.syncBadgeSuccessCount, 0)
+
+        // A user-visible refresh that genuinely fetched advances the signal.
+        store.markRefreshSucceeded(
+            date: Date(),
+            refreshedVitals: false,
+            publishesWatch: false,
+            hadQueryFailure: false,
+            advancesSyncBadge: true
+        )
+        XCTAssertEqual(store.syncBadgeSuccessCount, 1)
+    }
+
+    @MainActor
+    func testSyncBadgeSignalDoesNotAdvanceWhenNoQueryRan() {
+        let store = HealthKitWorkoutStore(
+            initialSnapshot: WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian)
+        )
+        XCTAssertEqual(store.syncBadgeSuccessCount, 0)
+
+        // A user-visible pull that dispatched no HealthKit query (a metric or
+        // workout month whose permission is disabled, or a readiness recompute)
+        // preserved the cached values and must not confirm "Health data updated"
+        // — even with `advancesSyncBadge: true` and no query failure.
+        store.markRefreshSucceeded(
+            date: Date(),
+            refreshedVitals: false,
+            publishesWatch: false,
+            hadQueryFailure: false,
+            advancesSyncBadge: true,
+            ranQueries: false
+        )
+        XCTAssertEqual(store.syncBadgeSuccessCount, 0)
+
+        // The same path that actually queried advances the signal.
+        store.markRefreshSucceeded(
+            date: Date(),
+            refreshedVitals: false,
+            publishesWatch: false,
+            hadQueryFailure: false,
+            advancesSyncBadge: true,
+            ranQueries: true
+        )
+        XCTAssertEqual(store.syncBadgeSuccessCount, 1)
+    }
+
+    @MainActor
+    func testFreshnessTTLGateUnchangedByBadgeSignalChange() {
+        let store = HealthKitWorkoutStore(
+            initialSnapshot: WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian)
+        )
+        XCTAssertNil(store.lastSuccessfulRefreshDate)
+
+        // Vitals refresh with a leaf failure must NOT arm the freshness TTL.
+        store.markRefreshSucceeded(date: Date(), refreshedVitals: true, publishesWatch: false, hadQueryFailure: true, advancesSyncBadge: true)
+        XCTAssertNil(store.lastSuccessfulRefreshDate)
+
+        // Clean vitals refresh arms it.
+        let date = Date()
+        store.markRefreshSucceeded(date: date, refreshedVitals: true, publishesWatch: false, hadQueryFailure: false, advancesSyncBadge: true)
+        XCTAssertEqual(store.lastSuccessfulRefreshDate, date)
     }
 
     private struct LegacyHealthDashboardSnapshot: Codable {

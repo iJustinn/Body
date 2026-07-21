@@ -255,58 +255,6 @@ extension Array where Element == HealthTrendCalendarPoint {
     }
 }
 
-struct BodyDataLoadingOverlay: View {
-    var message: LocalizedStringKey = "Loading data..."
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.35)
-                .ignoresSafeArea()
-
-            VStack(spacing: 14) {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .controlSize(.regular)
-                    .tint(.primary)
-
-                Text(message)
-                    .font(.system(.subheadline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(.horizontal, 28)
-            .padding(.vertical, 22)
-            .bodyCardBackground(cornerRadius: 16, translucent: true, translucentFillOpacity: 0.12)
-        }
-        .transition(.opacity)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(message))
-        .accessibilityAddTraits(.updatesFrequently)
-    }
-}
-
-private struct BodyPullToRefreshLoadingOverlayModifier: ViewModifier {
-    let isPresented: Bool
-
-    func body(content: Content) -> some View {
-        content.overlay {
-            if isPresented {
-                BodyDataLoadingOverlay()
-                    .allowsHitTesting(true)
-                    .zIndex(100)
-            }
-        }
-        .animation(.easeInOut(duration: 0.18), value: isPresented)
-    }
-}
-
-extension View {
-    func bodyPullToRefreshLoadingOverlay(isPresented: Bool) -> some View {
-        modifier(BodyPullToRefreshLoadingOverlayModifier(isPresented: isPresented))
-    }
-}
-
 /// Holds the home page's live scroll offset. Kept as a standalone `@Observable` so writing
 /// it on each scroll frame only invalidates the views that actually read `offset` (the
 /// readiness hero fade) instead of all of `BodyHomeView`, whose body rebuilds every metric
@@ -386,7 +334,6 @@ struct BodyHomeView: View {
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @State private var draggedHomeCard: BodyHomeCardKind?
     @State private var showsAllHomeTrends = false
-    @State private var isPullRefreshing = false
     // Scroll offset lives in an @Observable so per-frame scroll updates only re-render the
     // hero fade wrapper that reads it — not this whole body. (The metric-card models are
     // additionally memoized in BodyHomeTrendComputationCache, keyed on their full input set.)
@@ -440,12 +387,8 @@ struct BodyHomeView: View {
                     .padding(.bottom, 110)
                     .readableContentColumn(maxWidth: AppLayout.homeContentWidth)
                 }
-                .refreshable {
-                    let started = Date()
-                    isPullRefreshing = true
-                    await workoutStore.requestAuthorizationAndRefresh()
-                    await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
-                    isPullRefreshing = false
+                .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
+                    Task { await workoutStore.requestAuthorizationAndRefresh() }
                 }
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     geometry.contentOffset.y + geometry.contentInsets.top
@@ -453,7 +396,6 @@ struct BodyHomeView: View {
                     scrollState.offset = max(0, offset)
                 }
             }
-            .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
             .accessibilityHidden(readinessDetailPresented)
             .navigationDestination(for: HomeMetricRoute.self) { route in
                 switch route {

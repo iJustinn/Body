@@ -327,7 +327,6 @@ struct BodyHealthMetricDetailView: View {
     @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
     @State private var showsDataSourcePicker = false
     @State private var showsAddMeasurementSheet = false
-    @State private var isPullRefreshing = false
     @State private var activeReadinessTrendValue: Double?
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     @StateObject private var daySeriesCache = BodyMetricDaySeriesCache()
@@ -398,17 +397,12 @@ struct BodyHealthMetricDetailView: View {
             .padding(.bottom, 32)
             .readableContentColumn()
         }
-        .refreshable {
-            let started = Date()
-            isPullRefreshing = true
-            await workoutStore.refreshHealthMetric(model.kind)
-            await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
-            isPullRefreshing = false
+        .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
+            Task { await workoutStore.refreshHealthMetric(model.kind) }
         }
         .task {
             await workoutStore.loadIntradayMetricSamplesIfNeeded(model.kind)
         }
-        .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
         .background {
             // Fixed (non-scrolling) backdrop for every metric detail: the metric tint
             // at the very top — behind the transparent nav bar — easing into the page

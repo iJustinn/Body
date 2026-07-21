@@ -59,6 +59,9 @@ struct MainTabView: View {
         content
             .environment(\.summaryReselectCount, summaryReselectCount)
             .accessibilityHidden(isFirstLaunchOverlayPresented)
+            .overlay(alignment: .top) {
+                BodyHealthSyncBadge(isSuppressed: isFirstLaunchOverlayPresented)
+            }
             .overlay {
                 BodyFirstLaunchLoadOverlay(onPresentationChange: { isFirstLaunchOverlayPresented = $0 })
             }

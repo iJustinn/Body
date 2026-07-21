@@ -20,7 +20,6 @@ struct BodyWorkoutsView: View {
     @State private var selectedWorkoutForDetails: WorkoutSummary?
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
-    @State private var isPullRefreshing = false
     @State private var searchCorpusCache = BodyWorkoutSearchCorpusCache()
     @Namespace private var workoutZoom
 
@@ -98,12 +97,8 @@ struct BodyWorkoutsView: View {
                         .padding(.top, 32)
                         .padding(.bottom, 110)
                     }
-                    .refreshable {
-                        let started = Date()
-                        isPullRefreshing = true
-                        await workoutStore.refreshWorkoutMonth(month: selectedMonth, year: selectedYear)
-                        await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
-                        isPullRefreshing = false
+                    .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
+                        Task { await workoutStore.refreshWorkoutMonth(month: selectedMonth, year: selectedYear) }
                     }
                     .opacity(isListLoaded ? 1 : 0)
                     .animation(.easeIn(duration: 0.3), value: isListLoaded)
@@ -121,7 +116,14 @@ struct BodyWorkoutsView: View {
                 // refracts content instead of the background's plain lower region.
                 .ignoresSafeArea(.container, edges: .bottom)
             }
-            .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing || pendingMonthSelection != nil)
+            .overlay(alignment: .top) {
+                if pendingMonthSelection != nil {
+                    BodySyncStatusBadgeLabel(icon: .spinner, text: "Loading data...")
+                        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                        .allowsHitTesting(false)
+                }
+            }
+            .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: pendingMonthSelection == nil)
             .sheet(isPresented: $showingFilterSheet) {
                 BodyWorkoutFilterView(
                     selectedWorkoutTypes: $selectedWorkoutTypes,

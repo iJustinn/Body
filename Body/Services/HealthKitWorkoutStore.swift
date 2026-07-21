@@ -131,6 +131,18 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var healthDataNotice: String?
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastSuccessfulRefreshDate: Date?
+    /// Count of user-visible refreshes — the three paths that set `isRefreshing`
+    /// (foreground/vitals, workout month, single metric) — that completed with a
+    /// genuine fetch (no query failure, and at least one HealthKit query actually
+    /// ran). Advances only via `markRefreshSucceeded(advancesSyncBadge: true)`
+    /// when its `ranQueries` gate holds; lazy month/ring history loads run
+    /// WITHOUT `isRefreshing` and never touch it, and a permission-disabled
+    /// metric or workout-month pull that queried nothing doesn't advance it
+    /// either. The sync badge
+    /// captures this when syncing starts and, on the falling edge, confirms
+    /// "Health data updated" only if it advanced — so a failed refresh, or a
+    /// background page-in that lands during one, can't make it falsely confirm.
+    @Published private(set) var syncBadgeSuccessCount = 0
     /// Date of the last refresh that re-fetched the dashboard vitals (not just
     /// workouts or ring history). Carried in the watch snapshot so the watch's
     /// staleness logic isn't reset by workout-only refreshes.
@@ -471,14 +483,14 @@ final class HealthKitWorkoutStore: ObservableObject {
                 trends: healthTrends,
                 activityRingHistory: activityRingHistory
             )
-            let metricSnapshot = await engine.fetchHealthDashboardSnapshot(
+            let metricFetch = await engine.fetchHealthDashboardSnapshot(
                 for: kind,
                 calendar: calendar,
                 existing: existing,
                 idealSleepDuration: Self.storedIdealSleepDuration()
             )
-            let nextSummary = healthSummary.replacingMetric(kind, with: metricSnapshot.summary)
-            let nextTrends = healthTrends.replacingMetric(kind, with: metricSnapshot.trends)
+            let nextSummary = healthSummary.replacingMetric(kind, with: metricFetch.snapshot.summary)
+            let nextTrends = healthTrends.replacingMetric(kind, with: metricFetch.snapshot.trends)
             await updateHealthDashboardSnapshot(
                 summary: nextSummary,
                 trends: nextTrends,
@@ -486,7 +498,18 @@ final class HealthKitWorkoutStore: ObservableObject {
                 recomputesReadiness: Self.readinessInputMetricKinds.contains(kind)
             )
             authorizationState = .authorized
-            markRefreshSucceeded(date: date, refreshedVitals: false)
+            // A metric pull whose query failed preserved the cached values
+            // (nothing fetched), so pass the real outcome — the badge must not
+            // confirm "updated" on a failed fetch. `ranQueries` is false when the
+            // metric's permission is disabled (or a readiness recompute), so a
+            // pull that never queried HealthKit doesn't confirm either.
+            markRefreshSucceeded(
+                date: date,
+                refreshedVitals: false,
+                hadQueryFailure: metricFetch.hadQueryFailure,
+                advancesSyncBadge: true,
+                ranQueries: metricFetch.ranQueries
+            )
             updateHealthDataNotice()
         } catch {
             handleRefreshError(error)
@@ -2309,7 +2332,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             // shortcut, so don't `markRefreshSucceeded` unless workouts landed.
             try await workoutRefresh
             authorizationState = .authorized
-            markRefreshSucceeded(date: date, refreshedVitals: true, publishesWatch: false, hadQueryFailure: hadQueryFailure)
+            // When the permission selection enables no readable types (all off,
+            // or only dependent toggles like .dateOfBirth/.workoutMetrics left),
+            // source discovery has no kinds, the dashboard fetch returns
+            // defaults, and the workout refresh returns immediately — no
+            // HealthKit query ran, so the badge must not confirm "Health data
+            // updated" for this no-op.
+            markRefreshSucceeded(date: date, refreshedVitals: true, publishesWatch: false, hadQueryFailure: hadQueryFailure, advancesSyncBadge: true, ranQueries: permissionSelectionCanRunQueries)
             updateCurrentMonthSnapshot(date: date, calendar: calendar)
             await reapplyActivityReadinessAfterWorkouts(date: date, calendar: calendar)
             publishWatchSnapshot()
@@ -2377,7 +2406,15 @@ final class HealthKitWorkoutStore: ObservableObject {
             }
             try await workoutRefresh
             authorizationState = .authorized
-            markRefreshSucceeded(date: refreshDate, refreshedVitals: updatesHealthSummary, publishesWatch: false, hadQueryFailure: hadQueryFailure)
+            // A query ran if the dashboard fetch executed (`updatesHealthSummary`)
+            // or the workout fetch did (`includesWorkouts`). When both are off —
+            // e.g. `refreshWorkoutMonth` with Workouts permission disabled — no
+            // query ran, so the badge must not confirm "Health data updated".
+            // Same no-readable-types guard as the recent-months path: a
+            // summary-updating refresh whose selection enables no read types
+            // dispatches no queries either.
+            let ranQueries = (updatesHealthSummary || includesWorkouts) && permissionSelectionCanRunQueries
+            markRefreshSucceeded(date: refreshDate, refreshedVitals: updatesHealthSummary, publishesWatch: false, hadQueryFailure: hadQueryFailure, advancesSyncBadge: true, ranQueries: ranQueries)
             updateCurrentMonthSnapshot(date: refreshDate, calendar: calendar)
             await reapplyActivityReadinessAfterWorkouts(date: refreshDate, calendar: calendar)
             publishWatchSnapshot()
@@ -2938,8 +2975,23 @@ final class HealthKitWorkoutStore: ObservableObject {
         date: Date,
         refreshedVitals: Bool,
         publishesWatch: Bool = true,
-        hadQueryFailure: Bool = false
+        hadQueryFailure: Bool = false,
+        advancesSyncBadge: Bool = false,
+        ranQueries: Bool = true
     ) {
+        // Only a user-visible refresh (one of the three paths that hold
+        // `isRefreshing`) that genuinely fetched — no query failure, and at
+        // least one HealthKit query actually ran — advances the sync-badge
+        // signal. Lazy month/ring history loads run WITHOUT `isRefreshing` and
+        // pass `advancesSyncBadge == false`, so a background page-in can never
+        // make the badge confirm a refresh the user is watching (which may
+        // itself be failing). `ranQueries == false` covers pulls that skipped
+        // every query — a metric or workout month whose permission is disabled —
+        // so a no-op pull can't announce "Health data updated" either. See
+        // `BodyHealthSyncBadge`.
+        if advancesSyncBadge, !hadQueryFailure, ranQueries {
+            syncBadgeSuccessCount += 1
+        }
         // `lastSuccessfulRefreshDate` arms the 5-minute dashboard-freshness TTL
         // (`syncWhenAppBecomesActive`, and the cold-start path that restores the
         // persisted value), so only refreshes that actually refetched the
@@ -3367,6 +3419,15 @@ final class HealthKitWorkoutStore: ObservableObject {
         for selection: BodyHealthPermissionSelection = .defaultValue
     ) -> Set<HKObjectType> {
         BodyHealthReadTypes.readObjectTypes(for: selection)
+    }
+
+    /// True when the current permission selection yields at least one readable
+    /// HealthKit type — the precise "can a refresh dispatch any data query"
+    /// signal for the sync badge. A merely nonempty `enabledPermissions` is not
+    /// enough: dependent-only permissions (`.dateOfBirth`, `.workoutMetrics`
+    /// without their `.heart`/`.workouts` parents) enable no read types.
+    private var permissionSelectionCanRunQueries: Bool {
+        !Self.readObjectTypes(for: permissionSelection).isEmpty
     }
 
 
