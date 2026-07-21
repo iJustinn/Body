@@ -34,10 +34,11 @@ struct BodyHealthSyncBadge: View {
                     .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
             }
         }
-        // Animate only presence (slide/fade in and out). Binding the animation to
-        // `phase` itself would crossfade the syncing → updated content swap,
-        // briefly double-exposing both strings in the capsule.
-        .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: phase == .hidden)
+        // Animate presence and the syncing → updated morph: the capsule resizes
+        // smoothly while icon/text blur-replace in place (identity swap in
+        // BodySyncStatusBadgeLabel), so the change reads as one capsule
+        // transforming rather than two capsules crossfading.
+        .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: phase)
         .allowsHitTesting(false)
         .onAppear {
             if workoutStore.isRefreshing && !isSuppressed { beginSyncing() }
@@ -115,19 +116,25 @@ struct BodySyncStatusBadgeLabel: View {
                             .accessibilityHidden(true)
                     }
                 case .checkmark:
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.green)
+                    BodyGridCheckmarkIcon()
+                        .accessibilityHidden(true)
                 }
             }
             // Uniform icon slot so the capsule is the same height in every
             // state — the 14 pt loader would otherwise render a slightly
             // thinner pill than the ~18 pt checkmark glyph.
             .frame(width: 18, height: 18)
+            // `id(icon)` swaps identity when the state flips, so the old
+            // icon/text blur out as the new blur in — a clean in-place morph
+            // instead of a garbled full-opacity crossfade of both strings.
+            .id(icon)
+            .transition(.blurReplace)
             Text(text)
                 .font(.system(.footnote, design: .rounded))
                 .fontWeight(.semibold)
                 .foregroundStyle(.primary)
+                .id(icon)
+                .transition(.blurReplace)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
@@ -156,6 +163,37 @@ private struct BodyHealthSyncBadgeBackground: ViewModifier {
                     .shadow(color: .black.opacity(colorScheme == .light ? 0.12 : 0.30), radius: 12, x: 0, y: 6)
             )
         }
+    }
+}
+
+/// Pixel-grid checkmark in the marching-squares loader's visual language: the
+/// classic five-pixel tick drawn from small rounded squares instead of an SF
+/// Symbol, so the syncing → finished morph stays within one design family.
+/// Decorative; the enclosing capsule carries the accessibility label.
+private struct BodyGridCheckmarkIcon: View {
+    /// Tick pixels in `(col, row)` on a 5-wide grid: descending short arm
+    /// (0,2) → (1,3), ascending long arm (2,2) → (3,1) → (4,0).
+    private static let cells: [(col: Int, row: Int)] = [
+        (0, 2), (1, 3), (2, 2), (3, 1), (4, 0)
+    ]
+    private static let squareSize: CGFloat = 2.4
+    private static let gapSize: CGFloat = 0.5
+    private static let stride = squareSize + gapSize
+
+    var body: some View {
+        Canvas { canvas, _ in
+            for cell in Self.cells {
+                let rect = CGRect(
+                    x: CGFloat(cell.col) * Self.stride,
+                    y: CGFloat(cell.row) * Self.stride,
+                    width: Self.squareSize,
+                    height: Self.squareSize
+                )
+                canvas.fill(Path(roundedRect: rect, cornerRadius: 0.6), with: .color(.green))
+            }
+        }
+        .frame(width: Self.stride * 4 + Self.squareSize,
+               height: Self.stride * 3 + Self.squareSize)
     }
 }
 
