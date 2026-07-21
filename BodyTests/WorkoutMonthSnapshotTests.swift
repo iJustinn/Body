@@ -3765,18 +3765,25 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let currentDay = try XCTUnwrap(calendar.date(
             from: DateComponents(year: 2026, month: 5, day: 15)
         ))
+        // Bed 2h off the baseline and wake 4h off it: an asymmetric deviation
+        // (not a whole-night translation), so this reads as genuine irregular
+        // sleep — the suspected-zone-shift heuristic must not fire — and the
+        // 3h average deviation is still penalized to zero consistency points.
         let currentStart = try XCTUnwrap(calendar.date(
-            from: DateComponents(year: 2026, month: 5, day: 15, hour: 2)
+            from: DateComponents(year: 2026, month: 5, day: 15, hour: 1)
+        ))
+        let currentEnd = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15, hour: 11)
         ))
         let currentSummary = SleepSummary(
-            duration: 8 * 60 * 60,
+            duration: currentEnd.timeIntervalSince(currentStart),
             stageSnapshot: SleepStageSnapshot(
                 date: currentDay,
                 segments: [
                     SleepStageSegment(
                         stage: .core,
                         startDate: currentStart,
-                        endDate: currentStart.addingTimeInterval(8 * 60 * 60)
+                        endDate: currentEnd
                     )
                 ]
             )
@@ -3814,7 +3821,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             calendar: calendar
         ))
 
-        XCTAssertEqual(score.total, 69)
+        XCTAssertEqual(score.total, 65)
         XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .consistency])
         XCTAssertEqual(score.category(for: .consistency)?.points, 0)
         XCTAssertEqual(score.category(for: .consistency)?.maximumPoints, 15)
@@ -4047,19 +4054,187 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(consistency.points, 15)
     }
 
-    func testConsistencyWithoutMetadataStillPenalizesZoneShift() throws {
+    func testConsistencyDropsCategoryForSuspectedZoneShiftWithoutMetadata() throws {
         let newYork = "America/New_York"
         let london = "Europe/London"
-        // Exactly the pre-change problem: the same local schedule after +5h travel
-        // but with no zone metadata, so every night is read in the scoring zone and
-        // the shifted clocks inflate the deviation — unchanged legacy behavior.
+        // The same local schedule after +5h travel but with no zone metadata on
+        // any night: the whole clock translates by ~5h at both ends, which the
+        // suspected-shift heuristic now recognizes as an unrecorded zone change
+        // and drops rather than penalizing (the old behavior scored it "5h off").
         let baseline = try zonedNights((2...15).map { (day: $0, zone: newYork) }, stampZone: false)
         let tonight = try zonedNight(wakeMonth: 6, wakeDay: 16, sleptZone: london, stampZone: false)
 
         let score = try zonedScore(for: tonight, history: baseline)
+        XCTAssertNil(score.category(for: .consistency))
+    }
+
+    func testConsistencyPenalizesUniformShiftWhenEveryZoneIsKnown() throws {
+        let zone = "America/New_York"
+        let calendar = try fixedCalendar(zone)
+        // Every night stays in New York (zone known on all of them), but tonight's
+        // whole clock genuinely translated +5h (04:00–12:00 vs a 23:00–07:00
+        // baseline). With no unknown zone the suspected-shift heuristic stays
+        // suppressed, so the genuine same-zone irregularity is penalized to zero.
+        let history = SleepHistorySnapshot(days: try (1...14).map { day -> SleepDaySummary in
+            let sleepDay = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 6, day: day, hour: 12)
+            ))
+            let bed = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 6, day: day - 1, hour: 23)
+            ))
+            let wake = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 6, day: day, hour: 7)
+            ))
+            return SleepDaySummary(
+                date: sleepDay,
+                summary: SleepSummary(
+                    duration: wake.timeIntervalSince(bed),
+                    stageSnapshot: SleepStageSnapshot(
+                        date: sleepDay,
+                        segments: [SleepStageSegment(stage: .core, startDate: bed, endDate: wake)],
+                        timeZoneIdentifier: zone
+                    )
+                )
+            )
+        })
+        let currentDay = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 6, day: 15, hour: 12)
+        ))
+        let bed = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 6, day: 15, hour: 4)
+        ))
+        let wake = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 6, day: 15, hour: 12)
+        ))
+        let tonight = SleepSummary(
+            duration: wake.timeIntervalSince(bed),
+            stageSnapshot: SleepStageSnapshot(
+                date: currentDay,
+                segments: [SleepStageSegment(stage: .core, startDate: bed, endDate: wake)],
+                timeZoneIdentifier: zone
+            )
+        )
+
+        let score = try XCTUnwrap(SleepScoreSummary(
+            sleep: tonight,
+            recentSleepHistory: history,
+            on: currentDay,
+            calendar: calendar
+        ))
         let consistency = try XCTUnwrap(score.category(for: .consistency))
         XCTAssertEqual(consistency.points, 0)
         XCTAssertEqual(consistency.valueDescription, "5h off")
+    }
+
+    func testConsistencyKeepsAsymmetricDeviationWithoutMetadata() throws {
+        let calendar = Calendar.bodyGregorian
+        // Bed 2h off and wake 5h off a 23:00–07:00 baseline with no zone metadata:
+        // both ends exceed the shift minimum but their asymmetry is far past the
+        // symmetry tolerance, so the heuristic must not fire — a real irregular
+        // night stays scored (and penalized) rather than dropped as travel.
+        let history = SleepHistorySnapshot(days: try (1...14).map { day -> SleepDaySummary in
+            let sleepDay = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 5, day: day)
+            ))
+            let bed = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 5, day: day, hour: 23)
+            ))
+            return SleepDaySummary(
+                date: sleepDay,
+                summary: SleepSummary(
+                    duration: 8 * 60 * 60,
+                    stageSnapshot: SleepStageSnapshot(
+                        date: sleepDay,
+                        segments: [SleepStageSegment(
+                            stage: .core,
+                            startDate: bed,
+                            endDate: bed.addingTimeInterval(8 * 60 * 60)
+                        )]
+                    )
+                )
+            )
+        })
+        let currentDay = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15)
+        ))
+        let bed = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15, hour: 1)
+        ))
+        let wake = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15, hour: 12)
+        ))
+        let tonight = SleepSummary(
+            duration: wake.timeIntervalSince(bed),
+            stageSnapshot: SleepStageSnapshot(
+                date: currentDay,
+                segments: [SleepStageSegment(stage: .core, startDate: bed, endDate: wake)]
+            )
+        )
+
+        let score = try XCTUnwrap(SleepScoreSummary(
+            sleep: tonight,
+            recentSleepHistory: history,
+            on: currentDay,
+            calendar: calendar
+        ))
+        let consistency = try XCTUnwrap(score.category(for: .consistency))
+        XCTAssertEqual(consistency.points, 0)
+    }
+
+    func testConsistencyPenalizesCompressedNightWithEqualOppositeDeviations() throws {
+        let calendar = Calendar.bodyGregorian
+        // Bed 2h later and wake 2h earlier than a 23:00–07:00 baseline, no zone
+        // metadata: both unsigned deviations equal the shift minimum, but they
+        // point in opposite directions — a short irregular night, not a zone
+        // shift — so the heuristic must not fire and the night stays penalized.
+        let history = SleepHistorySnapshot(days: try (1...14).map { day -> SleepDaySummary in
+            let sleepDay = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 5, day: day)
+            ))
+            let bed = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 5, day: day, hour: 23)
+            ))
+            return SleepDaySummary(
+                date: sleepDay,
+                summary: SleepSummary(
+                    duration: 8 * 60 * 60,
+                    stageSnapshot: SleepStageSnapshot(
+                        date: sleepDay,
+                        segments: [SleepStageSegment(
+                            stage: .core,
+                            startDate: bed,
+                            endDate: bed.addingTimeInterval(8 * 60 * 60)
+                        )]
+                    )
+                )
+            )
+        })
+        let currentDay = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15)
+        ))
+        let bed = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15, hour: 1)
+        ))
+        let wake = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15, hour: 5)
+        ))
+        let tonight = SleepSummary(
+            duration: wake.timeIntervalSince(bed),
+            stageSnapshot: SleepStageSnapshot(
+                date: currentDay,
+                segments: [SleepStageSegment(stage: .core, startDate: bed, endDate: wake)]
+            )
+        )
+
+        let score = try XCTUnwrap(SleepScoreSummary(
+            sleep: tonight,
+            recentSleepHistory: history,
+            on: currentDay,
+            calendar: calendar
+        ))
+        // Average deviation 2h → partial credit, but the category must exist.
+        let consistency = try XCTUnwrap(score.category(for: .consistency))
+        XCTAssertEqual(consistency.points, 4)
     }
 
     func testSleepScoreCommentSummarizesScoreBand() {

@@ -13,6 +13,7 @@ import HealthKit
 // file with internal access so this extension can reach them.
 extension HealthKitFetchEngine {
     func fetchSleepSummary(calendar: Calendar) async -> QueryOutcome<SleepSummary> {
+        Self.timeZoneLedger.recordCurrentZone()
         guard permissionSelection.includes(.sleep) else {
             return .success(nil)
         }
@@ -103,6 +104,7 @@ extension HealthKitFetchEngine {
         hydrateVitals: Bool = true,
         cachedSleepHistory: SleepHistorySnapshot? = nil
     ) async -> SleepHistoryFetchResult {
+        Self.timeZoneLedger.recordCurrentZone()
         guard permissionSelection.includes(.sleep) else {
             return .empty
         }

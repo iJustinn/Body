@@ -506,7 +506,7 @@ struct SleepScoreSummary: Equatable {
             value: -Self.consistencyBaselineDayCount,
             to: scoringDay
         ) ?? scoringDay.addingTimeInterval(-TimeInterval(Self.consistencyBaselineDayCount) * Self.secondsPerDay)
-        let baselineNights = recentSleepHistory.days.compactMap { day -> (day: Date, start: Date, end: Date, calendar: Calendar)? in
+        let baselineNights = recentSleepHistory.days.compactMap { day -> (day: Date, start: Date, end: Date, calendar: Calendar, zoneKnown: Bool)? in
             let dayDate = calendar.startOfDay(for: day.date)
             guard dayDate < scoringDay, dayDate >= oldestBaselineDay,
                   let start = day.summary.stageSnapshot.sleepStartDate,
@@ -514,7 +514,13 @@ struct SleepScoreSummary: Equatable {
                 return nil
             }
 
-            return (dayDate, start, end, perNightCalendar(calendar, for: day.summary.stageSnapshot))
+            return (
+                dayDate,
+                start,
+                end,
+                perNightCalendar(calendar, for: day.summary.stageSnapshot),
+                zoneIsKnown(day.summary.stageSnapshot)
+            )
         }
 
         guard baselineNights.count >= Self.minimumConsistencyBaselineCount else {
@@ -553,14 +559,35 @@ struct SleepScoreSummary: Equatable {
             return nil
         }
 
-        let startDeviation = circularDeviationSeconds(
+        let startOffset = signedCircularOffsetSeconds(
             from: secondsSinceStartOfDay(sleepStartDate, calendar: tonightCalendar),
             to: baselineStartSeconds
         )
-        let endDeviation = circularDeviationSeconds(
+        let endOffset = signedCircularOffsetSeconds(
             from: secondsSinceStartOfDay(sleepEndDate, calendar: tonightCalendar),
             to: baselineEndSeconds
         )
+        let startDeviation = abs(startOffset)
+        let endDeviation = abs(endOffset)
+
+        // When any involved night's zone is unrecorded, a night whose whole clock
+        // translated by roughly the same amount *in the same direction* at both
+        // ends is the signature of an untracked zone shift (travel) rather than
+        // irregular sleep — drop the category instead of penalizing it. Comparing
+        // the signed offsets keeps a compressed or stretched night (bed later but
+        // wake earlier, equal unsigned deviations) penalized as genuine
+        // irregularity. With every zone known (metadata or ledger), a same-zone
+        // translation stays penalized too.
+        let anyZoneUnknown = !zoneIsKnown(sleep.stageSnapshot)
+            || baselineNights.contains { !$0.zoneKnown }
+        if anyZoneUnknown,
+           startDeviation >= Self.consistencySuspectedShiftMinimumDeviation,
+           endDeviation >= Self.consistencySuspectedShiftMinimumDeviation,
+           circularDeviationSeconds(from: startOffset, to: endOffset)
+               <= Self.consistencySuspectedShiftSymmetryTolerance {
+            return nil
+        }
+
         let deviation = (startDeviation + endDeviation) / 2
         return category(
             kind: .consistency,
@@ -753,6 +780,16 @@ struct SleepScoreSummary: Equatable {
         lhs.identifier == rhs.identifier || lhs.secondsFromGMT(for: instant) == rhs.secondsFromGMT(for: instant)
     }
 
+    /// A night's zone is known when its snapshot carries a resolvable
+    /// `timeZoneIdentifier` (from HealthKit metadata or the device zone ledger);
+    /// a nil or unresolvable identifier is treated as unknown.
+    private static func zoneIsKnown(_ snapshot: SleepStageSnapshot) -> Bool {
+        guard let identifier = snapshot.timeZoneIdentifier else {
+            return false
+        }
+        return TimeZone(identifier: identifier) != nil
+    }
+
     private static func circularAverageSeconds(for nights: [(date: Date, calendar: Calendar)]) -> TimeInterval? {
         guard !nights.isEmpty else {
             return nil
@@ -775,6 +812,19 @@ struct SleepScoreSummary: Equatable {
     private static func circularDeviationSeconds(from lhs: TimeInterval, to rhs: TimeInterval) -> TimeInterval {
         let absoluteDifference = abs(lhs - rhs)
         return min(absoluteDifference, Self.secondsPerDay - absoluteDifference)
+    }
+
+    /// The shortest signed distance from `rhs` to `lhs` around the 24h circle,
+    /// in (-12h, +12h] — positive when `lhs` is later than `rhs` by clock time —
+    /// so callers can compare the *direction* of two shifts, not just their size.
+    private static func signedCircularOffsetSeconds(from lhs: TimeInterval, to rhs: TimeInterval) -> TimeInterval {
+        var delta = lhs - rhs
+        if delta > Self.secondsPerDay / 2 {
+            delta -= Self.secondsPerDay
+        } else if delta <= -Self.secondsPerDay / 2 {
+            delta += Self.secondsPerDay
+        }
+        return delta
     }
 
     private static func secondsSinceStartOfDay(_ date: Date, calendar: Calendar) -> TimeInterval {
@@ -832,6 +882,11 @@ struct SleepScoreSummary: Equatable {
     /// a differing zone; beyond both, drop it until the window re-fills.
     private static let consistencyForeignStreakLimit = 3
     private static let consistencyForeignNightLimit = 3
+    /// Suspected-zone-shift drop: only when some involved night's zone is
+    /// unknown, both ends deviate by at least the minimum, and the two ends stay
+    /// within the symmetry tolerance of each other (a whole-night translation).
+    private static let consistencySuspectedShiftMinimumDeviation: TimeInterval = 90 * 60
+    private static let consistencySuspectedShiftSymmetryTolerance: TimeInterval = 30 * 60
     private static let vitalsBaselineDayCount = 14
     private static let minimumVitalsBaselineCount = 5
     private static let decompressionSteepness = 0.45

@@ -837,6 +837,46 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertNil(summary.stageSnapshot.timeZoneIdentifier)
     }
 
+    func testSleepSummaryFillsTimeZoneFromLedgerWhenMetadataMissing() throws {
+        let calendar = Calendar.bodyGregorian
+        let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12)))
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 11, hour: 23)))
+        let end = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 7)))
+
+        // Inject an ephemeral ledger recording that the device was in New York
+        // before this night, then parse samples with no zone metadata (as Apple
+        // Watch sleep does): the forwarder back-fills the ledger's zone for the
+        // wake day so timezone-aware scoring can still place the night.
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let ledgerDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let previousLedger = HealthKitFetchEngine.timeZoneLedger
+        defer {
+            HealthKitFetchEngine.timeZoneLedger = previousLedger
+            ledgerDefaults.removePersistentDomain(forName: suiteName)
+        }
+        let ledger = BodyTimeZoneLedger(defaults: ledgerDefaults)
+        ledger.recordCurrentZone(
+            now: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 1))),
+            zone: try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        )
+        HealthKitFetchEngine.timeZoneLedger = ledger
+
+        let summary = try XCTUnwrap(HealthKitFetchEngine.sleepSummary(
+            from: [
+                HKCategorySample(
+                    type: sleepType,
+                    value: HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+                    start: start,
+                    end: end
+                )
+            ],
+            date: day
+        ))
+
+        XCTAssertEqual(summary.stageSnapshot.timeZoneIdentifier, "America/New_York")
+    }
+
     func testSleepStageSegmentsCanHideSubMinuteAwakeSamples() throws {
         let calendar = Calendar.bodyGregorian
         let sleepType = try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis))
