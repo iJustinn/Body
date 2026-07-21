@@ -2,7 +2,7 @@
 
 ## 0.9.9 (build 5)
 
-- Added a floating capsule status badge at the top of the screen that shows "Syncing health data…" while a HealthKit refresh runs and briefly confirms "Health data updated" before auto-dismissing (only when the refresh actually succeeded). Uses Liquid Glass on iOS 26 and the translucent pill-tab-bar material recipe on iOS 18. Pull-to-refresh on Summary, Workouts, and metric detail pages now shows this badge instead of the full-screen loading overlay, and uses a custom pull gesture with no system refresh control so no system spinner ever appears; the Workouts month-switch load now shows a matching floating "Loading data…" capsule too — the old full-screen dimming overlay is removed entirely.
+- Added a floating capsule status badge at the top of the screen that shows an animated marching-squares loader (small squares snaking around a 3×3 grid, one traveling gap; Reduce Motion falls back to the standard spinner) with "Syncing health data…" while a HealthKit refresh runs and briefly confirms "Health data updated" before auto-dismissing (only when the refresh actually succeeded). Uses Liquid Glass on iOS 26 and the translucent pill-tab-bar material recipe on iOS 18. Pull-to-refresh on Summary, Workouts, and metric detail pages now shows this badge instead of the full-screen loading overlay, and uses a custom pull gesture with no system refresh control so no system spinner ever appears; the Workouts month-switch load now shows a matching floating "Loading data…" capsule too — the old full-screen dimming overlay is removed entirely.
 - Updated the app, widget, watch, and test bundle version to 0.9.9 build 5.
 
 ## 0.9.9 (build 3)

@@ -1794,6 +1794,16 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(badgeSource.contains("\"Health data updated\""))
         XCTAssertTrue(badgeSource.contains(".accessibilityAddTraits(.updatesFrequently)"))
 
+        // The loading icon is the native marching-squares loader, driven from
+        // wall-clock time via TimelineView (no onAppear-started animation), with
+        // the system ProgressView kept as the Reduce Motion fallback.
+        XCTAssertTrue(badgeSource.contains("struct BodyMarchingSquaresLoader"))
+        XCTAssertTrue(badgeSource.contains("TimelineView(.animation"))
+        XCTAssertTrue(badgeSource.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
+        XCTAssertTrue(badgeSource.contains("if reduceMotion {"))
+        XCTAssertTrue(badgeSource.contains("ProgressView().controlSize(.small).tint(.secondary)"))
+        XCTAssertTrue(badgeSource.contains("BodyMarchingSquaresLoader()"))
+
         XCTAssertFalse(homeSource.contains("bodyPullToRefreshLoadingOverlay"))
         XCTAssertFalse(homeSource.contains("BodyDataLoadingOverlay"))
         XCTAssertFalse(metricDetailSource.contains("bodyPullToRefreshLoadingOverlay"))

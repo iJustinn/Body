@@ -99,17 +99,31 @@ struct BodySyncStatusBadgeLabel: View {
     let icon: Icon
     let text: LocalizedStringKey
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 8) {
-            switch icon {
-            case .spinner:
-                ProgressView().controlSize(.small).tint(.secondary)
-            case .checkmark:
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.green)
+            Group {
+                switch icon {
+                case .spinner:
+                    if reduceMotion {
+                        // Reduce Motion: fall back to the standard spinner (the
+                        // system tones its animation down for us).
+                        ProgressView().controlSize(.small).tint(.secondary)
+                    } else {
+                        BodyMarchingSquaresLoader()
+                            .accessibilityHidden(true)
+                    }
+                case .checkmark:
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.green)
+                }
             }
+            // Uniform icon slot so the capsule is the same height in every
+            // state — the 14 pt loader would otherwise render a slightly
+            // thinner pill than the ~18 pt checkmark glyph.
+            .frame(width: 18, height: 18)
             Text(text)
                 .font(.system(.footnote, design: .rounded))
                 .fontWeight(.semibold)
@@ -142,6 +156,91 @@ private struct BodyHealthSyncBadgeBackground: ViewModifier {
                     .shadow(color: .black.opacity(colorScheme == .light ? 0.12 : 0.30), radius: 12, x: 0, y: 6)
             )
         }
+    }
+}
+
+/// A native "marching squares" loader: seven small squares hop one cell at a
+/// time around a 3×3 snake path (the bottom-right cell stays empty), so a
+/// single gap appears to travel around the grid. Driven entirely from
+/// wall-clock time via `TimelineView` — no `onAppear`-started repeating
+/// animation to lose when the badge is conditionally inserted/removed.
+/// Decorative; the enclosing capsule carries the accessibility label.
+private struct BodyMarchingSquaresLoader: View {
+    /// Snake path over the 3×3 grid in `(col, row)`, excluding the bottom-right
+    /// cell so it is never occupied and the gap circles the remaining eight.
+    private static let path: [(col: Int, row: Int)] = [
+        (0, 0), (1, 0), (2, 0), (2, 1), (1, 1), (1, 2), (0, 2), (0, 1)
+    ]
+    private static let cellCount = path.count            // 8 cells, 7 squares
+    private static let period: Double = 2.8              // seconds per full gap loop
+    private static let squareSize: CGFloat = 4
+    private static let gapSize: CGFloat = 1
+    private static let stride = squareSize + gapSize     // 5 pt per cell
+    /// Fraction of each hop slot spent sliding; the remainder is a dwell — a
+    /// quick eased hop (~2% of the period) then a hold (~10.5%).
+    private static let slidePortion: Double = 0.16
+    /// Cell the gap sits in at t = 0.
+    private static let gapStart = 0
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+            Canvas { canvas, _ in
+                let t = context.date.timeIntervalSinceReferenceDate
+                for rect in Self.squareRects(at: t) {
+                    canvas.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(.secondary))
+                }
+            }
+        }
+        .frame(width: Self.stride * 2 + Self.squareSize,
+               height: Self.stride * 2 + Self.squareSize)
+    }
+
+    /// Positions of the seven squares at time `t`: six stationary plus the one
+    /// currently sliding into the gap.
+    private static func squareRects(at t: TimeInterval) -> [CGRect] {
+        let hopDuration = period / Double(cellCount)
+        let hopCount = t / hopDuration
+        let k = Int(floor(hopCount))
+        let frac = hopCount - floor(hopCount)
+
+        // The gap steps one cell backward along the path per hop; the square
+        // just behind it slides forward to fill it.
+        let gapCell = mod(gapStart - k, cellCount)
+        let moverOrigin = mod(gapCell - 1, cellCount)
+        let moverTarget = gapCell
+
+        // Quick eased slide over the first `slidePortion` of the hop, then hold.
+        let p = frac < slidePortion ? easeInOut(frac / slidePortion) : 1
+
+        var rects: [CGRect] = []
+        rects.reserveCapacity(cellCount - 1)
+        for index in 0..<cellCount where index != gapCell && index != moverOrigin {
+            rects.append(rect(forCell: index))
+        }
+        let origin = point(forCell: moverOrigin)
+        let target = point(forCell: moverTarget)
+        rects.append(CGRect(x: origin.x + (target.x - origin.x) * p,
+                            y: origin.y + (target.y - origin.y) * p,
+                            width: squareSize, height: squareSize))
+        return rects
+    }
+
+    private static func point(forCell index: Int) -> CGPoint {
+        let cell = path[index]
+        return CGPoint(x: CGFloat(cell.col) * stride, y: CGFloat(cell.row) * stride)
+    }
+
+    private static func rect(forCell index: Int) -> CGRect {
+        let p = point(forCell: index)
+        return CGRect(x: p.x, y: p.y, width: squareSize, height: squareSize)
+    }
+
+    private static func easeInOut(_ x: Double) -> Double {
+        x < 0.5 ? 2 * x * x : 1 - pow(-2 * x + 2, 2) / 2
+    }
+
+    private static func mod(_ a: Int, _ n: Int) -> Int {
+        ((a % n) + n) % n
     }
 }
 
