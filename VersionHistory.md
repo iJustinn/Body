@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.9 (build 3)
+
+- **Sleep score consistency and the Sleep Consistency detail chart are now timezone-aware.** Each night is scored in the time zone it was slept in, using HealthKit's per-sample time-zone metadata, instead of the device's current zone. Short trips (three nights or fewer in a differing zone) keep a meaningful consistency score via local-clock comparison; longer stays drop the consistency category starting the fourth night until the rolling 14-day baseline has re-filled with nights from the current zone. Readiness is unaffected — it does not read the consistency category.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 3.
+
 ## 0.9.9 (build 1)
 
 - Hardened HealthKit refreshes so transient failures preserve source-scoped cached data, sleep sessions remain intact across midnight, workout detail reads retry instead of caching failed results, and readiness/training-load inputs distinguish missing data from failed queries.
