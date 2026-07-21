@@ -8,6 +8,7 @@
 ## 0.9.9 (build 3)
 
 - **Sleep score consistency and the Sleep Consistency detail chart are now timezone-aware.** Each night is scored in the time zone it was slept in, using HealthKit's per-sample time-zone metadata, instead of the device's current zone. Short trips (three nights or fewer in a differing zone) keep a meaningful consistency score via local-clock comparison; longer stays drop the consistency category starting the fourth night until the rolling 14-day baseline has re-filled with nights from the current zone. Readiness is unaffected — it does not read the consistency category.
+- **Sources without time-zone metadata (e.g. Apple Watch) get the same travel behavior.** The app keeps a small ledger of device time-zone changes and resolves metadata-less nights through it, and a night whose bed and wake times are both uniformly shifted 1.5h+ from the baseline while any night's zone is unknown is treated as an unrecorded zone shift — the consistency category is omitted instead of penalized.
 - Updated the app, widget, watch, and test bundle version to 0.9.9 build 3.
 
 ## 0.9.9 (build 1)
