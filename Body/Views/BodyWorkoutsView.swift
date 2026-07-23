@@ -653,7 +653,7 @@ private enum BodyWorkoutListSortOption: String, CaseIterable, Identifiable {
 struct BodyWorkoutRowPresentation {
     let detailIconName: String
     let detailText: String
-    let trailingEnergyText: String?
+    let trailingDetailText: String?
 
     init(
         workout: WorkoutSummary,
@@ -671,29 +671,37 @@ struct BodyWorkoutRowPresentation {
         }
 
         if let distanceMeters = workout.distanceMeters, distanceMeters > 0 {
-            detailIconName = "map.fill"
+            let distanceText: String
             if let distanceUnitPreference {
-                detailText = BodyValueFormat.distanceText(
+                distanceText = BodyValueFormat.distanceText(
                     meters: distanceMeters,
                     locale: locale,
                     distanceUnitPreference: distanceUnitPreference
                 )
             } else {
-                detailText = BodyValueFormat.distanceText(
+                distanceText = BodyValueFormat.distanceText(
                     meters: distanceMeters,
                     locale: locale,
                     unitPreference: unitPreference
                 )
             }
-            trailingEnergyText = energyText
+            if let energyText {
+                detailIconName = "flame.fill"
+                detailText = energyText
+                trailingDetailText = distanceText
+            } else {
+                detailIconName = "map.fill"
+                detailText = distanceText
+                trailingDetailText = nil
+            }
         } else if let energyText {
             detailIconName = "flame.fill"
             detailText = energyText
-            trailingEnergyText = nil
+            trailingDetailText = nil
         } else {
             detailIconName = "heart.text.square.fill"
             detailText = workout.sourceName
-            trailingEnergyText = nil
+            trailingDetailText = nil
         }
     }
 }
@@ -753,8 +761,8 @@ private struct BodyWorkoutExpenseStyleRow: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
 
-                if let trailingEnergyText = presentation.trailingEnergyText {
-                    Text(trailingEnergyText)
+                if let trailingDetailText = presentation.trailingDetailText {
+                    Text(trailingDetailText)
                         .font(.system(size: metadataFontSize, weight: .semibold))
                         .fontWeight(.semibold)
                         .foregroundColor(.secondary)

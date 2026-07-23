@@ -145,10 +145,10 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         XCTAssertEqual(presentation.detailIconName, "flame.fill")
         XCTAssertEqual(presentation.detailText, "530 kcal")
-        XCTAssertNil(presentation.trailingEnergyText)
+        XCTAssertNil(presentation.trailingDetailText)
     }
 
-    func testWorkoutRowPresentationKeepsDistancePrimaryWhenAvailable() throws {
+    func testWorkoutRowPresentationShowsEnergyPrimaryAndDistanceTrailingWhenAvailable() throws {
         let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
             from: DateComponents(year: 2026, month: 4, day: 30, hour: 20, minute: 27)
         ))
@@ -167,9 +167,33 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             unitPreference: .metric
         )
 
+        XCTAssertEqual(presentation.detailIconName, "flame.fill")
+        XCTAssertEqual(presentation.detailText, "77 kcal")
+        XCTAssertEqual(presentation.trailingDetailText, "1.40 km")
+    }
+
+    func testWorkoutRowPresentationKeepsDistancePrimaryWithoutEnergy() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 4, day: 30, hour: 20, minute: 27)
+        ))
+        let workout = WorkoutSummary(
+            type: .walking,
+            startDate: startDate,
+            duration: 1_500,
+            activeEnergyKilocalories: nil,
+            distanceMeters: 1_400,
+            sourceName: "Motra"
+        )
+
+        let presentation = BodyWorkoutRowPresentation(
+            workout: workout,
+            locale: Locale(identifier: "en_US_POSIX"),
+            unitPreference: .metric
+        )
+
         XCTAssertEqual(presentation.detailIconName, "map.fill")
         XCTAssertEqual(presentation.detailText, "1.40 km")
-        XCTAssertEqual(presentation.trailingEnergyText, "77 kcal")
+        XCTAssertNil(presentation.trailingDetailText)
     }
 
     func testBodyValueFormatUsesImperialUnitsForUSLocale() {
@@ -2054,6 +2078,75 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(rows[2].averageValue, 112, accuracy: 0.001)
         XCTAssertEqual(rows.map(\.activity), [.sleep, .workout(.running), .workout(.strengthTraining)])
         XCTAssertEqual(rows.map(\.startDate), [sleepStart, runStart, strengthStart])
+    }
+
+    func testActiveEnergyActivityRowsUseRecordedWorkoutEnergyAndSkipMissing() throws {
+        let calendar = Calendar.bodyGregorian
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28)))
+        let runStart = day.addingTimeInterval(7 * 60 * 60)
+        let strengthStart = day.addingTimeInterval(20 * 60 * 60)
+        let workouts = [
+            WorkoutSummary(
+                type: .strengthTraining,
+                startDate: strengthStart,
+                duration: 45 * 60,
+                activeEnergyKilocalories: 180,
+                sourceName: "Oura"
+            ),
+            WorkoutSummary(
+                type: .running,
+                startDate: runStart,
+                duration: 60 * 60,
+                activeEnergyKilocalories: 320
+            ),
+            WorkoutSummary(
+                type: .walking,
+                startDate: day.addingTimeInterval(12 * 60 * 60),
+                duration: 30 * 60
+            )
+        ]
+
+        let rows = BodyMetricActivityAverages.makeActiveEnergy(
+            day: day,
+            workouts: workouts,
+            energyUnitPreference: .kilocalories,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(rows.map(\.title), ["Run", "Strength"])
+        XCTAssertEqual(rows.map(\.activity), [.workout(.running), .workout(.strengthTraining)])
+        XCTAssertEqual(rows.map(\.startDate), [runStart, strengthStart])
+        XCTAssertEqual(rows[0].averageValue, 320, accuracy: 0.001)
+        XCTAssertEqual(rows[1].averageValue, 180, accuracy: 0.001)
+        XCTAssertEqual(rows[0].source, "Apple Health")
+        XCTAssertEqual(rows[1].source, "Oura")
+    }
+
+    func testActiveEnergyActivityRowsClampToDayAndConvertToKilojoules() throws {
+        let calendar = Calendar.bodyGregorian
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28)))
+        let dayEnd = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: day))
+        let overnightStart = day.addingTimeInterval(23 * 60 * 60)
+        let workouts = [
+            WorkoutSummary(
+                type: .cycling,
+                startDate: overnightStart,
+                duration: 2 * 60 * 60,
+                activeEnergyKilocalories: 100
+            )
+        ]
+
+        let rows = BodyMetricActivityAverages.makeActiveEnergy(
+            day: day,
+            workouts: workouts,
+            energyUnitPreference: .kilojoules,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].startDate, overnightStart)
+        XCTAssertEqual(rows[0].endDate, dayEnd)
+        XCTAssertEqual(rows[0].averageValue, 418.4, accuracy: 0.1)
     }
 
     func testHeartRateVariabilityActivityAveragesOnlyUseSelectedDaySleepInterval() throws {
