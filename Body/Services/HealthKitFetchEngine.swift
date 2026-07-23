@@ -32,7 +32,7 @@ actor HealthKitFetchEngine {
     var anchorDate: Date?
 
     /// Shared workout fetch for the training-load summary AND the training-load
-    /// trend series. Both consume the same 180-day workout window; running them
+    /// trend series. Both consume the same workout window; running them
     /// as independent HK queries (one per orchestrator) duplicates the round-trip
     /// and the per-workout effort fan-out. Memoized by window so simultaneous
     /// callers within a refresh share a single in-flight fetch.
@@ -41,7 +41,7 @@ actor HealthKitFetchEngine {
 
     /// Process-lifetime cache for the per-workout effort-score fan-out
     /// (`fetchEffortLevels`): effort needs one relationship-predicate query per
-    /// workout, and both the 180-day training-load fetch and the month
+    /// workout, and both the training-load fetch and the month
     /// refreshes re-walk the same historical workouts every refresh. Found
     /// scores are trusted for the process; workouts confirmed score-less are
     /// only skipped once they ended over `effortConfirmationAge` ago (ratings
@@ -1502,7 +1502,7 @@ actor HealthKitFetchEngine {
         // Cardio Fitness + foot cadence are only consumed by the workout detail
         // card, so callers that don't surface them (training load) pass
         // `includesDetailMetrics: false` to skip these reads entirely — otherwise
-        // the 180-day training-load window would pay a per-workout step query it
+        // the training-load window would pay a per-workout step query it
         // never reads. When they DO run, they cover *every* workout (like effort
         // levels above), NOT just the non-reused `workoutsNeedingHeartRate` set:
         // only the expensive HR-sample payload keeps the passive-resume reuse

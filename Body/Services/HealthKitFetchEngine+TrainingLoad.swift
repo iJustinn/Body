@@ -6,8 +6,10 @@
 import Foundation
 import HealthKit
 
-// Training-load summary + trend series, backed by a shared 180-day workout
-// fetch memoized on the engine actor (`sharedTrainingLoadWorkoutsTask`).
+// Training-load summary + trend series, backed by a shared workout fetch
+// (`TrainingLoadCalculator.summaryWindowDayCount` days: the Year chart range
+// plus the chronic-EWA warm-up) memoized on the engine actor
+// (`sharedTrainingLoadWorkoutsTask`).
 // The memo is invalidated whenever the trend anchor date is (re)set.
 extension HealthKitFetchEngine {
     func trainingLoadWorkoutsWindow(calendar: Calendar) -> TrainingLoadWorkoutsWindow {
@@ -20,7 +22,7 @@ extension HealthKitFetchEngine {
         return TrainingLoadWorkoutsWindow(start: start, end: dayEnd)
     }
 
-    /// Fetches (or reuses an in-flight fetch of) the 180-day training-load
+    /// Fetches (or reuses an in-flight fetch of) the training-load
     /// workout window. Concurrent callers within the same refresh await the
     /// same `Task`; the memo is invalidated whenever the trend anchor date is
     /// (re)set on the engine.

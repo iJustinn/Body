@@ -7,9 +7,11 @@ import Foundation
 
 enum TrainingLoadCalculator {
     static let defaultEffortLevel = 5.0
-    /// Workout look-back for the acute/chronic EWA. Shared by the iOS engine and
+    /// Workout look-back for the acute/chronic EWA: the longest chart range
+    /// (Year, 365 days) plus a chronic-EWA warm-up so the ratio is seeded by the
+    /// time the first displayed day is reached. Shared by the iOS engine and
     /// the watch so both seed the EWA from the same start → identical ratios.
-    static let summaryWindowDayCount = 180
+    static let summaryWindowDayCount = 365 + chronicDayCount
     private static let acuteDayCount = 7
     private static let chronicDayCount = 42
 

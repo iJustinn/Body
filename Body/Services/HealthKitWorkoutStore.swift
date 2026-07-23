@@ -474,7 +474,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             if kind == .trainingLoad {
                 // The detail pull is an explicit gesture: drop the per-workout
                 // effort cache so a re-rated workout reconciles into the
-                // 180-day training-load fetch.
+                // training-load fetch.
                 await engine.clearWorkoutEffortCache()
             }
             await fetchHealthDataSourceOptions(calendar: calendar)
@@ -2289,7 +2289,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         // Explicit refreshes reconcile everything: drop the per-workout
         // effort/HR caches before any fetch starts so re-rated efforts and
-        // edited workouts re-query (this also makes the dashboard's 180-day
+        // edited workouts re-query (this also makes the dashboard's
         // training-load fetch re-ask effort for its whole window).
         if intent == .userInitiated {
             await engine.clearWorkoutEffortCache()
