@@ -1325,6 +1325,7 @@
       }
     },
     "Beta v2" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

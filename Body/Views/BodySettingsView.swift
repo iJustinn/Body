@@ -1979,7 +1979,7 @@ private struct BodyEffortSuggestionToggleRow: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
 
-                    Text("Beta v2")
+                    Text("v1")
                         .font(.system(size: 11, weight: .bold, design: .rounded))
                         .foregroundStyle(.blue)
                         .padding(.horizontal, 7)
