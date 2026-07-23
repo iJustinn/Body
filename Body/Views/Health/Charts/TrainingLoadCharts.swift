@@ -126,12 +126,13 @@ struct BodyTrainingLoadIntervalBreakdownChart: View {
 
     private func dayCountBar(_ entry: TrainingLoadIntervalBreakdownEntry) -> some View {
         ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: barCornerRadius, style: .continuous)
-                .fill(
-                    BodyTrainingLoadIntervalPresentation
-                        .color(for: entry.interval)
-                        .opacity(entry.dayCount == 0 ? 0.18 : 1)
-                )
+            // Same glass-chip recipe as the Workouts type-breakdown bars: flat
+            // translucent fill plus a thin white rim, no gradient or sheen.
+            BodyGlassChip(
+                color: BodyTrainingLoadIntervalPresentation.color(for: entry.interval),
+                cornerRadius: barCornerRadius,
+                fillOpacity: entry.dayCount == 0 ? 0.18 : 0.85
+            )
 
             Text(dayCountText(for: entry.dayCount))
                 .font(.system(size: 22, weight: .bold, design: .rounded))

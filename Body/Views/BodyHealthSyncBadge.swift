@@ -189,7 +189,7 @@ private struct BodyGridCheckmarkIcon: View {
                     width: Self.squareSize,
                     height: Self.squareSize
                 )
-                canvas.fill(Path(roundedRect: rect, cornerRadius: 0.6), with: .color(.green))
+                canvas.fill(Path(roundedRect: rect, cornerRadius: 0.6), with: .color(.primary))
             }
         }
         .frame(width: Self.stride * 4 + Self.squareSize,

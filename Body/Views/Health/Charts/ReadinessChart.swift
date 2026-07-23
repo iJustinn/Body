@@ -129,12 +129,13 @@ struct BodyReadinessStatusBreakdownChart: View {
 
     private func dayCountBar(_ entry: ReadinessStatusBreakdownEntry) -> some View {
         ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: barCornerRadius, style: .continuous)
-                .fill(
-                    BodyReadinessStatusPresentation
-                        .color(for: entry.status)
-                        .opacity(entry.dayCount == 0 ? 0.18 : 1)
-                )
+            // Same glass-chip recipe as the Workouts type-breakdown bars: flat
+            // translucent fill plus a thin white rim, no gradient or sheen.
+            BodyGlassChip(
+                color: BodyReadinessStatusPresentation.color(for: entry.status),
+                cornerRadius: barCornerRadius,
+                fillOpacity: entry.dayCount == 0 ? 0.18 : 0.85
+            )
 
             Text(dayCountText(for: entry.dayCount))
                 .font(.system(size: 22, weight: .bold, design: .rounded))
