@@ -1,5 +1,12 @@
 # Version History
 
+## 0.9.9 (build 8)
+
+- The Active Energy detail page now shows an "Energy by Activity" card below the day chart: one row per workout with its icon, time range, recorded energy in the selected unit (kcal/kJ), and recording source.
+- The Training Load workout look-back grew from 180 days to a full year plus the chronic-EWA warm-up, so the detail chart's Year range now shows ratio points across the whole year instead of only the last ~6 months.
+- Workout list rows now lead with energy (flame icon) and show distance as the trailing detail; distance stays primary only for workouts without recorded energy.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 8.
+
 ## 0.9.9 (build 7)
 
 - Workout splits now highlight the slowest split in addition to the fastest.
