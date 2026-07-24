@@ -140,7 +140,8 @@ struct BodyWorkoutRouteMapHero: View {
     /// Draws the route onto the map snapshot — colored by pace (red slow → green
     /// fast) when the fixes carry enough speed spread, otherwise a single tint —
     /// plus start (green) / end (red) markers. Returns the composited image.
-    private static func draw(
+    /// Internal so the share card's map background reuses the same compositing.
+    static func draw(
         route: [RouteCoordinate],
         on snapshot: MKMapSnapshotter.Snapshot,
         fallbackTint: UIColor

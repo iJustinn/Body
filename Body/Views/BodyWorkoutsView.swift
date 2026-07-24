@@ -880,6 +880,7 @@ struct BodyWorkoutDetailSheet: View {
     /// (Mirrors `BodyHomeScrollState`.)
     @State private var scrollState = BodyWorkoutDetailScrollState()
     @State private var showsFullScreenRouteMap = false
+    @State private var showsShareSheet = false
     @Namespace private var routeMapZoom
     /// Age-estimated max HR (220 − age) from Apple Health, loaded once to anchor the
     /// heart-rate zones; nil until loaded (or when no birth date), falling back to the
@@ -938,6 +939,35 @@ struct BodyWorkoutDetailSheet: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .overlay(alignment: .topTrailing) {
+            // The ZStack keeps its safe-area insets, so the button clears the
+            // status bar / Dynamic Island even though the map extends under them
+            // (same trick as the full-screen map's close button). The animation
+            // is scoped to this subtree so the route loading never animates the
+            // sheet's own layout swap.
+            ZStack {
+                if route != nil {
+                    Button {
+                        showsShareSheet = true
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 44, height: 44)
+                    }
+                    .modifier(BodyWorkoutShareButtonBackground())
+                    .padding(.trailing, 20)
+                    .accessibilityLabel("Share Workout")
+                    .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: route == nil)
+        }
+        .sheet(isPresented: $showsShareSheet) {
+            if let route {
+                BodyWorkoutShareSheet(workout: workout, route: route, presentation: presentation)
+            }
+        }
         .fullScreenCover(isPresented: $showsFullScreenRouteMap) {
             if let route {
                 BodyWorkoutRouteMapFullScreen(route: route, tint: workout.type.color)
@@ -1484,6 +1514,18 @@ struct BodyWorkoutDetailSheet: View {
             heartRateSamples: workout.heartRateSamples ?? [],
             stepSamples: splitData.stepSamples
         )
+    }
+}
+
+/// iOS 26 Liquid Glass circle for the detail share button; pre-26 mirrors the
+/// full-screen map close button's material circle.
+private struct BodyWorkoutShareButtonBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular, in: .circle)
+        } else {
+            content.background(.ultraThinMaterial, in: Circle())
+        }
     }
 }
 
