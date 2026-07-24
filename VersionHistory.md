@@ -1,5 +1,11 @@
 # Version History
 
+## 0.9.9 (build 9)
+
+- The Heart Rate detail page's activity-breakdown card is now titled "Heart Rate by Activity" (previously "Average Heart Rate").
+- The "by activity" card titles on the Heart Rate, HRV, and Active Energy detail pages now localize (Simplified Chinese) instead of always rendering in English.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 9.
+
 ## 0.9.9 (build 8)
 
 - The Active Energy detail page now shows an "Energy by Activity" card below the day chart: one row per workout with its icon, time range, recorded energy in the selected unit (kcal/kJ), and recording source.

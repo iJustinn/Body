@@ -1502,11 +1502,11 @@ struct BodyHealthMetricDetailView: View {
     private var metricActivityAveragesTitle: String {
         switch model.kind {
         case .activeEnergy:
-            return "Energy by Activity"
+            return String(localized: "Energy by Activity")
         case .heartRateVariability:
-            return "Average HRV"
+            return String(localized: "Average HRV")
         default:
-            return "Average Heart Rate"
+            return String(localized: "Heart Rate by Activity")
         }
     }
 

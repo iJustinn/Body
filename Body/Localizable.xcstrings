@@ -1160,6 +1160,7 @@
       }
     },
     "Average Heart Rate" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1193,6 +1194,7 @@
       }
     },
     "Average HRV" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2988,6 +2990,22 @@
         }
       }
     },
+    "Energy by Activity" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Energy by Activity"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各活动能量"
+          }
+        }
+      }
+    },
     "Enough data. Only workouts with heart-rate data get a prediction; sessions without heart rate stay blank for you to rate." : {
       "localizations" : {
         "en" : {
@@ -3370,6 +3388,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "心率"
+          }
+        }
+      }
+    },
+    "Heart Rate by Activity" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heart Rate by Activity"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各活动心率"
           }
         }
       }
@@ -4428,6 +4462,7 @@
       }
     },
     "No sleep HRV for this day" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4444,6 +4479,7 @@
       }
     },
     "No sleep or workout heart rate for this day" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
