@@ -656,6 +656,12 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// ...and never touches anything older than this, so auto-apply only fills workouts
     /// that ended within the last two days.
     private static let autoApplyMaxWorkoutAge: TimeInterval = 48 * 60 * 60     // 48 hours
+    /// Longest workout duration the comparison-month preload accounts for. Eligibility
+    /// bounds a workout's END time, but its 30-day comparison window anchors at its
+    /// START (end − duration), so the preload span must reach a plausible longest
+    /// duration further back. Anything longer stays history-incomplete and is skipped
+    /// as pathological.
+    private static let autoApplyMaxComparisonWorkoutDuration: TimeInterval = 24 * 60 * 60  // 1 day
 
     /// The workout-month keys the auto-apply window (`now - maxAge` … `now`) can span:
     /// always the current month, plus the prior month when the window reaches back before
@@ -675,6 +681,45 @@ final class HealthKitWorkoutStore: ObservableObject {
                 month: calendar.component(.month, from: windowStart),
                 year: calendar.component(.year, from: windowStart)
             ))
+        }
+        return keys
+    }
+
+    /// The workout-month keys any auto-apply candidate's 30-day comparison window can
+    /// reach: every month touched by the span `[now - (maxAge + maxDuration + 30 days), now]`.
+    /// A candidate ENDS within `maxAge` of now, but `comparisonContext` reads the 30 days
+    /// before its START — up to `maxDuration` earlier than its end — so the oldest month a
+    /// comparison can touch is `maxAge + maxDuration + 30 days` back. The estimator only
+    /// calibrates when every one of a candidate's comparison months is in
+    /// `loadedMonthKeys`; loading this whole span up front means candidates normally
+    /// reach complete history and are scored with the same calibrated number the detail
+    /// view settles on. With `maxAge` = 48h and `maxDuration` = 1 day the span is
+    /// 33 days → 2-3 keys.
+    ///
+    /// Deliberately a fixed span, not a per-candidate union: a pathological workout
+    /// duration (beyond `maxDuration`) would let a single candidate's window reach back
+    /// arbitrarily far, and unioning those could exceed the 12-month snapshot cache
+    /// (`maximumCachedMonthSnapshots`) and thrash it. Such candidates instead stay
+    /// history-incomplete, so the estimator's low-confidence gate skips them rather than
+    /// dragging every month into memory. Walks month starts like the private
+    /// `comparisonMonthKeys(for:calendar:)`. `maxAge`/`maxDuration` are parameters (as in
+    /// `autoApplyEligibleWorkouts`) so this stays a pure, nonisolated helper.
+    nonisolated static func autoApplyComparisonMonthKeys(now: Date, maxAge: TimeInterval, maxDuration: TimeInterval, calendar: Calendar) -> [BodyWorkoutMonthKey] {
+        // The 30-day portion must be calendar days (like `comparisonMonthKeys`), not a
+        // fixed interval: across a fall DST transition a fixed 30 * 24h lands an hour
+        // short of the candidate's real window start and can drop its oldest month.
+        let earliestStart = now.addingTimeInterval(-maxAge - maxDuration)
+        guard let spanStart = calendar.date(byAdding: .day, value: -30, to: earliestStart),
+              var cursor = calendar.dateInterval(of: .month, for: spanStart)?.start,
+              let endMonthStart = calendar.dateInterval(of: .month, for: now)?.start else {
+            return [BodyWorkoutMonthKey(date: now, calendar: calendar)]
+        }
+
+        var keys: [BodyWorkoutMonthKey] = []
+        while cursor <= endMonthStart {
+            keys.append(BodyWorkoutMonthKey(date: cursor, calendar: calendar))
+            guard let next = calendar.date(byAdding: .month, value: 1, to: cursor) else { break }
+            cursor = next
         }
         return keys
     }
@@ -837,14 +882,38 @@ final class HealthKitWorkoutStore: ObservableObject {
         guard !eligible.isEmpty else {
             return
         }
+        // Load the months every candidate's 30-day comparison window can reach. The
+        // estimator only calibrates when all of a candidate's comparison months are in
+        // `loadedMonthKeys` (the completeness signal `comparisonContext` checks), so a
+        // cold launch mid-month would otherwise score with incomplete history and write
+        // an uncalibrated number — after which the workout is marked rated and excluded
+        // forever. Loading here means candidates are scored with the same calibrated
+        // number the detail view settles on. Use `refresh(monthKeys:calendar:)` directly
+        // (as the window-month load above does), not `loadMonthIfNeeded` /
+        // `ensureComparisonMonthsLoaded`: those await refresh completion, which would
+        // deadlock because this pass runs while the caller owns `isRefreshing`. Subtract
+        // `loadedMonthKeys` (the completeness signal), not `monthSnapshots` membership,
+        // which is seeded with a placeholder at launch.
+        let comparisonKeys = Self.autoApplyComparisonMonthKeys(
+            now: now,
+            maxAge: Self.autoApplyMaxWorkoutAge,
+            maxDuration: Self.autoApplyMaxComparisonWorkoutDuration,
+            calendar: Calendar.bodyGregorian
+        )
+        let missingComparisonKeys = Set(comparisonKeys).subtracting(loadedMonthKeys)
+        if !missingComparisonKeys.isEmpty {
+            try? await refresh(monthKeys: missingComparisonKeys, calendar: Calendar.bodyGregorian)
+        }
         let maxHeartRate = await userMaxHeartRate()
         // Precompute each candidate's score up front. Estimates read only prior
         // (older) workouts, and candidates are processed newest-first, so an in-batch
         // write never feeds a later estimate — precomputing is equivalent to estimating
-        // lazily but keeps the write loop pure and testable. A low-confidence (no-HR)
-        // estimate yields a nil score: it's skipped without consuming the write budget
-        // and, crucially, not cached — HR can arrive late, so it stays eligible for a
-        // later refresh within the 48h window.
+        // lazily but keeps the write loop pure and testable. A low-confidence estimate
+        // yields a nil score: it's skipped without consuming the write budget and,
+        // crucially, not cached, so it stays eligible for a later qualifying refresh
+        // within the 48h window. That now covers two cases: a no-HR workout (HR can
+        // arrive late) and an incomplete-history one (e.g. the comparison-month load
+        // above failed transiently) — neither writes a stale score, both retry later.
         let candidates: [AutoApplyEffortCandidate] = eligible
             .prefix(Self.maxAutoApplyEffortExamined)
             .map { workout in
@@ -898,8 +967,22 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// flips Auto-Apply on, so eligible recent (1-48h) workouts fill immediately instead
     /// of waiting for the next foreground refresh. The batch derives and loads the
     /// window's month keys itself (current + prior near a boundary), so no keys are
-    /// needed here.
+    /// needed here. Unlike the two in-refresh call sites, this Settings entry point isn't
+    /// already inside a refresh, so it claims the slot itself: wait out any in-flight
+    /// refresh, then own `isRefreshing` for the pass. That makes refresh ownership an
+    /// invariant of `autoApplyPredictedEffortIfNeeded` — its internal `refresh(monthKeys:)`
+    /// calls can't interleave with a concurrently starting real refresh, and every other
+    /// entry point (all `guard !isRefreshing`) stays out while the pass runs. The
+    /// wait-first mirrors `refreshAfterWrite`; the while-loop covers a fresh refresh
+    /// claiming the slot between our resume and our claim (as in
+    /// `loadIntradayMetricSamplesIfNeeded`).
     func autoApplyPredictedEffortNow() async {
+        while isRefreshing {
+            await awaitNextRefreshCompletion()
+            guard !Task.isCancelled else { return }
+        }
+        isRefreshing = true
+        defer { finishRefresh() }
         await autoApplyPredictedEffortIfNeeded(monthKeys: [])
     }
 

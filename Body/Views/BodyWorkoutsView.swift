@@ -861,10 +861,17 @@ struct BodyWorkoutDetailSheet: View {
     /// rebuilt on each scroll frame; refreshed when the workout, max HR, comparison
     /// history, or the setting changes.
     @State private var prediction: WorkoutEffortEstimator.Estimate?
+    /// Gate so the prediction publishes once, after both the comparison history and max
+    /// HR settle — no provisional (uncalibrated) value flashes before the inputs load.
+    @State private var predictionInputsSettled = false
     /// True while the editor holds a value pre-filled from the prediction that the user
     /// hasn't adjusted — the one signal `saveEditingEffort` uses to exclude an
     /// accepted-unchanged suggestion from calibration (no feedback loop).
     @State private var editorPrefilledFromSuggestion = false
+    /// True while the editor was opened (unrated) before the prediction settled, so its
+    /// default 5 is a stand-in: when the settled prediction lands, `refreshPrediction`
+    /// re-fills the editor — unless the user touched it first (any −/+ tap clears this).
+    @State private var editorAwaitingPrediction = false
     @State private var route: WorkoutRoute?
     @State private var splitData: WorkoutSplitData = .empty
     /// Live scroll offset, held in an `@Observable` so writing it on every scroll frame
@@ -945,9 +952,21 @@ struct BodyWorkoutDetailSheet: View {
             route = await loadedRoute
             splitData = await loadedSplitData
         }
-        .task(id: workout.id) {
+        .task(id: "\(workout.id.uuidString)-\(workoutStore.permissionSelection.rawValue)") {
+            predictionInputsSettled = false
+            prediction = nil
             editorPrefilledFromSuggestion = false
+            editorAwaitingPrediction = false
+            // Resolve both estimator inputs before publishing anything: max HR and the
+            // 30-day comparison history. Publishing once, after both settle, means the
+            // label never shows a provisional (uncalibrated) number that then flips.
+            // Re-keying on the permission selection re-resolves the anchor when Date of
+            // Birth toggles: out of scope, `userMaxHeartRate()` returns nil and the HR
+            // chart falls back to the session-peak HR.
+            async let maxHeartRate = workoutStore.userMaxHeartRate()
             await workoutStore.ensureComparisonMonthsLoaded(for: workout)
+            resolvedMaxHeartRate = await maxHeartRate
+            predictionInputsSettled = true
             refreshPrediction()
         }
         .onChange(of: showWorkoutEffortSuggestions) { refreshPrediction() }
@@ -1274,10 +1293,12 @@ struct BodyWorkoutDetailSheet: View {
 
             effortStepButton(systemName: "minus", color: color, isEnabled: editingScore > 1 && !isSavingEffort) {
                 editorPrefilledFromSuggestion = false
+                editorAwaitingPrediction = false
                 withAnimation(.snappy(duration: 0.28)) { editingScore = max(editingScore - 1, 1) }
             }
             effortStepButton(systemName: "plus", color: color, isEnabled: editingScore < 10 && !isSavingEffort) {
                 editorPrefilledFromSuggestion = false
+                editorAwaitingPrediction = false
                 withAnimation(.snappy(duration: 0.28)) { editingScore = min(editingScore + 1, 10) }
             }
         }
@@ -1305,38 +1326,41 @@ struct BodyWorkoutDetailSheet: View {
     }
 
     private func beginEditingEffort() {
-        let estimate = showWorkoutEffortSuggestions
-            ? WorkoutEffortEstimator.estimate(for: effortEstimateInput())
-            : nil
-        // Keep the persistent "Body's prediction" label in sync with the value the
-        // editor pre-fills from, in case max HR resolved since the last refresh.
-        if estimate != nil {
-            prediction = estimate
-        }
+        // Pre-fill from the already-settled prediction — estimating here again could
+        // publish a provisional number on a fast tap before the inputs load.
+        let estimate = showWorkoutEffortSuggestions ? prediction : nil
         if let effortLevel {
             // A logged workout opens at its saved value — the pre-fill is only for
             // workouts the user hasn't rated yet.
             editingScore = min(max(Int(effortLevel.rounded()), 1), 10)
             editorPrefilledFromSuggestion = false
+            editorAwaitingPrediction = false
         } else if let estimate {
             // Pre-fill the editor from the prediction for an unrated workout. The value
             // is snapshotted into editingScore, so a later load can't move it mid-edit.
             editingScore = estimate.score
             editorPrefilledFromSuggestion = true
+            editorAwaitingPrediction = false
         } else {
             editingScore = 5
             editorPrefilledFromSuggestion = false
+            // Tapped before the prediction settled: the 5 is a stand-in, so let the
+            // settled prediction re-fill the untouched editor when it lands.
+            editorAwaitingPrediction = showWorkoutEffortSuggestions && !predictionInputsSettled
         }
         withAnimation(.snappy(duration: 0.3)) { isEditingEffort = true }
     }
 
     private func cancelEditingEffort() {
         editorPrefilledFromSuggestion = false
+        editorAwaitingPrediction = false
         withAnimation(.snappy(duration: 0.3)) { isEditingEffort = false }
     }
 
     private func saveEditingEffort() {
         isSavingEffort = true
+        // Saving commits the shown value; a prediction landing mid-save must not move it.
+        editorAwaitingPrediction = false
         let value = Double(editingScore)
         // Saved straight from an unadjusted pre-fill → the rating is the prediction's
         // own output, so mark it for exclusion from future calibration; any other save
@@ -1359,12 +1383,26 @@ struct BodyWorkoutDetailSheet: View {
     }
 
     /// Recomputes the persistent prediction from currently-loaded inputs. Cheap and
-    /// synchronous; called from the load tasks and when the setting changes, never per
-    /// render, so scrolling doesn't repeatedly rebuild the 30-day comparison window.
+    /// synchronous; called from the coordinated load task and the setting toggle, never
+    /// per render, so scrolling doesn't repeatedly rebuild the 30-day comparison window.
+    /// Publishes only after both inputs settle (`predictionInputsSettled`), and then
+    /// best-effort even if the history load couldn't complete every month — it ran once,
+    /// so there's no provisional flash.
     private func refreshPrediction() {
+        guard predictionInputsSettled else { return }
         prediction = showWorkoutEffortSuggestions
             ? WorkoutEffortEstimator.estimate(for: effortEstimateInput())
             : nil
+        // An editor opened on the placeholder 5 before the inputs settled (and untouched
+        // since) moves to the real pre-fill now, so a fast tap can't freeze a stand-in
+        // value beside a different settled prediction.
+        if editorAwaitingPrediction {
+            editorAwaitingPrediction = false
+            if isEditingEffort, !isSavingEffort, let prediction {
+                withAnimation(.snappy(duration: 0.28)) { editingScore = prediction.score }
+                editorPrefilledFromSuggestion = true
+            }
+        }
     }
 
     /// Everything the effort estimator needs, read synchronously from already-published
@@ -1381,13 +1419,6 @@ struct BodyWorkoutDetailSheet: View {
             maxHeartRate: resolvedMaxHeartRate ?? workout.maximumHeartRateBeatsPerMinute
         )
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Re-key on the permission selection so toggling Date of Birth re-resolves the
-        // anchor: when it goes out of scope `userMaxHeartRate()` returns nil and the chart
-        // falls back to the session-peak HR (no `== nil` guard — `.task(id:)` dedupes).
-        .task(id: workoutStore.permissionSelection.rawValue) {
-            resolvedMaxHeartRate = await workoutStore.userMaxHeartRate()
-            refreshPrediction()
-        }
     }
 
     private func sourceFooter(presentation: WorkoutDetailPresentation) -> some View {

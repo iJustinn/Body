@@ -1624,6 +1624,114 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         )
     }
 
+    func testAutoApplyComparisonMonthKeysSpanTheComparisonReach() throws {
+        let calendar = Calendar.bodyGregorian
+
+        // Mid-month (Jul 24): the span [now - 33d, now] reaches back to Jun 21, so the
+        // oldest candidate's 30-day comparison window touches only June and July.
+        let midMonth = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 7, day: 24, hour: 12)))
+        XCTAssertEqual(
+            HealthKitWorkoutStore.autoApplyComparisonMonthKeys(now: midMonth, maxAge: 48 * 3600, maxDuration: 24 * 3600, calendar: calendar),
+            [BodyWorkoutMonthKey(month: 6, year: 2026), BodyWorkoutMonthKey(month: 7, year: 2026)]
+        )
+
+        // Early in the month (Jul 2): the span reaches back to May 30, spanning three
+        // months — a candidate near the start of July can compare against May.
+        let earlyMonth = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 7, day: 2, hour: 9)))
+        XCTAssertEqual(
+            HealthKitWorkoutStore.autoApplyComparisonMonthKeys(now: earlyMonth, maxAge: 48 * 3600, maxDuration: 24 * 3600, calendar: calendar),
+            [
+                BodyWorkoutMonthKey(month: 5, year: 2026),
+                BodyWorkoutMonthKey(month: 6, year: 2026),
+                BodyWorkoutMonthKey(month: 7, year: 2026)
+            ]
+        )
+
+        // Month boundary (Aug 1): the span reaches back to Jun 29, so June, July, and
+        // August are all touched.
+        let boundary = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 6)))
+        XCTAssertEqual(
+            HealthKitWorkoutStore.autoApplyComparisonMonthKeys(now: boundary, maxAge: 48 * 3600, maxDuration: 24 * 3600, calendar: calendar),
+            [
+                BodyWorkoutMonthKey(month: 6, year: 2026),
+                BodyWorkoutMonthKey(month: 7, year: 2026),
+                BodyWorkoutMonthKey(month: 8, year: 2026)
+            ]
+        )
+
+        // The duration allowance matters near the cutoff: at Aug 2 01:00, a two-hour
+        // workout ending Jul 31 01:00 (age 48h, still eligible) STARTED Jul 30 23:00,
+        // so its comparison window opens Jun 30 23:00 — June must be in the span even
+        // though `now - (48h + 30d)` alone (Jul 1 01:00) would miss it.
+        let nearCutoff = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 2, hour: 1)))
+        XCTAssertEqual(
+            HealthKitWorkoutStore.autoApplyComparisonMonthKeys(now: nearCutoff, maxAge: 48 * 3600, maxDuration: 24 * 3600, calendar: calendar),
+            [
+                BodyWorkoutMonthKey(month: 6, year: 2026),
+                BodyWorkoutMonthKey(month: 7, year: 2026),
+                BodyWorkoutMonthKey(month: 8, year: 2026)
+            ]
+        )
+
+        // The 30-day portion is calendar days, so a fall DST transition (Nov 1 2026 in
+        // New York adds an hour) can't shave the span short: at Dec 3 23:30 the earliest
+        // candidate start is Nov 30 23:30, and 30 calendar days before that is
+        // Oct 31 23:30 — October must be included, where a fixed 30 * 24h subtraction
+        // would land at Nov 1 00:30 and drop it.
+        var newYork = Calendar(identifier: .gregorian)
+        newYork.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let acrossFallDST = try XCTUnwrap(newYork.date(from: DateComponents(year: 2026, month: 12, day: 3, hour: 23, minute: 30)))
+        XCTAssertEqual(
+            HealthKitWorkoutStore.autoApplyComparisonMonthKeys(now: acrossFallDST, maxAge: 48 * 3600, maxDuration: 24 * 3600, calendar: newYork),
+            [
+                BodyWorkoutMonthKey(month: 10, year: 2026),
+                BodyWorkoutMonthKey(month: 11, year: 2026),
+                BodyWorkoutMonthKey(month: 12, year: 2026)
+            ]
+        )
+    }
+
+    func testAutoApplyComparisonMonthKeysAlwaysConsecutiveTwoOrThreeEndingAtNow() throws {
+        let calendar = Calendar.bodyGregorian
+
+        // Sweep a variety of dates across a year (mid-month and near both edges, plus a
+        // year boundary): the count is always 2 or 3, the keys are consecutive months,
+        // and the last key is always `now`'s own month.
+        let samples: [DateComponents] = [
+            DateComponents(year: 2026, month: 1, day: 1, hour: 3),
+            DateComponents(year: 2026, month: 1, day: 15, hour: 10),
+            DateComponents(year: 2026, month: 2, day: 2, hour: 8),
+            DateComponents(year: 2026, month: 2, day: 28, hour: 20),
+            DateComponents(year: 2026, month: 3, day: 1, hour: 1),
+            DateComponents(year: 2026, month: 4, day: 30, hour: 23),
+            DateComponents(year: 2026, month: 5, day: 3, hour: 6),
+            DateComponents(year: 2026, month: 6, day: 20, hour: 14),
+            DateComponents(year: 2026, month: 7, day: 24, hour: 12),
+            DateComponents(year: 2026, month: 8, day: 1, hour: 0),
+            DateComponents(year: 2026, month: 9, day: 15, hour: 11),
+            DateComponents(year: 2026, month: 10, day: 31, hour: 22),
+            DateComponents(year: 2026, month: 11, day: 2, hour: 5),
+            DateComponents(year: 2026, month: 12, day: 31, hour: 18)
+        ]
+
+        for components in samples {
+            let now = try XCTUnwrap(calendar.date(from: components))
+            let keys = HealthKitWorkoutStore.autoApplyComparisonMonthKeys(now: now, maxAge: 48 * 3600, maxDuration: 24 * 3600, calendar: calendar)
+
+            XCTAssertTrue((2...3).contains(keys.count), "unexpected count \(keys.count) for \(components)")
+
+            // Consecutive months, oldest first, each one month after the previous.
+            for (previous, current) in zip(keys, keys.dropFirst()) {
+                let previousStart = try XCTUnwrap(calendar.date(from: DateComponents(year: previous.year, month: previous.month)))
+                let expectedNext = try XCTUnwrap(calendar.date(byAdding: .month, value: 1, to: previousStart))
+                XCTAssertEqual(BodyWorkoutMonthKey(date: expectedNext, calendar: calendar), current, "non-consecutive keys for \(components)")
+            }
+
+            // Ends at `now`'s month.
+            XCTAssertEqual(keys.last, BodyWorkoutMonthKey(date: now, calendar: calendar), "last key isn't now's month for \(components)")
+        }
+    }
+
     // MARK: - Auto-apply effort write loop
 
     private enum FakeWriteError: Error { case saveFailed }
