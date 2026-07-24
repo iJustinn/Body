@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.9 (build 10)
+
+- **Added a workout share function.** A new circle share button top-right of a route workout's detail page opens a preview sheet for a Strava-style share card. The card's header mirrors the detail page — type icon, title, locality, and date/time on the left with big Distance and Duration numbers on the right — the GPS route trace fills the middle, and a bottom-left row carries the per-type extras (avg pace for a run, avg speed for a ride, elevation gain for snow sports, plus avg heart rate when recorded). Choose from five built-in gradient backgrounds or a dark route-map background for free, or pick a photo from your library as the background with **Body Pro**; tapping the photo tile without Pro opens the paywall. Workouts whose route is too degenerate to draw render a metrics-only card (workouts without a route don't show the button at all). Share exports a 1080×1920 image and hands it to the standard iOS share sheet.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 10.
+
 ## 0.9.9 (build 9)
 
 - The Heart Rate detail page's activity-breakdown card is now titled "Heart Rate by Activity" (previously "Average Heart Rate").
