@@ -4,7 +4,7 @@
 //
 //  Smoke test for the share card's rasterization: proves `ImageRenderer` produces a
 //  non-nil, exactly-1080×1920-px image and that the route Canvas actually draws
-//  (near-white pixels appear over a dark preset). Not a snapshot test.
+//  (route-blue pixels appear over a dark preset). Not a snapshot test.
 //
 
 import XCTest
@@ -85,13 +85,16 @@ final class WorkoutShareRenderTests: XCTestCase {
             height: 300
         )
         XCTAssertTrue(
-            Self.containsNearWhitePixel(in: cgImage, region: sample),
-            "Route trace region had no near-white pixels — the Canvas did not rasterize"
+            Self.containsRouteBluePixel(in: cgImage, region: sample),
+            "Route trace region had no route-blue pixels — the Canvas did not rasterize"
         )
     }
 
-    /// Draws the CGImage into an RGBA8 buffer and scans `region` for a bright pixel.
-    private static func containsNearWhitePixel(in cgImage: CGImage, region: CGRect) -> Bool {
+    /// Draws the CGImage into an RGBA8 buffer and scans `region` for a pixel matching the
+    /// card's route stroke (#0128F4). The thresholds are loose on every channel because the
+    /// stroke carries a shadow filter, which darkens and desaturates its edges — only the
+    /// "mostly blue, little red/green" shape of the color is asserted, not the exact value.
+    private static func containsRouteBluePixel(in cgImage: CGImage, region: CGRect) -> Bool {
         let width = cgImage.width
         let height = cgImage.height
         let bytesPerRow = width * 4
@@ -113,7 +116,7 @@ final class WorkoutShareRenderTests: XCTestCase {
         for y in Int(region.minY)..<Int(region.maxY) {
             for x in Int(region.minX)..<Int(region.maxX) {
                 let offset = y * bytesPerRow + x * 4
-                if pixels[offset] > 200, pixels[offset + 1] > 200, pixels[offset + 2] > 200 {
+                if pixels[offset + 2] > 180, pixels[offset] < 90, pixels[offset + 1] < 120 {
                     return true
                 }
             }

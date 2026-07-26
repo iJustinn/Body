@@ -32,6 +32,10 @@ struct BodyWorkoutShareCardView: View {
 
     private static let cardSize = CGSize(width: 360, height: 640)
 
+    /// #0128F4 — the card's own route trace only; the map background's polyline keeps
+    /// its pace coloring and the marker rings stay white.
+    private static let routeColor = Color(red: 1 / 255, green: 40 / 255, blue: 244 / 255)
+
     private var showsTrace: Bool {
         if case .map = background { return false }
         return routePoints != nil
@@ -187,9 +191,9 @@ struct BodyWorkoutShareCardView: View {
 
     // MARK: - Route trace
 
-    /// SwiftUI `Canvas` polyline of the route through the centered, inset rect so the
-    /// ~5 pt stroke and endpoint dots never clip. Green start / red end ringed dots
-    /// mirror `BodyWorkoutRouteMapHero.drawMarker` proportions.
+    /// SwiftUI `Canvas` polyline of the route in `routeColor`, through the centered,
+    /// inset rect so the ~5 pt stroke and endpoint dots never clip. Green start / red
+    /// end ringed dots mirror `BodyWorkoutRouteMapHero.drawMarker` proportions.
     private var routeHero: some View {
         Canvas { context, size in
             guard let routePoints, routePoints.count >= 2 else { return }
@@ -215,7 +219,7 @@ struct BodyWorkoutShareCardView: View {
             strokeContext.addFilter(.shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5))
             strokeContext.stroke(
                 path,
-                with: .color(.white),
+                with: .color(Self.routeColor),
                 style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
             )
 
