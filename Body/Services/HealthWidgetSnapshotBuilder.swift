@@ -61,7 +61,6 @@ enum HealthWidgetSnapshotBuilder {
     static func make(
         trends: HealthTrendSnapshot,
         summary: HealthSummarySnapshot,
-        sleepStageSnapshot: SleepStageSnapshot,
         temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
         weightUnitPreference: BodyValueFormat.WeightUnitPreference,

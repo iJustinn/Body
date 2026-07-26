@@ -1,5 +1,66 @@
 # Version History
 
+## 0.9.9 (build 13)
+
+- **Restyled the workout share sheet's action buttons.** Share now sits on the left and Save on the right, and both carry the same flat translucent fill of the workout type's color under a thin white rim (no gradient or blur), instead of a tinted Share beside a neutral Save.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 13.
+
+## 0.9.9 (build 12)
+
+- **The workout share sheet now opens on the route map.** The dark route-map background is the default instead of the Midnight gradient, it loads as soon as the sheet opens, and whichever background you pick last — map or gradient — is restored the next time you share (photo picks stay session-only).
+- The Ocean, Sunset, and Forest gradient backgrounds were retired; the strip is now Midnight, Workout Color, the route map, and your photo.
+- The share card's route trace is now blue (`#0128F4`) instead of white, and its bottom-left row shows at most two metrics for every activity (previously up to three).
+- **Added a Save button beside Share.** It writes the rendered 1080×1920 card straight to your photo library using add-only Photos access, confirming with a "Saved" state on the button.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 12.
+
+## 0.9.9 (build 11)
+
+- **Fixed the Sleep Stages chart with two or more sleep sources.** When multiple sources write sleep data for the same night (e.g. Apple Watch + Oura), the hypnogram no longer draws overlapping duplicate timelines with an inflated total; overlapping samples across sources are now deduplicated (the more detailed tracker wins) and the card's header duration uses the overlap-merged total, matching the night's actual length.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 11.
+
+## 0.9.9 (build 10)
+
+- **Added a workout share function.** A new circle share button top-right of a route workout's detail page opens a preview sheet for a Strava-style share card. The card's header mirrors the detail page — type icon, title, locality, and date/time on the left with big Distance and Duration numbers on the right — the GPS route trace fills the middle, and a bottom-left row carries the per-type extras (avg pace for a run, avg speed for a ride, elevation gain for snow sports, plus avg heart rate when recorded). Choose from five built-in gradient backgrounds or a dark route-map background for free, or pick a photo from your library as the background with **Body Pro**; tapping the photo tile without Pro opens the paywall. Workouts whose route is too degenerate to draw render a metrics-only card (workouts without a route don't show the button at all). Share exports a 1080×1920 image and hands it to the standard iOS share sheet.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 10.
+
+## 0.9.9 (build 9)
+
+- The Heart Rate detail page's activity-breakdown card is now titled "Heart Rate by Activity" (previously "Average Heart Rate").
+- The "by activity" card titles on the Heart Rate, HRV, and Active Energy detail pages now localize (Simplified Chinese) instead of always rendering in English.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 9.
+
+## 0.9.9 (build 8)
+
+- The Active Energy detail page now shows an "Energy by Activity" card below the day chart: one row per workout with its icon, time range, recorded energy in the selected unit (kcal/kJ), and recording source.
+- The Training Load workout look-back grew from 180 days to a full year plus the chronic-EWA warm-up, so the detail chart's Year range now shows ratio points across the whole year instead of only the last ~6 months.
+- Workout list rows now lead with energy (flame icon) and show distance as the trailing detail; distance stays primary only for workouts without recorded energy.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 8.
+
+## 0.9.9 (build 7)
+
+- Workout splits now highlight the slowest split in addition to the fastest.
+- The floating sync status badge morphs into its completion state instead of swapping abruptly, and the version badge tokens in Settings are localized.
+- Renamed the Effort Suggestions badge in Settings from "Beta v2" to "v1".
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 7.
+
+## 0.9.9 (build 5)
+
+- Added a floating capsule status badge at the top of the screen that shows an animated marching-squares loader (small squares snaking around a 3×3 grid, one traveling gap; Reduce Motion falls back to the standard spinner) with "Syncing health data…" while a HealthKit refresh runs and briefly confirms "Health data updated" before auto-dismissing (only when the refresh actually succeeded). Uses Liquid Glass on iOS 26 and the translucent pill-tab-bar material recipe on iOS 18. Pull-to-refresh on Summary, Workouts, and metric detail pages now shows this badge instead of the full-screen loading overlay, and uses a custom pull gesture with no system refresh control so no system spinner ever appears; the Workouts month-switch load now shows a matching floating "Loading data…" capsule too — the old full-screen dimming overlay is removed entirely.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 5.
+
+## 0.9.9 (build 3)
+
+- **Sleep score consistency and the Sleep Consistency detail chart are now timezone-aware.** Each night is scored in the time zone it was slept in, using HealthKit's per-sample time-zone metadata, instead of the device's current zone. Short trips (three nights or fewer in a differing zone) keep a meaningful consistency score via local-clock comparison; longer stays drop the consistency category starting the fourth night until the rolling 14-day baseline has re-filled with nights from the current zone. Readiness is unaffected — it does not read the consistency category.
+- **Sources without time-zone metadata (e.g. Apple Watch) get the same travel behavior.** The app keeps a small ledger of device time-zone changes and resolves metadata-less nights through it, and a night whose bed and wake times are both uniformly shifted 1.5h+ from the baseline while any night's zone is unknown is treated as an unrecorded zone shift — the consistency category is omitted instead of penalized.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 3.
+
+## 0.9.9 (build 1)
+
+- Hardened HealthKit refreshes so transient failures preserve source-scoped cached data, sleep sessions remain intact across midnight, workout detail reads retry instead of caching failed results, and readiness/training-load inputs distinguish missing data from failed queries.
+- Made cache clearing and companion delivery authoritative with generation guards, versioned day-sample provenance, monotonic Watch revisions, and a persisted Watch reset tombstone.
+- Improved settings, Body Pro recovery states, widget preference updates, accessibility motion handling, required-reason privacy manifests, and regression coverage across the iOS and Watch targets.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 1.
+
 ## 0.9.8 (build 8)
 
 - **Sleep detail now surfaces restorative sleep (Deep + REM combined).** The stage breakdown shows a Restorative total in both views: the duration view adds a Restorative duration line under the per-stage durations (separated by a divider), and the bar chart adds a dedicated Restorative bar with its own optimal-range band (≈33–48% of time in bed), percentage, and duration. A new About Restorative Sleep card above the About Sleep Score card explains the metric. In Simplified Chinese the stage timeline y-axis reads 醒/眼/核/深 and the breakdown bars use shortened stage names 清醒/眼动/核心/深度/恢复. Long or localized stage labels no longer wrap; the bar shrinks to fit the text instead.

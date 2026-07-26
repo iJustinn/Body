@@ -10,7 +10,8 @@ struct BodyWorkoutsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedMonth = Calendar.bodyGregorian.component(.month, from: Date())
     @State private var selectedYear = Calendar.bodyGregorian.component(.year, from: Date())
-    @State private var pendingMonthSelection: BodyMonthYear?
+    @State private var pendingMonthSelection: PendingMonthSelection?
+    @State private var monthLoadTasks: [String: Task<Bool, Never>] = [:]
     @State private var searchText = ""
     @State private var showingFilterSheet = false
     @State private var showingMonthPicker = false
@@ -19,7 +20,6 @@ struct BodyWorkoutsView: View {
     @State private var selectedWorkoutForDetails: WorkoutSummary?
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
-    @State private var isPullRefreshing = false
     @State private var searchCorpusCache = BodyWorkoutSearchCorpusCache()
     @Namespace private var workoutZoom
 
@@ -97,12 +97,8 @@ struct BodyWorkoutsView: View {
                         .padding(.top, 32)
                         .padding(.bottom, 110)
                     }
-                    .refreshable {
-                        let started = Date()
-                        isPullRefreshing = true
-                        await workoutStore.refreshWorkoutMonth(month: selectedMonth, year: selectedYear)
-                        await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
-                        isPullRefreshing = false
+                    .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
+                        Task { await workoutStore.refreshWorkoutMonth(month: selectedMonth, year: selectedYear) }
                     }
                     .opacity(isListLoaded ? 1 : 0)
                     .animation(.easeIn(duration: 0.3), value: isListLoaded)
@@ -120,7 +116,14 @@ struct BodyWorkoutsView: View {
                 // refracts content instead of the background's plain lower region.
                 .ignoresSafeArea(.container, edges: .bottom)
             }
-            .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing || pendingMonthSelection != nil)
+            .overlay(alignment: .top) {
+                if pendingMonthSelection != nil {
+                    BodySyncStatusBadgeLabel(icon: .spinner, text: "Loading data...")
+                        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                        .allowsHitTesting(false)
+                }
+            }
+            .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: pendingMonthSelection == nil)
             .sheet(isPresented: $showingFilterSheet) {
                 BodyWorkoutFilterView(
                     selectedWorkoutTypes: $selectedWorkoutTypes,
@@ -424,34 +427,63 @@ struct BodyWorkoutsView: View {
             return true
         }
 
-        pendingMonthSelection = monthYear
+        // First-wins latch: a fresh token identifies this request so a stale
+        // completion (e.g. a load that finishes after the 15s timeout already
+        // cleared the overlay, or after a different month was tapped) can't
+        // navigate. Whichever of the load task or the 15s sleeper resolves the
+        // token first wins; the other no-ops.
+        let token = UUID()
+        pendingMonthSelection = PendingMonthSelection(request: token, monthYear: monthYear)
+
+        // Reuse a single in-flight load per month so repeated taps of a hung
+        // month await the same task instead of stacking new calls onto the
+        // store's non-cancellation-aware continuations.
+        let loadTask = monthLoadTask(for: monthYear)
         Task {
-            let didLoad = await withTaskGroup(of: Bool?.self) { group in
-                group.addTask {
-                    await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)
-                }
-                group.addTask {
-                    try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
-                    return nil
-                }
-                let result = await group.next() ?? nil
-                group.cancelAll()
-                return result
-            }
-            await MainActor.run {
-                guard pendingMonthSelection == monthYear else {
-                    return
-                }
-
-                if didLoad == true {
-                    applyMonthSelection(monthYear)
-                }
-
-                pendingMonthSelection = nil
-            }
+            let didLoad = await loadTask.value
+            finishPendingMonthSelection(token: token, didLoad: didLoad)
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
+            finishPendingMonthSelection(token: token, didLoad: nil)
         }
 
         return false
+    }
+
+    /// Returns the in-flight load task for `monthYear`, creating (and retaining)
+    /// one if none exists so concurrent/repeat requests share a single load.
+    private func monthLoadTask(for monthYear: BodyMonthYear) -> Task<Bool, Never> {
+        let key = monthYear.id
+        if let existing = monthLoadTasks[key] {
+            return existing
+        }
+
+        let task = Task { @MainActor in
+            let didLoad = await workoutStore.loadMonthIfNeeded(month: monthYear.month, year: monthYear.year)
+            monthLoadTasks.removeValue(forKey: key)
+            return didLoad
+        }
+        monthLoadTasks[key] = task
+        return task
+    }
+
+    /// Resolves the pending month request identified by `token`. Applies the
+    /// selection only when the token still matches and the load succeeded; a
+    /// timeout (`didLoad == nil`) or failed load just clears the overlay.
+    /// Always clears pending state on a token match so a late load completion
+    /// never auto-navigates — the next tap hits `hasLoadedSnapshot` instantly.
+    @MainActor
+    private func finishPendingMonthSelection(token: UUID, didLoad: Bool?) {
+        guard let pending = pendingMonthSelection, pending.request == token else {
+            return
+        }
+
+        if didLoad == true {
+            applyMonthSelection(pending.monthYear)
+        }
+
+        pendingMonthSelection = nil
     }
 
     private func applyMonthSelection(_ monthYear: BodyMonthYear) {
@@ -518,6 +550,14 @@ struct BodyWorkoutsView: View {
     }
 }
 
+/// Identifies an in-flight month-selection request. The `request` token lets a
+/// completion apply only to the exact request that started it, so a stale load
+/// (finishing after a timeout or a different month tap) cannot navigate.
+private struct PendingMonthSelection: Equatable {
+    let request: UUID
+    let monthYear: BodyMonthYear
+}
+
 /// Caches the lowercased search fields (`type`, `source`, formatted `date`) for
 /// each workout in the currently selected month, avoiding recomputation on
 /// every keystroke. Invalidated whenever the snapshot identity, locale, or
@@ -549,16 +589,19 @@ private final class BodyWorkoutSearchCorpusCache {
 
         guard key == currentKey else {
             key = currentKey
-            storedEntries = Dictionary(uniqueKeysWithValues: workouts.map { workout in
-                (
-                    workout.id,
+            storedEntries = Dictionary(
+                workouts.map { workout in
                     (
-                        typeText: workout.type.displayName.lowercased(),
-                        sourceText: workout.sourceName.lowercased(),
-                        dateText: dateSearchText(workout.startDate)
+                        workout.id,
+                        (
+                            typeText: workout.type.displayName.lowercased(),
+                            sourceText: workout.sourceName.lowercased(),
+                            dateText: dateSearchText(workout.startDate)
+                        )
                     )
-                )
-            })
+                },
+                uniquingKeysWith: { _, latest in latest }
+            )
             return storedEntries
         }
 
@@ -610,7 +653,7 @@ private enum BodyWorkoutListSortOption: String, CaseIterable, Identifiable {
 struct BodyWorkoutRowPresentation {
     let detailIconName: String
     let detailText: String
-    let trailingEnergyText: String?
+    let trailingDetailText: String?
 
     init(
         workout: WorkoutSummary,
@@ -628,29 +671,37 @@ struct BodyWorkoutRowPresentation {
         }
 
         if let distanceMeters = workout.distanceMeters, distanceMeters > 0 {
-            detailIconName = "map.fill"
+            let distanceText: String
             if let distanceUnitPreference {
-                detailText = BodyValueFormat.distanceText(
+                distanceText = BodyValueFormat.distanceText(
                     meters: distanceMeters,
                     locale: locale,
                     distanceUnitPreference: distanceUnitPreference
                 )
             } else {
-                detailText = BodyValueFormat.distanceText(
+                distanceText = BodyValueFormat.distanceText(
                     meters: distanceMeters,
                     locale: locale,
                     unitPreference: unitPreference
                 )
             }
-            trailingEnergyText = energyText
+            if let energyText {
+                detailIconName = "flame.fill"
+                detailText = energyText
+                trailingDetailText = distanceText
+            } else {
+                detailIconName = "map.fill"
+                detailText = distanceText
+                trailingDetailText = nil
+            }
         } else if let energyText {
             detailIconName = "flame.fill"
             detailText = energyText
-            trailingEnergyText = nil
+            trailingDetailText = nil
         } else {
             detailIconName = "heart.text.square.fill"
             detailText = workout.sourceName
-            trailingEnergyText = nil
+            trailingDetailText = nil
         }
     }
 }
@@ -710,8 +761,8 @@ private struct BodyWorkoutExpenseStyleRow: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
 
-                if let trailingEnergyText = presentation.trailingEnergyText {
-                    Text(trailingEnergyText)
+                if let trailingDetailText = presentation.trailingDetailText {
+                    Text(trailingDetailText)
                         .font(.system(size: metadataFontSize, weight: .semibold))
                         .fontWeight(.semibold)
                         .foregroundColor(.secondary)
@@ -810,10 +861,17 @@ struct BodyWorkoutDetailSheet: View {
     /// rebuilt on each scroll frame; refreshed when the workout, max HR, comparison
     /// history, or the setting changes.
     @State private var prediction: WorkoutEffortEstimator.Estimate?
+    /// Gate so the prediction publishes once, after both the comparison history and max
+    /// HR settle — no provisional (uncalibrated) value flashes before the inputs load.
+    @State private var predictionInputsSettled = false
     /// True while the editor holds a value pre-filled from the prediction that the user
     /// hasn't adjusted — the one signal `saveEditingEffort` uses to exclude an
     /// accepted-unchanged suggestion from calibration (no feedback loop).
     @State private var editorPrefilledFromSuggestion = false
+    /// True while the editor was opened (unrated) before the prediction settled, so its
+    /// default 5 is a stand-in: when the settled prediction lands, `refreshPrediction`
+    /// re-fills the editor — unless the user touched it first (any −/+ tap clears this).
+    @State private var editorAwaitingPrediction = false
     @State private var route: WorkoutRoute?
     @State private var splitData: WorkoutSplitData = .empty
     /// Live scroll offset, held in an `@Observable` so writing it on every scroll frame
@@ -822,6 +880,7 @@ struct BodyWorkoutDetailSheet: View {
     /// (Mirrors `BodyHomeScrollState`.)
     @State private var scrollState = BodyWorkoutDetailScrollState()
     @State private var showsFullScreenRouteMap = false
+    @State private var showsShareSheet = false
     @Namespace private var routeMapZoom
     /// Age-estimated max HR (220 − age) from Apple Health, loaded once to anchor the
     /// heart-rate zones; nil until loaded (or when no birth date), falling back to the
@@ -880,6 +939,35 @@ struct BodyWorkoutDetailSheet: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .overlay(alignment: .topTrailing) {
+            // The ZStack keeps its safe-area insets, so the button clears the
+            // status bar / Dynamic Island even though the map extends under them
+            // (same trick as the full-screen map's close button). The animation
+            // is scoped to this subtree so the route loading never animates the
+            // sheet's own layout swap.
+            ZStack {
+                if route != nil {
+                    Button {
+                        showsShareSheet = true
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 44, height: 44)
+                    }
+                    .modifier(BodyWorkoutShareButtonBackground())
+                    .padding(.trailing, 20)
+                    .accessibilityLabel("Share Workout")
+                    .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: route == nil)
+        }
+        .sheet(isPresented: $showsShareSheet) {
+            if let route {
+                BodyWorkoutShareSheet(workout: workout, route: route, presentation: presentation)
+            }
+        }
         .fullScreenCover(isPresented: $showsFullScreenRouteMap) {
             if let route {
                 BodyWorkoutRouteMapFullScreen(route: route, tint: workout.type.color)
@@ -894,9 +982,21 @@ struct BodyWorkoutDetailSheet: View {
             route = await loadedRoute
             splitData = await loadedSplitData
         }
-        .task(id: workout.id) {
+        .task(id: "\(workout.id.uuidString)-\(workoutStore.permissionSelection.rawValue)") {
+            predictionInputsSettled = false
+            prediction = nil
             editorPrefilledFromSuggestion = false
+            editorAwaitingPrediction = false
+            // Resolve both estimator inputs before publishing anything: max HR and the
+            // 30-day comparison history. Publishing once, after both settle, means the
+            // label never shows a provisional (uncalibrated) number that then flips.
+            // Re-keying on the permission selection re-resolves the anchor when Date of
+            // Birth toggles: out of scope, `userMaxHeartRate()` returns nil and the HR
+            // chart falls back to the session-peak HR.
+            async let maxHeartRate = workoutStore.userMaxHeartRate()
             await workoutStore.ensureComparisonMonthsLoaded(for: workout)
+            resolvedMaxHeartRate = await maxHeartRate
+            predictionInputsSettled = true
             refreshPrediction()
         }
         .onChange(of: showWorkoutEffortSuggestions) { refreshPrediction() }
@@ -1223,10 +1323,12 @@ struct BodyWorkoutDetailSheet: View {
 
             effortStepButton(systemName: "minus", color: color, isEnabled: editingScore > 1 && !isSavingEffort) {
                 editorPrefilledFromSuggestion = false
+                editorAwaitingPrediction = false
                 withAnimation(.snappy(duration: 0.28)) { editingScore = max(editingScore - 1, 1) }
             }
             effortStepButton(systemName: "plus", color: color, isEnabled: editingScore < 10 && !isSavingEffort) {
                 editorPrefilledFromSuggestion = false
+                editorAwaitingPrediction = false
                 withAnimation(.snappy(duration: 0.28)) { editingScore = min(editingScore + 1, 10) }
             }
         }
@@ -1254,38 +1356,41 @@ struct BodyWorkoutDetailSheet: View {
     }
 
     private func beginEditingEffort() {
-        let estimate = showWorkoutEffortSuggestions
-            ? WorkoutEffortEstimator.estimate(for: effortEstimateInput())
-            : nil
-        // Keep the persistent "Body's prediction" label in sync with the value the
-        // editor pre-fills from, in case max HR resolved since the last refresh.
-        if estimate != nil {
-            prediction = estimate
-        }
+        // Pre-fill from the already-settled prediction — estimating here again could
+        // publish a provisional number on a fast tap before the inputs load.
+        let estimate = showWorkoutEffortSuggestions ? prediction : nil
         if let effortLevel {
             // A logged workout opens at its saved value — the pre-fill is only for
             // workouts the user hasn't rated yet.
             editingScore = min(max(Int(effortLevel.rounded()), 1), 10)
             editorPrefilledFromSuggestion = false
+            editorAwaitingPrediction = false
         } else if let estimate {
             // Pre-fill the editor from the prediction for an unrated workout. The value
             // is snapshotted into editingScore, so a later load can't move it mid-edit.
             editingScore = estimate.score
             editorPrefilledFromSuggestion = true
+            editorAwaitingPrediction = false
         } else {
             editingScore = 5
             editorPrefilledFromSuggestion = false
+            // Tapped before the prediction settled: the 5 is a stand-in, so let the
+            // settled prediction re-fill the untouched editor when it lands.
+            editorAwaitingPrediction = showWorkoutEffortSuggestions && !predictionInputsSettled
         }
         withAnimation(.snappy(duration: 0.3)) { isEditingEffort = true }
     }
 
     private func cancelEditingEffort() {
         editorPrefilledFromSuggestion = false
+        editorAwaitingPrediction = false
         withAnimation(.snappy(duration: 0.3)) { isEditingEffort = false }
     }
 
     private func saveEditingEffort() {
         isSavingEffort = true
+        // Saving commits the shown value; a prediction landing mid-save must not move it.
+        editorAwaitingPrediction = false
         let value = Double(editingScore)
         // Saved straight from an unadjusted pre-fill → the rating is the prediction's
         // own output, so mark it for exclusion from future calibration; any other save
@@ -1308,12 +1413,26 @@ struct BodyWorkoutDetailSheet: View {
     }
 
     /// Recomputes the persistent prediction from currently-loaded inputs. Cheap and
-    /// synchronous; called from the load tasks and when the setting changes, never per
-    /// render, so scrolling doesn't repeatedly rebuild the 30-day comparison window.
+    /// synchronous; called from the coordinated load task and the setting toggle, never
+    /// per render, so scrolling doesn't repeatedly rebuild the 30-day comparison window.
+    /// Publishes only after both inputs settle (`predictionInputsSettled`), and then
+    /// best-effort even if the history load couldn't complete every month — it ran once,
+    /// so there's no provisional flash.
     private func refreshPrediction() {
+        guard predictionInputsSettled else { return }
         prediction = showWorkoutEffortSuggestions
             ? WorkoutEffortEstimator.estimate(for: effortEstimateInput())
             : nil
+        // An editor opened on the placeholder 5 before the inputs settled (and untouched
+        // since) moves to the real pre-fill now, so a fast tap can't freeze a stand-in
+        // value beside a different settled prediction.
+        if editorAwaitingPrediction {
+            editorAwaitingPrediction = false
+            if isEditingEffort, !isSavingEffort, let prediction {
+                withAnimation(.snappy(duration: 0.28)) { editingScore = prediction.score }
+                editorPrefilledFromSuggestion = true
+            }
+        }
     }
 
     /// Everything the effort estimator needs, read synchronously from already-published
@@ -1330,13 +1449,6 @@ struct BodyWorkoutDetailSheet: View {
             maxHeartRate: resolvedMaxHeartRate ?? workout.maximumHeartRateBeatsPerMinute
         )
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Re-key on the permission selection so toggling Date of Birth re-resolves the
-        // anchor: when it goes out of scope `userMaxHeartRate()` returns nil and the chart
-        // falls back to the session-peak HR (no `== nil` guard — `.task(id:)` dedupes).
-        .task(id: workoutStore.permissionSelection.rawValue) {
-            resolvedMaxHeartRate = await workoutStore.userMaxHeartRate()
-            refreshPrediction()
-        }
     }
 
     private func sourceFooter(presentation: WorkoutDetailPresentation) -> some View {
@@ -1402,6 +1514,18 @@ struct BodyWorkoutDetailSheet: View {
             heartRateSamples: workout.heartRateSamples ?? [],
             stepSamples: splitData.stepSamples
         )
+    }
+}
+
+/// iOS 26 Liquid Glass circle for the detail share button; pre-26 mirrors the
+/// full-screen map close button's material circle.
+private struct BodyWorkoutShareButtonBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular, in: .circle)
+        } else {
+            content.background(.ultraThinMaterial, in: Circle())
+        }
     }
 }
 
@@ -1719,6 +1843,9 @@ private struct BodyWorkoutSplitsCard: View {
     /// Fastest-split highlight, matching the BPM readout on the Heart Rate card.
     private static let fastestColor = BodyWorkoutHeartRateChart.referenceLineColor
 
+    /// Slowest-split highlight, matching Zone 5 on the heart-rate zone breakdown.
+    private static let slowestColor = Color(red: 1.0, green: 0.27, blue: 0.31)
+
     // Column geometry mirrors the heart-rate zone breakdown so the two cards align.
     private let indexWidth: CGFloat = 24
     private let valueWidth: CGFloat = 72
@@ -1773,7 +1900,9 @@ private struct BodyWorkoutSplitsCard: View {
     }
 
     private func splitRow(_ row: WorkoutSplitsPresentation.Row) -> some View {
-        let color = row.isFastest ? Self.fastestColor : Color.primary
+        let color = row.isFastest
+            ? Self.fastestColor
+            : (row.isSlowest ? Self.slowestColor : Color.primary)
         return HStack(spacing: 10) {
             Text(row.indexText)
                 .font(.system(size: 16, weight: .bold, design: .rounded))
@@ -1820,7 +1949,9 @@ private struct BodyWorkoutSplitsCard: View {
                 Capsule(style: .continuous)
                     .fill(Color.secondary.opacity(0.16))
                 Capsule(style: .continuous)
-                    .fill(row.isFastest ? Self.fastestColor : Color.secondary)
+                    .fill(row.isFastest
+                        ? Self.fastestColor
+                        : (row.isSlowest ? Self.slowestColor : Color.secondary))
                     // Floor the width at the bar height so the shortest (fastest) split
                     // reads as a circle rather than a stub.
                     .frame(width: max(geometry.size.width * row.barFraction, barHeight))

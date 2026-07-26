@@ -596,14 +596,15 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             healthSummary: next.summary,
             trends: next.trends,
             idealSleepDuration: idealSleepDuration,
-            calendar: calendar
+            calendar: calendar,
+            today: now
         )
 
         // Freeze the morning record from the UNDRAINED score, before any drain.
         next.trends.recordedReadiness = Self.freezingRecordedReadiness(
             next.trends.recordedReadiness,
             undrainedScore: undrained.score,
-            includesSleep: undrained.components.contains { $0.kind == .sleep },
+            coverage: next.readinessCoverage(on: date, calendar: calendar, today: now),
             scoreDay: scoreDay,
             wakeTime: wakeTime,
             now: now,
@@ -625,7 +626,8 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             startDate: startDate,
             endDate: scoreDay,
             idealSleepDuration: idealSleepDuration,
-            calendar: calendar
+            calendar: calendar,
+            today: now
         ).applyingRecordedOverrides(next.trends.recordedReadiness, calendar: calendar)
 
         next.trends.recordedReadiness = Self.pruningRecordedReadiness(
@@ -664,12 +666,13 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             healthSummary: next.summary,
             trends: next.trends,
             idealSleepDuration: idealSleepDuration,
-            calendar: calendar
+            calendar: calendar,
+            today: now
         )
         next.trends.recordedReadiness = Self.freezingRecordedReadiness(
             next.trends.recordedReadiness,
             undrainedScore: undrained.score,
-            includesSleep: undrained.components.contains { $0.kind == .sleep },
+            coverage: next.readinessCoverage(on: date, calendar: calendar, today: now),
             scoreDay: scoreDay,
             wakeTime: wakeTime,
             now: now,
@@ -689,21 +692,99 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         return next
     }
 
+    /// The atomic readiness inputs present for `date`, used to compare the
+    /// richness of two same-day frozen readiness records (H11). Component kinds
+    /// (`.autonomic`/`.sleep`/`.vitals`) stay identical while HRV, resting HR,
+    /// sleep continuity, or an individual vital arrive late, so coverage tracks
+    /// the finer, per-input presence instead.
+    ///
+    /// Each input mirrors the value `ReadinessScoreCalculator` reads for the
+    /// score day: the whole-day metric (top-level summary field or that day's
+    /// trend point) unioned with the overnight reading (the resolved sleep
+    /// summary's vitals). Presence — not baseline sufficiency — is what matters,
+    /// since a late-arriving reading is exactly the H11 upgrade signal.
+    func readinessCoverage(on date: Date, calendar: Calendar, today: Date = Date()) -> ReadinessCoverage {
+        let resolvedSleep = trends.sleepHistory.summary(on: date, calendar: calendar)?.summary
+            ?? currentDaySleepInput(for: date, today: today, calendar: calendar)
+        let overnightVitals = resolvedSleep?.vitals
+
+        var coverage: ReadinessCoverage = []
+        if summary.heartRateVariability.value != nil
+            || overnightVitals?.heartRateVariability != nil
+            || hasTrendValue(trends.heartRateVariability, on: date, calendar: calendar) {
+            coverage.insert(.hrv)
+        }
+        if summary.restingHeartRate.value != nil
+            || overnightVitals?.heartRate != nil
+            || hasTrendValue(trends.restingHeartRate, on: date, calendar: calendar) {
+            coverage.insert(.restingHeartRate)
+        }
+        if let duration = resolvedSleep?.duration, duration > 0 {
+            coverage.insert(.sleepDuration)
+        }
+        if resolvedSleep?.stageSnapshot.dateInterval != nil {
+            coverage.insert(.sleepContinuity)
+        }
+        if summary.trainingLoad.value != nil
+            || hasTrendValue(trends.trainingLoad, on: date, calendar: calendar) {
+            coverage.insert(.trainingLoad)
+        }
+        if summary.respiratoryRate.value != nil
+            || overnightVitals?.respiratoryRate != nil
+            || hasTrendValue(trends.respiratoryRate, on: date, calendar: calendar) {
+            coverage.insert(.respiratoryRate)
+        }
+        if summary.oxygenSaturation.value != nil
+            || overnightVitals?.oxygenSaturation != nil
+            || hasTrendValue(trends.oxygenSaturation, on: date, calendar: calendar) {
+            coverage.insert(.oxygenSaturation)
+        }
+        if summary.wristTemperature.value != nil
+            || overnightVitals?.wristTemperatureCelsius != nil
+            || hasTrendValue(trends.wristTemperature, on: date, calendar: calendar) {
+            coverage.insert(.wristTemperature)
+        }
+        return coverage
+    }
+
+    /// Today's sleep summary when it applies to `date`, mirroring the gating in
+    /// `ReadinessScoreCalculator.currentDaySleepSummary`.
+    private func currentDaySleepInput(for date: Date, today: Date, calendar: Calendar) -> SleepSummary? {
+        let sleep = summary.sleep
+        guard sleep.duration != nil || !sleep.stageSnapshot.isEmpty || !sleep.vitals.isEmpty else {
+            return nil
+        }
+        if let stageDate = sleep.stageSnapshot.date {
+            return calendar.isDate(stageDate, inSameDayAs: date) ? sleep : nil
+        }
+        return calendar.isDate(date, inSameDayAs: today) ? sleep : nil
+    }
+
+    private func hasTrendValue(
+        _ series: HealthTrendSeries,
+        on date: Date,
+        calendar: Calendar
+    ) -> Bool {
+        series.points.contains { calendar.isDate($0.date, inSameDayAs: date) && $0.value.isFinite }
+    }
+
     /// Freezes today's morning record when freezing is enabled, the score exists,
     /// and `now` is within the freeze window `[freezeMoment, end of scoreDay]`.
     /// `freezeMoment` is `wake + 10 min`, or 10:00 local on the score day when wake
     /// is unknown.
     ///
-    /// With no record for the day, appends one tagged with whether the score
-    /// included a `.sleep` component. When a record already exists, it is replaced
-    /// once — and only once — by a sleep-inclusive score if it was frozen without
-    /// sleep (or is a nil-flag legacy record); otherwise the existing record is
-    /// kept unchanged. This lets a score captured before today's sleep synced be
-    /// corrected same-day, while a record that already carries sleep stays pinned.
+    /// With no record for the day, appends one tagged with the atomic readiness
+    /// inputs (`coverage`) that were present. When a new-format record already
+    /// exists, it is replaced same-day only by a score whose coverage is a strict
+    /// superset — i.e. a genuinely richer read once a late input (e.g. HRV or sleep
+    /// continuity) syncs. A legacy record (nil coverage) preserves the original
+    /// one-shot sleep upgrade: replaced once by the first sleep-inclusive score if
+    /// it was frozen without sleep; coverage is never fabricated from the legacy
+    /// `includedSleep` flag (a legacy record may already carry other inputs).
     private static func freezingRecordedReadiness(
         _ records: [RecordedReadinessEntry],
         undrainedScore: Int?,
-        includesSleep: Bool,
+        coverage: ReadinessCoverage,
         scoreDay: Date,
         wakeTime: Date?,
         now: Date,
@@ -726,15 +807,29 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             return records
         }
 
+        let includesSleep = coverage.contains(.sleepDuration)
+        let replacement = RecordedReadinessEntry(
+            date: scoreDay,
+            score: score,
+            includedSleep: includesSleep,
+            coverage: coverage
+        )
+
         var updated = records
         if let index = updated.firstIndex(where: { calendar.startOfDay(for: $0.date) == scoreDay }) {
-            // Upgrade a sleepless (or legacy nil-flag) record once, when the first
-            // sleep-inclusive score lands. All other cases keep the record.
-            if updated[index].includedSleep != true, includesSleep {
-                updated[index] = RecordedReadinessEntry(date: scoreDay, score: score, includedSleep: true)
+            let existing = updated[index]
+            if let existingCoverage = existing.coverage {
+                // New-format record: replace only when strictly richer, so a late
+                // input upgrades the day while an equal or poorer read is ignored.
+                if coverage.isStrictSuperset(of: existingCoverage) {
+                    updated[index] = replacement
+                }
+            } else if existing.includedSleep != true, includesSleep {
+                // Legacy record: preserve the original one-shot sleep upgrade.
+                updated[index] = replacement
             }
         } else {
-            updated.append(RecordedReadinessEntry(date: scoreDay, score: score, includedSleep: includesSleep))
+            updated.append(replacement)
         }
         return updated
     }

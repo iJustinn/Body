@@ -13,6 +13,12 @@ import HealthKit
 // extension (called via `Self.foo` from the main engine file) are internal;
 // helpers used only by other helpers in this extension stay `private`.
 extension HealthKitFetchEngine {
+    /// Device time-zone ledger consulted when a night's samples carry no
+    /// `HKMetadataKeyTimeZone` (Apple Watch sleep never does). Static so the
+    /// `nonisolated` sleep parsers here and in `+Sleep.swift` can reach it;
+    /// a `var` so tests can inject an ephemeral, isolated ledger.
+    nonisolated(unsafe) static var timeZoneLedger = BodyTimeZoneLedger()
+
     nonisolated static func activityDateComponents(for date: Date, calendar: Calendar) -> DateComponents {
         var components = calendar.dateComponents([.era, .year, .month, .day], from: date)
         components.calendar = calendar
@@ -80,12 +86,24 @@ extension HealthKitFetchEngine {
         showsSubMinuteAwakeStages: Bool = true,
         showsLeadingTrailingAwakeStages: Bool = true
     ) -> SleepSummary? {
-        BodySleepSampleParser.sleepSummary(
+        guard var summary = BodySleepSampleParser.sleepSummary(
             from: samples,
             date: date,
             showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
             showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
-        )
+        ) else {
+            return nil
+        }
+
+        // Watch sleep samples carry no `HKMetadataKeyTimeZone`, so the shared
+        // parser leaves the zone nil. Back-fill it from the device time-zone
+        // ledger for the wake day so timezone-aware scoring can recognize a
+        // travel night instead of always reading it in the current zone.
+        if summary.stageSnapshot.timeZoneIdentifier == nil,
+           let ledgerZone = timeZoneLedger.zoneIdentifier(on: date) {
+            summary.stageSnapshot.timeZoneIdentifier = ledgerZone
+        }
+        return summary
     }
 
     nonisolated static func isSleepTimelineSample(_ sample: HKCategorySample) -> Bool {
@@ -108,6 +126,7 @@ extension HealthKitFetchEngine {
         for workout: HKWorkout,
         heartRateSamples: [WorkoutHeartRateSample] = [],
         effortLevel: Double? = nil,
+        effortUnresolved: Bool? = nil,
         cardioFitnessVO2Max: Double? = nil,
         averageStepCadenceSPM: Double? = nil,
         resolvedDistanceMeters: Double? = nil,
@@ -128,6 +147,7 @@ extension HealthKitFetchEngine {
             averageHeartRateBeatsPerMinute: averageHeartRate,
             maximumHeartRateBeatsPerMinute: maximumHeartRate(from: heartRateSamples),
             effortLevel: effortLevel,
+            effortUnresolved: effortUnresolved,
             heartRateSamples: downsampleHeartRateSamples(heartRateSamples),
             elevationAscendedMeters: elevationAscendedMeters(for: workout),
             averagePowerWatts: includesWorkoutMetrics ? averagePowerWatts(for: workout, type: type) : nil,
@@ -149,6 +169,7 @@ extension HealthKitFetchEngine {
         for workout: HKWorkout,
         reusingHeartRateFrom cached: WorkoutSummary,
         effortLevel: Double? = nil,
+        effortUnresolved: Bool? = nil,
         cardioFitnessVO2Max: Double? = nil,
         averageStepCadenceSPM: Double? = nil,
         resolvedDistanceMeters: Double? = nil,
@@ -168,6 +189,7 @@ extension HealthKitFetchEngine {
             averageHeartRateBeatsPerMinute: cached.averageHeartRateBeatsPerMinute,
             maximumHeartRateBeatsPerMinute: cached.maximumHeartRateBeatsPerMinute,
             effortLevel: effortLevel,
+            effortUnresolved: effortUnresolved,
             heartRateSamples: cached.heartRateSamples ?? [],
             elevationAscendedMeters: elevationAscendedMeters(for: workout),
             averagePowerWatts: includesWorkoutMetrics ? averagePowerWatts(for: workout, type: type) : nil,

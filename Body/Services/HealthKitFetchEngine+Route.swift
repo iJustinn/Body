@@ -15,32 +15,31 @@ import CoreLocation
 
 extension HealthKitFetchEngine {
     /// Coordinates for the workout's route, downsampled for cheap polyline
-    /// drawing. Returns `[]` when the workout has no route, the route can't be
-    /// read, or access is denied — HealthKit read authorization is opaque, so
-    /// absent and denied are indistinguishable and both simply yield no hero.
-    func workoutRouteCoordinates(workoutID: UUID) async -> [RouteCoordinate] {
-        guard let workout = await fetchWorkout(id: workoutID) else {
+    /// drawing. Returns `[]` only when the workout genuinely has no route. Any
+    /// read FAILURE — a cancelled read (dismissed detail sheet), a locked-device
+    /// error, or an XPC drop — is propagated so the caller can tell "no route"
+    /// from "didn't finish reading" and not cache a false negative for a workout
+    /// that actually has a route. (HealthKit read authorization is opaque, so a
+    /// denied route still surfaces as an empty result, i.e. no hero.)
+    func workoutRouteCoordinates(workoutID: UUID) async throws -> [RouteCoordinate] {
+        guard let workout = try await fetchWorkout(id: workoutID) else {
             return []
         }
 
-        do {
-            let routeQuery = HKSampleQueryDescriptor(
-                predicates: [.workoutRoute(HKQuery.predicateForObjects(from: workout))],
-                sortDescriptors: [SortDescriptor(\.startDate, order: .forward)]
-            )
-            let routes = try await routeQuery.result(for: healthStore)
+        let routeQuery = HKSampleQueryDescriptor(
+            predicates: [.workoutRoute(HKQuery.predicateForObjects(from: workout))],
+            sortDescriptors: [SortDescriptor(\.startDate, order: .forward)]
+        )
+        let routes = try await routeQuery.result(for: healthStore)
 
-            var locations: [CLLocation] = []
-            for route in routes {
-                let locationQuery = HKWorkoutRouteQueryDescriptor(route)
-                for try await location in locationQuery.results(for: healthStore) {
-                    locations.append(location)
-                }
+        var locations: [CLLocation] = []
+        for route in routes {
+            let locationQuery = HKWorkoutRouteQueryDescriptor(route)
+            for try await location in locationQuery.results(for: healthStore) {
+                locations.append(location)
             }
-            return Self.routeCoordinates(from: locations)
-        } catch {
-            return []
         }
+        return Self.routeCoordinates(from: locations)
     }
 
     /// Strides the raw fixes (often ~1/sec) down to at most `maxRoutePoints`,

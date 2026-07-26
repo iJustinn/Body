@@ -42,16 +42,29 @@ extension HealthKitFetchEngine {
             return collected
         }
 
+        // Merge only successfully discovered kinds: a failed kind keeps its
+        // prior source map (so a resolvable selection stays resolvable) and is
+        // omitted from the returned options (the store keeps its prior options).
+        // The permission signature is recorded ONLY when every kind succeeded,
+        // so a partial failure re-runs discovery on the next refresh (the guard
+        // above short-circuits only after a fully-successful run).
         var nextOptionsByKind: [HealthMetricKind: [BodyHealthDataSourceOption]] = [:]
-        var nextSourcesByKind: [HealthMetricKind: [String: [HKSource]]] = [:]
+        var nextSourcesByKind = healthSourcesByKind
+        var anyKindFailed = false
         for kindSource in kindSources {
-            let (options, sourcesByID) = sourceOptionsAndMap(from: kindSource.sources)
+            guard let sources = kindSource.sources else {
+                anyKindFailed = true
+                continue
+            }
+            let (options, sourcesByID) = sourceOptionsAndMap(from: sources)
             nextOptionsByKind[kindSource.kind] = options
             nextSourcesByKind[kindSource.kind] = sourcesByID
         }
 
         healthSourcesByKind = nextSourcesByKind
-        fetchedHealthDataSourcePermissionRawValue = permissionRawValue
+        if !anyKindFailed {
+            fetchedHealthDataSourcePermissionRawValue = permissionRawValue
+        }
         return nextOptionsByKind
     }
 
@@ -63,12 +76,13 @@ extension HealthKitFetchEngine {
     }
 
     /// One metric kind's discovered sources, carried out of the concurrent
-    /// fetch task group. `@unchecked Sendable` is sound because `HKSource` is
-    /// immutable metadata (read-only; never mutated after the query returns) —
-    /// HealthKit just doesn't annotate it `Sendable`.
+    /// fetch task group. A `nil` `sources` marks a failed discovery for the
+    /// kind. `@unchecked Sendable` is sound because `HKSource` is immutable
+    /// metadata (read-only; never mutated after the query returns) — HealthKit
+    /// just doesn't annotate it `Sendable`.
     private struct KindSources: @unchecked Sendable {
         let kind: HealthMetricKind
-        let sources: [HKSource]
+        let sources: [HKSource]?
     }
 
     private func sourceOptionsAndMap(
@@ -165,12 +179,16 @@ extension HealthKitFetchEngine {
         return trimmedName.isEmpty ? "Unknown Source" : trimmedName
     }
 
-    private func fetchHealthDataSources(for sampleTypes: [HKSampleType]) async -> [HKSource] {
+    /// Returns `nil` when ANY per-sample-type source query fails (device
+    /// locked, store unavailable) rather than genuinely returning no sources —
+    /// the caller fails the whole kind so an unresolved source selection keeps
+    /// the cache instead of silently querying all sources (H4).
+    private func fetchHealthDataSources(for sampleTypes: [HKSampleType]) async -> [HKSource]? {
         // Fan the per-sample-type `HKSourceQuery` round-trips out concurrently
         // instead of awaiting them one at a time. Results are collected by
         // index so the merge below can replay the exact same first-wins,
         // iteration-order precedence as the old serial loop.
-        var resultsByIndex = [[HKSource]](repeating: [], count: sampleTypes.count)
+        var resultsByIndex = [[HKSource]?](repeating: [], count: sampleTypes.count)
         await withTaskGroup(of: IndexedSources.self) { group in
             for (index, sampleType) in sampleTypes.enumerated() {
                 group.addTask {
@@ -185,6 +203,9 @@ extension HealthKitFetchEngine {
 
         var sourcesByIdentifier: [String: HKSource] = [:]
         for sources in resultsByIndex {
+            guard let sources else {
+                return nil
+            }
             for source in sources {
                 let sourceKey = BodyHealthDataSourceOption.individualSourceIdentityKey(
                     bundleIdentifier: source.bundleIdentifier,
@@ -200,23 +221,28 @@ extension HealthKitFetchEngine {
 
     /// One sample type's discovered sources, carried out of the concurrent
     /// fetch task group, tagged with its original index so the merge can
-    /// replay first-wins precedence in the same order as a serial loop.
-    /// `@unchecked Sendable` mirrors `KindSources` above — sound because
-    /// `HKSource` is immutable metadata that HealthKit just doesn't annotate
-    /// `Sendable`. A raw tuple can't be marked `@unchecked Sendable`, hence
-    /// this wrapper struct.
+    /// replay first-wins precedence in the same order as a serial loop. A
+    /// `nil` `sources` marks a failed query. `@unchecked Sendable` mirrors
+    /// `KindSources` above — sound because `HKSource` is immutable metadata
+    /// that HealthKit just doesn't annotate `Sendable`. A raw tuple can't be
+    /// marked `@unchecked Sendable`, hence this wrapper struct.
     private struct IndexedSources: @unchecked Sendable {
         let index: Int
-        let sources: [HKSource]
+        let sources: [HKSource]?
     }
 
-    private func fetchHealthDataSources(for sampleType: HKSampleType) async -> [HKSource] {
+    private func fetchHealthDataSources(for sampleType: HKSampleType) async -> [HKSource]? {
         await withCheckedContinuation { continuation in
             let query = HKSourceQuery(
                 sampleType: sampleType,
                 samplePredicate: nil
-            ) { _, sources, _ in
-                continuation.resume(returning: Array(sources ?? []))
+            ) { _, sources, error in
+                guard let sources else {
+                    Self.logTrendQueryFailure("sources:\(sampleType.identifier)", error: error)
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: Array(sources))
             }
 
             healthStore.execute(query)

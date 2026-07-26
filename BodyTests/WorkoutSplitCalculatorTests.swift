@@ -419,6 +419,10 @@ final class WorkoutSplitCalculatorTests: XCTestCase {
         XCTAssertEqual(rows.map(\.isFastest), [false, true, false, false])
         XCTAssertFalse(rows[3].isFastest) // partial is never fastest
 
+        // Slowest highlight mirrors it on the slowest complete split.
+        XCTAssertEqual(rows.map(\.isSlowest), [false, false, true, false])
+        XCTAssertFalse(rows[3].isSlowest) // partial is never slowest
+
         // Bars track pace: the slowest split fills the bar, the fastest is shortest.
         XCTAssertEqual(rows[2].barFraction, 1.0, accuracy: 0.0001) // slowest → full bar
         XCTAssertLessThan(rows[1].barFraction, rows[0].barFraction) // fastest shorter than row 1
@@ -434,15 +438,100 @@ final class WorkoutSplitCalculatorTests: XCTestCase {
         // No heart-rate samples supplied → no per-split HR text.
         XCTAssertNil(rows[0].heartRateText)
 
-        // Accessibility label carries the fastest suffix only on the fastest row.
+        // Accessibility label carries each suffix only on its own row.
         XCTAssertEqual(rows[0].accessibilityLabel, "Kilometer 1, 5:00 /km")
         XCTAssertEqual(rows[1].accessibilityLabel, "Kilometer 2, 4:10 /km, Fastest split")
+        XCTAssertTrue(rows[2].accessibilityLabel.hasSuffix(", Slowest split"))
+        XCTAssertFalse(rows[0].accessibilityLabel.contains("Slowest split"))
+    }
+
+    func testPresentationSlowestSkipsSlowerPartialTail() {
+        // The partial tail is the slowest thing here (1.0 m/s), but highlights consider
+        // complete splits only — so the red lands on split 1, not the partial.
+        let splits = [
+            split(1, 1000, 400),                    // 2.5 m/s (slowest complete)
+            split(2, 1000, 250),                    // 4.0 m/s (fastest)
+            split(3, 400, 400, partial: true)       // 1.0 m/s, but partial
+        ]
+        let rows = try! XCTUnwrap(
+            WorkoutSplitsPresentation(
+                splits: splits,
+                paceStyle: .distancePace,
+                distanceUnitPreference: .kilometers,
+                locale: enUS
+            )
+        ).rows
+
+        XCTAssertEqual(rows.map(\.isSlowest), [true, false, false])
+        XCTAssertEqual(rows.map(\.isFastest), [false, true, false])
+    }
+
+    func testPresentationSingleCompleteSplitHasNoSlowestHighlight() {
+        // One complete split is trivially both extremes, so only the fastest reads.
+        let splits = [
+            split(1, 1000, 300),
+            split(2, 400, 200, partial: true)
+        ]
+        let rows = try! XCTUnwrap(
+            WorkoutSplitsPresentation(
+                splits: splits,
+                paceStyle: .distancePace,
+                distanceUnitPreference: .kilometers,
+                locale: enUS
+            )
+        ).rows
+
+        XCTAssertEqual(rows.map(\.isFastest), [true, false])
+        XCTAssertEqual(rows.map(\.isSlowest), [false, false])
+        XCTAssertFalse(rows[0].accessibilityLabel.contains("Slowest split"))
+    }
+
+    func testPresentationIdenticalPacesHaveNoSlowestHighlight() {
+        // Every split at the same pace: nothing is meaningfully slow, so no red row.
+        // Guards the tie case where `max` and `min` would otherwise pick different rows.
+        let splits = [
+            split(1, 1000, 300),
+            split(2, 1000, 300),
+            split(3, 1000, 300)
+        ]
+        let rows = try! XCTUnwrap(
+            WorkoutSplitsPresentation(
+                splits: splits,
+                paceStyle: .distancePace,
+                distanceUnitPreference: .kilometers,
+                locale: enUS
+            )
+        ).rows
+
+        XCTAssertEqual(rows.map(\.isSlowest), [false, false, false])
+        XCTAssertEqual(rows.filter(\.isFastest).count, 1)
+    }
+
+    func testPresentationNeverMarksARowBothFastestAndSlowest() {
+        let splits = [
+            split(1, 1000, 300),
+            split(2, 1000, 250),
+            split(3, 1000, 420),
+            split(4, 400, 90, partial: true)
+        ]
+        let rows = try! XCTUnwrap(
+            WorkoutSplitsPresentation(
+                splits: splits,
+                paceStyle: .distancePace,
+                distanceUnitPreference: .kilometers,
+                locale: enUS
+            )
+        ).rows
+
+        XCTAssertTrue(rows.allSatisfy { !($0.isFastest && $0.isSlowest) })
+        XCTAssertEqual(rows.filter(\.isFastest).count, 1)
+        XCTAssertEqual(rows.filter(\.isSlowest).count, 1)
     }
 
     func testPresentationComputesPerSplitAverageHeartRate() {
         // Two back-to-back km splits: [0,300] and [300,550]. HR samples are averaged
-        // within each split's window. Split 2 is faster so the fastest highlight (and
-        // its accessibility suffix) lands there, keeping split 1's label free of it.
+        // within each split's window. Split 2 is faster, so the fastest suffix lands
+        // there and split 1 — the slower of the two — carries the slowest suffix.
         let splits = [
             split(1, 1000, 300, start: 0),
             split(2, 1000, 250, start: 300)
@@ -467,7 +556,10 @@ final class WorkoutSplitCalculatorTests: XCTestCase {
         let rows = try! XCTUnwrap(presentation).rows
         XCTAssertEqual(rows[0].heartRateText, "160")
         XCTAssertEqual(rows[1].heartRateText, "172")
-        XCTAssertEqual(rows[0].accessibilityLabel, "Kilometer 1, 5:00 /km, Average heart rate 160 BPM")
+        XCTAssertEqual(
+            rows[0].accessibilityLabel,
+            "Kilometer 1, 5:00 /km, Average heart rate 160 BPM, Slowest split"
+        )
     }
 
     func testPerSplitHeartRateIsTimeWeightedNotSampleWeighted() {

@@ -154,6 +154,116 @@ final class ReadinessScoreCalculatorTests: XCTestCase {
         }
     }
 
+    // MARK: - Threaded `today` anchor (L15)
+
+    /// `summary(on:today:)` must not consult a live `Date()` internally: the
+    /// same historical `(date, today)` pair must score identically no matter
+    /// when the test happens to run. Duration-only sleep (no `stageSnapshot`
+    /// date) only counts via the "is this today's live reading" fallback, so
+    /// its presence here proves that fallback resolved against the injected
+    /// `today`, not the real wall clock.
+    func testSummaryWithInjectedTodayIsReproducibleRegardlessOfWallClock() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2020, month: 1, day: 15)))
+        var healthSummary = HealthSummarySnapshot.empty
+        healthSummary.sleep = SleepSummary(duration: 7 * 3_600)
+
+        let first = ReadinessScoreCalculator.summary(
+            on: scoreDay,
+            healthSummary: healthSummary,
+            trends: .empty,
+            calendar: calendar,
+            today: scoreDay
+        )
+        let second = ReadinessScoreCalculator.summary(
+            on: scoreDay,
+            healthSummary: healthSummary,
+            trends: .empty,
+            calendar: calendar,
+            today: scoreDay
+        )
+
+        XCTAssertEqual(first, second)
+        let sleep = try XCTUnwrap(first.components.first { $0.kind == .sleep })
+        XCTAssertNotNil(sleep.score, "duration-only sleep should count when the injected `today` matches the scored day")
+    }
+
+    /// Semantic guard: `today` is the real as-of day, never the per-day date
+    /// being scored. A historical day must not be treated as "live" just
+    /// because it is the day being scored — only a `today` that actually
+    /// matches it should unlock the current-day sleep fallback.
+    func testSummaryDoesNotTreatScoredDayAsLiveWhenTodayDiffers() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2020, month: 1, day: 15)))
+        let today = try XCTUnwrap(calendar.date(from: DateComponents(year: 2020, month: 1, day: 20)))
+        var healthSummary = HealthSummarySnapshot.empty
+        healthSummary.sleep = SleepSummary(duration: 7 * 3_600)
+
+        let summary = ReadinessScoreCalculator.summary(
+            on: scoreDay,
+            healthSummary: healthSummary,
+            trends: .empty,
+            calendar: calendar,
+            today: today
+        )
+
+        XCTAssertNil(summary.components.first { $0.kind == .sleep })
+    }
+
+    /// Live-path regression guard: callers that omit `today` (every caller
+    /// before this change) must keep behaving exactly as before — the
+    /// default resolves to the real `Date()`, so scoring "now" still applies
+    /// the current-day sleep fallback.
+    func testSummaryDefaultTodayStillAppliesLiveSleepWhenScoringNow() throws {
+        let calendar = Calendar.bodyGregorian
+        var healthSummary = HealthSummarySnapshot.empty
+        healthSummary.sleep = SleepSummary(duration: 7 * 3_600)
+
+        let summary = ReadinessScoreCalculator.summary(
+            on: Date(),
+            healthSummary: healthSummary,
+            trends: .empty,
+            calendar: calendar
+        )
+
+        XCTAssertNotNil(summary.components.first { $0.kind == .sleep })
+    }
+
+    /// Codex finding #6 regression guard: `dailySeries` must use its own
+    /// explicit `today`, never silently equate it with `endDate`. Pinning
+    /// `today` far outside the range must suppress the live sleep fallback
+    /// even on the day that equals `endDate`; pinning `today` to that same
+    /// day must unlock it.
+    func testDailySeriesUsesExplicitTodayNotEndDateForLiveSleepFallback() throws {
+        let calendar = Calendar.bodyGregorian
+        let startDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2020, month: 1, day: 10)))
+        let endDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2020, month: 1, day: 12)))
+        var healthSummary = HealthSummarySnapshot.empty
+        healthSummary.sleep = SleepSummary(duration: 7 * 3_600)
+
+        let farToday = try XCTUnwrap(calendar.date(from: DateComponents(year: 2020, month: 6, day: 1)))
+        let seriesWithDistantToday = ReadinessScoreCalculator.dailySeries(
+            healthSummary: healthSummary,
+            trends: .empty,
+            startDate: startDay,
+            endDate: endDay,
+            calendar: calendar,
+            today: farToday
+        )
+        XCTAssertTrue(seriesWithDistantToday.points.isEmpty, "endDate must not be silently treated as today")
+
+        let seriesWithMatchingToday = ReadinessScoreCalculator.dailySeries(
+            healthSummary: healthSummary,
+            trends: .empty,
+            startDate: startDay,
+            endDate: endDay,
+            calendar: calendar,
+            today: endDay
+        )
+        XCTAssertEqual(seriesWithMatchingToday.points.count, 1)
+        XCTAssertEqual(seriesWithMatchingToday.points.first?.date, calendar.startOfDay(for: endDay))
+    }
+
     // MARK: - Robust Baseline
 
     func testRobustBaselineReturnsNilBelowMinimumDays() throws {

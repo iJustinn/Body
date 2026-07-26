@@ -88,4 +88,24 @@ final class SleepStageSnapshotTests: XCTestCase {
         XCTAssertNil(awakeOnly.sleepEndDate)
         XCTAssertNil(SleepStageSnapshot.empty.sleepEndDate)
     }
+
+    func testDecodesLegacyCacheWithoutTimeZoneIdentifier() throws {
+        // An old on-disk cache predates `timeZoneIdentifier`; a payload missing
+        // the key must still decode (one nested failure would discard the whole
+        // dashboard cache), leaving the field nil.
+        let snapshot = SleepStageSnapshot(date: date(0), segments: [
+            SleepStageSegment(stage: .core, startDate: date(0), endDate: date(8))
+        ], timeZoneIdentifier: "Europe/London")
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        var object = try XCTUnwrap(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertNotNil(object["timeZoneIdentifier"])
+        object.removeValue(forKey: "timeZoneIdentifier")
+        let stripped = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(SleepStageSnapshot.self, from: stripped)
+        XCTAssertNil(decoded.timeZoneIdentifier)
+        XCTAssertEqual(decoded.segments.count, 1)
+        XCTAssertEqual(decoded.segments.first?.stage, .core)
+    }
 }

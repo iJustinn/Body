@@ -241,6 +241,50 @@ enum BodyMetricActivityAverages {
             }
     }
 
+    /// Per-workout active energy rows (no sleep row): each workout's recorded
+    /// total, converted to the display unit. The day chart's hourly buckets
+    /// can't be clipped to workout intervals without misattributing energy at
+    /// hour boundaries, so the workout's own recorded total is used instead.
+    static func makeActiveEnergy(
+        day: Date,
+        workouts: [WorkoutSummary],
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        calendar: Calendar = .bodyGregorian
+    ) -> [BodyMetricActivityAverage] {
+        let dayInterval = interval(for: day, calendar: calendar)
+        let rows = workouts.compactMap { workout -> BodyMetricActivityAverage? in
+            let workoutEndDate = workout.startDate.addingTimeInterval(workout.duration)
+            guard let workoutInterval = DateInterval(start: workout.startDate, end: workoutEndDate)
+                .clamped(to: dayInterval),
+                  let kilocalories = workout.activeEnergyKilocalories,
+                  kilocalories.isFinite else {
+                return nil
+            }
+
+            return BodyMetricActivityAverage(
+                activity: .workout(workout.type),
+                startDate: workoutInterval.start,
+                endDate: workoutInterval.end,
+                averageValue: BodyValueFormat.energyValue(
+                    kilocalories: kilocalories,
+                    energyUnitPreference: energyUnitPreference
+                ).value,
+                source: workout.sourceName
+            )
+        }
+
+        var seenIDs = Set<String>()
+        return rows
+            .filter { seenIDs.insert($0.id).inserted }
+            .sorted {
+                if $0.startDate != $1.startDate {
+                    return $0.startDate < $1.startDate
+                }
+
+                return $0.title < $1.title
+            }
+    }
+
     static func makeSleepOnly(
         day: Date,
         series: HealthTrendSeries,
@@ -327,7 +371,6 @@ struct BodyHealthMetricDetailView: View {
     @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
     @State private var showsDataSourcePicker = false
     @State private var showsAddMeasurementSheet = false
-    @State private var isPullRefreshing = false
     @State private var activeReadinessTrendValue: Double?
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     @StateObject private var daySeriesCache = BodyMetricDaySeriesCache()
@@ -398,17 +441,12 @@ struct BodyHealthMetricDetailView: View {
             .padding(.bottom, 32)
             .readableContentColumn()
         }
-        .refreshable {
-            let started = Date()
-            isPullRefreshing = true
-            await workoutStore.refreshHealthMetric(model.kind)
-            await workoutStore.awaitRefreshCompletion(minimumDurationFrom: started)
-            isPullRefreshing = false
+        .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
+            Task { await workoutStore.refreshHealthMetric(model.kind) }
         }
         .task {
             await workoutStore.loadIntradayMetricSamplesIfNeeded(model.kind)
         }
-        .bodyPullToRefreshLoadingOverlay(isPresented: isPullRefreshing)
         .background {
             // Fixed (non-scrolling) backdrop for every metric detail: the metric tint
             // at the very top — behind the transparent nav bar — easing into the page
@@ -651,6 +689,12 @@ struct BodyHealthMetricDetailView: View {
                 sleepSummary: sleepSummary,
                 fallbackValue: sleepSummary?.vitals.heartRateVariability,
                 source: workoutStore.selectedHealthDataSourceOption(for: model.kind).name
+            )
+        case .activeEnergy:
+            return BodyMetricActivityAverages.makeActiveEnergy(
+                day: selectedMetricDay,
+                workouts: workouts(on: selectedMetricDayInterval),
+                energyUnitPreference: selectedEnergyUnitPreference
             )
         default:
             return []
@@ -1422,16 +1466,16 @@ struct BodyHealthMetricDetailView: View {
 
     @ViewBuilder
     private var metricActivityAveragesCard: some View {
-        if model.kind == .heartRate || model.kind == .heartRateVariability {
+        if model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy {
             let rows = selectedMetricActivityAverages
 
             VStack(alignment: .leading, spacing: 14) {
-                Text(model.kind == .heartRate ? "Average Heart Rate" : "Average HRV")
+                Text(metricActivityAveragesTitle)
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
 
                 if rows.isEmpty {
-                    Text(model.kind == .heartRate ? "No sleep or workout heart rate for this day" : "No sleep HRV for this day")
+                    Text(metricActivityAveragesEmptyText)
                         .font(.system(.body, design: .rounded))
                         .fontWeight(.semibold)
                         .foregroundColor(.secondary)
@@ -1452,6 +1496,28 @@ struct BodyHealthMetricDetailView: View {
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .bodyCardBackground(translucent: true)
+        }
+    }
+
+    private var metricActivityAveragesTitle: String {
+        switch model.kind {
+        case .activeEnergy:
+            return String(localized: "Energy by Activity")
+        case .heartRateVariability:
+            return String(localized: "Average HRV")
+        default:
+            return String(localized: "Heart Rate by Activity")
+        }
+    }
+
+    private var metricActivityAveragesEmptyText: String {
+        switch model.kind {
+        case .activeEnergy:
+            return "No workout energy for this day"
+        case .heartRateVariability:
+            return "No sleep HRV for this day"
+        default:
+            return "No sleep or workout heart rate for this day"
         }
     }
 
@@ -1808,9 +1874,9 @@ struct BodyHealthMetricDetailView: View {
 
                 Spacer(minLength: 12)
 
-                if snapshot.asleepDuration > 0 {
+                if snapshot.mergedAsleepDuration > 0 {
                     BodyAnimatedMetricValueText(
-                        value: BodyValueFormat.sleepDurationText(for: snapshot.asleepDuration),
+                        value: BodyValueFormat.sleepDurationText(for: snapshot.mergedAsleepDuration),
                         fontSize: 22,
                         color: .secondary,
                         minimumScaleFactor: 0.75
@@ -2352,20 +2418,17 @@ final class BodyMetricDaySeriesCache: ObservableObject {
 
     private struct Key: Equatable {
         let day: Date
-        let pointCount: Int
-        let firstDate: Date?
-        let lastDate: Date?
+        let source: HealthTrendSeries
     }
 
     private var entriesBySlot: [Slot: (key: Key, series: HealthTrendSeries)] = [:]
 
     func daySeries(from series: HealthTrendSeries, on day: Date, slot: Slot) -> HealthTrendSeries {
-        let key = Key(
-            day: day,
-            pointCount: series.points.count,
-            firstDate: series.points.first?.date,
-            lastDate: series.points.last?.date
-        )
+        let key = Key(day: day, source: series)
+        // `source == series` is the true identity check (a same-count/first/last
+        // coincidence previously could false-positive on a changed middle point);
+        // Array's COW fast path keeps the common unchanged-render case O(1) since
+        // `series` is usually the same buffer as last render, not a re-diffed copy.
         if let entry = entriesBySlot[slot], entry.key == key {
             return entry.series
         }

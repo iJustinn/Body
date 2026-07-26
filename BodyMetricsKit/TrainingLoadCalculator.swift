@@ -7,14 +7,24 @@ import Foundation
 
 enum TrainingLoadCalculator {
     static let defaultEffortLevel = 5.0
-    /// Workout look-back for the acute/chronic EWA. Shared by the iOS engine and
+    /// Workout look-back for the acute/chronic EWA: the longest chart range
+    /// (Year, 365 days) plus a chronic-EWA warm-up so the ratio is seeded by the
+    /// time the first displayed day is reached. Shared by the iOS engine and
     /// the watch so both seed the EWA from the same start → identical ratios.
-    static let summaryWindowDayCount = 180
+    static let summaryWindowDayCount = 365 + chronicDayCount
     private static let acuteDayCount = 7
     private static let chronicDayCount = 42
 
     static func load(for workout: WorkoutSummary) -> Double? {
         guard workout.duration.isFinite, workout.duration > 0 else {
+            return nil
+        }
+
+        // A failed-and-uncached effort lookup (H12) is excluded from load rather
+        // than counted as the default effort — otherwise a transient query failure
+        // fabricates a mid-intensity workout in the acute/chronic EWA. A genuinely
+        // unrated workout keeps the intentional default below.
+        if workout.effortUnresolved == true {
             return nil
         }
 

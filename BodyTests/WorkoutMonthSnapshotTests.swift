@@ -145,10 +145,10 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         XCTAssertEqual(presentation.detailIconName, "flame.fill")
         XCTAssertEqual(presentation.detailText, "530 kcal")
-        XCTAssertNil(presentation.trailingEnergyText)
+        XCTAssertNil(presentation.trailingDetailText)
     }
 
-    func testWorkoutRowPresentationKeepsDistancePrimaryWhenAvailable() throws {
+    func testWorkoutRowPresentationShowsEnergyPrimaryAndDistanceTrailingWhenAvailable() throws {
         let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
             from: DateComponents(year: 2026, month: 4, day: 30, hour: 20, minute: 27)
         ))
@@ -167,9 +167,33 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             unitPreference: .metric
         )
 
+        XCTAssertEqual(presentation.detailIconName, "flame.fill")
+        XCTAssertEqual(presentation.detailText, "77 kcal")
+        XCTAssertEqual(presentation.trailingDetailText, "1.40 km")
+    }
+
+    func testWorkoutRowPresentationKeepsDistancePrimaryWithoutEnergy() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 4, day: 30, hour: 20, minute: 27)
+        ))
+        let workout = WorkoutSummary(
+            type: .walking,
+            startDate: startDate,
+            duration: 1_500,
+            activeEnergyKilocalories: nil,
+            distanceMeters: 1_400,
+            sourceName: "Motra"
+        )
+
+        let presentation = BodyWorkoutRowPresentation(
+            workout: workout,
+            locale: Locale(identifier: "en_US_POSIX"),
+            unitPreference: .metric
+        )
+
         XCTAssertEqual(presentation.detailIconName, "map.fill")
         XCTAssertEqual(presentation.detailText, "1.40 km")
-        XCTAssertEqual(presentation.trailingEnergyText, "77 kcal")
+        XCTAssertNil(presentation.trailingDetailText)
     }
 
     func testBodyValueFormatUsesImperialUnitsForUSLocale() {
@@ -300,7 +324,8 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         XCTAssertEqual(presentation.title, "Strength")
         XCTAssertEqual(presentation.dateTitle, "Mon, May 11")
-        XCTAssertEqual(presentation.timeRangeText, "15:57-16:58")
+        // Foundation separates time and AM/PM with U+202F (narrow no-break space).
+        XCTAssertEqual(presentation.timeRangeText, "3:57\u{202F}PM-4:58\u{202F}PM")
         XCTAssertEqual(presentation.durationClockText, "1:00:39")
         XCTAssertEqual(presentation.activeEnergyText, "416 kcal")
         XCTAssertEqual(presentation.totalEnergyText, "482 kcal")
@@ -369,6 +394,73 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(TrainingLoadCalculator.load(for: defaultEffortWorkout)), 100, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(TrainingLoadCalculator.load(for: cappedEffortWorkout)), 100, accuracy: 0.001)
         XCTAssertNil(TrainingLoadCalculator.load(for: invalidWorkout))
+    }
+
+    func testTrainingLoadExcludesUnresolvedEffort() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 12, hour: 7)
+        ))
+        // Failed effort lookup with no cached fallback (H12): excluded from load
+        // rather than counted as the fabricated default 5.
+        let unresolvedWorkout = WorkoutSummary(
+            type: .running,
+            startDate: startDate,
+            duration: 20 * 60,
+            effortLevel: nil,
+            effortUnresolved: true
+        )
+        XCTAssertNil(TrainingLoadCalculator.load(for: unresolvedWorkout))
+
+        // A genuinely unrated workout (flag nil/false) keeps the intentional
+        // default 5 → 20 min × 5 = 100, unchanged by the new flag.
+        let unratedDefaultFlag = WorkoutSummary(
+            type: .running,
+            startDate: startDate,
+            duration: 20 * 60,
+            effortLevel: nil,
+            effortUnresolved: false
+        )
+        XCTAssertEqual(try XCTUnwrap(TrainingLoadCalculator.load(for: unratedDefaultFlag)), 100, accuracy: 0.001)
+        let unratedNilFlag = WorkoutSummary(
+            type: .running,
+            startDate: startDate,
+            duration: 20 * 60
+        )
+        XCTAssertEqual(try XCTUnwrap(TrainingLoadCalculator.load(for: unratedNilFlag)), 100, accuracy: 0.001)
+
+        // A rated workout stays counted even if the flag is somehow set — a real
+        // fetched/cached score means it isn't unresolved. (Belt-and-suspenders:
+        // the resolver never sets the flag alongside a score.)
+        let ratedWorkout = WorkoutSummary(
+            type: .running,
+            startDate: startDate,
+            duration: 30 * 60,
+            effortLevel: 7,
+            effortUnresolved: false
+        )
+        XCTAssertEqual(try XCTUnwrap(TrainingLoadCalculator.load(for: ratedWorkout)), 210, accuracy: 0.001)
+    }
+
+    func testTrainingLoadDailySeriesDropsUnresolvedWorkoutDay() throws {
+        let calendar = Calendar.bodyGregorian
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 12, hour: 7)))
+        // The only workout on its day is unresolved → that day contributes zero
+        // load, exactly as if the workout weren't there (no fabricated spike).
+        let unresolvedOnly = [
+            WorkoutSummary(type: .running, startDate: day, duration: 40 * 60, effortLevel: nil, effortUnresolved: true)
+        ]
+        let excludedSeries = TrainingLoadCalculator.dailySeries(
+            from: unresolvedOnly,
+            startDate: day,
+            endDate: day,
+            calendar: calendar
+        )
+        // No positive load anywhere → ratio series has no finite chronic base, so
+        // it stays empty, matching an empty-workout day.
+        XCTAssertEqual(
+            excludedSeries,
+            TrainingLoadCalculator.dailySeries(from: [], startDate: day, endDate: day, calendar: calendar)
+        )
     }
 
     func testTrainingLoadCalculatorBuildsTrainingLoadRatioSeries() throws {
@@ -1988,6 +2080,75 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(rows.map(\.startDate), [sleepStart, runStart, strengthStart])
     }
 
+    func testActiveEnergyActivityRowsUseRecordedWorkoutEnergyAndSkipMissing() throws {
+        let calendar = Calendar.bodyGregorian
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28)))
+        let runStart = day.addingTimeInterval(7 * 60 * 60)
+        let strengthStart = day.addingTimeInterval(20 * 60 * 60)
+        let workouts = [
+            WorkoutSummary(
+                type: .strengthTraining,
+                startDate: strengthStart,
+                duration: 45 * 60,
+                activeEnergyKilocalories: 180,
+                sourceName: "Oura"
+            ),
+            WorkoutSummary(
+                type: .running,
+                startDate: runStart,
+                duration: 60 * 60,
+                activeEnergyKilocalories: 320
+            ),
+            WorkoutSummary(
+                type: .walking,
+                startDate: day.addingTimeInterval(12 * 60 * 60),
+                duration: 30 * 60
+            )
+        ]
+
+        let rows = BodyMetricActivityAverages.makeActiveEnergy(
+            day: day,
+            workouts: workouts,
+            energyUnitPreference: .kilocalories,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(rows.map(\.title), ["Run", "Strength"])
+        XCTAssertEqual(rows.map(\.activity), [.workout(.running), .workout(.strengthTraining)])
+        XCTAssertEqual(rows.map(\.startDate), [runStart, strengthStart])
+        XCTAssertEqual(rows[0].averageValue, 320, accuracy: 0.001)
+        XCTAssertEqual(rows[1].averageValue, 180, accuracy: 0.001)
+        XCTAssertEqual(rows[0].source, "Apple Health")
+        XCTAssertEqual(rows[1].source, "Oura")
+    }
+
+    func testActiveEnergyActivityRowsClampToDayAndConvertToKilojoules() throws {
+        let calendar = Calendar.bodyGregorian
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28)))
+        let dayEnd = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: day))
+        let overnightStart = day.addingTimeInterval(23 * 60 * 60)
+        let workouts = [
+            WorkoutSummary(
+                type: .cycling,
+                startDate: overnightStart,
+                duration: 2 * 60 * 60,
+                activeEnergyKilocalories: 100
+            )
+        ]
+
+        let rows = BodyMetricActivityAverages.makeActiveEnergy(
+            day: day,
+            workouts: workouts,
+            energyUnitPreference: .kilojoules,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].startDate, overnightStart)
+        XCTAssertEqual(rows[0].endDate, dayEnd)
+        XCTAssertEqual(rows[0].averageValue, 418.4, accuracy: 0.1)
+    }
+
     func testHeartRateVariabilityActivityAveragesOnlyUseSelectedDaySleepInterval() throws {
         let calendar = Calendar.bodyGregorian
         let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 28)))
@@ -2184,6 +2345,64 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(sanitized.averageHeartRateBeatsPerMinute, 150)
         XCTAssertEqual(sanitized.maximumHeartRateBeatsPerMinute, 175)
         XCTAssertEqual(sanitized.effortLevel, 6)
+    }
+
+    func testRemovingWorkoutMetricsPreservesEffortUnresolvedFlag() throws {
+        // `removingWorkoutMetrics()` reconstructs the summary field-by-field and is
+        // rewritten to disk when Workout Metrics is disabled. If it dropped
+        // `effortUnresolved`, an excluded workout would silently revert to the
+        // fabricated default-5 load (H12 / Codex finding #5).
+        let unresolved = WorkoutSummary(
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 2_000_000),
+            duration: 1_200,
+            effortLevel: nil,
+            effortUnresolved: true,
+            cardioFitnessVO2Max: 48
+        )
+        let sanitized = unresolved.removingWorkoutMetrics()
+        XCTAssertEqual(sanitized.effortUnresolved, true)
+        XCTAssertNil(sanitized.cardioFitnessVO2Max)
+        XCTAssertNil(TrainingLoadCalculator.load(for: sanitized))
+
+        // A resolved summary keeps its nil flag through the same round-trip.
+        let resolved = WorkoutSummary(
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 2_000_000),
+            duration: 1_200,
+            effortLevel: 5
+        )
+        XCTAssertNil(resolved.removingWorkoutMetrics().effortUnresolved)
+    }
+
+    func testWorkoutSummaryEffortUnresolvedSurvivesCodableRoundTrip() throws {
+        let unresolved = WorkoutSummary(
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 3_000_000),
+            duration: 900,
+            effortLevel: nil,
+            effortUnresolved: true
+        )
+        let encoded = try JSONEncoder().encode(unresolved)
+        let decoded = try JSONDecoder().decode(WorkoutSummary.self, from: encoded)
+        XCTAssertEqual(decoded.effortUnresolved, true)
+        XCTAssertEqual(decoded, unresolved)
+
+        // A nil flag is omitted from the encoded bytes (synthesized `encodeIfPresent`),
+        // so old snapshots lack the key and the M10 byte-dedupe only sees a change
+        // when the flag actually flips. Re-decoding still yields nil (resolved), so
+        // legacy workouts keep counting as the default-5 rating rather than dropping.
+        let resolved = WorkoutSummary(
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 3_000_000),
+            duration: 900,
+            effortLevel: 5
+        )
+        let resolvedEncoded = try JSONEncoder().encode(resolved)
+        let resolvedJSON = try XCTUnwrap(String(data: resolvedEncoded, encoding: .utf8))
+        XCTAssertFalse(resolvedJSON.contains("effortUnresolved"))
+        let resolvedDecoded = try JSONDecoder().decode(WorkoutSummary.self, from: resolvedEncoded)
+        XCTAssertNil(resolvedDecoded.effortUnresolved)
     }
 
     func testExpandedPermissionMigrationAddsNewTogglesForLegacySelections() throws {
@@ -3639,18 +3858,25 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let currentDay = try XCTUnwrap(calendar.date(
             from: DateComponents(year: 2026, month: 5, day: 15)
         ))
+        // Bed 2h off the baseline and wake 4h off it: an asymmetric deviation
+        // (not a whole-night translation), so this reads as genuine irregular
+        // sleep — the suspected-zone-shift heuristic must not fire — and the
+        // 3h average deviation is still penalized to zero consistency points.
         let currentStart = try XCTUnwrap(calendar.date(
-            from: DateComponents(year: 2026, month: 5, day: 15, hour: 2)
+            from: DateComponents(year: 2026, month: 5, day: 15, hour: 1)
+        ))
+        let currentEnd = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15, hour: 11)
         ))
         let currentSummary = SleepSummary(
-            duration: 8 * 60 * 60,
+            duration: currentEnd.timeIntervalSince(currentStart),
             stageSnapshot: SleepStageSnapshot(
                 date: currentDay,
                 segments: [
                     SleepStageSegment(
                         stage: .core,
                         startDate: currentStart,
-                        endDate: currentStart.addingTimeInterval(8 * 60 * 60)
+                        endDate: currentEnd
                     )
                 ]
             )
@@ -3688,7 +3914,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             calendar: calendar
         ))
 
-        XCTAssertEqual(score.total, 69)
+        XCTAssertEqual(score.total, 65)
         XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .consistency])
         XCTAssertEqual(score.category(for: .consistency)?.points, 0)
         XCTAssertEqual(score.category(for: .consistency)?.maximumPoints, 15)
@@ -3823,6 +4049,285 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             calendar: calendar
         ))
         XCTAssertNil(ambiguous.category(for: .consistency))
+    }
+
+    // MARK: - Timezone-aware consistency
+
+    func testConsistencyKeepsFullCreditForFirstThreeNightsInNewZone() throws {
+        let newYork = "America/New_York"
+        let london = "Europe/London"
+        // 14 nights at home in New York, then the first London nights on the same
+        // local 23:00–07:00 schedule (absolute UTC shifted +5h). Scored in each
+        // night's own zone, the deviation stays zero → full credit.
+        var history = try zonedNights((2...15).map { (day: $0, zone: newYork) })
+        let londonNights = try [16, 17, 18].map {
+            try zonedNight(wakeMonth: 6, wakeDay: $0, sleptZone: london)
+        }
+
+        for (index, night) in londonNights.enumerated() {
+            let score = try zonedScore(for: night, history: history)
+            let consistency = try XCTUnwrap(score.category(for: .consistency), "London night \(index + 1)")
+            XCTAssertEqual(consistency.points, 15, "London night \(index + 1)")
+            XCTAssertEqual(consistency.maximumPoints, 15, "London night \(index + 1)")
+            history.append(night)
+        }
+    }
+
+    func testConsistencyDropsCategoryFromFourthNightInNewZone() throws {
+        let newYork = "America/New_York"
+        let london = "Europe/London"
+        let baseline = try zonedNights((2...15).map { (day: $0, zone: newYork) })
+        let earlierLondon = try zonedNights((16...18).map { (day: $0, zone: london) })
+        let fourthLondon = try zonedNight(wakeMonth: 6, wakeDay: 19, sleptZone: london)
+
+        // Window (days 5–18) now holds 3 London nights + 11 foreign New York
+        // nights: streak 4 and foreignCount 11 both exceed the limit → dropped.
+        let score = try zonedScore(for: fourthLondon, history: baseline + earlierLondon)
+        XCTAssertNil(score.category(for: .consistency))
+        XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity])
+    }
+
+    func testConsistencyReturnsOnceForeignNightsAgeOutOfWindow() throws {
+        let newYork = "America/New_York"
+        let london = "Europe/London"
+        // Home in New York through day 12, then a long London stay. By day 24 only
+        // 3 New York nights (days 10–12) remain inside the 14-night window, so
+        // foreignCount is back at the limit and the category is scored again.
+        let newYorkNights = try zonedNights((2...12).map { (day: $0, zone: newYork) })
+        let londonNights = try zonedNights((13...23).map { (day: $0, zone: london) })
+        let tonight = try zonedNight(wakeMonth: 6, wakeDay: 24, sleptZone: london)
+
+        let score = try zonedScore(for: tonight, history: newYorkNights + londonNights)
+        let consistency = try XCTUnwrap(score.category(for: .consistency))
+        XCTAssertEqual(consistency.points, 15)
+    }
+
+    func testConsistencyKeepsCategoryReturningHomeAfterShortTrip() throws {
+        let newYork = "America/New_York"
+        let london = "Europe/London"
+        // Home, a 3-night London trip, then the first night back. The window holds
+        // exactly 3 foreign nights, so a short excursion doesn't drop the score.
+        let homeBefore = try zonedNights((8...18).map { (day: $0, zone: newYork) })
+        let trip = try zonedNights((19...21).map { (day: $0, zone: london) })
+        let tonight = try zonedNight(wakeMonth: 6, wakeDay: 22, sleptZone: newYork)
+
+        let score = try zonedScore(for: tonight, history: homeBefore + trip)
+        let consistency = try XCTUnwrap(score.category(for: .consistency))
+        XCTAssertEqual(consistency.points, 15)
+    }
+
+    func testConsistencyTreatsEqualOffsetZonesAsSameZone() throws {
+        let toronto = "America/Toronto"
+        let newYork = "America/New_York"
+        // Ten Toronto nights then four New York nights — different identifiers but
+        // the same EDT offset in June, so none count as foreign and the category
+        // is kept and scored. Identifier-only logic would drop it (streak 5 and 10
+        // "foreign" nights), so a present, full-credit category proves equivalence.
+        let torontoNights = try zonedNights((2...11).map { (day: $0, zone: toronto) })
+        let newYorkNights = try zonedNights((12...15).map { (day: $0, zone: newYork) })
+        let tonight = try zonedNight(wakeMonth: 6, wakeDay: 16, sleptZone: newYork)
+
+        let score = try zonedScore(for: tonight, history: torontoNights + newYorkNights)
+        let consistency = try XCTUnwrap(score.category(for: .consistency))
+        XCTAssertEqual(consistency.points, 15)
+    }
+
+    func testConsistencyIgnoresDSTTransitionWithinOneZone() throws {
+        let newYork = "America/New_York"
+        // Nights straddling the Nov 1 2026 fall-back, all in America/New_York on a
+        // fixed 23:00–07:00 local schedule. Same identifier ⇒ never foreign, and
+        // per-night local clocks keep the deviation at zero despite the offset flip
+        // (a naive per-instant offset compare would read pre-DST nights as foreign).
+        let october = try zonedNights((27...31).map { (day: $0, zone: newYork) }, month: 10)
+        let november = try zonedNights((1...9).map { (day: $0, zone: newYork) }, month: 11)
+        let tonight = try zonedNight(wakeMonth: 11, wakeDay: 10, sleptZone: newYork)
+
+        let score = try zonedScore(for: tonight, history: october + november)
+        let consistency = try XCTUnwrap(score.category(for: .consistency))
+        XCTAssertEqual(consistency.points, 15)
+    }
+
+    func testConsistencyDropsCategoryForSuspectedZoneShiftWithoutMetadata() throws {
+        let newYork = "America/New_York"
+        let london = "Europe/London"
+        // The same local schedule after +5h travel but with no zone metadata on
+        // any night: the whole clock translates by ~5h at both ends, which the
+        // suspected-shift heuristic now recognizes as an unrecorded zone change
+        // and drops rather than penalizing (the old behavior scored it "5h off").
+        let baseline = try zonedNights((2...15).map { (day: $0, zone: newYork) }, stampZone: false)
+        let tonight = try zonedNight(wakeMonth: 6, wakeDay: 16, sleptZone: london, stampZone: false)
+
+        let score = try zonedScore(for: tonight, history: baseline)
+        XCTAssertNil(score.category(for: .consistency))
+    }
+
+    func testConsistencyPenalizesUniformShiftWhenEveryZoneIsKnown() throws {
+        let zone = "America/New_York"
+        let calendar = try fixedCalendar(zone)
+        // Every night stays in New York (zone known on all of them), but tonight's
+        // whole clock genuinely translated +5h (04:00–12:00 vs a 23:00–07:00
+        // baseline). With no unknown zone the suspected-shift heuristic stays
+        // suppressed, so the genuine same-zone irregularity is penalized to zero.
+        let history = SleepHistorySnapshot(days: try (1...14).map { day -> SleepDaySummary in
+            let sleepDay = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 6, day: day, hour: 12)
+            ))
+            let bed = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 6, day: day - 1, hour: 23)
+            ))
+            let wake = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 6, day: day, hour: 7)
+            ))
+            return SleepDaySummary(
+                date: sleepDay,
+                summary: SleepSummary(
+                    duration: wake.timeIntervalSince(bed),
+                    stageSnapshot: SleepStageSnapshot(
+                        date: sleepDay,
+                        segments: [SleepStageSegment(stage: .core, startDate: bed, endDate: wake)],
+                        timeZoneIdentifier: zone
+                    )
+                )
+            )
+        })
+        let currentDay = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 6, day: 15, hour: 12)
+        ))
+        let bed = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 6, day: 15, hour: 4)
+        ))
+        let wake = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 6, day: 15, hour: 12)
+        ))
+        let tonight = SleepSummary(
+            duration: wake.timeIntervalSince(bed),
+            stageSnapshot: SleepStageSnapshot(
+                date: currentDay,
+                segments: [SleepStageSegment(stage: .core, startDate: bed, endDate: wake)],
+                timeZoneIdentifier: zone
+            )
+        )
+
+        let score = try XCTUnwrap(SleepScoreSummary(
+            sleep: tonight,
+            recentSleepHistory: history,
+            on: currentDay,
+            calendar: calendar
+        ))
+        let consistency = try XCTUnwrap(score.category(for: .consistency))
+        XCTAssertEqual(consistency.points, 0)
+        XCTAssertEqual(consistency.valueDescription, "5h off")
+    }
+
+    func testConsistencyKeepsAsymmetricDeviationWithoutMetadata() throws {
+        let calendar = Calendar.bodyGregorian
+        // Bed 2h off and wake 5h off a 23:00–07:00 baseline with no zone metadata:
+        // both ends exceed the shift minimum but their asymmetry is far past the
+        // symmetry tolerance, so the heuristic must not fire — a real irregular
+        // night stays scored (and penalized) rather than dropped as travel.
+        let history = SleepHistorySnapshot(days: try (1...14).map { day -> SleepDaySummary in
+            let sleepDay = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 5, day: day)
+            ))
+            let bed = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 5, day: day, hour: 23)
+            ))
+            return SleepDaySummary(
+                date: sleepDay,
+                summary: SleepSummary(
+                    duration: 8 * 60 * 60,
+                    stageSnapshot: SleepStageSnapshot(
+                        date: sleepDay,
+                        segments: [SleepStageSegment(
+                            stage: .core,
+                            startDate: bed,
+                            endDate: bed.addingTimeInterval(8 * 60 * 60)
+                        )]
+                    )
+                )
+            )
+        })
+        let currentDay = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15)
+        ))
+        let bed = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15, hour: 1)
+        ))
+        let wake = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15, hour: 12)
+        ))
+        let tonight = SleepSummary(
+            duration: wake.timeIntervalSince(bed),
+            stageSnapshot: SleepStageSnapshot(
+                date: currentDay,
+                segments: [SleepStageSegment(stage: .core, startDate: bed, endDate: wake)]
+            )
+        )
+
+        let score = try XCTUnwrap(SleepScoreSummary(
+            sleep: tonight,
+            recentSleepHistory: history,
+            on: currentDay,
+            calendar: calendar
+        ))
+        let consistency = try XCTUnwrap(score.category(for: .consistency))
+        XCTAssertEqual(consistency.points, 0)
+    }
+
+    func testConsistencyPenalizesCompressedNightWithEqualOppositeDeviations() throws {
+        let calendar = Calendar.bodyGregorian
+        // Bed 2h later and wake 2h earlier than a 23:00–07:00 baseline, no zone
+        // metadata: both unsigned deviations equal the shift minimum, but they
+        // point in opposite directions — a short irregular night, not a zone
+        // shift — so the heuristic must not fire and the night stays penalized.
+        let history = SleepHistorySnapshot(days: try (1...14).map { day -> SleepDaySummary in
+            let sleepDay = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 5, day: day)
+            ))
+            let bed = try XCTUnwrap(calendar.date(
+                from: DateComponents(year: 2026, month: 5, day: day, hour: 23)
+            ))
+            return SleepDaySummary(
+                date: sleepDay,
+                summary: SleepSummary(
+                    duration: 8 * 60 * 60,
+                    stageSnapshot: SleepStageSnapshot(
+                        date: sleepDay,
+                        segments: [SleepStageSegment(
+                            stage: .core,
+                            startDate: bed,
+                            endDate: bed.addingTimeInterval(8 * 60 * 60)
+                        )]
+                    )
+                )
+            )
+        })
+        let currentDay = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15)
+        ))
+        let bed = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15, hour: 1)
+        ))
+        let wake = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 5, day: 15, hour: 5)
+        ))
+        let tonight = SleepSummary(
+            duration: wake.timeIntervalSince(bed),
+            stageSnapshot: SleepStageSnapshot(
+                date: currentDay,
+                segments: [SleepStageSegment(stage: .core, startDate: bed, endDate: wake)]
+            )
+        )
+
+        let score = try XCTUnwrap(SleepScoreSummary(
+            sleep: tonight,
+            recentSleepHistory: history,
+            on: currentDay,
+            calendar: calendar
+        ))
+        // Average deviation 2h → partial credit, but the category must exist.
+        let consistency = try XCTUnwrap(score.category(for: .consistency))
+        XCTAssertEqual(consistency.points, 4)
     }
 
     func testSleepScoreCommentSummarizesScoreBand() {
@@ -4205,7 +4710,6 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let snapshot = HealthWidgetSnapshotBuilder.make(
             trends: trends,
             summary: summary,
-            sleepStageSnapshot: night.summary.stageSnapshot,
             temperatureUnitPreference: .celsius,
             energyUnitPreference: .kilojoules,
             weightUnitPreference: .kilograms,
@@ -4223,7 +4727,6 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let emptySnapshot = HealthWidgetSnapshotBuilder.make(
             trends: trends,
             summary: summary,
-            sleepStageSnapshot: .empty,
             temperatureUnitPreference: .celsius,
             energyUnitPreference: .kilojoules,
             weightUnitPreference: .kilograms,
@@ -5150,6 +5653,92 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             sleep: day.summary,
             recentSleepHistory: history,
             on: day.date
+        ))
+    }
+
+    // MARK: - Timezone-aware consistency helpers
+
+    /// A gregorian calendar pinned to a fixed zone so the timezone-consistency
+    /// tests are deterministic regardless of the test machine's zone.
+    private func fixedCalendar(_ identifier: String) throws -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.firstWeekday = 1
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: identifier))
+        return calendar
+    }
+
+    /// One single-core-stage night whose bed/wake wall-clock times (default
+    /// 23:00 the prior evening through 07:00) are interpreted in `sleptZone`,
+    /// optionally stamping `timeZoneIdentifier` (`stampZone: false` models an old
+    /// cache with no metadata). The night's `date` is noon of the wake day in
+    /// `scoringZone` so windowing buckets it deterministically.
+    private func zonedNight(
+        wakeMonth: Int,
+        wakeDay: Int,
+        sleptZone: String,
+        bedHour: Int = 23,
+        wakeHour: Int = 7,
+        stampZone: Bool = true,
+        scoringZone: String = "UTC"
+    ) throws -> SleepDaySummary {
+        let sleptCalendar = try fixedCalendar(sleptZone)
+        let scoringCalendar = try fixedCalendar(scoringZone)
+        let wakeDayStart = try XCTUnwrap(sleptCalendar.date(
+            from: DateComponents(year: 2026, month: wakeMonth, day: wakeDay)
+        ))
+        let previousDayStart = try XCTUnwrap(sleptCalendar.date(byAdding: .day, value: -1, to: wakeDayStart))
+        let previousComponents = sleptCalendar.dateComponents([.year, .month, .day], from: previousDayStart)
+        // Build from wall-clock components (not by adding hours) so a DST day
+        // still yields the intended local clock times.
+        let bed = try XCTUnwrap(sleptCalendar.date(from: DateComponents(
+            year: previousComponents.year,
+            month: previousComponents.month,
+            day: previousComponents.day,
+            hour: bedHour
+        )))
+        let wake = try XCTUnwrap(sleptCalendar.date(from: DateComponents(
+            year: 2026, month: wakeMonth, day: wakeDay, hour: wakeHour
+        )))
+        let dayDate = try XCTUnwrap(scoringCalendar.date(from: DateComponents(
+            year: 2026, month: wakeMonth, day: wakeDay, hour: 12
+        )))
+
+        return SleepDaySummary(
+            date: dayDate,
+            summary: SleepSummary(
+                duration: wake.timeIntervalSince(bed),
+                stageSnapshot: SleepStageSnapshot(
+                    date: dayDate,
+                    segments: [SleepStageSegment(stage: .core, startDate: bed, endDate: wake)],
+                    timeZoneIdentifier: stampZone ? sleptZone : nil
+                )
+            )
+        )
+    }
+
+    private func zonedNights(
+        _ specs: [(day: Int, zone: String)],
+        month: Int = 6,
+        stampZone: Bool = true
+    ) throws -> [SleepDaySummary] {
+        try specs.map {
+            try zonedNight(wakeMonth: month, wakeDay: $0.day, sleptZone: $0.zone, stampZone: stampZone)
+        }
+    }
+
+    /// Scores `night` against `history` in a fixed scoring zone. The scored
+    /// night's own zone comes from its snapshot metadata; `scoringZone` supplies
+    /// the wake-day bucketing window and the fallback for no-metadata nights.
+    private func zonedScore(
+        for night: SleepDaySummary,
+        history: [SleepDaySummary],
+        scoringZone: String = "UTC"
+    ) throws -> SleepScoreSummary {
+        try XCTUnwrap(SleepScoreSummary(
+            sleep: night.summary,
+            recentSleepHistory: SleepHistorySnapshot(days: history),
+            on: night.date,
+            calendar: try fixedCalendar(scoringZone)
         ))
     }
 }

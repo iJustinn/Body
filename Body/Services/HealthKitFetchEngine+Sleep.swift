@@ -12,81 +12,108 @@ import HealthKit
 // predicate / interval / permission helpers that live on the main engine
 // file with internal access so this extension can reach them.
 extension HealthKitFetchEngine {
-    func fetchSleepSummary(calendar: Calendar) async -> SleepSummary? {
+    func fetchSleepSummary(calendar: Calendar) async -> QueryOutcome<SleepSummary> {
+        Self.timeZoneLedger.recordCurrentZone()
         guard permissionSelection.includes(.sleep) else {
-            return nil
+            return .success(nil)
         }
 
         guard let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else {
-            return nil
+            return .success(nil)
+        }
+        if sourceSelectionUnresolved(for: .sleep) {
+            return .failure
         }
 
-        let endDate = Date()
+        let endDate = anchorDate ?? Date()
         let startDate = calendar.date(byAdding: .day, value: -14, to: endDate) ?? endDate.addingTimeInterval(-1_209_600)
         let predicate = combinedPredicate(startDate: startDate, endDate: endDate, sourceKind: .sleep)
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
         let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
 
-        let summary: SleepSummary? = await withCheckedContinuation { continuation in
+        let summaryOutcome: QueryOutcome<SleepDayGrouping> = await withCheckedContinuation { continuation in
             let query = HKSampleQuery(
                 sampleType: sleepType,
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [sort]
-            ) { _, samples, _ in
+            ) { _, samples, error in
+                guard let samples else {
+                    Self.logTrendQueryFailure("sleepAnalysis", error: error)
+                    continuation.resume(returning: .failure)
+                    return
+                }
                 let sleepSamples = (samples as? [HKCategorySample] ?? [])
                     .filter(Self.isSleepTimelineSample)
-                let samplesByDay = Dictionary(grouping: sleepSamples) {
-                    calendar.startOfDay(for: $0.endDate)
-                }
-
-                let summaries = samplesByDay.compactMap { day, daySamples -> SleepSummary? in
-                    Self.sleepSummary(
-                        from: daySamples,
-                        date: day,
-                        showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
-                        showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
-                    )
-                }
+                let groupings = Self.sleepDayGroupings(
+                    from: sleepSamples,
+                    calendar: calendar,
+                    showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
+                    showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
+                )
 
                 continuation.resume(
-                    returning: summaries.max { lhs, rhs in
-                        (lhs.stageSnapshot.date ?? .distantPast) < (rhs.stageSnapshot.date ?? .distantPast)
-                    }
+                    returning: .success(groupings.max { lhs, rhs in
+                        (lhs.day.summary.stageSnapshot.date ?? .distantPast)
+                            < (rhs.day.summary.stageSnapshot.date ?? .distantPast)
+                    })
                 )
             }
 
             healthStore.execute(query)
         }
 
-        guard var summary, let interval = summary.stageSnapshot.dateInterval else {
-            return summary
+        guard case .success(let maybeGrouping) = summaryOutcome else {
+            return .failure
+        }
+        guard let grouping = maybeGrouping else {
+            return .success(nil)
+        }
+        var summary = grouping.day.summary
+        guard let interval = grouping.mainSessionInterval else {
+            return .success(summary)
         }
 
-        summary.vitals = await fetchSleepVitals(
-            startDate: interval.start,
-            endDate: interval.end
-        )
-        return summary
+        // Sleep is resolved as one atomic summary field: a failed nocturnal
+        // vital query keeps the whole cached sleep card rather than showing a
+        // fresh card with a blank vital. The window is the main session only, so
+        // an afternoon nap on the same wake day can't stretch it across the day.
+        switch await fetchSleepVitals(startDate: interval.start, endDate: interval.end) {
+        case .failure:
+            return .failure
+        case .success(let vitals):
+            if let vitals {
+                summary.vitals = vitals
+            }
+            return .success(summary)
+        }
     }
 
-    /// Returns `nil` when the sleep query itself fails (device locked, store
-    /// unavailable) rather than genuinely returning no nights, so the assembly
-    /// layer keeps the cached sleep history — which feeds readiness — instead of
-    /// blanking it. Permission-off and a missing sample type still return an
-    /// (intentionally cleared) empty snapshot.
+    /// A `nil` `history` means the grouping query itself failed (device locked,
+    /// store unavailable) rather than genuinely returning no nights, so the
+    /// assembly layer keeps the cached sleep history — which feeds readiness —
+    /// instead of blanking it. Permission-off and a missing sample type still
+    /// return an (intentionally cleared) empty snapshot. `vitalsHadFailure`
+    /// reports a nocturnal-vital query failure even when grouping succeeded; those
+    /// vitals are merged from `cachedSleepHistory` (matched by wake day) rather
+    /// than blanked, but the trend leaf still withholds the freshness TTL.
     func fetchDailySleepHistory(
         calendar: Calendar,
         sourceOption: BodyHealthDataSourceOption? = nil,
-        hydrateVitals: Bool = true
-    ) async -> SleepHistorySnapshot? {
+        hydrateVitals: Bool = true,
+        cachedSleepHistory: SleepHistorySnapshot? = nil
+    ) async -> SleepHistoryFetchResult {
+        Self.timeZoneLedger.recordCurrentZone()
         guard permissionSelection.includes(.sleep) else {
             return .empty
         }
 
         guard let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else {
             return .empty
+        }
+        if sourceSelectionUnresolved(for: .sleep, option: sourceOption) {
+            return SleepHistoryFetchResult(history: nil, vitalsHadFailure: false)
         }
 
         let interval = recentHealthTrendInterval(calendar: calendar)
@@ -100,7 +127,7 @@ extension HealthKitFetchEngine {
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
         let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
 
-        let days: [SleepDaySummary]? = await withCheckedContinuation { continuation in
+        let groupings: [SleepDayGrouping]? = await withCheckedContinuation { continuation in
             let query = HKSampleQuery(
                 sampleType: sleepType,
                 predicate: predicate,
@@ -115,36 +142,24 @@ extension HealthKitFetchEngine {
 
                 let sleepSamples = (samples as? [HKCategorySample] ?? [])
                     .filter(Self.isSleepTimelineSample)
-                let samplesByDay = Dictionary(grouping: sleepSamples) {
-                    calendar.startOfDay(for: $0.endDate)
-                }
-
-                let days = samplesByDay.compactMap { day, daySamples -> SleepDaySummary? in
-                    guard let summary = Self.sleepSummary(
-                        from: daySamples,
-                        date: day,
-                        showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
-                        showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
-                    ) else {
-                        return nil
-                    }
-
-                    return SleepDaySummary(date: day, summary: summary)
-                }
-                .sorted { $0.date < $1.date }
-
-                continuation.resume(returning: days)
+                continuation.resume(returning: Self.sleepDayGroupings(
+                    from: sleepSamples,
+                    calendar: calendar,
+                    showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
+                    showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
+                ))
             }
 
             healthStore.execute(query)
         }
 
-        guard let days else {
-            return nil
+        guard let groupings else {
+            return SleepHistoryFetchResult(history: nil, vitalsHadFailure: false)
         }
 
+        let days = groupings.map(\.day)
         guard hydrateVitals else {
-            return SleepHistorySnapshot(days: days)
+            return SleepHistoryFetchResult(history: SleepHistorySnapshot(days: days), vitalsHadFailure: false)
         }
 
         // Hydrate sleep vitals with one OR-compound query per vital type,
@@ -153,110 +168,188 @@ extension HealthKitFetchEngine {
         // exactly 5 regardless of day count, with the same per-night
         // predicates so only in-night samples cross the HK IPC boundary.
         let signpostState = BodyPerformanceSignposts.signposter.beginInterval("SleepVitalsHydration")
-        let hydratedDays = await hydrateSleepVitals(for: days)
+        let hydration = await hydrateSleepVitals(for: groupings, cachedSleepHistory: cachedSleepHistory)
         BodyPerformanceSignposts.signposter.endInterval("SleepVitalsHydration", signpostState)
 
-        return SleepHistorySnapshot(days: hydratedDays)
+        return SleepHistoryFetchResult(
+            history: SleepHistorySnapshot(days: hydration.days),
+            vitalsHadFailure: hydration.vitalsHadFailure
+        )
     }
 
-    private func hydrateSleepVitals(for days: [SleepDaySummary]) async -> [SleepDaySummary] {
-        let indexedIntervals = days.enumerated().compactMap { index, day in
-            day.summary.stageSnapshot.dateInterval.map { (index: index, interval: $0) }
+    /// Groups sleep timeline samples into per-wake-day summaries. Each wake day
+    /// merges every session that ends that day (naps preserved alongside the
+    /// night), while `mainSessionInterval` carries the main night's span so the
+    /// nocturnal-vitals window stays bounded to the night. Sorted ascending by
+    /// wake day so per-night vital intervals stay ascending/non-overlapping.
+    nonisolated private static func sleepDayGroupings(
+        from sleepSamples: [HKCategorySample],
+        calendar: Calendar,
+        showsSubMinuteAwakeStages: Bool,
+        showsLeadingTrailingAwakeStages: Bool
+    ) -> [SleepDayGrouping] {
+        BodySleepSessionizer.sessionsByWakeDay(from: sleepSamples, calendar: calendar)
+            .compactMap { wakeDay, sessions -> SleepDayGrouping? in
+                let daySamples = sessions.flatMap(\.samples)
+                guard let summary = Self.sleepSummary(
+                    from: daySamples,
+                    date: wakeDay,
+                    showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
+                    showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
+                ) else {
+                    return nil
+                }
+
+                return SleepDayGrouping(
+                    day: SleepDaySummary(date: wakeDay, summary: summary),
+                    mainSessionInterval: BodySleepSessionizer.mainSession(in: sessions)?.interval
+                )
+            }
+            .sorted { $0.day.date < $1.day.date }
+    }
+
+    private func hydrateSleepVitals(
+        for groupings: [SleepDayGrouping],
+        cachedSleepHistory: SleepHistorySnapshot?
+    ) async -> (days: [SleepDaySummary], vitalsHadFailure: Bool) {
+        let indexedIntervals = groupings.enumerated().compactMap { index, grouping in
+            grouping.mainSessionInterval.map { (index: index, interval: $0) }
         }
         guard !indexedIntervals.isEmpty else {
-            return days
+            return (groupings.map(\.day), false)
         }
 
-        let vitals = await fetchSleepVitals(forIntervals: indexedIntervals.map(\.interval))
-        var hydrated = days
-        for (offset, entry) in indexedIntervals.enumerated() where offset < vitals.count {
-            hydrated[entry.index].summary.vitals = vitals[offset]
+        let outcomes = await fetchSleepVitals(forIntervals: indexedIntervals.map(\.interval))
+
+        // On a per-vital query FAILURE, merge that vital from the cached night
+        // with the same wake day (`SleepDayGrouping.day.date`) so a transient
+        // failure doesn't blank an existing vital; a successful value — including
+        // a genuine nil — replaces it. No cached night → the fetched value stands.
+        var cachedVitalsByWakeDay: [Date: SleepVitalsSummary] = [:]
+        if outcomes.hadFailure {
+            for day in cachedSleepHistory?.days ?? [] {
+                cachedVitalsByWakeDay[day.date] = day.summary.vitals
+            }
         }
-        return hydrated
+
+        var hydrated = groupings.map(\.day)
+        for (offset, entry) in indexedIntervals.enumerated() {
+            let cachedVitals = cachedVitalsByWakeDay[hydrated[entry.index].date]
+            hydrated[entry.index].summary.vitals = SleepVitalsSummary(
+                heartRate: Self.resolvedSleepVital(outcomes.heartRate, at: offset, cached: cachedVitals?.heartRate),
+                heartRateVariability: Self.resolvedSleepVital(outcomes.heartRateVariability, at: offset, cached: cachedVitals?.heartRateVariability),
+                respiratoryRate: Self.resolvedSleepVital(outcomes.respiratoryRate, at: offset, cached: cachedVitals?.respiratoryRate),
+                oxygenSaturation: Self.resolvedSleepVital(outcomes.oxygenSaturation, at: offset, cached: cachedVitals?.oxygenSaturation),
+                wristTemperatureCelsius: Self.resolvedSleepVital(outcomes.wristTemperatureCelsius, at: offset, cached: cachedVitals?.wristTemperatureCelsius)
+            )
+        }
+        return (hydrated, outcomes.hadFailure)
+    }
+
+    /// One night's value for a vital: on a query FAILURE keep the cached value
+    /// (merged by wake day in `hydrateSleepVitals`), otherwise use the per-night
+    /// fetched average (`nil` = genuinely no samples, clears). Mirrors
+    /// `resolvedSummaryValue` at the per-vital, per-night grain.
+    nonisolated static func resolvedSleepVital(
+        _ outcome: QueryOutcome<[Double?]>,
+        at index: Int,
+        cached: Double?
+    ) -> Double? {
+        switch outcome {
+        case .failure:
+            return cached
+        case .success(let values):
+            guard let values, index < values.count else {
+                return nil
+            }
+            return values[index]
+        }
     }
 
     /// One sample query per vital type covering every night interval (via an
     /// OR-compound of the per-night predicates), averaged per night with
     /// `averageVitalValues`. Matches the per-interval queries it replaces:
-    /// same predicates, units, and per-sample value transforms.
-    func fetchSleepVitals(forIntervals intervals: [DateInterval]) async -> [SleepVitalsSummary] {
+    /// same predicates, units, and per-sample value transforms. A per-vital query
+    /// FAILURE is preserved as `.failure` (not collapsed to blank nights) so
+    /// `hydrateSleepVitals` can merge that vital from cache; permission-off yields
+    /// a success of all-nil (genuine absence, clears).
+    func fetchSleepVitals(forIntervals intervals: [DateInterval]) async -> SleepVitalsIntervalOutcomes {
         guard !intervals.isEmpty else {
-            return []
+            return .empty
         }
 
         let emptyValues = [Double?](repeating: nil, count: intervals.count)
-        async let heartRates = fetchIfPermitted(.heart, default: emptyValues) {
-            Self.averageVitalValues(
-                samples: await self.fetchVitalSamples(
-                    for: .heartRate,
-                    unit: HKUnit.count().unitDivided(by: .minute()),
-                    sourceKind: .heartRate,
-                    intervals: intervals
-                ),
+        async let heartRates: QueryOutcome<[Double?]> = fetchIfPermitted(.heart, default: .success(emptyValues)) {
+            await self.averagedVitalOutcome(
+                for: .heartRate,
+                unit: HKUnit.count().unitDivided(by: .minute()),
+                sourceKind: .heartRate,
                 intervals: intervals
             )
         }
-        async let heartRateVariabilities = fetchIfPermitted(.heart, default: emptyValues) {
-            Self.averageVitalValues(
-                samples: await self.fetchVitalSamples(
-                    for: .heartRateVariabilitySDNN,
-                    unit: .secondUnit(with: .milli),
-                    sourceKind: .heartRateVariability,
-                    intervals: intervals
-                ),
+        async let heartRateVariabilities: QueryOutcome<[Double?]> = fetchIfPermitted(.heart, default: .success(emptyValues)) {
+            await self.averagedVitalOutcome(
+                for: .heartRateVariabilitySDNN,
+                unit: .secondUnit(with: .milli),
+                sourceKind: .heartRateVariability,
                 intervals: intervals
             )
         }
-        async let respiratoryRates = fetchIfPermitted(.respiratory, default: emptyValues) {
-            Self.averageVitalValues(
-                samples: await self.fetchVitalSamples(
-                    for: .respiratoryRate,
-                    unit: HKUnit.count().unitDivided(by: .minute()),
-                    sourceKind: .respiratoryRate,
-                    intervals: intervals
-                ),
+        async let respiratoryRates: QueryOutcome<[Double?]> = fetchIfPermitted(.respiratory, default: .success(emptyValues)) {
+            await self.averagedVitalOutcome(
+                for: .respiratoryRate,
+                unit: HKUnit.count().unitDivided(by: .minute()),
+                sourceKind: .respiratoryRate,
                 intervals: intervals
             )
         }
-        async let oxygenSaturations = fetchIfPermitted(.bloodOxygen, default: emptyValues) {
-            Self.averageVitalValues(
-                samples: await self.fetchVitalSamples(
-                    for: .oxygenSaturation,
-                    unit: .percent(),
-                    sourceKind: .oxygenSaturation,
-                    intervals: intervals,
-                    valueTransform: Self.normalizedPercentDisplayValue
-                ),
-                intervals: intervals
+        async let oxygenSaturations: QueryOutcome<[Double?]> = fetchIfPermitted(.bloodOxygen, default: .success(emptyValues)) {
+            await self.averagedVitalOutcome(
+                for: .oxygenSaturation,
+                unit: .percent(),
+                sourceKind: .oxygenSaturation,
+                intervals: intervals,
+                valueTransform: Self.normalizedPercentDisplayValue
             )
         }
-        async let wristTemperatures = fetchIfPermitted(.wristTemperature, default: emptyValues) {
-            Self.averageVitalValues(
-                samples: await self.fetchVitalSamples(
-                    for: .appleSleepingWristTemperature,
-                    unit: .degreeCelsius(),
-                    sourceKind: .wristTemperature,
-                    intervals: intervals
-                ),
+        async let wristTemperatures: QueryOutcome<[Double?]> = fetchIfPermitted(.wristTemperature, default: .success(emptyValues)) {
+            await self.averagedVitalOutcome(
+                for: .appleSleepingWristTemperature,
+                unit: .degreeCelsius(),
+                sourceKind: .wristTemperature,
                 intervals: intervals
             )
         }
 
-        let resolved = await (
-            heartRates,
-            heartRateVariabilities,
-            respiratoryRates,
-            oxygenSaturations,
-            wristTemperatures
+        return await SleepVitalsIntervalOutcomes(
+            heartRate: heartRates,
+            heartRateVariability: heartRateVariabilities,
+            respiratoryRate: respiratoryRates,
+            oxygenSaturation: oxygenSaturations,
+            wristTemperatureCelsius: wristTemperatures
         )
-        return intervals.indices.map { index in
-            SleepVitalsSummary(
-                heartRate: resolved.0[index],
-                heartRateVariability: resolved.1[index],
-                respiratoryRate: resolved.2[index],
-                oxygenSaturation: resolved.3[index],
-                wristTemperatureCelsius: resolved.4[index]
-            )
+    }
+
+    /// Fetches one vital's window samples and averages them per night, preserving
+    /// a query FAILURE as `.failure` so the merge layer can fall back to cache.
+    private func averagedVitalOutcome(
+        for identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        sourceKind: HealthMetricKind?,
+        intervals: [DateInterval],
+        valueTransform: @escaping (Double) -> Double = { $0 }
+    ) async -> QueryOutcome<[Double?]> {
+        switch await fetchVitalSamples(
+            for: identifier,
+            unit: unit,
+            sourceKind: sourceKind,
+            intervals: intervals,
+            valueTransform: valueTransform
+        ) {
+        case .failure:
+            return .failure
+        case .success(let samples):
+            return .success(Self.averageVitalValues(samples: samples ?? [], intervals: intervals))
         }
     }
 
@@ -269,9 +362,12 @@ extension HealthKitFetchEngine {
         sourceKind: HealthMetricKind?,
         intervals: [DateInterval],
         valueTransform: @escaping (Double) -> Double = { $0 }
-    ) async -> [SleepVitalWindowSample] {
+    ) async -> QueryOutcome<[SleepVitalWindowSample]> {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
-            return []
+            return .success(nil)
+        }
+        if let sourceKind, sourceSelectionUnresolved(for: sourceKind) {
+            return .failure
         }
 
         let intervalPredicates = intervals.map { interval in
@@ -296,27 +392,35 @@ extension HealthKitFetchEngine {
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [sort]
-            ) { _, samples, _ in
-                let windowSamples = (samples as? [HKQuantitySample] ?? []).compactMap { sample -> SleepVitalWindowSample? in
-                    let value = valueTransform(sample.quantity.doubleValue(for: unit))
+            ) { _, samples, error in
+                guard let samples else {
+                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
+                    continuation.resume(returning: .failure)
+                    return
+                }
+                let windowSamples = samples.compactMap { sample -> SleepVitalWindowSample? in
+                    guard let quantitySample = sample as? HKQuantitySample else {
+                        return nil
+                    }
+                    let value = valueTransform(quantitySample.quantity.doubleValue(for: unit))
                     guard value.isFinite else {
                         return nil
                     }
                     return SleepVitalWindowSample(
-                        startDate: sample.startDate,
-                        endDate: sample.endDate,
+                        startDate: quantitySample.startDate,
+                        endDate: quantitySample.endDate,
                         value: value
                     )
                 }
-                continuation.resume(returning: windowSamples)
+                continuation.resume(returning: .success(windowSamples))
             }
 
             healthStore.execute(query)
         }
     }
 
-    func fetchSleepVitals(startDate: Date, endDate: Date) async -> SleepVitalsSummary {
-        async let heartRate: HealthMetricSummary? = fetchIfPermitted(.heart, default: nil) {
+    func fetchSleepVitals(startDate: Date, endDate: Date) async -> QueryOutcome<SleepVitalsSummary> {
+        async let heartRate: QueryOutcome<HealthMetricSummary> = fetchIfPermitted(.heart, default: .success(nil)) {
             await sleepQuantitySummary(
                 for: .heartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
@@ -326,7 +430,7 @@ extension HealthKitFetchEngine {
                 sourceKind: .heartRate
             )
         }
-        async let heartRateVariability: HealthMetricSummary? = fetchIfPermitted(.heart, default: nil) {
+        async let heartRateVariability: QueryOutcome<HealthMetricSummary> = fetchIfPermitted(.heart, default: .success(nil)) {
             await sleepQuantitySummary(
                 for: .heartRateVariabilitySDNN,
                 unit: .secondUnit(with: .milli),
@@ -336,7 +440,7 @@ extension HealthKitFetchEngine {
                 sourceKind: .heartRateVariability
             )
         }
-        async let respiratoryRate: HealthMetricSummary? = fetchIfPermitted(.respiratory, default: nil) {
+        async let respiratoryRate: QueryOutcome<HealthMetricSummary> = fetchIfPermitted(.respiratory, default: .success(nil)) {
             await sleepQuantitySummary(
                 for: .respiratoryRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
@@ -346,7 +450,7 @@ extension HealthKitFetchEngine {
                 sourceKind: .respiratoryRate
             )
         }
-        async let oxygenSaturation: HealthMetricSummary? = fetchIfPermitted(.bloodOxygen, default: nil) {
+        async let oxygenSaturation: QueryOutcome<HealthMetricSummary> = fetchIfPermitted(.bloodOxygen, default: .success(nil)) {
             await sleepQuantitySummary(
                 for: .oxygenSaturation,
                 unit: .percent(),
@@ -357,7 +461,7 @@ extension HealthKitFetchEngine {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         }
-        async let wristTemperature: HealthMetricSummary? = fetchIfPermitted(.wristTemperature, default: nil) {
+        async let wristTemperature: QueryOutcome<HealthMetricSummary> = fetchIfPermitted(.wristTemperature, default: .success(nil)) {
             await sleepQuantitySummary(
                 for: .appleSleepingWristTemperature,
                 unit: .degreeCelsius(),
@@ -368,12 +472,31 @@ extension HealthKitFetchEngine {
             )
         }
 
-        return await SleepVitalsSummary(
-            heartRate: heartRate?.value,
-            heartRateVariability: heartRateVariability?.value,
-            respiratoryRate: respiratoryRate?.value,
-            oxygenSaturation: oxygenSaturation?.value,
-            wristTemperatureCelsius: wristTemperature?.value
+        let resolvedHeartRate = await heartRate
+        let resolvedHeartRateVariability = await heartRateVariability
+        let resolvedRespiratoryRate = await respiratoryRate
+        let resolvedOxygenSaturation = await oxygenSaturation
+        let resolvedWristTemperature = await wristTemperature
+
+        // Any failed nocturnal vital query fails the whole sleep vitals fetch so
+        // the caller keeps the cached sleep card rather than showing a blank
+        // vital. A confirmed-absent vital (`.success(nil)`) stays absent.
+        if resolvedHeartRate.isFailure
+            || resolvedHeartRateVariability.isFailure
+            || resolvedRespiratoryRate.isFailure
+            || resolvedOxygenSaturation.isFailure
+            || resolvedWristTemperature.isFailure {
+            return .failure
+        }
+
+        return .success(
+            SleepVitalsSummary(
+                heartRate: resolvedHeartRate.successValue?.value,
+                heartRateVariability: resolvedHeartRateVariability.successValue?.value,
+                respiratoryRate: resolvedRespiratoryRate.successValue?.value,
+                oxygenSaturation: resolvedOxygenSaturation.successValue?.value,
+                wristTemperatureCelsius: resolvedWristTemperature.successValue?.value
+            )
         )
     }
 
@@ -425,4 +548,50 @@ struct SleepVitalWindowSample: Equatable {
     let startDate: Date
     let endDate: Date
     let value: Double
+}
+
+/// Result of `fetchDailySleepHistory`: the resolved history (`nil` = the
+/// grouping query itself failed, so the caller keeps the cached history) plus
+/// whether a nocturnal-vital query failed even though grouping succeeded (those
+/// vitals were merged from cache, but the trend leaf still withholds the TTL).
+struct SleepHistoryFetchResult {
+    let history: SleepHistorySnapshot?
+    let vitalsHadFailure: Bool
+
+    static let empty = SleepHistoryFetchResult(history: .empty, vitalsHadFailure: false)
+}
+
+/// Per-vital outcomes for a batch of night intervals. Each vital is either a
+/// query FAILURE (whole vital query errored — merge that vital from the cached
+/// night) or a success carrying per-interval averages aligned to the intervals
+/// passed to `fetchSleepVitals` (`nil` = genuinely no samples that night).
+struct SleepVitalsIntervalOutcomes {
+    let heartRate: HealthKitFetchEngine.QueryOutcome<[Double?]>
+    let heartRateVariability: HealthKitFetchEngine.QueryOutcome<[Double?]>
+    let respiratoryRate: HealthKitFetchEngine.QueryOutcome<[Double?]>
+    let oxygenSaturation: HealthKitFetchEngine.QueryOutcome<[Double?]>
+    let wristTemperatureCelsius: HealthKitFetchEngine.QueryOutcome<[Double?]>
+
+    var hadFailure: Bool {
+        heartRate.isFailure
+            || heartRateVariability.isFailure
+            || respiratoryRate.isFailure
+            || oxygenSaturation.isFailure
+            || wristTemperatureCelsius.isFailure
+    }
+
+    static let empty = SleepVitalsIntervalOutcomes(
+        heartRate: .success(nil),
+        heartRateVariability: .success(nil),
+        respiratoryRate: .success(nil),
+        oxygenSaturation: .success(nil),
+        wristTemperatureCelsius: .success(nil)
+    )
+}
+
+/// A wake day's merged `SleepDaySummary` (all sessions ending that day) paired
+/// with the main night's span, which bounds that day's nocturnal-vitals window.
+private struct SleepDayGrouping {
+    let day: SleepDaySummary
+    let mainSessionInterval: DateInterval?
 }

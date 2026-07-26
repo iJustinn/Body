@@ -672,7 +672,7 @@ final class WorkoutEffortEstimatorTests: XCTestCase {
 
     // MARK: - Incomplete history gating
 
-    func testIncompleteHistorySkipsCalibrationAndCapsConfidence() {
+    func testIncompleteHistorySkipsCalibrationAndConfidenceIsLow() {
         let priors = (0..<3).map { _ in ratedPrior(rating: 8) }
         let result = estimate(
             workout(avgHR: bpm(hrrFraction: 0.72)),
@@ -682,7 +682,7 @@ final class WorkoutEffortEstimatorTests: XCTestCase {
             isComplete: false
         )
         XCTAssertEqual(result?.calibrationBias ?? -1, 0)
-        XCTAssertEqual(result?.confidence, .medium)
+        XCTAssertEqual(result?.confidence, .low)
         XCTAssertEqual(result?.rawScore ?? 0, 6.5, accuracy: 1e-9)
     }
 

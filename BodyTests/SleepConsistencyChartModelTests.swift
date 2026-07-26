@@ -373,6 +373,54 @@ final class SleepConsistencyChartModelTests: XCTestCase {
         XCTAssertEqual(wrappedComponents.minute, 30)
     }
 
+    func testZoneStampedNightAlignsOffsetsWithLocalSchedule() throws {
+        let utc = try fixedCalendar("UTC")
+        let newYorkIdentifier = "America/New_York"
+        let newYork = try fixedCalendar(newYorkIdentifier)
+
+        // Night one: 23:00–07:00 in UTC (no travel), no metadata.
+        let firstDay = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 6, day: 10, hour: 12)))
+        let firstSnapshot = SleepStageSnapshot(date: firstDay, segments: [
+            SleepStageSegment(
+                stage: .core,
+                startDate: try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 6, day: 9, hour: 23))),
+                endDate: try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 6, day: 10, hour: 7)))
+            )
+        ])
+
+        // Night two: the identical 23:00–07:00 local schedule but flown to New
+        // York (absolute UTC shifted), carrying its own zone metadata. Read in its
+        // own zone the offsets line up with night one instead of scattering.
+        let secondDay = try XCTUnwrap(newYork.date(from: DateComponents(year: 2026, month: 6, day: 11, hour: 12)))
+        let shiftedSnapshot = SleepStageSnapshot(
+            date: secondDay,
+            segments: [
+                SleepStageSegment(
+                    stage: .core,
+                    startDate: try XCTUnwrap(newYork.date(from: DateComponents(year: 2026, month: 6, day: 10, hour: 23))),
+                    endDate: try XCTUnwrap(newYork.date(from: DateComponents(year: 2026, month: 6, day: 11, hour: 7)))
+                )
+            ],
+            timeZoneIdentifier: newYorkIdentifier
+        )
+
+        let model = SleepConsistencyChartModel.make(
+            entries: [(day: firstDay, snapshot: firstSnapshot), (day: secondDay, snapshot: shiftedSnapshot)],
+            calendar: utc
+        )
+
+        XCTAssertEqual(try XCTUnwrap(model.averageBedOffsetHours), -1.0, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(model.averageWakeOffsetHours), 7.0, accuracy: 0.001)
+        XCTAssertEqual(model.consistencyPercentage, 100)
+    }
+
+    private func fixedCalendar(_ identifier: String) throws -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.firstWeekday = 1
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: identifier))
+        return calendar
+    }
+
     private func date(_ year: Int, _ month: Int, _ day: Int, _ hour: Int = 0, _ minute: Int = 0) throws -> Date {
         try XCTUnwrap(calendar.date(from: DateComponents(
             year: year, month: month, day: day, hour: hour, minute: minute

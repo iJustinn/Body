@@ -39,6 +39,7 @@ enum BodyMainTab: Hashable, CaseIterable {
 struct MainTabView: View {
     @State private var selectedTab: BodyMainTab = .summary
     @State private var summaryReselectCount = 0
+    @State private var isFirstLaunchOverlayPresented = false
 
     /// Wraps the tab selection so re-tapping the already-active Summary tab bumps
     /// `summaryReselectCount`. Both the native tab bar and the custom pill bar route
@@ -57,8 +58,12 @@ struct MainTabView: View {
     var body: some View {
         content
             .environment(\.summaryReselectCount, summaryReselectCount)
+            .accessibilityHidden(isFirstLaunchOverlayPresented)
+            .overlay(alignment: .top) {
+                BodyHealthSyncBadge(isSuppressed: isFirstLaunchOverlayPresented)
+            }
             .overlay {
-                BodyFirstLaunchLoadOverlay()
+                BodyFirstLaunchLoadOverlay(onPresentationChange: { isFirstLaunchOverlayPresented = $0 })
             }
     }
 

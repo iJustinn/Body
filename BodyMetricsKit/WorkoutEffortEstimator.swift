@@ -85,6 +85,10 @@ enum WorkoutEffortEstimator {
         case standard
     }
 
+    /// `.workoutProfile` is always `.low` (no HR data to lean on). HR-based bases
+    /// (`.heartRateReserve`, `.percentMaxHeartRate`) are `.low` until the 30-day
+    /// comparison history is fully loaded — the score may still shift once it lands —
+    /// then `.medium`, or `.high` once calibration is active.
     enum Confidence: Equatable {
         case high
         case medium
@@ -218,7 +222,13 @@ enum WorkoutEffortEstimator {
         case .workoutProfile:
             confidence = .low
         case .heartRateReserve, .percentMaxHeartRate:
-            confidence = calibrationActive ? .high : .medium
+            if input.isHistoryComplete {
+                confidence = calibrationActive ? .high : .medium
+            } else {
+                // Calibration inputs weren't loaded, so this score may shift once the
+                // 30-day history lands — low confidence keeps auto-apply from writing it.
+                confidence = .low
+            }
         }
 
         return Estimate(

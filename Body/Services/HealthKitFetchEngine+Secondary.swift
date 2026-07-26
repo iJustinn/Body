@@ -12,7 +12,11 @@ import HealthKit
 // query shape for the *secondary* series. The primary series uses the
 // orchestrators in `HealthKitFetchEngine.swift`.
 extension HealthKitFetchEngine {
-    func fetchSecondaryTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendSeries {
+    /// Returns `nil` when the underlying secondary query FAILS (device locked,
+    /// store unavailable, unresolved secondary selection) so the trend assembly
+    /// keeps the cached secondary series; a no-comparison selection or an
+    /// unsupported metric returns an intentional `.empty` that clears it.
+    func fetchSecondaryTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendSeries? {
         let secondaryOption = selectedSecondaryHealthDataSourceOption(for: kind)
         guard !secondaryOption.isNoComparison else {
             return .empty
@@ -20,7 +24,7 @@ extension HealthKitFetchEngine {
 
         switch kind {
         case .sleep:
-            return await fetchSecondarySleepHistory(calendar: calendar).durationSeries
+            return await fetchSecondarySleepHistory(calendar: calendar)?.durationSeries
         case .restingHeartRate:
             return await fetchDailyQuantitySeries(
                 for: .restingHeartRate,
@@ -29,7 +33,7 @@ extension HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .restingHeartRate,
                 sourceOption: secondaryOption
-            ) ?? .empty
+            )
         case .activeEnergy:
             return await fetchDailyCumulativeQuantitySeries(
                 for: .activeEnergyBurned,
@@ -37,7 +41,7 @@ extension HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .activeEnergy,
                 sourceOption: secondaryOption
-            ) ?? .empty
+            )
         case .restingEnergy:
             return await fetchDailyCumulativeQuantitySeries(
                 for: .basalEnergyBurned,
@@ -45,7 +49,7 @@ extension HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .restingEnergy,
                 sourceOption: secondaryOption
-            ) ?? .empty
+            )
         case .exerciseMinutes:
             return await fetchDailyCumulativeQuantitySeries(
                 for: .appleExerciseTime,
@@ -53,7 +57,7 @@ extension HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .exerciseMinutes,
                 sourceOption: secondaryOption
-            ) ?? .empty
+            )
         case .steps:
             return await fetchDailyCumulativeQuantitySeries(
                 for: .stepCount,
@@ -61,7 +65,7 @@ extension HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .steps,
                 sourceOption: secondaryOption
-            ) ?? .empty
+            )
         case .basics,
              .readiness,
              .heartRate,
@@ -78,7 +82,10 @@ extension HealthKitFetchEngine {
         }
     }
 
-    func fetchSecondarySleepHistory(calendar: Calendar) async -> SleepHistorySnapshot {
+    /// Returns `nil` when the grouping query FAILS so the assembly keeps the
+    /// cached secondary sleep history; no-comparison returns an intentional
+    /// `.empty`. Never hydrates vitals (the comparison series only needs duration).
+    func fetchSecondarySleepHistory(calendar: Calendar) async -> SleepHistorySnapshot? {
         let secondaryOption = selectedSecondaryHealthDataSourceOption(for: .sleep)
         guard !secondaryOption.isNoComparison else {
             return .empty
@@ -88,15 +95,19 @@ extension HealthKitFetchEngine {
             calendar: calendar,
             sourceOption: secondaryOption,
             hydrateVitals: false
-        ) ?? .empty
+        ).history
     }
 
+    /// Returns `nil` when the underlying sample query fails (device locked,
+    /// store unavailable, or an unresolved secondary source selection) so the
+    /// store keeps the cached secondary day-sample series instead of blanking
+    /// it; a successful empty result still replaces it.
     func fetchSecondaryDaySamples(
         for kind: HealthMetricKind,
         calendar: Calendar,
         startDate: Date? = nil,
         endDate: Date? = nil
-    ) async -> HealthTrendSeries {
+    ) async -> HealthTrendSeries? {
         let secondaryOption = selectedSecondaryHealthDataSourceOption(for: kind)
         guard !secondaryOption.isNoComparison else {
             return .empty
@@ -180,7 +191,11 @@ extension HealthKitFetchEngine {
         }
     }
 
-    func fetchSecondaryRangeTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendRangeSeries {
+    /// Returns `nil` when the underlying range query FAILS (device locked, store
+    /// unavailable, unresolved secondary selection) so the assembly keeps the
+    /// cached secondary range series; a no-comparison selection or an unsupported
+    /// metric returns an intentional `.empty` that clears it.
+    func fetchSecondaryRangeTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendRangeSeries? {
         let secondaryOption = selectedSecondaryHealthDataSourceOption(for: kind)
         guard !secondaryOption.isNoComparison else {
             return .empty

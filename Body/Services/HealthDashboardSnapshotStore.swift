@@ -94,6 +94,8 @@ enum HealthDashboardSnapshotStore {
     @discardableResult
     static func save(
         _ snapshot: HealthDashboardSnapshot,
+        daySampleSignatures: HealthTrendDaySampleSignatures? = nil,
+        summaryContextSignature: String? = nil,
         defaults: UserDefaults = .standard,
         fileURL: URL? = snapshotFileURL
     ) -> Bool {
@@ -112,7 +114,12 @@ enum HealthDashboardSnapshotStore {
         )
         let data: Data
         do {
-            data = try makeSnapshotEncoder().encode(mainSnapshot)
+            data = try makeSnapshotEncoder().encode(
+                PersistedDashboardSnapshot(
+                    snapshot: mainSnapshot,
+                    summaryContextSignature: summaryContextSignature
+                )
+            )
         } catch {
             logger.error("Health dashboard snapshot encode failed: \(error.localizedDescription, privacy: .public)")
             return false
@@ -134,7 +141,10 @@ enum HealthDashboardSnapshotStore {
         }
         defaults.removeObject(forKey: healthDashboardSnapshotKey)
 
-        if saveDaySamples(HealthTrendDaySampleSnapshot(trends: snapshot.trends), alongside: fileURL) {
+        if saveDaySamples(
+            HealthTrendDaySampleSnapshot(trends: snapshot.trends, signatures: daySampleSignatures),
+            alongside: fileURL
+        ) {
             didWrite = true
         }
         return didWrite
@@ -232,6 +242,20 @@ enum HealthDashboardSnapshotStore {
         load(defaults: defaults, fileURL: fileURL) ?? .empty
     }
 
+    /// The summary-context signature persisted alongside the snapshot (H2a),
+    /// restored into the store's summary-reuse gate at launch so a cold-start
+    /// failed summary leaf can reuse the persisted value only while the current
+    /// selection/prefs still match the ones it was saved under. `nil` for a
+    /// snapshot written before this field existed (→ conservative empty-on-
+    /// failure until the first refresh re-stamps it).
+    static func loadSummaryContextSignature(fileURL: URL? = snapshotFileURL) -> String? {
+        guard let fileURL, let data = try? Data(contentsOf: fileURL) else {
+            return nil
+        }
+        return (try? JSONDecoder().decode(SummaryContextSignatureProbe.self, from: data))?
+            .summaryContextSignature
+    }
+
     static func exists(fileURL: URL? = snapshotFileURL) -> Bool {
         guard let fileURL else {
             return false
@@ -301,4 +325,48 @@ enum HealthDashboardSnapshotStore {
             return nil
         }
     }
+}
+
+/// On-disk envelope: the dashboard snapshot's own keys plus an optional
+/// `summaryContextSignature` sibling, written flat so the signature rides inside
+/// the snapshot atomically (H2a) — every save path carries it and `delete()`
+/// removes it with the data. `HealthDashboardSnapshot` lives in a package this
+/// store can't extend, so the wrapper merges the extra key into the snapshot's
+/// top-level container on encode and reads it back on decode. An old file (and
+/// the plain `HealthDashboardSnapshot` decode in `load`) simply lacks/ignores the
+/// key; the signature decodes as nil. With a nil signature `encodeIfPresent`
+/// omits the key, so the bytes stay identical to the pre-H2a format (the
+/// save-if-changed compare still reports "unchanged").
+private struct PersistedDashboardSnapshot: Codable {
+    let snapshot: HealthDashboardSnapshot
+    let summaryContextSignature: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case summaryContextSignature
+    }
+
+    init(snapshot: HealthDashboardSnapshot, summaryContextSignature: String?) {
+        self.snapshot = snapshot
+        self.summaryContextSignature = summaryContextSignature
+    }
+
+    init(from decoder: Decoder) throws {
+        snapshot = try HealthDashboardSnapshot(from: decoder)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        summaryContextSignature = try container.decodeIfPresent(String.self, forKey: .summaryContextSignature)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try snapshot.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(summaryContextSignature, forKey: .summaryContextSignature)
+    }
+}
+
+/// Minimal probe that reads ONLY the summary-context signature from the flat
+/// envelope, so the launch-time restore doesn't rebuild the heavy snapshot
+/// object graph. Unknown keys (summary/trends/…) are ignored; a missing key
+/// decodes as nil.
+private struct SummaryContextSignatureProbe: Decodable {
+    let summaryContextSignature: String?
 }

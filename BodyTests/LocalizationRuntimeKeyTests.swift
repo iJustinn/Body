@@ -32,6 +32,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Kilometer %@, %@",
             "Mile %@, %@",
             "Fastest split",
+            "Slowest split",
             "Average heart rate %@ BPM",
             "Pace",
             "Speed",
@@ -48,6 +49,29 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             ["Today's sleep data isn't in yet. Get some rest and check back later for a more accurate result."],
             in: catalog
         )
+    }
+
+    func testWorkoutShareKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            "Share Workout",
+            "Background",
+            "Your Photo",
+            "Share",
+            "Midnight",
+            "Workout Color",
+            "Map",
+            "Save",
+            "Saved",
+            "Couldn't Load Photo",
+            "Couldn't Load Map",
+            "Couldn't Create Image",
+            "Couldn't Save Image",
+            "Body needs permission to add photos. Allow it in Settings › Body › Photos, then try again."
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
     }
 
     private func assertKeysTranslated(_ keys: [String], in catalog: [String: Any]) throws {

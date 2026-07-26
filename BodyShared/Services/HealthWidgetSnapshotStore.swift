@@ -58,8 +58,25 @@ enum HealthWidgetSnapshotStore {
             return false
         }
 
-        if let existing = try? Data(contentsOf: fileURL), existing == data {
-            return false
+        if let existing = try? Data(contentsOf: fileURL) {
+            if existing == data {
+                return false
+            }
+            // A periodic re-save with unchanged content still gets a fresh
+            // `generatedDate` from the caller, which would otherwise defeat the
+            // byte-compare above on every call. Re-encode the incoming
+            // snapshot with the on-disk `generatedDate` substituted in; if
+            // that now matches the on-disk bytes, the content is unchanged
+            // and the write (and its new timestamp) is skipped.
+            if let existingSnapshot = try? JSONDecoder().decode(HealthWidgetSnapshot.self, from: existing) {
+                var restampedSnapshot = snapshot
+                restampedSnapshot.generatedDate = existingSnapshot.generatedDate
+                let restampedEncoder = JSONEncoder()
+                restampedEncoder.outputFormatting = [.sortedKeys]
+                if let restamped = try? restampedEncoder.encode(restampedSnapshot), restamped == existing {
+                    return false
+                }
+            }
         }
 
         do {

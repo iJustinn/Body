@@ -23,9 +23,6 @@ final class BodyProStore {
     /// RevenueCat entitlement identifier that unlocks Body Pro.
     static let entitlementID = RevenueCatConfiguration.proEntitlementID
 
-    /// Fallback price shown before (or if) the store product fails to load.
-    static let fallbackDisplayPrice = "$9.99"
-
     enum PurchaseState: Equatable {
         case idle
         case purchasing
@@ -42,6 +39,10 @@ final class BodyProStore {
     /// show "checking…" rather than "buy" during a reinstall's resolve window.
     private(set) var hasResolved = false
     private(set) var product: StoreProduct?
+    /// `true` once a `loadProduct()` attempt has completed without resolving a product —
+    /// distinguishes "still loading" from "failed", so the paywall never shows a guessed
+    /// price. Cleared at the start of every retry.
+    private(set) var productLoadFailed = false
     var purchaseState: PurchaseState = .idle
 
     // Retained for the store's (app) lifetime. The `[weak self]` capture lets the loop
@@ -70,15 +71,19 @@ final class BodyProStore {
         }
     }
 
-    var displayPrice: String {
-        product?.localizedPriceString ?? Self.fallbackDisplayPrice
+    /// `nil` until the product resolves — the paywall shows a loading placeholder rather
+    /// than a guessed price.
+    var displayPrice: String? {
+        product?.localizedPriceString
     }
 
     /// Fetch the product directly by id (no Offering dependency); the paywall shows its
-    /// localized price. Non-fatal on failure: the paywall falls back to the static price
-    /// and `purchase()` retries the load.
+    /// localized price. Non-fatal on failure: `productLoadFailed` lets the paywall offer a
+    /// retry, and `purchase()` retries the load itself.
     func loadProduct() async {
+        productLoadFailed = false
         product = await Purchases.shared.products([Self.lifetimeProductID]).first
+        productLoadFailed = product == nil
     }
 
     func purchase() async {

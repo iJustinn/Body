@@ -101,7 +101,7 @@ struct BodyReadinessHeroLabel: View {
                     .contentTransition(.numericText())
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
-                    .animation(.smooth(duration: 0.4, extraBounce: 0), value: displayedScore)
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: displayedScore)
 
                 if readiness.score != nil {
                     Text("%")
@@ -183,6 +183,8 @@ struct BodyReadinessHeroLabel: View {
 /// front cut crisply and the lower portion melting into the page background. The level
 /// animates via frame width so it rises from empty and slosh-springs to each new value.
 private struct BodyReadinessWaveFill: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let fraction: Double
     let tint: Color
 
@@ -210,7 +212,7 @@ private struct BodyReadinessWaveFill: View {
         GeometryReader { geo in
             let width = geo.size.width
             let height = geo.size.height
-            let target: CGFloat = hasAppeared ? CGFloat(clamped) : 0
+            let target: CGFloat = (hasAppeared || reduceMotion) ? CGFloat(clamped) : 0
 
             ZStack(alignment: .leading) {
                 // "Unfilled" track = a much darker shade of the readiness color (the
@@ -243,7 +245,7 @@ private struct BodyReadinessWaveFill: View {
                         endPoint: .trailing
                     )
                 )
-                .animation(.interpolatingSpring(stiffness: 55, damping: 8.25), value: target)
+                .animation(reduceMotion ? nil : .interpolatingSpring(stiffness: 55, damping: 8.25), value: target)
 
                 // Concentrate the color up top and melt the lower portion into the page
                 // background — mirroring how the metric detail hero eases its tint into

@@ -33,9 +33,41 @@ enum BodySleepSampleParser {
                     from: samples,
                     showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
                     showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
-                )
+                ),
+                timeZoneIdentifier: timeZoneIdentifier(from: samples)
             )
         )
+    }
+
+    /// The zone the night was recorded in (`HKMetadataKeyTimeZone`). A wake-day
+    /// snapshot flattens every session of the day (naps included), so the zone
+    /// comes from the main session only — a nap in another zone, even one whose
+    /// single sample outlasts the main night's individual stage samples, must
+    /// not label the night. Within the main session, per-zone asleep durations
+    /// are aggregated so a detailed night split into short stage samples still
+    /// outweighs any stray sample. `nil` when no main-session asleep sample
+    /// carries the metadata.
+    static func timeZoneIdentifier(from samples: [HKCategorySample]) -> String? {
+        guard let mainSession = BodySleepSessionizer.mainSession(
+            in: BodySleepSessionizer.sessions(from: samples)
+        ) else {
+            return nil
+        }
+
+        var durationByZone: [String: TimeInterval] = [:]
+        for sample in mainSession.samples where isAsleep(sample) {
+            guard let identifier = sample.metadata?[HKMetadataKeyTimeZone] as? String else {
+                continue
+            }
+            durationByZone[identifier, default: 0] += sample.endDate.timeIntervalSince(sample.startDate)
+        }
+
+        return durationByZone.max { lhs, rhs in
+            if lhs.value == rhs.value {
+                return lhs.key > rhs.key
+            }
+            return lhs.value < rhs.value
+        }?.key
     }
 
     /// A sample belongs on the sleep timeline if it's an asleep stage or an
@@ -49,7 +81,7 @@ enum BodySleepSampleParser {
         showsSubMinuteAwakeStages: Bool = true,
         showsLeadingTrailingAwakeStages: Bool = true
     ) -> [SleepStageSegment] {
-        let explicitSegments = samples.compactMap { sample -> SleepStageSegment? in
+        let sourcedExplicitSegments = samples.compactMap { sample -> (segment: SleepStageSegment, sourceID: String)? in
             guard let stage = sleepStage(for: sample, includeUnspecified: false) else {
                 return nil
             }
@@ -59,35 +91,158 @@ enum BodySleepSampleParser {
                 return nil
             }
 
-            return SleepStageSegment(
-                stage: stage,
-                startDate: sample.startDate,
-                endDate: sample.endDate
+            return (
+                segment: SleepStageSegment(
+                    stage: stage,
+                    startDate: sample.startDate,
+                    endDate: sample.endDate
+                ),
+                sourceID: sleepSourceIdentityKey(for: sample)
             )
         }
-        let explicitIntervals = explicitSegments.map { segment in
-            (start: segment.startDate, end: segment.endDate)
+        // Coverage for the aggregate fill stays the *raw* pre-arbitration
+        // windows: a fragment dropped as a cross-source sliver is still time its
+        // writer accounted for, so an overlapping `.asleepUnspecified` sample
+        // must not read that window as uncovered and repaint it as `.core`.
+        let explicitIntervals = sourcedExplicitSegments.map { sourced in
+            (start: sourced.segment.startDate, end: sourced.segment.endDate)
         }
-        let unspecifiedSegments = samples.flatMap { sample -> [SleepStageSegment] in
-            guard isUnspecifiedSleep(sample) else {
-                return []
-            }
+        let explicitSegments = dedupedExplicitSegments(sourcedExplicitSegments)
 
-            return uncoveredSleepIntervals(
+        // Aggregate samples are filled sequentially so two writers' overlapping
+        // aggregates union into one core lane instead of double-painting it.
+        var unspecifiedCoverage = explicitIntervals
+        var unspecifiedSegments: [SleepStageSegment] = []
+        let unspecifiedSamples = samples
+            .filter(isUnspecifiedSleep)
+            .sorted { lhs, rhs in
+                if lhs.startDate != rhs.startDate {
+                    return lhs.startDate < rhs.startDate
+                }
+                return lhs.endDate > rhs.endDate
+            }
+        for sample in unspecifiedSamples {
+            let intervals = uncoveredSleepIntervals(
                 in: (start: sample.startDate, end: sample.endDate),
-                coveredBy: explicitIntervals
+                coveredBy: unspecifiedCoverage
             )
-            .map { interval in
-                SleepStageSegment(stage: .core, startDate: interval.start, endDate: interval.end)
+            for interval in intervals {
+                unspecifiedSegments.append(
+                    SleepStageSegment(stage: .core, startDate: interval.start, endDate: interval.end)
+                )
+                unspecifiedCoverage.append(interval)
             }
         }
 
         let sortedSegments = (explicitSegments + unspecifiedSegments)
-            .sorted { $0.startDate < $1.startDate }
+            .sorted { lhs, rhs in
+                if lhs.startDate != rhs.startDate {
+                    return lhs.startDate < rhs.startDate
+                }
+                if lhs.endDate != rhs.endDate {
+                    return lhs.endDate < rhs.endDate
+                }
+                return lhs.stage.chartPosition < rhs.stage.chartPosition
+            }
         guard showsLeadingTrailingAwakeStages else {
             return trimmingAwakeOutsideSleepWindow(sortedSegments)
         }
         return sortedSegments
+    }
+
+    /// Identity of the writer behind a sample — bundle identifier plus folded
+    /// name, matching `BodyHealthDataSourceOption.individualSourceIdentityKey` so
+    /// arbitration buckets samples the same way the source picker does (bundle
+    /// id alone collides: every third-party writer that syncs through Health
+    /// shares `com.apple.health.<UUID>`-style ids per device).
+    static func sleepSourceIdentityKey(for sample: HKCategorySample) -> String {
+        let source = sample.sourceRevision.source
+        let trimmedName = source.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = trimmedName.isEmpty ? "Unknown Source" : trimmedName
+        let nameKey = displayName
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+        return "bundle=\(source.bundleIdentifier)|name=\(nameKey)"
+    }
+
+    /// Resolves overlapping explicit-stage timelines from multiple writers into
+    /// one timeline: the best-ranked source passes through whole, each lower
+    /// ranked source contributes only the time no higher-ranked source already
+    /// described. With fewer than two sources this is the identity, so
+    /// single-source nights behave exactly as before.
+    static func dedupedExplicitSegments(
+        _ sourced: [(segment: SleepStageSegment, sourceID: String)]
+    ) -> [SleepStageSegment] {
+        var segmentsBySource: [String: [SleepStageSegment]] = [:]
+        var sourceIDs: [String] = []
+        for entry in sourced {
+            if segmentsBySource[entry.sourceID] == nil {
+                sourceIDs.append(entry.sourceID)
+            }
+            segmentsBySource[entry.sourceID, default: []].append(entry.segment)
+        }
+
+        guard sourceIDs.count > 1 else {
+            return sourced.map(\.segment)
+        }
+
+        // Rank: stage-detailed writers first, then by union-merged asleep
+        // coverage (union so duplicated samples earn no rank, asleep-only so
+        // in-bed awake padding can't inflate it), then by id for determinism.
+        var detailBySource: [String: Bool] = [:]
+        var coverageBySource: [String: TimeInterval] = [:]
+        for (sourceID, segments) in segmentsBySource {
+            detailBySource[sourceID] = segments.contains { $0.stage == .rem || $0.stage == .deep }
+            coverageBySource[sourceID] = mergedSleepDuration(
+                intervals: segments
+                    .filter { SleepStage.sleepStages.contains($0.stage) }
+                    .map { (start: $0.startDate, end: $0.endDate) }
+            )
+        }
+        let rankedSourceIDs = sourceIDs.sorted { lhs, rhs in
+            if detailBySource[lhs] != detailBySource[rhs] {
+                return detailBySource[lhs] == true
+            }
+            let lhsCoverage = coverageBySource[lhs] ?? 0
+            let rhsCoverage = coverageBySource[rhs] ?? 0
+            if lhsCoverage != rhsCoverage {
+                return lhsCoverage > rhsCoverage
+            }
+            return lhs < rhs
+        }
+
+        var coverage: [(start: Date, end: Date)] = []
+        var deduped: [SleepStageSegment] = []
+        for sourceID in rankedSourceIDs {
+            let segments = segmentsBySource[sourceID] ?? []
+            for segment in segments {
+                let uncoveredIntervals = uncoveredSleepIntervals(
+                    in: (start: segment.startDate, end: segment.endDate),
+                    coveredBy: coverage
+                )
+                let wasTrimmed = uncoveredIntervals.count != 1
+                    || uncoveredIntervals[0].start != segment.startDate
+                    || uncoveredIntervals[0].end != segment.endDate
+                for interval in uncoveredIntervals {
+                    // Clock skew between devices leaves sub-minute slivers at
+                    // every boundary; only trimmed remnants are dropped, a
+                    // segment that survived whole always stays.
+                    if wasTrimmed,
+                       interval.end.timeIntervalSince(interval.start) < minimumCrossSourceFragment {
+                        continue
+                    }
+                    deduped.append(
+                        SleepStageSegment(stage: segment.stage, startDate: interval.start, endDate: interval.end)
+                    )
+                }
+            }
+            // Coverage grows per source, not per segment, so a writer's own
+            // overlapping samples never trim each other, and it includes the
+            // writer's awake time: within its window a kept source is
+            // authoritative for being awake too.
+            coverage.append(contentsOf: segments.map { (start: $0.startDate, end: $0.endDate) })
+        }
+        return deduped
     }
 
     /// Drops `.awake` segments that fall entirely outside the asleep window
@@ -155,6 +310,10 @@ enum BodySleepSampleParser {
         duration += current.end.timeIntervalSince(current.start)
         return duration
     }
+
+    /// Shortest remnant kept when one source's segment is trimmed against a
+    /// better-ranked source's timeline.
+    private static let minimumCrossSourceFragment: TimeInterval = 60
 
     private static func isAsleep(_ sample: HKCategorySample) -> Bool {
         switch HKCategoryValueSleepAnalysis(rawValue: sample.value) {
