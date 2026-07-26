@@ -1,5 +1,9 @@
 # Version History
 
+## 0.9.10 (build 1)
+
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 1.
+
 ## 0.9.9 (build 13)
 
 - **Restyled the workout share sheet's action buttons.** Share now sits on the left and Save on the right, and both carry the same flat translucent fill of the workout type's color under a thin white rim (no gradient or blur), instead of a tinted Share beside a neutral Save.
