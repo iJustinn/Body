@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.9 (build 11)
+
+- **Fixed the Sleep Stages chart with two or more sleep sources.** When multiple sources write sleep data for the same night (e.g. Apple Watch + Oura), the hypnogram no longer draws overlapping duplicate timelines with an inflated total; overlapping samples across sources are now deduplicated (the more detailed tracker wins) and the card's header duration uses the overlap-merged total, matching the night's actual length.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 11.
+
 ## 0.9.9 (build 10)
 
 - **Added a workout share function.** A new circle share button top-right of a route workout's detail page opens a preview sheet for a Strava-style share card. The card's header mirrors the detail page — type icon, title, locality, and date/time on the left with big Distance and Duration numbers on the right — the GPS route trace fills the middle, and a bottom-left row carries the per-type extras (avg pace for a run, avg speed for a ride, elevation gain for snow sports, plus avg heart rate when recorded). Choose from five built-in gradient backgrounds or a dark route-map background for free, or pick a photo from your library as the background with **Body Pro**; tapping the photo tile without Pro opens the paywall. Workouts whose route is too degenerate to draw render a metrics-only card (workouts without a route don't show the button at all). Share exports a 1080×1920 image and hands it to the standard iOS share sheet.
