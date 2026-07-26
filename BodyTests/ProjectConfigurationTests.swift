@@ -1388,6 +1388,10 @@ final class ProjectConfigurationTests: XCTestCase {
             project.occurrenceCount(of: "INFOPLIST_KEY_NSHealthShareUsageDescription"),
             project.occurrenceCount(of: "INFOPLIST_KEY_NSHealthUpdateUsageDescription")
         )
+        // The share card's Save button writes to the photo library; without this string
+        // the add-only authorization prompt crashes the app. App target only (Debug +
+        // Release) — the widget and watch never save.
+        XCTAssertEqual(project.occurrenceCount(of: "INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription"), 2)
         XCTAssertTrue(project.contains("INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;"))
         XCTAssertTrue(project.contains("IPHONEOS_DEPLOYMENT_TARGET = 18.0;"))
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = \"1,2\";"))
@@ -1395,12 +1399,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.9;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 11;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 12;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.9;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 11;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 12;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1435,9 +1439,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.9 (build 11)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.9 (build 12)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.9 (build 11)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.9 (build 10)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.9 (build 9)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.9 (build 8)**"))
@@ -1479,6 +1484,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.9 (build 12)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.9 build 12."))
         XCTAssertTrue(versionHistory.contains("## 0.9.9 (build 11)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.9 build 11."))
         XCTAssertTrue(versionHistory.contains("Sleep Stages chart"))
@@ -1716,9 +1723,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-0.9.9`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.9 build 11)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.9 build 12)"))
         XCTAssertTrue(testPlan.contains("sync status badge"))
         XCTAssertTrue(testPlan.contains("Energy by Activity"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.9 build 11)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.9 build 10)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.9 build 9)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.9 build 8)"))

@@ -1613,6 +1613,23 @@
         }
       }
     },
+    "Body needs permission to add photos. Allow it in Settings › Body › Photos, then try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body needs permission to add photos. Allow it in Settings › Body › Photos, then try again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 需要添加照片的权限。请前往设置 › Body › 照片中允许后再试。"
+          }
+        }
+      }
+    },
     "Body Pro" : {
       "localizations" : {
         "en" : {
@@ -2372,6 +2389,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法加载照片"
+          }
+        }
+      }
+    },
+    "Couldn't Save Image" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't Save Image"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存图片"
           }
         }
       }
@@ -3236,23 +3270,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "跟随系统"
-          }
-        }
-      }
-    },
-    "Forest" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Forest"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "森林"
           }
         }
       }
@@ -4808,23 +4825,6 @@
         }
       }
     },
-    "Ocean" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ocean"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "海洋"
-          }
-        }
-      }
-    },
     "Off" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5967,6 +5967,23 @@
         }
       }
     },
+    "Saved" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已保存"
+          }
+        }
+      }
+    },
     "Saved %lld" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7006,23 +7023,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "摘要卡片"
-          }
-        }
-      }
-    },
-    "Sunset" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sunset"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "日落"
           }
         }
       }

@@ -16,7 +16,7 @@ struct WorkoutShareMetric: Equatable {
     let value: String
 }
 
-/// Picks up to 3 metrics for the share card, in priority order, by reusing the
+/// Picks up to 2 metrics for the share card, in priority order, by reusing the
 /// same `WorkoutDetailPresentation` the detail page already built — so values,
 /// units, and locale never drift from what the user just saw. Only title/value
 /// are copied; `WorkoutDetailMetric.comparison` (the "vs 30-day avg" badge)
@@ -32,7 +32,7 @@ enum WorkoutShareMetricsBuilder {
             elevationMetric(presentation: presentation, type: type),
             averageHeartRateMetric(presentation: presentation)
         ]
-        return Array(candidates.compactMap { $0 }.prefix(3))
+        return Array(candidates.compactMap { $0 }.prefix(2))
     }
 
     /// The Details `.distance` tile, for workouts that don't promote distance to the
@@ -165,21 +165,8 @@ enum WorkoutShareRouteProjection {
 enum BodyWorkoutSharePreset: String, CaseIterable, Identifiable {
     case midnight
     case workoutTint
-    case ocean
-    case sunset
-    case forest
 
     var id: String { rawValue }
-
-    static let storageKey = "workoutShareBackgroundPreset"
-
-    /// The default when nothing (or something invalid) is stored.
-    static func stored(rawValue: String?) -> BodyWorkoutSharePreset {
-        guard let rawValue, let preset = BodyWorkoutSharePreset(rawValue: rawValue) else {
-            return .midnight
-        }
-        return preset
-    }
 
     func gradient(tint: Color) -> LinearGradient {
         switch self {
@@ -196,34 +183,6 @@ enum BodyWorkoutSharePreset: String, CaseIterable, Identifiable {
                 startPoint: .top,
                 endPoint: UnitPoint(x: 0.5, y: 0.5)
             )
-        case .ocean:
-            return LinearGradient(
-                colors: [
-                    Color(red: 0.02, green: 0.16, blue: 0.26),
-                    Color(red: 0.00, green: 0.05, blue: 0.11)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        case .sunset:
-            return LinearGradient(
-                colors: [
-                    Color(red: 0.36, green: 0.10, blue: 0.14),
-                    Color(red: 0.17, green: 0.05, blue: 0.15),
-                    Color.black
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        case .forest:
-            return LinearGradient(
-                colors: [
-                    Color(red: 0.03, green: 0.15, blue: 0.09),
-                    Color.black
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
         }
     }
 
@@ -231,10 +190,37 @@ enum BodyWorkoutSharePreset: String, CaseIterable, Identifiable {
         switch self {
         case .midnight: return String(localized: "Midnight")
         case .workoutTint: return String(localized: "Workout Color")
-        case .ocean: return String(localized: "Ocean")
-        case .sunset: return String(localized: "Sunset")
-        case .forest: return String(localized: "Forest")
         }
+    }
+}
+
+/// What the share sheet restores when it opens: the free route map (the default)
+/// or a gradient preset. Photos stay session-only — a Pro entitlement can lapse
+/// between sessions, and `WorkoutShareBackgroundPolicy` is the only seam that
+/// decides whether one may render.
+enum BodyWorkoutShareBackgroundChoice: Equatable {
+    case map
+    case preset(BodyWorkoutSharePreset)
+
+    /// Unchanged from the preset-only key it replaces: a stored "ocean"/"sunset"/
+    /// "forest" from an earlier build is now unknown and resolves to `.map`.
+    static let storageKey = "workoutShareBackgroundPreset"
+
+    private static let mapRawValue = "map"
+
+    var rawValue: String {
+        switch self {
+        case .map: return Self.mapRawValue
+        case .preset(let preset): return preset.rawValue
+        }
+    }
+
+    /// The default when nothing (or something invalid, including a retired preset)
+    /// is stored.
+    static func stored(rawValue: String?) -> BodyWorkoutShareBackgroundChoice {
+        guard let rawValue, rawValue != mapRawValue else { return .map }
+        guard let preset = BodyWorkoutSharePreset(rawValue: rawValue) else { return .map }
+        return .preset(preset)
     }
 }
 

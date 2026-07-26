@@ -4,12 +4,14 @@
 //
 //  Preview-and-share flow for a workout's route image. Presents the 360×640 card
 //  scaled to fit, a background strip (free gradient presets + a free route-map
-//  tile + a Pro-gated photo tile), and a Share action that rasterizes the card
-//  via `ImageRenderer` and hands the 1080×1920 image to the system share sheet.
+//  tile + a Pro-gated photo tile), and Save/Share actions that rasterize the card
+//  via `ImageRenderer` and hand the 1080×1920 image to the photo library or the
+//  system share sheet.
 //
 
 import SwiftUI
 import PhotosUI
+import Photos
 import ImageIO
 import MapKit
 import UIKit
@@ -21,21 +23,28 @@ struct BodyWorkoutShareSheet: View {
 
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
 
-    @AppStorage(BodyWorkoutSharePreset.storageKey) private var storedPreset: String =
-        BodyWorkoutSharePreset.midnight.rawValue
+    @AppStorage(BodyWorkoutShareBackgroundChoice.storageKey) private var storedBackground: String =
+        BodyWorkoutShareBackgroundChoice.map.rawValue
 
     @State private var selectedPhoto: UIImage?
     @State private var photoItem: PhotosPickerItem?
     @State private var isPickerPresented = false
     @State private var isLoadingPhoto = false
-    @State private var isMapSelected = false
     @State private var mapSnapshot: UIImage?
     @State private var isLoadingMap = false
+    /// A snapshot failure is session-only: the stored choice stays `.map`, so a
+    /// transient failure (offline, say) doesn't discard the user's background — the
+    /// next open retries it — while this sheet shows Midnight in the meantime.
+    @State private var mapSnapshotFailed = false
     @State private var showBodyProPaywall = false
     @State private var showPhotoLoadError = false
     @State private var showMapLoadError = false
     @State private var showRenderError = false
+    @State private var showSaveError = false
+    @State private var isPhotoAccessDenied = false
     @State private var isRendering = false
+    @State private var isSavingImage = false
+    @State private var didSave = false
     @State private var payload: WorkoutSharePayload?
 
     /// Computed once from the shared presentation so the card's values never drift
@@ -53,8 +62,27 @@ struct BodyWorkoutShareSheet: View {
 
     private var isProUnlocked: Bool { proStore?.isPro == true }
 
-    private var selectedPreset: BodyWorkoutSharePreset {
-        BodyWorkoutSharePreset.stored(rawValue: storedPreset)
+    /// What the sheet restores on open — the map unless a preset was last picked.
+    private var selectedChoice: BodyWorkoutShareBackgroundChoice {
+        BodyWorkoutShareBackgroundChoice.stored(rawValue: storedBackground)
+    }
+
+    /// The persisted choice is not the same thing as what's on screen: a session-only
+    /// photo sits on top of it. Everything that means "what the user is looking at" —
+    /// the strip's highlights, the action bar's disable condition, a map load's failure
+    /// branch — reads `activeSelection` so a photo over a stored `.map` behaves right.
+    private enum ActiveSelection: Equatable {
+        case photo
+        case map
+        case preset(BodyWorkoutSharePreset)
+    }
+
+    private var activeSelection: ActiveSelection {
+        if renderablePhoto != nil { return .photo }
+        if case .preset(let preset) = selectedChoice { return .preset(preset) }
+        // Stored choice is the map, but this session couldn't snapshot it.
+        if mapSnapshotFailed { return .preset(.midnight) }
+        return .map
     }
 
     /// Keyed off the gated photo, not the raw selection: if the Pro entitlement
@@ -68,16 +96,21 @@ struct BodyWorkoutShareSheet: View {
         WorkoutShareBackgroundPolicy.resolvedPhoto(selectedPhoto, isProUnlocked: isProUnlocked)
     }
 
-    /// The background both preview and export use: photo wins, then the map (once
-    /// its snapshot exists — a preset shows while it loads), then the preset.
+    /// The background both preview and export use: photo wins, then the preset, then
+    /// the map's snapshot.
     private var activeBackground: WorkoutShareCardBackground {
         if let renderablePhoto {
             return .photo(renderablePhoto)
         }
-        if isMapSelected, let mapSnapshot {
+        if case .preset(let preset) = selectedChoice {
+            return .preset(preset)
+        }
+        if let mapSnapshot {
             return .map(mapSnapshot)
         }
-        return .preset(selectedPreset)
+        // The map is active but hasn't snapshotted yet, and there's no "last preset"
+        // to fall back to — Midnight is the same visual the load state always showed.
+        return .preset(.midnight)
     }
 
     private func cardView() -> BodyWorkoutShareCardView {
@@ -119,7 +152,21 @@ struct BodyWorkoutShareSheet: View {
             .alert(Text("Couldn't Create Image"), isPresented: $showRenderError) {
                 Button("OK", role: .cancel) {}
             }
+            .alert(Text("Couldn't Save Image"), isPresented: $showSaveError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                if isPhotoAccessDenied {
+                    Text("Body needs permission to add photos. Allow it in Settings › Body › Photos, then try again.")
+                }
+            }
             .task(id: photoItem) { await loadSelectedPhoto() }
+            .task {
+                // Open on the map without waiting for a tap. Same guards as the map
+                // tile's action so a tap and this task can't both start a load.
+                if activeSelection == .map, mapSnapshot == nil, !isLoadingMap {
+                    await loadMapSnapshot(isUserInitiated: false)
+                }
+            }
         }
     }
 
@@ -181,11 +228,10 @@ struct BodyWorkoutShareSheet: View {
     }
 
     private func presetSwatch(_ preset: BodyWorkoutSharePreset) -> some View {
-        let isSelected = !isPhotoActive && !isMapSelected && selectedPreset == preset
+        let isSelected = activeSelection == .preset(preset)
         return Button {
-            storedPreset = preset.rawValue
+            storedBackground = BodyWorkoutShareBackgroundChoice.preset(preset).rawValue
             selectedPhoto = nil
-            isMapSelected = false
             // Also reset the picker item so re-picking the same photo later re-fires
             // the `.task(id:)` load (an unchanged id would silently do nothing).
             photoItem = nil
@@ -216,12 +262,15 @@ struct BodyWorkoutShareSheet: View {
     /// Free route-map background: a dark map snapshot with the pace-colored route
     /// composited in, generated once on first selection.
     private var mapTile: some View {
-        Button {
+        let isSelected = activeSelection == .map
+        return Button {
             selectedPhoto = nil
             photoItem = nil
-            isMapSelected = true
+            storedBackground = BodyWorkoutShareBackgroundChoice.map.rawValue
+            // Tapping Map is also how the user retries after a failed load.
+            mapSnapshotFailed = false
             if mapSnapshot == nil, !isLoadingMap {
-                Task { await loadMapSnapshot() }
+                Task { await loadMapSnapshot(isUserInitiated: true) }
             }
         } label: {
             ZStack {
@@ -246,14 +295,14 @@ struct BodyWorkoutShareSheet: View {
             .overlay {
                 Circle()
                     .strokeBorder(
-                        Color.white.opacity(isMapSelected ? 0.9 : 0.15),
-                        lineWidth: isMapSelected ? 2 : 1
+                        Color.white.opacity(isSelected ? 0.9 : 0.15),
+                        lineWidth: isSelected ? 2 : 1
                     )
             }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text("Map"))
-        .accessibilityAddTraits(isMapSelected ? [.isSelected] : [])
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
     private var photoTile: some View {
@@ -306,28 +355,59 @@ struct BodyWorkoutShareSheet: View {
     }
 
     private var shareBar: some View {
-        Button {
-            Task { await export() }
-        } label: {
-            HStack(spacing: 8) {
-                if isRendering {
-                    ProgressView().tint(.white)
+        HStack(spacing: 12) {
+            // Save is the secondary action — same capsule, neutral fill — so Share
+            // stays the primary, tinted one.
+            Button {
+                Task { await saveToPhotos() }
+            } label: {
+                HStack(spacing: 8) {
+                    if didSave {
+                        Image(systemName: "checkmark")
+                        Text("Saved")
+                    } else {
+                        if isSavingImage {
+                            ProgressView().tint(.white)
+                        }
+                        Text("Save")
+                    }
                 }
-                Text("Share")
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .background(Color.white.opacity(0.15), in: Capsule())
             }
-            .font(.system(size: 17, weight: .semibold, design: .rounded))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 15)
-            .background(workout.type.color, in: Capsule())
+            .buttonStyle(.plain)
+            .disabled(isBusy)
+
+            Button {
+                Task { await export() }
+            } label: {
+                HStack(spacing: 8) {
+                    if isRendering {
+                        ProgressView().tint(.white)
+                    }
+                    Text("Share")
+                }
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .background(workout.type.color, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(isBusy)
         }
-        .buttonStyle(.plain)
-        // Also disabled while the *active* background is still loading — exporting
-        // then would silently rasterize the previous/preset background instead. A
-        // map load abandoned for a preset/photo doesn't hold Share hostage.
-        .disabled(isRendering || isLoadingPhoto || (isMapSelected && isLoadingMap))
         .padding(.horizontal, 20)
         .padding(.bottom, 12)
+    }
+
+    /// Also busy while the *active* background is still loading — rendering then would
+    /// silently rasterize the previous/preset background instead. A map load abandoned
+    /// for a preset/photo doesn't hold the buttons hostage.
+    private var isBusy: Bool {
+        isRendering || isSavingImage || isLoadingPhoto || (activeSelection == .map && isLoadingMap)
     }
 
     @MainActor
@@ -336,6 +416,59 @@ struct BodyWorkoutShareSheet: View {
         isRendering = true
         defer { isRendering = false }
 
+        if let image = renderCardImage() {
+            payload = WorkoutSharePayload(image: image)
+        } else {
+            showRenderError = true
+        }
+    }
+
+    /// Writes the card to the photo library with add-only access — never full-library
+    /// read — so the prompt matches what saving actually needs.
+    @MainActor
+    private func saveToPhotos() async {
+        guard !isSavingImage else { return }
+        isSavingImage = true
+        defer { isSavingImage = false }
+
+        switch await Self.requestAddOnlyPhotoAccess() {
+        case .authorized, .limited:
+            break
+        default:
+            isPhotoAccessDenied = true
+            showSaveError = true
+            return
+        }
+
+        guard let image = renderCardImage() else {
+            showRenderError = true
+            return
+        }
+
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetCreationRequest.creationRequestForAsset(from: image)
+            }
+        } catch {
+            isPhotoAccessDenied = false
+            showSaveError = true
+            return
+        }
+
+        // Confirmation lives on the button itself; revert on its own task so `defer`
+        // can re-enable both buttons right away.
+        didSave = true
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            didSave = false
+        }
+    }
+
+    /// The one rasterization path Save and Share share: the 360×640 card at 3×
+    /// (1080×1920), forced dark and at `.large` dynamic type so the exported image
+    /// never picks up the device's appearance or text-size settings.
+    @MainActor
+    private func renderCardImage() -> UIImage? {
         let renderer = ImageRenderer(
             content: cardView()
                 .frame(width: 360, height: 640)
@@ -343,11 +476,16 @@ struct BodyWorkoutShareSheet: View {
                 .dynamicTypeSize(.large)
         )
         renderer.scale = 3
+        return renderer.uiImage
+    }
 
-        if let image = renderer.uiImage {
-            payload = WorkoutSharePayload(image: image)
-        } else {
-            showRenderError = true
+    /// `PHPhotoLibrary.requestAuthorization(for:handler:)` has no async form, so bridge
+    /// the completion-based one.
+    nonisolated private static func requestAddOnlyPhotoAccess() async -> PHAuthorizationStatus {
+        await withCheckedContinuation { continuation in
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                continuation.resume(returning: status)
+            }
         }
     }
 
@@ -376,8 +514,10 @@ struct BodyWorkoutShareSheet: View {
                 try Self.downscaledImage(from: data, maxPixelSize: 2_400)
             }.value
             try Task.checkCancellation()
+            // The photo is session-only and outranks the stored choice in
+            // `activeSelection`, so it never writes `storedBackground` — dismissing or
+            // failing a photo returns to whatever was persisted.
             selectedPhoto = image
-            isMapSelected = false
         } catch is CancellationError {
             // A newer selection superseded this load; leave existing state untouched.
         } catch {
@@ -393,7 +533,7 @@ struct BodyWorkoutShareSheet: View {
     }
 
     @MainActor
-    private func loadMapSnapshot() async {
+    private func loadMapSnapshot(isUserInitiated: Bool) async {
         isLoadingMap = true
         defer { isLoadingMap = false }
 
@@ -401,11 +541,15 @@ struct BodyWorkoutShareSheet: View {
             // Cache even if the user switched away meanwhile — re-selecting Map
             // then shows the snapshot instantly.
             mapSnapshot = image
-        } else if isMapSelected {
-            // Only surface the failure while Map is still the active selection; a
-            // stale error over a preset/photo the user already moved to is noise.
-            isMapSelected = false
-            showMapLoadError = true
+        } else if activeSelection == .map {
+            // Only fall back while Map is still the active selection; a stale error
+            // over a preset/photo the user already moved to is noise. And only alert
+            // if they asked for the map — the sheet's own opening load must not put
+            // an alert over every open of a route that can't snapshot.
+            mapSnapshotFailed = true
+            if isUserInitiated {
+                showMapLoadError = true
+            }
         }
     }
 

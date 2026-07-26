@@ -151,7 +151,7 @@ final class WorkoutShareCardTests: XCTestCase {
 
         let metrics = WorkoutShareMetricsBuilder.metrics(for: presentation, type: .rowing)
 
-        XCTAssertLessThanOrEqual(metrics.count, 3)
+        XCTAssertLessThanOrEqual(metrics.count, 2)
         XCTAssertFalse(metrics.contains { $0.title.isEmpty || $0.value.isEmpty })
         // Rowing doesn't promote distance, so the distance tile carries the row.
         XCTAssertTrue(metrics.contains { $0.value == presentation.distanceText })
@@ -164,6 +164,28 @@ final class WorkoutShareCardTests: XCTestCase {
         let metrics = WorkoutShareMetricsBuilder.metrics(for: presentation, type: .rowing)
 
         XCTAssertTrue(metrics.contains { $0.value == presentation.averageHeartRateText })
+    }
+
+    func testRowCapsAtTwoMetricsAndDropsHeartRate() throws {
+        // Hiking is the fixture that actually produces three candidates: it's
+        // `.distancePace` (pace tile), it promotes distance to the hero corner (so the
+        // distance-fallback candidate is skipped), and it's elevation-eligible — so
+        // pace + elevation + avg HR all qualify and the cap has to drop the last one.
+        let hike = workout(type: .hiking, duration: 5400, distance: 9000, activeEnergy: 600, avgHR: 128, elevation: 540)
+        let presentation = presentation(for: hike)
+
+        let paceTile = try XCTUnwrap(tile(.pace, in: presentation))
+        let elevationTile = try XCTUnwrap(tile(.elevation, in: presentation))
+        // Sanity check: HR really is a candidate here, so "dropped" below isn't vacuous.
+        let heartRateText = try XCTUnwrap(presentation.averageHeartRateText)
+        XCTAssertNotNil(tile(.avgHeartRate, in: presentation))
+
+        let metrics = WorkoutShareMetricsBuilder.metrics(for: presentation, type: .hiking)
+
+        XCTAssertEqual(metrics.count, 2)
+        XCTAssertEqual(metrics.map(\.title), [paceTile.title, elevationTile.title])
+        XCTAssertEqual(metrics.map(\.value), [paceTile.value, elevationTile.value])
+        XCTAssertFalse(metrics.contains { $0.value == heartRateText })
     }
 
     func testZeroDistanceStrengthTrainingRowHasNoDistanceOrPace() {
@@ -349,18 +371,27 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertEqual(points[0], points[2])
     }
 
-    // MARK: - Preset / Pro photo policy
+    // MARK: - Background choice / Pro photo policy
 
-    func testStoredRoundTripsEveryPresetCase() {
+    func testStoredRoundTripsEveryBackgroundChoice() {
         for preset in BodyWorkoutSharePreset.allCases {
-            XCTAssertEqual(BodyWorkoutSharePreset.stored(rawValue: preset.rawValue), preset)
+            let choice = BodyWorkoutShareBackgroundChoice.preset(preset)
+            XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: choice.rawValue), choice)
         }
+
+        // The map is a choice of its own, not a preset — it has to survive the same
+        // round trip through @AppStorage that the gradients do.
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.map.rawValue, "map")
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "map"), .map)
     }
 
-    func testStoredFallsBackToMidnightForNilOrGarbage() {
-        XCTAssertEqual(BodyWorkoutSharePreset.stored(rawValue: nil), .midnight)
-        XCTAssertEqual(BodyWorkoutSharePreset.stored(rawValue: "not-a-real-preset"), .midnight)
-        XCTAssertEqual(BodyWorkoutSharePreset.stored(rawValue: ""), .midnight)
+    func testStoredFallsBackToMapForNilOrGarbage() {
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: nil), .map)
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: ""), .map)
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "not-a-real-preset"), .map)
+        // "ocean" is a retired preset: a value stored by build 10/11 is now unknown and
+        // must resolve to the map default rather than crashing or sticking on a gradient.
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "ocean"), .map)
     }
 
     func testResolvedPhotoReturnsNilForNonProEvenWithAPhoto() {

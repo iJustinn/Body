@@ -1,5 +1,13 @@
 # Version History
 
+## 0.9.9 (build 12)
+
+- **The workout share sheet now opens on the route map.** The dark route-map background is the default instead of the Midnight gradient, it loads as soon as the sheet opens, and whichever background you pick last — map or gradient — is restored the next time you share (photo picks stay session-only).
+- The Ocean, Sunset, and Forest gradient backgrounds were retired; the strip is now Midnight, Workout Color, the route map, and your photo.
+- The share card's route trace is now blue (`#0128F4`) instead of white, and its bottom-left row shows at most two metrics for every activity (previously up to three).
+- **Added a Save button beside Share.** It writes the rendered 1080×1920 card straight to your photo library using add-only Photos access, confirming with a "Saved" state on the button.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 12.
+
 ## 0.9.9 (build 11)
 
 - **Fixed the Sleep Stages chart with two or more sleep sources.** When multiple sources write sleep data for the same night (e.g. Apple Watch + Oura), the hypnogram no longer draws overlapping duplicate timelines with an inflated total; overlapping samples across sources are now deduplicated (the more detailed tracker wins) and the card's header duration uses the overlap-merged total, matching the night's actual length.

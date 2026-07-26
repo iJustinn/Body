@@ -61,13 +61,14 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Share",
             "Midnight",
             "Workout Color",
-            "Ocean",
-            "Sunset",
-            "Forest",
             "Map",
+            "Save",
+            "Saved",
             "Couldn't Load Photo",
             "Couldn't Load Map",
-            "Couldn't Create Image"
+            "Couldn't Create Image",
+            "Couldn't Save Image",
+            "Body needs permission to add photos. Allow it in Settings › Body › Photos, then try again."
         ]
 
         try assertKeysTranslated(keys, in: catalog)
