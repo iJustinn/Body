@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.9 (build 13)
+
+- **Restyled the workout share sheet's action buttons.** Share now sits on the left and Save on the right, and both carry the same flat translucent fill of the workout type's color under a thin white rim (no gradient or blur), instead of a tinted Share beside a neutral Save.
+- Updated the app, widget, watch, and test bundle version to 0.9.9 build 13.
+
 ## 0.9.9 (build 12)
 
 - **The workout share sheet now opens on the route map.** The dark route-map background is the default instead of the Midnight gradient, it loads as soon as the sheet opens, and whichever background you pick last — map or gradient — is restored the next time you share (photo picks stay session-only).

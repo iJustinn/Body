@@ -356,8 +356,20 @@ struct BodyWorkoutShareSheet: View {
 
     private var shareBar: some View {
         HStack(spacing: 12) {
-            // Save is the secondary action — same capsule, neutral fill — so Share
-            // stays the primary, tinted one.
+            Button {
+                Task { await export() }
+            } label: {
+                HStack(spacing: 8) {
+                    if isRendering {
+                        ProgressView().tint(.white)
+                    }
+                    Text("Share")
+                }
+                .modifier(ShareActionChrome(tint: workout.type.color))
+            }
+            .buttonStyle(.plain)
+            .disabled(isBusy)
+
             Button {
                 Task { await saveToPhotos() }
             } label: {
@@ -372,29 +384,7 @@ struct BodyWorkoutShareSheet: View {
                         Text("Save")
                     }
                 }
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 15)
-                .background(Color.white.opacity(0.15), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(isBusy)
-
-            Button {
-                Task { await export() }
-            } label: {
-                HStack(spacing: 8) {
-                    if isRendering {
-                        ProgressView().tint(.white)
-                    }
-                    Text("Share")
-                }
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 15)
-                .background(workout.type.color, in: Capsule())
+                .modifier(ShareActionChrome(tint: workout.type.color))
             }
             .buttonStyle(.plain)
             .disabled(isBusy)
@@ -676,6 +666,26 @@ struct BodyWorkoutShareSheet: View {
             throw ShareError.decodeFailed
         }
         return UIImage(cgImage: cgImage)
+    }
+}
+
+/// The chrome both share-bar actions share: a flat translucent fill of the workout
+/// type's color under a thin white rim — deliberately flat (no gradient, material
+/// blur, or specular sheen) to match the app's glass language.
+private struct ShareActionChrome: ViewModifier {
+    let tint: Color
+
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: 17, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 15)
+            .background(tint.opacity(0.85), in: Capsule())
+            .overlay {
+                Capsule()
+                    .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+            }
     }
 }
 
