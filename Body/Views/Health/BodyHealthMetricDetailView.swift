@@ -1874,9 +1874,9 @@ struct BodyHealthMetricDetailView: View {
 
                 Spacer(minLength: 12)
 
-                if snapshot.asleepDuration > 0 {
+                if snapshot.mergedAsleepDuration > 0 {
                     BodyAnimatedMetricValueText(
-                        value: BodyValueFormat.sleepDurationText(for: snapshot.asleepDuration),
+                        value: BodyValueFormat.sleepDurationText(for: snapshot.mergedAsleepDuration),
                         fontSize: 22,
                         color: .secondary,
                         minimumScaleFactor: 0.75
