@@ -18,7 +18,7 @@ extension HealthKitFetchEngine {
             return .success(nil)
         }
 
-        guard let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else {
+        guard HKObjectType.categoryType(forIdentifier: .sleepAnalysis) != nil else {
             return .success(nil)
         }
         if sourceSelectionUnresolved(for: .sleep) {
@@ -32,42 +32,26 @@ extension HealthKitFetchEngine {
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
         let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
 
-        let summaryOutcome: QueryOutcome<SleepDayGrouping> = await withCheckedContinuation { continuation in
-            let query = HKSampleQuery(
-                sampleType: sleepType,
-                predicate: predicate,
-                limit: HKObjectQueryNoLimit,
-                sortDescriptors: [sort]
-            ) { _, samples, error in
-                guard let samples else {
-                    Self.logTrendQueryFailure("sleepAnalysis", error: error)
-                    continuation.resume(returning: .failure)
-                    return
-                }
-                let sleepSamples = (samples as? [HKCategorySample] ?? [])
-                    .filter(Self.isSleepTimelineSample)
-                let groupings = Self.sleepDayGroupings(
-                    from: sleepSamples,
-                    calendar: calendar,
-                    showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
-                    showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
-                )
+        let samplesOutcome = await BodySleepFetch.sleepSamples(
+            store: healthStore,
+            predicate: predicate,
+            sort: sort,
+            onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) }
+        )
 
-                continuation.resume(
-                    returning: .success(groupings.max { lhs, rhs in
-                        (lhs.day.summary.stageSnapshot.date ?? .distantPast)
-                            < (rhs.day.summary.stageSnapshot.date ?? .distantPast)
-                    })
-                )
-            }
-
-            healthStore.execute(query)
-        }
-
-        guard case .success(let maybeGrouping) = summaryOutcome else {
+        guard case .success(let sleepSamples) = samplesOutcome else {
             return .failure
         }
-        guard let grouping = maybeGrouping else {
+        let groupings = sleepDayGroupings(
+            from: sleepSamples,
+            calendar: calendar,
+            showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
+            showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
+        )
+        guard let grouping = groupings.max(by: { lhs, rhs in
+            (lhs.day.summary.stageSnapshot.date ?? .distantPast)
+                < (rhs.day.summary.stageSnapshot.date ?? .distantPast)
+        }) else {
             return .success(nil)
         }
         var summary = grouping.day.summary
@@ -109,7 +93,7 @@ extension HealthKitFetchEngine {
             return .empty
         }
 
-        guard let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else {
+        guard HKObjectType.categoryType(forIdentifier: .sleepAnalysis) != nil else {
             return .empty
         }
         if sourceSelectionUnresolved(for: .sleep, option: sourceOption) {
@@ -127,35 +111,22 @@ extension HealthKitFetchEngine {
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
         let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
 
-        let groupings: [SleepDayGrouping]? = await withCheckedContinuation { continuation in
-            let query = HKSampleQuery(
-                sampleType: sleepType,
-                predicate: predicate,
-                limit: HKObjectQueryNoLimit,
-                sortDescriptors: [sort]
-            ) { _, samples, error in
-                guard let samples else {
-                    Self.logTrendQueryFailure("sleepAnalysis", error: error)
-                    continuation.resume(returning: nil)
-                    return
-                }
+        let samplesOutcome = await BodySleepFetch.sleepSamples(
+            store: healthStore,
+            predicate: predicate,
+            sort: sort,
+            onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) }
+        )
 
-                let sleepSamples = (samples as? [HKCategorySample] ?? [])
-                    .filter(Self.isSleepTimelineSample)
-                continuation.resume(returning: Self.sleepDayGroupings(
-                    from: sleepSamples,
-                    calendar: calendar,
-                    showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
-                    showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
-                ))
-            }
-
-            healthStore.execute(query)
-        }
-
-        guard let groupings else {
+        guard case .success(let sleepSamples) = samplesOutcome else {
             return SleepHistoryFetchResult(history: nil, vitalsHadFailure: false)
         }
+        let groupings = sleepDayGroupings(
+            from: sleepSamples,
+            calendar: calendar,
+            showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
+            showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
+        )
 
         let days = groupings.map(\.day)
         guard hydrateVitals else {
@@ -177,35 +148,23 @@ extension HealthKitFetchEngine {
         )
     }
 
-    /// Groups sleep timeline samples into per-wake-day summaries. Each wake day
-    /// merges every session that ends that day (naps preserved alongside the
-    /// night), while `mainSessionInterval` carries the main night's span so the
-    /// nocturnal-vitals window stays bounded to the night. Sorted ascending by
-    /// wake day so per-night vital intervals stay ascending/non-overlapping.
-    nonisolated private static func sleepDayGroupings(
+    /// Per-wake-day grouping via the shared `BodySleepFetch` (Body + BodyWatch),
+    /// with the iOS device time-zone ledger supplying the zone for nights whose
+    /// samples carry no `HKMetadataKeyTimeZone` (Apple Watch sleep never does).
+    /// The watch passes its seeded day → zone map instead.
+    nonisolated private func sleepDayGroupings(
         from sleepSamples: [HKCategorySample],
         calendar: Calendar,
         showsSubMinuteAwakeStages: Bool,
         showsLeadingTrailingAwakeStages: Bool
     ) -> [SleepDayGrouping] {
-        BodySleepSessionizer.sessionsByWakeDay(from: sleepSamples, calendar: calendar)
-            .compactMap { wakeDay, sessions -> SleepDayGrouping? in
-                let daySamples = sessions.flatMap(\.samples)
-                guard let summary = Self.sleepSummary(
-                    from: daySamples,
-                    date: wakeDay,
-                    showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
-                    showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
-                ) else {
-                    return nil
-                }
-
-                return SleepDayGrouping(
-                    day: SleepDaySummary(date: wakeDay, summary: summary),
-                    mainSessionInterval: BodySleepSessionizer.mainSession(in: sessions)?.interval
-                )
-            }
-            .sorted { $0.day.date < $1.day.date }
+        BodySleepFetch.sleepDayGroupings(
+            from: sleepSamples,
+            calendar: calendar,
+            showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
+            showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages,
+            timeZoneIdentifier: { Self.timeZoneLedger.zoneIdentifier(on: $0) }
+        )
     }
 
     private func hydrateSleepVitals(
@@ -349,7 +308,7 @@ extension HealthKitFetchEngine {
         case .failure:
             return .failure
         case .success(let samples):
-            return .success(Self.averageVitalValues(samples: samples ?? [], intervals: intervals))
+            return .success(BodySleepFetch.averageVitalValues(samples: samples ?? [], intervals: intervals))
         }
     }
 
@@ -370,52 +329,19 @@ extension HealthKitFetchEngine {
             return .failure
         }
 
-        let intervalPredicates = intervals.map { interval in
-            HKQuery.predicateForSamples(withStart: interval.start, end: interval.end)
-        }
-        var predicates: [NSPredicate] = [
-            intervalPredicates.count == 1
-                ? intervalPredicates[0]
-                : NSCompoundPredicate(orPredicateWithSubpredicates: intervalPredicates)
-        ]
-        if let sourceKind, let sourcePredicate = combinedPredicate(sourceKind: sourceKind) {
-            predicates.append(sourcePredicate)
-        }
-        let predicate = predicates.count == 1
-            ? predicates[0]
-            : NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
-
-        return await withCheckedContinuation { continuation in
-            let query = HKSampleQuery(
-                sampleType: quantityType,
-                predicate: predicate,
-                limit: HKObjectQueryNoLimit,
-                sortDescriptors: [sort]
-            ) { _, samples, error in
-                guard let samples else {
-                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
-                    continuation.resume(returning: .failure)
-                    return
-                }
-                let windowSamples = samples.compactMap { sample -> SleepVitalWindowSample? in
-                    guard let quantitySample = sample as? HKQuantitySample else {
-                        return nil
-                    }
-                    let value = valueTransform(quantitySample.quantity.doubleValue(for: unit))
-                    guard value.isFinite else {
-                        return nil
-                    }
-                    return SleepVitalWindowSample(
-                        startDate: quantitySample.startDate,
-                        endDate: quantitySample.endDate,
-                        value: value
-                    )
-                }
-                continuation.resume(returning: .success(windowSamples))
-            }
-
-            healthStore.execute(query)
+        switch await BodySleepFetch.vitalWindowSamples(
+            store: healthStore,
+            quantityType: quantityType,
+            intervals: intervals,
+            sourcePredicate: sourceKind.flatMap { combinedPredicate(sourceKind: $0) },
+            unit: unit,
+            valueTransform: valueTransform,
+            onFailure: { Self.logTrendQueryFailure(identifier.rawValue, error: $0) }
+        ) {
+        case .failure:
+            return .failure
+        case .success(let windowSamples):
+            return .success(windowSamples)
         }
     }
 
@@ -500,54 +426,9 @@ extension HealthKitFetchEngine {
         )
     }
 
-    /// Per-interval averages from window-wide samples. A sample counts toward
-    /// an interval when it overlaps it as `HKQuery.predicateForSamples` would
-    /// (`[start, end)`, with instantaneous samples at the exact interval start
-    /// included), so the batched query + in-memory partition matches the
-    /// per-night queries it replaces. `samples` must be sorted ascending by
-    /// `startDate`; `intervals` ascending and non-overlapping (nights).
-    nonisolated static func averageVitalValues(
-        samples: [SleepVitalWindowSample],
-        intervals: [DateInterval]
-    ) -> [Double?] {
-        guard !samples.isEmpty else {
-            return [Double?](repeating: nil, count: intervals.count)
-        }
-
-        var base = 0
-        return intervals.map { interval in
-            // Samples fully before this interval can't match any later
-            // interval either; advance the shared base past them once.
-            while base < samples.count,
-                  samples[base].startDate < interval.start,
-                  samples[base].endDate <= interval.start {
-                base += 1
-            }
-
-            var sum = 0.0
-            var count = 0
-            var index = base
-            while index < samples.count, samples[index].startDate < interval.end {
-                let sample = samples[index]
-                let overlaps = sample.startDate == sample.endDate
-                    ? sample.startDate >= interval.start
-                    : sample.endDate > interval.start
-                if overlaps {
-                    sum += sample.value
-                    count += 1
-                }
-                index += 1
-            }
-            return count > 0 ? sum / Double(count) : nil
-        }
-    }
-}
-
-/// One transformed quantity sample inside the batched sleep-vitals window.
-struct SleepVitalWindowSample: Equatable {
-    let startDate: Date
-    let endDate: Date
-    let value: Double
+    // `averageVitalValues` (per-night averaging of the batched window samples)
+    // now lives in the shared `BodySleepFetch`, alongside the query that
+    // produces the samples it partitions.
 }
 
 /// Result of `fetchDailySleepHistory`: the resolved history (`nil` = the
@@ -587,11 +468,4 @@ struct SleepVitalsIntervalOutcomes {
         oxygenSaturation: .success(nil),
         wristTemperatureCelsius: .success(nil)
     )
-}
-
-/// A wake day's merged `SleepDaySummary` (all sessions ending that day) paired
-/// with the main night's span, which bounds that day's nocturnal-vitals window.
-private struct SleepDayGrouping {
-    let day: SleepDaySummary
-    let mainSessionInterval: DateInterval?
 }

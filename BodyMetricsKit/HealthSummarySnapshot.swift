@@ -479,6 +479,13 @@ struct HealthSummarySnapshot: Codable, Equatable {
 
 struct HealthMetricSummary: Codable, Equatable {
     var value: Double?
+    /// The `endDate` of the sample behind `value`, for latest-sample headline
+    /// metrics (HR, Resting HR, HRV) — the value's EVENT watermark, carried so
+    /// the watch merge can compare measurements event-to-event instead of
+    /// against the phone's query time (which, under HealthKit replication lag,
+    /// rejects a genuinely newer reading that synced only to the watch). nil
+    /// for aggregate-style metrics and snapshots persisted before this field.
+    var measuredAt: Date? = nil
 }
 
 struct HealthDashboardSnapshot: Codable, Equatable {

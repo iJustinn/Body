@@ -11,7 +11,29 @@ import HealthKit
 // buckets (so e.g. two "Apple Watch" sources can show as one combined
 // pick). The grouped result is memoized in the engine's actor state
 // (`healthSourcesByKind`) so subsequent fetches reuse the source map.
+//
+// The queries and the grouping/identity rules themselves live in the shared
+// `BodyHealthSourceResolver` (Body + BodyWatch); this extension is the
+// actor-side memoization and the localized display naming around them.
 extension HealthKitFetchEngine {
+    /// The phone's discovered source universe per on-watch-compute kind, as
+    /// sorted disambiguated identity IDs — carried in the compute seed
+    /// (`WatchComputeSeed.expectedSourceIDsByKind`) so the watch can verify an
+    /// All-Sources read actually sees every source the phone aggregates before
+    /// treating its own store as phone-equivalent. Reads the memoized
+    /// discovery (`healthSourcesByKind`); kinds discovery never resolved are
+    /// simply absent (the watch then keeps its legacy unfiltered read).
+    func watchComputeExpectedSourceIDs() -> [String: [String]] {
+        var result: [String: [String]] = [:]
+        for kind in BodyHealthSourceResolver.watchComputeSourceKinds {
+            guard let bucket = healthSourcesByKind[kind] else { continue }
+            let ids = bucket.keys.filter { $0.hasPrefix("source:") }.sorted()
+            if !ids.isEmpty {
+                result[kind.rawValue] = ids
+            }
+        }
+        return result
+    }
     func fetchHealthDataSourceOptions(calendar: Calendar) async -> [HealthMetricKind: [BodyHealthDataSourceOption]]? {
         let permissionRawValue = permissionSelection.rawValue
         if fetchedHealthDataSourcePermissionRawValue == permissionRawValue,
@@ -56,7 +78,11 @@ extension HealthKitFetchEngine {
                 anyKindFailed = true
                 continue
             }
-            let (options, sourcesByID) = sourceOptionsAndMap(from: sources)
+            let (options, sourcesByID) = BodyHealthSourceResolver.sourceOptionsAndMap(
+                from: sources,
+                combinesSourcesByName: combinesHealthDataSourcesByName,
+                displayName: Self.displayName(for:)
+            )
             nextOptionsByKind[kindSource.kind] = options
             nextSourcesByKind[kindSource.kind] = sourcesByID
         }
@@ -71,181 +97,22 @@ extension HealthKitFetchEngine {
     private func fetchKindSources(for kind: HealthMetricKind) async -> KindSources {
         KindSources(
             kind: kind,
-            sources: await fetchHealthDataSources(for: healthSampleTypes(forSourceKind: kind))
-        )
-    }
-
-    /// One metric kind's discovered sources, carried out of the concurrent
-    /// fetch task group. A `nil` `sources` marks a failed discovery for the
-    /// kind. `@unchecked Sendable` is sound because `HKSource` is immutable
-    /// metadata (read-only; never mutated after the query returns) — HealthKit
-    /// just doesn't annotate it `Sendable`.
-    private struct KindSources: @unchecked Sendable {
-        let kind: HealthMetricKind
-        let sources: [HKSource]?
-    }
-
-    private func sourceOptionsAndMap(
-        from sources: [HKSource]
-    ) -> (options: [BodyHealthDataSourceOption], sourcesByID: [String: [HKSource]]) {
-        let sortedSources = sources.sorted { lhs, rhs in
-            let lhsName = displayName(for: lhs)
-            let rhsName = displayName(for: rhs)
-            if lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedSame {
-                return lhs.bundleIdentifier < rhs.bundleIdentifier
-            }
-            return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending
-        }
-
-        var sourcesByID: [String: [HKSource]] = [:]
-        let duplicateNameBundleIdentifiers = Set(
-            Dictionary(grouping: sortedSources, by: \.bundleIdentifier)
-                .compactMap { bundleIdentifier, sources in
-                    let sourceNameKeys = Set(sources.map { source in
-                        BodyHealthDataSourceOption.individualSourceIdentityKey(
-                            bundleIdentifier: source.bundleIdentifier,
-                            name: identityName(for: source)
-                        )
-                    })
-                    return sourceNameKeys.count > 1 ? bundleIdentifier : nil
+            sources: await BodyHealthSourceResolver.discoverSources(
+                for: healthSampleTypes(forSourceKind: kind),
+                store: healthStore,
+                onFailure: { context, error in
+                    Self.logTrendQueryFailure(context, error: error)
                 }
-        )
-        for source in sortedSources {
-            let sourceID = BodyHealthDataSourceOption.individualSourceID(
-                bundleIdentifier: source.bundleIdentifier,
-                name: identityName(for: source),
-                disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(source.bundleIdentifier)
             )
-            sourcesByID[sourceID, default: []].append(source)
-        }
-
-        let groupedSources = Dictionary(grouping: sortedSources) { source in
-            BodyHealthDataSourceOption.normalizedSourceName(identityName(for: source))
-        }
-        for group in groupedSources.values where group.count > 1 {
-            sourcesByID[BodyHealthDataSourceOption.combinedSourceID(for: identityName(for: group[0]))] = group
-        }
-
-        let options: [BodyHealthDataSourceOption]
-        if combinesHealthDataSourcesByName {
-            options = groupedSources.values.map { group in
-                let optionID = group.count > 1
-                    ? BodyHealthDataSourceOption.combinedSourceID(for: identityName(for: group[0]))
-                    : BodyHealthDataSourceOption.individualSourceID(
-                        bundleIdentifier: group[0].bundleIdentifier,
-                        name: identityName(for: group[0]),
-                        disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(group[0].bundleIdentifier)
-                    )
-                return BodyHealthDataSourceOption(
-                    id: optionID,
-                    name: BodyHealthDataSourceOption.combinedSourceDisplayName(for: displayName(for: group[0]))
-                )
-            }
-        } else {
-            options = sortedSources.map { source in
-                return BodyHealthDataSourceOption(
-                    id: BodyHealthDataSourceOption.individualSourceID(
-                        bundleIdentifier: source.bundleIdentifier,
-                        name: identityName(for: source),
-                        disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(source.bundleIdentifier)
-                    ),
-                    name: displayName(for: source)
-                )
-            }
-        }
-
-        return (
-            options.sorted { lhs, rhs in
-                if lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedSame {
-                    return lhs.id < rhs.id
-                }
-                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-            },
-            sourcesByID
         )
     }
 
-    private func displayName(for source: HKSource) -> String {
+    /// The user-facing source name. Localized — unlike
+    /// `BodyHealthSourceResolver.identityName(for:)`, which keys persisted
+    /// option IDs and must stay locale-stable so switching the app language
+    /// never drops the user's selected source.
+    nonisolated private static func displayName(for source: HKSource) -> String {
         let trimmedName = source.name.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedName.isEmpty ? String(localized: "Unknown Source") : trimmedName
-    }
-
-    /// Locale-stable name used for persisted option IDs and grouping keys. A
-    /// blank source name falls back to a fixed English string so switching the
-    /// app language never re-keys the same HealthKit source and drops the user's
-    /// selected source override. Only `displayName(for:)` is localized.
-    private func identityName(for source: HKSource) -> String {
-        let trimmedName = source.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedName.isEmpty ? "Unknown Source" : trimmedName
-    }
-
-    /// Returns `nil` when ANY per-sample-type source query fails (device
-    /// locked, store unavailable) rather than genuinely returning no sources —
-    /// the caller fails the whole kind so an unresolved source selection keeps
-    /// the cache instead of silently querying all sources (H4).
-    private func fetchHealthDataSources(for sampleTypes: [HKSampleType]) async -> [HKSource]? {
-        // Fan the per-sample-type `HKSourceQuery` round-trips out concurrently
-        // instead of awaiting them one at a time. Results are collected by
-        // index so the merge below can replay the exact same first-wins,
-        // iteration-order precedence as the old serial loop.
-        var resultsByIndex = [[HKSource]?](repeating: [], count: sampleTypes.count)
-        await withTaskGroup(of: IndexedSources.self) { group in
-            for (index, sampleType) in sampleTypes.enumerated() {
-                group.addTask {
-                    IndexedSources(index: index, sources: await self.fetchHealthDataSources(for: sampleType))
-                }
-            }
-
-            for await result in group {
-                resultsByIndex[result.index] = result.sources
-            }
-        }
-
-        var sourcesByIdentifier: [String: HKSource] = [:]
-        for sources in resultsByIndex {
-            guard let sources else {
-                return nil
-            }
-            for source in sources {
-                let sourceKey = BodyHealthDataSourceOption.individualSourceIdentityKey(
-                    bundleIdentifier: source.bundleIdentifier,
-                    name: identityName(for: source)
-                )
-                if sourcesByIdentifier[sourceKey] == nil {
-                    sourcesByIdentifier[sourceKey] = source
-                }
-            }
-        }
-        return Array(sourcesByIdentifier.values)
-    }
-
-    /// One sample type's discovered sources, carried out of the concurrent
-    /// fetch task group, tagged with its original index so the merge can
-    /// replay first-wins precedence in the same order as a serial loop. A
-    /// `nil` `sources` marks a failed query. `@unchecked Sendable` mirrors
-    /// `KindSources` above — sound because `HKSource` is immutable metadata
-    /// that HealthKit just doesn't annotate `Sendable`. A raw tuple can't be
-    /// marked `@unchecked Sendable`, hence this wrapper struct.
-    private struct IndexedSources: @unchecked Sendable {
-        let index: Int
-        let sources: [HKSource]?
-    }
-
-    private func fetchHealthDataSources(for sampleType: HKSampleType) async -> [HKSource]? {
-        await withCheckedContinuation { continuation in
-            let query = HKSourceQuery(
-                sampleType: sampleType,
-                samplePredicate: nil
-            ) { _, sources, error in
-                guard let sources else {
-                    Self.logTrendQueryFailure("sources:\(sampleType.identifier)", error: error)
-                    continuation.resume(returning: nil)
-                    return
-                }
-                continuation.resume(returning: Array(sources))
-            }
-
-            healthStore.execute(query)
-        }
     }
 }

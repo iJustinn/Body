@@ -811,7 +811,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(engineSource.contains("HKQuery.predicateForObjects(from: Set(sources))"))
         XCTAssertTrue(engineSource.contains("BodyHealthDataSourceOption.individualSourceIdentityKey"))
         XCTAssertTrue(engineSource.contains("BodyHealthDataSourceOption.individualSourceID"))
-        XCTAssertTrue(engineSource.contains("sourcesByID[sourceID, default: []].append(source)"))
+        // Every source registers BOTH identity forms (plain bundle-ID and
+        // name-disambiguated) so an ID persisted by the device that saw
+        // same-bundle duplicates still resolves on a device that discovers
+        // only the selected source.
+        XCTAssertTrue(engineSource.contains("sourcesByID[plainID, default: []].append(source)"))
+        XCTAssertTrue(engineSource.contains("sourcesByID[disambiguatedID, default: []].append(source)"))
         XCTAssertFalse(engineSource.contains("sourcesByID[source.bundleIdentifier] = [source]"))
     }
 
@@ -2437,6 +2442,13 @@ final class ProjectConfigurationTests: XCTestCase {
     /// was split across the main actor file and one or more `+...swift`
     /// extension files; tests that grep for engine substrings should look across
     /// the whole engine, not just the main file.
+    ///
+    /// The `BodyWatchSnapshotKit` files are part of that surface too: the
+    /// engine's HealthKit query leaves (source discovery + resolution, quantity
+    /// queries, sleep queries/grouping, workout query + mapping) were MOVED
+    /// there so Body and BodyWatch compile the same fetch code, and the engine
+    /// now calls in. Grepping the engine alone would silently stop covering
+    /// them.
     private func healthKitFetchEngineText() throws -> String {
         let files = [
             "Body/Services/HealthKitFetchEngine.swift",
@@ -2446,7 +2458,11 @@ final class ProjectConfigurationTests: XCTestCase {
             "Body/Services/HealthKitFetchEngine+ActivityRings.swift",
             "Body/Services/HealthKitFetchEngine+SourceOptions.swift",
             "Body/Services/HealthKitFetchEngine+Secondary.swift",
-            "Body/Services/HealthKitFetchEngine+IntradaySamples.swift"
+            "Body/Services/HealthKitFetchEngine+IntradaySamples.swift",
+            "BodyWatchSnapshotKit/BodyHealthSourceResolver.swift",
+            "BodyWatchSnapshotKit/BodyHealthQuantityFetch.swift",
+            "BodyWatchSnapshotKit/BodySleepFetch.swift",
+            "BodyWatchSnapshotKit/BodyWorkoutFetch.swift"
         ]
         return try files.map { try text(at: $0) }.joined(separator: "\n")
     }

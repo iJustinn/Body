@@ -51,6 +51,61 @@ enum HealthDashboardSnapshotStore {
         defaults.removeObject(forKey: lastSuccessfulRefreshDateKey)
     }
 
+    /// The phone's discovered source universe per watch-compute kind (see
+    /// `HealthKitFetchEngine.watchComputeExpectedSourceIDs`), persisted so a
+    /// relaunch restores it together with `lastSuccessfulRefreshDate`: the
+    /// restored refresh date makes `publishWatchSnapshot` attach a compute
+    /// seed before this session has run source discovery, and a seed shipped
+    /// with NO expected-source lists tells the watch its unfiltered
+    /// All-Sources reads are phone-equivalent — discarding coverage the last
+    /// session had already established.
+    static let watchExpectedSourceIDsKey = "lastHealthDashboardWatchExpectedSourceIDs"
+
+    static func saveWatchExpectedSourceIDs(_ idsByKind: [String: [String]], defaults: UserDefaults = .standard) {
+        defaults.set(idsByKind, forKey: watchExpectedSourceIDsKey)
+    }
+
+    static func loadWatchExpectedSourceIDs(defaults: UserDefaults = .standard) -> [String: [String]] {
+        defaults.object(forKey: watchExpectedSourceIDsKey) as? [String: [String]] ?? [:]
+    }
+
+    static func clearWatchExpectedSourceIDs(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: watchExpectedSourceIDsKey)
+    }
+
+    /// The compute seed's Training Load piece (dense day-indexed loads + its
+    /// own data-coverage watermark), persisted for the same reason as the
+    /// expected-source lists above: the seed's `dataThrough` survives a
+    /// relaunch, so a workout-only publish inside the refresh TTL would
+    /// otherwise replace the watch's complete seed with one carrying NO
+    /// Training Load arrays — and with the Training Load / Readiness cards
+    /// hidden on the phone, no later full refresh ever rebuilds them.
+    /// `through` is stored alongside so the honesty gate (the watch refuses
+    /// loads whose coverage doesn't reach its delta window) keeps working on
+    /// the restored copy.
+    static let watchTrainingLoadSeedKey = "lastHealthDashboardWatchTrainingLoadSeed"
+
+    static func saveWatchTrainingLoadSeed(startDay: Date, loads: [Double], through: Date, defaults: UserDefaults = .standard) {
+        defaults.set(
+            ["startDay": startDay, "loads": loads, "through": through] as [String: Any],
+            forKey: watchTrainingLoadSeedKey
+        )
+    }
+
+    static func loadWatchTrainingLoadSeed(defaults: UserDefaults = .standard) -> (startDay: Date, loads: [Double], through: Date)? {
+        guard let stored = defaults.dictionary(forKey: watchTrainingLoadSeedKey),
+              let startDay = stored["startDay"] as? Date,
+              let loads = stored["loads"] as? [Double],
+              let through = stored["through"] as? Date else {
+            return nil
+        }
+        return (startDay: startDay, loads: loads, through: through)
+    }
+
+    static func clearWatchTrainingLoadSeed(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: watchTrainingLoadSeedKey)
+    }
+
     /// One-shot marker for the first-load activity-ring backfill (up to ten
     /// years in one scan). While unset, the dashboard refresh fetches the
     /// full backfill window instead of the recent chart months; set only
