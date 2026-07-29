@@ -18,11 +18,25 @@ final class WatchConnectivityPublisher: NSObject {
     static let shared = WatchConnectivityPublisher()
 
     private let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "WatchConnectivity")
-    // The snapshot plus the permission value AND capture sequence it was queued
-    // with, held for the activation-retry resend so the retry ships the paired
-    // (not a newer) value and re-enters `send` with its ORIGINAL sequence — a
-    // fresh sequence would let the retry outrank a newer publish.
-    private var pending: (snapshot: WatchMetricsSnapshot, permissionRawValue: String?, captureSequence: UInt64)?
+    // The snapshot plus the permission value, capture sequence, AND compute
+    // seed it was queued with, held for the activation-retry resend so the
+    // retry ships the paired (not a newer) value and re-enters `send` with its
+    // ORIGINAL sequence — a fresh sequence would let the retry outrank a newer
+    // publish.
+    private var pending: (
+        snapshot: WatchMetricsSnapshot,
+        permissionRawValue: String?,
+        captureSequence: UInt64,
+        computeSeedData: Data?,
+        computeSeedSettingsSignature: String?
+    )?
+    /// Whole-context serialized-size budget for the WatchConnectivity push
+    /// (display snapshot + permission key + compute seed, together) —
+    /// `updateApplicationContext` has no documented ceiling, so this stays
+    /// comfortably under the empirically safe range. The compute seed is the
+    /// large, optional piece, so it's what gets dropped when the total would
+    /// exceed this; the always-required display snapshot still ships.
+    static let contextSizeBudgetBytes = 60_000
     // Publisher-owned monotonic capture counter. Allocated by the store at its
     // main-actor capture point (`nextCaptureSequence()`) so sequence order equals
     // capture order, and living on this process-wide singleton so it survives a
@@ -58,6 +72,69 @@ final class WatchConnectivityPublisher: NSObject {
         captureSequence >= lastQueued
     }
 
+    /// The pure whole-context budget decision, factored out so it's
+    /// unit-testable without a live `WCSession`: the compute seed is included
+    /// only when the total context size (display snapshot + permission key +
+    /// seed) fits the budget. The always-required display snapshot is never
+    /// the thing dropped — only the optional seed is at risk, so a caller that
+    /// finds this `false` simply omits the seed key and sends the rest
+    /// unchanged.
+    nonisolated static func shouldIncludeComputeSeed(
+        snapshotSize: Int,
+        permissionSize: Int,
+        seedSize: Int,
+        budget: Int = contextSizeBudgetBytes
+    ) -> Bool {
+        snapshotSize + permissionSize + seedSize <= budget
+    }
+
+    /// The two context dictionaries a send may use: `primary` (with the seed,
+    /// when one was supplied and fit the budget) and `fallback` (the same
+    /// context minus the seed, used only for the size-driven retry below).
+    /// Pure + static so the exact key set of both shapes is unit-testable
+    /// without a live `WCSession`.
+    nonisolated static func contexts(
+        snapshotData: Data,
+        permissionRawValue: String?,
+        seedData: Data?,
+        seedSettingsSignature: String?
+    ) -> (primary: [String: Any], fallback: [String: Any]) {
+        // Push the snapshot plus the phone's health-permission selection as
+        // sibling keys in the SAME context (a separate context write would
+        // drop "snapshot"). The watch needs the selection to gate its live
+        // HR/HRV reads; every displayed value is already baked into the
+        // snapshot by the phone. A nil selection (e.g. a Clear-Cache reset)
+        // omits the key rather than clearing the last-synced one.
+        var fallback: [String: Any] = ["snapshot": snapshotData]
+        if let permissionRawValue {
+            fallback[BodyAppearancePreference.healthPermissionSelectionKey] = permissionRawValue
+        }
+        // The settings signature rides in BOTH shapes — its whole purpose is to
+        // survive the seed blob being dropped for size, so the watch can still
+        // detect that its stored seed was built under superseded settings.
+        if let seedSettingsSignature {
+            fallback[WatchComputeSeed.applicationContextSettingsSignatureKey] = seedSettingsSignature
+        }
+        var primary = fallback
+        if let seedData {
+            primary[WatchComputeSeed.applicationContextKey] = seedData
+        }
+        return (primary, fallback)
+    }
+
+    /// Whether a failed `updateApplicationContext` is plausibly SIZE-driven and
+    /// therefore worth retrying without the compute seed.
+    ///
+    /// Only `WCError.payloadTooLarge` qualifies. Every other failure
+    /// (`sessionNotActivated`, `deliveryFailed`, `notReachable`, …) is
+    /// transient or unrelated to the payload, and treating it as size-driven
+    /// would permanently strip the seed from the pending activation resend —
+    /// the watch would then never receive a seed on exactly the paths where the
+    /// first attempt raced activation.
+    nonisolated static func isSeedSizeFailure(_ error: Error) -> Bool {
+        (error as? WCError)?.code == .payloadTooLarge
+    }
+
     /// Installs the delegate + activates the session at launch so the latest
     /// application context is ready and the first snapshot push doesn't have to
     /// queue for activation.
@@ -73,8 +150,19 @@ final class WatchConnectivityPublisher: NSObject {
     /// `activationDidCompleteWith`. `captureSequence` is the publisher-owned
     /// monotonic sequence the store allocated at capture time (see
     /// `nextCaptureSequence()`); it orders publishes independently of the device
-    /// clock.
-    func send(_ snapshot: WatchMetricsSnapshot, permissionRawValue: String?, captureSequence: UInt64) {
+    /// clock. `computeSeedData` (Phase 3 of the on-watch realtime compute plan)
+    /// is the compressed `WatchComputeSeed` payload, or `nil` to send none
+    /// (cold start / reset tombstone / encode failure).
+    /// `computeSeedSettingsSignature` is the seed's tiny settings hash, sent
+    /// even when the blob itself is nil/dropped (see
+    /// `WatchComputeSeed.applicationContextSettingsSignatureKey`).
+    func send(
+        _ snapshot: WatchMetricsSnapshot,
+        permissionRawValue: String?,
+        captureSequence: UInt64,
+        computeSeedData: Data? = nil,
+        computeSeedSettingsSignature: String? = nil
+    ) {
         guard WCSession.isSupported() else { return }
         // Drop a snapshot whose off-actor build lost the FIFO race with a newer
         // one already queued. Ordering rides on the publisher-owned monotonic
@@ -101,7 +189,7 @@ final class WatchConnectivityPublisher: NSObject {
             session.delegate = self
         }
         guard session.activationState == .activated else {
-            pending = (outgoing, permissionRawValue, captureSequence)
+            pending = (outgoing, permissionRawValue, captureSequence, computeSeedData, computeSeedSettingsSignature)
             if session.activationState == .notActivated {
                 session.activate()
             }
@@ -113,23 +201,53 @@ final class WatchConnectivityPublisher: NSObject {
             return
         }
 
+        // Budget the WHOLE context, not just the seed: an oversized seed on
+        // top of an otherwise-fine snapshot must not risk the always-required
+        // display push. The seed is the large, optional piece, so it's what
+        // gets dropped.
+        var seedToSend = computeSeedData
+        if let seed = seedToSend,
+           !Self.shouldIncludeComputeSeed(
+               snapshotSize: data.count,
+               permissionSize: permissionRawValue?.utf8.count ?? 0,
+               seedSize: seed.count
+           ) {
+            logger.error("Compute seed dropped: whole-context size exceeded the \(Self.contextSizeBudgetBytes, privacy: .public)-byte budget.")
+            seedToSend = nil
+        }
+        // The selection is captured alongside the snapshot so a queued build
+        // can't pair with a newer selection.
+        let contexts = Self.contexts(
+            snapshotData: data,
+            permissionRawValue: permissionRawValue,
+            seedData: seedToSend,
+            seedSettingsSignature: computeSeedSettingsSignature
+        )
+
         do {
-            // Push the snapshot plus the phone's health-permission selection as
-            // sibling keys in the SAME context (a separate context write would
-            // drop "snapshot"). The watch needs the selection to gate its live
-            // HR/HRV reads; every displayed value is already baked into the
-            // snapshot by the phone. The selection is captured alongside the
-            // snapshot so a queued build can't pair with a newer selection. A nil
-            // selection (e.g. a Clear-Cache reset) omits the key rather than
-            // clearing the last-synced one.
-            var context: [String: Any] = ["snapshot": data]
-            if let permissionRawValue {
-                context[BodyAppearancePreference.healthPermissionSelectionKey] = permissionRawValue
-            }
-            try session.updateApplicationContext(context)
+            try session.updateApplicationContext(contexts.primary)
         } catch {
             logger.error("updateApplicationContext failed: \(error.localizedDescription, privacy: .public)")
-            pending = (outgoing, permissionRawValue, captureSequence)
+            // Retry without the seed ONLY for a genuinely size-driven failure.
+            // Any other error is transient/unrelated, and dropping the seed for
+            // it would also null it out of `pending` below — permanently
+            // starving the watch of a seed on, say, a
+            // `sessionNotActivated` race that the activation resend is meant to
+            // recover from.
+            guard seedToSend != nil, Self.isSeedSizeFailure(error) else {
+                pending = (outgoing, permissionRawValue, captureSequence, computeSeedData, computeSeedSettingsSignature)
+                return
+            }
+            do {
+                try session.updateApplicationContext(contexts.fallback)
+                return
+            } catch {
+                logger.error("updateApplicationContext retry without compute seed also failed: \(error.localizedDescription, privacy: .public)")
+            }
+            // The seed is what made this context too large — the resend must
+            // not carry it back in. The SIGNATURE stays: it is what lets the
+            // watch invalidate a stored seed built under superseded settings.
+            pending = (outgoing, permissionRawValue, captureSequence, nil, computeSeedSettingsSignature)
         }
     }
 }
@@ -190,7 +308,9 @@ extension WatchConnectivityPublisher: WCSessionDelegate {
                 self.send(
                     pending.snapshot,
                     permissionRawValue: pending.permissionRawValue,
-                    captureSequence: pending.captureSequence
+                    captureSequence: pending.captureSequence,
+                    computeSeedData: pending.computeSeedData,
+                    computeSeedSettingsSignature: pending.computeSeedSettingsSignature
                 )
             }
         }

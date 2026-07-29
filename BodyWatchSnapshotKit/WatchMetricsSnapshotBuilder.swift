@@ -23,7 +23,22 @@ enum WatchMetricsSnapshotBuilder {
         temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
         idealSleepDuration: TimeInterval,
         showSleepScore: Bool = true,
-        now: Date = Date()
+        now: Date = Date(),
+        // Phone→watch compute (Phase 1d): when provided, a kind's carried
+        // range is the UNION of this override with its own local series
+        // min/max, so the watch's short delta-fetched history doesn't shrink
+        // the ring/chart bounds the phone's longer history already
+        // established. `nil` for every kind (the default) reproduces today's
+        // behavior byte-for-byte. Known limitation: a corrected/deleted
+        // historical extreme lingers in the override until the next phone
+        // publish rebuilds `seriesRanges` — display-only, self-healing.
+        seriesRangeOverride: ((String) -> WatchSeriesRange?)? = nil,
+        // When provided, stamps a kind's `computedAt` from this instead of the
+        // uniform `lastRefreshDate` below — lets the phone pass honest
+        // per-kind watermarks (e.g. a workout-only refresh that only moved
+        // Training Load) instead of a single stale-looking timestamp for every
+        // metric. `nil` (the default) reproduces today's uniform stamping.
+        perKindDataAsOf: ((String) -> Date?)? = nil
     ) -> WatchMetricsSnapshot {
         let tempPref = temperatureUnitPreference
 
@@ -36,12 +51,17 @@ enum WatchMetricsSnapshotBuilder {
         // re-run the staleness guard at display time on a snapshot that outlived
         // midnight in its cache (see `WatchMetricsSnapshot.sanitized`).
         var sleepNight: Date? = nil
+        // The night's EVENT watermark (see `WatchMetric.measuredAt`), stamped
+        // from the same trusted night as `sleepNight` so the two always
+        // describe one session.
+        var sleepNightEnd: Date? = nil
 
         if permissionSelection.includes(.sleep) {
             // Guards against carrying over a stale, previously-completed night
             // after midnight before today's own sleep session exists.
             let trustedSleep = summary.sleep.asOf(now)
             sleepNight = trustedSleep?.stageSnapshot.date
+            sleepNightEnd = trustedSleep?.stageSnapshot.dateInterval?.end
             metrics.append(sleepMetric(
                 trustedSleep,
                 recentSleepHistory: trends.sleepHistory,
@@ -53,17 +73,20 @@ enum WatchMetricsSnapshotBuilder {
             metrics.append(rangeMetric(
                 kind: WatchMetricKindKey.heartRate, title: String(localized: "Heart Rate", table: "BodyWatchSnapshotKit"), value: summary.heartRate.value,
                 unit: "bpm", decimals: 0,
-                seriesValues: values(trends.heartRate)
+                seriesValues: values(trends.heartRate),
+                overrideRange: seriesRangeOverride?(WatchMetricKindKey.heartRate)
             ))
             metrics.append(rangeMetric(
                 kind: WatchMetricKindKey.heartRateVariability, title: String(localized: "HRV", table: "BodyWatchSnapshotKit"), value: summary.heartRateVariability.value,
                 unit: "ms", decimals: 0,
-                seriesValues: values(trends.heartRateVariability)
+                seriesValues: values(trends.heartRateVariability),
+                overrideRange: seriesRangeOverride?(WatchMetricKindKey.heartRateVariability)
             ))
             metrics.append(rangeMetric(
                 kind: WatchMetricKindKey.restingHeartRate, title: String(localized: "Resting HR", table: "BodyWatchSnapshotKit"), value: summary.restingHeartRate.value,
                 unit: "bpm", decimals: 0,
-                seriesValues: values(trends.restingHeartRate), invert: true
+                seriesValues: values(trends.restingHeartRate), invert: true,
+                overrideRange: seriesRangeOverride?(WatchMetricKindKey.restingHeartRate)
             ))
         }
         if permissionSelection.includes(.workouts) {
@@ -73,7 +96,8 @@ enum WatchMetricsSnapshotBuilder {
             metrics.append(skinTempMetric(
                 summary.wristTemperature.value,
                 seriesValues: values(trends.wristTemperature),
-                pref: tempPref
+                pref: tempPref,
+                overrideRange: seriesRangeOverride?(WatchMetricKindKey.wristTemperature)
             ))
         }
 
@@ -97,13 +121,54 @@ enum WatchMetricsSnapshotBuilder {
             }
         }
 
+        // The reading's own measurement time (`WatchMetric.measuredAt`): the
+        // latest sample's `endDate` for the sample-headline vitals, the night's
+        // end for sleep. Computed metrics (Readiness, Training Load) carry
+        // none — their `computedAt` is the honest watermark.
+        func measuredAt(forKind kind: String) -> Date? {
+            switch kind {
+            case WatchMetricKindKey.heartRate: return summary.heartRate.measuredAt
+            case WatchMetricKindKey.heartRateVariability: return summary.heartRateVariability.measuredAt
+            case WatchMetricKindKey.restingHeartRate: return summary.restingHeartRate.measuredAt
+            case WatchMetricKindKey.sleep: return sleepNightEnd
+            default: return nil
+            }
+        }
+
         let stamped = metrics.map { metric -> WatchMetric in
             var stampedMetric = metric
-            stampedMetric.computedAt = lastRefreshDate
+            stampedMetric.computedAt = perKindDataAsOf?(metric.kind) ?? lastRefreshDate
+            stampedMetric.measuredAt = measuredAt(forKind: metric.kind)
             stampedMetric.weekly = weeklyValues(forKind: metric.kind)
             return stampedMetric
         }
         return WatchMetricsSnapshot(generatedAt: now, lastRefreshDate: lastRefreshDate, metrics: stamped, sleepNight: sleepNight)
+    }
+
+    /// Whole-series min/max per metric kind (every point the passed trends
+    /// carry — NOT a recent-week slice), using the SAME `values(_:)`
+    /// filtering the range/skin-temp metrics themselves use — so a phone-built
+    /// seed's ranges union with a watch's own local series by construction
+    /// (see `seriesRangeOverride` above). Only the kinds `rangeMetric`/
+    /// `skinTempMetric` cover; Readiness/Sleep/Training Load use fixed
+    /// 0...100 / 0...2 bounds and aren't included.
+    static func seriesRanges(from trends: HealthTrendSnapshot) -> [String: WatchSeriesRange] {
+        let seriesByKind: [(String, HealthTrendSeries)] = [
+            (WatchMetricKindKey.heartRate, trends.heartRate),
+            (WatchMetricKindKey.heartRateVariability, trends.heartRateVariability),
+            (WatchMetricKindKey.restingHeartRate, trends.restingHeartRate),
+            (WatchMetricKindKey.wristTemperature, trends.wristTemperature)
+        ]
+
+        var ranges: [String: WatchSeriesRange] = [:]
+        for (kind, series) in seriesByKind {
+            let seriesValues = values(series)
+            guard let low = seriesValues.min(), let high = seriesValues.max() else {
+                continue
+            }
+            ranges[kind] = WatchSeriesRange(min: low, max: high)
+        }
+        return ranges
     }
 
     // MARK: - Per-metric builders
@@ -176,18 +241,21 @@ enum WatchMetricsSnapshotBuilder {
         unit: String,
         decimals: Int,
         seriesValues: [Double],
-        invert: Bool = false
+        invert: Bool = false,
+        overrideRange: WatchSeriesRange? = nil
     ) -> WatchMetric {
-        WatchMetric(
+        let low = unionMin(seriesValues.min(), overrideRange?.min)
+        let high = unionMax(seriesValues.max(), overrideRange?.max)
+        return WatchMetric(
             kind: kind,
             title: title,
             displayValue: value.map { BodyValueFormat.numberText($0, decimals: decimals) } ?? "--",
             unit: value == nil ? "" : unit,
             score: nil,
-            fillFraction: value.map { fraction(of: $0, in: seriesValues, invert: invert) } ?? 0,
+            fillFraction: value.map { fraction(of: $0, low: low, high: high, invert: invert) } ?? 0,
             rawValue: value,
-            rangeMin: seriesValues.min(),
-            rangeMax: seriesValues.max()
+            rangeMin: low,
+            rangeMax: high
         )
     }
 
@@ -221,19 +289,27 @@ enum WatchMetricsSnapshotBuilder {
     private static func skinTempMetric(
         _ celsius: Double?,
         seriesValues: [Double],
-        pref: BodyValueFormat.TemperatureUnitPreference
+        pref: BodyValueFormat.TemperatureUnitPreference,
+        overrideRange: WatchSeriesRange? = nil
     ) -> WatchMetric {
+        // `rangeMin`/`rangeMax` (and the fraction below) stay in the RAW
+        // Celsius domain `seriesValues` is already in, matching the domain
+        // `seriesRanges(from:)` builds its override in by construction — the
+        // display-unit conversion (`temperatureDisplay`) only touches the
+        // formatted string, never the carried range/fraction.
         let display = celsius.map { BodyValueFormat.temperatureDisplay(celsius: $0, temperatureUnitPreference: pref) }
+        let low = unionMin(seriesValues.min(), overrideRange?.min)
+        let high = unionMax(seriesValues.max(), overrideRange?.max)
         return WatchMetric(
             kind: WatchMetricKindKey.wristTemperature,
             title: String(localized: "Skin Temp", table: "BodyWatchSnapshotKit"),
             displayValue: display?.value ?? "--",
             unit: display?.unit ?? "",
             score: nil,
-            fillFraction: celsius.map { fraction(of: $0, in: seriesValues, invert: false) } ?? 0,
+            fillFraction: celsius.map { fraction(of: $0, low: low, high: high, invert: false) } ?? 0,
             rawValue: celsius,
-            rangeMin: seriesValues.min(),
-            rangeMax: seriesValues.max()
+            rangeMin: low,
+            rangeMax: high
         )
     }
 
@@ -249,10 +325,22 @@ enum WatchMetricsSnapshotBuilder {
         series.calendarPoints(to: .recentWeek, date: now).map(\.value)
     }
 
-    /// Position of `value` within `[min, max]` of the recent series, clamped to
-    /// 0...1. Degenerate / empty ranges fall back to a half-full ring.
-    private static func fraction(of value: Double, in values: [Double], invert: Bool) -> Double {
-        guard let low = values.min(), let high = values.max(), high > low else { return 0.5 }
+    /// The lower of the local series' minimum and an optional override bound —
+    /// `nil` override reproduces `values.min()` exactly.
+    private static func unionMin(_ localMin: Double?, _ overrideMin: Double?) -> Double? {
+        [localMin, overrideMin].compactMap { $0 }.min()
+    }
+
+    /// The higher of the local series' maximum and an optional override bound —
+    /// `nil` override reproduces `values.max()` exactly.
+    private static func unionMax(_ localMax: Double?, _ overrideMax: Double?) -> Double? {
+        [localMax, overrideMax].compactMap { $0 }.max()
+    }
+
+    /// Position of `value` within `[low, high]`, clamped to 0...1. Degenerate /
+    /// missing bounds fall back to a half-full ring.
+    private static func fraction(of value: Double, low: Double?, high: Double?, invert: Bool) -> Double {
+        guard let low, let high, high > low else { return 0.5 }
         let normalized = min(max((value - low) / (high - low), 0), 1)
         return invert ? 1 - normalized : normalized
     }

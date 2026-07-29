@@ -948,7 +948,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BodyWatch/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Body;
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Body reads heart rate and heart rate variability from Apple Health on your Apple Watch to refresh those readings when your iPhone isn't nearby.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Body reads workouts, workout effort, sleep, heart rate, resting heart rate, HRV, respiratory rate, blood oxygen, and skin temperature from Apple Health on your Apple Watch so it can update your metrics on your wrist when your iPhone isn't nearby.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Body does not write data to Apple Health.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKApplication = YES;
@@ -982,7 +982,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BodyWatch/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Body;
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Body reads heart rate and heart rate variability from Apple Health on your Apple Watch to refresh those readings when your iPhone isn't nearby.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Body reads workouts, workout effort, sleep, heart rate, resting heart rate, HRV, respiratory rate, blood oxygen, and skin temperature from Apple Health on your Apple Watch so it can update your metrics on your wrist when your iPhone isn't nearby.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Body does not write data to Apple Health.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKApplication = YES;
