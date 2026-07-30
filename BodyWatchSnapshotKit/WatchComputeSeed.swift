@@ -383,7 +383,7 @@ private func watchComputeWindowed(
 extension SleepHistorySnapshot {
     /// Collapses stage detail for nights `WatchComputeSeed.sleepSegmentDayCount`
     /// (or more) days before `anchor` into a single synthesized segment
-    /// spanning the night's original interval — full per-stage detail
+    /// spanning the night's main-session interval — full per-stage detail
     /// (REM/Core/Deep/Awake) only matters for tonight's own sleep score and the
     /// 14-day consistency baseline (`Sleep.swift`'s `consistencyBaselineDayCount`),
     /// both of which stay inside the retained window for any anchor within
@@ -417,7 +417,10 @@ extension SleepHistorySnapshot {
     }
 
     private static func collapsedSegments(for snapshot: SleepStageSnapshot) -> [SleepStageSegment] {
-        guard let interval = snapshot.dateInterval else {
+        // Collapse to the main session's span, not the whole-day span, so a
+        // collapsed night keeps the nap-free bed/wake times consistency reads
+        // should the retained-detail margin over the baseline window ever shrink.
+        guard let interval = snapshot.mainSession.dateInterval else {
             // No (or degenerate) segments — nothing to collapse.
             return snapshot.segments
         }

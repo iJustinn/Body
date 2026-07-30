@@ -210,6 +210,11 @@ struct SleepStageSnapshot: Codable, Equatable {
     /// the device's current zone. Optional and defaulted so old caches decode as
     /// `nil` and all existing call sites compile unchanged.
     var timeZoneIdentifier: String? = nil
+    /// Span of the day's main sleep session (raw-sample sessionization: the
+    /// longest merged-asleep session under `BodySleepSessionizer`'s 2h gap rule),
+    /// so consumers can ignore daytime naps. Optional and defaulted so old caches
+    /// decode as `nil` and all existing call sites compile unchanged.
+    var mainSessionInterval: DateInterval? = nil
 
     var isEmpty: Bool {
         segments.isEmpty
@@ -271,6 +276,24 @@ struct SleepStageSnapshot: Codable, Equatable {
         }
         total += current.end.timeIntervalSince(current.start)
         return total
+    }
+
+    /// The snapshot reduced to the main sleep session: segments overlapping
+    /// `mainSessionInterval`. Sessions are separated by more than 2h of raw
+    /// silence and every parsed segment is a sub-interval of its session's
+    /// samples, so a plain overlap test selects exactly the main session's
+    /// segments. A `nil` interval (old caches, fixtures) returns `self`, so
+    /// behavior degrades to the whole-day snapshot.
+    var mainSession: SleepStageSnapshot {
+        guard let interval = mainSessionInterval else {
+            return self
+        }
+
+        var session = self
+        session.segments = segments.filter {
+            $0.endDate > interval.start && $0.startDate < interval.end
+        }
+        return session
     }
 
     var sleepStartDate: Date? {
@@ -494,8 +517,11 @@ struct SleepScoreSummary: Equatable {
         on date: Date?,
         calendar: Calendar
     ) -> SleepScoreCategory? {
-        guard let sleepStartDate = sleep.stageSnapshot.sleepStartDate,
-              let sleepEndDate = sleep.stageSnapshot.sleepEndDate else {
+        // Bed/wake come from the main sleep session only, so a daytime nap can't
+        // read as that night's bed or wake time.
+        let mainSession = sleep.stageSnapshot.mainSession
+        guard let sleepStartDate = mainSession.sleepStartDate,
+              let sleepEndDate = mainSession.sleepEndDate else {
             return nil
         }
 
@@ -508,9 +534,10 @@ struct SleepScoreSummary: Equatable {
         ) ?? scoringDay.addingTimeInterval(-TimeInterval(Self.consistencyBaselineDayCount) * Self.secondsPerDay)
         let baselineNights = recentSleepHistory.days.compactMap { day -> (day: Date, start: Date, end: Date, calendar: Calendar, zoneKnown: Bool)? in
             let dayDate = calendar.startOfDay(for: day.date)
+            let nightMainSession = day.summary.stageSnapshot.mainSession
             guard dayDate < scoringDay, dayDate >= oldestBaselineDay,
-                  let start = day.summary.stageSnapshot.sleepStartDate,
-                  let end = day.summary.stageSnapshot.sleepEndDate else {
+                  let start = nightMainSession.sleepStartDate,
+                  let end = nightMainSession.sleepEndDate else {
                 return nil
             }
 
@@ -1081,17 +1108,19 @@ struct SleepConsistencyChartModel: Equatable {
         calendar: Calendar = .bodyGregorian
     ) -> SleepConsistencyChartModel {
         let nights = entries.compactMap { entry -> SleepConsistencyNight? in
-            guard let snapshot = entry.snapshot,
-                  let interval = snapshot.dateInterval else {
+            // Only the main sleep session is drawn, so a daytime nap can't stretch
+            // the night's bar or skew the bed/wake averages.
+            guard let session = entry.snapshot?.mainSession,
+                  let interval = session.dateInterval else {
                 return nil
             }
 
-            let dayStart = perNightCalendar(calendar, for: snapshot).startOfDay(for: entry.day)
+            let dayStart = perNightCalendar(calendar, for: session).startOfDay(for: entry.day)
             let rawBedOffset = interval.start.timeIntervalSince(dayStart) / 3_600
             let windowShift = 24 * ((rawBedOffset - sleepDayWindowHours.lowerBound) / 24).rounded(.down)
             let bedOffset = rawBedOffset - windowShift
             let wakeOffset = interval.end.timeIntervalSince(dayStart) / 3_600 - windowShift
-            let slices = snapshot.segments
+            let slices = session.segments
                 .sorted { $0.startDate < $1.startDate }
                 .compactMap { segment -> SleepConsistencyNightSlice? in
                     let start = max(segment.startDate.timeIntervalSince(dayStart) / 3_600 - windowShift, bedOffset)

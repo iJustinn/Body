@@ -4330,6 +4330,47 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(consistency.points, 4)
     }
 
+    // MARK: - Naps excluded from consistency
+
+    func testConsistencyKeepsFullCreditWhenTonightAlsoHoldsANap() throws {
+        let zone = "America/New_York"
+        // 14 stable 23:00–07:00 nights, then tonight on the identical schedule but
+        // whose wake-day snapshot also carries an afternoon nap. Read through
+        // `mainSession`, the nap's end can't pose as tonight's wake time.
+        let history = try zonedNights((2...15).map { (day: $0, zone: zone) })
+        let plainTonight = try zonedNight(wakeMonth: 6, wakeDay: 16, sleptZone: zone)
+        let nappedTonight = try nappedNight(plainTonight)
+
+        let plain = try XCTUnwrap(
+            zonedScore(for: plainTonight, history: history).category(for: .consistency)
+        )
+        XCTAssertEqual(plain.points, 15)
+
+        let napped = try XCTUnwrap(
+            zonedScore(for: nappedTonight, history: history).category(for: .consistency)
+        )
+        XCTAssertEqual(napped.points, 15)
+        XCTAssertEqual(napped.maximumPoints, 15)
+        XCTAssertEqual(napped.valueDescription, plain.valueDescription)
+    }
+
+    func testConsistencyBaselineAverageIgnoresNapsInBaselineNights() throws {
+        let zone = "America/New_York"
+        // Every baseline night carries its own nap (and its own main-session
+        // interval). Baseline bed/wake must come from those nights' main sessions,
+        // so the average is unmoved and tonight still scores full credit.
+        let plainHistory = try zonedNights((2...15).map { (day: $0, zone: zone) })
+        let nappedHistory = try plainHistory.map { try nappedNight($0) }
+        let tonight = try zonedNight(wakeMonth: 6, wakeDay: 16, sleptZone: zone)
+
+        let plain = try XCTUnwrap(zonedScore(for: tonight, history: plainHistory).category(for: .consistency))
+        let napped = try XCTUnwrap(zonedScore(for: tonight, history: nappedHistory).category(for: .consistency))
+
+        XCTAssertEqual(napped.points, plain.points)
+        XCTAssertEqual(napped.points, 15)
+        XCTAssertEqual(napped.valueDescription, plain.valueDescription)
+    }
+
     func testSleepScoreCommentSummarizesScoreBand() {
         XCTAssertEqual(SleepScoreSummary.comment(for: 95), "Excellent sleep readiness for this day.")
         XCTAssertEqual(SleepScoreSummary.comment(for: 84), "Strong sleep with small room to improve.")
@@ -5712,6 +5753,31 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                     segments: [SleepStageSegment(stage: .core, startDate: bed, endDate: wake)],
                     timeZoneIdentifier: stampZone ? sleptZone : nil
                 )
+            )
+        )
+    }
+
+    /// The same wake-day night with a 72-minute afternoon nap appended to its
+    /// snapshot and `mainSessionInterval` pinned to the night — what the parser
+    /// stamps for a day that holds both a night and a nap.
+    private func nappedNight(_ night: SleepDaySummary) throws -> SleepDaySummary {
+        var snapshot = night.summary.stageSnapshot
+        let bed = try XCTUnwrap(snapshot.sleepStartDate)
+        let wake = try XCTUnwrap(snapshot.sleepEndDate)
+        let napStart = wake.addingTimeInterval(7 * 60 * 60)
+        snapshot.segments.append(SleepStageSegment(
+            stage: .core,
+            startDate: napStart,
+            endDate: napStart.addingTimeInterval(72 * 60)
+        ))
+        snapshot.mainSessionInterval = DateInterval(start: bed, end: wake)
+
+        return SleepDaySummary(
+            date: night.date,
+            summary: SleepSummary(
+                duration: night.summary.duration,
+                stageSnapshot: snapshot,
+                vitals: night.summary.vitals
             )
         )
     }

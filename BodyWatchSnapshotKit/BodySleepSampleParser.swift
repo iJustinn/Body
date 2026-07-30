@@ -34,7 +34,10 @@ enum BodySleepSampleParser {
                     showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
                     showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
                 ),
-                timeZoneIdentifier: timeZoneIdentifier(from: samples)
+                timeZoneIdentifier: timeZoneIdentifier(from: samples),
+                mainSessionInterval: BodySleepSessionizer.mainSession(
+                    in: BodySleepSessionizer.sessions(from: samples)
+                )?.interval
             )
         )
     }
