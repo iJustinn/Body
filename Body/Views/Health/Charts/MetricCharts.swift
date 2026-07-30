@@ -472,6 +472,7 @@ struct BodyHealthMetricDayChart: View {
     private let hourlyBuckets: [HealthTrendHourlyBucket]
     private let secondaryHourlyBuckets: [HealthTrendHourlyBucket]
     private let entries: [BodyHealthMetricDayChartEntry]
+    private let pointMarkEntries: [BodyHealthMetricDayChartEntry]
     private let finiteEntries: [BodyHealthMetricDayChartEntry]
     private let primaryEntriesByDate: [Date: BodyHealthMetricDayChartEntry]
     private let secondaryEntriesByDate: [Date: BodyHealthMetricDayChartEntry]
@@ -499,7 +500,8 @@ struct BodyHealthMetricDayChart: View {
         valueFormatter: @escaping (Double) -> String,
         contextIntervals: [BodyHealthMetricDayContextInterval] = [],
         aggregationLabel: String = String(localized: "HOURLY AVG"),
-        includesSampleBreakdown: Bool = true
+        includesSampleBreakdown: Bool = true,
+        collapsesUnchangedPoints: Bool = false
     ) {
         self.day = day
         self.title = title
@@ -530,6 +532,9 @@ struct BodyHealthMetricDayChart: View {
         )
         let allEntries = primaryEntries + secondaryEntries
         self.entries = allEntries
+        self.pointMarkEntries = collapsesUnchangedPoints
+            ? Self.collapsingUnchangedRunPoints(allEntries)
+            : allEntries
         self.finiteEntries = allEntries.filter { $0.averageValue.isFinite }
         self.primaryEntriesByDate = Dictionary(uniqueKeysWithValues: primaryEntries.map { ($0.plotDate, $0) })
         self.secondaryEntriesByDate = Dictionary(uniqueKeysWithValues: secondaryEntries.map { ($0.plotDate, $0) })
@@ -583,7 +588,9 @@ struct BodyHealthMetricDayChart: View {
                 .interpolationMethod(.linear)
                 .foregroundStyle(color(for: entry))
                 .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+            }
 
+            ForEach(pointMarkEntries) { entry in
                 PointMark(
                     x: .value("Time", entry.plotDate),
                     y: .value(title, entry.averageValue)
@@ -740,6 +747,27 @@ struct BodyHealthMetricDayChart: View {
             indices.append(current)
         }
         return indices
+    }
+
+    /// Keeps only the informative dots when a series holds flat runs: within
+    /// each line segment, an interior entry is dropped when both neighbors
+    /// share its value, so an unchanged stretch shows just its start and end
+    /// dots. The line itself still spans every entry.
+    static func collapsingUnchangedRunPoints(
+        _ entries: [BodyHealthMetricDayChartEntry]
+    ) -> [BodyHealthMetricDayChartEntry] {
+        var keptIDs = Set<String>()
+        for group in Dictionary(grouping: entries, by: \.seriesKey).values {
+            let sorted = group.sorted { $0.plotDate < $1.plotDate }
+            for (index, entry) in sorted.enumerated() {
+                let matchesPrevious = index > 0 && sorted[index - 1].averageValue == entry.averageValue
+                let matchesNext = index < sorted.count - 1 && sorted[index + 1].averageValue == entry.averageValue
+                if !(matchesPrevious && matchesNext) {
+                    keptIDs.insert(entry.id)
+                }
+            }
+        }
+        return entries.filter { keptIDs.contains($0.id) }
     }
 
     private static func makeEntries(
