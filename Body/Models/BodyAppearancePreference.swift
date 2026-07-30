@@ -46,6 +46,7 @@ extension HealthMetricKind {
     // Kinds whose detail page offers a per-day (intraday) view. Must stay in
     // sync with `supportsMetricDayView` in BodyHealthMetricDetailView.
     static let dayViewKinds: [HealthMetricKind] = [
+        .readiness,
         .heartRate,
         .heartRateVariability,
         .respiratoryRate,
@@ -424,10 +425,10 @@ struct BodyMetricDayViewSelection: Equatable {
             return "none"
         }
 
-        return HealthMetricKind.dayViewKinds
+        let kindList = HealthMetricKind.dayViewKinds
             .filter { enabledKinds.contains($0) }
             .map(\.rawValue)
-            .joined(separator: ",")
+        return ([Self.currentFormatMarker] + kindList).joined(separator: ",")
     }
 
     var enabledCount: Int {
@@ -449,6 +450,28 @@ struct BodyMetricDayViewSelection: Equatable {
         return BodyMetricDayViewSelection(enabledKinds: nextKinds)
     }
 
+    /// Marks a raw value written after the Readiness day view shipped. A value
+    /// without it that enables exactly `preReadinessDefaultKinds` predates the
+    /// readiness row and upgrades to the current default; a value carrying the
+    /// marker is authoritative, so deselecting only Readiness sticks. Unknown
+    /// tokens are already skipped by the kind parser, so old builds reading a
+    /// marked value simply ignore the marker.
+    private static let currentFormatMarker = "v2"
+
+    /// The full day-view list as it shipped before Readiness joined. A persisted
+    /// unmarked selection equal to this set predates the readiness row (it could
+    /// not be deselected when the value was saved) rather than expressing a
+    /// choice to exclude it, so it upgrades to the current default. Any other
+    /// subset — and "none" — is an intentional selection and is preserved as-is.
+    private static let preReadinessDefaultKinds: Set<HealthMetricKind> = [
+        .heartRate,
+        .heartRateVariability,
+        .respiratoryRate,
+        .oxygenSaturation,
+        .activeEnergy,
+        .steps
+    ]
+
     static func storedValue(from rawValue: String) -> BodyMetricDayViewSelection {
         let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedValue.isEmpty else {
@@ -459,11 +482,16 @@ struct BodyMetricDayViewSelection: Equatable {
             return BodyMetricDayViewSelection(enabledKinds: [])
         }
 
-        let kinds = Set(trimmedValue.split(separator: ",").compactMap {
-            HealthMetricKind(rawValue: String($0))
+        let tokens = trimmedValue.split(separator: ",").map(String.init)
+        let kinds = Set(tokens.compactMap {
+            HealthMetricKind(rawValue: $0)
         }.filter(HealthMetricKind.dayViewKinds.contains))
 
         guard !kinds.isEmpty else {
+            return defaultValue
+        }
+
+        guard tokens.contains(currentFormatMarker) || kinds != preReadinessDefaultKinds else {
             return defaultValue
         }
 

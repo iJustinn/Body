@@ -285,6 +285,30 @@ enum BodyMetricActivityAverages {
             }
     }
 
+    /// Per-workout readiness impact rows: each workout's marginal drain on the
+    /// day's score, shown negative. Workouts whose drain rounds below one point
+    /// are omitted.
+    static func makeReadinessImpact(timeline: ReadinessDayTimeline) -> [BodyMetricActivityAverage] {
+        timeline.impacts
+            .filter { $0.roundedDrainPoints >= 1 }
+            .map { impact in
+                BodyMetricActivityAverage(
+                    activity: .workout(impact.workoutType),
+                    startDate: impact.startDate,
+                    endDate: impact.endDate,
+                    averageValue: Double(-impact.roundedDrainPoints),
+                    source: impact.sourceName
+                )
+            }
+            .sorted {
+                if $0.startDate != $1.startDate {
+                    return $0.startDate < $1.startDate
+                }
+
+                return $0.title < $1.title
+            }
+    }
+
     static func makeSleepOnly(
         day: Date,
         series: HealthTrendSeries,
@@ -451,6 +475,22 @@ struct BodyHealthMetricDetailView: View {
         .task {
             await workoutStore.loadIntradayMetricSamplesIfNeeded(model.kind)
         }
+        .task(id: selectedMetricDay) {
+            // The readiness day view derives its line from workouts, which live in
+            // month snapshots grouped by start-date month — an older picker day (or a
+            // midnight-spanning workout from the day before) can sit in an unloaded
+            // month. `loadMonthIfNeeded` is a cached no-op once the month is in.
+            guard model.kind == .readiness else { return }
+            let calendar = Calendar.bodyGregorian
+            let dayStart = calendar.startOfDay(for: selectedMetricDay)
+            let previousDay = calendar.date(byAdding: .day, value: -1, to: dayStart) ?? dayStart
+            for date in [dayStart, previousDay] {
+                let components = calendar.dateComponents([.month, .year], from: date)
+                if let month = components.month, let year = components.year {
+                    await workoutStore.loadMonthIfNeeded(month: month, year: year)
+                }
+            }
+        }
         .background {
             // Fixed (non-scrolling) backdrop for every metric detail: the metric tint
             // at the very top — behind the transparent nav bar — easing into the page
@@ -608,10 +648,10 @@ struct BodyHealthMetricDetailView: View {
              .respiratoryRate,
              .oxygenSaturation,
              .activeEnergy,
-             .steps:
+             .steps,
+             .readiness:
             return true
-        case .readiness,
-             .restingHeartRate,
+        case .restingHeartRate,
              .sleep,
              .basics,
              .bodyMass,
@@ -668,7 +708,42 @@ struct BodyHealthMetricDetailView: View {
     // points for heart rate); these are read several times per render, so the
     // day slice is memoized until the series or selected day changes.
     private var selectedMetricDaySeries: HealthTrendSeries {
-        daySeriesCache.daySeries(from: liveDaySeries, on: selectedMetricDay, slot: .primary)
+        if model.kind == .readiness {
+            // Derived from the morning score + workouts, not fetched samples —
+            // tiny (~100 points), so it skips the day-series cache.
+            return selectedReadinessDayTimeline?.sampledSeries() ?? .empty
+        }
+
+        return daySeriesCache.daySeries(from: liveDaySeries, on: selectedMetricDay, slot: .primary)
+    }
+
+    private var selectedReadinessMorningScore: Int? {
+        let calendar = Calendar.bodyGregorian
+        let day = selectedMetricDay
+        if let entry = workoutStore.healthTrends.recordedReadiness
+            .first(where: { calendar.isDate($0.date, inSameDayAs: day) }) {
+            return entry.score
+        }
+        if let point = workoutStore.healthTrends.readiness.points
+            .first(where: { calendar.isDate($0.date, inSameDayAs: day) && $0.value.isFinite }) {
+            return Int(point.value.rounded())
+        }
+        if calendar.isDateInToday(day), let readiness = model.readiness {
+            return readiness.activityDrainMorningScore ?? readiness.score
+        }
+        return nil
+    }
+
+    private var selectedReadinessDayTimeline: ReadinessDayTimeline? {
+        guard model.kind == .readiness, let morningScore = selectedReadinessMorningScore else {
+            return nil
+        }
+
+        return ReadinessDayTimeline.make(
+            morningScore: morningScore,
+            workouts: workouts(on: selectedMetricDayInterval),
+            dayInterval: selectedMetricDayInterval
+        )
     }
 
     private var selectedMetricSecondaryDaySeries: HealthTrendSeries {
@@ -706,6 +781,11 @@ struct BodyHealthMetricDetailView: View {
                 workouts: workouts(on: selectedMetricDayInterval),
                 energyUnitPreference: selectedEnergyUnitPreference
             )
+        case .readiness:
+            guard let timeline = selectedReadinessDayTimeline else {
+                return []
+            }
+            return BodyMetricActivityAverages.makeReadinessImpact(timeline: timeline)
         default:
             return []
         }
@@ -1045,6 +1125,9 @@ struct BodyHealthMetricDetailView: View {
                 metricDatePicker
                 metricDayChartCard
                 metricActivityAveragesCard
+                if model.kind == .readiness, let readiness = model.readiness {
+                    readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
+                }
                 detailTrendComparisonCard
             } else {
                 if model.kind == .readiness, let readiness = model.readiness {
@@ -1466,7 +1549,11 @@ struct BodyHealthMetricDetailView: View {
                     valueFormatter: model.valueFormatter,
                     contextIntervals: selectedMetricDayContextIntervals,
                     aggregationLabel: selectedMetricDayAggregationLabel,
-                    includesSampleBreakdown: selectedMetricDayIncludesSampleBreakdown
+                    includesSampleBreakdown: selectedMetricDayIncludesSampleBreakdown,
+                    // The readiness line is a step function that is flat most of the
+                    // day — a dot on every hour reads as noise, so flat runs keep
+                    // only their start and end dots.
+                    collapsesUnchangedPoints: model.kind == .readiness
                 )
                 .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
                 .id(selectedMetricDay)
@@ -1483,7 +1570,7 @@ struct BodyHealthMetricDetailView: View {
 
     @ViewBuilder
     private var metricActivityAveragesCard: some View {
-        if model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy {
+        if model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy || model.kind == .readiness {
             let rows = selectedMetricActivityAverages
 
             VStack(alignment: .leading, spacing: 14) {
@@ -1522,6 +1609,8 @@ struct BodyHealthMetricDetailView: View {
             return String(localized: "Energy by Activity")
         case .heartRateVariability:
             return String(localized: "Average HRV")
+        case .readiness:
+            return String(localized: "Impact by Activity")
         default:
             return String(localized: "Heart Rate by Activity")
         }
@@ -1533,6 +1622,8 @@ struct BodyHealthMetricDetailView: View {
             return "No workout energy for this day"
         case .heartRateVariability:
             return "No sleep HRV for this day"
+        case .readiness:
+            return String(localized: "No workouts for this day")
         default:
             return "No sleep or workout heart rate for this day"
         }
@@ -1599,6 +1690,8 @@ struct BodyHealthMetricDetailView: View {
         switch model.kind {
         case .activeEnergy, .steps:
             return String(localized: "HOURLY TOTAL")
+        case .readiness:
+            return String(localized: "READINESS")
         default:
             return String(localized: "HOURLY AVG")
         }
@@ -1606,9 +1699,10 @@ struct BodyHealthMetricDetailView: View {
 
     private var selectedMetricDayIncludesSampleBreakdown: Bool {
         // Hourly cumulative metrics already report one value per hour — there's no
-        // intra-hour sample window to break down.
+        // intra-hour sample window to break down. Readiness samples are synthetic,
+        // so their sub-hour windows carry no information either.
         switch model.kind {
-        case .activeEnergy, .steps:
+        case .activeEnergy, .steps, .readiness:
             return false
         default:
             return true
@@ -1616,7 +1710,7 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var selectedMetricDayContextIntervals: [BodyHealthMetricDayContextInterval] {
-        guard model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy || model.kind == .steps else {
+        guard model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy || model.kind == .steps || model.kind == .readiness else {
             return []
         }
 
@@ -2346,6 +2440,12 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var dayComparisonLegendItems: [BodyHealthSourceLegendItem] {
+        // The readiness day line is derived from the morning score + workouts,
+        // not fetched from a health source — a source/average legend would mislead.
+        guard model.kind != .readiness else {
+            return []
+        }
+
         var items: [BodyHealthSourceLegendItem] = []
         if !selectedMetricDaySeries.isEmpty {
             items.append(

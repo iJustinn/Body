@@ -2393,6 +2393,22 @@
         }
       }
     },
+    "Couldn't Save" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't Save"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存"
+          }
+        }
+      }
+    },
     "Couldn't Save Image" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2406,22 +2422,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法保存图片"
-          }
-        }
-      }
-    },
-    "Couldn't Save" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn't Save"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法保存"
           }
         }
       }
@@ -3644,6 +3644,22 @@
         }
       }
     },
+    "Impact by Activity" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impact by Activity"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各活动影响"
+          }
+        }
+      }
+    },
     "Include leading and trailing Awake in sleep stages" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4710,6 +4726,22 @@
         }
       }
     },
+    "No workouts for this day" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No workouts for this day"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这一天没有运动"
+          }
+        }
+      }
+    },
     "No workouts for this selection." : {
       "localizations" : {
         "en" : {
@@ -5387,6 +5419,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态"
+          }
+        }
+      }
+    },
+    "READINESS" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "READINESS"
           }
         },
         "zh-Hans" : {
