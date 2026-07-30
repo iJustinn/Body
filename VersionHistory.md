@@ -1,5 +1,12 @@
 # Version History
 
+## 0.9.10 (build 2)
+
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 2.
+- Tinted every app-styled sheet's iOS 26 Liquid Glass background with a half-opacity black wash so sheets no longer read as fully transparent.
+- Fixed the metric detail chart callout colliding with the navigation title: the title now hides while a chart point is selected.
+- Sleep consistency (the chart and the sleep score's Consistency category) now ignores daytime naps by reading bed/wake times from only the day's main sleep session.
+
 ## 0.9.10 (build 1)
 
 - Updated the app, widget, watch, and test bundle version to 0.9.10 build 1.

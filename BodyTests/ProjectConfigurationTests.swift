@@ -157,6 +157,71 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("y: .disabled"))
         XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 10)
         XCTAssertFalse(source.contains(".annotation(position: .top, spacing: 8) {"))
+        XCTAssertTrue(source.contains("static let fillOpacity = 0.80"))
+    }
+
+    func testAppSheetsShareTheTintedGlassBackdrop() throws {
+        let cardBackground = try text(at: "Body/Views/BodyCardBackground.swift")
+
+        XCTAssertTrue(cardBackground.contains("func bodySheetBackground(_ base: Color = Color(.systemGroupedBackground))"))
+        XCTAssertTrue(cardBackground.contains("static let glassTintOpacity = 0.50"))
+        XCTAssertTrue(cardBackground.contains("Color.black.opacity(BodySheetBackgroundStyle.glassTintOpacity)"))
+
+        // Every sheet the app styles itself routes through the shared modifier, so the tint
+        // can't drift per sheet the way the hand-copied `#unavailable` snippet did.
+        let expectations: [(file: String, tinted: Int, legacy: Int)] = [
+            ("Body/Views/BodySettingsView.swift", 3, 0),
+            ("Body/Views/BodyWorkoutListSheet.swift", 1, 0),
+            ("Body/Views/Health/BodyHealthDataSourcePickerSheet.swift", 1, 0),
+            ("Body/Views/Health/BodyAddBasicsMeasurementSheet.swift", 1, 0),
+            // Exactly one: this sheet used to darken itself twice, which compounded the tint.
+            ("Body/Views/Health/SleepScoreSheet.swift", 1, 0),
+            // The workout-detail and share backdrops keep their own tint→black gradient.
+            ("Body/Views/BodyWorkoutsView.swift", 1, 1),
+            ("Body/Views/Health/BodyWorkoutShareSheet.swift", 0, 1)
+        ]
+
+        for expectation in expectations {
+            let source = try text(at: expectation.file)
+            XCTAssertEqual(
+                source.occurrenceCount(of: ".bodySheetBackground("),
+                expectation.tinted,
+                expectation.file
+            )
+            XCTAssertEqual(
+                source.occurrenceCount(of: "#unavailable(iOS 26.0)"),
+                expectation.legacy,
+                expectation.file
+            )
+        }
+    }
+
+    func testMetricDetailHidesNavigationTitleWhileHeroChartIsScrubbed() throws {
+        let detail = try text(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+
+        XCTAssertTrue(detail.contains("@State private var isHeroChartSelectionActive = false"))
+        XCTAssertTrue(detail.contains(#".navigationTitle(isHeroChartSelectionActive ? "" : String(localized: String.LocalizationValue(model.title)))"#))
+        // Range switches recreate the keyed hero chart, so the flag needs its own reset or
+        // the title stays hidden after a scrub-then-switch.
+        XCTAssertTrue(detail.contains("isHeroChartSelectionActive = false\n        }"))
+        // Only the immersive hero reports up; the cards below it must not hide the title.
+        XCTAssertEqual(detail.occurrenceCount(of: "selectionActive: immersive ? $isHeroChartSelectionActive : nil"), 7)
+
+        for file in [
+            "Body/Views/Health/Charts/MetricCharts.swift",
+            "Body/Views/Health/Charts/BasicsCharts.swift",
+            "Body/Views/Health/Charts/HeartRateRangeChart.swift",
+            "Body/Views/Health/Charts/SourceComparisonCharts.swift"
+        ] {
+            let source = try text(at: file)
+            // The callout is gated on the gesture being live AND a date being selected, so
+            // the reported flag has to mirror both — `selectedDate` alone would over-report.
+            XCTAssertTrue(source.contains("isSelecting && selectedDate != nil"), file)
+            XCTAssertTrue(source.contains("selectionActive?.wrappedValue = active"), file)
+        }
+
+        let sourceComparison = try text(at: "Body/Views/Health/Charts/SourceComparisonCharts.swift")
+        XCTAssertEqual(sourceComparison.occurrenceCount(of: "selectionActive?.wrappedValue = active"), 3)
     }
 
     func testHealthMetricChartDateDomainsFavorRightSidePadding() throws {
@@ -827,7 +892,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let trendCardStart = try XCTUnwrap(homeSource.range(of: "private func metricTrendChart")?.lowerBound)
         let trendCardBlock = String(homeSource[trendCardStart...].prefix(10_000))
         let comparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonBarChart")?.lowerBound)
-        let comparisonChartBlock = String(homeSource[comparisonChartStart...].prefix(8_500))
+        let comparisonChartBlock = String(homeSource[comparisonChartStart...].prefix(9_500))
         let rangeComparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonRangeChart")?.lowerBound)
         let rangeComparisonChartBlock = String(homeSource[rangeComparisonChartStart...].prefix(8_000))
         let rangeBandChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHeartRateRangeTrendChart")?.lowerBound)
@@ -1404,12 +1469,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.10;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.10;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 1;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 2;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1444,9 +1509,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 1)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 2)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.9 (build 13)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.9 (build 12)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.9 (build 11)**"))
@@ -1491,6 +1557,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 2."))
         XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 1)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 1."))
         XCTAssertTrue(versionHistory.contains("## 0.9.9 (build 13)"))
@@ -1734,7 +1802,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 1)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 2)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 1)"))
         XCTAssertTrue(testPlan.contains("sync status badge"))
         XCTAssertTrue(testPlan.contains("Energy by Activity"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.9`"))
