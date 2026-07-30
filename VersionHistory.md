@@ -1,5 +1,16 @@
 # Version History
 
+## 0.9.10 (build 6)
+
+- **Chart scrub callouts now float on the topmost layer.** On the metric detail pages, scrubbing the hero chart draws the selection callout above everything on screen — including the navigation bar's back chevron and title, which previously drew over it. The navigation title no longer hides while scrubbing (the build-3 workaround), since the callout simply covers it. Charts in the cards below the hero keep their in-place callouts.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 6.
+
+## 0.9.10 (build 5)
+
+- **Added a current-readiness dot to the Readiness week chart.** On the Readiness detail's Week range, an 80%-opacity dot in the line's color now marks today's live (post-workout) score below the plotted morning point — drawn only for today, and only when a workout visibly lowered readiness that day. While nothing is scrubbed, the highlighted status band follows that dot instead of the morning point, so the band reads the current status; scrubbing still retargets the band to the touched day and hides the dot until release.
+- The watch app's Readiness detail chart draws the same faded current-readiness dot below today's point (the watch payload now carries the drained value; its status band already tracked the current status).
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 5.
+
 ## 0.9.10 (build 3)
 
 - **Added a Readiness day view.** The Readiness detail now shows a date-tile day picker, a Day View line chart tracing the selected day's score from its frozen morning value down through each workout (workouts drawn as tinted bands with their icons), and an Impact by Activity card listing each workout's readiness drop — placed between the Days by Status chart and the About your score card. The line is derived from the morning score plus that day's workouts, and flat stretches draw only their start and end dots (instead of one per hour); the readiness row is toggleable in Settings > Metrics > Day View, and older picker days follow the existing 3-free-days Body Pro gating.

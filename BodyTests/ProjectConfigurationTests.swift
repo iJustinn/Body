@@ -196,16 +196,18 @@ final class ProjectConfigurationTests: XCTestCase {
         }
     }
 
-    func testMetricDetailHidesNavigationTitleWhileHeroChartIsScrubbed() throws {
+    func testMetricDetailFloatsHeroChartCalloutAboveNavigationBar() throws {
         let detail = try text(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
 
-        XCTAssertTrue(detail.contains("@State private var isHeroChartSelectionActive = false"))
-        XCTAssertTrue(detail.contains(#".navigationTitle(isHeroChartSelectionActive ? "" : String(localized: String.LocalizationValue(model.title)))"#))
-        // Range switches recreate the keyed hero chart, so the flag needs its own reset or
-        // the title stays hidden after a scrub-then-switch.
-        XCTAssertTrue(detail.contains("isHeroChartSelectionActive = false\n        }"))
-        // Only the immersive hero reports up; the cards below it must not hide the title.
-        XCTAssertEqual(detail.occurrenceCount(of: "selectionActive: immersive ? $isHeroChartSelectionActive : nil"), 7)
+        // The scrub callout is rendered by BodyHomeView on the topmost layer (above the
+        // nav bar's back chevron/title), so the title no longer hides while scrubbing.
+        XCTAssertTrue(detail.contains(".navigationTitle(String(localized: String.LocalizationValue(model.title)))"))
+        XCTAssertFalse(detail.contains("isHeroChartSelectionActive"))
+        // Range switches recreate the keyed hero chart, so the callout needs its own reset
+        // or it sticks after a scrub-then-switch.
+        XCTAssertTrue(detail.contains("floatingCallout?.callout = nil"))
+        // Only the immersive hero floats its callout; the cards below keep the in-chart one.
+        XCTAssertEqual(detail.occurrenceCount(of: "floatingCallout: immersive ? floatingCallout : nil"), 7)
 
         for file in [
             "Body/Views/Health/Charts/MetricCharts.swift",
@@ -214,14 +216,27 @@ final class ProjectConfigurationTests: XCTestCase {
             "Body/Views/Health/Charts/SourceComparisonCharts.swift"
         ] {
             let source = try text(at: file)
-            // The callout is gated on the gesture being live AND a date being selected, so
-            // the reported flag has to mirror both — `selectedDate` alone would over-report.
-            XCTAssertTrue(source.contains("isSelecting && selectedDate != nil"), file)
-            XCTAssertTrue(source.contains("selectionActive?.wrappedValue = active"), file)
+            XCTAssertTrue(source.contains(".bodyFloatingCalloutReporter(floatingCallout, selectionDate:"), file)
+            // The in-chart annotation must stand down while the floating callout renders,
+            // or the callout draws twice.
+            XCTAssertTrue(source.contains("if floatingCallout == nil {"), file)
+            XCTAssertFalse(source.contains("selectionActive"), file)
         }
 
         let sourceComparison = try text(at: "Body/Views/Health/Charts/SourceComparisonCharts.swift")
-        XCTAssertEqual(sourceComparison.occurrenceCount(of: "selectionActive?.wrappedValue = active"), 3)
+        XCTAssertEqual(sourceComparison.occurrenceCount(of: ".bodyFloatingCalloutReporter(floatingCallout, selectionDate:"), 3)
+
+        // BodyHomeView hosts the layer above BOTH nav bars: the callout overlay must come
+        // after the readiness detail overlay, and both detail sites must pass the state.
+        let home = try text(at: "Body/Views/BodyHomeView.swift")
+        XCTAssertTrue(home.contains("BodyChartFloatingCalloutLayer(state: heroChartCallout)"))
+        XCTAssertEqual(home.occurrenceCount(of: "floatingCallout: heroChartCallout"), 2)
+        if let readinessOverlayRange = home.range(of: "readinessDetailOverlay\n                    .accessibilityAddTraits(.isModal)"),
+           let calloutLayerRange = home.range(of: "BodyChartFloatingCalloutLayer(state: heroChartCallout)") {
+            XCTAssertTrue(readinessOverlayRange.lowerBound < calloutLayerRange.lowerBound)
+        } else {
+            XCTFail("Expected both the readiness detail overlay and the floating callout layer in BodyHomeView")
+        }
     }
 
     func testHealthMetricChartDateDomainsFavorRightSidePadding() throws {
@@ -696,17 +711,17 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTrainingLoadTrendChartDrawsDynamicHorizontalCurrentIntervalBandWithoutInlineLabel() throws {
         let source = try bodyHomeViewText()
         let chartStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricTrendChart")?.lowerBound)
-        let chartBlock = String(source[chartStart...].prefix(12_000))
+        let chartBlock = String(source[chartStart...].prefix(14_000))
 
         XCTAssertTrue(chartBlock.contains("let highlightedRange: BodyHealthMetricTrendHighlightedRange?"))
         XCTAssertTrue(chartBlock.contains("let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?"))
         XCTAssertTrue(chartBlock.contains("let displayedHighlightedRange = activeHighlightedRange"))
         XCTAssertTrue(chartBlock.contains("if let highlightedRange = displayedHighlightedRange,"))
         XCTAssertTrue(chartBlock.contains("private var activeHighlightedRange: BodyHealthMetricTrendHighlightedRange?"))
-        XCTAssertTrue(chartBlock.contains("guard let highlightedRangeResolver, let activeHighlightSourcePoint else {"))
-        XCTAssertTrue(chartBlock.contains("return highlightedRangeResolver(activeHighlightSourcePoint.value) ?? highlightedRange"))
-        XCTAssertTrue(chartBlock.contains("private var activeHighlightSourcePoint: HealthTrendCalendarPoint?"))
-        XCTAssertTrue(chartBlock.contains("selectedTrendPoint ?? latestVisibleTrendPoint"))
+        XCTAssertTrue(chartBlock.contains("guard let highlightedRangeResolver, let activeHighlightSourceValue else {"))
+        XCTAssertTrue(chartBlock.contains("return highlightedRangeResolver(activeHighlightSourceValue) ?? highlightedRange"))
+        XCTAssertTrue(chartBlock.contains("private var activeHighlightSourceValue: Double?"))
+        XCTAssertTrue(chartBlock.contains("selectedTrendPoint?.value ?? currentValuePoint?.value ?? latestVisibleTrendPoint?.value"))
         XCTAssertTrue(chartBlock.contains("private var latestVisibleTrendPoint: HealthTrendCalendarPoint?"))
         XCTAssertTrue(chartBlock.contains("visibleFinitePoints.last"))
         XCTAssertTrue(chartBlock.contains(".chartBackground { chartProxy in"))
@@ -970,7 +985,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let trendCardStart = try XCTUnwrap(homeSource.range(of: "private func metricTrendChart")?.lowerBound)
         let trendCardBlock = String(homeSource[trendCardStart...].prefix(9_000))
         let lineComparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonLineChart")?.lowerBound)
-        let lineComparisonChartBlock = String(homeSource[lineComparisonChartStart...].prefix(10_000))
+        // 12k: the floating-callout reporter added ~0.5k to the struct's body, pushing
+        // `selectedValues` (the BodyChartSelectionValue construction) past the old 10k.
+        let lineComparisonChartBlock = String(homeSource[lineComparisonChartStart...].prefix(12_000))
 
         XCTAssertTrue(appearanceSource.contains("var usesSourceComparisonLineChart: Bool"))
         XCTAssertTrue(trendCardBlock.contains("sourceLineComparisonTrend"))
@@ -1501,12 +1518,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.10;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 6;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.10;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 3;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 6;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1541,9 +1558,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 3)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 6)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 5)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.9 (build 13)**"))
@@ -1590,6 +1609,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 6)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 6."))
+        XCTAssertTrue(versionHistory.contains("Chart scrub callouts now float on the topmost layer"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 5)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 5."))
+        XCTAssertTrue(versionHistory.contains("Added a current-readiness dot to the Readiness week chart."))
         XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 3)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 3."))
         XCTAssertTrue(versionHistory.contains("Added a Readiness day view."))
@@ -1838,7 +1863,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 3)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 6)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 3)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 2)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 1)"))
         XCTAssertTrue(testPlan.contains("sync status badge"))
