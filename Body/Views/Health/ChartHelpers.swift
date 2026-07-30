@@ -217,7 +217,7 @@ struct BodyChartSelectionAnnotation: View {
 
 private enum BodyChartSelectionAnnotationStyle {
     static let cornerRadius: CGFloat = 8
-    static let fillOpacity = 0.82
+    static let fillOpacity = 0.80
 }
 
 extension View {

@@ -15,6 +15,9 @@ struct BodyHealthMetricTrendChart: View {
     let highlightedRange: BodyHealthMetricTrendHighlightedRange?
     let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?
     let activeHighlightedValue: Binding<Double?>?
+    /// Optional report-out of "a callout is on screen right now", so an immersive host can
+    /// get its own chrome out of the callout's way.
+    let selectionActive: Binding<Bool>?
     let isSleepDetail: Bool
     let baselineValue: Double?
     let baselineDeviationFormatter: ((Double) -> String)?
@@ -45,6 +48,7 @@ struct BodyHealthMetricTrendChart: View {
         highlightedRange: BodyHealthMetricTrendHighlightedRange? = nil,
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
         activeHighlightedValue: Binding<Double?>? = nil,
+        selectionActive: Binding<Bool>? = nil,
         isSleepDetail: Bool,
         baselineValue: Double? = nil,
         baselineDeviationFormatter: ((Double) -> String)? = nil,
@@ -59,6 +63,7 @@ struct BodyHealthMetricTrendChart: View {
         self.highlightedRange = highlightedRange
         self.highlightedRangeResolver = highlightedRangeResolver
         self.activeHighlightedValue = activeHighlightedValue
+        self.selectionActive = selectionActive
         self.isSleepDetail = isSleepDetail
         self.baselineValue = baselineValue
         self.baselineDeviationFormatter = baselineDeviationFormatter
@@ -293,7 +298,16 @@ struct BodyHealthMetricTrendChart: View {
             .onChange(of: activeHighlightSourceValue) { _, _ in
                 syncActiveHighlightedValue()
             }
+            .onChange(of: isChartSelectionActive) { _, active in
+                selectionActive?.wrappedValue = active
+            }
         }
+    }
+
+    /// Mirrors the `selectedTrendPoint` gate below: a callout is only on screen while the
+    /// press gesture is live AND a date is selected.
+    private var isChartSelectionActive: Bool {
+        isSelecting && selectedDate != nil
     }
 
     private var selectedTrendPoint: HealthTrendCalendarPoint? {

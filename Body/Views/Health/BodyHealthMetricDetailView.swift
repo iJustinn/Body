@@ -372,6 +372,10 @@ struct BodyHealthMetricDetailView: View {
     @State private var showsDataSourcePicker = false
     @State private var showsAddMeasurementSheet = false
     @State private var activeReadinessTrendValue: Double?
+    /// True while the hero chart is being scrubbed. The selection callout floats above the
+    /// chart's top edge, up into the nav bar — which is a UIKit layer no SwiftUI content can
+    /// draw under — so the title steps aside for it instead.
+    @State private var isHeroChartSelectionActive = false
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     @StateObject private var daySeriesCache = BodyMetricDaySeriesCache()
     @StateObject private var sleepConsistencyCache = BodySleepConsistencyChartCache()
@@ -460,8 +464,14 @@ struct BodyHealthMetricDetailView: View {
             )
             .ignoresSafeArea()
         }
-        .navigationTitle(String(localized: String.LocalizationValue(model.title)))
+        .navigationTitle(isHeroChartSelectionActive ? "" : String(localized: String.LocalizationValue(model.title)))
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: selectedTrendRange) { _, _ in
+            // The hero charts are keyed by range, so switching mid-scrub destroys the chart
+            // instance before it can report the selection ending. Clear it here or the title
+            // stays hidden.
+            isHeroChartSelectionActive = false
+        }
         .tint(model.symbolColor)
         .accentColor(model.symbolColor)
         .toolbar {
@@ -1148,7 +1158,8 @@ struct BodyHealthMetricDetailView: View {
                 bodyFatFormatter: model.secondaryValueFormatter ?? {
                     BodyValueFormat.numberText($0, decimals: 1) + "%"
                 },
-                immersive: immersive
+                immersive: immersive,
+                selectionActive: immersive ? $isHeroChartSelectionActive : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend,
@@ -1165,7 +1176,8 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter,
                 showsAverageLineOverlay: true,
                 immersive: immersive,
-                yDomain: metricRangeYDomain
+                yDomain: metricRangeYDomain,
+                selectionActive: immersive ? $isHeroChartSelectionActive : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend {
@@ -1178,7 +1190,8 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter,
                 yDomain: metricRangeYDomain,
                 immersive: immersive,
-                chartIdentity: "\(model.kind.rawValue)-source-range-comparison-\(selectedTrendRange.rawValue)"
+                chartIdentity: "\(model.kind.rawValue)-source-range-comparison-\(selectedTrendRange.rawValue)",
+                selectionActive: immersive ? $isHeroChartSelectionActive : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if usesRangeTrendChart, let visibleMetricRangeSeries {
@@ -1190,7 +1203,8 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter,
                 showsAverageLineOverlay: model.kind == .heartRate || model.kind == .heartRateVariability,
                 immersive: immersive,
-                yDomain: metricRangeYDomain
+                yDomain: metricRangeYDomain,
+                selectionActive: immersive ? $isHeroChartSelectionActive : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if let sourceComparisonTrend = model.sourceComparisonTrend {
@@ -1202,7 +1216,8 @@ struct BodyHealthMetricDetailView: View {
                 secondaryColor: sourceComparisonSecondaryColor,
                 valueFormatter: model.valueFormatter,
                 immersive: immersive,
-                chartIdentity: "\(model.kind.rawValue)-source-comparison-\(selectedTrendRange.rawValue)"
+                chartIdentity: "\(model.kind.rawValue)-source-comparison-\(selectedTrendRange.rawValue)",
+                selectionActive: immersive ? $isHeroChartSelectionActive : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
@@ -1215,7 +1230,8 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter,
                 isSleepDetail: isSleepDetail,
                 immersive: immersive,
-                chartIdentity: "\(model.kind.rawValue)-source-line-comparison-\(selectedTrendRange.rawValue)"
+                chartIdentity: "\(model.kind.rawValue)-source-line-comparison-\(selectedTrendRange.rawValue)",
+                selectionActive: immersive ? $isHeroChartSelectionActive : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else {
@@ -1229,6 +1245,7 @@ struct BodyHealthMetricDetailView: View {
                 highlightedRange: model.highlightedRange,
                 highlightedRangeResolver: model.highlightedRangeResolver,
                 activeHighlightedValue: model.kind == .readiness ? $activeReadinessTrendValue : nil,
+                selectionActive: immersive ? $isHeroChartSelectionActive : nil,
                 isSleepDetail: isSleepDetail,
                 baselineValue: wristTemperatureTrendBaseline,
                 baselineDeviationFormatter: wristTemperatureTrendBaselineDeviationFormatter,

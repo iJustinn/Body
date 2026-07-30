@@ -74,6 +74,9 @@ struct BodyHealthSourceComparisonLineChart: View {
     let isSleepDetail: Bool
     let immersive: Bool
     let chartIdentity: String
+    /// Optional report-out of "a callout is on screen right now", so an immersive host can
+    /// get its own chrome out of the callout's way.
+    let selectionActive: Binding<Bool>?
 
     private let entries: [BodyHealthSourceComparisonLineEntry]
     private let finiteEntries: [BodyHealthSourceComparisonLineEntry]
@@ -97,7 +100,8 @@ struct BodyHealthSourceComparisonLineChart: View {
         valueFormatter: @escaping (Double) -> String,
         isSleepDetail: Bool,
         immersive: Bool = false,
-        chartIdentity: String
+        chartIdentity: String,
+        selectionActive: Binding<Bool>? = nil
     ) {
         self.title = title
         self.comparison = comparison
@@ -108,6 +112,7 @@ struct BodyHealthSourceComparisonLineChart: View {
         self.isSleepDetail = isSleepDetail
         self.immersive = immersive
         self.chartIdentity = chartIdentity
+        self.selectionActive = selectionActive
 
         let primaryPoints = comparison.primary.series.lineChartCalendarPoints(to: selectedRange)
         let secondaryPoints = comparison.secondary.series.lineChartCalendarPoints(to: selectedRange)
@@ -248,6 +253,9 @@ struct BodyHealthSourceComparisonLineChart: View {
         }
         .chartXSelection(value: $selectedDate)
         .simultaneousGesture(chartPressGesture)
+        .onChange(of: isChartSelectionActive) { _, active in
+            selectionActive?.wrappedValue = active
+        }
         .id(chartIdentity)
         .transition(
             .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -255,6 +263,12 @@ struct BodyHealthSourceComparisonLineChart: View {
         .transaction { transaction in
             transaction.animation = nil
         }
+    }
+
+    /// Mirrors the `selectedPoint` gate below: a callout is only on screen while the press
+    /// gesture is live AND a date is selected.
+    private var isChartSelectionActive: Bool {
+        isSelecting && selectedDate != nil
     }
 
     private var selectedPoint: BodyHealthSourceComparisonLineEntry? {
@@ -349,6 +363,9 @@ struct BodyHealthSourceComparisonBarChart: View {
     let valueFormatter: (Double) -> String
     let immersive: Bool
     let chartIdentity: String
+    /// Optional report-out of "a callout is on screen right now", so an immersive host can
+    /// get its own chrome out of the callout's way.
+    let selectionActive: Binding<Bool>?
 
     private let entries: [BodyHealthSourceComparisonBarEntry]
     private let finiteEntries: [BodyHealthSourceComparisonBarEntry]
@@ -367,7 +384,8 @@ struct BodyHealthSourceComparisonBarChart: View {
         secondaryColor: Color,
         valueFormatter: @escaping (Double) -> String,
         immersive: Bool = false,
-        chartIdentity: String
+        chartIdentity: String,
+        selectionActive: Binding<Bool>? = nil
     ) {
         self.title = title
         self.comparison = comparison
@@ -377,6 +395,7 @@ struct BodyHealthSourceComparisonBarChart: View {
         self.valueFormatter = valueFormatter
         self.immersive = immersive
         self.chartIdentity = chartIdentity
+        self.selectionActive = selectionActive
 
         let primaryPoints = comparison.primary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
         let secondaryPoints = comparison.secondary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
@@ -491,6 +510,9 @@ struct BodyHealthSourceComparisonBarChart: View {
             }
             .chartXSelection(value: $selectedDate)
             .simultaneousGesture(chartPressGesture)
+            .onChange(of: isChartSelectionActive) { _, active in
+                selectionActive?.wrappedValue = active
+            }
             .id(chartIdentity)
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -499,6 +521,12 @@ struct BodyHealthSourceComparisonBarChart: View {
                 transaction.animation = nil
             }
         }
+    }
+
+    /// Mirrors the `selectedPoint` gate below: a callout is only on screen while the press
+    /// gesture is live AND a date is selected.
+    private var isChartSelectionActive: Bool {
+        isSelecting && selectedDate != nil
     }
 
     private var selectedPoint: BodyHealthSourceComparisonBarEntry? {
@@ -571,6 +599,9 @@ struct BodyHealthSourceComparisonRangeChart: View {
     let valueFormatter: (Double) -> String
     let immersive: Bool
     let chartIdentity: String
+    /// Optional report-out of "a callout is on screen right now", so an immersive host can
+    /// get its own chrome out of the callout's way.
+    let selectionActive: Binding<Bool>?
 
     private let entries: [BodyHealthSourceComparisonRangeEntry]
     private let finiteEntries: [BodyHealthSourceComparisonRangeEntry]
@@ -590,7 +621,8 @@ struct BodyHealthSourceComparisonRangeChart: View {
         valueFormatter: @escaping (Double) -> String,
         yDomain: (([Double]) -> ClosedRange<Double>)? = nil,
         immersive: Bool = false,
-        chartIdentity: String
+        chartIdentity: String,
+        selectionActive: Binding<Bool>? = nil
     ) {
         self.title = title
         self.comparison = comparison
@@ -600,6 +632,7 @@ struct BodyHealthSourceComparisonRangeChart: View {
         self.valueFormatter = valueFormatter
         self.immersive = immersive
         self.chartIdentity = chartIdentity
+        self.selectionActive = selectionActive
 
         let primaryPoints = comparison.primary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
         let secondaryPoints = comparison.secondary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
@@ -728,6 +761,9 @@ struct BodyHealthSourceComparisonRangeChart: View {
             }
             .chartXSelection(value: $selectedDate)
             .simultaneousGesture(chartPressGesture)
+            .onChange(of: isChartSelectionActive) { _, active in
+                selectionActive?.wrappedValue = active
+            }
             .id(chartIdentity)
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -736,6 +772,12 @@ struct BodyHealthSourceComparisonRangeChart: View {
                 transaction.animation = nil
             }
         }
+    }
+
+    /// Mirrors the `selectedPoint` gate below: a callout is only on screen while the press
+    /// gesture is live AND a date is selected.
+    private var isChartSelectionActive: Bool {
+        isSelecting && selectedDate != nil
     }
 
     private var selectedPoint: BodyHealthSourceComparisonRangeEntry? {

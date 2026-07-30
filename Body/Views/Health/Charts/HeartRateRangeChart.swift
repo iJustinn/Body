@@ -14,6 +14,10 @@ struct BodyHeartRateRangeTrendChart: View {
     let valueFormatter: (Double) -> String
     let showsAverageLineOverlay: Bool
     let immersive: Bool
+    /// Optional report-out of "a callout is on screen right now", so an immersive host can
+    /// get its own chrome out of the callout's way. Mirrors `activeHighlightedValue` on
+    /// `BodyHealthMetricTrendChart`.
+    let selectionActive: Binding<Bool>?
 
     private let rangePoints: [HealthTrendRangeCalendarPoint]
     private let secondaryRangePoints: [HealthTrendRangeCalendarPoint]
@@ -42,7 +46,8 @@ struct BodyHeartRateRangeTrendChart: View {
         valueFormatter: @escaping (Double) -> String,
         showsAverageLineOverlay: Bool = false,
         immersive: Bool = false,
-        yDomain: (([Double]) -> ClosedRange<Double>)? = nil
+        yDomain: (([Double]) -> ClosedRange<Double>)? = nil,
+        selectionActive: Binding<Bool>? = nil
     ) {
         self.title = title
         self.selectedRange = selectedRange
@@ -51,6 +56,7 @@ struct BodyHeartRateRangeTrendChart: View {
         self.valueFormatter = valueFormatter
         self.showsAverageLineOverlay = showsAverageLineOverlay
         self.immersive = immersive
+        self.selectionActive = selectionActive
         self.primarySourceName = primarySourceName
         self.secondarySourceName = secondarySourceName
 
@@ -175,6 +181,9 @@ struct BodyHeartRateRangeTrendChart: View {
             }
             .chartXSelection(value: $selectedDate)
             .simultaneousGesture(chartPressGesture)
+            .onChange(of: isChartSelectionActive) { _, active in
+                selectionActive?.wrappedValue = active
+            }
             .id("heart-rate-range-\(selectedRange.rawValue)")
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -238,6 +247,12 @@ struct BodyHeartRateRangeTrendChart: View {
 
     private func selectedAverageEntries(for date: Date) -> [BodyHeartRateRangeAverageEntry] {
         averageEntries.filter { $0.date == date }
+    }
+
+    /// Mirrors the `selectedRangePoint` gate below: a callout is only on screen while the
+    /// press gesture is live AND a date is selected.
+    private var isChartSelectionActive: Bool {
+        isSelecting && selectedDate != nil
     }
 
     private var selectedRangePoint: HealthTrendRangeCalendarPoint? {
