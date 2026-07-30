@@ -71,13 +71,7 @@ struct BodyAddBasicsMeasurementSheet: View {
             .padding(.horizontal, 16)
             .padding(.top, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background {
-                // On iOS 26+ the sheet's default Liquid Glass background shows through;
-                // older systems keep the opaque grouped background.
-                if #unavailable(iOS 26.0) {
-                    Color(.systemGroupedBackground).ignoresSafeArea()
-                }
-            }
+            .bodySheetBackground()
             .navigationTitle("Add Measurement")
             .navigationBarTitleDisplayMode(.inline)
             .tint(accentColor)

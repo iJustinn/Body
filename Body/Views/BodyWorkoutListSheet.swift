@@ -119,13 +119,7 @@ struct BodyWorkoutListSheet: View {
                 .padding(.top, 14)
                 .padding(.bottom, 24)
             }
-            .background {
-                // On iOS 26+ the sheet's default Liquid Glass background shows through;
-                // older systems keep the opaque grouped background.
-                if #unavailable(iOS 26.0) {
-                    Color(.systemGroupedBackground).ignoresSafeArea()
-                }
-            }
+            .bodySheetBackground()
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(item: $selectedWorkout) { workout in
                 BodyWorkoutDetailSheet(workout: workout)

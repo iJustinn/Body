@@ -46,13 +46,6 @@ struct SleepScoreDetailsSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background {
-                // On iOS 26+ the sheet's default Liquid Glass background shows through;
-                // older systems keep the opaque background.
-                if #unavailable(iOS 26.0) {
-                    Color(.systemBackground).ignoresSafeArea()
-                }
-            }
             .navigationTitle("Sleep Score")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -64,11 +57,7 @@ struct SleepScoreDetailsSheet: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            if #unavailable(iOS 26.0) {
-                Color(.systemBackground).ignoresSafeArea()
-            }
-        }
+        .bodySheetBackground(Color(.systemBackground))
     }
 
     private var header: some View {

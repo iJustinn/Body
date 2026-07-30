@@ -916,13 +916,6 @@ private struct BodyUnitPreferencePickerSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // On iOS 26+ the sheet's default Liquid Glass background shows through;
-                // older systems keep the opaque grouped background.
-                if #unavailable(iOS 26.0) {
-                    Color(.systemGroupedBackground)
-                        .ignoresSafeArea()
-                }
-
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 18) {
                         BodySettingsCardSection("System") {
@@ -990,6 +983,7 @@ private struct BodyUnitPreferencePickerSheet: View {
                     .padding(.bottom, 24)
                 }
             }
+            .bodySheetBackground()
             .navigationTitle("Units")
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -2884,13 +2878,6 @@ private struct BodyAppIconPickerSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // On iOS 26+ the sheet's default Liquid Glass background shows through;
-                // older systems keep the opaque grouped background.
-                if #unavailable(iOS 26.0) {
-                    Color(.systemGroupedBackground)
-                        .ignoresSafeArea()
-                }
-
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(options) { option in
@@ -2909,6 +2896,7 @@ private struct BodyAppIconPickerSheet: View {
                     .padding(.bottom, 24)
                 }
             }
+            .bodySheetBackground()
             .navigationTitle("App Icon")
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -3093,20 +3081,12 @@ private struct BodySettingsAboutSheetScaffold<Content: View>: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                // On iOS 26+ the sheet's default Liquid Glass background shows through;
-                // older systems keep the opaque grouped background.
-                if #unavailable(iOS 26.0) {
-                    Color(.systemGroupedBackground)
-                        .ignoresSafeArea()
-                }
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    content
-                        .padding()
-                        .padding(.bottom, 24)
-                }
+            ScrollView(.vertical, showsIndicators: false) {
+                content
+                    .padding()
+                    .padding(.bottom, 24)
             }
+            .bodySheetBackground()
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
         }

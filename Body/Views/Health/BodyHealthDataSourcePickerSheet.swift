@@ -74,13 +74,7 @@ struct BodyHealthDataSourcePickerSheet: View {
                 .padding(.top, 18)
                 .padding(.bottom, 30)
             }
-            .background {
-                // On iOS 26+ the sheet's default Liquid Glass background shows through;
-                // older systems keep the opaque grouped background.
-                if #unavailable(iOS 26.0) {
-                    Color(.systemGroupedBackground).ignoresSafeArea()
-                }
-            }
+            .bodySheetBackground()
             .navigationTitle("\(kind.sourcePickerTitle) Source")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

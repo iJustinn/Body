@@ -2559,6 +2559,7 @@ private struct BodyWorkoutFilterView: View {
                 .scrollContentBackground(.hidden)
                 .scrollIndicators(.hidden)
             }
+            .bodySheetBackground()
             .navigationTitle("Filter")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
