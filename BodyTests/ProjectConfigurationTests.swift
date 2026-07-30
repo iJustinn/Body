@@ -466,18 +466,50 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertLessThan(metricDayChartStart, dayViewTrendCardStart)
         XCTAssertLessThan(metricDayChartStart, metricActivityAveragesStart)
         XCTAssertLessThan(metricActivityAveragesStart, dayViewTrendCardStart)
+        // The readiness "About your score" card sits between the by-activity card
+        // and the trend card in the day-view branch (and repeats in the non-day
+        // branch for when the day view is toggled off).
+        XCTAssertLessThan(metricActivityAveragesStart, readinessAboutStart)
+        XCTAssertLessThan(readinessAboutStart, dayViewTrendCardStart)
         XCTAssertLessThan(dayViewTrendCardStart, dayViewElseStart)
         XCTAssertLessThan(readinessAboutStart, nonDayTrendCardStart)
         XCTAssertLessThan(dayViewTrendCardStart, helpTextStart)
         XCTAssertEqual(detailBodyBlock.occurrenceCount(of: "detailTrendComparisonCard"), 3)
+        XCTAssertEqual(detailBodyBlock.occurrenceCount(of: "readinessWhyCard(for: readiness"), 2)
         XCTAssertTrue(source.contains("BodyHomeTrendCardFactory.card("))
         XCTAssertTrue(source.contains("BodyHomeTrendCard(model: card, showsNavigationIndicator: false)"))
         XCTAssertTrue(source.contains("@StateObject private var trendComputationCache = BodyHomeTrendComputationCache()"))
-        XCTAssertTrue(source.contains("model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy"))
+        XCTAssertTrue(source.contains("model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy || model.kind == .readiness"))
         XCTAssertTrue(source.contains(#"return String(localized: "Heart Rate by Activity")"#))
         XCTAssertTrue(source.contains(#"return String(localized: "Average HRV")"#))
         XCTAssertTrue(source.contains(#"return String(localized: "Energy by Activity")"#))
+        XCTAssertTrue(source.contains(#"return String(localized: "Impact by Activity")"#))
         XCTAssertFalse(source.contains("Activity Heart Rate"))
+    }
+
+    func testReadinessDayViewKindStaysInSyncAcrossLists() throws {
+        // `HealthMetricKind.dayViewKinds` and `supportsMetricDayView` are two
+        // hand-maintained lists; readiness must appear in both or the feature
+        // silently disappears.
+        let detailSource = try bodyHomeViewText()
+        let dayViewGateStart = try XCTUnwrap(detailSource.range(of: "private var supportsMetricDayView: Bool")?.lowerBound)
+        let dayViewGateEnd = try XCTUnwrap(
+            detailSource.range(of: "private var metricDayViewEnabled", range: dayViewGateStart..<detailSource.endIndex)?.lowerBound
+        )
+        let gateBlock = String(detailSource[dayViewGateStart..<dayViewGateEnd])
+        let trueBranchEnd = try XCTUnwrap(gateBlock.range(of: "return true")?.lowerBound)
+        XCTAssertTrue(gateBlock[..<trueBranchEnd].contains(".readiness"))
+
+        let preferenceSource = try text(at: "Body/Models/BodyAppearancePreference.swift")
+        // Skip past the `[HealthMetricKind]` type annotation to the array literal.
+        let dayViewKindsStart = try XCTUnwrap(preferenceSource.range(of: "static let dayViewKinds")?.lowerBound)
+        let dayViewKindsLiteralStart = try XCTUnwrap(
+            preferenceSource.range(of: "= [", range: dayViewKindsStart..<preferenceSource.endIndex)?.upperBound
+        )
+        let dayViewKindsEnd = try XCTUnwrap(
+            preferenceSource.range(of: "]", range: dayViewKindsLiteralStart..<preferenceSource.endIndex)?.lowerBound
+        )
+        XCTAssertTrue(preferenceSource[dayViewKindsLiteralStart..<dayViewKindsEnd].contains(".readiness"))
     }
 
     func testLineHealthChartsDoNotRenderEmptyDatePlaceholderMarks() throws {
@@ -1469,12 +1501,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.10;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.10;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 2;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 3;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1509,9 +1541,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 2)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 3)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.9 (build 13)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.9 (build 12)**"))
@@ -1557,6 +1590,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 3."))
+        XCTAssertTrue(versionHistory.contains("Added a Readiness day view."))
         XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 2)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 2."))
         XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 1)"))
@@ -1802,7 +1838,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 2)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 3)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 2)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 1)"))
         XCTAssertTrue(testPlan.contains("sync status badge"))
         XCTAssertTrue(testPlan.contains("Energy by Activity"))

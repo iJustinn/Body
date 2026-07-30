@@ -1,5 +1,11 @@
 # Version History
 
+## 0.9.10 (build 3)
+
+- **Added a Readiness day view.** The Readiness detail now shows a date-tile day picker, a Day View line chart tracing the selected day's score from its frozen morning value down through each workout (workouts drawn as tinted bands with their icons), and an Impact by Activity card listing each workout's readiness drop — placed between the Days by Status chart and the About your score card. The line is derived from the morning score plus that day's workouts, and flat stretches draw only their start and end dots (instead of one per hour); the readiness row is toggleable in Settings > Metrics > Day View, and older picker days follow the existing 3-free-days Body Pro gating.
+- A Day View selection saved before this build (when Readiness wasn't offered) upgrades once to include Readiness; custom subsets, an all-off selection, and any choice made on this build — including turning off just Readiness — are preserved as saved.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 3.
+
 ## 0.9.10 (build 2)
 
 - Updated the app, widget, watch, and test bundle version to 0.9.10 build 2.
