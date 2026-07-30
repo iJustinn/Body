@@ -44,6 +44,7 @@ final class WatchComputeMergeTests: XCTestCase {
         tint: WatchMetricColor? = nil,
         weekly: [Double?]? = nil,
         statusBand: WatchStatusBand? = nil,
+        weeklyCurrentValue: Double? = nil,
         liveUpdatedAt: Date? = nil,
         computedAt: Date? = nil,
         measuredAt: Date? = nil
@@ -65,7 +66,8 @@ final class WatchComputeMergeTests: XCTestCase {
             measuredAt: measuredAt,
             tint: tint,
             weekly: weekly,
-            statusBand: statusBand
+            statusBand: statusBand,
+            weeklyCurrentValue: weeklyCurrentValue
         )
     }
 
@@ -171,6 +173,7 @@ final class WatchComputeMergeTests: XCTestCase {
                     tint: WatchMetricColor(red: 1, green: 0, blue: 0),
                     weekly: [50, 51, 52, 53, 54, 55, 55],
                     statusBand: WatchStatusBand(min: 50, max: 64, label: "Fair"),
+                    weeklyCurrentValue: 48,
                     computedAt: t0
                 )
             ],
@@ -186,7 +189,8 @@ final class WatchComputeMergeTests: XCTestCase {
                         levelMin: 80, levelMax: 94,
                         tint: WatchMetricColor(red: 0, green: 1, blue: 0),
                         weekly: [60, 62, 70, 75, 80, 82, 84],
-                        statusBand: WatchStatusBand(min: 80, max: 94, label: "High")
+                        statusBand: WatchStatusBand(min: 80, max: 94, label: "High"),
+                        weeklyCurrentValue: 79
                     )
                 ],
                 dataAsOf: [WatchMetricKindKey.readiness: t1]
@@ -204,6 +208,41 @@ final class WatchComputeMergeTests: XCTestCase {
         XCTAssertEqual(readiness?.statusBand?.label, "High")
         XCTAssertEqual(readiness?.tint, WatchMetricColor(red: 0, green: 1, blue: 0))
         XCTAssertEqual(readiness?.weekly?.last, 84)
+        XCTAssertEqual(readiness?.weeklyCurrentValue, 79)
+    }
+
+    func testAdoptionWithoutADrainedValueClearsTheStaleDot() {
+        // The candidate's nil is "no drain per this compute": keeping the
+        // replaced payload's drained value would pin a stale dot under the
+        // adopted score.
+        let current = snapshot(
+            metrics: [
+                metric(
+                    WatchMetricKindKey.readiness,
+                    displayValue: "55", rawValue: 55, score: 55, fillFraction: 0.55,
+                    weeklyCurrentValue: 48,
+                    computedAt: t0
+                )
+            ],
+            generatedAt: t0,
+            lastRefreshDate: t0
+        )
+        let merged = WatchComputeMerge.mergingComputed(
+            result(
+                metrics: [
+                    metric(
+                        WatchMetricKindKey.readiness,
+                        displayValue: "84", rawValue: 84, score: 84, fillFraction: 0.84
+                    )
+                ],
+                dataAsOf: [WatchMetricKindKey.readiness: t1]
+            ),
+            into: current
+        )
+
+        let readiness = merged.metric(forKind: WatchMetricKindKey.readiness)
+        XCTAssertEqual(readiness?.score, 84)
+        XCTAssertNil(readiness?.weeklyCurrentValue)
     }
 
     // MARK: - Blank preserve

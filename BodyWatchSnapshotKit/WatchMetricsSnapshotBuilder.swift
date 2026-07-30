@@ -198,7 +198,14 @@ enum WatchMetricsSnapshotBuilder {
                 ? nil
                 : WatchStatusBand(
                     min: status.lowerBound, max: status.upperBound,
-                    label: status.title)
+                    label: status.title),
+            // Detail sparkline's faded "current" dot: the drained score, only
+            // when today's workouts actually drained (same gate as the iOS
+            // week chart). The sparkline still requires it to sit strictly
+            // below today's plotted slot before drawing.
+            weeklyCurrentValue: readiness.activityDrainMorningScore != nil
+                ? score.map(Double.init)
+                : nil
         )
     }
 

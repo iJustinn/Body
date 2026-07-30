@@ -14,10 +14,15 @@ struct BodyHealthMetricTrendChart: View {
     let valueFormatter: (Double) -> String
     let highlightedRange: BodyHealthMetricTrendHighlightedRange?
     let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?
+    /// A live "current" value dotted at 80% opacity in the line color under the
+    /// plotted point at `date` (Readiness: today's drained score under the
+    /// frozen morning point). While no point is scrubbed, the highlighted
+    /// status band follows this value instead of the latest plotted point.
+    let currentValuePoint: (date: Date, value: Double)?
     let activeHighlightedValue: Binding<Double?>?
-    /// Optional report-out of "a callout is on screen right now", so an immersive host can
-    /// get its own chrome out of the callout's way.
-    let selectionActive: Binding<Bool>?
+    /// Optional report-out of the scrub callout, so the immersive host can float it on
+    /// the topmost layer (above the nav bar). Nil keeps the in-chart annotation.
+    let floatingCallout: BodyChartFloatingCalloutState?
     let isSleepDetail: Bool
     let baselineValue: Double?
     let baselineDeviationFormatter: ((Double) -> String)?
@@ -47,8 +52,9 @@ struct BodyHealthMetricTrendChart: View {
         valueFormatter: @escaping (Double) -> String,
         highlightedRange: BodyHealthMetricTrendHighlightedRange? = nil,
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
+        currentValuePoint: (date: Date, value: Double)? = nil,
         activeHighlightedValue: Binding<Double?>? = nil,
-        selectionActive: Binding<Bool>? = nil,
+        floatingCallout: BodyChartFloatingCalloutState? = nil,
         isSleepDetail: Bool,
         baselineValue: Double? = nil,
         baselineDeviationFormatter: ((Double) -> String)? = nil,
@@ -62,8 +68,9 @@ struct BodyHealthMetricTrendChart: View {
         self.valueFormatter = valueFormatter
         self.highlightedRange = highlightedRange
         self.highlightedRangeResolver = highlightedRangeResolver
+        self.currentValuePoint = currentValuePoint
         self.activeHighlightedValue = activeHighlightedValue
-        self.selectionActive = selectionActive
+        self.floatingCallout = floatingCallout
         self.isSleepDetail = isSleepDetail
         self.baselineValue = baselineValue
         self.baselineDeviationFormatter = baselineDeviationFormatter
@@ -84,9 +91,11 @@ struct BodyHealthMetricTrendChart: View {
         let fallbackValues = series.limited(to: selectedRange).points.map(\.value).filter(\.isFinite)
         let highlightedRangeValues = highlightedRange?.domainValues ?? []
         let baselineDomainValues = baselineValue.map { [$0] } ?? []
+        let currentValueDomainValues = currentValuePoint.map { [$0.value] } ?? []
         let domainValues = (aggregatedValues.isEmpty ? fallbackValues : aggregatedValues)
             + highlightedRangeValues
             + baselineDomainValues
+            + currentValueDomainValues
         let yDomain = Self.computeYDomain(from: domainValues, chartStyle: chartStyle)
         self.chartYDomain = yDomain
 
@@ -100,19 +109,15 @@ struct BodyHealthMetricTrendChart: View {
     }
 
     private var activeHighlightedRange: BodyHealthMetricTrendHighlightedRange? {
-        guard let highlightedRangeResolver, let activeHighlightSourcePoint else {
+        guard let highlightedRangeResolver, let activeHighlightSourceValue else {
             return highlightedRange
         }
 
-        return highlightedRangeResolver(activeHighlightSourcePoint.value) ?? highlightedRange
-    }
-
-    private var activeHighlightSourcePoint: HealthTrendCalendarPoint? {
-        selectedTrendPoint ?? latestVisibleTrendPoint
+        return highlightedRangeResolver(activeHighlightSourceValue) ?? highlightedRange
     }
 
     private var activeHighlightSourceValue: Double? {
-        activeHighlightSourcePoint?.value
+        selectedTrendPoint?.value ?? currentValuePoint?.value ?? latestVisibleTrendPoint?.value
     }
 
     private var latestVisibleTrendPoint: HealthTrendCalendarPoint? {
@@ -192,6 +197,23 @@ struct BodyHealthMetricTrendChart: View {
                     }
                 }
 
+                // Hidden while a scrub callout is up: the band follows the
+                // scrubbed point then, and the dot would clutter the rule line.
+                if chartStyle == .line, let currentValuePoint, selectedTrendPoint == nil {
+                    PointMark(
+                        x: .value("Date", currentValuePoint.date, unit: .day),
+                        y: .value(title, currentValuePoint.value)
+                    )
+                    .symbol {
+                        Circle()
+                            .fill(symbolColor.opacity(0.8))
+                            .frame(
+                                width: selectedRange.lineCurrentPointDiameter,
+                                height: selectedRange.lineCurrentPointDiameter
+                            )
+                    }
+                }
+
                 if let selectedTrendPoint, let selectedTrendValue = selectedTrendPoint.value {
                     RuleMark(x: .value("Selected Date", selectedTrendPoint.date, unit: .day))
                         .foregroundStyle(chartStyle == .bar ? Color.clear : Color.secondary.opacity(0.48))
@@ -201,12 +223,9 @@ struct BodyHealthMetricTrendChart: View {
                             spacing: 8,
                             overflowResolution: bodyChartSelectionOverflowResolution
                         ) {
-                            BodyChartSelectionAnnotation(
-                                eyebrow: chartStyle == .bar ? barSelectionEyebrow : nil,
-                                values: selectionValues(for: selectedTrendValue),
-                                date: selectedTrendPoint.date,
-                                dateText: bodyChartSelectionDateText(for: selectedTrendPoint)
-                            )
+                            if floatingCallout == nil {
+                                selectionAnnotation(for: selectedTrendPoint, value: selectedTrendValue)
+                            }
                         }
 
                     if chartStyle == .line {
@@ -298,16 +317,22 @@ struct BodyHealthMetricTrendChart: View {
             .onChange(of: activeHighlightSourceValue) { _, _ in
                 syncActiveHighlightedValue()
             }
-            .onChange(of: isChartSelectionActive) { _, active in
-                selectionActive?.wrappedValue = active
+            .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedTrendPoint?.date) {
+                guard let point = selectedTrendPoint, let value = point.value else {
+                    return AnyView(EmptyView())
+                }
+                return AnyView(selectionAnnotation(for: point, value: value))
             }
         }
     }
 
-    /// Mirrors the `selectedTrendPoint` gate below: a callout is only on screen while the
-    /// press gesture is live AND a date is selected.
-    private var isChartSelectionActive: Bool {
-        isSelecting && selectedDate != nil
+    private func selectionAnnotation(for selectedTrendPoint: HealthTrendCalendarPoint, value: Double) -> BodyChartSelectionAnnotation {
+        BodyChartSelectionAnnotation(
+            eyebrow: chartStyle == .bar ? barSelectionEyebrow : nil,
+            values: selectionValues(for: value),
+            date: selectedTrendPoint.date,
+            dateText: bodyChartSelectionDateText(for: selectedTrendPoint)
+        )
     }
 
     private var selectedTrendPoint: HealthTrendCalendarPoint? {

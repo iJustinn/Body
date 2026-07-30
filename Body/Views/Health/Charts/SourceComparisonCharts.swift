@@ -74,9 +74,9 @@ struct BodyHealthSourceComparisonLineChart: View {
     let isSleepDetail: Bool
     let immersive: Bool
     let chartIdentity: String
-    /// Optional report-out of "a callout is on screen right now", so an immersive host can
-    /// get its own chrome out of the callout's way.
-    let selectionActive: Binding<Bool>?
+    /// Optional report-out of the scrub callout, so the immersive host can float it on
+    /// the topmost layer (above the nav bar). Nil keeps the in-chart annotation.
+    let floatingCallout: BodyChartFloatingCalloutState?
 
     private let entries: [BodyHealthSourceComparisonLineEntry]
     private let finiteEntries: [BodyHealthSourceComparisonLineEntry]
@@ -101,7 +101,7 @@ struct BodyHealthSourceComparisonLineChart: View {
         isSleepDetail: Bool,
         immersive: Bool = false,
         chartIdentity: String,
-        selectionActive: Binding<Bool>? = nil
+        floatingCallout: BodyChartFloatingCalloutState? = nil
     ) {
         self.title = title
         self.comparison = comparison
@@ -112,7 +112,7 @@ struct BodyHealthSourceComparisonLineChart: View {
         self.isSleepDetail = isSleepDetail
         self.immersive = immersive
         self.chartIdentity = chartIdentity
-        self.selectionActive = selectionActive
+        self.floatingCallout = floatingCallout
 
         let primaryPoints = comparison.primary.series.lineChartCalendarPoints(to: selectedRange)
         let secondaryPoints = comparison.secondary.series.lineChartCalendarPoints(to: selectedRange)
@@ -197,12 +197,9 @@ struct BodyHealthSourceComparisonLineChart: View {
                         spacing: 8,
                         overflowResolution: bodyChartSelectionOverflowResolution
                     ) {
-                        BodyChartSelectionAnnotation(
-                            eyebrow: nil,
-                            values: selectedValues(for: selectedPoint.date),
-                            date: selectedPoint.date,
-                            dateText: bodyChartSelectionDateText(for: selectedPoint.point)
-                        )
+                        if floatingCallout == nil {
+                            selectionAnnotation(for: selectedPoint)
+                        }
                     }
 
                 ForEach(selectedValuesEntries(for: selectedPoint.date)) { entry in
@@ -253,8 +250,11 @@ struct BodyHealthSourceComparisonLineChart: View {
         }
         .chartXSelection(value: $selectedDate)
         .simultaneousGesture(chartPressGesture)
-        .onChange(of: isChartSelectionActive) { _, active in
-            selectionActive?.wrappedValue = active
+        .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedPoint?.date) {
+            guard let selectedPoint else {
+                return AnyView(EmptyView())
+            }
+            return AnyView(selectionAnnotation(for: selectedPoint))
         }
         .id(chartIdentity)
         .transition(
@@ -265,10 +265,13 @@ struct BodyHealthSourceComparisonLineChart: View {
         }
     }
 
-    /// Mirrors the `selectedPoint` gate below: a callout is only on screen while the press
-    /// gesture is live AND a date is selected.
-    private var isChartSelectionActive: Bool {
-        isSelecting && selectedDate != nil
+    private func selectionAnnotation(for selectedPoint: BodyHealthSourceComparisonLineEntry) -> BodyChartSelectionAnnotation {
+        BodyChartSelectionAnnotation(
+            eyebrow: nil,
+            values: selectedValues(for: selectedPoint.date),
+            date: selectedPoint.date,
+            dateText: bodyChartSelectionDateText(for: selectedPoint.point)
+        )
     }
 
     private var selectedPoint: BodyHealthSourceComparisonLineEntry? {
@@ -363,9 +366,9 @@ struct BodyHealthSourceComparisonBarChart: View {
     let valueFormatter: (Double) -> String
     let immersive: Bool
     let chartIdentity: String
-    /// Optional report-out of "a callout is on screen right now", so an immersive host can
-    /// get its own chrome out of the callout's way.
-    let selectionActive: Binding<Bool>?
+    /// Optional report-out of the scrub callout, so the immersive host can float it on
+    /// the topmost layer (above the nav bar). Nil keeps the in-chart annotation.
+    let floatingCallout: BodyChartFloatingCalloutState?
 
     private let entries: [BodyHealthSourceComparisonBarEntry]
     private let finiteEntries: [BodyHealthSourceComparisonBarEntry]
@@ -385,7 +388,7 @@ struct BodyHealthSourceComparisonBarChart: View {
         valueFormatter: @escaping (Double) -> String,
         immersive: Bool = false,
         chartIdentity: String,
-        selectionActive: Binding<Bool>? = nil
+        floatingCallout: BodyChartFloatingCalloutState? = nil
     ) {
         self.title = title
         self.comparison = comparison
@@ -395,7 +398,7 @@ struct BodyHealthSourceComparisonBarChart: View {
         self.valueFormatter = valueFormatter
         self.immersive = immersive
         self.chartIdentity = chartIdentity
-        self.selectionActive = selectionActive
+        self.floatingCallout = floatingCallout
 
         let primaryPoints = comparison.primary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
         let secondaryPoints = comparison.secondary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
@@ -465,12 +468,9 @@ struct BodyHealthSourceComparisonBarChart: View {
                             spacing: 8,
                             overflowResolution: bodyChartSelectionOverflowResolution
                         ) {
-                            BodyChartSelectionAnnotation(
-                                eyebrow: selectedRange.sourceComparisonChartAggregationDayCount > 1 ? String(localized: "AVG") : String(localized: "TOTAL"),
-                                values: selectedValues(for: selectedPoint),
-                                date: selectedPoint.date,
-                                dateText: bodyChartSelectionDateText(for: selectedPoint.point)
-                            )
+                            if floatingCallout == nil {
+                                selectionAnnotation(for: selectedPoint)
+                            }
                         }
                 }
             }
@@ -510,8 +510,12 @@ struct BodyHealthSourceComparisonBarChart: View {
             }
             .chartXSelection(value: $selectedDate)
             .simultaneousGesture(chartPressGesture)
-            .onChange(of: isChartSelectionActive) { _, active in
-                selectionActive?.wrappedValue = active
+            // Paired bars select an exact offset timestamp, not a `.day`-unit mark.
+            .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedPoint?.chartDate, centersOnDayInterval: false) {
+                guard let selectedPoint else {
+                    return AnyView(EmptyView())
+                }
+                return AnyView(selectionAnnotation(for: selectedPoint))
             }
             .id(chartIdentity)
             .transition(
@@ -523,10 +527,13 @@ struct BodyHealthSourceComparisonBarChart: View {
         }
     }
 
-    /// Mirrors the `selectedPoint` gate below: a callout is only on screen while the press
-    /// gesture is live AND a date is selected.
-    private var isChartSelectionActive: Bool {
-        isSelecting && selectedDate != nil
+    private func selectionAnnotation(for selectedPoint: BodyHealthSourceComparisonBarEntry) -> BodyChartSelectionAnnotation {
+        BodyChartSelectionAnnotation(
+            eyebrow: selectedRange.sourceComparisonChartAggregationDayCount > 1 ? String(localized: "AVG") : String(localized: "TOTAL"),
+            values: selectedValues(for: selectedPoint),
+            date: selectedPoint.date,
+            dateText: bodyChartSelectionDateText(for: selectedPoint.point)
+        )
     }
 
     private var selectedPoint: BodyHealthSourceComparisonBarEntry? {
@@ -599,9 +606,9 @@ struct BodyHealthSourceComparisonRangeChart: View {
     let valueFormatter: (Double) -> String
     let immersive: Bool
     let chartIdentity: String
-    /// Optional report-out of "a callout is on screen right now", so an immersive host can
-    /// get its own chrome out of the callout's way.
-    let selectionActive: Binding<Bool>?
+    /// Optional report-out of the scrub callout, so the immersive host can float it on
+    /// the topmost layer (above the nav bar). Nil keeps the in-chart annotation.
+    let floatingCallout: BodyChartFloatingCalloutState?
 
     private let entries: [BodyHealthSourceComparisonRangeEntry]
     private let finiteEntries: [BodyHealthSourceComparisonRangeEntry]
@@ -622,7 +629,7 @@ struct BodyHealthSourceComparisonRangeChart: View {
         yDomain: (([Double]) -> ClosedRange<Double>)? = nil,
         immersive: Bool = false,
         chartIdentity: String,
-        selectionActive: Binding<Bool>? = nil
+        floatingCallout: BodyChartFloatingCalloutState? = nil
     ) {
         self.title = title
         self.comparison = comparison
@@ -632,7 +639,7 @@ struct BodyHealthSourceComparisonRangeChart: View {
         self.valueFormatter = valueFormatter
         self.immersive = immersive
         self.chartIdentity = chartIdentity
-        self.selectionActive = selectionActive
+        self.floatingCallout = floatingCallout
 
         let primaryPoints = comparison.primary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
         let secondaryPoints = comparison.secondary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
@@ -716,12 +723,9 @@ struct BodyHealthSourceComparisonRangeChart: View {
                             spacing: 8,
                             overflowResolution: bodyChartSelectionOverflowResolution
                         ) {
-                            BodyChartSelectionAnnotation(
-                                eyebrow: String(localized: "RANGE"),
-                                values: selectedValues(for: selectedPoint),
-                                date: selectedPoint.date,
-                                dateText: bodyChartSelectionDateText(for: selectedPoint.point)
-                            )
+                            if floatingCallout == nil {
+                                selectionAnnotation(for: selectedPoint)
+                            }
                         }
                 }
             }
@@ -761,8 +765,12 @@ struct BodyHealthSourceComparisonRangeChart: View {
             }
             .chartXSelection(value: $selectedDate)
             .simultaneousGesture(chartPressGesture)
-            .onChange(of: isChartSelectionActive) { _, active in
-                selectionActive?.wrappedValue = active
+            // Paired bars select an exact offset timestamp, not a `.day`-unit mark.
+            .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedPoint?.chartDate, centersOnDayInterval: false) {
+                guard let selectedPoint else {
+                    return AnyView(EmptyView())
+                }
+                return AnyView(selectionAnnotation(for: selectedPoint))
             }
             .id(chartIdentity)
             .transition(
@@ -774,10 +782,13 @@ struct BodyHealthSourceComparisonRangeChart: View {
         }
     }
 
-    /// Mirrors the `selectedPoint` gate below: a callout is only on screen while the press
-    /// gesture is live AND a date is selected.
-    private var isChartSelectionActive: Bool {
-        isSelecting && selectedDate != nil
+    private func selectionAnnotation(for selectedPoint: BodyHealthSourceComparisonRangeEntry) -> BodyChartSelectionAnnotation {
+        BodyChartSelectionAnnotation(
+            eyebrow: String(localized: "RANGE"),
+            values: selectedValues(for: selectedPoint),
+            date: selectedPoint.date,
+            dateText: bodyChartSelectionDateText(for: selectedPoint.point)
+        )
     }
 
     private var selectedPoint: BodyHealthSourceComparisonRangeEntry? {

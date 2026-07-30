@@ -43,6 +43,7 @@ struct WatchMetricDetailView: View {
                         values: weekly,
                         tint: tintColor,
                         band: metric.statusBand,
+                        currentValue: metric.weeklyCurrentValue,
                         dayLabels: weekdayLabels(count: weekly.count)
                     )
                     .frame(height: 86)

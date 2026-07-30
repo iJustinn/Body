@@ -346,6 +346,10 @@ struct BodyHomeView: View {
     /// edges for a zoom to read cleanly from, so it cross-fades in/out as an overlay
     /// instead of pushing — see `readinessDetailOverlay`.
     @State private var readinessDetailPresented = false
+    /// The metric detail hero charts publish their scrub callout here (an @Observable
+    /// box, so per-scrub-frame updates re-render only the callout layer, not this body).
+    /// Rendered as the topmost overlay below, above the nav bar's back chevron/title.
+    @State private var heroChartCallout = BodyChartFloatingCalloutState()
 
     var body: some View {
         let metricCardLookup = metricCardsByKind
@@ -403,7 +407,8 @@ struct BodyHomeView: View {
                     BodyHealthMetricDetailView(
                         model: detailModel(for: kind),
                         initialTrendRange: defaultTrendRange,
-                        zoomNamespace: metricZoom
+                        zoomNamespace: metricZoom,
+                        floatingCallout: heroChartCallout
                     )
                     .navigationTransition(.zoom(sourceID: route, in: metricZoom))
                 case .activityRings:
@@ -421,6 +426,11 @@ struct BodyHomeView: View {
                     .accessibilityAddTraits(.isModal)
                     .transition(.opacity)
             }
+        }
+        // Scrub callouts float here, on the topmost layer — above both nav bars — so the
+        // back chevron/title (UIKit chrome no page content can cover) can't draw over them.
+        .overlay {
+            BodyChartFloatingCalloutLayer(state: heroChartCallout)
         }
         // Re-tapping the Summary tab dismisses the Readiness overlay, mirroring how the
         // system pops a pushed detail to root (the overlay lives outside the nav stack).
@@ -496,7 +506,8 @@ struct BodyHomeView: View {
         NavigationStack {
             BodyHealthMetricDetailView(
                 model: detailModel(for: .readiness),
-                initialTrendRange: defaultTrendRange
+                initialTrendRange: defaultTrendRange,
+                floatingCallout: heroChartCallout
             )
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

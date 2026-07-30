@@ -90,6 +90,10 @@ extension WatchMetric {
         adopted.tint = other.tint
         adopted.weekly = other.weekly
         adopted.statusBand = other.statusBand
+        // Including nil: the candidate's "no drain" must clear a stale dot,
+        // not let the replaced payload's drained value linger under the
+        // adopted score.
+        adopted.weeklyCurrentValue = other.weeklyCurrentValue
         // The event watermark describes the VALUE, so it travels with it —
         // keeping the old one would pair the adopted reading with the replaced
         // reading's measurement time.

@@ -177,6 +177,13 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// `weekly`. `nil` for unbanded metrics. See `WatchStatusBand`.
     var statusBand: WatchStatusBand? = nil
 
+    /// Today's live value when same-day activity lowered it below today's
+    /// `weekly` slot (Readiness: the drained score under the frozen morning
+    /// point) — feeds the detail sparkline's faded "current" dot. nil when
+    /// nothing drained and for every other metric. Optional + defaulted per
+    /// the schema-evolution note below.
+    var weeklyCurrentValue: Double? = nil
+
     var id: String { kind }
 
     /// Whether this metric carries a real reading (vs. a `--` placeholder). Used
@@ -203,6 +210,7 @@ struct WatchMetric: Codable, Equatable, Identifiable {
         metric.rawValue = nil
         metric.liveUpdatedAt = nil
         metric.measuredAt = nil
+        metric.weeklyCurrentValue = nil
         return metric
     }
 }

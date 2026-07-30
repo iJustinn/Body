@@ -233,6 +233,150 @@ extension View {
     }
 }
 
+/// A scrub callout lifted out of its chart so the home view can draw it on the app's
+/// topmost layer. The in-chart `.annotation` lives inside the chart's own layer, so it
+/// can never cover the navigation bar — UIKit chrome (back chevron, title) that draws
+/// above all page content. The immersive hero charts publish the callout here instead:
+/// a global-coordinate anchor (x = the selection rule line, y = the plot's top edge)
+/// plus the rendered content.
+struct BodyChartFloatingCallout {
+    let anchor: CGPoint
+    let content: AnyView
+}
+
+/// Report-up channel for the floating callout. An `@Observable` box (mirroring
+/// `BodyHomeScrollState`) rather than a `Binding` into `BodyHomeView` state, so
+/// per-scrub-frame anchor updates re-render only `BodyChartFloatingCalloutLayer` —
+/// not the whole home body.
+@Observable
+final class BodyChartFloatingCalloutState {
+    var callout: BodyChartFloatingCallout?
+}
+
+/// Renders the published scrub callout. Hosted as an `.overlay` on the home
+/// `NavigationStack` — above both nav bars — which is the whole reason the callout
+/// leaves its chart. Never hit-testable: it's purely visual, and the scrub gesture
+/// underneath must keep receiving touches.
+struct BodyChartFloatingCalloutLayer: View {
+    let state: BodyChartFloatingCalloutState
+
+    @State private var calloutSize = CGSize.zero
+
+    var body: some View {
+        GeometryReader { geo in
+            if let callout = state.callout {
+                let origin = geo.frame(in: .global).origin
+                let frame = Self.calloutFrame(
+                    anchor: CGPoint(x: callout.anchor.x - origin.x, y: callout.anchor.y - origin.y),
+                    size: calloutSize,
+                    in: geo.size
+                )
+
+                callout.content
+                    .onGeometryChange(for: CGSize.self) { proxy in
+                        proxy.size
+                    } action: { size in
+                        calloutSize = size
+                    }
+                    .position(x: frame.midX, y: frame.midY)
+                    // Invisible until measured, so the first frame can't flash misplaced.
+                    .opacity(calloutSize == .zero ? 0 : 1)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// Pure placement math: centered on the anchor x but kept on screen, bottom edge
+    /// 8pt above the plot top (the in-chart annotation's spacing), and clamped to the
+    /// container's top edge (the safe area) rather than running under the status bar.
+    static func calloutFrame(anchor: CGPoint, size: CGSize, in container: CGSize) -> CGRect {
+        let margin: CGFloat = 8
+        let spacing: CGFloat = 8
+        let x = min(max(anchor.x - size.width / 2, margin), max(container.width - size.width - margin, margin))
+        let y = max(anchor.y - spacing - size.height, 0)
+        return CGRect(x: x, y: y, width: size.width, height: size.height)
+    }
+}
+
+/// The floating callout's global-coordinate anchor: the selection's x position within
+/// the plot, at the plot's top edge. Marks plotted with `unit: .day` draw centered
+/// within the day interval, so `centersOnDayInterval` shifts the anchor to that
+/// midpoint; charts that select an exact timestamp (the paired source-comparison
+/// bars) pass false.
+private func bodyFloatingCalloutAnchor(
+    selectionDate: Date?,
+    centersOnDayInterval: Bool,
+    chartProxy: ChartProxy,
+    geo: GeometryProxy
+) -> CGPoint? {
+    guard let selectionDate,
+          let plotFrame = chartProxy.plotFrame,
+          let position = chartProxy.position(forX: selectionDate) else {
+        return nil
+    }
+
+    var x = position
+    if centersOnDayInterval,
+       let nextDay = Calendar.bodyGregorian.date(byAdding: .day, value: 1, to: selectionDate),
+       let nextPosition = chartProxy.position(forX: nextDay) {
+        x = (position + nextPosition) / 2
+    }
+
+    let plotRect = geo[plotFrame]
+    let globalFrame = geo.frame(in: .global)
+    return CGPoint(
+        x: globalFrame.minX + plotRect.minX + x,
+        y: globalFrame.minY + plotRect.minY
+    )
+}
+
+extension View {
+    /// Publishes the chart's active scrub callout (content + global anchor) into `state`
+    /// for `BodyChartFloatingCalloutLayer` to render on the topmost layer. No-op when
+    /// `state` is nil — non-immersive callers keep their in-chart annotation.
+    func bodyFloatingCalloutReporter(
+        _ state: BodyChartFloatingCalloutState?,
+        selectionDate: Date?,
+        centersOnDayInterval: Bool = true,
+        content: @escaping () -> AnyView
+    ) -> some View {
+        func publish(_ anchor: CGPoint?) {
+            guard let state else { return }
+            if let anchor {
+                state.callout = BodyChartFloatingCallout(anchor: anchor, content: content())
+            } else if state.callout != nil {
+                state.callout = nil
+            }
+        }
+
+        return chartOverlay { chartProxy in
+            GeometryReader { geo in
+                let anchor = bodyFloatingCalloutAnchor(
+                    selectionDate: selectionDate,
+                    centersOnDayInterval: centersOnDayInterval,
+                    chartProxy: chartProxy,
+                    geo: geo
+                )
+
+                Color.clear
+                    .onAppear {
+                        publish(anchor)
+                    }
+                    .onChange(of: anchor) { _, newAnchor in
+                        publish(newAnchor)
+                    }
+                    // The hero charts are keyed by range (`.id`), so a mid-scrub range
+                    // switch destroys the chart before the gesture can end — clear here
+                    // or the callout sticks.
+                    .onDisappear {
+                        state?.callout = nil
+                    }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+}
+
 extension DateInterval {
     func clamped(to boundary: DateInterval) -> DateInterval? {
         let clampedStart = max(start, boundary.start)

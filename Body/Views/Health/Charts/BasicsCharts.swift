@@ -13,9 +13,9 @@ struct BodyBasicsTrendChart: View {
     let weightFormatter: (Double) -> String
     let bodyFatFormatter: (Double) -> String
     let immersive: Bool
-    /// Optional report-out of "a callout is on screen right now", so an immersive host can
-    /// get its own chrome out of the callout's way.
-    let selectionActive: Binding<Bool>?
+    /// Optional report-out of the scrub callout, so the immersive host can float it on
+    /// the topmost layer (above the nav bar). Nil keeps the in-chart annotation.
+    let floatingCallout: BodyChartFloatingCalloutState?
 
     private let weightCalendarPoints: [HealthTrendCalendarPoint]
     private let bodyFatCalendarPoints: [HealthTrendCalendarPoint]
@@ -43,7 +43,7 @@ struct BodyBasicsTrendChart: View {
         weightFormatter: @escaping (Double) -> String,
         bodyFatFormatter: @escaping (Double) -> String,
         immersive: Bool = false,
-        selectionActive: Binding<Bool>? = nil
+        floatingCallout: BodyChartFloatingCalloutState? = nil
     ) {
         self.selectedRange = selectedRange
         self.weightColor = weightColor
@@ -51,7 +51,7 @@ struct BodyBasicsTrendChart: View {
         self.weightFormatter = weightFormatter
         self.bodyFatFormatter = bodyFatFormatter
         self.immersive = immersive
-        self.selectionActive = selectionActive
+        self.floatingCallout = floatingCallout
 
         let weightPoints = trend.weight.lineChartCalendarPoints(
             to: selectedRange,
@@ -177,12 +177,9 @@ struct BodyBasicsTrendChart: View {
                         spacing: 8,
                         overflowResolution: bodyChartSelectionOverflowResolution
                     ) {
-                        BodyChartSelectionAnnotation(
-                            eyebrow: nil,
-                            values: selectionValues(for: selectedTrendDate),
-                            date: selectedTrendDate,
-                            dateText: selectedTrendDateText
-                        )
+                        if floatingCallout == nil {
+                            selectionAnnotation(for: selectedTrendDate)
+                        }
                     }
 
                 if let selectedWeightPoint = weightFinitePointsByDate[selectedTrendDate],
@@ -254,8 +251,11 @@ struct BodyBasicsTrendChart: View {
         }
         .chartXSelection(value: $selectedDate)
         .simultaneousGesture(chartPressGesture)
-        .onChange(of: isChartSelectionActive) { _, active in
-            selectionActive?.wrappedValue = active
+        .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedTrendDate) {
+            guard let selectedTrendDate else {
+                return AnyView(EmptyView())
+            }
+            return AnyView(selectionAnnotation(for: selectedTrendDate))
         }
         .id(selectedRange.rawValue)
         .transition(
@@ -270,10 +270,13 @@ struct BodyBasicsTrendChart: View {
         selectedTrendPoint?.date
     }
 
-    /// Mirrors the `selectedTrendPoint` gate below: a callout is only on screen while the
-    /// press gesture is live AND a date is selected.
-    private var isChartSelectionActive: Bool {
-        isSelecting && selectedDate != nil
+    private func selectionAnnotation(for date: Date) -> BodyChartSelectionAnnotation {
+        BodyChartSelectionAnnotation(
+            eyebrow: nil,
+            values: selectionValues(for: date),
+            date: date,
+            dateText: selectedTrendDateText
+        )
     }
 
     private var selectedTrendPoint: HealthTrendCalendarPoint? {
