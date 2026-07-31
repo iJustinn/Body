@@ -3654,9 +3654,9 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// pins a realistic 70-day fixture comfortably under this. Separate from
     /// `WatchConnectivityPublisher`'s whole-context budget, which accounts for
     /// the other context keys too.
-    private static let computeSeedSizeBudgetBytes = 50_000
+    nonisolated private static let computeSeedSizeBudgetBytes = 50_000
 
-    private static let computeSeedLogger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "WatchComputeSeed")
+    nonisolated private static let computeSeedLogger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "WatchComputeSeed")
 
     /// Builds the slim widget snapshot from the current trends, sleep stages,
     /// source selection, and unit preferences, then writes it to the App Group

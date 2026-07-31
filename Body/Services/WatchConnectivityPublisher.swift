@@ -36,7 +36,7 @@ final class WatchConnectivityPublisher: NSObject {
     /// comfortably under the empirically safe range. The compute seed is the
     /// large, optional piece, so it's what gets dropped when the total would
     /// exceed this; the always-required display snapshot still ships.
-    static let contextSizeBudgetBytes = 60_000
+    nonisolated static let contextSizeBudgetBytes = 60_000
     // Publisher-owned monotonic capture counter. Allocated by the store at its
     // main-actor capture point (`nextCaptureSequence()`) so sequence order equals
     // capture order, and living on this process-wide singleton so it survives a
