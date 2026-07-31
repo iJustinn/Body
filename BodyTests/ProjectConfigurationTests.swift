@@ -157,7 +157,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("y: .disabled"))
         XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 10)
         XCTAssertFalse(source.contains(".annotation(position: .top, spacing: 8) {"))
-        XCTAssertTrue(source.contains("static let fillOpacity = 0.80"))
+        // The scrub-callout background uses the shared glass-chip recipe (flat
+        // translucent fill + thin white rim) instead of a bespoke fill + shadow.
+        XCTAssertTrue(source.contains("BodyGlassChip(\n                color: Color(.secondarySystemGroupedBackground),"))
+        XCTAssertFalse(source.contains(".shadow(color: Color.black.opacity(0.10), radius: 8, y: 4)"))
     }
 
     func testAppSheetsShareTheTintedGlassBackdrop() throws {
@@ -1342,6 +1345,32 @@ final class ProjectConfigurationTests: XCTestCase {
         }
     }
 
+    func testWorkoutChartsRenderFilteredSnapshotWhileCorpusCacheStaysUnfiltered() throws {
+        // The calendar and type-breakdown charts must render the filtered
+        // display snapshot so the filter sheet and search narrow them like the
+        // cards list, while the search corpus cache must keep seeing the
+        // unfiltered snapshot and full workout list — its key includes
+        // `generatedAt`, so a filtered array would persist a partial corpus.
+        let source = try text(at: "Body/Views/BodyWorkoutsView.swift")
+
+        XCTAssertTrue(source.contains("workoutCalendarCard(snapshot: displaySnapshot)"))
+        XCTAssertTrue(source.contains("workoutTypeSummaryCard(snapshot: displaySnapshot, workouts: matchingWorkouts)"))
+        XCTAssertFalse(source.contains("snapshot: selectedSnapshot"))
+
+        let calendarStart = try XCTUnwrap(source.range(of: "WorkoutCalendarView(")?.lowerBound)
+        let calendarBlock = String(source[calendarStart...].prefix(200))
+        XCTAssertTrue(calendarBlock.contains("snapshot: snapshot"))
+
+        let breakdownStart = try XCTUnwrap(source.range(of: "WorkoutTypeBreakdownView(")?.lowerBound)
+        let breakdownBlock = String(source[breakdownStart...].prefix(200))
+        XCTAssertTrue(breakdownBlock.contains("snapshot: snapshot"))
+
+        let corpusStart = try XCTUnwrap(source.range(of: "searchCorpusCache.entries(")?.lowerBound)
+        let corpusBlock = String(source[corpusStart...].prefix(200))
+        XCTAssertTrue(corpusBlock.contains("for: baseSnapshot"))
+        XCTAssertTrue(corpusBlock.contains("workouts: allWorkouts"))
+    }
+
     func testAggregatedHealthChartsWireRangeLabelsAndBarWidths() throws {
         let source = try bodyHomeViewText()
 
@@ -1518,12 +1547,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.10;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 6;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 7;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.10;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 6;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 7;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1558,9 +1587,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 6)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 7)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 2)**"))
@@ -1609,6 +1639,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 7)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 7."))
+        XCTAssertTrue(versionHistory.contains("Workouts filter and search now also narrow the calendar chart"))
         XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 6)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 6."))
         XCTAssertTrue(versionHistory.contains("Chart scrub callouts now float on the topmost layer"))
@@ -1863,7 +1896,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 6)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 7)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 6)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 5)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 3)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 2)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 1)"))

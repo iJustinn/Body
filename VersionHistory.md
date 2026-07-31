@@ -1,5 +1,10 @@
 # Version History
 
+## 0.9.10 (build 7)
+
+- **Workouts filter and search now also narrow the calendar chart, type breakdown, and totals.** Previously the type-filter sheet and search field only filtered the workout cards list; now the calendar chart, the workout-type breakdown bars, and the monthly totals header (total duration and workout count) all reflect the same filtered set, and the calendar-day and type-breakdown popups list only the matching workouts. Clearing the filter and search restores the full month everywhere.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 7.
+
 ## 0.9.10 (build 6)
 
 - **Chart scrub callouts now float on the topmost layer.** On the metric detail pages, scrubbing the hero chart draws the selection callout above everything on screen — including the navigation bar's back chevron and title, which previously drew over it. The navigation title no longer hides while scrubbing (the build-3 workaround), since the callout simply covers it. Charts in the cards below the hero keep their in-place callouts.
