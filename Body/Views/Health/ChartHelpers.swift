@@ -217,19 +217,20 @@ struct BodyChartSelectionAnnotation: View {
 
 private enum BodyChartSelectionAnnotationStyle {
     static let cornerRadius: CGFloat = 8
-    static let fillOpacity = 0.80
 }
 
 extension View {
     func bodyChartSelectionAnnotationBackground() -> some View {
         background {
-            RoundedRectangle(cornerRadius: BodyChartSelectionAnnotationStyle.cornerRadius, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground).opacity(BodyChartSelectionAnnotationStyle.fillOpacity))
+            BodyGlassChip(
+                color: Color(.secondarySystemGroupedBackground),
+                cornerRadius: BodyChartSelectionAnnotationStyle.cornerRadius,
+                fillOpacity: 0.90
+            )
         }
         .clipShape(
             RoundedRectangle(cornerRadius: BodyChartSelectionAnnotationStyle.cornerRadius, style: .continuous)
         )
-        .shadow(color: Color.black.opacity(0.10), radius: 8, y: 4)
     }
 }
 
