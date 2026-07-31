@@ -32,8 +32,11 @@ struct BodyWorkoutsView: View {
     }
 
     var body: some View {
-        let allWorkouts = self.allWorkouts
-        let visibleWorkouts = filteredWorkouts(from: allWorkouts)
+        let baseSnapshot = selectedSnapshot
+        let allWorkouts = baseSnapshot.days.flatMap(\.workouts)
+        let matchingWorkouts = self.matchingWorkouts(from: allWorkouts, in: baseSnapshot)
+        let visibleWorkouts = sorted(workouts: matchingWorkouts)
+        let displaySnapshot = self.displaySnapshot(from: baseSnapshot, matching: matchingWorkouts)
 
         NavigationStack {
             ZStack {
@@ -55,7 +58,7 @@ struct BodyWorkoutsView: View {
 
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: 16) {
-                            workoutCalendarCard
+                            workoutCalendarCard(snapshot: displaySnapshot)
                                 .id("calendar-\(monthIdentity)")
                                 .transition(monthSwitchTransition)
 
@@ -89,7 +92,7 @@ struct BodyWorkoutsView: View {
                             .id("list-\(monthIdentity)")
                             .transition(monthSwitchTransition)
 
-                            workoutTypeSummaryCard(workouts: allWorkouts)
+                            workoutTypeSummaryCard(snapshot: displaySnapshot, workouts: matchingWorkouts)
                                 .id("summary-\(monthIdentity)")
                                 .transition(monthSwitchTransition)
                         }
@@ -173,26 +176,31 @@ struct BodyWorkoutsView: View {
             }
     }
 
-    private func filteredWorkouts(from allWorkouts: [WorkoutSummary]) -> [WorkoutSummary] {
-        let normalizedSearchText = searchText
+    private var normalizedSearchText: String {
+        searchText
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+    }
+
+    private func matchingWorkouts(from allWorkouts: [WorkoutSummary], in baseSnapshot: WorkoutMonthSnapshot) -> [WorkoutSummary] {
+        let normalizedSearchText = self.normalizedSearchText
 
         guard !normalizedSearchText.isEmpty else {
-            let searchedWorkouts = allWorkouts.filter { workout in
+            return allWorkouts.filter { workout in
                 selectedWorkoutTypes.contains(workout.type)
             }
-
-            return sorted(workouts: searchedWorkouts)
         }
 
+        // The corpus cache must always see the unfiltered snapshot and full
+        // workout list — its key includes `generatedAt`, so a filtered array
+        // under the same key would persist a partial corpus.
         let corpus = searchCorpusCache.entries(
-            for: selectedSnapshot,
+            for: baseSnapshot,
             workouts: allWorkouts,
             dateSearchText: dateSearchText(for:)
         )
 
-        let searchedWorkouts = allWorkouts.filter { workout in
+        return allWorkouts.filter { workout in
             guard selectedWorkoutTypes.contains(workout.type) else {
                 return false
             }
@@ -207,8 +215,17 @@ struct BodyWorkoutsView: View {
                 || corpusEntry.sourceText.contains(normalizedSearchText)
                 || corpusEntry.dateText.contains(normalizedSearchText)
         }
+    }
 
-        return sorted(workouts: searchedWorkouts)
+    private func displaySnapshot(from baseSnapshot: WorkoutMonthSnapshot, matching: [WorkoutSummary]) -> WorkoutMonthSnapshot {
+        guard hasActiveFilters || !normalizedSearchText.isEmpty else {
+            return baseSnapshot
+        }
+
+        return BodyWorkoutFilterLogic.displaySnapshot(
+            from: baseSnapshot,
+            matchingIDs: Set(matching.map(\.id))
+        )
     }
 
     private var hasActiveFilters: Bool {
@@ -291,9 +308,9 @@ struct BodyWorkoutsView: View {
         .frame(height: 46)
     }
 
-    private var workoutCalendarCard: some View {
+    private func workoutCalendarCard(snapshot: WorkoutMonthSnapshot) -> some View {
         WorkoutCalendarView(
-            snapshot: selectedSnapshot,
+            snapshot: snapshot,
             style: .widgetLarge,
             fillsAvailableHeight: false,
             onSelectDay: { day in
@@ -312,7 +329,7 @@ struct BodyWorkoutsView: View {
             .bodyWorkoutsToolbarCardBackground()
     }
 
-    private func workoutTypeSummaryCard(workouts: [WorkoutSummary]) -> some View {
+    private func workoutTypeSummaryCard(snapshot: WorkoutMonthSnapshot, workouts: [WorkoutSummary]) -> some View {
         VStack(spacing: 18) {
             monthlySummaryHeader(workouts: workouts)
 
@@ -320,12 +337,12 @@ struct BodyWorkoutsView: View {
                 .overlay(Color.secondary.opacity(0.18))
 
             WorkoutTypeBreakdownView(
-                snapshot: selectedSnapshot,
+                snapshot: snapshot,
                 style: .app,
                 onSelectType: { type in
                     selectedWorkoutListSelection = .type(
                         type,
-                        workouts: workoutsForType(type)
+                        workouts: workoutsForType(type, in: workouts)
                     )
                 }
             )
@@ -362,8 +379,8 @@ struct BodyWorkoutsView: View {
         }
     }
 
-    private func workoutsForType(_ type: BodyWorkoutType) -> [WorkoutSummary] {
-        allWorkouts
+    private func workoutsForType(_ type: BodyWorkoutType, in workouts: [WorkoutSummary]) -> [WorkoutSummary] {
+        workouts
             .filter { $0.type == type }
             .sorted { $0.startDate > $1.startDate }
     }
@@ -622,6 +639,25 @@ enum BodyWorkoutFilterLogic {
 
     static func hasActiveFilters(selectedTypes: Set<BodyWorkoutType>) -> Bool {
         selectedTypes != Set(BodyWorkoutType.allCases)
+    }
+
+    /// Rebuilds a snapshot with each day's workouts narrowed to `matchingIDs`,
+    /// keeping the original day buckets and `generatedAt` so no workout can
+    /// move days (the persisted snapshot doesn't record the calendar/time zone
+    /// that formed it, so re-bucketing from `startDate` is not safe).
+    static func displaySnapshot(from snapshot: WorkoutMonthSnapshot, matchingIDs: Set<WorkoutSummary.ID>) -> WorkoutMonthSnapshot {
+        WorkoutMonthSnapshot(
+            month: snapshot.month,
+            year: snapshot.year,
+            generatedAt: snapshot.generatedAt,
+            days: snapshot.days.map { day in
+                WorkoutDaySummary(
+                    dateKey: day.dateKey,
+                    day: day.day,
+                    workouts: day.workouts.filter { matchingIDs.contains($0.id) }
+                )
+            }
+        )
     }
 }
 
