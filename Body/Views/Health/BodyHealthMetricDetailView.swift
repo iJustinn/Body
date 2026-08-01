@@ -1643,8 +1643,10 @@ struct BodyHealthMetricDetailView: View {
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(row.color)
                 .frame(width: 38, height: 38)
+                // Same continuous-corner tile as the Workouts page's workout-card
+                // icons (18 pt radius at 58 pt, scaled to this 38 pt slot).
                 .background(
-                    Circle()
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(row.color.opacity(0.14))
                 )
                 .accessibilityHidden(true)
