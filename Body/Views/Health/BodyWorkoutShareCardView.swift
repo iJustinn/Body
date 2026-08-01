@@ -5,9 +5,10 @@
 //  The 360×640 pt share card, exported at `ImageRenderer.scale = 3` → 1080×1920 px.
 //  Purely value-driven and environment-independent: every color, size, and weight
 //  is explicit so the rendered image looks identical no matter what environment
-//  `ImageRenderer` runs it under. Header mirrors the detail page arrangement
-//  (identity left, big distance + duration right); the route trace is the center
-//  hero except on a map background, where the map itself carries the route.
+//  `ImageRenderer` runs it under. Two layouts: `.classic` (photo/map backgrounds)
+//  mirrors the detail page — identity left, big distance + duration right, route
+//  trace centered, metrics row along the bottom; `.centered` (gradient presets)
+//  drops the header for a column of label-over-value blocks under the trace.
 //
 
 import SwiftUI
@@ -20,17 +21,39 @@ enum WorkoutShareCardBackground {
     case map(UIImage)
 }
 
+/// Which arrangement the card draws. Passed in rather than derived from `background`:
+/// while the map snapshot loads, the sheet's background falls back to `.preset(.midnight)`,
+/// and deriving from that would flash the centered layout before the map arrives.
+enum WorkoutShareCardLayout {
+    case classic
+    case centered
+}
+
 struct BodyWorkoutShareCardView: View {
     let presentation: WorkoutDetailPresentation
+    /// The classic layout's bottom row.
     let metrics: [WorkoutShareMetric]
+    /// The centered layout's stack — a different selection (distance and time are
+    /// blocks here, not header numbers), so both are passed in and the layout picks.
+    let centeredMetrics: [WorkoutShareMetric]
     /// Already normalized to the unit square by `WorkoutShareRouteProjection`. `nil`
     /// collapses the trace into a metrics-only card.
     let routePoints: [CGPoint]?
     let locality: String?
     let type: BodyWorkoutType
     let background: WorkoutShareCardBackground
+    let layout: WorkoutShareCardLayout
 
     private static let cardSize = CGSize(width: 360, height: 640)
+
+    /// The centered layout's route region, in card points. Internal so the render test
+    /// derives its pixel sample area from the same numbers the card draws with.
+    static let centeredRouteSize: CGFloat = 260
+    static let centeredRouteCenter = CGPoint(x: 180, y: 170)
+
+    /// Where the centered metric stack's midline sits when a trace is shown: below the
+    /// route region (which ends at y 300) and clear of the pinned branding.
+    private static let centeredMetricsCenterY: CGFloat = 440
 
     /// #0128F4 — the card's own route trace only; the map background's polyline keeps
     /// its pace coloring and the marker rings stay white.
@@ -45,17 +68,22 @@ struct BodyWorkoutShareCardView: View {
         ZStack {
             backgroundLayer
             scrims
-            if showsTrace {
-                // Pinned to the same geometry as the map background's route: a
-                // 300×300 pt drawing rect (2× the scrims' clear band) centered at
-                // y 375, so the trace sits identically on every background. The
-                // square rect keeps the projection's aspect ratio undistorted;
-                // the 324 pt frame leaves the 12 pt inset for stroke + markers.
-                routeHero
-                    .frame(width: 324, height: 324)
-                    .position(x: Self.cardSize.width / 2, y: 375)
+            switch layout {
+            case .classic:
+                if showsTrace {
+                    // Pinned to the same geometry as the map background's route: a
+                    // 300×300 pt drawing rect (2× the scrims' clear band) centered at
+                    // y 375, so the trace sits identically on every background. The
+                    // square rect keeps the projection's aspect ratio undistorted;
+                    // the 324 pt frame leaves the 12 pt inset for the stroke.
+                    routeHero
+                        .frame(width: 324, height: 324)
+                        .position(x: Self.cardSize.width / 2, y: 375)
+                }
+                content
+            case .centered:
+                centeredContent
             }
-            content
         }
         .frame(width: Self.cardSize.width, height: Self.cardSize.height)
         .clipped()
@@ -192,8 +220,8 @@ struct BodyWorkoutShareCardView: View {
     // MARK: - Route trace
 
     /// SwiftUI `Canvas` polyline of the route in `routeColor`, through the centered,
-    /// inset rect so the ~5 pt stroke and endpoint dots never clip. Green start / red
-    /// end ringed dots mirror `BodyWorkoutRouteMapHero.drawMarker` proportions.
+    /// inset rect so the ~5 pt stroke never clips. No start/end markers — only the
+    /// map background's composited route carries those.
     private var routeHero: some View {
         Canvas { context, size in
             guard let routePoints, routePoints.count >= 2 else { return }
@@ -222,29 +250,7 @@ struct BodyWorkoutShareCardView: View {
                 with: .color(Self.routeColor),
                 style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
             )
-
-            drawMarker(at: mapped[0], color: Color(.systemGreen), in: context)
-            drawMarker(at: mapped[mapped.count - 1], color: Color(.systemRed), in: context)
         }
-    }
-
-    private func drawMarker(at point: CGPoint, color: Color, in context: GraphicsContext) {
-        let ringRadius: CGFloat = 7.5
-        let dotRadius: CGFloat = 5
-        let ring = CGRect(
-            x: point.x - ringRadius,
-            y: point.y - ringRadius,
-            width: ringRadius * 2,
-            height: ringRadius * 2
-        )
-        let dot = CGRect(
-            x: point.x - dotRadius,
-            y: point.y - dotRadius,
-            width: dotRadius * 2,
-            height: dotRadius * 2
-        )
-        context.fill(Path(ellipseIn: ring), with: .color(.white))
-        context.fill(Path(ellipseIn: dot), with: .color(color))
     }
 
     // MARK: - Bottom bar (metrics leading, branding trailing)
@@ -266,24 +272,77 @@ struct BodyWorkoutShareCardView: View {
 
             Spacer(minLength: 12)
 
-            HStack(spacing: 6) {
-                Image("BodyIcon01")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 18, height: 18)
-                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                // verbatim: brand wordmark, never localized — and never extracted
-                // into the catalog (an empty auto-extracted "Body" entry would trip
-                // the catalog-completeness guard).
-                Text(verbatim: "Body")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundColor(.white.opacity(0.6))
+            branding
+        }
+    }
+
+    /// Shared by both layouts so the wordmark can't drift between them.
+    private var branding: some View {
+        HStack(spacing: 6) {
+            Image("BodyIcon01")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 18, height: 18)
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .accessibilityHidden(true)
+            // verbatim: brand wordmark, never localized — and never extracted
+            // into the catalog (an empty auto-extracted "Body" entry would trip
+            // the catalog-completeness guard).
+            Text(verbatim: "Body")
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundColor(.white.opacity(0.6))
+        }
+    }
+
+    // MARK: - Centered layout (gradient presets)
+
+    /// Fixed regions rather than a flowing stack: the card is exactly 640 pt, so the
+    /// route, the metric stack, and the branding each own an absolute slot and no
+    /// metric count can push the wordmark off the bottom.
+    private var centeredContent: some View {
+        ZStack(alignment: .bottom) {
+            if showsTrace {
+                routeHero
+                    .frame(width: Self.centeredRouteSize, height: Self.centeredRouteSize)
+                    .position(Self.centeredRouteCenter)
+                    .accessibilityHidden(true)
+            }
+
+            centeredMetricsStack
+                .frame(width: Self.cardSize.width - 48)
+                // Traceless cards have nothing above the stack, so it centers in the
+                // whole card — the same fallback the classic layout's metrics take.
+                .position(
+                    x: Self.cardSize.width / 2,
+                    y: showsTrace ? Self.centeredMetricsCenterY : Self.cardSize.height / 2
+                )
+
+            branding
+                .padding(.bottom, 26)
+        }
+    }
+
+    private var centeredMetricsStack: some View {
+        VStack(spacing: 20) {
+            ForEach(Array(centeredMetrics.enumerated()), id: \.offset) { _, metric in
+                VStack(spacing: 2) {
+                    Text(metric.title)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white.opacity(0.7))
+                    Text(metric.value)
+                        .font(.system(size: 40, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
             }
         }
+        .multilineTextAlignment(.center)
     }
 }
 
-#Preview {
+/// Shared preview fixture: an 8.2 km run with a looping route.
+private func previewCard(layout: WorkoutShareCardLayout, withRoute: Bool) -> some View {
     let workout = WorkoutSummary(
         type: .running,
         startDate: Date(timeIntervalSince1970: 1_700_000_000),
@@ -304,11 +363,25 @@ struct BodyWorkoutShareCardView: View {
     return BodyWorkoutShareCardView(
         presentation: presentation,
         metrics: WorkoutShareMetricsBuilder.metrics(for: presentation, type: workout.type),
-        routePoints: WorkoutShareRouteProjection.normalizedPoints(for: coordinates),
+        centeredMetrics: WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type),
+        routePoints: withRoute ? WorkoutShareRouteProjection.normalizedPoints(for: coordinates) : nil,
         locality: "Cupertino",
         type: .running,
-        background: .preset(.midnight)
+        background: .preset(.midnight),
+        layout: layout
     )
     .frame(width: 360, height: 640)
     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+}
+
+#Preview("Centered - route") {
+    previewCard(layout: .centered, withRoute: true)
+}
+
+#Preview("Centered - no route") {
+    previewCard(layout: .centered, withRoute: false)
+}
+
+#Preview("Classic") {
+    previewCard(layout: .classic, withRoute: true)
 }

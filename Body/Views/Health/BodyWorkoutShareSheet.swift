@@ -22,6 +22,7 @@ struct BodyWorkoutShareSheet: View {
     let presentation: WorkoutDetailPresentation
 
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
+    @Environment(\.dismiss) private var dismiss
 
     @AppStorage(BodyWorkoutShareBackgroundChoice.storageKey) private var storedBackground: String =
         BodyWorkoutShareBackgroundChoice.map.rawValue
@@ -50,6 +51,7 @@ struct BodyWorkoutShareSheet: View {
     /// Computed once from the shared presentation so the card's values never drift
     /// from the detail page and the projection isn't redone on every body pass.
     private let metrics: [WorkoutShareMetric]
+    private let centeredMetrics: [WorkoutShareMetric]
     private let routePoints: [CGPoint]?
 
     init(workout: WorkoutSummary, route: WorkoutRoute, presentation: WorkoutDetailPresentation) {
@@ -57,6 +59,7 @@ struct BodyWorkoutShareSheet: View {
         self.route = route
         self.presentation = presentation
         self.metrics = WorkoutShareMetricsBuilder.metrics(for: presentation, type: workout.type)
+        self.centeredMetrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type)
         self.routePoints = WorkoutShareRouteProjection.normalizedPoints(for: route.coordinates)
     }
 
@@ -113,14 +116,27 @@ struct BodyWorkoutShareSheet: View {
         return .preset(.midnight)
     }
 
+    /// Keyed off `activeSelection`, never `activeBackground`: while a map snapshot loads,
+    /// the background reports Midnight, and deriving from it would flash the centered
+    /// layout before the map lands. A *failed* map load is the other way around — the
+    /// selection itself becomes the Midnight preset, which is centered on purpose.
+    private var cardLayout: WorkoutShareCardLayout {
+        switch activeSelection {
+        case .preset: return .centered
+        case .map, .photo: return .classic
+        }
+    }
+
     private func cardView() -> BodyWorkoutShareCardView {
         BodyWorkoutShareCardView(
             presentation: presentation,
             metrics: metrics,
+            centeredMetrics: centeredMetrics,
             routePoints: routePoints,
             locality: route.locality,
             type: workout.type,
-            background: activeBackground
+            background: activeBackground,
+            layout: cardLayout
         )
     }
 
@@ -137,8 +153,26 @@ struct BodyWorkoutShareSheet: View {
                     .padding(20)
                 }
             }
+            // The title stays set for accessibility/back-button inheritance; the
+            // principal item is what actually draws, so the beta badge can sit beside it.
             .navigationTitle(Text("Share Workout"))
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 8) {
+                        Text("Share Workout")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+
+                        Text("v2")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(.blue)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(.blue.opacity(0.14), in: Capsule())
+                    }
+                }
+            }
             .safeAreaInset(edge: .bottom) { shareBar }
             .sheet(item: $payload) { payload in
                 BodyShareActivityView(image: payload.image) { self.payload = nil }
@@ -445,12 +479,13 @@ struct BodyWorkoutShareSheet: View {
             return
         }
 
-        // Confirmation lives on the button itself; revert on its own task so `defer`
-        // can re-enable both buttons right away.
+        // Confirmation lives on the button itself; hold it just long enough to read,
+        // then close the sheet — a successful save is this flow's natural end. On its
+        // own task so `defer` re-enables both buttons right away.
         didSave = true
         Task {
-            try? await Task.sleep(for: .seconds(2))
-            didSave = false
+            try? await Task.sleep(for: .seconds(1))
+            dismiss()
         }
     }
 

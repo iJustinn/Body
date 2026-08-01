@@ -16,11 +16,12 @@ struct WorkoutShareMetric: Equatable {
     let value: String
 }
 
-/// Picks up to 2 metrics for the share card, in priority order, by reusing the
-/// same `WorkoutDetailPresentation` the detail page already built — so values,
-/// units, and locale never drift from what the user just saw. Only title/value
-/// are copied; `WorkoutDetailMetric.comparison` (the "vs 30-day avg" badge)
-/// never appears on a shared image.
+/// Picks the share card's metrics, in priority order, by reusing the same
+/// `WorkoutDetailPresentation` the detail page already built — so values, units,
+/// and locale never drift from what the user just saw. Only title/value are
+/// copied; `WorkoutDetailMetric.comparison` (the "vs 30-day avg" badge) never
+/// appears on a shared image. Two selections, one per card layout: `metrics` for
+/// the classic card's bottom row, `centeredMetrics` for the centered card's stack.
 enum WorkoutShareMetricsBuilder {
     static func metrics(for presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> [WorkoutShareMetric] {
         // The bottom-left row. Distance and duration live in the card's header (the
@@ -35,6 +36,28 @@ enum WorkoutShareMetricsBuilder {
         return Array(candidates.compactMap { $0 }.prefix(2))
     }
 
+    /// Up to 3 metrics for the centered card, where every metric is a label-over-value
+    /// block — so distance and duration are part of the stack here rather than living in
+    /// a header. Distance, rate, and time lead; elevation/avg HR only fill slots the
+    /// workout couldn't (a distance-less or rate-less type), never push those out.
+    static func centeredMetrics(for presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> [WorkoutShareMetric] {
+        let distance: WorkoutShareMetric?
+        if let heroValue = presentation.heroDistanceValue, let heroUnit = presentation.heroDistanceUnit {
+            distance = WorkoutShareMetric(title: String(localized: "Distance"), value: heroValue + " " + heroUnit)
+        } else {
+            distance = distanceTileMetric(presentation: presentation)
+        }
+
+        let candidates: [WorkoutShareMetric?] = [
+            distance,
+            shortRateMetric(presentation: presentation, type: type),
+            WorkoutShareMetric(title: String(localized: "Time"), value: presentation.durationClockText),
+            elevationMetric(presentation: presentation, type: type),
+            averageHeartRateMetric(presentation: presentation)
+        ]
+        return Array(candidates.compactMap { $0 }.prefix(3))
+    }
+
     /// The Details `.distance` tile, for workouts that don't promote distance to the
     /// hero corner (e.g. a strength workout with a recorded distance). Not present
     /// (e.g. a distance-less strength workout) → no candidate.
@@ -44,8 +67,12 @@ enum WorkoutShareMetricsBuilder {
 
     /// Pace/speed/swim-pace, matched by `Kind` — never by localized title, so it can't
     /// mix up two types whose tiles happen to share a translation (e.g. running's and
-    /// swimming's both say "Avg Pace").
-    private static func rateMetric(presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> WorkoutShareMetric? {
+    /// swimming's both say "Avg Pace"). The style comes back with the tile so callers
+    /// can relabel without repeating the match.
+    private static func rateTile(
+        presentation: WorkoutDetailPresentation,
+        type: BodyWorkoutType
+    ) -> (tile: WorkoutDetailMetric, style: WorkoutPaceStyle)? {
         let kind: WorkoutDetailMetric.Kind
         switch type.paceStyle {
         case .distancePace: kind = .pace
@@ -53,7 +80,26 @@ enum WorkoutShareMetricsBuilder {
         case .swimPace: kind = .swimPace
         case .none: return nil
         }
-        return tile(kind, in: presentation).map { WorkoutShareMetric(title: $0.title, value: $0.value) }
+        guard let tile = tile(kind, in: presentation) else { return nil }
+        return (tile: tile, style: type.paceStyle)
+    }
+
+    private static func rateMetric(presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> WorkoutShareMetric? {
+        rateTile(presentation: presentation, type: type).map { WorkoutShareMetric(title: $0.tile.title, value: $0.tile.value) }
+    }
+
+    /// Same value, but titled "Pace"/"Speed" instead of the tile's "Avg Pace"/"Avg Speed":
+    /// the centered layout's labels are short by design, and its blocks are already read
+    /// as workout averages.
+    private static func shortRateMetric(presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> WorkoutShareMetric? {
+        guard let rate = rateTile(presentation: presentation, type: type) else { return nil }
+        let title: String
+        switch rate.style {
+        case .distancePace, .swimPace: title = String(localized: "Pace")
+        case .speed: title = String(localized: "Speed")
+        case .none: return nil
+        }
+        return WorkoutShareMetric(title: title, value: rate.tile.value)
     }
 
     /// Elevation only makes sense for activities that actually climb — hiking/climbing-
@@ -171,8 +217,10 @@ enum BodyWorkoutSharePreset: String, CaseIterable, Identifiable {
     func gradient(tint: Color) -> LinearGradient {
         switch self {
         case .midnight:
+            // Pure black, not a gray fade — flat by design; kept as a LinearGradient
+            // only so both presets share a return type.
             return LinearGradient(
-                colors: [Color(white: 0.16), Color.black],
+                colors: [Color.black, Color.black],
                 startPoint: .top,
                 endPoint: .bottom
             )

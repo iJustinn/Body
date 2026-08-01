@@ -64,6 +64,12 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Map",
             "Save",
             "Saved",
+            // Centered preset-card metric titles: built via String(localized:) in
+            // WorkoutShareMetricsBuilder.centeredMetrics, so they resolve at runtime.
+            "Distance",
+            "Pace",
+            "Speed",
+            "Time",
             "Couldn't Load Photo",
             "Couldn't Load Map",
             "Couldn't Create Image",

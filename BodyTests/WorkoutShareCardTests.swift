@@ -218,6 +218,115 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertEqual(metricsWithComparison, metricsWithoutComparison)
     }
 
+    // MARK: - Metrics: centered layout
+
+    func testCenteredRunningIsDistancePaceTime() throws {
+        let run = workout(type: .running, distance: 5000, activeEnergy: 320, avgHR: 145)
+        let presentation = presentation(for: run)
+
+        let metrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: .running)
+        let heroValue = try XCTUnwrap(presentation.heroDistanceValue)
+        let heroUnit = try XCTUnwrap(presentation.heroDistanceUnit)
+        let paceTile = try XCTUnwrap(tile(.pace, in: presentation))
+
+        XCTAssertEqual(
+            metrics.map(\.title),
+            [String(localized: "Distance"), String(localized: "Pace"), String(localized: "Time")]
+        )
+        XCTAssertEqual(
+            metrics.map(\.value),
+            ["\(heroValue) \(heroUnit)", paceTile.value, presentation.durationClockText]
+        )
+        // The three leaders fill every slot, so avg HR never reaches the stack.
+        XCTAssertFalse(metrics.contains { $0.value == presentation.averageHeartRateText })
+    }
+
+    func testCenteredCyclingLabelsTheRateSpeed() throws {
+        let ride = workout(type: .cycling, distance: 20_000, activeEnergy: 500)
+        let presentation = presentation(for: ride)
+
+        let metrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: .cycling)
+        let speedTile = try XCTUnwrap(tile(.speed, in: presentation))
+
+        // The tile's own title is "Avg Speed"; the centered layout wants the short label
+        // with the same value.
+        XCTAssertNotEqual(speedTile.title, String(localized: "Speed"))
+        XCTAssertEqual(metrics[1].title, String(localized: "Speed"))
+        XCTAssertEqual(metrics[1].value, speedTile.value)
+    }
+
+    func testCenteredSwimmingLabelsTheRatePace() throws {
+        let swim = workout(type: .swimming, duration: 2400, distance: 1500)
+        let presentation = presentation(for: swim)
+
+        let metrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: .swimming)
+        let swimPaceTile = try XCTUnwrap(tile(.swimPace, in: presentation))
+
+        XCTAssertEqual(metrics[1].title, String(localized: "Pace"))
+        XCTAssertEqual(metrics[1].value, swimPaceTile.value)
+    }
+
+    func testCenteredDownhillSkiingFillsTheRateSlotWithElevation() throws {
+        let ski = workout(type: .downhillSkiing, distance: 8000, activeEnergy: 400, avgHR: 130, elevation: 650)
+        let presentation = presentation(for: ski)
+
+        let metrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: .downhillSkiing)
+        let elevationTile = try XCTUnwrap(tile(.elevation, in: presentation))
+
+        // No pace/speed tile for this type, so the leaders only fill two slots and
+        // elevation takes the third — ahead of the avg HR this fixture also carries.
+        XCTAssertEqual(
+            metrics.map(\.title),
+            [String(localized: "Distance"), String(localized: "Time"), elevationTile.title]
+        )
+        XCTAssertEqual(metrics[2].value, elevationTile.value)
+        XCTAssertFalse(metrics.contains { $0.value == presentation.averageHeartRateText })
+    }
+
+    func testCenteredDistancelessStrengthTrainingKeepsTimeAndFillsWithHeartRate() throws {
+        let lift = workout(type: .strengthTraining, duration: 2700, activeEnergy: 200, avgHR: 122)
+        let presentation = presentation(for: lift)
+
+        XCTAssertNil(presentation.heroDistanceValue)
+        XCTAssertNil(tile(.distance, in: presentation))
+        let heartRateText = try XCTUnwrap(presentation.averageHeartRateText)
+
+        let metrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: .strengthTraining)
+
+        // Missing distance and rate must collapse, not leave placeholder blocks.
+        XCTAssertFalse(metrics.contains { $0.title.isEmpty || $0.value.isEmpty })
+        XCTAssertEqual(metrics.map(\.value), [presentation.durationClockText, heartRateText])
+    }
+
+    func testCenteredNeverExceedsThreeMetrics() {
+        // Hiking is the fixture with the most candidates: distance, pace, time,
+        // elevation, and avg HR all qualify.
+        let hike = workout(type: .hiking, duration: 5400, distance: 9000, activeEnergy: 600, avgHR: 128, elevation: 540)
+        let presentation = presentation(for: hike)
+
+        let metrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: .hiking)
+
+        XCTAssertEqual(metrics.count, 3)
+        XCTAssertEqual(
+            metrics.map(\.title),
+            [String(localized: "Distance"), String(localized: "Pace"), String(localized: "Time")]
+        )
+    }
+
+    func testCenteredUsesDistanceTileWhenNotPromoted() throws {
+        // Rowing keeps distance as a Details tile instead of promoting it to the hero.
+        let row = workout(type: .rowing, distance: 3000, activeEnergy: 250)
+        let presentation = presentation(for: row)
+
+        XCTAssertNil(presentation.heroDistanceValue)
+        let distanceTile = try XCTUnwrap(tile(.distance, in: presentation))
+
+        let metrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: .rowing)
+
+        XCTAssertEqual(metrics[0].title, distanceTile.title)
+        XCTAssertEqual(metrics[0].value, distanceTile.value)
+    }
+
     // MARK: - Projection
 
     func testAntimeridianRouteUnwrapsWithoutInvertingOrder() throws {
