@@ -5110,6 +5110,23 @@
         }
       }
     },
+    "Pace" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pace"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配速"
+          }
+        }
+      }
+    },
     "Pct." : {
       "localizations" : {
         "en" : {
@@ -5961,6 +5978,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "路线地图"
+          }
+        }
+      }
+    },
+    "Route Style" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Route Style"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "路线样式"
           }
         }
       }
@@ -6821,6 +6854,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "日照时间"
+          }
+        }
+      }
+    },
+    "Speed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Speed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "速度"
           }
         }
       }
@@ -7842,6 +7892,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此设备不支持运动强度。"
+          }
+        }
+      }
+    },
+    "Workout Route" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workout Route"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运动路线"
           }
         }
       }

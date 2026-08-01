@@ -917,6 +917,7 @@ struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
+    @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @State private var isEditingEffort = false
     @State private var editingScore = 5
@@ -947,6 +948,14 @@ struct BodyWorkoutDetailSheet: View {
     @State private var scrollState = BodyWorkoutDetailScrollState()
     @State private var showsFullScreenRouteMap = false
     @State private var showsShareSheet = false
+    /// Resting screen y of the metrics column's top — the distance text when the
+    /// workout has one, the duration otherwise. Measured in the content coordinate
+    /// space (which doesn't move with scroll) plus the viewport's top inset, so it
+    /// settles on layout instead of per scroll frame. Nil until measured.
+    @State private var heroContentTop: CGFloat?
+    /// The sheet's own top safe-area inset — where the ScrollView viewport begins,
+    /// while the hero starts at the sheet's top edge.
+    @State private var topSafeAreaInset: CGFloat = 0
     @Namespace private var routeMapZoom
     /// Age-estimated max HR (220 − age) from Apple Health, loaded once to anchor the
     /// heart-rate zones; nil until loaded (or when no birth date), falling back to the
@@ -970,26 +979,62 @@ struct BodyWorkoutDetailSheet: View {
     /// so the header sits a little higher over the map rather than below it.
     private let contentTopOverlap: CGFloat = 150
 
+    /// Coordinate space of the scrolling content: frames measured in it don't move
+    /// with the scroll, so the hero measurement fires on layout changes only.
+    private static let contentSpace = "workoutDetailContent"
+
+    private var routeStyle: BodyWorkoutRouteStyle {
+        BodyWorkoutRouteStyle(rawValue: workoutRouteStyleRawValue) ?? .defaultValue
+    }
+
+    /// Both heroes center the route's vertical extent midway between the top safe
+    /// area (below the status bar / Dynamic Island — anchoring at the physical screen
+    /// top read too high on island phones) and the top of the metrics column. Until
+    /// that column is measured, fall back to where the fixed layout puts it — the tap
+    /// gap plus the content's top padding, below the safe area — so the first frame
+    /// is already close and the map's re-snapshot isn't visible.
+    private var routeTargetCenterY: CGFloat {
+        let contentTop = heroContentTop ?? (topSafeAreaInset + mapHeight - contentTopOverlap + 24)
+        return (topSafeAreaInset + contentTop) / 2
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             if let route {
-                // The map is the page background: pure black with the route map
-                // pinned to the top, blending into the black. Content floats over
-                // it with no backing of its own (like the home and detail pages).
-                Color.black.ignoresSafeArea()
+                switch routeStyle {
+                case .map:
+                    // The map is the page background: pure black with the route map
+                    // pinned to the top, blending into the black. Content floats over
+                    // it with no backing of its own (like the home and detail pages).
+                    Color.black.ignoresSafeArea()
 
-                BodyWorkoutRouteMapHero(route: route, tint: workout.type.color)
-                    .frame(height: mapHeight)
-                    .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
-                    .overlay {
-                        // Dim the map as the content floats up over it. Reads
-                        // `scrollState.offset` itself so only this layer re-renders per
-                        // scroll frame, not all of the sheet.
-                        BodyWorkoutMapDimOverlay(scrollState: scrollState, mapHeight: mapHeight)
-                    }
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .ignoresSafeArea(edges: .top)
-                    .allowsHitTesting(false)
+                    BodyWorkoutRouteMapHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset)
+                        .frame(height: mapHeight)
+                        .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
+                        .overlay {
+                            // Dim the map as the content floats up over it. Reads
+                            // `scrollState.offset` itself so only this layer re-renders per
+                            // scroll frame, not all of the sheet.
+                            BodyWorkoutMapDimOverlay(scrollState: scrollState, mapHeight: mapHeight)
+                        }
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .ignoresSafeArea(edges: .top)
+                        .allowsHitTesting(false)
+                case .plain:
+                    // No tiles to blend into, so the page keeps the routeless
+                    // workout-tint backdrop and the route strokes over it.
+                    sheetBackdrop
+
+                    BodyWorkoutRoutePlainHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset)
+                        .frame(height: mapHeight)
+                        .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
+                        .overlay {
+                            BodyWorkoutMapDimOverlay(scrollState: scrollState, mapHeight: mapHeight)
+                        }
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .ignoresSafeArea(edges: .top)
+                        .allowsHitTesting(false)
+                }
             } else {
                 sheetBackdrop
             }
@@ -1005,6 +1050,13 @@ struct BodyWorkoutDetailSheet: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            // The ScrollView keeps the sheet's safe area while the hero ignores it, so
+            // this inset converts content-space positions into hero-space ones.
+            proxy.safeAreaInsets.top
+        } action: { inset in
+            topSafeAreaInset = inset
+        }
         .overlay(alignment: .topTrailing) {
             // The ZStack keeps its safe-area insets, so the button clears the
             // status bar / Dynamic Island even though the map extends under them
@@ -1066,6 +1118,16 @@ struct BodyWorkoutDetailSheet: View {
             refreshPrediction()
         }
         .onChange(of: showWorkoutEffortSuggestions) { refreshPrediction() }
+        .onChange(of: route == nil) {
+            // The tap gap above the content exists only in the routed layout, so a
+            // routed measurement doesn't apply once the route is gone. The arrival
+            // direction needs no reset — `updateHeroContentTop` never stores routeless
+            // measurements, and clearing here could race the geometry callback that
+            // just measured the routed layout and lose its value for good.
+            if route == nil {
+                heroContentTop = nil
+            }
+        }
     }
 
     @ViewBuilder
@@ -1125,6 +1187,21 @@ struct BodyWorkoutDetailSheet: View {
             .padding(.top, route == nil ? 18 : 24)
             .padding(.bottom, 22)
             .readableContentColumn()
+        }
+        .coordinateSpace(.named(Self.contentSpace))
+    }
+
+    /// Stores the metrics column's resting screen y, the anchor the route centers
+    /// against. Ignored while there is no route: the routeless layout has no tap gap
+    /// above the content, so its measurement would place the route far too high.
+    private func updateHeroContentTop(contentMinY: CGFloat) {
+        guard route != nil else {
+            return
+        }
+
+        let screenY = topSafeAreaInset + contentMinY
+        if heroContentTop != screenY {
+            heroContentTop = screenY
         }
     }
 
@@ -1205,6 +1282,13 @@ struct BodyWorkoutDetailSheet: View {
                 }
             }
             .frame(width: 152, alignment: .trailing)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                // This column's top is the distance text's top when the workout has a
+                // distance, the duration's otherwise — the line the route centers above.
+                proxy.frame(in: .named(Self.contentSpace)).minY
+            } action: { minY in
+                updateHeroContentTop(contentMinY: minY)
+            }
         }
     }
 
