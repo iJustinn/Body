@@ -1,8 +1,15 @@
 # Version History
 
+## 0.9.10 (build 12)
+
+- **Photo share cards: move and resize the info block.** With a photo as the share background, drag the route trace + metrics block anywhere on the card and pinch to resize it; double-tap the preview to reset, and picking a new photo or switching backgrounds also resets. The exported image matches the preview placement exactly, placement is never remembered across opens, and a hint caption under the preview explains the gestures. Gradient presets and the map keep their fixed layouts.
+- The centered share card's metric text now carries the same soft shadow as the route trace, so it stays legible when the block sits over a bright photo area the scrims don't reach.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 12.
+
 ## 0.9.10 (build 11)
 
-- **Redesigned the share card for gradient-preset backgrounds.** With Midnight or Workout Color as the background, the card is now headerless — no type icon, title, locality, or date — with the blue route trace running across the top and a centered stack of large metrics below it: a small label over a big value, Distance then Pace (Speed for speed-based types) then Time, falling back to elevation or avg heart rate when distance/pace is missing (up to 3 metrics), and the Body app icon and wordmark centered at the bottom. Map and photo backgrounds are unchanged and keep the existing header + bottom-row layout, and the share sheet's map-loading state also stays in that classic layout so there's no flash into the centered preset layout before the map resolves.
+- **Redesigned the share card for all non-map backgrounds.** With a gradient preset (Midnight, Workout Color) or a photo as the background, the card is now headerless — no type icon, title, locality, or date — with the blue route trace running across the top and a centered stack of large metrics below it: a small label over a big value, Distance then Pace (Speed for speed-based types) then Time, falling back to elevation or avg heart rate when distance/pace is missing (up to 3 metrics), and the Body app icon and wordmark centered at the bottom. Only the map background keeps the existing header + bottom-row layout, and for a stored map pick the sheet stays in that classic layout while the snapshot loads so there's no flash into the centered layout.
+- The share sheet now opens on the Midnight background by default instead of the route map; the map loads when its tile is picked, and an explicit map pick is still remembered across opens.
 - Added a small blue "v2" beta capsule badge beside the "Share Workout" sheet title, matching the style of the settings sheets' v1/v2 badges.
 - The share card's own blue route trace (gradient and photo backgrounds) no longer draws green/red start/end dots; only the map background's route keeps its markers.
 - The Midnight share background is now pure black instead of a dark-gray-to-black fade.
