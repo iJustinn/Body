@@ -7091,23 +7091,6 @@
         }
       }
     },
-    "Syncing health data…" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Syncing health data…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在同步健康数据…"
-          }
-        }
-      }
-    },
     "System" : {
       "extractionState" : "manual",
       "localizations" : {

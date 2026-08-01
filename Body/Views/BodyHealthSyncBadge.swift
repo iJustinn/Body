@@ -86,7 +86,7 @@ struct BodyHealthSyncBadge: View {
     private var badgeLabel: some View {
         BodySyncStatusBadgeLabel(
             icon: phase == .syncing ? .spinner : .checkmark,
-            text: phase == .syncing ? "Syncing health data…" : "Health data updated"
+            text: phase == .syncing ? "Loading data..." : "Health data updated"
         )
     }
 }
@@ -112,7 +112,7 @@ struct BodySyncStatusBadgeLabel: View {
                         // system tones its animation down for us).
                         ProgressView().controlSize(.small).tint(.secondary)
                     } else {
-                        BodyMarchingSquaresLoader()
+                        BodyPixelGridLoader()
                             .accessibilityHidden(true)
                     }
                 case .checkmark:
@@ -166,10 +166,11 @@ private struct BodyHealthSyncBadgeBackground: ViewModifier {
     }
 }
 
-/// Pixel-grid checkmark in the marching-squares loader's visual language: the
-/// classic five-pixel tick drawn from small rounded squares instead of an SF
-/// Symbol, so the syncing → finished morph stays within one design family.
-/// Decorative; the enclosing capsule carries the accessibility label.
+/// Pixel-grid checkmark in the pixel-grid loader's visual language: the
+/// classic five-pixel tick drawn as lit white pixels with the loader's glow
+/// instead of an SF Symbol, so the syncing → finished morph stays within one
+/// design family. Decorative; the enclosing capsule carries the
+/// accessibility label.
 private struct BodyGridCheckmarkIcon: View {
     /// Tick pixels in `(col, row)` on a 5-wide grid: descending short arm
     /// (0,2) → (1,3), ascending long arm (2,2) → (3,1) → (4,0).
@@ -179,106 +180,229 @@ private struct BodyGridCheckmarkIcon: View {
     private static let squareSize: CGFloat = 2.4
     private static let gapSize: CGFloat = 0.5
     private static let stride = squareSize + gapSize
+    private static let gridWidth = stride * 4 + squareSize
+    private static let gridHeight = stride * 3 + squareSize
+    /// Same canvas slack as the loader so the outer glow isn't clipped; the
+    /// view still lays out at the grid size.
+    private static let effectExtent: CGFloat = 5
 
     var body: some View {
-        Canvas { canvas, _ in
-            for cell in Self.cells {
-                let rect = CGRect(
-                    x: CGFloat(cell.col) * Self.stride,
-                    y: CGFloat(cell.row) * Self.stride,
-                    width: Self.squareSize,
-                    height: Self.squareSize
-                )
-                canvas.fill(Path(roundedRect: rect, cornerRadius: 0.6), with: .color(.primary))
+        Color.clear
+            .frame(width: Self.gridWidth, height: Self.gridHeight)
+            .overlay {
+                Canvas(opaque: false, colorMode: .nonLinear, rendersAsynchronously: false) { canvas, _ in
+                    let tick = Self.cells.map { Self.cellPath(col: $0.col, row: $0.row) }
+
+                    // The loader's glow recipe: two screen-blended shadow-only
+                    // passes over the lit pixels.
+                    for (opacity, radius) in [(0.55, CGFloat(2.5)), (0.28, CGFloat(5))] {
+                        canvas.drawLayer { layer in
+                            layer.blendMode = .screen
+                            layer.addFilter(
+                                .shadow(color: .white.opacity(opacity), radius: radius, options: .shadowOnly),
+                                options: .linearColor
+                            )
+                            for path in tick {
+                                layer.fill(path, with: .color(.white))
+                            }
+                        }
+                    }
+
+                    for path in tick {
+                        canvas.fill(path, with: .color(.white))
+                    }
+                }
+                .frame(width: Self.gridWidth + Self.effectExtent * 2,
+                       height: Self.gridHeight + Self.effectExtent * 2)
             }
-        }
-        .frame(width: Self.stride * 4 + Self.squareSize,
-               height: Self.stride * 3 + Self.squareSize)
+    }
+
+    private static func cellPath(col: Int, row: Int) -> Path {
+        let rect = CGRect(
+            x: effectExtent + CGFloat(col) * stride,
+            y: effectExtent + CGFloat(row) * stride,
+            width: squareSize,
+            height: squareSize
+        )
+        return Path(roundedRect: rect, cornerRadius: 0.6)
     }
 }
 
-/// A native "marching squares" loader: seven small squares hop one cell at a
-/// time around a 3×3 snake path (the bottom-right cell stays empty), so a
-/// single gap appears to travel around the grid. Driven entirely from
-/// wall-clock time via `TimelineView` — no `onAppear`-started repeating
-/// animation to lose when the badge is conditionally inserted/removed.
+/// A native pixel-display loader: nine white cells on a 3×3 grid light up on
+/// staggered per-cell delays, hold, then fade back out together, so the grid
+/// reads as a wave, spiral, snake, rain burst… depending on which delay
+/// pattern is playing. One pattern is drawn at random each time the loader
+/// appears, so repeated refreshes don't feel like the same canned clip.
+///
+/// Driven entirely from wall-clock time via `TimelineView` — no
+/// `onAppear`-started repeating animation to lose when the badge is
+/// conditionally inserted/removed — but measured from an `epoch` captured at
+/// insertion rather than a shared reference date, so every appearance starts
+/// its pattern from the first cell instead of joining mid-cycle.
+///
+/// Animation patterns and pixel-display look adapted from SwiftPixelGrid
+/// (MIT, github.com/afetmin/SwiftPixelGrid).
 /// Decorative; the enclosing capsule carries the accessibility label.
-private struct BodyMarchingSquaresLoader: View {
-    /// Snake path over the 3×3 grid in `(col, row)`, excluding the bottom-right
-    /// cell so it is never occupied and the gap circles the remaining eight.
-    private static let path: [(col: Int, row: Int)] = [
-        (0, 0), (1, 0), (2, 0), (2, 1), (1, 1), (1, 2), (0, 2), (0, 1)
+private struct BodyPixelGridLoader: View {
+    /// SwiftPixelGrid's preset table: per-cell start delays in row-major order
+    /// plus the fully-lit hold, both in milliseconds. Its colour variants are
+    /// folded away — every cell here is white, so they'd be exact duplicates —
+    /// leaving the 17 distinct rhythms.
+    private static let patterns: [(delays: [Int], hold: Int)] = [
+        (delays: [0, 120, 240, 0, 120, 240, 0, 120, 240], hold: 200),        // wave L→R
+        (delays: [240, 120, 0, 240, 120, 0, 240, 120, 0], hold: 200),        // wave R→L
+        (delays: [0, 0, 0, 120, 120, 120, 240, 240, 240], hold: 200),        // wave T→B
+        (delays: [240, 240, 240, 120, 120, 120, 0, 0, 0], hold: 200),        // wave B→T
+        (delays: [0, 80, 160, 560, 640, 240, 480, 400, 320], hold: 180),     // spiral CW
+        (delays: [0, 200, 0, 200, 400, 200, 0, 200, 0], hold: 200),          // corners first
+        (delays: [240, 120, 240, 120, 0, 120, 240, 120, 240], hold: 200),    // center out
+        (delays: [0, 100, 200, 100, 200, 300, 200, 300, 400], hold: 180),    // diagonal TL
+        (delays: [0, 80, 160, 400, 320, 240, 480, 560, 640], hold: 160),     // snake
+        (delays: [300, 0, 300, 0, 0, 0, 300, 0, 300], hold: 250),            // cross
+        (delays: [0, 250, 0, 250, 0, 250, 0, 250, 0], hold: 220),            // checkerboard
+        (delays: [0, 180, 60, 120, 300, 240, 360, 80, 420], hold: 170),      // rain
+        (delays: [0, 160, 480, 320, 640, 160, 480, 320, 0], hold: 150),      // pinwheel
+        (delays: [0, 80, 160, 480, 640, 240, 400, 320, 560], hold: 120),     // orbit
+        (delays: [0, 160, 80, 240, 320, 240, 80, 160, 0], hold: 260),        // converge
+        (delays: [0, 160, 320, 400, 240, 80, 480, 560, 640], hold: 140),     // zigzag
+        (delays: [0, 80, 160, 240, 320, 400, 480, 560, 640], hold: 160)      // linear sweep
     ]
-    private static let cellCount = path.count            // 8 cells, 7 squares
-    private static let period: Double = 2.8              // seconds per full gap loop
+
+    private static let cellCount = 9
+    private static let columns = 3
     private static let squareSize: CGFloat = 4
     private static let gapSize: CGFloat = 1
-    private static let stride = squareSize + gapSize     // 5 pt per cell
-    /// Fraction of each hop slot spent sliding; the remainder is a dwell — a
-    /// quick eased hop (~2% of the period) then a hold (~10.5%).
-    private static let slidePortion: Double = 0.16
-    /// Cell the gap sits in at t = 0.
-    private static let gapStart = 0
+    private static let stride = squareSize + gapSize      // 5 pt per cell
+    private static let gridSize = stride * 2 + squareSize  // 14 pt logical footprint
+    /// Slack around the grid inside the canvas so the outer glow can bleed past
+    /// the cells instead of being clipped at the drawing bounds; the view still
+    /// lays out at `gridSize` (a `Color.clear` frame) and the oversized canvas
+    /// rides in an overlay, so the padding costs no layout space.
+    private static let effectExtent: CGFloat = 5
+    private static let canvasSize = gridSize + effectExtent * 2  // 24 pt
+    /// Fade-in and fade-out length; the hold between them runs until every
+    /// cell has had its turn (`maxDelay + hold`).
+    private static let transitionDuration: TimeInterval = 0.3
+    /// Beat of darkness after the last cell fades, so cycles don't butt together.
+    private static let fadeOutPadding: TimeInterval = 0.05
+    private static let innerGlowRadius: CGFloat = 2.5
+    private static let outerGlowRadius: CGFloat = 5
+    /// Always-visible "off" cells, so the animation reads as one pixel display
+    /// lighting up rather than squares appearing out of nowhere.
+    private static let offOpacity: Double = 0.3
+
+    /// Re-rolled whenever the loader gets a new identity, i.e. on every visible
+    /// insertion of the spinner; a refresh that keeps the badge up is one load
+    /// and keeps its pattern. Repeats across appearances are allowed.
+    @State private var pattern = Self.patterns.randomElement()!
+    /// Delays are relative to this, captured when the loader is inserted.
+    @State private var epoch = Date()
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
-            Canvas { canvas, _ in
-                let t = context.date.timeIntervalSinceReferenceDate
-                for rect in Self.squareRects(at: t) {
-                    canvas.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(.secondary))
+        Color.clear
+            .frame(width: Self.gridSize, height: Self.gridSize)
+            .overlay {
+                TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+                    // The grid is tiny; drawing synchronously keeps the beat even
+                    // instead of letting frames coalesce asynchronously.
+                    Canvas(opaque: false, colorMode: .nonLinear, rendersAsynchronously: false) { canvas, _ in
+                        let elapsed = context.date.timeIntervalSince(epoch)
+                        Self.draw(Self.intensities(at: elapsed, pattern: pattern), in: &canvas)
+                    }
+                    .frame(width: Self.canvasSize, height: Self.canvasSize)
                 }
             }
+    }
+
+    /// Brightness of each of the nine cells at `elapsed`, in `0...1`.
+    private static func intensities(
+        at elapsed: TimeInterval,
+        pattern: (delays: [Int], hold: Int)
+    ) -> [Double] {
+        let delays = pattern.delays.map { TimeInterval($0) / 1000 }
+        let hold = TimeInterval(pattern.hold) / 1000
+        let holdTime = (delays.max() ?? 0) + hold
+        let cycle = 2 * holdTime + fadeOutPadding
+        return delays.map { intensity(at: elapsed, delay: $0, holdTime: holdTime, cycle: cycle) }
+    }
+
+    private static func intensity(
+        at elapsed: TimeInterval,
+        delay: TimeInterval,
+        holdTime: TimeInterval,
+        cycle: TimeInterval
+    ) -> Double {
+        let local = elapsed - delay
+        // Before a cell's delay elapses it is simply off. Wrapping the negative
+        // through the modulo instead would drop the cell into the tail of an
+        // imaginary previous cycle, flashing a stale fade-out at insertion.
+        guard local >= 0 else { return 0 }
+
+        let t = local.truncatingRemainder(dividingBy: cycle)
+        if t < holdTime {
+            guard t < transitionDuration else { return 1 }
+            return easeOut(t / transitionDuration)
         }
-        .frame(width: Self.stride * 2 + Self.squareSize,
-               height: Self.stride * 2 + Self.squareSize)
+        let fadeOut = t - holdTime
+        guard fadeOut < transitionDuration else { return 0 }
+        return 1 - easeOut(fadeOut / transitionDuration)
     }
 
-    /// Positions of the seven squares at time `t`: six stationary plus the one
-    /// currently sliding into the gap.
-    private static func squareRects(at t: TimeInterval) -> [CGRect] {
-        let hopDuration = period / Double(cellCount)
-        let hopCount = t / hopDuration
-        let k = Int(floor(hopCount))
-        let frac = hopCount - floor(hopCount)
+    /// Cubic ease-out; visually the same curve SwiftPixelGrid solves as
+    /// `cubic-bezier(0, 0, 0.58, 1)`, without the Newton iteration.
+    private static func easeOut(_ x: Double) -> Double {
+        let clamped = min(max(x, 0), 1)
+        return 1 - pow(1 - clamped, 3)
+    }
 
-        // The gap steps one cell backward along the path per hop; the square
-        // just behind it slides forward to fill it.
-        let gapCell = mod(gapStart - k, cellCount)
-        let moverOrigin = mod(gapCell - 1, cellCount)
-        let moverTarget = gapCell
+    private static func draw(_ intensities: [Double], in canvas: inout GraphicsContext) {
+        // Glow first, in two passes over the whole grid rather than per cell: a
+        // later cell's shadow would otherwise wash over an earlier cell's body
+        // and leave uneven bright edges.
+        drawGlow(intensities, in: &canvas, opacity: 0.55, radius: innerGlowRadius)
+        drawGlow(intensities, in: &canvas, opacity: 0.28, radius: outerGlowRadius)
 
-        // Quick eased slide over the first `slidePortion` of the hop, then hold.
-        let p = frac < slidePortion ? easeInOut(frac / slidePortion) : 1
-
-        var rects: [CGRect] = []
-        rects.reserveCapacity(cellCount - 1)
-        for index in 0..<cellCount where index != gapCell && index != moverOrigin {
-            rects.append(rect(forCell: index))
+        for index in 0..<cellCount {
+            canvas.fill(cellPath(at: index), with: .color(.white.opacity(offOpacity)))
         }
-        let origin = point(forCell: moverOrigin)
-        let target = point(forCell: moverTarget)
-        rects.append(CGRect(x: origin.x + (target.x - origin.x) * p,
-                            y: origin.y + (target.y - origin.y) * p,
-                            width: squareSize, height: squareSize))
-        return rects
+
+        // Lit cells only change opacity — the body colour stays white so a cell
+        // never shows a differently tinted core while fading.
+        for (index, intensity) in intensities.enumerated() where intensity > 0 {
+            canvas.fill(cellPath(at: index), with: .color(.white.opacity(intensity)))
+        }
     }
 
-    private static func point(forCell index: Int) -> CGPoint {
-        let cell = path[index]
-        return CGPoint(x: CGFloat(cell.col) * stride, y: CGFloat(cell.row) * stride)
+    /// One screen-blended shadow-only layer for the entire grid. A filter's
+    /// colour is fixed for the layer, so the per-cell brightness rides in on
+    /// the source alpha instead.
+    private static func drawGlow(
+        _ intensities: [Double],
+        in canvas: inout GraphicsContext,
+        opacity: Double,
+        radius: CGFloat
+    ) {
+        canvas.drawLayer { layer in
+            layer.blendMode = .screen
+            layer.addFilter(
+                .shadow(color: .white.opacity(opacity), radius: radius, options: .shadowOnly),
+                options: .linearColor
+            )
+            for (index, intensity) in intensities.enumerated() where intensity > 0 {
+                layer.fill(cellPath(at: index), with: .color(.white.opacity(intensity)))
+            }
+        }
     }
 
-    private static func rect(forCell index: Int) -> CGRect {
-        let p = point(forCell: index)
-        return CGRect(x: p.x, y: p.y, width: squareSize, height: squareSize)
-    }
-
-    private static func easeInOut(_ x: Double) -> Double {
-        x < 0.5 ? 2 * x * x : 1 - pow(-2 * x + 2, 2) / 2
-    }
-
-    private static func mod(_ a: Int, _ n: Int) -> Int {
-        ((a % n) + n) % n
+    /// Row-major cell `index` as a rounded square, offset by the glow extent.
+    private static func cellPath(at index: Int) -> Path {
+        let rect = CGRect(
+            x: effectExtent + CGFloat(index % columns) * stride,
+            y: effectExtent + CGFloat(index / columns) * stride,
+            width: squareSize,
+            height: squareSize
+        )
+        return Path(roundedRect: rect, cornerRadius: 1)
     }
 }
 
