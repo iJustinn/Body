@@ -1,5 +1,20 @@
 # Version History
 
+## 0.9.10 (build 11)
+
+- **Redesigned the share card for gradient-preset backgrounds.** With Midnight or Workout Color as the background, the card is now headerless — no type icon, title, locality, or date — with the blue route trace running across the top and a centered stack of large metrics below it: a small label over a big value, Distance then Pace (Speed for speed-based types) then Time, falling back to elevation or avg heart rate when distance/pace is missing (up to 3 metrics), and the Body app icon and wordmark centered at the bottom. Map and photo backgrounds are unchanged and keep the existing header + bottom-row layout, and the share sheet's map-loading state also stays in that classic layout so there's no flash into the centered preset layout before the map resolves.
+- Added a small blue "v2" beta capsule badge beside the "Share Workout" sheet title, matching the style of the settings sheets' v1/v2 badges.
+- The share card's own blue route trace (gradient and photo backgrounds) no longer draws green/red start/end dots; only the map background's route keeps its markers.
+- The Midnight share background is now pure black instead of a dark-gray-to-black fade.
+- Saving the share card now closes the share sheet automatically after the brief "Saved" confirmation; a failed save keeps the sheet open.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 11.
+
+## 0.9.10 (build 10)
+
+- **Sharper readiness fill edge.** The readiness fill's front edge is now a sharp cut instead of the previous short feather into the page background, so the Home hero's fill level reads precisely.
+- The workout calendar's empty-day grid cells now use the same fill in dark mode as in light mode (primary at 10% opacity, previously 14% in dark mode), matching the Coin app's calendar widget.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 10.
+
 ## 0.9.10 (build 9)
 
 - **The Workouts page and workout widgets now follow the calendar into a new month.** When a month rolls over while the app stays alive (across midnight, or on returning to the foreground), the Workouts page automatically advances to the new — possibly still-empty — month if you were viewing the old current month; a deliberately browsed older month stays put. The live workout calendar and workout types widgets are now month-strict: they always render the actual current month, flipping at the boundary via a timeline entry dated at the month start, instead of holding last month's snapshot or falling back to the previous month's data when the new month has no workouts yet (the previous-month fallback now applies only to widget-gallery previews).
