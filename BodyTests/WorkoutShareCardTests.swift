@@ -494,13 +494,15 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "map"), .map)
     }
 
-    func testStoredFallsBackToMapForNilOrGarbage() {
-        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: nil), .map)
-        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: ""), .map)
-        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "not-a-real-preset"), .map)
-        // "ocean" is a retired preset: a value stored by build 10/11 is now unknown and
-        // must resolve to the map default rather than crashing or sticking on a gradient.
-        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "ocean"), .map)
+    func testStoredFallsBackToMidnightForNilOrGarbage() {
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: nil), .preset(.midnight))
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: ""), .preset(.midnight))
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "not-a-real-preset"), .preset(.midnight))
+        // "ocean" is a retired preset: a stored value from an old build is now unknown
+        // and must resolve to the Midnight default rather than crashing or mapping.
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "ocean"), .preset(.midnight))
+        // The map only ever comes back from an explicit pick, never as a fallback.
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "map"), .map)
     }
 
     func testResolvedPhotoReturnsNilForNonProEvenWithAPhoto() {
@@ -516,5 +518,50 @@ final class WorkoutShareCardTests: XCTestCase {
     func testResolvedPhotoWithNilPhotoReturnsNilRegardlessOfEntitlement() {
         XCTAssertNil(WorkoutShareBackgroundPolicy.resolvedPhoto(nil, isProUnlocked: true))
         XCTAssertNil(WorkoutShareBackgroundPolicy.resolvedPhoto(nil, isProUnlocked: false))
+    }
+
+    // MARK: - Info block transform
+
+    func testIdentityTransformClampsToItself() {
+        XCTAssertEqual(WorkoutShareInfoTransform.identity.clamped(), .identity)
+    }
+
+    func testInRangeTransformPassesThroughUnchanged() {
+        let transform = WorkoutShareInfoTransform(offset: CGSize(width: 40, height: -120), scale: 1.2)
+
+        XCTAssertEqual(transform.clamped(), transform)
+    }
+
+    func testOutOfRangeOffsetAndScaleClampToTheBoundsOnBothSides() {
+        let far = WorkoutShareInfoTransform(offset: CGSize(width: 900, height: 900), scale: 8).clamped()
+
+        XCTAssertEqual(far.offset.width, WorkoutShareInfoTransform.maximumOffsetWidth)
+        XCTAssertEqual(far.offset.height, WorkoutShareInfoTransform.maximumOffsetHeight)
+        XCTAssertEqual(far.scale, WorkoutShareInfoTransform.scaleRange.upperBound)
+
+        let near = WorkoutShareInfoTransform(offset: CGSize(width: -900, height: -900), scale: 0.01).clamped()
+
+        XCTAssertEqual(near.offset.width, -WorkoutShareInfoTransform.maximumOffsetWidth)
+        XCTAssertEqual(near.offset.height, -WorkoutShareInfoTransform.maximumOffsetHeight)
+        XCTAssertEqual(near.scale, WorkoutShareInfoTransform.scaleRange.lowerBound)
+    }
+
+    func testNonFiniteComponentsClampToTheIdentityComponent() {
+        // A NaN/infinite gesture value has no meaningful side to pin to, so each bad
+        // component resets on its own while the good ones survive.
+        let badWidth = WorkoutShareInfoTransform(offset: CGSize(width: CGFloat.nan, height: 60), scale: 1.1).clamped()
+
+        XCTAssertEqual(badWidth.offset.width, 0)
+        XCTAssertEqual(badWidth.offset.height, 60)
+        XCTAssertEqual(badWidth.scale, 1.1)
+
+        let badHeightAndScale = WorkoutShareInfoTransform(
+            offset: CGSize(width: 20, height: CGFloat.infinity),
+            scale: .nan
+        ).clamped()
+
+        XCTAssertEqual(badHeightAndScale.offset.width, 20)
+        XCTAssertEqual(badHeightAndScale.offset.height, 0)
+        XCTAssertEqual(badHeightAndScale.scale, 1)
     }
 }

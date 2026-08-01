@@ -5,10 +5,13 @@
 //  The 360×640 pt share card, exported at `ImageRenderer.scale = 3` → 1080×1920 px.
 //  Purely value-driven and environment-independent: every color, size, and weight
 //  is explicit so the rendered image looks identical no matter what environment
-//  `ImageRenderer` runs it under. Two layouts: `.classic` (photo/map backgrounds)
+//  `ImageRenderer` runs it under. Two layouts: `.classic` (map background only)
 //  mirrors the detail page — identity left, big distance + duration right, route
-//  trace centered, metrics row along the bottom; `.centered` (gradient presets)
-//  drops the header for a column of label-over-value blocks under the trace.
+//  trace centered, metrics row along the bottom; `.centered` (gradient presets and
+//  photos) drops the header for a column of label-over-value blocks under the trace.
+//  On photo backgrounds the centered layout's info block (trace + stack, never the
+//  pinned branding) is repositionable and resizable: the placement arrives as an
+//  `infoTransform` the sheet's gestures drive, and is `.identity` everywhere else.
 //
 
 import SwiftUI
@@ -43,6 +46,9 @@ struct BodyWorkoutShareCardView: View {
     let type: BodyWorkoutType
     let background: WorkoutShareCardBackground
     let layout: WorkoutShareCardLayout
+    /// Where the centered layout's info block sits; `.identity` is its default slot.
+    /// The classic layout ignores it.
+    let infoTransform: WorkoutShareInfoTransform
 
     private static let cardSize = CGSize(width: 360, height: 640)
 
@@ -301,25 +307,44 @@ struct BodyWorkoutShareCardView: View {
     /// metric count can push the wordmark off the bottom.
     private var centeredContent: some View {
         ZStack(alignment: .bottom) {
-            if showsTrace {
-                routeHero
-                    .frame(width: Self.centeredRouteSize, height: Self.centeredRouteSize)
-                    .position(Self.centeredRouteCenter)
-                    .accessibilityHidden(true)
-            }
+            // Trace and stack move and resize together as one block; the branding
+            // stays pinned to the card's bottom whatever the transform is.
+            ZStack {
+                if showsTrace {
+                    routeHero
+                        .frame(width: Self.centeredRouteSize, height: Self.centeredRouteSize)
+                        .position(Self.centeredRouteCenter)
+                        .accessibilityHidden(true)
+                }
 
-            centeredMetricsStack
-                .frame(width: Self.cardSize.width - 48)
-                // Traceless cards have nothing above the stack, so it centers in the
-                // whole card — the same fallback the classic layout's metrics take.
-                .position(
-                    x: Self.cardSize.width / 2,
-                    y: showsTrace ? Self.centeredMetricsCenterY : Self.cardSize.height / 2
-                )
+                centeredMetricsStack
+                    .frame(width: Self.cardSize.width - 48)
+                    // Traceless cards have nothing above the stack, so it centers in the
+                    // whole card — the same fallback the classic layout's metrics take.
+                    .position(
+                        x: Self.cardSize.width / 2,
+                        y: showsTrace ? Self.centeredMetricsCenterY : Self.cardSize.height / 2
+                    )
+            }
+            // Explicitly card-sized so the `.position` calls above keep resolving
+            // against the full card once the block is scaled and offset.
+            .frame(width: Self.cardSize.width, height: Self.cardSize.height)
+            // Offset after scale, so a drag stays 1:1 with card points at any zoom.
+            .scaleEffect(infoTransform.scale, anchor: blockAnchor)
+            .offset(infoTransform.offset)
 
             branding
                 .padding(.bottom, 26)
         }
+    }
+
+    /// The block's own visual center — midway between the route region and the metric
+    /// stack — rather than the card's. Pinching around the card center would push the
+    /// trace off the top, since the block sits above the midline when a trace is shown.
+    private var blockAnchor: UnitPoint {
+        guard showsTrace else { return .center }
+        let blockCenterY = (Self.centeredRouteCenter.y + Self.centeredMetricsCenterY) / 2
+        return UnitPoint(x: 0.5, y: blockCenterY / Self.cardSize.height)
     }
 
     private var centeredMetricsStack: some View {
@@ -338,11 +363,18 @@ struct BodyWorkoutShareCardView: View {
             }
         }
         .multilineTextAlignment(.center)
+        // The route trace's shadow, so the stack stays legible when the block is
+        // dragged into a bright photo area the scrims don't reach.
+        .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
     }
 }
 
 /// Shared preview fixture: an 8.2 km run with a looping route.
-private func previewCard(layout: WorkoutShareCardLayout, withRoute: Bool) -> some View {
+private func previewCard(
+    layout: WorkoutShareCardLayout,
+    withRoute: Bool,
+    infoTransform: WorkoutShareInfoTransform = .identity
+) -> some View {
     let workout = WorkoutSummary(
         type: .running,
         startDate: Date(timeIntervalSince1970: 1_700_000_000),
@@ -368,7 +400,8 @@ private func previewCard(layout: WorkoutShareCardLayout, withRoute: Bool) -> som
         locality: "Cupertino",
         type: .running,
         background: .preset(.midnight),
-        layout: layout
+        layout: layout,
+        infoTransform: infoTransform
     )
     .frame(width: 360, height: 640)
     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -376,6 +409,14 @@ private func previewCard(layout: WorkoutShareCardLayout, withRoute: Bool) -> som
 
 #Preview("Centered - route") {
     previewCard(layout: .centered, withRoute: true)
+}
+
+#Preview("Centered - moved") {
+    previewCard(
+        layout: .centered,
+        withRoute: true,
+        infoTransform: WorkoutShareInfoTransform(offset: CGSize(width: 60, height: 120), scale: 0.8)
+    )
 }
 
 #Preview("Centered - no route") {

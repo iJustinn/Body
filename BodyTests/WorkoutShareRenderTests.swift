@@ -39,7 +39,10 @@ final class WorkoutShareRenderTests: XCTestCase {
         }
     }
 
-    private func makeRenderer(layout: WorkoutShareCardLayout = .centered) -> ImageRenderer<some View> {
+    private func makeRenderer(
+        layout: WorkoutShareCardLayout = .centered,
+        infoTransform: WorkoutShareInfoTransform = .identity
+    ) -> ImageRenderer<some View> {
         let workout = fixtureWorkout()
         let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
         let card = BodyWorkoutShareCardView(
@@ -50,7 +53,8 @@ final class WorkoutShareRenderTests: XCTestCase {
             locality: "Cupertino",
             type: workout.type,
             background: .preset(.midnight),
-            layout: layout
+            layout: layout,
+            infoTransform: infoTransform
         )
         let renderer = ImageRenderer(
             content: card
@@ -99,15 +103,37 @@ final class WorkoutShareRenderTests: XCTestCase {
         )
     }
 
-    /// `BodyWorkoutShareCardView.centeredRoute*` (card points) × the renderer's scale 3,
-    /// clamped to the image so a future geometry change can't index out of bounds.
-    private static func centeredRouteRegionInPixels(of cgImage: CGImage) -> CGRect {
+    /// The export has to match the preview, so a moved info block must actually move the
+    /// trace's pixels rather than just be accepted by the card's initializer. 300 pt is
+    /// more than the 260 pt region is tall, so the shifted and default bands are
+    /// disjoint. The bottom-pinned branding does land inside the shifted band, but it's
+    /// white — never route blue — so it can't satisfy the check on its own.
+    func testOffsetInfoTransformMovesTheRouteTrace() throws {
+        let offset = CGSize(width: 0, height: 300)
+        let renderer = makeRenderer(infoTransform: WorkoutShareInfoTransform(offset: offset, scale: 1))
+        let image = try XCTUnwrap(renderer.uiImage)
+        let cgImage = try XCTUnwrap(image.cgImage)
+
+        XCTAssertTrue(
+            Self.containsRouteBluePixel(in: cgImage, region: Self.centeredRouteRegionInPixels(of: cgImage, offsetBy: offset)),
+            "Route trace did not follow the info transform's offset"
+        )
+        XCTAssertFalse(
+            Self.containsRouteBluePixel(in: cgImage, region: Self.centeredRouteRegionInPixels(of: cgImage)),
+            "Route trace still drew in its default region despite the offset"
+        )
+    }
+
+    /// `BodyWorkoutShareCardView.centeredRoute*` (card points, optionally shifted by an
+    /// info transform's offset) × the renderer's scale 3, clamped to the image so a
+    /// future geometry change can't index out of bounds.
+    private static func centeredRouteRegionInPixels(of cgImage: CGImage, offsetBy offset: CGSize = .zero) -> CGRect {
         let scale: CGFloat = 3
         let size = BodyWorkoutShareCardView.centeredRouteSize
         let center = BodyWorkoutShareCardView.centeredRouteCenter
         let region = CGRect(
-            x: (center.x - size / 2) * scale,
-            y: (center.y - size / 2) * scale,
+            x: (center.x + offset.width - size / 2) * scale,
+            y: (center.y + offset.height - size / 2) * scale,
             width: size * scale,
             height: size * scale
         )

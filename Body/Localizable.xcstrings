@@ -2959,6 +2959,22 @@
         }
       }
     },
+    "Drag to move. Pinch to resize. Double-tap to reset." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag to move. Pinch to resize. Double-tap to reset."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拖动可移动，捏合可缩放，双击可重置。"
+          }
+        }
+      }
+    },
     "Duration" : {
       "localizations" : {
         "en" : {
@@ -5694,6 +5710,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重置筛选条件"
+          }
+        }
+      }
+    },
+    "Reset Layout" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset Layout"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置布局"
           }
         }
       }

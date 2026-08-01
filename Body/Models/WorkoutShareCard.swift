@@ -242,8 +242,8 @@ enum BodyWorkoutSharePreset: String, CaseIterable, Identifiable {
     }
 }
 
-/// What the share sheet restores when it opens: the free route map (the default)
-/// or a gradient preset. Photos stay session-only — a Pro entitlement can lapse
+/// What the share sheet restores when it opens: a gradient preset (Midnight is the
+/// default) or the route map. Photos stay session-only — a Pro entitlement can lapse
 /// between sessions, and `WorkoutShareBackgroundPolicy` is the only seam that
 /// decides whether one may render.
 enum BodyWorkoutShareBackgroundChoice: Equatable {
@@ -251,7 +251,7 @@ enum BodyWorkoutShareBackgroundChoice: Equatable {
     case preset(BodyWorkoutSharePreset)
 
     /// Unchanged from the preset-only key it replaces: a stored "ocean"/"sunset"/
-    /// "forest" from an earlier build is now unknown and resolves to `.map`.
+    /// "forest" from an earlier build is now unknown and resolves to the default.
     static let storageKey = "workoutShareBackgroundPreset"
 
     private static let mapRawValue = "map"
@@ -263,12 +263,50 @@ enum BodyWorkoutShareBackgroundChoice: Equatable {
         }
     }
 
-    /// The default when nothing (or something invalid, including a retired preset)
-    /// is stored.
+    /// Midnight when nothing (or something invalid, including a retired preset) is
+    /// stored; the map only ever comes back from an explicit "map" pick.
     static func stored(rawValue: String?) -> BodyWorkoutShareBackgroundChoice {
-        guard let rawValue, rawValue != mapRawValue else { return .map }
-        guard let preset = BodyWorkoutSharePreset(rawValue: rawValue) else { return .map }
+        guard let rawValue else { return .preset(.midnight) }
+        if rawValue == mapRawValue { return .map }
+        guard let preset = BodyWorkoutSharePreset(rawValue: rawValue) else { return .preset(.midnight) }
         return .preset(preset)
+    }
+}
+
+/// Where the centered card's info block (route trace + metric stack) sits, relative to
+/// its default placement — the user drags and pinches it over a photo background, and
+/// both the preview and the export read the same value so what's shared is what was
+/// seen. Session-only, like the photo itself. The bounds keep a gesture from throwing
+/// the block off into nowhere; they don't guarantee visibility, since an extreme
+/// scale + offset pair can still clip it to a sliver — double-tapping to reset is the
+/// recovery for that.
+struct WorkoutShareInfoTransform: Equatable {
+    /// In card points (the 360×640 space), not preview points.
+    var offset: CGSize
+    var scale: CGFloat
+
+    static let identity = WorkoutShareInfoTransform(offset: .zero, scale: 1)
+
+    static let scaleRange: ClosedRange<CGFloat> = 0.5...1.5
+    /// Half the card on each axis.
+    static let maximumOffsetWidth: CGFloat = 180
+    static let maximumOffsetHeight: CGFloat = 320
+
+    /// A degenerate gesture value (NaN/infinite) clamps to the identity component
+    /// rather than to a bound — a non-finite number has no meaningful side.
+    func clamped() -> WorkoutShareInfoTransform {
+        WorkoutShareInfoTransform(
+            offset: CGSize(
+                width: Self.clamp(offset.width, limit: Self.maximumOffsetWidth, identity: 0),
+                height: Self.clamp(offset.height, limit: Self.maximumOffsetHeight, identity: 0)
+            ),
+            scale: scale.isFinite ? min(max(scale, Self.scaleRange.lowerBound), Self.scaleRange.upperBound) : 1
+        )
+    }
+
+    private static func clamp(_ value: CGFloat, limit: CGFloat, identity: CGFloat) -> CGFloat {
+        guard value.isFinite else { return identity }
+        return min(max(value, -limit), limit)
     }
 }
 
