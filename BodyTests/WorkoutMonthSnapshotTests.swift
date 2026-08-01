@@ -4941,6 +4941,51 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
     }
 
+    func testWorkoutMonthRolloverAdvancesSelectionOnlyWhenFollowingCurrentMonth() throws {
+        let calendar = Calendar.bodyGregorian
+        let january2027 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2027, month: 1, day: 1, hour: 0, minute: 5)))
+        let december2026 = BodyMonthYear(month: 12, year: 2026)
+
+        let following = try XCTUnwrap(BodyWorkoutMonthRollover.advance(
+            now: january2027,
+            observedCurrent: december2026,
+            selection: december2026,
+            calendar: calendar
+        ))
+        XCTAssertEqual(following.newCurrent, BodyMonthYear(month: 1, year: 2027))
+        XCTAssertTrue(following.shouldMoveSelection)
+
+        let browsingHistory = try XCTUnwrap(BodyWorkoutMonthRollover.advance(
+            now: january2027,
+            observedCurrent: december2026,
+            selection: BodyMonthYear(month: 8, year: 2026),
+            calendar: calendar
+        ))
+        XCTAssertEqual(browsingHistory.newCurrent, BodyMonthYear(month: 1, year: 2027))
+        XCTAssertFalse(browsingHistory.shouldMoveSelection)
+    }
+
+    func testWorkoutMonthRolloverIsIdempotentAndSpansMultiMonthGaps() throws {
+        let calendar = Calendar.bodyGregorian
+        let june2026 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 15)))
+
+        XCTAssertNil(BodyWorkoutMonthRollover.advance(
+            now: june2026,
+            observedCurrent: BodyMonthYear(month: 6, year: 2026),
+            selection: BodyMonthYear(month: 6, year: 2026),
+            calendar: calendar
+        ))
+
+        let multiMonthGap = try XCTUnwrap(BodyWorkoutMonthRollover.advance(
+            now: june2026,
+            observedCurrent: BodyMonthYear(month: 3, year: 2026),
+            selection: BodyMonthYear(month: 3, year: 2026),
+            calendar: calendar
+        ))
+        XCTAssertEqual(multiMonthGap.newCurrent, BodyMonthYear(month: 6, year: 2026))
+        XCTAssertTrue(multiMonthGap.shouldMoveSelection)
+    }
+
     func testSleepVitalReferenceRangeClassifiesRegionsAndMarkerPosition() {
         let range = SleepVitalReferenceRange(typicalLowerBound: 7, typicalUpperBound: 9)
 

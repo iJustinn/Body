@@ -24,6 +24,32 @@ struct BodyMonthYear: Identifiable, Equatable {
         let currentYear = calendar.component(.year, from: date)
         return year > currentYear || (year == currentYear && month > currentMonth)
     }
+
+    static func current(on date: Date = Date(), calendar: Calendar = .bodyGregorian) -> BodyMonthYear {
+        let components = calendar.dateComponents([.year, .month], from: date)
+        return BodyMonthYear(month: components.month ?? 1, year: components.year ?? 1)
+    }
+}
+
+/// Month-rollover decision for the Workouts page: when the calendar has moved
+/// past `observedCurrent`, returns the new current month and whether the
+/// selection should follow it — only when the user was still viewing the old
+/// current month, so a deliberately browsed past month is never yanked away.
+/// `nil` when the month hasn't changed, making repeated calls idempotent.
+enum BodyWorkoutMonthRollover {
+    static func advance(
+        now: Date,
+        observedCurrent: BodyMonthYear,
+        selection: BodyMonthYear,
+        calendar: Calendar = .bodyGregorian
+    ) -> (newCurrent: BodyMonthYear, shouldMoveSelection: Bool)? {
+        let current = BodyMonthYear.current(on: now, calendar: calendar)
+        guard current != observedCurrent else {
+            return nil
+        }
+
+        return (current, selection == observedCurrent)
+    }
 }
 
 struct BodyMonthYearPicker: View {
@@ -131,6 +157,10 @@ struct BodyMonthYearPicker: View {
             }
         }
         .onAppear {
+            // Refresh first so a selection the Workouts page just advanced to a
+            // brand-new month (not yet in a list built before the rollover) can
+            // be found and centered.
+            refreshMonthYearListIfNeeded()
             syncSelectedIndex()
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in

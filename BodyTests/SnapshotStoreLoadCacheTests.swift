@@ -127,14 +127,18 @@ final class SnapshotStoreLoadCacheTests: XCTestCase {
     func testLoadCurrentOrPreviousIfEmptyReturnsHonestEmptySnapshotWhenFilesAbsentLive() throws {
         let currentFileURL = try uniqueFileURL()
         let previousFileURL = try uniqueFileURL()
+        let now = try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 7, day: 15)))
 
         let result = WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty(
             usePlaceholderWhenEmpty: false,
+            now: now,
             currentFileURL: currentFileURL,
             previousFileURL: previousFileURL
         )
 
         XCTAssertEqual(result.workoutCount, 0)
+        XCTAssertEqual(result.month, 7)
+        XCTAssertEqual(result.year, 2026)
         XCTAssertNotEqual(result.workoutCount, WorkoutMonthSnapshot.placeholder.workoutCount)
     }
 
@@ -152,12 +156,8 @@ final class SnapshotStoreLoadCacheTests: XCTestCase {
         XCTAssertGreaterThan(result.workoutCount, 0)
     }
 
-    func testLoadCurrentOrPreviousIfEmptyStillFallsBackToPreviousMonthWhenCurrentIsEmpty() throws {
-        let currentFileURL = try uniqueFileURL()
-        let previousFileURL = try uniqueFileURL()
-
-        let emptyCurrent = WorkoutMonthSnapshot.make(month: 6, year: 2026, workouts: [], calendar: .bodyGregorian)
-        let populatedPrevious = WorkoutMonthSnapshot.make(
+    private func makePopulatedMay2026Snapshot() throws -> WorkoutMonthSnapshot {
+        WorkoutMonthSnapshot.make(
             month: 5,
             year: 2026,
             workouts: [
@@ -173,12 +173,61 @@ final class SnapshotStoreLoadCacheTests: XCTestCase {
             ],
             calendar: .bodyGregorian
         )
+    }
 
+    func testLoadCurrentOrPreviousIfEmptyLiveKeepsEmptyCurrentMonthInsteadOfPreviousFallback() throws {
+        let currentFileURL = try uniqueFileURL()
+        let previousFileURL = try uniqueFileURL()
+        let now = try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 6, day: 15)))
+
+        let emptyCurrent = WorkoutMonthSnapshot.make(month: 6, year: 2026, workouts: [], calendar: .bodyGregorian)
+        WorkoutSnapshotStore.save(emptyCurrent, fileURL: currentFileURL)
+        WorkoutSnapshotStore.save(try makePopulatedMay2026Snapshot(), fileURL: previousFileURL)
+
+        let result = WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty(
+            usePlaceholderWhenEmpty: false,
+            now: now,
+            currentFileURL: currentFileURL,
+            previousFileURL: previousFileURL
+        )
+
+        XCTAssertEqual(result, emptyCurrent)
+    }
+
+    func testLoadCurrentOrPreviousIfEmptyLiveReplacesStaleCurrentFileWithNewEmptyMonth() throws {
+        let currentFileURL = try uniqueFileURL()
+        let previousFileURL = try uniqueFileURL()
+        let now = try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 6, day: 1, hour: 0, minute: 5)))
+
+        // The app hasn't refreshed since May: the on-disk "current" file still
+        // holds last month's populated snapshot.
+        WorkoutSnapshotStore.save(try makePopulatedMay2026Snapshot(), fileURL: currentFileURL)
+
+        let result = WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty(
+            usePlaceholderWhenEmpty: false,
+            now: now,
+            currentFileURL: currentFileURL,
+            previousFileURL: previousFileURL
+        )
+
+        XCTAssertEqual(result.month, 6)
+        XCTAssertEqual(result.year, 2026)
+        XCTAssertEqual(result.workoutCount, 0)
+    }
+
+    func testLoadCurrentOrPreviousIfEmptyPreviewStillFallsBackToPreviousMonth() throws {
+        let currentFileURL = try uniqueFileURL()
+        let previousFileURL = try uniqueFileURL()
+        let now = try XCTUnwrap(Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 6, day: 15)))
+
+        let emptyCurrent = WorkoutMonthSnapshot.make(month: 6, year: 2026, workouts: [], calendar: .bodyGregorian)
+        let populatedPrevious = try makePopulatedMay2026Snapshot()
         WorkoutSnapshotStore.save(emptyCurrent, fileURL: currentFileURL)
         WorkoutSnapshotStore.save(populatedPrevious, fileURL: previousFileURL)
 
         let result = WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty(
-            usePlaceholderWhenEmpty: false,
+            usePlaceholderWhenEmpty: true,
+            now: now,
             currentFileURL: currentFileURL,
             previousFileURL: previousFileURL
         )

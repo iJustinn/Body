@@ -209,27 +209,45 @@ enum WorkoutSnapshotStore {
         load(fileURL: previousSnapshotFileURL)
     }
 
-    /// - Parameter usePlaceholderWhenEmpty: When both the current- and
-    ///   previous-month files are absent/empty, `true` returns the fabricated
-    ///   sample `.placeholder` (widget gallery / `context.isPreview` only);
-    ///   `false` returns an honest empty snapshot for the current month
-    ///   (live timelines — a fresh install must never render sample workouts
-    ///   as if they were real).
+    /// - Parameter usePlaceholderWhenEmpty: `true` (widget gallery /
+    ///   `context.isPreview` only) keeps the representative cascade — current
+    ///   file with data, else previous-month file with data, else the
+    ///   fabricated sample `.placeholder`. `false` (live timelines) always
+    ///   returns the real current month for `now`: the on-disk "current" file
+    ///   only when its month/year match, else an honest empty snapshot — so
+    ///   right after a month rolls over, neither a stale current file (still
+    ///   last month's data until the app refreshes) nor the previous-month
+    ///   file can present old workouts as this month, and a fresh install
+    ///   never renders sample workouts as if they were real.
+    /// - Parameter now: anchors which month counts as "current"; injectable
+    ///   for tests.
     /// - Parameters currentFileURL/previousFileURL: overridable for tests;
     ///   production callers use the shared App Group files.
     static func loadCurrentOrPreviousIfEmpty(
         usePlaceholderWhenEmpty: Bool,
+        now: Date = Date(),
         currentFileURL: URL? = snapshotFileURL,
         previousFileURL: URL? = previousSnapshotFileURL
     ) -> WorkoutMonthSnapshot {
+        let calendar = Calendar.bodyGregorian
         let current = load(fileURL: currentFileURL)
-        if let current, current.workoutCount > 0 {
+
+        if usePlaceholderWhenEmpty {
+            if let current, current.workoutCount > 0 {
+                return current
+            }
+            if let previous = load(fileURL: previousFileURL), previous.workoutCount > 0 {
+                return previous
+            }
+            return current ?? .makePlaceholder(generatedAt: now, calendar: calendar)
+        }
+
+        if let current,
+           current.month == calendar.component(.month, from: now),
+           current.year == calendar.component(.year, from: now) {
             return current
         }
-        if let previous = load(fileURL: previousFileURL), previous.workoutCount > 0 {
-            return previous
-        }
-        return current ?? (usePlaceholderWhenEmpty ? .placeholder : .empty)
+        return .makeEmpty(generatedAt: now, calendar: calendar)
     }
 
     static func exists(fileURL: URL? = snapshotFileURL) -> Bool {

@@ -8,8 +8,10 @@ import SwiftUI
 struct BodyWorkoutsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedMonth = Calendar.bodyGregorian.component(.month, from: Date())
     @State private var selectedYear = Calendar.bodyGregorian.component(.year, from: Date())
+    @State private var observedCurrentMonthYear = BodyMonthYear.current()
     @State private var pendingMonthSelection: PendingMonthSelection?
     @State private var monthLoadTasks: [String: Task<Bool, Never>] = [:]
     @State private var searchText = ""
@@ -150,8 +152,36 @@ struct BodyWorkoutsView: View {
                 animateListInIfNeeded()
             }
             .onAppear {
+                advanceToNewMonthIfNeeded()
                 animateListInIfNeeded()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+                advanceToNewMonthIfNeeded()
+            }
+            .onChange(of: scenePhase) {
+                if scenePhase == .active {
+                    advanceToNewMonthIfNeeded()
+                }
+            }
+        }
+    }
+
+    /// Follows the calendar into a new month while the app stays alive: if the
+    /// user was viewing the (old) current month, the selection moves to the new
+    /// month — shown immediately as an empty snapshot; the regular foreground
+    /// sync fetches and persists its real data.
+    private func advanceToNewMonthIfNeeded(now: Date = Date()) {
+        guard let advance = BodyWorkoutMonthRollover.advance(
+            now: now,
+            observedCurrent: observedCurrentMonthYear,
+            selection: BodyMonthYear(month: selectedMonth, year: selectedYear)
+        ) else {
+            return
+        }
+
+        observedCurrentMonthYear = advance.newCurrent
+        if advance.shouldMoveSelection {
+            applyMonthSelection(advance.newCurrent)
         }
     }
 
