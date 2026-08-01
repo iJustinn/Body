@@ -1547,12 +1547,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.10;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 7;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 9;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.10;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 7;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 9;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1587,9 +1587,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 7)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 9)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 8)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 3)**"))
@@ -1639,6 +1641,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 9)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 9."))
+        XCTAssertTrue(versionHistory.contains("The Workouts page and workout widgets now follow the calendar into a new month"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 8)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 8."))
+        XCTAssertTrue(versionHistory.contains("The loading badge now plays random white pixel-grid animations"))
         XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 7)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 7."))
         XCTAssertTrue(versionHistory.contains("Workouts filter and search now also narrow the calendar chart"))
@@ -1896,7 +1904,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 7)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 9)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 8)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 7)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 6)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 5)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 3)"))
@@ -2009,19 +2019,23 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(badgeSource.contains("syncBadgeSuccessCount != successCountAtSyncStart"))
         XCTAssertTrue(storeSource.contains("@Published private(set) var syncBadgeSuccessCount = 0"))
         XCTAssertTrue(badgeSource.contains("struct BodySyncStatusBadgeLabel"))
-        XCTAssertTrue(badgeSource.contains("\"Syncing health data…\""))
+        XCTAssertTrue(badgeSource.contains("\"Loading data...\""))
+        XCTAssertFalse(badgeSource.contains("Syncing health data"))
         XCTAssertTrue(badgeSource.contains("\"Health data updated\""))
         XCTAssertTrue(badgeSource.contains(".accessibilityAddTraits(.updatesFrequently)"))
 
-        // The loading icon is the native marching-squares loader, driven from
-        // wall-clock time via TimelineView (no onAppear-started animation), with
-        // the system ProgressView kept as the Reduce Motion fallback.
-        XCTAssertTrue(badgeSource.contains("struct BodyMarchingSquaresLoader"))
+        // The loading icon is the native white pixel-grid loader (SwiftPixelGrid
+        // design), driven from wall-clock time via TimelineView (no
+        // onAppear-started animation), picking a random delay pattern per
+        // appearance, with the system ProgressView kept as the Reduce Motion
+        // fallback.
+        XCTAssertTrue(badgeSource.contains("struct BodyPixelGridLoader"))
+        XCTAssertTrue(badgeSource.contains("patterns.randomElement()"))
         XCTAssertTrue(badgeSource.contains("TimelineView(.animation"))
         XCTAssertTrue(badgeSource.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
         XCTAssertTrue(badgeSource.contains("if reduceMotion {"))
         XCTAssertTrue(badgeSource.contains("ProgressView().controlSize(.small).tint(.secondary)"))
-        XCTAssertTrue(badgeSource.contains("BodyMarchingSquaresLoader()"))
+        XCTAssertTrue(badgeSource.contains("BodyPixelGridLoader()"))
 
         XCTAssertFalse(homeSource.contains("bodyPullToRefreshLoadingOverlay"))
         XCTAssertFalse(homeSource.contains("BodyDataLoadingOverlay"))
@@ -2030,7 +2044,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(workoutsSource.contains("bodyPullToRefreshLoadingOverlay"))
         XCTAssertFalse(workoutsSource.contains("BodyDataLoadingOverlay"))
 
-        XCTAssertTrue(xcstrings.contains("\"Syncing health data…\" : {"))
+        XCTAssertTrue(xcstrings.contains("\"Loading data...\" : {"))
+        XCTAssertFalse(xcstrings.contains("\"Syncing health data…\" : {"))
         XCTAssertTrue(xcstrings.contains("\"Health data updated\" : {"))
     }
 
@@ -2068,9 +2083,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let widgetSource = try text(at: "BodyWidgetExtension/WorkoutCalendarWidget.swift")
 
         XCTAssertFalse(homeSource.contains("let calendar = Calendar.current"))
-        XCTAssertFalse(widgetSource.contains("Calendar.current.date(byAdding: .minute"))
+        XCTAssertFalse(widgetSource.contains("Calendar.current"))
         XCTAssertTrue(homeSource.contains("let calendar = Calendar.bodyGregorian"))
-        XCTAssertTrue(widgetSource.contains("Calendar.bodyGregorian.date(byAdding: .minute"))
+        XCTAssertTrue(widgetSource.contains("let calendar = Calendar.bodyGregorian"))
+        XCTAssertTrue(widgetSource.contains("calendar.date(byAdding: .minute"))
     }
 
     func testAppIconAssetsIncludePrimaryAndAlternateOptions() throws {

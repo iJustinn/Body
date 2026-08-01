@@ -1,5 +1,18 @@
 # Version History
 
+## 0.9.10 (build 9)
+
+- **The Workouts page and workout widgets now follow the calendar into a new month.** When a month rolls over while the app stays alive (across midnight, or on returning to the foreground), the Workouts page automatically advances to the new — possibly still-empty — month if you were viewing the old current month; a deliberately browsed older month stays put. The live workout calendar and workout types widgets are now month-strict: they always render the actual current month, flipping at the boundary via a timeline entry dated at the month start, instead of holding last month's snapshot or falling back to the previous month's data when the new month has no workouts yet (the previous-month fallback now applies only to widget-gallery previews).
+- The month carousel refreshes its month list on appearance, so a just-rolled-over month can be found and centered immediately.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 9.
+
+## 0.9.10 (build 8)
+
+- **The loading badge now plays random white pixel-grid animations.** The sync badge's marching-squares loader is replaced with a 3×3 pixel display: nine white cells over a faint always-on base light up and fade with a soft glow in one of 17 delay patterns (waves, spiral, snake, rain, pinwheel, orbit, checkerboard, and more — design adapted from SwiftPixelGrid), picked at random each time the badge or the Workouts "Loading data…" pill appears. The completion checkmark is drawn in the same language — white lit pixels with the same glow. Reduce Motion still falls back to the standard spinner.
+- The sync badge's loading text now reads "Loading data..." (matching the Workouts month-load pill) instead of "Syncing health data…".
+- The by-Activity cards on metric detail pages (Energy/Impact/Heart Rate by Activity, Average HRV) now draw their row icons in the same continuous rounded-rectangle tile as the Workouts page's workout cards, instead of a circle.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 8.
+
 ## 0.9.10 (build 7)
 
 - **Workouts filter and search now also narrow the calendar chart, type breakdown, and totals.** Previously the type-filter sheet and search field only filtered the workout cards list; now the calendar chart, the workout-type breakdown bars, and the monthly totals header (total duration and workout count) all reflect the same filtered set, and the calendar-day and type-breakdown popups list only the matching workouts. Clearing the filter and search restores the full month everywhere.
