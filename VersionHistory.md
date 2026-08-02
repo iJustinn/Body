@@ -1,5 +1,25 @@
 # Version History
 
+## 0.9.10 (build 19)
+
+- **Vitals chart region proportions.** The trend hero's typical band now takes about 45% of the plot height (roughly 1.5× the previous share): the High/Low regions draw on a compressed display scale (half scale past ±1) while the underlying ±3 deviation cap keeps outlier lengths granular and proportional. Vitals breakdown icons and their translucent tiles now switch from white in dark appearance to black in light appearance so every row stays visible on grouped backgrounds.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 19.
+
+## 0.9.10 (build 18)
+
+- **Vitals chart shape and outlier readouts.** The trend hero's smallest mark now always renders as a circle: a bucket's bar is padded to at least its own width in scale units (computed from the chart's real geometry), so spread-less buckets can no longer draw as squat wider-than-tall blobs. In the Day View card, an outlier vital's reading is tinted purple (high) or pink (low) and cross-fades with the dots when switching days. Outlier magnitudes are more granular too: per-night deviations now cap at ±3 typical spreads instead of ±2 (the chart scale widened to match), so heavy-outlier stretches no longer saturate into same-length bars. New metric icons: Basics uses person, Vitals uses heart.badge.bolt (home cards, detail pages, and Settings > Metrics lists).
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 18.
+
+## 0.9.10 (build 17)
+
+- **Vitals detail refinements.** The merged night card is titled "Day View" like the other metric detail pages (the date picker carries the date), its scatter dots glide to their new positions and cross-fade color when switching days, and the breakdown icon tiles are translucent white behind the white glyphs. On the trend hero, a bucket with no real spread draws as a bar-width dot instead of a stubby capsule, and the purple/pink outlier colors are more saturated with a tighter blend and a minimum tip length past the band, so even a small excursion past the typical range clearly turns color.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 17.
+
+## 0.9.10 (build 16)
+
+- **Vitals UI polish.** The outlier trend hero now draws one continuous bar per bucket with a gradient anchored to the deviation scale — blue through the typical band, blending to dark purple toward High and light pink toward Low — and the purple/pink language replaces red on the Last Night dots, home preview rings, and scrub-callout dots. The Last Night scatter and per-vital breakdown merge into one card with white row icons, no region chips, and smaller dots, plus a date picker (free tier: last 3 days) to review any recent night's vitals. Home-card preview rings are smaller and the "Typical"/"N Outliers" headline sizes align with the numeric cards (28pt card / 40pt hero). About Vitals copy rewritten; Simplified Chinese now uses 生命体征 across the Vitals page.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 16.
+
 ## 0.9.10 (build 15)
 
 - **New Vitals metric (Beta).** A new home summary card (after Sleep, toggleable in Settings → Summary Cards) reviews five overnight measurements — sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration — against personal typical ranges learned from your own recent nights (median ± 2×robust spread over an 8-week window; ~2 weeks of sleep data to calibrate). The card headline reads "Typical" or "N Outliers" with an Apple-Health-style preview: a blue typical band between gray high/low bars, one ring per vital. The detail page adds an outlier-deviation bar chart across Week/Month/6 Months/Year (Pro beyond Week), a Last Night typical-range scatter, a per-vital breakdown, and an About Vitals card. Vitals has no trend card by design and derives entirely from existing sleep data (no new Health permissions).
