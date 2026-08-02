@@ -1068,12 +1068,14 @@ struct BodyWorkoutDetailSheet: View {
                     Button {
                         showsShareSheet = true
                     } label: {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 15, weight: .bold))
+                        Text("Share")
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.primary)
-                            .frame(width: 44, height: 44)
+                            .padding(.horizontal, 18)
+                            .frame(height: 44)
+                            .modifier(BodyWorkoutShareButtonBackground())
                     }
-                    .modifier(BodyWorkoutShareButtonBackground())
+                    .buttonStyle(.plain)
                     .padding(.trailing, 20)
                     .accessibilityLabel("Share Workout")
                     .transition(.opacity)
@@ -1081,7 +1083,7 @@ struct BodyWorkoutDetailSheet: View {
             }
             .animation(.easeInOut(duration: 0.25), value: route == nil)
         }
-        .sheet(isPresented: $showsShareSheet) {
+        .fullScreenCover(isPresented: $showsShareSheet) {
             if let route {
                 BodyWorkoutShareSheet(workout: workout, route: route, presentation: presentation)
             }
@@ -1667,14 +1669,14 @@ struct BodyWorkoutDetailSheet: View {
     }
 }
 
-/// iOS 26 Liquid Glass circle for the detail share button; pre-26 mirrors the
-/// full-screen map close button's material circle.
+/// iOS 26 Liquid Glass capsule for the detail share button; pre-26 mirrors the
+/// full-screen map close button's material treatment.
 private struct BodyWorkoutShareButtonBackground: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.glassEffect(.regular, in: .circle)
+            content.glassEffect(.regular, in: .capsule)
         } else {
-            content.background(.ultraThinMaterial, in: Circle())
+            content.background(.ultraThinMaterial, in: Capsule())
         }
     }
 }

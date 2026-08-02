@@ -243,9 +243,9 @@ struct BodyWorkoutRoutePlainHero: View {
     private static let sidePadding: CGFloat = 24
     /// Smallest gap kept between the route's top edge and the safe area above it.
     private static let topMargin: CGFloat = 12
-    /// Drawn at 60% of the fitted size: a full-bleed trace read as oversized next to
-    /// the map style, so the plain route sits smaller around the same center.
-    private static let sizeFactor: CGFloat = 0.6
+    /// Drawn at 90% of the fitted size: just enough inset that the trace reads as a
+    /// composed figure around the same center rather than a full-bleed edge-to-edge fill.
+    private static let sizeFactor: CGFloat = 0.9
 
     var body: some View {
         // Project once per layout pass rather than per `Canvas` redraw: routes carry

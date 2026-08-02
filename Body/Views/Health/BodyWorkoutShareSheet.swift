@@ -171,8 +171,8 @@ struct BodyWorkoutShareSheet: View {
         )
     }
 
-    /// Drag and pinch as one composite gesture. `minimumDistance: 0` is what beats the
-    /// enclosing ScrollView's vertical pan, and the single `.updating`/`.onEnded` pair
+    /// Drag and pinch as one composite gesture. `minimumDistance: 0` is what makes the
+    /// block track from the first point of travel, and the single `.updating`/`.onEnded` pair
     /// lives on the composite rather than on either half: a per-half `onEnded` fires
     /// while the composite's `@GestureState` is still live, double-applying the delta
     /// as soon as one finger lifts before the other.
@@ -209,34 +209,39 @@ struct BodyWorkoutShareSheet: View {
             ZStack {
                 backdrop
 
-                ScrollView {
-                    VStack(spacing: 28) {
-                        VStack(spacing: 10) {
-                            cardPreview
-                            if activeSelection == .photo {
-                                Text("Drag to move. Pinch to resize. Double-tap to reset.")
-                                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                                    .foregroundColor(.white.opacity(0.6))
-                                    .multilineTextAlignment(.center)
-                            }
-                        }
-                        backgroundSection
+                // No ScrollView: the preview has to fit the cover's height, and a
+                // scroll view's unbounded height would let the 9:16 box size off the
+                // width alone and run off the bottom.
+                VStack(spacing: 28) {
+                    VStack(spacing: 10) {
+                        cardPreview
+                        // Always laid out, only shown in photo mode: appearing/
+                        // disappearing would resize the preview — and so the gesture's
+                        // scale divisor — the instant the user enters photo mode.
+                        Text("Drag to move. Pinch to resize. Double-tap to reset.")
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundColor(.white.opacity(0.6))
+                            .multilineTextAlignment(.center)
+                            .opacity(activeSelection == .photo ? 1 : 0)
+                            .accessibilityHidden(activeSelection != .photo)
                     }
-                    .padding(20)
+                    .frame(maxHeight: .infinity)
+                    backgroundSection
                 }
+                .padding(20)
             }
             // The title stays set for accessibility/back-button inheritance; the
             // principal item is what actually draws, so the beta badge can sit beside it.
-            .navigationTitle(Text("Share Workout"))
+            .navigationTitle(Text("Share"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 8) {
-                        Text("Share Workout")
+                        Text("Share")
                             .font(.headline)
                             .foregroundColor(.primary)
 
-                        Text("v2")
+                        Text("Beta v2")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(.blue)
                             .padding(.horizontal, 7)
@@ -244,8 +249,59 @@ struct BodyWorkoutShareSheet: View {
                             .background(.blue.opacity(0.14), in: Capsule())
                     }
                 }
+
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .modifier(ShareToolbarIconChrome())
+                    }
+                    .accessibilityLabel(Text("Close"))
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await export() }
+                    } label: {
+                        Group {
+                            if isRendering {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "square.and.arrow.up")
+                            }
+                        }
+                        .modifier(ShareToolbarIconChrome())
+                    }
+                    .disabled(isBusy)
+                    .accessibilityLabel(Text("Share Workout"))
+                }
+
+                // Separates the two trailing actions into their own glass circles;
+                // without it iOS 26 merges adjacent toolbar items into one capsule.
+                if #available(iOS 26.0, *) {
+                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await saveToPhotos() }
+                    } label: {
+                        Group {
+                            if didSave {
+                                Image(systemName: "checkmark")
+                            } else if isSavingImage {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "square.and.arrow.down")
+                            }
+                        }
+                        .modifier(ShareToolbarIconChrome())
+                    }
+                    .disabled(isBusy)
+                    .accessibilityLabel(Text("Save to Photos"))
+                }
             }
-            .safeAreaInset(edge: .bottom) { shareBar }
             .sheet(item: $payload) { payload in
                 BodyShareActivityView(image: payload.image) { self.payload = nil }
             }
@@ -497,45 +553,6 @@ struct BodyWorkoutShareSheet: View {
         .buttonStyle(.plain)
         .accessibilityLabel(Text("Your Photo"))
         .accessibilityAddTraits(isPhotoActive ? [.isSelected] : [])
-    }
-
-    private var shareBar: some View {
-        HStack(spacing: 12) {
-            Button {
-                Task { await export() }
-            } label: {
-                HStack(spacing: 8) {
-                    if isRendering {
-                        ProgressView().tint(.white)
-                    }
-                    Text("Share")
-                }
-                .modifier(ShareActionChrome(tint: workout.type.color))
-            }
-            .buttonStyle(.plain)
-            .disabled(isBusy)
-
-            Button {
-                Task { await saveToPhotos() }
-            } label: {
-                HStack(spacing: 8) {
-                    if didSave {
-                        Image(systemName: "checkmark")
-                        Text("Saved")
-                    } else {
-                        if isSavingImage {
-                            ProgressView().tint(.white)
-                        }
-                        Text("Save")
-                    }
-                }
-                .modifier(ShareActionChrome(tint: workout.type.color))
-            }
-            .buttonStyle(.plain)
-            .disabled(isBusy)
-        }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 12)
     }
 
     /// Also busy while the *active* background is still loading — rendering then would
@@ -815,23 +832,19 @@ struct BodyWorkoutShareSheet: View {
     }
 }
 
-/// The chrome both share-bar actions share: a flat translucent fill of the workout
-/// type's color under a thin white rim — deliberately flat (no gradient, material
-/// blur, or specular sheen) to match the app's glass language.
-private struct ShareActionChrome: ViewModifier {
-    let tint: Color
-
+/// The backing behind each toolbar icon. On iOS 26 the toolbar draws native Liquid
+/// Glass around the item, so the label stays bare; earlier releases get a matching
+/// circular material puck instead of an unbacked glyph on the tinted backdrop.
+private struct ShareToolbarIconChrome: ViewModifier {
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content
-            .font(.system(size: 17, weight: .semibold, design: .rounded))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 15)
-            .background(tint.opacity(0.85), in: Capsule())
-            .overlay {
-                Capsule()
-                    .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
-            }
+        if #available(iOS 26.0, *) {
+            content
+        } else {
+            content
+                .frame(width: 36, height: 36)
+                .background(.ultraThinMaterial, in: Circle())
+        }
     }
 }
 
