@@ -155,7 +155,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("AnnotationOverflowResolution("))
         XCTAssertTrue(source.contains("x: .fit(to: .chart)"))
         XCTAssertTrue(source.contains("y: .disabled"))
-        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 10)
+        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 11)
         XCTAssertFalse(source.contains(".annotation(position: .top, spacing: 8) {"))
         // The scrub-callout background uses the shared glass-chip recipe (flat
         // translucent fill + thin white rim) instead of a bespoke fill + shadow.
@@ -232,7 +232,7 @@ final class ProjectConfigurationTests: XCTestCase {
         // or it sticks after a scrub-then-switch.
         XCTAssertTrue(detail.contains("floatingCallout?.callout = nil"))
         // Only the immersive hero floats its callout; the cards below keep the in-chart one.
-        XCTAssertEqual(detail.occurrenceCount(of: "floatingCallout: immersive ? floatingCallout : nil"), 7)
+        XCTAssertEqual(detail.occurrenceCount(of: "floatingCallout: immersive ? floatingCallout : nil"), 8)
 
         for file in [
             "Body/Views/Health/Charts/MetricCharts.swift",
@@ -295,11 +295,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("trailingDatePadding = bodyHealthDetailChartTrailingDatePadding(for: selectedRange)"))
         XCTAssertEqual(
             source.occurrenceCount(of: "self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive:"),
-            7
+            8
         )
         XCTAssertEqual(
             source.occurrenceCount(of: "bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive)"),
-            4
+            5
         )
         XCTAssertEqual(
             source.occurrenceCount(of: "immersive: immersive, immersivePairedBars: true)"),
@@ -499,7 +499,11 @@ final class ProjectConfigurationTests: XCTestCase {
             detailBodyBlock.range(of: "detailTrendComparisonCard", range: dayViewElseStart..<detailBodyBlock.endIndex)?.lowerBound
         )
         let readinessAboutStart = try XCTUnwrap(detailBodyBlock.range(of: "readinessWhyCard(for: readiness")?.lowerBound)
-        let helpTextStart = try XCTUnwrap(detailBodyBlock.range(of: "helpTextCard")?.lowerBound)
+        // Scoped past the generic branch's trend card: the Vitals branch above has
+        // its own (earlier) helpTextCard, and this ordering is about the generic one.
+        let helpTextStart = try XCTUnwrap(
+            detailBodyBlock.range(of: "helpTextCard", range: nonDayTrendCardStart..<detailBodyBlock.endIndex)?.lowerBound
+        )
 
         XCTAssertLessThan(sleepSelectedCardsStart, sleepTrendCardStart)
         XCTAssertLessThan(sleepTrendCardStart, sleepAboutStart)
@@ -1409,9 +1413,9 @@ final class ProjectConfigurationTests: XCTestCase {
         )
         XCTAssertEqual(
             source.occurrenceCount(of: "let chartBarWidth = selectedRange.heartRateRangeChartBarWidth(forAvailableWidth: proxy.size.width)"),
-            1
+            2
         )
-        XCTAssertEqual(source.occurrenceCount(of: "width: .fixed(chartBarWidth)"), 5)
+        XCTAssertEqual(source.occurrenceCount(of: "width: .fixed(chartBarWidth)"), 6)
     }
 
     func testBasicsWeightBodyFatMonthChartKeepsStandardPointMarks() throws {
@@ -1569,12 +1573,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.10;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 13;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 15;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.10;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 13;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 15;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1609,9 +1613,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 13)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 15)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 14)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 13)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 12)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 11)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 10)**"))
@@ -1667,6 +1673,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 15)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 15."))
+        XCTAssertTrue(versionHistory.contains("New Vitals metric (Beta)."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 14)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 14."))
+        XCTAssertTrue(versionHistory.contains("Activity Rings calendar month headers now count each ring's closed days."))
         XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 13)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 13."))
         XCTAssertTrue(versionHistory.contains("Share flow opens full screen with the whole card always visible."))
@@ -1942,7 +1954,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 13)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 15)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 13)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 12)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 11)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 10)"))
@@ -2639,7 +2652,8 @@ final class ProjectConfigurationTests: XCTestCase {
             "Body/Views/Health/Charts/SourceComparisonCharts.swift",
             "Body/Views/Health/Charts/SleepCharts.swift",
             "Body/Views/Health/Charts/TrainingLoadCharts.swift",
-            "Body/Views/Health/Charts/ReadinessChart.swift"
+            "Body/Views/Health/Charts/ReadinessChart.swift",
+            "Body/Views/Health/Charts/VitalsCharts.swift"
         ]
         return try files.compactMap { file -> String? in
             try? text(at: file)

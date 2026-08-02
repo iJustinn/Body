@@ -1,11 +1,23 @@
 # Version History
 
+## 0.9.10 (build 15)
+
+- **New Vitals metric (Beta).** A new home summary card (after Sleep, toggleable in Settings → Summary Cards) reviews five overnight measurements — sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration — against personal typical ranges learned from your own recent nights (median ± 2×robust spread over an 8-week window; ~2 weeks of sleep data to calibrate). The card headline reads "Typical" or "N Outliers" with an Apple-Health-style preview: a blue typical band between gray high/low bars, one ring per vital. The detail page adds an outlier-deviation bar chart across Week/Month/6 Months/Year (Pro beyond Week), a Last Night typical-range scatter, a per-vital breakdown, and an About Vitals card. Vitals has no trend card by design and derives entirely from existing sleep data (no new Health permissions).
+- Fixed the sleep-vital range marker math so narrow personal typical bands (like skin temperature's) keep their markers inside the typical third of the plot.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 15.
+
+## 0.9.10 (build 14)
+
+- **Activity Rings calendar month headers now count each ring's closed days.** Next to the existing star total (days all three rings closed), each month shows three more counts — days the Move, Exercise, and Stand ring each closed — with a mini tri-ring icon highlighting the counted ring in white.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 14.
+
 ## 0.9.10 (build 13)
 
 - **Share flow opens full screen with the whole card always visible.** The workout share flow now opens as a full-screen page instead of a sheet: a ✕ close button sits top-left, and the 9:16 card preview always fits the screen — on small phones the card previously could be cut off at the bottom.
 - The bottom Share/Save capsule buttons are replaced by native Liquid Glass circle buttons top-right (share = `square.and.arrow.up`, save = `square.and.arrow.down`; translucent material circles pre-iOS 26).
 - The plain "Route Only" route on the workout detail page now draws at 90% of its fitted size, up from 60%, so it reads larger and bolder against the black backdrop.
 - The workout detail page's top-right share button is now a Liquid Glass **Share** text capsule (previously a share icon that rendered slightly elliptical on iOS 26), and the share page title is now **Share** with a **Beta v2** badge.
+- Fixed the Workouts empty-state message rendering the year with digit grouping ("August 2,026"), and the month picker's VoiceOver label doing the same.
 - Updated the app, widget, watch, and test bundle version to 0.9.10 build 13.
 
 ## 0.9.10 (build 12)
