@@ -472,6 +472,26 @@ struct BodyAnimatedMetricValueText: View {
     }
 }
 
+/// Word-shaped metric values ("Typical", "2 Outliers"). Same type style as
+/// `BodyAnimatedMetricValueText`, minus the monospaced digits, numeric-text
+/// transition and aggressive shrink that only make sense for numbers.
+struct BodyMetricStatusValueText: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let text: String
+    let fontSize: CGFloat
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: fontSize, weight: .bold, design: .rounded))
+            .foregroundColor(.primary)
+            .contentTransition(reduceMotion ? .identity : .opacity)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: text)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+    }
+}
+
 struct BodyHealthMetricTrendHighlightedRange {
     let title: String
     let lowerBound: Double?

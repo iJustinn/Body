@@ -184,6 +184,7 @@
       }
     },
     "%@ %lld" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -540,6 +541,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld天"
+          }
+        }
+      }
+    },
+    "%lld days Exercise ring closed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld days Exercise ring closed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运动圆环已关闭%lld天"
+          }
+        }
+      }
+    },
+    "%lld days Move ring closed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld days Move ring closed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "活动圆环已关闭%lld天"
+          }
+        }
+      }
+    },
+    "%lld days Stand ring closed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld days Stand ring closed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "站立圆环已关闭%lld天"
           }
         }
       }
@@ -1326,7 +1375,6 @@
       }
     },
     "Beta v2" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3558,6 +3606,22 @@
         }
       }
     },
+    "High Deviation" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Deviation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高偏差"
+          }
+        }
+      }
+    },
     "Hour-by-hour chart for a chosen day" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3861,6 +3925,22 @@
         }
       }
     },
+    "Last Night" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last Night"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "昨晚"
+          }
+        }
+      }
+    },
     "Last refreshed: %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4107,6 +4187,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最低%@"
+          }
+        }
+      }
+    },
+    "Low Deviation" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Deviation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低偏差"
           }
         }
       }
@@ -4696,6 +4792,7 @@
       }
     },
     "No sleep vitals today" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4727,6 +4824,22 @@
         }
       }
     },
+    "No vitals for last night" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No vitals for last night"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "昨晚没有体征数据"
+          }
+        }
+      }
+    },
     "No workout types for this month" : {
       "localizations" : {
         "en" : {
@@ -4743,18 +4856,18 @@
         }
       }
     },
-    "No workouts for %@ %lld" : {
+    "No workouts for %@ %@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No workouts for %1$@ %2$lld"
+            "value" : "No workouts for %1$@ %2$@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%2$lld年%1$@没有运动"
+            "value" : "%2$@年%1$@没有运动"
           }
         }
       }
@@ -5139,6 +5252,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "户外日照趋势"
+          }
+        }
+      }
+    },
+    "Overnight vitals vs your typical range" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Overnight vitals vs your typical range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隔夜生命体征与你的典型范围对比"
           }
         }
       }
@@ -6776,6 +6906,7 @@
       }
     },
     "Sleep Vitals" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7508,6 +7639,86 @@
         }
       }
     },
+    "Typical Band End" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Typical Band End"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "典型范围终点"
+          }
+        }
+      }
+    },
+    "Typical Band Start" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Typical Band Start"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "典型范围起点"
+          }
+        }
+      }
+    },
+    "Typical Boundary" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Typical Boundary"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "典型范围边界"
+          }
+        }
+      }
+    },
+    "Typical Lower Bound" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Typical Lower Bound"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "典型范围下限"
+          }
+        }
+      }
+    },
+    "Typical Upper Bound" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Typical Upper Bound"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "典型范围上限"
+          }
+        }
+      }
+    },
     "Unavailable" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7741,6 +7952,55 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "紫罗兰"
+          }
+        }
+      }
+    },
+    "Vitals" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vitals"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "生命体征"
+          }
+        }
+      }
+    },
+    "Vitals needs about two weeks of sleep data to learn your typical ranges." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vitals needs about two weeks of sleep data to learn your typical ranges."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "体征需要约两周的睡眠数据来学习你的典型范围。"
+          }
+        }
+      }
+    },
+    "Vitals outlier trend" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vitals outlier trend"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "体征异常趋势"
           }
         }
       }

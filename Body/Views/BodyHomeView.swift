@@ -703,6 +703,7 @@ struct BodyHomeView: View {
                 chartPreview: trends.series(for: .sleep),
                 today: today
             ),
+            vitalsMetric(summary: summary, trends: trends, today: today),
             basicsMetric(summary: summary, chartPreview: trends.series(for: .bodyMass)),
             metric(
                 kind: .heartRate,
@@ -983,6 +984,37 @@ struct BodyHomeView: View {
             symbolColor: Color(red: 0.20, green: 0.72, blue: 1.00),
             prominentMetrics: prominentMetrics,
             chartPreview: chartPreview
+        )
+    }
+
+    private func vitalsMetric(
+        summary: HealthSummarySnapshot,
+        trends: HealthTrendSnapshot,
+        today: Date
+    ) -> BodyHealthMetricCard.Model {
+        // The card headline only needs the newest night, so the home grid takes
+        // the cheap path instead of baselining every night in history.
+        let assessment = VitalsCalculator.currentNightAssessment(
+            sleepHistory: trends.sleepHistory,
+            currentDaySleep: summary.sleep.asOf(today),
+            today: today,
+            calendar: .bodyGregorian
+        )
+
+        return BodyHealthMetricCard.Model(
+            kind: .vitals,
+            title: "Vitals",
+            value: assessment?.statusText ?? "--",
+            unit: "",
+            symbolName: "heart.text.square.fill",
+            symbolColor: Color(red: 0.25, green: 0.62, blue: 1.00),
+            chartPreviewStyle: .dots,
+            previewDotEntries: assessment?.measurements.map { measurement in
+                BodyHealthMetricCard.Model.DotEntry(
+                    position: measurement.referenceRange.markerPosition(for: measurement.value),
+                    isOutlier: measurement.region != .typical
+                )
+            } ?? []
         )
     }
 
@@ -1496,6 +1528,38 @@ struct BodyHomeView: View {
                     ).value
                 }
             )
+        case .vitals:
+            // Vitals has no metric series of its own — every chart and card on the
+            // page is derived from the sleep history, so the model carries that and
+            // the newest night's headline. The detail view baselines the full
+            // history itself (memoized) for the trend chart.
+            let today = Date()
+            let assessment = VitalsCalculator.currentNightAssessment(
+                sleepHistory: trends.sleepHistory,
+                currentDaySleep: summary.sleep.asOf(today),
+                today: today,
+                calendar: .bodyGregorian
+            )
+            return BodyHealthMetricDetailModel(
+                kind: kind,
+                title: "Vitals",
+                value: assessment?.statusText ?? "--",
+                unit: "",
+                symbolName: "heart.text.square.fill",
+                symbolColor: Color(red: 0.25, green: 0.62, blue: 1.00),
+                series: .empty,
+                basicsTrend: nil,
+                sleepStageSnapshot: nil,
+                sleepScore: nil,
+                sleepVitals: nil,
+                sleepDuration: nil,
+                sleepHistory: trends.sleepHistory,
+                chartStyle: .bar,
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) },
+                secondaryValueFormatter: nil,
+                helpText: kind.detailHelpText,
+                dataSourceText: kind.detailDataSourceText
+            )
         }
     }
 
@@ -1602,6 +1666,7 @@ enum BodyHomeMetricCardPreview {
         case line
         case bar
         case range
+        case dots
 
         static func matching(chartStyle: BodyHealthMetricChartStyle) -> Style {
             switch chartStyle {
@@ -1638,7 +1703,7 @@ enum BodyHomeMetricCardPreview {
         switch style {
         case .line:
             return linePreviewWidth
-        case .bar, .range:
+        case .bar, .range, .dots:
             return barPreviewWidth
         }
     }
@@ -2213,8 +2278,21 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         let timeZoneIdentifier: String
     }
 
+    /// Fingerprint of the sleep history the Vitals snapshot is derived from.
+    /// Night count plus the edge dates catch a refresh that appends or trims a
+    /// night; the content hash catches a night whose vitals were re-fetched in
+    /// place (a late overnight sample landing hours after the night was filed).
+    private struct VitalsFingerprint: Equatable {
+        let dayStart: Date
+        let dayCount: Int
+        let firstTimestamp: TimeInterval?
+        let lastTimestamp: TimeInterval?
+        let contentHash: Int
+    }
+
     private var entries: [CacheKey: Entry] = [:]
     private var wristTemperatureBaselineEntry: (fingerprint: Fingerprint, baseline: Double?)?
+    private var vitalsSnapshotEntry: (fingerprint: VitalsFingerprint, snapshot: VitalsSnapshot)?
     private var metricCardsEntry: (inputs: MetricCardsInputs, cardsByKind: [HealthMetricKind: BodyHealthMetricCard.Model])?
 
     func result(
@@ -2271,6 +2349,67 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         let baseline = wristTemperatureBaselineIfAvailable(from: series, calendar: calendar, date: date)
         wristTemperatureBaselineEntry = (fingerprint, baseline)
         return baseline
+    }
+
+    /// Memoizes the Vitals snapshot. Building it walks every night in the sleep
+    /// history and computes a robust baseline per vital per night — by far the
+    /// most expensive derivation on the Vitals detail page, and one that only
+    /// changes when a refresh publishes new sleep data.
+    func vitalsSnapshot(
+        sleepHistory: SleepHistorySnapshot,
+        currentDaySleep: SleepSummary?,
+        today: Date,
+        calendar: Calendar = .bodyGregorian
+    ) -> VitalsSnapshot {
+        let fingerprint = Self.fingerprint(
+            for: sleepHistory,
+            currentDaySleep: currentDaySleep,
+            dayStart: calendar.startOfDay(for: today)
+        )
+        if let entry = vitalsSnapshotEntry, entry.fingerprint == fingerprint {
+            return entry.snapshot
+        }
+
+        let snapshot = VitalsCalculator.snapshot(
+            sleepHistory: sleepHistory,
+            currentDaySleep: currentDaySleep,
+            today: today,
+            calendar: calendar
+        )
+        vitalsSnapshotEntry = (fingerprint, snapshot)
+        return snapshot
+    }
+
+    private static func fingerprint(
+        for sleepHistory: SleepHistorySnapshot,
+        currentDaySleep: SleepSummary?,
+        dayStart: Date
+    ) -> VitalsFingerprint {
+        var hasher = Hasher()
+        for day in sleepHistory.days {
+            hasher.combine(day.date)
+            combine(&hasher, day.summary)
+        }
+        if let currentDaySleep {
+            combine(&hasher, currentDaySleep)
+        }
+        return VitalsFingerprint(
+            dayStart: dayStart,
+            dayCount: sleepHistory.days.count,
+            firstTimestamp: sleepHistory.days.first?.date.timeIntervalSinceReferenceDate,
+            lastTimestamp: sleepHistory.days.last?.date.timeIntervalSinceReferenceDate,
+            contentHash: hasher.finalize()
+        )
+    }
+
+    /// Only the fields `VitalsCalculator` reads — hashing the whole summary would
+    /// drag in the stage segments, which change far more often than the vitals.
+    private static func combine(_ hasher: inout Hasher, _ summary: SleepSummary) {
+        hasher.combine(summary.duration)
+        hasher.combine(summary.vitals.heartRate)
+        hasher.combine(summary.vitals.respiratoryRate)
+        hasher.combine(summary.vitals.oxygenSaturation)
+        hasher.combine(summary.vitals.wristTemperatureCelsius)
     }
 
     private static func fingerprint(for series: HealthTrendSeries, dayStart: Date) -> Fingerprint {

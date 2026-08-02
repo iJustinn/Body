@@ -2563,7 +2563,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(order.contains(.heartRate))
         XCTAssertEqual(
             Array(BodyHomeCardKind.defaultOrder.prefix(6)),
-            [.sleep, .basics, .heartRate, .heartRateVariability, .trainingLoad, .readiness]
+            [.sleep, .vitals, .basics, .heartRate, .heartRateVariability, .trainingLoad]
         )
         XCTAssertEqual(BodyHomeCardKind.defaultOrder.last, .activityRings)
         XCTAssertLessThan(
@@ -2578,7 +2578,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let movedDown = BodyHomeCardKind.reordered(order, moving: .sleep, to: .basics)
         XCTAssertEqual(
             Array(movedDown.prefix(9)),
-            [.basics, .sleep, .heartRate, .heartRateVariability, .trainingLoad, .readiness, .activeEnergy, .restingEnergy, .wristTemperature]
+            [.vitals, .basics, .sleep, .heartRate, .heartRateVariability, .trainingLoad, .readiness, .activeEnergy, .restingEnergy]
         )
         XCTAssertEqual(movedDown.last, .activityRings)
         XCTAssertEqual(Set(movedDown), Set(order))
@@ -2587,7 +2587,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let movedUp = BodyHomeCardKind.reordered(order, moving: .activeEnergy, to: .sleep)
         XCTAssertEqual(
             Array(movedUp.prefix(9)),
-            [.activeEnergy, .sleep, .basics, .heartRate, .heartRateVariability, .trainingLoad, .readiness, .restingEnergy, .wristTemperature]
+            [.activeEnergy, .sleep, .vitals, .basics, .heartRate, .heartRateVariability, .trainingLoad, .readiness, .restingEnergy]
         )
         XCTAssertEqual(movedUp.last, .activityRings)
         XCTAssertEqual(Set(movedUp), Set(order))
@@ -2813,6 +2813,22 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(selection.includes(.wristTemperature))
         XCTAssertFalse(selection.includes(.heartRate))
         XCTAssertFalse(selection.includes(.steps))
+    }
+
+    func testVitalsHomeCardKindConfiguration() {
+        XCTAssertEqual(BodyHomeCardKind.vitals.healthMetricKind, .vitals)
+        XCTAssertTrue(BodyHomeCardKind.vitals.isBeta)
+        XCTAssertFalse(BodyHomeCardKind.starEligible.contains(.vitals))
+    }
+
+    func testDashboardFetchSelectionIncludesSleepForVitalsOnlySelection() {
+        let selection = BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection(selectedCards: [.vitals]),
+            trendCards: BodyHomeTrendCardSelection(selectedCards: [])
+        )
+
+        XCTAssertTrue(selection.includes(.vitals))
+        XCTAssertTrue(selection.includes(.sleep))
     }
 
     func testHealthTrendSeriesLimitsToAvailableRanges() throws {
@@ -3406,7 +3422,8 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 .trainingLoad,
                 .wristTemperature,
                 .timeInDaylight,
-                .steps
+                .steps,
+                .vitals
             ]
         )
         XCTAssertEqual(HealthMetricKind.readiness.detailDataSourceText?.sourceText, "Apple Health")
@@ -5312,6 +5329,38 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             ]
         )
 
+        XCTAssertEqual(month.completedRingCount, 1)
+    }
+
+    func testActivityRingCalendarMonthCountsPerRingClosedDays() throws {
+        let calendar = Calendar.bodyGregorian
+        let completedSummary = ActivityRingSummary(
+            move: ActivityRingMetric(value: 500, goal: 500),
+            exercise: ActivityRingMetric(value: 30, goal: 30),
+            stand: ActivityRingMetric(value: 12, goal: 12)
+        )
+        let moveAndStandSummary = ActivityRingSummary(
+            move: ActivityRingMetric(value: 500, goal: 500),
+            exercise: ActivityRingMetric(value: 10, goal: 30),
+            stand: ActivityRingMetric(value: 12, goal: 12)
+        )
+        let days = try (1...4).map { day in
+            try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: day)))
+        }
+        let month = ActivityRingCalendarMonth(
+            month: 5,
+            year: 2026,
+            days: [
+                ActivityRingCalendarDay(date: days[0], summary: completedSummary, hasData: true, isFuture: false),
+                ActivityRingCalendarDay(date: days[1], summary: moveAndStandSummary, hasData: true, isFuture: false),
+                ActivityRingCalendarDay(date: days[2], summary: completedSummary, hasData: false, isFuture: false),
+                ActivityRingCalendarDay(date: days[3], summary: completedSummary, hasData: true, isFuture: true)
+            ]
+        )
+
+        XCTAssertEqual(month.closedMoveRingCount, 2)
+        XCTAssertEqual(month.closedExerciseRingCount, 1)
+        XCTAssertEqual(month.closedStandRingCount, 2)
         XCTAssertEqual(month.completedRingCount, 1)
     }
 

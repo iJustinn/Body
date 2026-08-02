@@ -327,6 +327,8 @@ actor HealthKitFetchEngine {
             return .timeInDaylight
         case .steps:
             return .steps
+        case .vitals:
+            return .sleep
         }
     }
 
@@ -2675,7 +2677,7 @@ actor HealthKitFetchEngine {
         switch kind {
         case .readiness:
             break
-        case .sleep:
+        case .sleep, .vitals:
             async let sleepSummary = fetchSleepSummary(calendar: calendar)
             async let sleepHistory = fetchDailySleepHistory(calendar: calendar, cachedSleepHistory: existing.trends.sleepHistory)
             async let sleepHistorySecondary = fetchSecondarySleepHistory(calendar: calendar)

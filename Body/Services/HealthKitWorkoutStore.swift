@@ -3012,7 +3012,8 @@ final class HealthKitWorkoutStore: ObservableObject {
         .respiratoryRate,
         .oxygenSaturation,
         .trainingLoad,
-        .wristTemperature
+        .wristTemperature,
+        .vitals
     ]
 
     /// Permissions whose data feeds the Readiness score. Toggling one changes the

@@ -189,14 +189,18 @@ struct SleepVitalReferenceRange: Equatable {
     }
 
     func markerPosition(for value: Double) -> Double {
-        let typicalSpan = max(typicalUpperBound - typicalLowerBound, 1)
+        // The typical band has to keep the plot's middle third, so the span
+        // is used as measured: clamping it to a minimum width pushed narrow
+        // bands (wrist temperature spans well under 1 °C) off their third.
+        let typicalSpan = typicalUpperBound - typicalLowerBound
+
+        guard typicalSpan > 0, value.isFinite else {
+            return 0.5
+        }
+
         let lowerBound = typicalLowerBound - typicalSpan
         let upperBound = typicalUpperBound + typicalSpan
         let totalSpan = upperBound - lowerBound
-
-        guard totalSpan > 0, value.isFinite else {
-            return 0.5
-        }
 
         return min(max((value - lowerBound) / totalSpan, 0), 1)
     }

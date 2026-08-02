@@ -519,6 +519,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
             return timeInDaylight
         case .steps:
             return steps
+        case .vitals:
+            return .empty
         }
     }
 
@@ -547,7 +549,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .bodyMassIndex,
              .trainingLoad,
              .wristTemperature,
-             .timeInDaylight:
+             .timeInDaylight,
+             .vitals:
             return .empty
         }
     }
@@ -575,7 +578,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
-             .steps:
+             .steps,
+             .vitals:
             return .empty
         }
     }
@@ -602,7 +606,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
-             .steps:
+             .steps,
+             .vitals:
             return .empty
         }
     }
@@ -633,7 +638,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .exerciseMinutes,
              .trainingLoad,
              .wristTemperature,
-             .timeInDaylight:
+             .timeInDaylight,
+             .vitals:
             return .empty
         }
     }
@@ -663,7 +669,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .exerciseMinutes,
              .trainingLoad,
              .wristTemperature,
-             .timeInDaylight:
+             .timeInDaylight,
+             .vitals:
             return .empty
         }
     }
@@ -738,6 +745,11 @@ struct HealthTrendSnapshot: Codable, Equatable {
             next.stepsSecondary = refreshed.stepsSecondary
             next.stepsDaySamples = refreshed.stepsDaySamples
             next.stepsDaySamplesSecondary = refreshed.stepsDaySamplesSecondary
+        case .vitals:
+            next.sleep = refreshed.sleep
+            next.sleepSecondary = refreshed.sleepSecondary
+            next.sleepHistory = refreshed.sleepHistory
+            next.sleepHistorySecondary = refreshed.sleepHistorySecondary
         }
 
         return next
@@ -946,7 +958,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .exerciseMinutes,
              .trainingLoad,
              .wristTemperature,
-             .timeInDaylight:
+             .timeInDaylight,
+             .vitals:
             break
         }
         return stripped

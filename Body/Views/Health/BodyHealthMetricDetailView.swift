@@ -665,7 +665,8 @@ struct BodyHealthMetricDetailView: View {
              .exerciseMinutes,
              .trainingLoad,
              .wristTemperature,
-             .timeInDaylight:
+             .timeInDaylight,
+             .vitals:
             return false
         }
     }
@@ -1081,7 +1082,19 @@ struct BodyHealthMetricDetailView: View {
                 NavigationStack { BodyProView() }
             }
 
-            metricTrendChart(immersive: true)
+            if vitalsNeedsMoreSleepData {
+                // The calibration notice replaces the outlier hero: without a
+                // baseline the typical band and axes would chart nothing real.
+                Text("Vitals needs about two weeks of sleep data to learn your typical ranges.")
+                    .font(.system(.body, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: BodyHealthDetailChartLayout.standardHeight)
+            } else {
+                metricTrendChart(immersive: true)
+            }
 
             metricHeroValueRow
 
@@ -1121,6 +1134,15 @@ struct BodyHealthMetricDetailView: View {
                 aboutSleepScoreCard
             }
             dataSourceFooter
+        } else if isVitalsDetail {
+            if !vitalsSnapshot.nights.isEmpty {
+                vitalsLastNightCard
+                if let night = vitalsLastNight {
+                    vitalsBreakdownCard(for: night)
+                }
+            }
+            helpTextCard
+            dataSourceFooter
         } else {
             if isBasicsDetail {
                 basicsRangeCard
@@ -1159,7 +1181,11 @@ struct BodyHealthMetricDetailView: View {
 
     @ViewBuilder
     private var heroValueLeading: some View {
-        if !model.value.isEmpty {
+        if model.kind == .vitals {
+            // The headline follows the chart: it reads the visible range, not the
+            // single latest night the home card shows.
+            BodyMetricStatusValueText(text: vitalsHeroStatusText, fontSize: 44)
+        } else if !model.value.isEmpty {
             heroBigValue(model.value, unit: model.unit)
         } else if let firstMetric = model.headerMetrics.first {
             heroBigValue(firstMetric.value, unit: firstMetric.unit)
@@ -1318,6 +1344,14 @@ struct BodyHealthMetricDetailView: View {
                 isSleepDetail: isSleepDetail,
                 immersive: immersive,
                 chartIdentity: "\(model.kind.rawValue)-source-line-comparison-\(selectedTrendRange.rawValue)",
+                floatingCallout: immersive ? floatingCallout : nil
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        } else if model.kind == .vitals {
+            BodyVitalsOutlierTrendChart(
+                nights: visibleVitalsNights,
+                selectedRange: selectedTrendRange,
+                immersive: immersive,
                 floatingCallout: immersive ? floatingCallout : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
@@ -2214,12 +2248,74 @@ struct BodyHealthMetricDetailView: View {
         .bodyCardBackground(translucent: true)
     }
 
-    private func sleepVitalsCard(_ vitals: SleepVitalsSummary, duration: TimeInterval?) -> some View {
-        let rows = sleepVitalRows(for: vitals, duration: duration)
+    // MARK: - Vitals
+
+    private var isVitalsDetail: Bool {
+        model.kind == .vitals
+    }
+
+    /// Every assessable night in the sleep history, graded against each vital's
+    /// own baseline. Memoized: the grading walks the whole history.
+    private var vitalsSnapshot: VitalsSnapshot {
+        guard isVitalsDetail else {
+            return .empty
+        }
+
+        let today = Date()
+        return trendComputationCache.vitalsSnapshot(
+            sleepHistory: model.sleepHistory,
+            currentDaySleep: workoutStore.healthSummary.sleep.asOf(today),
+            today: today,
+            calendar: .bodyGregorian
+        )
+    }
+
+    private var visibleVitalsNights: [VitalsNightAssessment] {
+        let calendar = Calendar.bodyGregorian
+        let currentDayStart = calendar.startOfDay(for: Date())
+        guard let startDate = calendar.date(
+            byAdding: .day,
+            value: -(selectedTrendRange.dayCount - 1),
+            to: currentDayStart
+        ) else {
+            return vitalsSnapshot.nights
+        }
+
+        return vitalsSnapshot.nights.filter { $0.date >= startDate }
+    }
+
+    /// Nothing has enough history to be graded yet — the baselines need roughly
+    /// two weeks of nights before any vital gets a typical range.
+    private var vitalsNeedsMoreSleepData: Bool {
+        isVitalsDetail && vitalsSnapshot.nights.isEmpty
+    }
+
+    private var vitalsHeroStatusText: String {
+        let nights = visibleVitalsNights
+        guard !nights.isEmpty else {
+            return "--"
+        }
+
+        return VitalsSnapshot.statusText(for: nights)
+    }
+
+    /// The newest night, but only when it is the night just past: an older
+    /// assessment is not "last night" and shows the empty message instead.
+    private var vitalsLastNight: VitalsNightAssessment? {
+        guard let latestNight = vitalsSnapshot.latestNight,
+              Calendar.bodyGregorian.isDateInToday(latestNight.date) else {
+            return nil
+        }
+
+        return latestNight
+    }
+
+    private var vitalsLastNightCard: some View {
+        let rows = vitalsLastNight.map(vitalsDisplayRows(for:)) ?? []
 
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Sleep Vitals")
+                Text("Last Night")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
                     .lineLimit(1)
@@ -2227,8 +2323,8 @@ struct BodyHealthMetricDetailView: View {
 
                 Spacer(minLength: 12)
 
-                if !rows.isEmpty {
-                    Text(sleepVitalStatusTitle(for: rows))
+                if let latestNight = vitalsLastNight {
+                    Text(latestNight.statusText)
                         .font(.system(.subheadline, design: .rounded))
                         .fontWeight(.bold)
                         .foregroundColor(.secondary)
@@ -2238,7 +2334,7 @@ struct BodyHealthMetricDetailView: View {
             }
 
             if rows.isEmpty {
-                Text("No sleep vitals today")
+                Text("No vitals for last night")
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -2253,90 +2349,82 @@ struct BodyHealthMetricDetailView: View {
         .bodyCardBackground(translucent: true)
     }
 
-    private func sleepVitalRows(for vitals: SleepVitalsSummary, duration: TimeInterval?) -> [SleepVitalDisplayRow] {
-        var rows: [SleepVitalDisplayRow] = []
+    private func vitalsBreakdownCard(for night: VitalsNightAssessment) -> some View {
+        let rows = vitalsDisplayRows(for: night)
 
-        if let heartRate = vitals.heartRate {
-            rows.append(SleepVitalDisplayRow(
-                title: String(localized: "Heart Rate"),
-                value: BodyValueFormat.numberText(heartRate.rounded(), decimals: 0),
-                unit: "BPM",
-                symbolName: "heart.fill",
-                tintColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                numericValue: heartRate,
-                referenceRange: SleepVitalReferenceRange(typicalLowerBound: 40, typicalUpperBound: 70)
-            ))
+        return VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                BodyVitalRowView(row: row)
+
+                if index < rows.count - 1 {
+                    Divider()
+                        .padding(.leading, 50)
+                }
+            }
         }
-
-        if let heartRateVariability = vitals.heartRateVariability {
-            rows.append(SleepVitalDisplayRow(
-                title: String(localized: "Pressure"),
-                value: BodyValueFormat.numberText(heartRateVariability.rounded(), decimals: 0),
-                unit: "ms HRV",
-                symbolName: "waveform.path.ecg",
-                tintColor: Color(red: 0.58, green: 0.42, blue: 0.95),
-                numericValue: heartRateVariability,
-                referenceRange: SleepVitalReferenceRange(typicalLowerBound: 40, typicalUpperBound: 70)
-            ))
-        }
-
-        if let respiratoryRate = vitals.respiratoryRate {
-            rows.append(SleepVitalDisplayRow(
-                title: String(localized: "Respiratory"),
-                value: BodyValueFormat.numberText(respiratoryRate.rounded(), decimals: 0),
-                unit: "br/min",
-                symbolName: "lungs.fill",
-                tintColor: Color(red: 0.00, green: 0.75, blue: 0.85),
-                numericValue: respiratoryRate,
-                referenceRange: SleepVitalReferenceRange(typicalLowerBound: 12, typicalUpperBound: 20)
-            ))
-        }
-
-        if let wristTemperatureCelsius = vitals.wristTemperatureCelsius {
-            let display = BodyValueFormat.temperatureDisplay(
-                celsius: wristTemperatureCelsius,
-                temperatureUnitPreference: selectedTemperatureUnitPreference
-            )
-            rows.append(SleepVitalDisplayRow(
-                title: String(localized: "Skin Temperature"),
-                value: display.value,
-                unit: display.unit,
-                symbolName: "thermometer.medium",
-                tintColor: Color(red: 0.14, green: 0.72, blue: 0.42),
-                numericValue: wristTemperatureCelsius,
-                referenceRange: SleepVitalReferenceRange(typicalLowerBound: 35.8, typicalUpperBound: 37.2)
-            ))
-        }
-
-        if let oxygenSaturation = vitals.oxygenSaturation {
-            rows.append(SleepVitalDisplayRow(
-                title: String(localized: "Blood Oxygen"),
-                value: BodyValueFormat.numberText(oxygenSaturation.rounded(), decimals: 0),
-                unit: "%",
-                symbolName: "drop.fill",
-                tintColor: Color(red: 0.00, green: 0.75, blue: 0.85),
-                numericValue: oxygenSaturation,
-                referenceRange: SleepVitalReferenceRange(typicalLowerBound: 95, typicalUpperBound: 100)
-            ))
-        }
-
-        if let duration {
-            rows.append(SleepVitalDisplayRow(
-                title: String(localized: "Sleep Duration"),
-                value: BodyValueFormat.sleepDurationText(for: duration),
-                unit: "",
-                symbolName: "bed.double.fill",
-                tintColor: model.symbolColor,
-                numericValue: duration / 3_600,
-                referenceRange: SleepVitalReferenceRange(typicalLowerBound: 7, typicalUpperBound: 9)
-            ))
-        }
-
-        return rows
+        .padding(.horizontal, 18)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(translucent: true)
     }
 
-    private func sleepVitalStatusTitle(for rows: [SleepVitalDisplayRow]) -> String {
-        SleepVitalStatusTitle.text(for: rows.map(\.region))
+    /// Only the vitals that were actually measured that night get a row, so a
+    /// missing sensor leaves a gap rather than a fabricated reading. Each row
+    /// grades against that vital's personal range, not a population one.
+    private func vitalsDisplayRows(for night: VitalsNightAssessment) -> [SleepVitalDisplayRow] {
+        night.measurements.map { measurement in
+            let value: String
+            let unit: String
+
+            switch measurement.kind {
+            case .sleepingHeartRate:
+                value = BodyValueFormat.numberText(measurement.value.rounded(), decimals: 0)
+                unit = "BPM"
+            case .respiratoryRate:
+                value = BodyValueFormat.numberText(measurement.value.rounded(), decimals: 0)
+                unit = "br/min"
+            case .wristTemperature:
+                let display = BodyValueFormat.temperatureDisplay(
+                    celsius: measurement.value,
+                    temperatureUnitPreference: selectedTemperatureUnitPreference
+                )
+                value = display.value
+                unit = display.unit
+            case .bloodOxygen:
+                value = BodyValueFormat.numberText(measurement.value.rounded(), decimals: 0)
+                unit = "%"
+            case .sleepDuration:
+                value = BodyValueFormat.sleepDurationText(for: measurement.value * 3_600)
+                unit = ""
+            }
+
+            return SleepVitalDisplayRow(
+                title: measurement.kind.displayName,
+                value: value,
+                unit: unit,
+                symbolName: measurement.kind.symbolName,
+                tintColor: vitalTintColor(for: measurement.kind),
+                // The plot places the marker against the reference range, so the
+                // numeric value stays in the vital's native unit (°C, hours) even
+                // when the label above is shown in °F.
+                numericValue: measurement.value,
+                referenceRange: measurement.referenceRange
+            )
+        }
+    }
+
+    private func vitalTintColor(for kind: VitalKind) -> Color {
+        switch kind {
+        case .sleepingHeartRate:
+            return Color(red: 1.00, green: 0.25, blue: 0.45)
+        case .respiratoryRate,
+             .bloodOxygen:
+            return Color(red: 0.00, green: 0.75, blue: 0.85)
+        case .wristTemperature:
+            return Color(red: 0.14, green: 0.72, blue: 0.42)
+        case .sleepDuration:
+            return model.symbolColor
+        }
     }
 
     private var visibleSeries: HealthTrendSeries {

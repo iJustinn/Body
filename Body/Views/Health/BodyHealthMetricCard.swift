@@ -8,6 +8,13 @@ import SwiftUI
 
 struct BodyHealthMetricCard: View {
     struct Model: Identifiable {
+        /// One vital plotted in the mini dots preview.
+        struct DotEntry: Equatable {
+            /// 0…1, from `SleepVitalReferenceRange.markerPosition`.
+            var position: Double
+            var isOutlier: Bool
+        }
+
         let kind: HealthMetricKind
         let title: String
         let value: String
@@ -19,6 +26,7 @@ struct BodyHealthMetricCard: View {
         let hasChartPreview: Bool
         let previewCalendarPoints: [HealthTrendCalendarPoint]
         let previewRangeCalendarPoints: [HealthTrendRangeCalendarPoint]
+        let previewDotEntries: [DotEntry]
 
         init(
             kind: HealthMetricKind,
@@ -31,6 +39,7 @@ struct BodyHealthMetricCard: View {
             chartPreviewStyle: BodyHomeMetricCardPreview.Style = .line,
             chartPreview: HealthTrendSeries? = nil,
             chartRangePreview: HealthTrendRangeSeries? = nil,
+            previewDotEntries: [DotEntry] = [],
             previewDayCount: Int = BodyHomeMetricCardPreview.dayCount(forScreenWidth: UIScreen.main.bounds.width)
         ) {
             self.kind = kind
@@ -41,10 +50,11 @@ struct BodyHealthMetricCard: View {
             self.symbolColor = symbolColor
             self.prominentMetrics = prominentMetrics
             self.chartPreviewStyle = chartPreviewStyle
+            self.previewDotEntries = previewDotEntries
             // Preview points are derived once per model — the preview view
             // used to regroup the full trend series in chained computed
             // properties on every render of every card.
-            hasChartPreview = chartPreview != nil || chartRangePreview != nil
+            hasChartPreview = chartPreview != nil || chartRangePreview != nil || !previewDotEntries.isEmpty
             previewCalendarPoints = chartPreview.map {
                 BodyHomeMetricCardPreview.calendarPoints(from: $0, previewDayCount: previewDayCount)
             } ?? []
@@ -129,6 +139,7 @@ struct BodyHealthMetricCard: View {
                 BodyHealthMetricCardTrendPreview(
                     calendarPoints: metric.previewCalendarPoints,
                     rangeCalendarPoints: metric.previewRangeCalendarPoints,
+                    dotEntries: metric.previewDotEntries,
                     tintColor: metric.symbolColor,
                     style: metric.chartPreviewStyle
                 )
@@ -160,12 +171,20 @@ struct BodyHealthMetricCard: View {
 
     private func displayValueRow(_ display: BodyMetricDisplayValue, valueFontSize: CGFloat) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
-            BodyAnimatedMetricValueText(
-                value: display.value,
-                fontSize: valueFontSize,
-                color: .primary,
-                minimumScaleFactor: 0.60
-            )
+            Group {
+                // Word values ("Typical", "2 Outliers") must not get the
+                // numeric text treatment digits rely on.
+                if metric.kind == .vitals {
+                    BodyMetricStatusValueText(text: display.value, fontSize: valueFontSize)
+                } else {
+                    BodyAnimatedMetricValueText(
+                        value: display.value,
+                        fontSize: valueFontSize,
+                        color: .primary,
+                        minimumScaleFactor: 0.60
+                    )
+                }
+            }
                 .layoutPriority(1)
 
             if !display.unit.isEmpty {
@@ -187,17 +206,20 @@ struct BodyHealthMetricCardTrendPreview: View {
     // the full trend series.
     let calendarPoints: [HealthTrendCalendarPoint]
     let rangeCalendarPoints: [HealthTrendRangeCalendarPoint]
+    let dotEntries: [BodyHealthMetricCard.Model.DotEntry]
     let tintColor: Color
     let style: BodyHomeMetricCardPreview.Style
 
     init(
         calendarPoints: [HealthTrendCalendarPoint],
         rangeCalendarPoints: [HealthTrendRangeCalendarPoint] = [],
+        dotEntries: [BodyHealthMetricCard.Model.DotEntry] = [],
         tintColor: Color,
         style: BodyHomeMetricCardPreview.Style
     ) {
         self.calendarPoints = calendarPoints
         self.rangeCalendarPoints = rangeCalendarPoints
+        self.dotEntries = dotEntries
         self.tintColor = tintColor
         self.style = style
     }
@@ -262,6 +284,8 @@ struct BodyHealthMetricCardTrendPreview: View {
                 barPreview
             case .range:
                 rangePreview
+            case .dots:
+                dotsPreview
             }
         }
         .frame(width: previewWidth, height: previewHeight, alignment: .bottomTrailing)
@@ -449,6 +473,119 @@ struct BodyHealthMetricCardTrendPreview: View {
                 index: index
             )
         }
+    }
+
+    /// Health's Vitals preview, drawn the way Apple draws it: a thick gray
+    /// capsule for the high region, a filled blue rounded band for the typical
+    /// region, another gray capsule for the low region, and one dark-centered
+    /// ring per vital — typical rings sit inside the band, outlier rings land
+    /// on the gray bar they escaped to.
+    private var dotsPreview: some View {
+        GeometryReader { proxy in
+            let layout = DotPreviewLayout(size: proxy.size)
+
+            ZStack {
+                Capsule(style: .continuous)
+                    .fill(Color.secondary.opacity(0.42))
+                    .frame(width: proxy.size.width, height: layout.barHeight)
+                    .position(x: proxy.size.width / 2, y: layout.topBarCenterY)
+
+                RoundedRectangle(cornerRadius: layout.bandCornerRadius, style: .continuous)
+                    .fill(Color(red: 0.21, green: 0.30, blue: 0.45))
+                    .frame(width: proxy.size.width, height: layout.bandHeight)
+                    .position(x: proxy.size.width / 2, y: layout.bandCenterY)
+
+                Capsule(style: .continuous)
+                    .fill(Color.secondary.opacity(0.42))
+                    .frame(width: proxy.size.width, height: layout.barHeight)
+                    .position(x: proxy.size.width / 2, y: layout.bottomBarCenterY)
+
+                ForEach(Array(dotEntries.enumerated()), id: \.offset) { index, entry in
+                    Circle()
+                        .fill(Color.black.opacity(0.62))
+                        .overlay(
+                            Circle()
+                                .strokeBorder(dotColor(for: entry), lineWidth: layout.dotStroke)
+                        )
+                        .frame(width: layout.dotDiameter, height: layout.dotDiameter)
+                        .position(
+                            x: dotX(at: index, in: proxy.size),
+                            y: layout.dotY(for: entry.position)
+                        )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .animation(refreshAnimation, value: dotEntries)
+        }
+    }
+
+    /// Region geometry for the dots preview: gray bar, gap, blue band, gap,
+    /// gray bar — proportioned like the Health app's card.
+    private struct DotPreviewLayout {
+        let barHeight: CGFloat
+        let gap: CGFloat
+        let bandHeight: CGFloat
+        let bandTopY: CGFloat
+        let dotDiameter: CGFloat
+        let dotStroke: CGFloat
+        private let height: CGFloat
+
+        init(size: CGSize) {
+            height = size.height
+            barHeight = max(size.height * 0.17, 4)
+            gap = max(size.height * 0.045, 1.5)
+            bandHeight = max(size.height - 2 * (barHeight + gap), 8)
+            bandTopY = barHeight + gap
+            dotDiameter = max(min(bandHeight * 0.42, size.width * 0.22), 6)
+            dotStroke = max(dotDiameter * 0.26, 2)
+        }
+
+        var bandCornerRadius: CGFloat {
+            max(bandHeight * 0.14, 3)
+        }
+
+        var topBarCenterY: CGFloat {
+            barHeight / 2
+        }
+
+        var bandCenterY: CGFloat {
+            bandTopY + bandHeight / 2
+        }
+
+        var bottomBarCenterY: CGFloat {
+            height - barHeight / 2
+        }
+
+        /// `markerPosition` maps the typical band to [1/3, 2/3]; that middle
+        /// third stretches over the blue band and the outer thirds collapse
+        /// onto their gray bars, mirroring the regions of the drawn shapes.
+        func dotY(for position: Double) -> CGFloat {
+            let clamped = min(max(position, 0), 1)
+            let halfDot = dotDiameter / 2
+
+            if clamped > 2.0 / 3.0 {
+                return topBarCenterY
+            }
+
+            if clamped < 1.0 / 3.0 {
+                return bottomBarCenterY
+            }
+
+            let bandFraction = (2.0 / 3.0 - clamped) * 3
+            let minY = bandTopY + halfDot + 0.5
+            let maxY = bandTopY + bandHeight - halfDot - 0.5
+            return min(max(bandTopY + bandHeight * CGFloat(bandFraction), minY), maxY)
+        }
+    }
+
+    private func dotX(at index: Int, in size: CGSize) -> CGFloat {
+        size.width * (CGFloat(index) + 0.5) / CGFloat(max(dotEntries.count, 1))
+    }
+
+    private func dotColor(for entry: BodyHealthMetricCard.Model.DotEntry) -> Color {
+        entry.isOutlier
+            ? Color(red: 1.00, green: 0.24, blue: 0.20)
+            : Color(red: 0.25, green: 0.62, blue: 1.00)
     }
 }
 

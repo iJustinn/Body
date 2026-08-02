@@ -14,10 +14,19 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Heart Rate",
             "Pressure",
             "Respiratory",
+            // Vitals breakdown row titles: SleepVitalDisplayRow.title is built from
+            // VitalKind.displayName (already resolved against BodyMetricsKit) and
+            // re-localized at runtime in BodyHealthMetricDetailView, so the resolved
+            // English text must also exist as a key here.
+            "Respiratory Rate",
             "Skin Temperature",
             "Blood Oxygen",
             "Sleep Duration",
-            "Splits"
+            "Splits",
+            // Vitals home-card title and detail navigation title: both built via
+            // String(localized: String.LocalizationValue(...)) from a plain "Vitals"
+            // literal (BodyHealthMetricCard, BodyHealthMetricDetailView).
+            "Vitals"
         ]
 
         try assertKeysTranslated(keys, in: catalog)

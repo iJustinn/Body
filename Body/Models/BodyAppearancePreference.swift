@@ -80,7 +80,8 @@ extension HealthMetricKind {
              .bodyMassIndex,
              .trainingLoad,
              .wristTemperature,
-             .timeInDaylight:
+             .timeInDaylight,
+             .vitals:
             return []
         }
     }
@@ -514,6 +515,7 @@ struct BodyDashboardFetchSelection: Equatable {
         .oxygenSaturation,
         .wristTemperature
     ]
+    private static let vitalsMetricKinds: Set<HealthMetricKind> = [.sleep]
 
     static let defaultValue = BodyDashboardFetchSelection(
         summaryCards: BodySummaryCardSelection.defaultValue,
@@ -548,6 +550,10 @@ struct BodyDashboardFetchSelection: Equatable {
 
         if metrics.contains(.readiness) {
             metrics.formUnion(Self.readinessDependencyKinds)
+        }
+
+        if metrics.contains(.vitals) {
+            metrics.formUnion(Self.vitalsMetricKinds)
         }
 
         metricKinds = metrics
@@ -782,9 +788,11 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     case respiratoryRate
     case activeEnergy
     case restingEnergy
+    case vitals
 
     static let defaultOrder: [BodyHomeCardKind] = [
         .sleep,
+        .vitals,
         .basics,
         .heartRate,
         .heartRateVariability,
@@ -866,6 +874,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return .activeEnergy
         case .restingEnergy:
             return .restingEnergy
+        case .vitals:
+            return .vitals
         }
     }
 
@@ -903,6 +913,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Active Energy")
         case .restingEnergy:
             return String(localized: "Resting Energy")
+        case .vitals:
+            return String(localized: "Vitals")
         }
     }
 
@@ -940,12 +952,15 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Active calories")
         case .restingEnergy:
             return String(localized: "Resting calories")
+        case .vitals:
+            return String(localized: "Overnight vitals vs your typical range")
         }
     }
 
     var isBeta: Bool {
         switch self {
-        case .readiness:
+        case .readiness,
+             .vitals:
             return true
         case .activityRings,
              .exerciseMinutes,
@@ -999,6 +1014,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return "flame.fill"
         case .restingEnergy:
             return "leaf.fill"
+        case .vitals:
+            return "heart.text.square.fill"
         }
     }
 
@@ -1029,6 +1046,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return Color(red: 1.00, green: 0.25, blue: 0.45)
         case .restingEnergy:
             return Color(red: 0.14, green: 0.72, blue: 0.42)
+        case .vitals:
+            return Color(red: 0.25, green: 0.62, blue: 1.00)
         }
     }
 

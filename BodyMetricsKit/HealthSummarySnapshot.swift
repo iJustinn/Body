@@ -24,6 +24,7 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
     case wristTemperature
     case timeInDaylight
     case steps
+    case vitals
 
     var id: String {
         rawValue
@@ -121,6 +122,11 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
                 title: String(localized: "About Steps", table: "BodyMetricsKit"),
                 body: String(localized: "Steps estimate your walking and running step count from Apple Health sources. Phones and wearables can count differently depending on where they are worn or carried. The trend is best used to compare your usual activity level over time.", table: "BodyMetricsKit")
             )
+        case .vitals:
+            return HealthMetricDetailHelpText(
+                title: String(localized: "About Vitals", table: "BodyMetricsKit"),
+                body: String(localized: "Vitals reviews overnight measurements — sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration — and compares each against your personal typical range, learned from about eight weeks of your own sleep data. Outliers can follow illness, alcohol, travel, or hard training and are not a diagnosis. It takes about two weeks of sleep data to calibrate.", table: "BodyMetricsKit")
+            )
         }
     }
 
@@ -140,7 +146,8 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
-             .steps:
+             .steps,
+             .vitals:
             return HealthMetricDetailDataSourceText(sourceText: "Apple Health")
         case .bodyMass,
              .bodyFatPercentage,
@@ -466,6 +473,8 @@ struct HealthSummarySnapshot: Codable, Equatable {
             next.timeInDaylight = refreshed.timeInDaylight
         case .steps:
             next.steps = refreshed.steps
+        case .vitals:
+            next.sleep = refreshed.sleep
         }
 
         return next
