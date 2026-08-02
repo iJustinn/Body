@@ -55,15 +55,17 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
         let keys = [
+            "Share",
             "Share Workout",
+            "Beta v2",
             "Background",
             "Your Photo",
-            "Share",
+            "Close",
             "Midnight",
             "Workout Color",
             "Map",
             "Save",
-            "Saved",
+            "Save to Photos",
             // Centered preset-card metric titles: built via String(localized:) in
             // WorkoutShareMetricsBuilder.centeredMetrics, so they resolve at runtime.
             "Distance",

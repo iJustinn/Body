@@ -369,7 +369,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "关于锻炼分钟数"
+            "value" : "关于运动时长"
           }
         }
       }
@@ -607,7 +607,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "活动 %@"
+            "value" : "活动消耗"
           }
         }
       }
@@ -1998,7 +1998,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "锻炼分钟数总计"
+            "value" : "运动时长总计"
           }
         }
       }
@@ -2015,7 +2015,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "锻炼分钟数"
+            "value" : "运动时长"
           }
         }
       }
@@ -2032,7 +2032,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "锻炼分钟数统计被健康 App 判定为较高强度活动或运动的时间。该数值可能与训练时长不同，因为强度、心率和动作都会影响判定。可用它查看近期活动是否持续达到有效强度。"
+            "value" : "运动时长统计被健康 App 判定为较高强度活动或运动的时间。该数值可能与训练时长不同，因为强度、心率和动作都会影响判定。可用它查看近期活动是否持续达到有效强度。"
           }
         }
       }
@@ -3165,7 +3165,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "活动、锻炼与站立圆环"
+            "value" : "活动、运动与站立圆环"
           }
         }
       }
@@ -5268,7 +5268,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "总计 %@"
+            "value" : "总消耗"
           }
         }
       }

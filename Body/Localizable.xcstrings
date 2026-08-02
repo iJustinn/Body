@@ -473,7 +473,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$@%2$@，活动%3$@，锻炼%4$@，站立%5$@"
+            "value" : "%1$@%2$@，活动%3$@，运动%4$@，站立%5$@"
           }
         }
       }
@@ -2161,6 +2161,23 @@
         }
       }
     },
+    "Close" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭"
+          }
+        }
+      }
+    },
     "Close map" : {
       "localizations" : {
         "en" : {
@@ -2471,7 +2488,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "每日锻炼分钟数总计"
+            "value" : "每日运动时长总计"
           }
         }
       }
@@ -3134,7 +3151,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "锻炼"
+            "value" : "运动"
           }
         }
       }
@@ -3151,7 +3168,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "锻炼分钟数趋势"
+            "value" : "运动时长趋势"
           }
         }
       }
@@ -4357,7 +4374,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "活动、锻炼和站立进度"
+            "value" : "活动、运动和站立进度"
           }
         }
       }
@@ -6080,19 +6097,19 @@
         }
       }
     },
-    "Saved" : {
+    "Save to Photos" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Saved"
+            "value" : "Save to Photos"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已保存"
+            "value" : "存储到照片"
           }
         }
       }
@@ -8157,7 +8174,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的锻炼分钟数"
+            "value" : "你的运动时长"
           }
         }
       }
