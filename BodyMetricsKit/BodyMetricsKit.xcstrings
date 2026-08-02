@@ -5560,19 +5560,19 @@
         }
       }
     },
-    "Vitals reviews overnight measurements — sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration — and compares each against your personal typical range, learned from about eight weeks of your own sleep data. Outliers can follow illness, alcohol, travel, or hard training and are not a diagnosis. It takes about two weeks of sleep data to calibrate." : {
+    "Vitals reviews overnight measurements of sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration. Each one is compared against your personal typical range, learned from about eight weeks of your own sleep data. Outliers can follow illness, alcohol, travel, or hard training, and they are not a diagnosis. It takes about two weeks of sleep data to calibrate.\nVitals follows the data sources you select for Sleep and for each individual vital, so choosing a single source may limit how many nights have data and how far back the charts reach." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vitals reviews overnight measurements — sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration — and compares each against your personal typical range, learned from about eight weeks of your own sleep data. Outliers can follow illness, alcohol, travel, or hard training and are not a diagnosis. It takes about two weeks of sleep data to calibrate."
+            "value" : "Vitals reviews overnight measurements of sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration. Each one is compared against your personal typical range, learned from about eight weeks of your own sleep data. Outliers can follow illness, alcohol, travel, or hard training, and they are not a diagnosis. It takes about two weeks of sleep data to calibrate.\nVitals follows the data sources you select for Sleep and for each individual vital, so choosing a single source may limit how many nights have data and how far back the charts reach."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "生命体征回顾夜间测量的睡眠心率、呼吸频率、皮肤温度、血氧和睡眠时长，并将每项数据与你的个人典型范围进行比较。该范围通过大约八周的睡眠数据学习得出。异常值可能与生病、饮酒、旅行或高强度训练有关，并非诊断结果。大约需要两周的睡眠数据才能完成校准。"
+            "value" : "生命体征回顾夜间测量的睡眠心率、呼吸频率、皮肤温度、血氧和睡眠时长，并将每项数据与你的个人典型范围进行比较。该范围通过大约八周的睡眠数据学习得出。异常值可能与生病、饮酒、旅行或高强度训练有关，并非诊断结果。大约需要两周的睡眠数据才能完成校准。\n生命体征采用你为睡眠及各项体征选择的数据来源，因此选择单一来源可能会减少有数据的夜晚数量，并限制图表可回溯的范围。"
           }
         }
       }

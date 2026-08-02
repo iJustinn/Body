@@ -12,7 +12,7 @@ struct BodyHealthMetricCard: View {
         struct DotEntry: Equatable {
             /// 0…1, from `SleepVitalReferenceRange.markerPosition`.
             var position: Double
-            var isOutlier: Bool
+            var region: SleepVitalRegion
         }
 
         let kind: HealthMetricKind
@@ -165,7 +165,9 @@ struct BodyHealthMetricCard: View {
     private var valueRow: some View {
         displayValueRow(
             BodyMetricDisplayValue(title: metric.title, value: metric.value, unit: metric.unit),
-            valueFontSize: 30
+            // Word values run longer than digits, so vitals sets them a touch
+            // smaller than the numeric cards.
+            valueFontSize: metric.kind == .vitals ? 28 : 30
         )
     }
 
@@ -536,7 +538,7 @@ struct BodyHealthMetricCardTrendPreview: View {
             gap = max(size.height * 0.045, 1.5)
             bandHeight = max(size.height - 2 * (barHeight + gap), 8)
             bandTopY = barHeight + gap
-            dotDiameter = max(min(bandHeight * 0.42, size.width * 0.22), 6)
+            dotDiameter = max(min(bandHeight * 0.32, size.width * 0.16), 5)
             dotStroke = max(dotDiameter * 0.26, 2)
         }
 
@@ -583,9 +585,14 @@ struct BodyHealthMetricCardTrendPreview: View {
     }
 
     private func dotColor(for entry: BodyHealthMetricCard.Model.DotEntry) -> Color {
-        entry.isOutlier
-            ? Color(red: 1.00, green: 0.24, blue: 0.20)
-            : Color(red: 0.25, green: 0.62, blue: 1.00)
+        switch entry.region {
+        case .typical:
+            return BodyVitalsChartStyle.typicalColor
+        case .high:
+            return BodyVitalsChartStyle.highColor
+        case .low:
+            return BodyVitalsChartStyle.lowColor
+        }
     }
 }
 

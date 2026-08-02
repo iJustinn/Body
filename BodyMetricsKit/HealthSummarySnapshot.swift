@@ -125,7 +125,7 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
         case .vitals:
             return HealthMetricDetailHelpText(
                 title: String(localized: "About Vitals", table: "BodyMetricsKit"),
-                body: String(localized: "Vitals reviews overnight measurements — sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration — and compares each against your personal typical range, learned from about eight weeks of your own sleep data. Outliers can follow illness, alcohol, travel, or hard training and are not a diagnosis. It takes about two weeks of sleep data to calibrate.", table: "BodyMetricsKit")
+                body: String(localized: "Vitals reviews overnight measurements of sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration. Each one is compared against your personal typical range, learned from about eight weeks of your own sleep data. Outliers can follow illness, alcohol, travel, or hard training, and they are not a diagnosis. It takes about two weeks of sleep data to calibrate.\nVitals follows the data sources you select for Sleep and for each individual vital, so choosing a single source may limit how many nights have data and how far back the charts reach.", table: "BodyMetricsKit")
             )
         }
     }

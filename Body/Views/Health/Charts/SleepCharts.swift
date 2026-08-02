@@ -802,7 +802,6 @@ struct SleepVitalDisplayRow: Identifiable {
     let value: String
     let unit: String
     let symbolName: String
-    let tintColor: Color
     let numericValue: Double
     let referenceRange: SleepVitalReferenceRange
 
@@ -823,9 +822,11 @@ private extension SleepVitalRegion {
     var dotColor: Color {
         switch self {
         case .typical:
-            return Color(red: 0.25, green: 0.62, blue: 1.00)
-        case .low, .high:
-            return Color(red: 1.00, green: 0.24, blue: 0.20)
+            return BodyVitalsChartStyle.typicalColor
+        case .high:
+            return BodyVitalsChartStyle.highColor
+        case .low:
+            return BodyVitalsChartStyle.lowColor
         }
     }
 }
@@ -851,6 +852,19 @@ struct BodySleepVitalsRegionChart: View {
 
 struct BodySleepVitalsRegionPlot: View {
     let rows: [SleepVitalDisplayRow]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Marker geometry and color inputs per dot: when the day picker lands on
+    /// another night the dots glide to their new positions and cross-fade color
+    /// instead of snapping.
+    private struct DotAnimationKey: Equatable {
+        let position: Double
+        let region: SleepVitalRegion
+    }
+
+    private var animationKey: [DotAnimationKey] {
+        rows.map { DotAnimationKey(position: $0.markerPosition, region: $0.region) }
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -886,6 +900,10 @@ struct BodySleepVitalsRegionPlot: View {
                         )
                 }
             }
+            .animation(
+                reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0),
+                value: animationKey
+            )
         }
     }
 
@@ -951,10 +969,10 @@ struct BodySleepVitalRegionDot: View {
     var body: some View {
         Circle()
             .fill(Color(.systemGroupedBackground))
-            .frame(width: 19, height: 19)
+            .frame(width: 15, height: 15)
             .overlay(
                 Circle()
-                    .stroke(row.region.dotColor, lineWidth: 5)
+                    .stroke(row.region.dotColor, lineWidth: 4)
             )
             .shadow(color: row.region.dotColor.opacity(row.region == .typical ? 0 : 0.26), radius: 5)
             .accessibilityLabel("\(row.title): \(row.value) \(row.unit), \(accessibilityRegion)")

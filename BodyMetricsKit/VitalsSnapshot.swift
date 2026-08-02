@@ -117,7 +117,9 @@ enum VitalsCalculator {
     /// Half-width of the personal typical band, in robust spreads: a reading
     /// this far from the median is where "typical" ends and an outlier starts.
     static let typicalBandMultiplier = 2.0
-    static let deviationCap = 2.0
+    /// Wide enough that real outlier nights keep distinct magnitudes on the
+    /// trend chart instead of saturating together; the band edge stays at ±1.
+    static let deviationCap = 3.0
 
     /// Smallest spread each vital may claim, so a very steady sleeper does not
     /// turn sensor noise into outliers. The first four mirror the readiness

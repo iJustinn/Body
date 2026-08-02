@@ -1006,13 +1006,13 @@ struct BodyHomeView: View {
             title: "Vitals",
             value: assessment?.statusText ?? "--",
             unit: "",
-            symbolName: "heart.text.square.fill",
+            symbolName: "heart.badge.bolt",
             symbolColor: Color(red: 0.25, green: 0.62, blue: 1.00),
             chartPreviewStyle: .dots,
             previewDotEntries: assessment?.measurements.map { measurement in
                 BodyHealthMetricCard.Model.DotEntry(
                     position: measurement.referenceRange.markerPosition(for: measurement.value),
-                    isOutlier: measurement.region != .typical
+                    region: measurement.region
                 )
             } ?? []
         )
@@ -1045,7 +1045,7 @@ struct BodyHomeView: View {
                 kilograms: 0,
                 weightUnitPreference: selectedWeightUnitPreference
             ).unit,
-            symbolName: "person.crop.circle.fill",
+            symbolName: "person",
             symbolColor: Color(red: 0.50, green: 0.34, blue: 1.00),
             prominentMetrics: [
                 bodyFatDisplay,
@@ -1368,7 +1368,7 @@ struct BodyHomeView: View {
                 title: "Basics",
                 value: display?.value ?? "--",
                 unit: display?.unit ?? massUnit,
-                symbolName: "person.crop.circle.fill",
+                symbolName: "person",
                 symbolColor: Color(red: 0.50, green: 0.34, blue: 1.00),
                 series: .empty,
                 daySeries: .empty,
@@ -1545,7 +1545,7 @@ struct BodyHomeView: View {
                 title: "Vitals",
                 value: assessment?.statusText ?? "--",
                 unit: "",
-                symbolName: "heart.text.square.fill",
+                symbolName: "heart.badge.bolt",
                 symbolColor: Color(red: 0.25, green: 0.62, blue: 1.00),
                 series: .empty,
                 basicsTrend: nil,

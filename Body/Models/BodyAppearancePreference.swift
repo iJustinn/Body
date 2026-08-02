@@ -1000,7 +1000,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         case .sleep:
             return "bed.double.fill"
         case .basics:
-            return "person.crop.circle.fill"
+            return "person"
         case .heartRate,
              .restingHeartRate:
             return "heart.fill"
@@ -1015,7 +1015,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         case .restingEnergy:
             return "leaf.fill"
         case .vitals:
-            return "heart.text.square.fill"
+            return "heart.badge.bolt"
         }
     }
 

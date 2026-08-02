@@ -2924,6 +2924,23 @@
         }
       }
     },
+    "Deviation" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deviation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "偏差"
+          }
+        }
+      }
+    },
     "Difference Range" : {
       "localizations" : {
         "en" : {
@@ -3926,6 +3943,7 @@
       }
     },
     "Last Night" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4835,7 +4853,23 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "昨晚没有体征数据"
+            "value" : "昨晚没有生命体征数据"
+          }
+        }
+      }
+    },
+    "No vitals for this day" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No vitals for this day"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这一天没有生命体征数据"
           }
         }
       }
@@ -7984,7 +8018,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "体征需要约两周的睡眠数据来学习你的典型范围。"
+            "value" : "生命体征需要约两周的睡眠数据来学习你的典型范围。"
           }
         }
       }
@@ -8000,7 +8034,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "体征异常趋势"
+            "value" : "生命体征异常趋势"
           }
         }
       }

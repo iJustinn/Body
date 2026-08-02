@@ -7,21 +7,61 @@ import Charts
 import SwiftUI
 
 enum BodyVitalsChartStyle {
-    /// Blue for the personal typical band, red for anything outside it — the
-    /// same two colors the sleep-vitals region dots and the home card use.
-    static let typicalColor = Color(red: 0.25, green: 0.62, blue: 1.00)
-    static let outlierColor = Color(red: 1.00, green: 0.24, blue: 0.20)
+    /// Blue for the personal typical band, dark purple above it, light pink
+    /// below it — the same three colors the sleep-vitals region dots and the
+    /// home card use. Kept as components because a SwiftUI `Color` can't be
+    /// taken apart again, and the bar gradient has to blend between them.
+    static let typicalRGB: (red: Double, green: Double, blue: Double) = (0.25, 0.62, 1.00)
+    static let highRGB: (red: Double, green: Double, blue: Double) = (0.58, 0.20, 0.96)
+    static let lowRGB: (red: Double, green: Double, blue: Double) = (1.00, 0.55, 0.75)
+    static let typicalColor = Color(red: typicalRGB.red, green: typicalRGB.green, blue: typicalRGB.blue)
+    static let highColor = Color(red: highRGB.red, green: highRGB.green, blue: highRGB.blue)
+    static let lowColor = Color(red: lowRGB.red, green: lowRGB.green, blue: lowRGB.blue)
     static let typicalBandOpacity = 0.08
-    /// Deviations are capped at ±2 (`VitalsCalculator.deviationCap`), so the
-    /// scale keeps a little air above and below a maxed-out bar.
+    /// The chart plots DISPLAY positions, not raw deviations: the typical band
+    /// keeps full scale while everything past ±1 is compressed, so the band
+    /// takes ~45% of the plot and the High/Low regions stay compact without
+    /// giving up outlier granularity (deviations still cap at ±3 in the data).
+    static let outlierCompression = 0.5
+    /// Display scale: ±1 band at full size, the compressed ±3 deviation cap
+    /// lands at ±2, and a little air keeps a maxed-out bar off the edge.
     static let yDomain: ClosedRange<Double> = -2.2...2.2
     static let typicalBoundaries: [Double] = [1, -1]
-    /// Smallest span a bar may draw, so a bucket whose nights all landed on the
-    /// same deviation still reads as a capsule instead of a hairline.
-    static let minimumBarSpan = 0.12
-    /// Colored segments meet at ±1; overlapping them slightly keeps the
-    /// antialiased seam from showing as a gap.
-    static let seamOverlap = 0.03
+
+    /// Maps a raw deviation onto the compressed display scale above.
+    static func displayPosition(forDeviation deviation: Double) -> Double {
+        let magnitude = abs(deviation)
+        guard magnitude > 1 else {
+            return deviation
+        }
+
+        let compressed = 1 + (magnitude - 1) * outlierCompression
+        return deviation < 0 ? -compressed : compressed
+    }
+    /// Approximate height the X axis (tick + weekday/month label) takes from the
+    /// chart frame, used to convert the bar width into deviation units. A few
+    /// points of error only nudges the smallest capsule off a perfect circle by
+    /// a hair — invisible next to the squashed blobs it prevents.
+    static let xAxisEstimatedHeight: CGFloat = 24
+
+    /// Smallest span a bar may draw, in display units: the bar's own width, so
+    /// a bucket whose nights all landed on the same deviation renders as a
+    /// circle (the capsule's two end caps meeting) instead of a squat blob.
+    static func minimumBarSpan(barWidth: CGFloat, chartHeight: CGFloat) -> Double {
+        let plotHeight = max(chartHeight - xAxisEstimatedHeight, 1)
+        let domainSpan = yDomain.upperBound - yDomain.lowerBound
+        return Double(barWidth) * domainSpan / Double(plotHeight)
+    }
+    /// Where the blend out of blue finishes, in display units (deviation 1.4):
+    /// a bar is fully purple (or pink) once it reaches this far past the
+    /// typical band. Below the minimum overshoot, so the shortest stretched tip
+    /// still lands on full color with a long, smooth ramp.
+    static let outlierBlendEnd = 1.2
+    /// An outlier bar's tip is stretched to reach at least this far past ±1 on
+    /// the display scale, so a night that barely cleared the band still shows a
+    /// readable colored tip instead of a sliver. Past the blend end above, so
+    /// the tip always reaches full color.
+    static let minimumOutlierOvershoot = 0.4
     /// Y positions of the trailing High/Typical/Low labels: the middle of each
     /// region in the fixed scale above.
     static let regionLabelValues: [Double] = [1.6, 0, -1.6]
@@ -37,22 +77,67 @@ enum BodyVitalsChartStyle {
 
         return String(localized: "Typical")
     }
+
+    /// Mixes two component triples; `amount` outside 0…1 clamps to an endpoint,
+    /// so callers can hand over an unnormalized ratio.
+    static func blend(
+        _ from: (red: Double, green: Double, blue: Double),
+        _ to: (red: Double, green: Double, blue: Double),
+        amount: Double
+    ) -> Color {
+        let fraction = min(max(amount, 0), 1)
+        return Color(
+            red: from.red + (to.red - from.red) * fraction,
+            green: from.green + (to.green - from.green) * fraction,
+            blue: from.blue + (to.blue - from.blue) * fraction
+        )
+    }
+
+    /// The bar color at one display position: solid blue inside the typical
+    /// band, blending to purple (or pink) between ±1 and the blend end, solid
+    /// past it. Anchored to the position itself, so the same height always
+    /// reads the same color no matter which bar it belongs to.
+    static func color(forPosition position: Double) -> Color {
+        let magnitude = abs(position)
+        let amount = (magnitude - 1) / (outlierBlendEnd - 1)
+        return blend(typicalRGB, position < 0 ? lowRGB : highRGB, amount: amount)
+    }
+
+    /// Gradient stops for one bar, running top (`upperBound`) to bottom
+    /// (`lowerBound`). Stops land on the blend boundaries that fall inside the
+    /// bar plus the bar's own ends, so a bar entirely inside the typical band
+    /// comes out solid blue.
+    static func barGradientStops(lowerBound: Double, upperBound: Double) -> [Gradient.Stop] {
+        let span = upperBound - lowerBound
+        guard span > 0 else {
+            return [Gradient.Stop(color: color(forPosition: upperBound), location: 0)]
+        }
+
+        // Descending, so positions come out non-decreasing.
+        let boundaries = [outlierBlendEnd, 1, -1, -outlierBlendEnd].filter {
+            $0 > lowerBound && $0 < upperBound
+        }
+
+        var location: CGFloat = 0
+        return ([upperBound] + boundaries + [lowerBound]).map { position in
+            location = max(location, min(max(CGFloat((upperBound - position) / span), 0), 1))
+            return Gradient.Stop(color: color(forPosition: position), location: location)
+        }
+    }
 }
 
-/// One drawn bar: the deviation span of the nights in a bucket, split at ±1 so
-/// the part inside the typical band and the parts outside it can take different
-/// colors.
-struct BodyVitalsOutlierBarSegment: Identifiable {
-    let id: String
-    let lowerBound: Double
-    let upperBound: Double
-    let isOutlier: Bool
-    /// Only the first segment of a bar carries the VoiceOver label; the rest are
-    /// hidden so one bar reads as one element.
-    let isLabelled: Bool
+/// One vital that ran outside its typical range in a bucket, with the side it
+/// ran to so the callout dot can take the matching color.
+struct BodyVitalsOutlierKind: Identifiable {
+    let kind: VitalKind
+    let region: SleepVitalRegion
+
+    var id: VitalKind {
+        kind
+    }
 
     var color: Color {
-        isOutlier ? BodyVitalsChartStyle.outlierColor : BodyVitalsChartStyle.typicalColor
+        region == .high ? BodyVitalsChartStyle.highColor : BodyVitalsChartStyle.lowColor
     }
 }
 
@@ -64,7 +149,7 @@ struct BodyVitalsOutlierBucket: Identifiable {
     let minDeviation: Double
     let maxDeviation: Double
     let regions: [SleepVitalRegion]
-    let outlierKinds: [VitalKind]
+    let outlierKinds: [BodyVitalsOutlierKind]
     let outlierCount: Int
 
     var id: Date {
@@ -83,64 +168,48 @@ struct BodyVitalsOutlierBucket: Identifiable {
         let regions = nights.flatMap(\.regions)
         self.regions = regions
         self.outlierCount = regions.filter { $0 != .typical }.count
-        let outlierKinds = Set(nights.flatMap { night in
-            night.measurements.filter { $0.region != .typical }.map(\.kind)
-        })
+        var outlierRegions: [VitalKind: SleepVitalRegion] = [:]
+        for measurement in nights.flatMap(\.measurements) where measurement.region != .typical {
+            if outlierRegions[measurement.kind] == nil {
+                outlierRegions[measurement.kind] = measurement.region
+            }
+        }
         // Listed in `VitalKind.allCases` order so the callout reads the same way
         // as the breakdown rows below the hero.
-        self.outlierKinds = VitalKind.allCases.filter { outlierKinds.contains($0) }
+        self.outlierKinds = VitalKind.allCases.compactMap { kind in
+            outlierRegions[kind].map { BodyVitalsOutlierKind(kind: kind, region: $0) }
+        }
     }
 
-    var segments: [BodyVitalsOutlierBarSegment] {
-        let span = maxDeviation - minDeviation
-        let padding = max((BodyVitalsChartStyle.minimumBarSpan - span) / 2, 0)
-        let lowerBound = max(minDeviation - padding, BodyVitalsChartStyle.yDomain.lowerBound)
-        let upperBound = min(maxDeviation + padding, BodyVitalsChartStyle.yDomain.upperBound)
-        let overlap = BodyVitalsChartStyle.seamOverlap
-        let identifier = "\(date.timeIntervalSinceReferenceDate)"
-
-        var bounds: [(id: String, lowerBound: Double, upperBound: Double, isOutlier: Bool)] = []
-        if lowerBound <= 1, upperBound >= -1 {
-            bounds.append((
-                id: "\(identifier)-typical",
-                lowerBound: max(lowerBound, -1),
-                upperBound: min(upperBound, 1),
-                isOutlier: false
-            ))
+    /// The drawn span of the bar on the compressed display scale: the bucket's
+    /// deviation range mapped through `displayPosition`, widened to the given
+    /// minimum span (the bar's own width in display units, so the smallest mark
+    /// is a circle) and stretched to the minimum overshoot when an outlier
+    /// barely cleared the band. The domain clamps only bind when the circle
+    /// padding runs past the scale's edge — the compressed deviation cap (±2 on
+    /// the display scale) itself sits inside the ±2.2 domain.
+    func barBounds(minimumSpan: Double) -> (lowerBound: Double, upperBound: Double) {
+        let displayMin = BodyVitalsChartStyle.displayPosition(forDeviation: minDeviation)
+        let displayMax = BodyVitalsChartStyle.displayPosition(forDeviation: maxDeviation)
+        let span = displayMax - displayMin
+        let padding = max((minimumSpan - span) / 2, 0)
+        var lowerBound = max(displayMin - padding, BodyVitalsChartStyle.yDomain.lowerBound)
+        var upperBound = min(displayMax + padding, BodyVitalsChartStyle.yDomain.upperBound)
+        if displayMax > 1 {
+            upperBound = max(upperBound, 1 + BodyVitalsChartStyle.minimumOutlierOvershoot)
         }
-        if lowerBound < -1 {
-            bounds.append((
-                id: "\(identifier)-low",
-                lowerBound: lowerBound,
-                upperBound: min(upperBound, -1 + overlap),
-                isOutlier: true
-            ))
+        if displayMin < -1 {
+            lowerBound = min(lowerBound, -1 - BodyVitalsChartStyle.minimumOutlierOvershoot)
         }
-        if upperBound > 1 {
-            bounds.append((
-                id: "\(identifier)-high",
-                lowerBound: max(lowerBound, 1 - overlap),
-                upperBound: upperBound,
-                isOutlier: true
-            ))
-        }
-
-        return bounds.enumerated().map { index, bound in
-            BodyVitalsOutlierBarSegment(
-                id: bound.id,
-                lowerBound: bound.lowerBound,
-                upperBound: bound.upperBound,
-                isOutlier: bound.isOutlier,
-                isLabelled: index == 0
-            )
-        }
+        return (lowerBound: lowerBound, upperBound: upperBound)
     }
 }
 
 /// Apple-Vitals-style hero chart: one bar per bucket spanning that bucket's
 /// deviation range, drawn against the personal typical band. Blue inside the
-/// band, red outside it — the height of the red tells you how far a night ran
-/// from your own normal, not from a population reference.
+/// band, fading to purple above it and pink below it — how far the color has
+/// turned tells you how far a night ran from your own normal, not from a
+/// population reference.
 struct BodyVitalsOutlierTrendChart: View {
     let selectedRange: BodyHealthTrendRange
     let immersive: Bool
@@ -198,22 +267,38 @@ struct BodyVitalsOutlierTrendChart: View {
                 }
 
                 ForEach(buckets) { bucket in
-                    ForEach(bucket.segments) { segment in
-                        BarMark(
-                            // Aggregated buckets plot at their END day, like
-                            // `HealthTrendRangeCalendarPoint` heroes, so the
-                            // newest bar lands on the domain edge instead of a
-                            // bucket-width short of it.
-                            x: .value("Date", bucket.endDate, unit: .day),
-                            yStart: .value("Low Deviation", segment.lowerBound),
-                            yEnd: .value("High Deviation", segment.upperBound),
-                            width: .fixed(chartBarWidth)
+                    // Padding a spread-less bucket to exactly the bar's width in
+                    // deviation units makes the capsule's end caps meet: the
+                    // smallest mark renders as a circle, not a squat blob.
+                    let bounds = bucket.barBounds(
+                        minimumSpan: BodyVitalsChartStyle.minimumBarSpan(
+                            barWidth: chartBarWidth,
+                            chartHeight: proxy.size.height
                         )
-                        .foregroundStyle(segment.color)
-                        .cornerRadius(chartBarWidth / 2)
-                        .accessibilityLabel(segment.isLabelled ? accessibilityLabel(for: bucket) : "")
-                        .accessibilityHidden(!segment.isLabelled)
-                    }
+                    )
+
+                    BarMark(
+                        // Aggregated buckets plot at their END day, like
+                        // `HealthTrendRangeCalendarPoint` heroes, so the
+                        // newest bar lands on the domain edge instead of a
+                        // bucket-width short of it.
+                        x: .value("Date", bucket.endDate, unit: .day),
+                        yStart: .value("Low Deviation", bounds.lowerBound),
+                        yEnd: .value("High Deviation", bounds.upperBound),
+                        width: .fixed(chartBarWidth)
+                    )
+                    .foregroundStyle(
+                        LinearGradient(
+                            stops: BodyVitalsChartStyle.barGradientStops(
+                                lowerBound: bounds.lowerBound,
+                                upperBound: bounds.upperBound
+                            ),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .cornerRadius(chartBarWidth / 2)
+                    .accessibilityLabel(accessibilityLabel(for: bucket))
                 }
 
                 if let selectedBucket {
@@ -384,13 +469,13 @@ struct BodyVitalsSelectionAnnotation: View {
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 
-            ForEach(bucket.outlierKinds) { kind in
+            ForEach(bucket.outlierKinds) { outlier in
                 HStack(spacing: 7) {
                     Circle()
-                        .fill(BodyVitalsChartStyle.outlierColor)
+                        .fill(outlier.color)
                         .frame(width: 8, height: 8)
 
-                    Text(kind.displayName)
+                    Text(outlier.kind.displayName)
                         .foregroundColor(.secondary)
                 }
                 .font(.system(size: 16, weight: .bold, design: .rounded))
@@ -407,21 +492,25 @@ struct BodyVitalsSelectionAnnotation: View {
     }
 }
 
-/// One vital in the last-night breakdown: tinted icon tile, name, the reading in
-/// its own unit, and where it landed against that vital's personal range.
+/// One vital in the night's breakdown: white icon tile, name, and the reading
+/// in its own unit. Where it landed against that vital's personal range is left
+/// to the plot above the rows.
 struct BodyVitalRowView: View {
     let row: SleepVitalDisplayRow
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: row.symbolName)
                 .font(.system(size: 17, weight: .bold, design: .rounded))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(row.tintColor)
+                // Keep the solid glyph legible on grouped backgrounds in both
+                // appearances; hierarchical rendering would blur its secondary layers.
+                .foregroundStyle(vitalIconColor)
                 .frame(width: 38, height: 38)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(row.tintColor.opacity(0.14))
+                        .fill(vitalIconTileColor)
                 )
                 .accessibilityHidden(true)
 
@@ -434,11 +523,20 @@ struct BodyVitalRowView: View {
             Spacer(minLength: 12)
 
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(row.value)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                // The shared numeric text flips digits when the day picker moves
+                // between nights; an outlier reading takes its region color, so
+                // the number itself flags the vital that ran high or low, and
+                // the color cross-fades on the same switch.
+                BodyAnimatedMetricValueText(
+                    value: row.value,
+                    fontSize: 20,
+                    color: valueColor,
+                    minimumScaleFactor: 0.72
+                )
+                .animation(
+                    reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0),
+                    value: row.region
+                )
 
                 if !row.unit.isEmpty {
                     Text(row.unit)
@@ -449,33 +547,35 @@ struct BodyVitalRowView: View {
                         .minimumScaleFactor(0.78)
                 }
             }
-
-            BodyVitalRegionChip(region: row.region)
         }
         .padding(.vertical, 11)
         .accessibilityElement(children: .combine)
-    }
-}
-
-struct BodyVitalRegionChip: View {
-    let region: SleepVitalRegion
-
-    var body: some View {
-        Text(title)
-            .font(.system(size: 13, weight: .bold, design: .rounded))
-            .foregroundColor(color)
-            .lineLimit(1)
-            .minimumScaleFactor(0.78)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(color.opacity(0.14))
-            )
+        // The region only shows in the plot above now, so VoiceOver reads it
+        // from here instead of from a chip in the row.
+        .accessibilityValue(regionTitle)
     }
 
-    private var title: String {
-        switch region {
+    private var vitalIconColor: Color {
+        colorScheme == .dark ? Color.white : Color.black
+    }
+
+    private var vitalIconTileColor: Color {
+        vitalIconColor.opacity(0.14)
+    }
+
+    private var valueColor: Color {
+        switch row.region {
+        case .low:
+            return BodyVitalsChartStyle.lowColor
+        case .typical:
+            return .primary
+        case .high:
+            return BodyVitalsChartStyle.highColor
+        }
+    }
+
+    private var regionTitle: String {
+        switch row.region {
         case .low:
             return String(localized: "Low")
         case .typical:
@@ -483,9 +583,5 @@ struct BodyVitalRegionChip: View {
         case .high:
             return String(localized: "High")
         }
-    }
-
-    private var color: Color {
-        region == .typical ? BodyVitalsChartStyle.typicalColor : BodyVitalsChartStyle.outlierColor
     }
 }

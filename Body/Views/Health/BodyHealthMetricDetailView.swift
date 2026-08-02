@@ -1136,10 +1136,8 @@ struct BodyHealthMetricDetailView: View {
             dataSourceFooter
         } else if isVitalsDetail {
             if !vitalsSnapshot.nights.isEmpty {
-                vitalsLastNightCard
-                if let night = vitalsLastNight {
-                    vitalsBreakdownCard(for: night)
-                }
+                metricDatePicker
+                vitalsNightCard
             }
             helpTextCard
             dataSourceFooter
@@ -1184,7 +1182,7 @@ struct BodyHealthMetricDetailView: View {
         if model.kind == .vitals {
             // The headline follows the chart: it reads the visible range, not the
             // single latest night the home card shows.
-            BodyMetricStatusValueText(text: vitalsHeroStatusText, fontSize: 44)
+            BodyMetricStatusValueText(text: vitalsHeroStatusText, fontSize: 40)
         } else if !model.value.isEmpty {
             heroBigValue(model.value, unit: model.unit)
         } else if let firstMetric = model.headerMetrics.first {
@@ -2299,23 +2297,24 @@ struct BodyHealthMetricDetailView: View {
         return VitalsSnapshot.statusText(for: nights)
     }
 
-    /// The newest night, but only when it is the night just past: an older
-    /// assessment is not "last night" and shows the empty message instead.
-    private var vitalsLastNight: VitalsNightAssessment? {
-        guard let latestNight = vitalsSnapshot.latestNight,
-              Calendar.bodyGregorian.isDateInToday(latestNight.date) else {
-            return nil
-        }
-
-        return latestNight
+    /// The graded night for the day the picker is on. `night.date` is already the
+    /// start of the wake day, so a same-day match is all this needs.
+    private var selectedVitalsNight: VitalsNightAssessment? {
+        let calendar = Calendar.bodyGregorian
+        let day = selectedMetricDay
+        return vitalsSnapshot.nights.first { calendar.isDate($0.date, inSameDayAs: day) }
     }
 
-    private var vitalsLastNightCard: some View {
-        let rows = vitalsLastNight.map(vitalsDisplayRows(for:)) ?? []
+    /// Plot and per-vital rows for the selected night in one card, so the readings
+    /// sit directly under the marker that graded them. The date picker above
+    /// carries the day, so the title stays "Day View" like the other metric pages.
+    private var vitalsNightCard: some View {
+        let night = selectedVitalsNight
+        let rows = night.map(vitalsDisplayRows(for:)) ?? []
 
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Last Night")
+                Text("Day View")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
                     .lineLimit(1)
@@ -2323,8 +2322,8 @@ struct BodyHealthMetricDetailView: View {
 
                 Spacer(minLength: 12)
 
-                if let latestNight = vitalsLastNight {
-                    Text(latestNight.statusText)
+                if let night {
+                    Text(night.statusText)
                         .font(.system(.subheadline, design: .rounded))
                         .fontWeight(.bold)
                         .foregroundColor(.secondary)
@@ -2334,7 +2333,7 @@ struct BodyHealthMetricDetailView: View {
             }
 
             if rows.isEmpty {
-                Text("No vitals for last night")
+                vitalsEmptyNightText
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -2342,6 +2341,19 @@ struct BodyHealthMetricDetailView: View {
             } else {
                 BodySleepVitalsRegionChart(rows: rows)
                     .frame(height: BodyHealthDetailChartLayout.sleepVitalsHeight)
+
+                Divider()
+
+                VStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        BodyVitalRowView(row: row)
+
+                        if index < rows.count - 1 {
+                            Divider()
+                                .padding(.leading, 50)
+                        }
+                    }
+                }
             }
         }
         .padding(18)
@@ -2349,23 +2361,10 @@ struct BodyHealthMetricDetailView: View {
         .bodyCardBackground(translucent: true)
     }
 
-    private func vitalsBreakdownCard(for night: VitalsNightAssessment) -> some View {
-        let rows = vitalsDisplayRows(for: night)
-
-        return VStack(spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                BodyVitalRowView(row: row)
-
-                if index < rows.count - 1 {
-                    Divider()
-                        .padding(.leading, 50)
-                }
-            }
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 7)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .bodyCardBackground(translucent: true)
+    private var vitalsEmptyNightText: Text {
+        Calendar.bodyGregorian.isDateInToday(selectedMetricDay)
+            ? Text("No vitals for last night")
+            : Text("No vitals for this day")
     }
 
     /// Only the vitals that were actually measured that night get a row, so a
@@ -2403,27 +2402,12 @@ struct BodyHealthMetricDetailView: View {
                 value: value,
                 unit: unit,
                 symbolName: measurement.kind.symbolName,
-                tintColor: vitalTintColor(for: measurement.kind),
                 // The plot places the marker against the reference range, so the
                 // numeric value stays in the vital's native unit (°C, hours) even
                 // when the label above is shown in °F.
                 numericValue: measurement.value,
                 referenceRange: measurement.referenceRange
             )
-        }
-    }
-
-    private func vitalTintColor(for kind: VitalKind) -> Color {
-        switch kind {
-        case .sleepingHeartRate:
-            return Color(red: 1.00, green: 0.25, blue: 0.45)
-        case .respiratoryRate,
-             .bloodOxygen:
-            return Color(red: 0.00, green: 0.75, blue: 0.85)
-        case .wristTemperature:
-            return Color(red: 0.14, green: 0.72, blue: 0.42)
-        case .sleepDuration:
-            return model.symbolColor
         }
     }
 
