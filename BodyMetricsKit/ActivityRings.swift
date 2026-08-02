@@ -94,6 +94,14 @@ struct ActivityRingCalendarMonth: Equatable, Identifiable {
         }
         .count
     }
+
+    var closedMoveRingCount: Int { closedRingCount(\.move) }
+    var closedExerciseRingCount: Int { closedRingCount(\.exercise) }
+    var closedStandRingCount: Int { closedRingCount(\.stand) }
+
+    private func closedRingCount(_ ring: KeyPath<ActivityRingSummary, ActivityRingMetric>) -> Int {
+        days.filter { $0.hasData && !$0.isFuture && $0.summary[keyPath: ring].progress >= 1 }.count
+    }
 }
 
 struct ActivityRingMonthKey: Codable, Equatable, Hashable, Identifiable {
