@@ -453,7 +453,9 @@ struct BodyWorkoutsView: View {
                 }
                 .padding(.top, 8)
             } else {
-                Text("No workouts for \(localizedMonthTitle) \(selectedYear)")
+                // The year interpolates as a String: an Int picks up the locale's
+                // digit grouping and renders "August 2,026".
+                Text("No workouts for \(localizedMonthTitle) \(String(selectedYear))")
                     .font(.system(.title3, design: .rounded))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)

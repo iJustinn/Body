@@ -368,6 +368,6 @@ private struct BodyMonthYearCarouselItem: View {
                 .lineLimit(1)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(monthName) \(monthYear.year)")
+        .accessibilityLabel("\(monthName) \(String(monthYear.year))")
     }
 }
