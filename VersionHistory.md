@@ -1,5 +1,13 @@
 # Version History
 
+## 0.9.10 (build 13)
+
+- **Share flow opens full screen with the whole card always visible.** The workout share flow now opens as a full-screen page instead of a sheet: a ✕ close button sits top-left, and the 9:16 card preview always fits the screen — on small phones the card previously could be cut off at the bottom.
+- The bottom Share/Save capsule buttons are replaced by native Liquid Glass circle buttons top-right (share = `square.and.arrow.up`, save = `square.and.arrow.down`; translucent material circles pre-iOS 26).
+- The plain "Route Only" route on the workout detail page now draws at 90% of its fitted size, up from 60%, so it reads larger and bolder against the black backdrop.
+- The workout detail page's top-right share button is now a Liquid Glass **Share** text capsule (previously a share icon that rendered slightly elliptical on iOS 26), and the share page title is now **Share** with a **Beta v2** badge.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 13.
+
 ## 0.9.10 (build 12)
 
 - **Photo share cards: move and resize the info block.** With a photo as the share background, drag the route trace + metrics block anywhere on the card and pinch to resize it; double-tap the preview to reset, and picking a new photo or switching backgrounds also resets. The exported image matches the preview placement exactly, placement is never remembered across opens, and a hint caption under the preview explains the gestures. Gradient presets and the map keep their fixed layouts.
