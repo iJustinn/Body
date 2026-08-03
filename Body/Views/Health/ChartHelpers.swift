@@ -431,8 +431,15 @@ enum BodyHealthMetricChartStyle {
 enum BodyHealthDetailChartLayout {
     static let standardHeight: CGFloat = 220
     static let dayChartHeight: CGFloat = 252
-    static let sleepVitalsHeight: CGFloat = 248
-    static let sleepVitalsPlotHeight: CGFloat = 188
+    /// High and Low draw at 70% of the typical band's height instead of taking
+    /// an equal third each, so the plot is shorter while the band the dots
+    /// normally sit in keeps the height it had in the old three-way split.
+    static let sleepVitalsOutlierBandScale: CGFloat = 0.7
+    static let sleepVitalsTypicalBandHeight: CGFloat = 188 / 3
+    static let sleepVitalsPlotHeight: CGFloat = sleepVitalsTypicalBandHeight * (1 + 2 * sleepVitalsOutlierBandScale)
+    /// Share of the plot's height taken by the High region, and by the Low one.
+    static let sleepVitalsOutlierBandFraction: CGFloat = sleepVitalsOutlierBandScale / (1 + 2 * sleepVitalsOutlierBandScale)
+    static let sleepVitalsHeight: CGFloat = sleepVitalsPlotHeight + 60
     static let sleepVitalsIconAxisHeight: CGFloat = 28
     static let sleepConsistencyHeight: CGFloat = 248
     static let yAxisLabelCount = 4
