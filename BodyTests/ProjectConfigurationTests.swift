@@ -510,16 +510,15 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertLessThan(metricDayChartStart, dayViewTrendCardStart)
         XCTAssertLessThan(metricDayChartStart, metricActivityAveragesStart)
         XCTAssertLessThan(metricActivityAveragesStart, dayViewTrendCardStart)
-        // The readiness "About your score" card sits between the by-activity card
-        // and the trend card in the day-view branch (and repeats in the non-day
-        // branch for when the day view is toggled off).
-        XCTAssertLessThan(metricActivityAveragesStart, readinessAboutStart)
-        XCTAssertLessThan(readinessAboutStart, dayViewTrendCardStart)
+        // The readiness "About your score" card sits after both branches' trend
+        // cards, immediately above the About Readiness help-text card (shared by
+        // the day-view and non-day branches).
         XCTAssertLessThan(dayViewTrendCardStart, dayViewElseStart)
-        XCTAssertLessThan(readinessAboutStart, nonDayTrendCardStart)
+        XCTAssertLessThan(nonDayTrendCardStart, readinessAboutStart)
+        XCTAssertLessThan(readinessAboutStart, helpTextStart)
         XCTAssertLessThan(dayViewTrendCardStart, helpTextStart)
         XCTAssertEqual(detailBodyBlock.occurrenceCount(of: "detailTrendComparisonCard"), 3)
-        XCTAssertEqual(detailBodyBlock.occurrenceCount(of: "readinessWhyCard(for: readiness"), 2)
+        XCTAssertEqual(detailBodyBlock.occurrenceCount(of: "readinessWhyCard(for: readiness"), 1)
         XCTAssertTrue(source.contains("BodyHomeTrendCardFactory.card("))
         XCTAssertTrue(source.contains("BodyHomeTrendCard(model: card, showsNavigationIndicator: false)"))
         XCTAssertTrue(source.contains("@StateObject private var trendComputationCache = BodyHomeTrendComputationCache()"))
@@ -750,9 +749,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(chartBlock.contains("guard let highlightedRangeResolver, let activeHighlightSourceValue else {"))
         XCTAssertTrue(chartBlock.contains("return highlightedRangeResolver(activeHighlightSourceValue) ?? highlightedRange"))
         XCTAssertTrue(chartBlock.contains("private var activeHighlightSourceValue: Double?"))
-        XCTAssertTrue(chartBlock.contains("selectedTrendPoint?.value ?? currentValuePoint?.value ?? latestVisibleTrendPoint?.value"))
-        XCTAssertTrue(chartBlock.contains("private var latestVisibleTrendPoint: HealthTrendCalendarPoint?"))
-        XCTAssertTrue(chartBlock.contains("visibleFinitePoints.last"))
+        // Idle must fall back to the caller's `highlightedRange` (live summary
+        // value), never the last plotted point — the plotted point is the frozen
+        // morning value and once showed the wrong band as "Current".
+        XCTAssertTrue(chartBlock.contains("selectedTrendPoint?.value ?? currentValuePoint?.value"))
+        XCTAssertFalse(chartBlock.contains("latestVisibleTrendPoint"))
         XCTAssertTrue(chartBlock.contains(".chartBackground { chartProxy in"))
         XCTAssertTrue(chartBlock.contains("highlightedRange.lowerPlotBound(in: chartYDomain)"))
         XCTAssertTrue(chartBlock.contains("highlightedRange.upperPlotBound(in: chartYDomain)"))
@@ -1573,12 +1574,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.10;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 19;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 21;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.10;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 19;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 21;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1613,9 +1614,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 19)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 21)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 19)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 18)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 17)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 16)**"))
@@ -1677,6 +1679,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 21)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 21."))
+        XCTAssertTrue(versionHistory.contains("Vitals chart axis labels removed."))
         XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 19)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 19."))
         XCTAssertTrue(versionHistory.contains("Vitals chart region proportions."))
@@ -1970,7 +1975,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 19)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 21)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 19)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 18)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 17)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 16)"))
@@ -2542,6 +2548,26 @@ final class ProjectConfigurationTests: XCTestCase {
         // state clears once the entitlement actually unlocks (so Restore/Redeem re-enable).
         XCTAssertTrue(storeSource.contains(".paymentPendingError"))
         XCTAssertTrue(storeSource.contains("if unlocked && purchaseState == .pending"))
+
+        // A completed, non-cancelled purchase whose entitlement isn't active must not fall
+        // back to the buy card: purchase() does one bounded network re-check (the second
+        // `.fetchCurrent` call site) and otherwise parks in `.completedNotUnlocked`, which
+        // the entitlement stream clears on the late unlock. Restore distinguishes three
+        // outcomes — unlocked, lifetime product owned but entitlement inactive (the same
+        // recovery state, never a false "no purchases"), and genuinely nothing to restore.
+        XCTAssertTrue(storeSource.contains("case completedNotUnlocked"))
+        XCTAssertGreaterThanOrEqual(storeSource.occurrenceCount(of: "customerInfo(fetchPolicy: .fetchCurrent)"), 2)
+        XCTAssertTrue(storeSource.contains("purchaseState = isPro ? .idle : .completedNotUnlocked"))
+        XCTAssertTrue(storeSource.contains("if unlocked && purchaseState == .completedNotUnlocked"))
+        XCTAssertTrue(storeSource.contains("allPurchasedProductIdentifiers.contains(Self.lifetimeProductID)"))
+        XCTAssertTrue(storeSource.contains(#".failed(String(localized: "No purchases to restore."))"#))
+
+        // The paywall must not re-offer an enabled buy card while a completed purchase
+        // awaits its entitlement: the state renders a dedicated recovery card and counts
+        // as purchase-flow-active (Restore stays the recovery path).
+        let proViewSource = try text(at: "Body/Views/BodyProView.swift")
+        XCTAssertTrue(proViewSource.contains("BodyProVerifyingPurchaseCard()"))
+        XCTAssertTrue(proViewSource.contains("case .purchasing, .restoring, .pending, .completedNotUnlocked:"))
 
         // Migration guards: the native StoreKit plumbing is gone. RevenueCat verifies,
         // encodes revocation into `isActive`, and auto-finishes transactions; re-introducing
