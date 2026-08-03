@@ -266,6 +266,13 @@ struct BodyHealthMetricTrendChart: View {
                             .offset(x: plotRect.minX, y: lowerY - stripeHeightPx)
                     }
                 }
+                // Band easing lives here, scoped to the background, NOT on the Chart:
+                // a chart-wide keyed transaction would also animate mark removal, so the
+                // current-value dot lingered ~0.55s after a scrub callout appeared.
+                .animation(
+                    reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0),
+                    value: highlightedRangeAnimationKey
+                )
             }
             .chartXAxis {
                 AxisMarks(values: .stride(by: .day, count: selectedRange.axisStrideDayCount)) { value in
@@ -305,9 +312,6 @@ struct BodyHealthMetricTrendChart: View {
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
             )
-            .transaction(value: highlightedRangeAnimationKey) { transaction in
-                transaction.animation = reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0)
-            }
             .transaction { transaction in
                 transaction.animation = nil
             }
