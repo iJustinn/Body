@@ -85,9 +85,17 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         snapshot = (WatchMetricsSnapshotStore.load() ?? .empty).sanitized()
         hiddenMetricKinds = Self.loadHiddenMetricKinds()
         if UserDefaults.standard.object(forKey: Self.lastComputeAttemptDateKey) != nil {
-            lastComputeAttemptDate = Date(
+            let persisted = Date(
                 timeIntervalSinceReferenceDate: UserDefaults.standard.double(forKey: Self.lastComputeAttemptDateKey)
             )
+            // Reject a future-dated stamp (clock rollback, or a bad persisted
+            // value) rather than restoring it: `isFreshLocalDate` treats a
+            // future date as stale anyway, but leaving it in place here would
+            // still park a stale-but-not-yet-recomputed attempt across a
+            // relaunch until the clock caught up to it.
+            if persisted <= Date() {
+                lastComputeAttemptDate = persisted
+            }
         }
         super.init()
     }
@@ -480,7 +488,7 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         guard !liveMetrics.isEmpty else {
             // No watch-measurable metric present: fall back to snapshot freshness.
             guard let lastRefresh = snapshot.lastRefreshDate else { return true }
-            return now.timeIntervalSince(lastRefresh) > WatchMetricsSnapshot.staleInterval
+            return !Self.isFreshPhoneDate(lastRefresh, limit: WatchMetricsSnapshot.staleInterval, now: now)
         }
         // Evaluate each live metric independently against its per-kind freshness
         // limit (HR 30 min, HRV 4h). A single shared window would either thrash
@@ -488,7 +496,7 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         // re-stale it and wedge the live-read loop.
         return liveMetrics.contains { metric in
             guard let measuredAt = metric.liveUpdatedAt ?? metric.computedAt else { return true }
-            return now.timeIntervalSince(measuredAt) > WatchMetricKindKey.liveFreshnessLimit(forKind: metric.kind)
+            return !Self.isFreshPhoneDate(measuredAt, limit: WatchMetricKindKey.liveFreshnessLimit(forKind: metric.kind), now: now)
         }
     }
 
@@ -657,6 +665,32 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         result.generation == generation && current.isReset != true
     }
 
+    /// Freshness helpers behind every staleness gate below, split by which
+    /// clock stamped the date being checked:
+    ///
+    /// * WATCH-LOCAL dates (`lastComputeAttemptDate`, `lastComputeDate`) are
+    ///   set by THIS device's own `Date()`, so a future value can only mean a
+    ///   clock rollback or a corrupt persisted stamp — never ordinary skew.
+    ///   Reject it outright, or it reads as permanently fresh and parks
+    ///   recomputation forever.
+    /// * PHONE-STAMPED dates (`lastRefreshDate`, `computedAt`/`liveUpdatedAt`
+    ///   as pushed by `WatchMetricsSnapshotBuilder`) are set by the PHONE's
+    ///   clock, so ordinary phone/watch clock skew puts them a little in the
+    ///   future from the watch's point of view. Tolerate up to `staleInterval`
+    ///   ahead — the same skew allowance `WatchComputeCoordinator` uses for
+    ///   `seed.dataThrough` — so ordinary skew doesn't masquerade as staleness
+    ///   and re-trigger the ~20-query compute-on-every-open regression these
+    ///   gates exist to prevent (see `isComputeStale` below).
+    nonisolated static func isFreshLocalDate(_ date: Date, limit: TimeInterval, now: Date) -> Bool {
+        let elapsed = now.timeIntervalSince(date)
+        return elapsed >= 0 && elapsed <= limit
+    }
+
+    nonisolated static func isFreshPhoneDate(_ date: Date, limit: TimeInterval, now: Date) -> Bool {
+        let elapsed = now.timeIntervalSince(date)
+        return elapsed >= -WatchMetricsSnapshot.staleInterval && elapsed <= limit
+    }
+
     /// Whether an on-device compute would be worth running now.
     ///
     /// A compute is ~20 HealthKit round trips, so the visible-staleness scan
@@ -671,7 +705,7 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         // change. Rate-limits the whole gate below, including the always-stale
         // cases it can't do anything about.
         if let lastComputeAttemptDate,
-           now.timeIntervalSince(lastComputeAttemptDate) <= WatchMetricsSnapshot.staleInterval {
+           Self.isFreshLocalDate(lastComputeAttemptDate, limit: WatchMetricsSnapshot.staleInterval, now: now) {
             return false
         }
 
@@ -684,14 +718,14 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         }
         let anyVisibleMetricStale = visibleMetrics.contains { metric in
             guard let measuredAt = metric.liveUpdatedAt ?? metric.computedAt else { return true }
-            return now.timeIntervalSince(measuredAt) > WatchMetricKindKey.liveFreshnessLimit(forKind: metric.kind)
+            return !Self.isFreshPhoneDate(measuredAt, limit: WatchMetricKindKey.liveFreshnessLimit(forKind: metric.kind), now: now)
         }
         if anyVisibleMetricStale { return true }
 
         // Nothing visibly stale, but the compute itself hasn't produced a result
         // recently (or at all this launch) — re-run so a watch left open keeps up.
         guard let lastComputeDate else { return true }
-        return now.timeIntervalSince(lastComputeDate) > WatchMetricsSnapshot.staleInterval
+        return !Self.isFreshLocalDate(lastComputeDate, limit: WatchMetricsSnapshot.staleInterval, now: now)
     }
 
     // MARK: - WatchConnectivity background tasks

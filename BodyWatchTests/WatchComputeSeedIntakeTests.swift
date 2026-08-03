@@ -152,10 +152,15 @@ final class WatchComputeSeedIntakeTests: XCTestCase {
         let data = try XCTUnwrap(seed().encodedCompressed())
 
         XCTAssertTrue(WatchComputeSeedStore.save(data, fileURL: fileURL))
-        // The identical republish the phone sends on every settings-only
-        // publish must NOT read as a change (it would discard in-flight
-        // computes over and over).
-        XCTAssertFalse(WatchComputeSeedStore.save(data, fileURL: fileURL))
+        // The republish the phone sends on every settings-only publish carries
+        // the same data under a FRESH `publishedAt` — which the seed encoder
+        // deliberately omits, so the bytes must still match and the save must
+        // NOT read as a change (it would discard in-flight computes over and
+        // over).
+        var republished = seed()
+        republished.publishedAt = dataThrough.addingTimeInterval(3_600)
+        let republishedData = try XCTUnwrap(republished.encodedCompressed())
+        XCTAssertFalse(WatchComputeSeedStore.save(republishedData, fileURL: fileURL))
 
         var changedSeed = seed()
         changedSeed.settingsSignature = "sig-2"

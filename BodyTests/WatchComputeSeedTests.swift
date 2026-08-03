@@ -180,7 +180,12 @@ final class WatchComputeSeedTests: XCTestCase {
         let compressed = try XCTUnwrap(seed.encodedCompressed())
         let decoded = try XCTUnwrap(WatchComputeSeed.decoded(from: compressed))
 
-        XCTAssertEqual(decoded, seed)
+        // `publishedAt` is deliberately not transported (see `encode(to:)`), so
+        // it decodes to the missing-field fallback rather than the seed's stamp.
+        XCTAssertEqual(decoded.publishedAt, .distantPast)
+        var expected = seed
+        expected.publishedAt = .distantPast
+        XCTAssertEqual(decoded, expected)
     }
 
     // MARK: - Lenient decode (schema evolution)

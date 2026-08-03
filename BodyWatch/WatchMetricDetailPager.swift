@@ -55,6 +55,19 @@ struct WatchMetricDetailPager: View {
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { selection = initialKind }
             }
+            .onChange(of: metrics.map(\.kind)) { _, kinds in
+                // A phone push can drop the currently-selected metric out of
+                // `metrics` mid-visit (its health category was disabled, or it
+                // fell off the snapshot) while other metrics remain — TabView's
+                // selection would then name a tag with no matching page and
+                // render blank. `initialKind` is always present here (the guard
+                // above), so fall back to it, without animation so the page swap
+                // doesn't scroll past whatever's left.
+                guard let selection, !kinds.contains(selection) else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { self.selection = initialKind }
+            }
         } else {
             ContentUnavailableView(
                 "No Data Yet",

@@ -282,6 +282,30 @@ struct WatchComputeSeed: Codable, Equatable {
         settingsSignature = try container.decodeIfPresent(String.self, forKey: .settingsSignature) ?? ""
     }
 
+    /// Encodes every field EXCEPT `publishedAt`, whose fresh stamp on every
+    /// publication (including a settings-only republish of byte-identical data)
+    /// would otherwise make the watch's byte-compare dedupe
+    /// (`WatchComputeSeedStore.save`) see a change every time and bump the
+    /// compute generation, discarding in-flight computes. Dropping it leaves
+    /// the encoding a function of the seed's semantic content only; `publishedAt`
+    /// stays a `CodingKey` so `init(from:)` still reads older payloads that
+    /// carry it.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(dataThrough, forKey: .dataThrough)
+        try container.encodeIfPresent(lastVitalsRefreshDate, forKey: .lastVitalsRefreshDate)
+        try container.encode(summary, forKey: .summary)
+        try container.encode(trends, forKey: .trends)
+        try container.encode(seriesRanges, forKey: .seriesRanges)
+        try container.encodeIfPresent(trainingLoadStartDay, forKey: .trainingLoadStartDay)
+        try container.encodeIfPresent(trainingLoadDailyLoads, forKey: .trainingLoadDailyLoads)
+        try container.encodeIfPresent(trainingLoadDataThrough, forKey: .trainingLoadDataThrough)
+        try container.encodeIfPresent(expectedSourceIDsByKind, forKey: .expectedSourceIDsByKind)
+        try container.encode(settings, forKey: .settings)
+        try container.encode(settingsSignature, forKey: .settingsSignature)
+    }
+
     private static let fallbackSettings = WatchComputeSettings(
         idealSleepDurationMinutes: BodySleepDurationGoal.defaultMinutes,
         followsSystemUnits: true,
