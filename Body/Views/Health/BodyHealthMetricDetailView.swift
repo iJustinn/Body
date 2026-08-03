@@ -911,7 +911,7 @@ struct BodyHealthMetricDetailView: View {
     private func readinessWhyCard(for readiness: ReadinessSummary, activeStatus: ReadinessStatus?) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("About your score")
-                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 
             VStack(alignment: .leading, spacing: 14) {
@@ -1149,20 +1149,17 @@ struct BodyHealthMetricDetailView: View {
                 metricDatePicker
                 metricDayChartCard
                 metricActivityAveragesCard
-                if model.kind == .readiness, let readiness = model.readiness {
-                    readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
-                }
                 detailTrendComparisonCard
             } else {
-                if model.kind == .readiness, let readiness = model.readiness {
-                    readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
-                }
                 detailTrendComparisonCard
             }
             if isBasicsDetail {
                 bodyMassIndexTrendCard
                 basicsMetricTrendCard(for: .bodyMass)
                 basicsMetricTrendCard(for: .bodyFatPercentage)
+            }
+            if model.kind == .readiness, let readiness = model.readiness {
+                readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
             }
             helpTextCard
             dataSourceFooter

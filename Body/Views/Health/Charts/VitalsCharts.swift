@@ -62,22 +62,6 @@ enum BodyVitalsChartStyle {
     /// readable colored tip instead of a sliver. Past the blend end above, so
     /// the tip always reaches full color.
     static let minimumOutlierOvershoot = 0.4
-    /// Y positions of the trailing High/Typical/Low labels: the middle of each
-    /// region in the fixed scale above.
-    static let regionLabelValues: [Double] = [1.6, 0, -1.6]
-
-    static func regionLabel(for value: Double) -> String {
-        if value > 1 {
-            return String(localized: "High")
-        }
-
-        if value < -1 {
-            return String(localized: "Low")
-        }
-
-        return String(localized: "Typical")
-    }
-
     /// Mixes two component triples; `amount` outside 0…1 clamps to an endpoint,
     /// so callers can hand over an unnormalized ratio.
     static func blend(
@@ -332,22 +316,10 @@ struct BodyVitalsOutlierTrendChart: View {
                     }
                 }
             }
-            .chartYAxis {
-                // The scale is a deviation, not a readable number, so the Y axis
-                // carries the region words instead — same type as
-                // `BodySleepVitalRegionLabels` on the last-night scatter. They stay
-                // visible in the immersive hero (where sibling charts hide their
-                // numeric axis): without them the bars have no reference at all.
-                AxisMarks(position: .trailing, values: BodyVitalsChartStyle.regionLabelValues) { value in
-                    AxisValueLabel {
-                        if let yValue = value.as(Double.self) {
-                            Text(BodyVitalsChartStyle.regionLabel(for: yValue))
-                                .font(.system(size: 15, weight: .bold, design: .rounded))
-                                .foregroundStyle(Color.secondary.opacity(0.62))
-                        }
-                    }
-                }
-            }
+            // The scale is a deviation, not a readable number: the bars and the
+            // highlighted typical band carry the reference on their own, so no
+            // Y axis is drawn at all.
+            .chartYAxis(.hidden)
             .chartXSelection(value: $selectedDate)
             .simultaneousGesture(chartPressGesture)
             .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedBucket?.date) {

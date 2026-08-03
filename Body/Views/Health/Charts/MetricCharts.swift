@@ -116,12 +116,13 @@ struct BodyHealthMetricTrendChart: View {
         return highlightedRangeResolver(activeHighlightSourceValue) ?? highlightedRange
     }
 
+    // Idle (no scrub, no current-value dot) reports nil so the band falls back
+    // to the caller's `highlightedRange`, built from the live summary value the
+    // hero displays. It must NOT fall back to the last plotted point: that can
+    // disagree with the live score (the plotted point is the frozen morning
+    // value) and briefly showed the wrong band as "Current".
     private var activeHighlightSourceValue: Double? {
-        selectedTrendPoint?.value ?? currentValuePoint?.value ?? latestVisibleTrendPoint?.value
-    }
-
-    private var latestVisibleTrendPoint: HealthTrendCalendarPoint? {
-        visibleFinitePoints.last
+        selectedTrendPoint?.value ?? currentValuePoint?.value
     }
 
     var body: some View {
