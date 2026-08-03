@@ -20,6 +20,9 @@ struct WatchSparklineView: View {
     let tint: Color
     /// Today's status band to highlight (Readiness, Training Load); `nil` otherwise.
     var band: WatchStatusBand? = nil
+    /// Color for the band highlight (the status color, per the iOS charts);
+    /// `nil` draws the band with `tint`.
+    var bandTint: Color? = nil
     /// Today's live value when it dropped below today's plotted slot
     /// (Readiness: the drained score under the frozen morning point) — drawn
     /// as a faded tint dot in today's column. `nil` otherwise.
@@ -128,18 +131,19 @@ struct WatchSparklineView: View {
             let yTop = y(for: topValue, plotHeight: plotHeight, domain: domain)
             let yBottom = y(for: bottomValue, plotHeight: plotHeight, domain: domain)
             let centerX = size.width / 2
+            let bandColor = bandTint ?? tint
 
             ZStack {
                 Rectangle()
-                    .fill(tint.opacity(0.22))
+                    .fill(bandColor.opacity(0.22))
                     .frame(width: size.width, height: Swift.max(yBottom - yTop, 0))
                     .position(x: centerX, y: (yTop + yBottom) / 2)
                 Rectangle()
-                    .fill(tint.opacity(0.75))
+                    .fill(bandColor.opacity(0.75))
                     .frame(width: size.width, height: stripeHeight)
                     .position(x: centerX, y: yTop + stripeHeight / 2)
                 Rectangle()
-                    .fill(tint.opacity(0.75))
+                    .fill(bandColor.opacity(0.75))
                     .frame(width: size.width, height: stripeHeight)
                     .position(x: centerX, y: yBottom - stripeHeight / 2)
             }
