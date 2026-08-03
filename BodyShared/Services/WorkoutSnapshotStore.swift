@@ -188,16 +188,14 @@ enum WorkoutSnapshotStore {
         }
     }
 
-    /// Single launch-path read: returns the cached current-month snapshot, or
-    /// an in-memory sample placeholder — never persisted — so the app has
-    /// content to show before HealthKit authorization completes on a fresh
-    /// install. This used to also write the placeholder to the shared App
-    /// Group file so widgets would render before authorization, but that made
-    /// widgets present fabricated workouts as the user's real history; widgets
-    /// now route live loads through `loadCurrentOrPreviousIfEmpty` instead, so
-    /// nothing on disk needs seeding anymore.
-    static func loadOrPlaceholder(fileURL: URL? = snapshotFileURL) -> WorkoutMonthSnapshot {
-        load(fileURL: fileURL) ?? .placeholder
+    /// A truthful "no data yet" load for production init: the cached
+    /// current-month snapshot when present, otherwise an honest empty
+    /// snapshot — unlike `.placeholder`, never fabricated sample workouts. Use
+    /// this for default init values that can outlive HealthKit authorization
+    /// (e.g. a fresh install with no cache), so the user never sees sample
+    /// workouts presented as their real history.
+    static func loadOrEmpty(fileURL: URL? = snapshotFileURL) -> WorkoutMonthSnapshot {
+        load(fileURL: fileURL) ?? .makeEmpty()
     }
 
     @discardableResult

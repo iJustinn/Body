@@ -298,7 +298,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     init(
-        initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrPlaceholder(),
+        initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrEmpty(),
         initialHealthDashboardSnapshot: HealthDashboardSnapshot = HealthDashboardSnapshotStore.loadOrEmpty(),
         initialSummaryContextSignature: String? = HealthDashboardSnapshotStore.loadSummaryContextSignature(),
         initialPermissionSelection: BodyHealthPermissionSelection = BodyHealthPermissionSelection.load(),

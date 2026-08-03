@@ -109,6 +109,15 @@ final class SnapshotStoreLoadCacheTests: XCTestCase {
         XCTAssertNil(WorkoutSnapshotStore.load(fileURL: fileURL))
     }
 
+    func testWorkoutLoadOrEmptyReturnsHonestEmptySnapshotWhenFileAbsent() throws {
+        let fileURL = try uniqueFileURL()
+
+        let result = WorkoutSnapshotStore.loadOrEmpty(fileURL: fileURL)
+
+        XCTAssertEqual(result.workoutCount, 0)
+        XCTAssertFalse(result.days.flatMap(\.workouts).contains { $0.sourceName == "Preview" })
+    }
+
     func testWorkoutLoadReturnsNilForGarbageBytesRepeatedly() throws {
         let fileURL = try uniqueFileURL()
         let snapshot = WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian)
