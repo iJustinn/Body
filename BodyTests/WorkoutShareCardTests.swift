@@ -218,6 +218,115 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertEqual(metricsWithComparison, metricsWithoutComparison)
     }
 
+    // MARK: - Metrics: centered layout
+
+    func testCenteredRunningIsDistancePaceTime() throws {
+        let run = workout(type: .running, distance: 5000, activeEnergy: 320, avgHR: 145)
+        let presentation = presentation(for: run)
+
+        let metrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: .running)
+        let heroValue = try XCTUnwrap(presentation.heroDistanceValue)
+        let heroUnit = try XCTUnwrap(presentation.heroDistanceUnit)
+        let paceTile = try XCTUnwrap(tile(.pace, in: presentation))
+
+        XCTAssertEqual(
+            metrics.map(\.title),
+            [String(localized: "Distance"), String(localized: "Pace"), String(localized: "Time")]
+        )
+        XCTAssertEqual(
+            metrics.map(\.value),
+            ["\(heroValue) \(heroUnit)", paceTile.value, presentation.durationClockText]
+        )
+        // The three leaders fill every slot, so avg HR never reaches the stack.
+        XCTAssertFalse(metrics.contains { $0.value == presentation.averageHeartRateText })
+    }
+
+    func testCenteredCyclingLabelsTheRateSpeed() throws {
+        let ride = workout(type: .cycling, distance: 20_000, activeEnergy: 500)
+        let presentation = presentation(for: ride)
+
+        let metrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: .cycling)
+        let speedTile = try XCTUnwrap(tile(.speed, in: presentation))
+
+        // The tile's own title is "Avg Speed"; the centered layout wants the short label
+        // with the same value.
+        XCTAssertNotEqual(speedTile.title, String(localized: "Speed"))
+        XCTAssertEqual(metrics[1].title, String(localized: "Speed"))
+        XCTAssertEqual(metrics[1].value, speedTile.value)
+    }
+
+    func testCenteredSwimmingLabelsTheRatePace() throws {
+        let swim = workout(type: .swimming, duration: 2400, distance: 1500)
+        let presentation = presentation(for: swim)
+
+        let metrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: .swimming)
+        let swimPaceTile = try XCTUnwrap(tile(.swimPace, in: presentation))
+
+        XCTAssertEqual(metrics[1].title, String(localized: "Pace"))
+        XCTAssertEqual(metrics[1].value, swimPaceTile.value)
+    }
+
+    func testCenteredDownhillSkiingFillsTheRateSlotWithElevation() throws {
+        let ski = workout(type: .downhillSkiing, distance: 8000, activeEnergy: 400, avgHR: 130, elevation: 650)
+        let presentation = presentation(for: ski)
+
+        let metrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: .downhillSkiing)
+        let elevationTile = try XCTUnwrap(tile(.elevation, in: presentation))
+
+        // No pace/speed tile for this type, so the leaders only fill two slots and
+        // elevation takes the third — ahead of the avg HR this fixture also carries.
+        XCTAssertEqual(
+            metrics.map(\.title),
+            [String(localized: "Distance"), String(localized: "Time"), elevationTile.title]
+        )
+        XCTAssertEqual(metrics[2].value, elevationTile.value)
+        XCTAssertFalse(metrics.contains { $0.value == presentation.averageHeartRateText })
+    }
+
+    func testCenteredDistancelessStrengthTrainingKeepsTimeAndFillsWithHeartRate() throws {
+        let lift = workout(type: .strengthTraining, duration: 2700, activeEnergy: 200, avgHR: 122)
+        let presentation = presentation(for: lift)
+
+        XCTAssertNil(presentation.heroDistanceValue)
+        XCTAssertNil(tile(.distance, in: presentation))
+        let heartRateText = try XCTUnwrap(presentation.averageHeartRateText)
+
+        let metrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: .strengthTraining)
+
+        // Missing distance and rate must collapse, not leave placeholder blocks.
+        XCTAssertFalse(metrics.contains { $0.title.isEmpty || $0.value.isEmpty })
+        XCTAssertEqual(metrics.map(\.value), [presentation.durationClockText, heartRateText])
+    }
+
+    func testCenteredNeverExceedsThreeMetrics() {
+        // Hiking is the fixture with the most candidates: distance, pace, time,
+        // elevation, and avg HR all qualify.
+        let hike = workout(type: .hiking, duration: 5400, distance: 9000, activeEnergy: 600, avgHR: 128, elevation: 540)
+        let presentation = presentation(for: hike)
+
+        let metrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: .hiking)
+
+        XCTAssertEqual(metrics.count, 3)
+        XCTAssertEqual(
+            metrics.map(\.title),
+            [String(localized: "Distance"), String(localized: "Pace"), String(localized: "Time")]
+        )
+    }
+
+    func testCenteredUsesDistanceTileWhenNotPromoted() throws {
+        // Rowing keeps distance as a Details tile instead of promoting it to the hero.
+        let row = workout(type: .rowing, distance: 3000, activeEnergy: 250)
+        let presentation = presentation(for: row)
+
+        XCTAssertNil(presentation.heroDistanceValue)
+        let distanceTile = try XCTUnwrap(tile(.distance, in: presentation))
+
+        let metrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: .rowing)
+
+        XCTAssertEqual(metrics[0].title, distanceTile.title)
+        XCTAssertEqual(metrics[0].value, distanceTile.value)
+    }
+
     // MARK: - Projection
 
     func testAntimeridianRouteUnwrapsWithoutInvertingOrder() throws {
@@ -385,13 +494,15 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "map"), .map)
     }
 
-    func testStoredFallsBackToMapForNilOrGarbage() {
-        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: nil), .map)
-        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: ""), .map)
-        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "not-a-real-preset"), .map)
-        // "ocean" is a retired preset: a value stored by build 10/11 is now unknown and
-        // must resolve to the map default rather than crashing or sticking on a gradient.
-        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "ocean"), .map)
+    func testStoredFallsBackToMidnightForNilOrGarbage() {
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: nil), .preset(.midnight))
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: ""), .preset(.midnight))
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "not-a-real-preset"), .preset(.midnight))
+        // "ocean" is a retired preset: a stored value from an old build is now unknown
+        // and must resolve to the Midnight default rather than crashing or mapping.
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "ocean"), .preset(.midnight))
+        // The map only ever comes back from an explicit pick, never as a fallback.
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "map"), .map)
     }
 
     func testResolvedPhotoReturnsNilForNonProEvenWithAPhoto() {
@@ -407,5 +518,50 @@ final class WorkoutShareCardTests: XCTestCase {
     func testResolvedPhotoWithNilPhotoReturnsNilRegardlessOfEntitlement() {
         XCTAssertNil(WorkoutShareBackgroundPolicy.resolvedPhoto(nil, isProUnlocked: true))
         XCTAssertNil(WorkoutShareBackgroundPolicy.resolvedPhoto(nil, isProUnlocked: false))
+    }
+
+    // MARK: - Info block transform
+
+    func testIdentityTransformClampsToItself() {
+        XCTAssertEqual(WorkoutShareInfoTransform.identity.clamped(), .identity)
+    }
+
+    func testInRangeTransformPassesThroughUnchanged() {
+        let transform = WorkoutShareInfoTransform(offset: CGSize(width: 40, height: -120), scale: 1.2)
+
+        XCTAssertEqual(transform.clamped(), transform)
+    }
+
+    func testOutOfRangeOffsetAndScaleClampToTheBoundsOnBothSides() {
+        let far = WorkoutShareInfoTransform(offset: CGSize(width: 900, height: 900), scale: 8).clamped()
+
+        XCTAssertEqual(far.offset.width, WorkoutShareInfoTransform.maximumOffsetWidth)
+        XCTAssertEqual(far.offset.height, WorkoutShareInfoTransform.maximumOffsetHeight)
+        XCTAssertEqual(far.scale, WorkoutShareInfoTransform.scaleRange.upperBound)
+
+        let near = WorkoutShareInfoTransform(offset: CGSize(width: -900, height: -900), scale: 0.01).clamped()
+
+        XCTAssertEqual(near.offset.width, -WorkoutShareInfoTransform.maximumOffsetWidth)
+        XCTAssertEqual(near.offset.height, -WorkoutShareInfoTransform.maximumOffsetHeight)
+        XCTAssertEqual(near.scale, WorkoutShareInfoTransform.scaleRange.lowerBound)
+    }
+
+    func testNonFiniteComponentsClampToTheIdentityComponent() {
+        // A NaN/infinite gesture value has no meaningful side to pin to, so each bad
+        // component resets on its own while the good ones survive.
+        let badWidth = WorkoutShareInfoTransform(offset: CGSize(width: CGFloat.nan, height: 60), scale: 1.1).clamped()
+
+        XCTAssertEqual(badWidth.offset.width, 0)
+        XCTAssertEqual(badWidth.offset.height, 60)
+        XCTAssertEqual(badWidth.scale, 1.1)
+
+        let badHeightAndScale = WorkoutShareInfoTransform(
+            offset: CGSize(width: 20, height: CGFloat.infinity),
+            scale: .nan
+        ).clamped()
+
+        XCTAssertEqual(badHeightAndScale.offset.width, 20)
+        XCTAssertEqual(badHeightAndScale.offset.height, 0)
+        XCTAssertEqual(badHeightAndScale.scale, 1)
     }
 }

@@ -59,7 +59,8 @@ struct WorkoutCalendarProvider: AppIntentTimelineProvider {
         loadEntry(
             configuration: configuration,
             usePlaceholderWhenEmpty: context.isPreview,
-            isPro: context.isPreview || BodyProEntitlement.isUnlocked
+            isPro: context.isPreview || BodyProEntitlement.isUnlocked,
+            now: Date()
         )
     }
 
@@ -67,20 +68,39 @@ struct WorkoutCalendarProvider: AppIntentTimelineProvider {
         for configuration: BodyWidgetConfigurationIntent,
         in context: Context
     ) async -> Timeline<WorkoutCalendarEntry> {
-        let entry = loadEntry(configuration: configuration, usePlaceholderWhenEmpty: false, isPro: BodyProEntitlement.isUnlocked)
-        let nextRefresh = Calendar.bodyGregorian.date(byAdding: .minute, value: 30, to: entry.date) ?? entry.date.addingTimeInterval(1_800)
-        return Timeline(entries: [entry], policy: .after(nextRefresh))
+        let now = Date()
+        let calendar = Calendar.bodyGregorian
+        let entry = loadEntry(configuration: configuration, usePlaceholderWhenEmpty: false, isPro: BodyProEntitlement.isUnlocked, now: now)
+
+        // Flip to the new (still-empty) month the moment it starts: `.after` is
+        // only an earliest-reload hint, so without this dated entry the widget
+        // could keep showing last month's calendar past the boundary.
+        var entries = [entry]
+        if let nextMonthStart = calendar.dateInterval(of: .month, for: now)?.end {
+            entries.append(
+                WorkoutCalendarEntry(
+                    date: nextMonthStart,
+                    background: entry.background,
+                    snapshot: .makeEmpty(generatedAt: nextMonthStart, calendar: calendar),
+                    isPro: entry.isPro
+                )
+            )
+        }
+
+        let nextRefresh = calendar.date(byAdding: .minute, value: 30, to: now) ?? now.addingTimeInterval(1_800)
+        return Timeline(entries: entries, policy: .after(nextRefresh))
     }
 
     private func loadEntry(
         configuration: BodyWidgetConfigurationIntent,
         usePlaceholderWhenEmpty: Bool,
-        isPro: Bool
+        isPro: Bool,
+        now: Date
     ) -> WorkoutCalendarEntry {
         WorkoutCalendarEntry(
-            date: Date(),
+            date: now,
             background: configuration.background ?? .system,
-            snapshot: WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty(usePlaceholderWhenEmpty: usePlaceholderWhenEmpty),
+            snapshot: WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty(usePlaceholderWhenEmpty: usePlaceholderWhenEmpty, now: now),
             isPro: isPro
         )
     }

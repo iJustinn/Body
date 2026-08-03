@@ -29,6 +29,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
+    @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @State private var activeSheet: BodySettingsSheet?
     @State private var showBodyProPaywall = false
@@ -380,6 +381,21 @@ struct BodySettingsView: View {
     private var workoutsSection: some View {
         BodySettingsCardSection("Workouts") {
             Button {
+                activeSheet = .workoutRouteStyle
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Route Style",
+                    value: workoutRouteStyleSummaryText,
+                    iconName: "map.fill",
+                    tintColor: .blue,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
                 activeSheet = .effortSuggestions
             } label: {
                 BodySettingsRowLabel(
@@ -412,6 +428,10 @@ struct BodySettingsView: View {
 
     private var workoutEffortSuggestionsSummaryText: String {
         showWorkoutEffortSuggestions ? String(localized: "On") : String(localized: "Off")
+    }
+
+    private var workoutRouteStyleSummaryText: String {
+        BodyWorkoutRouteStyle.storedValue(from: workoutRouteStyleRawValue).title
     }
 
     private var settingsDivider: some View {
@@ -585,6 +605,14 @@ struct BodySettingsView: View {
         }
     }
 
+    private var workoutRouteStyle: Binding<BodyWorkoutRouteStyle> {
+        Binding {
+            BodyWorkoutRouteStyle.storedValue(from: workoutRouteStyleRawValue)
+        } set: { style in
+            workoutRouteStyleRawValue = style.rawValue
+        }
+    }
+
     @ViewBuilder
     private func settingsSheet(for sheet: BodySettingsSheet) -> some View {
         switch sheet {
@@ -609,6 +637,8 @@ struct BodySettingsView: View {
                 autoApply: $autoApplyWorkoutEffort,
                 workoutStore: workoutStore
             )
+        case .workoutRouteStyle:
+            BodyWorkoutRouteStyleSettingsSheet(selection: workoutRouteStyle)
         case .sleepDurationGoal:
             BodySleepSettingsSheet(
                 goalMinutes: sleepDurationGoal,
@@ -673,6 +703,7 @@ enum BodySettingsSheet: String, Identifiable {
     case starMetric
     case dayView
     case effortSuggestions
+    case workoutRouteStyle
     case units
     case source
     case permissions
@@ -812,6 +843,16 @@ extension BodyValueFormat.DistanceUnitPreference: BodyUnitPreferenceOption { }
 extension BodyValueFormat.EnergyUnitPreference: BodyUnitPreferenceOption { }
 extension BodyValueFormat.TemperatureUnitPreference: BodyUnitPreferenceOption { }
 
+extension BodyWorkoutRouteStyle: BodyUnitPreferenceOption {
+    var unitLabel: String {
+        title
+    }
+
+    var displayName: String {
+        subtitle
+    }
+}
+
 private struct BodySleepSettingsSheet: View {
     @Binding var goalMinutes: Int
     @Binding var showsSubMinuteAwakeStages: Bool
@@ -916,13 +957,6 @@ private struct BodyUnitPreferencePickerSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // On iOS 26+ the sheet's default Liquid Glass background shows through;
-                // older systems keep the opaque grouped background.
-                if #unavailable(iOS 26.0) {
-                    Color(.systemGroupedBackground)
-                        .ignoresSafeArea()
-                }
-
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 18) {
                         BodySettingsCardSection("System") {
@@ -990,7 +1024,38 @@ private struct BodyUnitPreferencePickerSheet: View {
                     .padding(.bottom, 24)
                 }
             }
+            .bodySheetBackground()
             .navigationTitle("Units")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+private struct BodyWorkoutRouteStyleSettingsSheet: View {
+    @Binding var selection: BodyWorkoutRouteStyle
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        BodySettingsCardSection("Route Style") {
+                            BodyUnitPreferenceControlRow(
+                                title: "Workout Route",
+                                iconName: "map.fill",
+                                tintColor: .blue,
+                                options: BodyWorkoutRouteStyle.allCases,
+                                selection: $selection,
+                                isEnabled: true
+                            )
+                        }
+                    }
+                    .padding()
+                    .padding(.bottom, 24)
+                }
+            }
+            .bodySheetBackground()
+            .navigationTitle("Route Style")
             .navigationBarTitleDisplayMode(.inline)
         }
     }
@@ -1830,7 +1895,7 @@ private struct BodySleepScoreToggleRow: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
 
-                    Text("v2")
+                    Text("v3")
                         .font(.system(size: 11, weight: .bold, design: .rounded))
                         .foregroundStyle(.blue)
                         .padding(.horizontal, 7)
@@ -2884,13 +2949,6 @@ private struct BodyAppIconPickerSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // On iOS 26+ the sheet's default Liquid Glass background shows through;
-                // older systems keep the opaque grouped background.
-                if #unavailable(iOS 26.0) {
-                    Color(.systemGroupedBackground)
-                        .ignoresSafeArea()
-                }
-
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(options) { option in
@@ -2909,6 +2967,7 @@ private struct BodyAppIconPickerSheet: View {
                     .padding(.bottom, 24)
                 }
             }
+            .bodySheetBackground()
             .navigationTitle("App Icon")
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -3093,20 +3152,12 @@ private struct BodySettingsAboutSheetScaffold<Content: View>: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                // On iOS 26+ the sheet's default Liquid Glass background shows through;
-                // older systems keep the opaque grouped background.
-                if #unavailable(iOS 26.0) {
-                    Color(.systemGroupedBackground)
-                        .ignoresSafeArea()
-                }
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    content
-                        .padding()
-                        .padding(.bottom, 24)
-                }
+            ScrollView(.vertical, showsIndicators: false) {
+                content
+                    .padding()
+                    .padding(.bottom, 24)
             }
+            .bodySheetBackground()
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
         }

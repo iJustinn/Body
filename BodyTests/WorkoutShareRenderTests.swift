@@ -3,8 +3,8 @@
 //  BodyTests
 //
 //  Smoke test for the share card's rasterization: proves `ImageRenderer` produces a
-//  non-nil, exactly-1080×1920-px image and that the route Canvas actually draws
-//  (route-blue pixels appear over a dark preset). Not a snapshot test.
+//  non-nil, exactly-1080×1920-px image for both layouts and that the route Canvas
+//  actually draws (route-blue pixels appear over a dark preset). Not a snapshot test.
 //
 
 import XCTest
@@ -26,8 +26,8 @@ final class WorkoutShareRenderTests: XCTestCase {
         )
     }
 
-    /// A diagonal route so the trace passes through the unit-square center (0.5, 0.5),
-    /// which maps to the card center — where the render test samples for stroke pixels.
+    /// A diagonal route: normalized, it spans the unit square corner to corner, so the
+    /// stroke crosses the whole route region wherever that region is placed.
     private func fixtureCoordinates() -> [RouteCoordinate] {
         (0..<40).map { index in
             let t = Double(index) / 39
@@ -39,16 +39,22 @@ final class WorkoutShareRenderTests: XCTestCase {
         }
     }
 
-    private func makeRenderer() -> ImageRenderer<some View> {
+    private func makeRenderer(
+        layout: WorkoutShareCardLayout = .centered,
+        infoTransform: WorkoutShareInfoTransform = .identity
+    ) -> ImageRenderer<some View> {
         let workout = fixtureWorkout()
         let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
         let card = BodyWorkoutShareCardView(
             presentation: presentation,
             metrics: WorkoutShareMetricsBuilder.metrics(for: presentation, type: workout.type),
+            centeredMetrics: WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type),
             routePoints: WorkoutShareRouteProjection.normalizedPoints(for: fixtureCoordinates()),
             locality: "Cupertino",
             type: workout.type,
-            background: .preset(.midnight)
+            background: .preset(.midnight),
+            layout: layout,
+            infoTransform: infoTransform
         )
         let renderer = ImageRenderer(
             content: card
@@ -70,24 +76,68 @@ final class WorkoutShareRenderTests: XCTestCase {
         XCTAssertEqual(cgImage.height, 1_920)
     }
 
+    /// The classic layout is a different view tree (header + bottom row), so it gets its
+    /// own size assertion — a layout that overflowed 360×640 would still be clipped, but
+    /// a broken tree that fails to render wouldn't be caught by the centered test.
+    func testClassicLayoutRendersToExactPixelSize() throws {
+        let renderer = makeRenderer(layout: .classic)
+        let image = try XCTUnwrap(renderer.uiImage, "ImageRenderer produced no image")
+        let cgImage = try XCTUnwrap(image.cgImage, "Rendered image had no backing CGImage")
+
+        XCTAssertEqual(cgImage.width, 1_080)
+        XCTAssertEqual(cgImage.height, 1_920)
+    }
+
     func testRouteAreaRasterizesOverDarkPreset() throws {
         let renderer = makeRenderer()
         let image = try XCTUnwrap(renderer.uiImage)
         let cgImage = try XCTUnwrap(image.cgImage)
 
-        // Sample a wide band across the route hero's area: the diagonal stroke must
-        // cross the card's vertical middle somewhere, but its exact x depends on
-        // header/metrics heights — a broad band keeps the test robust to layout tweaks.
-        let sample = CGRect(
-            x: cgImage.width / 4,
-            y: cgImage.height / 2 - 150,
-            width: cgImage.width / 2,
-            height: 300
-        )
+        // The centered layout's route region, taken from the card's own constants and
+        // scaled to pixels, so moving the region can't silently leave this test sampling
+        // empty background. The diagonal fixture route spans the region corner to corner.
+        let sample = Self.centeredRouteRegionInPixels(of: cgImage)
         XCTAssertTrue(
             Self.containsRouteBluePixel(in: cgImage, region: sample),
             "Route trace region had no route-blue pixels — the Canvas did not rasterize"
         )
+    }
+
+    /// The export has to match the preview, so a moved info block must actually move the
+    /// trace's pixels rather than just be accepted by the card's initializer. 300 pt is
+    /// more than the 260 pt region is tall, so the shifted and default bands are
+    /// disjoint. The bottom-pinned branding does land inside the shifted band, but it's
+    /// white — never route blue — so it can't satisfy the check on its own.
+    func testOffsetInfoTransformMovesTheRouteTrace() throws {
+        let offset = CGSize(width: 0, height: 300)
+        let renderer = makeRenderer(infoTransform: WorkoutShareInfoTransform(offset: offset, scale: 1))
+        let image = try XCTUnwrap(renderer.uiImage)
+        let cgImage = try XCTUnwrap(image.cgImage)
+
+        XCTAssertTrue(
+            Self.containsRouteBluePixel(in: cgImage, region: Self.centeredRouteRegionInPixels(of: cgImage, offsetBy: offset)),
+            "Route trace did not follow the info transform's offset"
+        )
+        XCTAssertFalse(
+            Self.containsRouteBluePixel(in: cgImage, region: Self.centeredRouteRegionInPixels(of: cgImage)),
+            "Route trace still drew in its default region despite the offset"
+        )
+    }
+
+    /// `BodyWorkoutShareCardView.centeredRoute*` (card points, optionally shifted by an
+    /// info transform's offset) × the renderer's scale 3, clamped to the image so a
+    /// future geometry change can't index out of bounds.
+    private static func centeredRouteRegionInPixels(of cgImage: CGImage, offsetBy offset: CGSize = .zero) -> CGRect {
+        let scale: CGFloat = 3
+        let size = BodyWorkoutShareCardView.centeredRouteSize
+        let center = BodyWorkoutShareCardView.centeredRouteCenter
+        let region = CGRect(
+            x: (center.x + offset.width - size / 2) * scale,
+            y: (center.y + offset.height - size / 2) * scale,
+            width: size * scale,
+            height: size * scale
+        )
+        return region.intersection(CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
     }
 
     /// Draws the CGImage into an RGBA8 buffer and scans `region` for a pixel matching the

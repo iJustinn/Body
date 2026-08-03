@@ -8,8 +8,10 @@ import SwiftUI
 struct BodyWorkoutsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedMonth = Calendar.bodyGregorian.component(.month, from: Date())
     @State private var selectedYear = Calendar.bodyGregorian.component(.year, from: Date())
+    @State private var observedCurrentMonthYear = BodyMonthYear.current()
     @State private var pendingMonthSelection: PendingMonthSelection?
     @State private var monthLoadTasks: [String: Task<Bool, Never>] = [:]
     @State private var searchText = ""
@@ -32,8 +34,11 @@ struct BodyWorkoutsView: View {
     }
 
     var body: some View {
-        let allWorkouts = self.allWorkouts
-        let visibleWorkouts = filteredWorkouts(from: allWorkouts)
+        let baseSnapshot = selectedSnapshot
+        let allWorkouts = baseSnapshot.days.flatMap(\.workouts)
+        let matchingWorkouts = self.matchingWorkouts(from: allWorkouts, in: baseSnapshot)
+        let visibleWorkouts = sorted(workouts: matchingWorkouts)
+        let displaySnapshot = self.displaySnapshot(from: baseSnapshot, matching: matchingWorkouts)
 
         NavigationStack {
             ZStack {
@@ -55,7 +60,7 @@ struct BodyWorkoutsView: View {
 
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: 16) {
-                            workoutCalendarCard
+                            workoutCalendarCard(snapshot: displaySnapshot)
                                 .id("calendar-\(monthIdentity)")
                                 .transition(monthSwitchTransition)
 
@@ -89,7 +94,7 @@ struct BodyWorkoutsView: View {
                             .id("list-\(monthIdentity)")
                             .transition(monthSwitchTransition)
 
-                            workoutTypeSummaryCard(workouts: allWorkouts)
+                            workoutTypeSummaryCard(snapshot: displaySnapshot, workouts: matchingWorkouts)
                                 .id("summary-\(monthIdentity)")
                                 .transition(monthSwitchTransition)
                         }
@@ -147,8 +152,36 @@ struct BodyWorkoutsView: View {
                 animateListInIfNeeded()
             }
             .onAppear {
+                advanceToNewMonthIfNeeded()
                 animateListInIfNeeded()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+                advanceToNewMonthIfNeeded()
+            }
+            .onChange(of: scenePhase) {
+                if scenePhase == .active {
+                    advanceToNewMonthIfNeeded()
+                }
+            }
+        }
+    }
+
+    /// Follows the calendar into a new month while the app stays alive: if the
+    /// user was viewing the (old) current month, the selection moves to the new
+    /// month — shown immediately as an empty snapshot; the regular foreground
+    /// sync fetches and persists its real data.
+    private func advanceToNewMonthIfNeeded(now: Date = Date()) {
+        guard let advance = BodyWorkoutMonthRollover.advance(
+            now: now,
+            observedCurrent: observedCurrentMonthYear,
+            selection: BodyMonthYear(month: selectedMonth, year: selectedYear)
+        ) else {
+            return
+        }
+
+        observedCurrentMonthYear = advance.newCurrent
+        if advance.shouldMoveSelection {
+            applyMonthSelection(advance.newCurrent)
         }
     }
 
@@ -173,26 +206,31 @@ struct BodyWorkoutsView: View {
             }
     }
 
-    private func filteredWorkouts(from allWorkouts: [WorkoutSummary]) -> [WorkoutSummary] {
-        let normalizedSearchText = searchText
+    private var normalizedSearchText: String {
+        searchText
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+    }
+
+    private func matchingWorkouts(from allWorkouts: [WorkoutSummary], in baseSnapshot: WorkoutMonthSnapshot) -> [WorkoutSummary] {
+        let normalizedSearchText = self.normalizedSearchText
 
         guard !normalizedSearchText.isEmpty else {
-            let searchedWorkouts = allWorkouts.filter { workout in
+            return allWorkouts.filter { workout in
                 selectedWorkoutTypes.contains(workout.type)
             }
-
-            return sorted(workouts: searchedWorkouts)
         }
 
+        // The corpus cache must always see the unfiltered snapshot and full
+        // workout list — its key includes `generatedAt`, so a filtered array
+        // under the same key would persist a partial corpus.
         let corpus = searchCorpusCache.entries(
-            for: selectedSnapshot,
+            for: baseSnapshot,
             workouts: allWorkouts,
             dateSearchText: dateSearchText(for:)
         )
 
-        let searchedWorkouts = allWorkouts.filter { workout in
+        return allWorkouts.filter { workout in
             guard selectedWorkoutTypes.contains(workout.type) else {
                 return false
             }
@@ -207,8 +245,17 @@ struct BodyWorkoutsView: View {
                 || corpusEntry.sourceText.contains(normalizedSearchText)
                 || corpusEntry.dateText.contains(normalizedSearchText)
         }
+    }
 
-        return sorted(workouts: searchedWorkouts)
+    private func displaySnapshot(from baseSnapshot: WorkoutMonthSnapshot, matching: [WorkoutSummary]) -> WorkoutMonthSnapshot {
+        guard hasActiveFilters || !normalizedSearchText.isEmpty else {
+            return baseSnapshot
+        }
+
+        return BodyWorkoutFilterLogic.displaySnapshot(
+            from: baseSnapshot,
+            matchingIDs: Set(matching.map(\.id))
+        )
     }
 
     private var hasActiveFilters: Bool {
@@ -291,9 +338,9 @@ struct BodyWorkoutsView: View {
         .frame(height: 46)
     }
 
-    private var workoutCalendarCard: some View {
+    private func workoutCalendarCard(snapshot: WorkoutMonthSnapshot) -> some View {
         WorkoutCalendarView(
-            snapshot: selectedSnapshot,
+            snapshot: snapshot,
             style: .widgetLarge,
             fillsAvailableHeight: false,
             onSelectDay: { day in
@@ -312,7 +359,7 @@ struct BodyWorkoutsView: View {
             .bodyWorkoutsToolbarCardBackground()
     }
 
-    private func workoutTypeSummaryCard(workouts: [WorkoutSummary]) -> some View {
+    private func workoutTypeSummaryCard(snapshot: WorkoutMonthSnapshot, workouts: [WorkoutSummary]) -> some View {
         VStack(spacing: 18) {
             monthlySummaryHeader(workouts: workouts)
 
@@ -320,12 +367,12 @@ struct BodyWorkoutsView: View {
                 .overlay(Color.secondary.opacity(0.18))
 
             WorkoutTypeBreakdownView(
-                snapshot: selectedSnapshot,
+                snapshot: snapshot,
                 style: .app,
                 onSelectType: { type in
                     selectedWorkoutListSelection = .type(
                         type,
-                        workouts: workoutsForType(type)
+                        workouts: workoutsForType(type, in: workouts)
                     )
                 }
             )
@@ -362,8 +409,8 @@ struct BodyWorkoutsView: View {
         }
     }
 
-    private func workoutsForType(_ type: BodyWorkoutType) -> [WorkoutSummary] {
-        allWorkouts
+    private func workoutsForType(_ type: BodyWorkoutType, in workouts: [WorkoutSummary]) -> [WorkoutSummary] {
+        workouts
             .filter { $0.type == type }
             .sorted { $0.startDate > $1.startDate }
     }
@@ -406,7 +453,9 @@ struct BodyWorkoutsView: View {
                 }
                 .padding(.top, 8)
             } else {
-                Text("No workouts for \(localizedMonthTitle) \(selectedYear)")
+                // The year interpolates as a String: an Int picks up the locale's
+                // digit grouping and renders "August 2,026".
+                Text("No workouts for \(localizedMonthTitle) \(String(selectedYear))")
                     .font(.system(.title3, design: .rounded))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -622,6 +671,25 @@ enum BodyWorkoutFilterLogic {
 
     static func hasActiveFilters(selectedTypes: Set<BodyWorkoutType>) -> Bool {
         selectedTypes != Set(BodyWorkoutType.allCases)
+    }
+
+    /// Rebuilds a snapshot with each day's workouts narrowed to `matchingIDs`,
+    /// keeping the original day buckets and `generatedAt` so no workout can
+    /// move days (the persisted snapshot doesn't record the calendar/time zone
+    /// that formed it, so re-bucketing from `startDate` is not safe).
+    static func displaySnapshot(from snapshot: WorkoutMonthSnapshot, matchingIDs: Set<WorkoutSummary.ID>) -> WorkoutMonthSnapshot {
+        WorkoutMonthSnapshot(
+            month: snapshot.month,
+            year: snapshot.year,
+            generatedAt: snapshot.generatedAt,
+            days: snapshot.days.map { day in
+                WorkoutDaySummary(
+                    dateKey: day.dateKey,
+                    day: day.day,
+                    workouts: day.workouts.filter { matchingIDs.contains($0.id) }
+                )
+            }
+        )
     }
 }
 
@@ -851,6 +919,7 @@ struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
+    @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @State private var isEditingEffort = false
     @State private var editingScore = 5
@@ -881,6 +950,14 @@ struct BodyWorkoutDetailSheet: View {
     @State private var scrollState = BodyWorkoutDetailScrollState()
     @State private var showsFullScreenRouteMap = false
     @State private var showsShareSheet = false
+    /// Resting screen y of the metrics column's top — the distance text when the
+    /// workout has one, the duration otherwise. Measured in the content coordinate
+    /// space (which doesn't move with scroll) plus the viewport's top inset, so it
+    /// settles on layout instead of per scroll frame. Nil until measured.
+    @State private var heroContentTop: CGFloat?
+    /// The sheet's own top safe-area inset — where the ScrollView viewport begins,
+    /// while the hero starts at the sheet's top edge.
+    @State private var topSafeAreaInset: CGFloat = 0
     @Namespace private var routeMapZoom
     /// Age-estimated max HR (220 − age) from Apple Health, loaded once to anchor the
     /// heart-rate zones; nil until loaded (or when no birth date), falling back to the
@@ -904,26 +981,62 @@ struct BodyWorkoutDetailSheet: View {
     /// so the header sits a little higher over the map rather than below it.
     private let contentTopOverlap: CGFloat = 150
 
+    /// Coordinate space of the scrolling content: frames measured in it don't move
+    /// with the scroll, so the hero measurement fires on layout changes only.
+    private static let contentSpace = "workoutDetailContent"
+
+    private var routeStyle: BodyWorkoutRouteStyle {
+        BodyWorkoutRouteStyle(rawValue: workoutRouteStyleRawValue) ?? .defaultValue
+    }
+
+    /// Both heroes center the route's vertical extent midway between the top safe
+    /// area (below the status bar / Dynamic Island — anchoring at the physical screen
+    /// top read too high on island phones) and the top of the metrics column. Until
+    /// that column is measured, fall back to where the fixed layout puts it — the tap
+    /// gap plus the content's top padding, below the safe area — so the first frame
+    /// is already close and the map's re-snapshot isn't visible.
+    private var routeTargetCenterY: CGFloat {
+        let contentTop = heroContentTop ?? (topSafeAreaInset + mapHeight - contentTopOverlap + 24)
+        return (topSafeAreaInset + contentTop) / 2
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             if let route {
-                // The map is the page background: pure black with the route map
-                // pinned to the top, blending into the black. Content floats over
-                // it with no backing of its own (like the home and detail pages).
-                Color.black.ignoresSafeArea()
+                switch routeStyle {
+                case .map:
+                    // The map is the page background: pure black with the route map
+                    // pinned to the top, blending into the black. Content floats over
+                    // it with no backing of its own (like the home and detail pages).
+                    Color.black.ignoresSafeArea()
 
-                BodyWorkoutRouteMapHero(route: route, tint: workout.type.color)
-                    .frame(height: mapHeight)
-                    .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
-                    .overlay {
-                        // Dim the map as the content floats up over it. Reads
-                        // `scrollState.offset` itself so only this layer re-renders per
-                        // scroll frame, not all of the sheet.
-                        BodyWorkoutMapDimOverlay(scrollState: scrollState, mapHeight: mapHeight)
-                    }
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .ignoresSafeArea(edges: .top)
-                    .allowsHitTesting(false)
+                    BodyWorkoutRouteMapHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset)
+                        .frame(height: mapHeight)
+                        .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
+                        .overlay {
+                            // Dim the map as the content floats up over it. Reads
+                            // `scrollState.offset` itself so only this layer re-renders per
+                            // scroll frame, not all of the sheet.
+                            BodyWorkoutMapDimOverlay(scrollState: scrollState, mapHeight: mapHeight)
+                        }
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .ignoresSafeArea(edges: .top)
+                        .allowsHitTesting(false)
+                case .plain:
+                    // No tiles to blend into, so the page keeps the routeless
+                    // workout-tint backdrop and the route strokes over it.
+                    sheetBackdrop
+
+                    BodyWorkoutRoutePlainHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset)
+                        .frame(height: mapHeight)
+                        .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
+                        .overlay {
+                            BodyWorkoutMapDimOverlay(scrollState: scrollState, mapHeight: mapHeight)
+                        }
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .ignoresSafeArea(edges: .top)
+                        .allowsHitTesting(false)
+                }
             } else {
                 sheetBackdrop
             }
@@ -939,6 +1052,13 @@ struct BodyWorkoutDetailSheet: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            // The ScrollView keeps the sheet's safe area while the hero ignores it, so
+            // this inset converts content-space positions into hero-space ones.
+            proxy.safeAreaInsets.top
+        } action: { inset in
+            topSafeAreaInset = inset
+        }
         .overlay(alignment: .topTrailing) {
             // The ZStack keeps its safe-area insets, so the button clears the
             // status bar / Dynamic Island even though the map extends under them
@@ -950,12 +1070,14 @@ struct BodyWorkoutDetailSheet: View {
                     Button {
                         showsShareSheet = true
                     } label: {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 15, weight: .bold))
+                        Text("Share")
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.primary)
-                            .frame(width: 44, height: 44)
+                            .padding(.horizontal, 18)
+                            .frame(height: 44)
+                            .modifier(BodyWorkoutShareButtonBackground())
                     }
-                    .modifier(BodyWorkoutShareButtonBackground())
+                    .buttonStyle(.plain)
                     .padding(.trailing, 20)
                     .accessibilityLabel("Share Workout")
                     .transition(.opacity)
@@ -963,7 +1085,7 @@ struct BodyWorkoutDetailSheet: View {
             }
             .animation(.easeInOut(duration: 0.25), value: route == nil)
         }
-        .sheet(isPresented: $showsShareSheet) {
+        .fullScreenCover(isPresented: $showsShareSheet) {
             if let route {
                 BodyWorkoutShareSheet(workout: workout, route: route, presentation: presentation)
             }
@@ -1000,6 +1122,16 @@ struct BodyWorkoutDetailSheet: View {
             refreshPrediction()
         }
         .onChange(of: showWorkoutEffortSuggestions) { refreshPrediction() }
+        .onChange(of: route == nil) {
+            // The tap gap above the content exists only in the routed layout, so a
+            // routed measurement doesn't apply once the route is gone. The arrival
+            // direction needs no reset — `updateHeroContentTop` never stores routeless
+            // measurements, and clearing here could race the geometry callback that
+            // just measured the routed layout and lose its value for good.
+            if route == nil {
+                heroContentTop = nil
+            }
+        }
     }
 
     @ViewBuilder
@@ -1059,6 +1191,21 @@ struct BodyWorkoutDetailSheet: View {
             .padding(.top, route == nil ? 18 : 24)
             .padding(.bottom, 22)
             .readableContentColumn()
+        }
+        .coordinateSpace(.named(Self.contentSpace))
+    }
+
+    /// Stores the metrics column's resting screen y, the anchor the route centers
+    /// against. Ignored while there is no route: the routeless layout has no tap gap
+    /// above the content, so its measurement would place the route far too high.
+    private func updateHeroContentTop(contentMinY: CGFloat) {
+        guard route != nil else {
+            return
+        }
+
+        let screenY = topSafeAreaInset + contentMinY
+        if heroContentTop != screenY {
+            heroContentTop = screenY
         }
     }
 
@@ -1139,6 +1286,13 @@ struct BodyWorkoutDetailSheet: View {
                 }
             }
             .frame(width: 152, alignment: .trailing)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                // This column's top is the distance text's top when the workout has a
+                // distance, the duration's otherwise — the line the route centers above.
+                proxy.frame(in: .named(Self.contentSpace)).minY
+            } action: { minY in
+                updateHeroContentTop(contentMinY: minY)
+            }
         }
     }
 
@@ -1517,14 +1671,14 @@ struct BodyWorkoutDetailSheet: View {
     }
 }
 
-/// iOS 26 Liquid Glass circle for the detail share button; pre-26 mirrors the
-/// full-screen map close button's material circle.
+/// iOS 26 Liquid Glass capsule for the detail share button; pre-26 mirrors the
+/// full-screen map close button's material treatment.
 private struct BodyWorkoutShareButtonBackground: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.glassEffect(.regular, in: .circle)
+            content.glassEffect(.regular, in: .capsule)
         } else {
-            content.background(.ultraThinMaterial, in: Circle())
+            content.background(.ultraThinMaterial, in: Capsule())
         }
     }
 }
@@ -2559,6 +2713,7 @@ private struct BodyWorkoutFilterView: View {
                 .scrollContentBackground(.hidden)
                 .scrollIndicators(.hidden)
             }
+            .bodySheetBackground()
             .navigationTitle("Filter")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

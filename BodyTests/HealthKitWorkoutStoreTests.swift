@@ -150,6 +150,58 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(HealthDashboardSnapshotStore.load(defaults: defaults, fileURL: fileURL), cachedSnapshot)
     }
 
+    func testHealthDashboardSnapshotStorePersistsWatchExpectedSourceIDsAcrossRelaunch() throws {
+        // The compute seed's `dataThrough` watermark is restored across
+        // relaunches, so the expected-source coverage it guards must survive
+        // with it — a relaunch publish that shipped a seed with NO expected
+        // lists would license the watch's unfiltered All-Sources reads.
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(HealthDashboardSnapshotStore.loadWatchExpectedSourceIDs(defaults: defaults), [:])
+
+        let idsByKind = [
+            "heartRate": ["source:bundle=com.apple.health|name=apple watch"],
+            "sleep": [
+                "source:bundle=com.apple.health|name=apple watch",
+                "source:bundle=com.example.tracker|name=tracker"
+            ]
+        ]
+        HealthDashboardSnapshotStore.saveWatchExpectedSourceIDs(idsByKind, defaults: defaults)
+        XCTAssertEqual(HealthDashboardSnapshotStore.loadWatchExpectedSourceIDs(defaults: defaults), idsByKind)
+
+        HealthDashboardSnapshotStore.clearWatchExpectedSourceIDs(defaults: defaults)
+        XCTAssertEqual(HealthDashboardSnapshotStore.loadWatchExpectedSourceIDs(defaults: defaults), [:])
+    }
+
+    func testHealthDashboardSnapshotStorePersistsWatchTrainingLoadSeedAcrossRelaunch() throws {
+        // Same relaunch story as the expected-source lists: the seed's
+        // `dataThrough` is restored, so a workout-only publish would otherwise
+        // replace the watch's complete seed with one carrying no Training Load
+        // arrays — unrecoverable while the phone's TL/Readiness cards are
+        // hidden (the rebuild is cost-gated on the dashboard fetching TL).
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertNil(HealthDashboardSnapshotStore.loadWatchTrainingLoadSeed(defaults: defaults))
+
+        let startDay = Date(timeIntervalSince1970: 1_700_000_000)
+        let through = Date(timeIntervalSince1970: 1_700_500_000)
+        let loads: [Double] = [0, 12.5, 0, 88.25]
+        HealthDashboardSnapshotStore.saveWatchTrainingLoadSeed(
+            startDay: startDay, loads: loads, through: through, defaults: defaults
+        )
+        let restored = try XCTUnwrap(HealthDashboardSnapshotStore.loadWatchTrainingLoadSeed(defaults: defaults))
+        XCTAssertEqual(restored.startDay, startDay)
+        XCTAssertEqual(restored.loads, loads)
+        XCTAssertEqual(restored.through, through)
+
+        HealthDashboardSnapshotStore.clearWatchTrainingLoadSeed(defaults: defaults)
+        XCTAssertNil(HealthDashboardSnapshotStore.loadWatchTrainingLoadSeed(defaults: defaults))
+    }
+
     func testHealthDashboardSnapshotStoreMigratesOlderUserDefaultsCacheToFile() throws {
         let suiteName = "BodyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -1246,7 +1298,7 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
             instant(night2End, 99)
         ].sorted { $0.startDate < $1.startDate }
 
-        let averages = HealthKitFetchEngine.averageVitalValues(
+        let averages = BodySleepFetch.averageVitalValues(
             samples: samples,
             intervals: [
                 DateInterval(start: night1Start, end: night1End),
@@ -1264,7 +1316,7 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
     func testAverageVitalValuesReturnsNilsWhenNoSamples() {
         let now = Date()
 
-        let averages = HealthKitFetchEngine.averageVitalValues(
+        let averages = BodySleepFetch.averageVitalValues(
             samples: [],
             intervals: [DateInterval(start: now, end: now.addingTimeInterval(3_600))]
         )
@@ -1447,7 +1499,7 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
             sourceName: "Cached Source"
         )
 
-        let summary = HealthKitFetchEngine.summary(for: workout, reusingHeartRateFrom: cached, effortLevel: 7)
+        let summary = BodyWorkoutFetch.summary(for: workout, reusingHeartRateFrom: cached, effortLevel: 7)
 
         XCTAssertEqual(summary.id, workout.uuid)
         XCTAssertEqual(summary.type, .running)

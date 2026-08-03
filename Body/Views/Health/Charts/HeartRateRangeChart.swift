@@ -14,6 +14,9 @@ struct BodyHeartRateRangeTrendChart: View {
     let valueFormatter: (Double) -> String
     let showsAverageLineOverlay: Bool
     let immersive: Bool
+    /// Optional report-out of the scrub callout, so the immersive host can float it on
+    /// the topmost layer (above the nav bar). Nil keeps the in-chart annotation.
+    let floatingCallout: BodyChartFloatingCalloutState?
 
     private let rangePoints: [HealthTrendRangeCalendarPoint]
     private let secondaryRangePoints: [HealthTrendRangeCalendarPoint]
@@ -42,7 +45,8 @@ struct BodyHeartRateRangeTrendChart: View {
         valueFormatter: @escaping (Double) -> String,
         showsAverageLineOverlay: Bool = false,
         immersive: Bool = false,
-        yDomain: (([Double]) -> ClosedRange<Double>)? = nil
+        yDomain: (([Double]) -> ClosedRange<Double>)? = nil,
+        floatingCallout: BodyChartFloatingCalloutState? = nil
     ) {
         self.title = title
         self.selectedRange = selectedRange
@@ -51,6 +55,7 @@ struct BodyHeartRateRangeTrendChart: View {
         self.valueFormatter = valueFormatter
         self.showsAverageLineOverlay = showsAverageLineOverlay
         self.immersive = immersive
+        self.floatingCallout = floatingCallout
         self.primarySourceName = primarySourceName
         self.secondarySourceName = secondarySourceName
 
@@ -129,12 +134,9 @@ struct BodyHeartRateRangeTrendChart: View {
                             spacing: 8,
                             overflowResolution: bodyChartSelectionOverflowResolution
                         ) {
-                            BodyChartSelectionAnnotation(
-                                eyebrow: String(localized: "RANGE"),
-                                values: selectedValues(for: selectedRangePoint, lowValue: lowValue, highValue: highValue),
-                                date: selectedRangePoint.date,
-                                dateText: bodyChartSelectionDateText(for: selectedRangePoint)
-                            )
+                            if floatingCallout == nil {
+                                selectionAnnotation(for: selectedRangePoint, lowValue: lowValue, highValue: highValue)
+                            }
                         }
 
                 }
@@ -175,6 +177,14 @@ struct BodyHeartRateRangeTrendChart: View {
             }
             .chartXSelection(value: $selectedDate)
             .simultaneousGesture(chartPressGesture)
+            .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedRangePoint?.date) {
+                guard let point = selectedRangePoint,
+                      let lowValue = point.lowValue,
+                      let highValue = point.highValue else {
+                    return AnyView(EmptyView())
+                }
+                return AnyView(selectionAnnotation(for: point, lowValue: lowValue, highValue: highValue))
+            }
             .id("heart-rate-range-\(selectedRange.rawValue)")
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -238,6 +248,19 @@ struct BodyHeartRateRangeTrendChart: View {
 
     private func selectedAverageEntries(for date: Date) -> [BodyHeartRateRangeAverageEntry] {
         averageEntries.filter { $0.date == date }
+    }
+
+    private func selectionAnnotation(
+        for selectedRangePoint: HealthTrendRangeCalendarPoint,
+        lowValue: Double,
+        highValue: Double
+    ) -> BodyChartSelectionAnnotation {
+        BodyChartSelectionAnnotation(
+            eyebrow: String(localized: "RANGE"),
+            values: selectedValues(for: selectedRangePoint, lowValue: lowValue, highValue: highValue),
+            date: selectedRangePoint.date,
+            dateText: bodyChartSelectionDateText(for: selectedRangePoint)
+        )
     }
 
     private var selectedRangePoint: HealthTrendRangeCalendarPoint? {

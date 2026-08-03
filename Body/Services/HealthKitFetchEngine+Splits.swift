@@ -30,7 +30,7 @@ extension HealthKitFetchEngine {
         }
 
         let type = HealthKitWorkoutStore.workoutType(for: workout.workoutActivityType)
-        guard let identifier = HealthKitFetchEngine.distanceQuantityTypeIdentifier(for: type),
+        guard let identifier = BodyWorkoutFetch.distanceQuantityTypeIdentifier(for: type),
               let distanceType = HKQuantityType.quantityType(forIdentifier: identifier) else {
             return .empty
         }

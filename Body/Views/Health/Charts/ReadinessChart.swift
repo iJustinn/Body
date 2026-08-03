@@ -31,6 +31,36 @@ enum BodyReadinessStatusPresentation {
         }
         return Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
     }
+
+    /// The week chart's "current readiness" dot: today's live drained score,
+    /// when same-day activity visibly lowered it below today's plotted
+    /// (pre-drain) point. nil when nothing drained today, the drop is
+    /// display-clamped to zero, or today has no plotted point to hang the dot
+    /// under. Reads the same `lineChartCalendarPoints` the chart plots from so
+    /// the dot's x/y align with the line exactly.
+    static func currentTrendDot(
+        readiness: ReadinessSummary?,
+        series: HealthTrendSeries,
+        calendar: Calendar = .bodyGregorian,
+        now: Date = Date()
+    ) -> (date: Date, value: Double)? {
+        guard let readiness,
+              readiness.activityDrainMorningScore != nil,
+              let score = readiness.score else {
+            return nil
+        }
+
+        let today = calendar.startOfDay(for: now)
+        guard let todayPoint = series
+            .lineChartCalendarPoints(to: .recentWeek, calendar: calendar, date: now)
+            .last(where: { $0.value?.isFinite == true && calendar.isDate($0.date, inSameDayAs: today) }),
+            let todayValue = todayPoint.value,
+            Double(score) < todayValue else {
+            return nil
+        }
+
+        return (todayPoint.date, Double(score))
+    }
 }
 
 private extension ReadinessStatus {

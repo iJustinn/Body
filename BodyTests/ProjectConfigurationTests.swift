@@ -155,8 +155,113 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("AnnotationOverflowResolution("))
         XCTAssertTrue(source.contains("x: .fit(to: .chart)"))
         XCTAssertTrue(source.contains("y: .disabled"))
-        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 10)
+        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 11)
         XCTAssertFalse(source.contains(".annotation(position: .top, spacing: 8) {"))
+        // The scrub-callout background uses the shared glass-chip recipe (flat
+        // translucent fill + thin white rim) instead of a bespoke fill + shadow.
+        XCTAssertTrue(source.contains("BodyGlassChip(\n                color: Color(.secondarySystemGroupedBackground),"))
+        XCTAssertFalse(source.contains(".shadow(color: Color.black.opacity(0.10), radius: 8, y: 4)"))
+    }
+
+    func testAppSheetsShareTheTintedGlassBackdrop() throws {
+        let cardBackground = try text(at: "Body/Views/BodyCardBackground.swift")
+
+        XCTAssertTrue(cardBackground.contains("func bodySheetBackground(_ base: Color = Color(.systemGroupedBackground))"))
+        XCTAssertTrue(cardBackground.contains("static let glassTintOpacity = 0.50"))
+        XCTAssertTrue(cardBackground.contains("Color.black.opacity(BodySheetBackgroundStyle.glassTintOpacity)"))
+
+        // Every sheet the app styles itself routes through the shared modifier, so the tint
+        // can't drift per sheet the way the hand-copied `#unavailable` snippet did.
+        let expectations: [(file: String, tinted: Int, legacy: Int)] = [
+            ("Body/Views/BodySettingsView.swift", 4, 0),
+            ("Body/Views/BodyWorkoutListSheet.swift", 1, 0),
+            ("Body/Views/Health/BodyHealthDataSourcePickerSheet.swift", 1, 0),
+            ("Body/Views/Health/BodyAddBasicsMeasurementSheet.swift", 1, 0),
+            // Exactly one: this sheet used to darken itself twice, which compounded the tint.
+            ("Body/Views/Health/SleepScoreSheet.swift", 1, 0),
+            // The workout-detail and share backdrops keep their own tint→black gradient.
+            ("Body/Views/BodyWorkoutsView.swift", 1, 1),
+            ("Body/Views/Health/BodyWorkoutShareSheet.swift", 0, 1)
+        ]
+
+        for expectation in expectations {
+            let source = try text(at: expectation.file)
+            XCTAssertEqual(
+                source.occurrenceCount(of: ".bodySheetBackground("),
+                expectation.tinted,
+                expectation.file
+            )
+            XCTAssertEqual(
+                source.occurrenceCount(of: "#unavailable(iOS 26.0)"),
+                expectation.legacy,
+                expectation.file
+            )
+        }
+    }
+
+    func testWorkoutShareFlowPresentsFullScreenWithGlassToolbarActions() throws {
+        // The share flow is a full-screen page now, not a sheet.
+        let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
+        XCTAssertTrue(workoutsSource.contains(".fullScreenCover(isPresented: $showsShareSheet)"))
+        XCTAssertFalse(workoutsSource.contains(".sheet(isPresented: $showsShareSheet)"))
+
+        // A top-left ✕ close button and top-right Liquid Glass circle Share/Save
+        // buttons replace the old bottom capsule bar.
+        let shareSheetSource = try text(at: "Body/Views/Health/BodyWorkoutShareSheet.swift")
+        XCTAssertTrue(shareSheetSource.contains("placement: .topBarLeading"))
+        XCTAssertTrue(shareSheetSource.contains("\"xmark\""))
+        XCTAssertTrue(shareSheetSource.contains("\"square.and.arrow.up\""))
+        XCTAssertTrue(shareSheetSource.contains("\"square.and.arrow.down\""))
+        XCTAssertFalse(shareSheetSource.contains("shareBar"))
+        XCTAssertFalse(shareSheetSource.contains("ShareActionChrome"))
+        XCTAssertFalse(shareSheetSource.contains("safeAreaInset(edge: .bottom)"))
+
+        // The plain "Route Only" route now draws at 90% of the fitted size (was 60%).
+        let routeHeroSource = try text(at: "Body/Views/Health/BodyWorkoutRouteMapHero.swift")
+        XCTAssertTrue(routeHeroSource.contains("sizeFactor: CGFloat = 0.9"))
+    }
+
+    func testMetricDetailFloatsHeroChartCalloutAboveNavigationBar() throws {
+        let detail = try text(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+
+        // The scrub callout is rendered by BodyHomeView on the topmost layer (above the
+        // nav bar's back chevron/title), so the title no longer hides while scrubbing.
+        XCTAssertTrue(detail.contains(".navigationTitle(String(localized: String.LocalizationValue(model.title)))"))
+        XCTAssertFalse(detail.contains("isHeroChartSelectionActive"))
+        // Range switches recreate the keyed hero chart, so the callout needs its own reset
+        // or it sticks after a scrub-then-switch.
+        XCTAssertTrue(detail.contains("floatingCallout?.callout = nil"))
+        // Only the immersive hero floats its callout; the cards below keep the in-chart one.
+        XCTAssertEqual(detail.occurrenceCount(of: "floatingCallout: immersive ? floatingCallout : nil"), 8)
+
+        for file in [
+            "Body/Views/Health/Charts/MetricCharts.swift",
+            "Body/Views/Health/Charts/BasicsCharts.swift",
+            "Body/Views/Health/Charts/HeartRateRangeChart.swift",
+            "Body/Views/Health/Charts/SourceComparisonCharts.swift"
+        ] {
+            let source = try text(at: file)
+            XCTAssertTrue(source.contains(".bodyFloatingCalloutReporter(floatingCallout, selectionDate:"), file)
+            // The in-chart annotation must stand down while the floating callout renders,
+            // or the callout draws twice.
+            XCTAssertTrue(source.contains("if floatingCallout == nil {"), file)
+            XCTAssertFalse(source.contains("selectionActive"), file)
+        }
+
+        let sourceComparison = try text(at: "Body/Views/Health/Charts/SourceComparisonCharts.swift")
+        XCTAssertEqual(sourceComparison.occurrenceCount(of: ".bodyFloatingCalloutReporter(floatingCallout, selectionDate:"), 3)
+
+        // BodyHomeView hosts the layer above BOTH nav bars: the callout overlay must come
+        // after the readiness detail overlay, and both detail sites must pass the state.
+        let home = try text(at: "Body/Views/BodyHomeView.swift")
+        XCTAssertTrue(home.contains("BodyChartFloatingCalloutLayer(state: heroChartCallout)"))
+        XCTAssertEqual(home.occurrenceCount(of: "floatingCallout: heroChartCallout"), 2)
+        if let readinessOverlayRange = home.range(of: "readinessDetailOverlay\n                    .accessibilityAddTraits(.isModal)"),
+           let calloutLayerRange = home.range(of: "BodyChartFloatingCalloutLayer(state: heroChartCallout)") {
+            XCTAssertTrue(readinessOverlayRange.lowerBound < calloutLayerRange.lowerBound)
+        } else {
+            XCTFail("Expected both the readiness detail overlay and the floating callout layer in BodyHomeView")
+        }
     }
 
     func testHealthMetricChartDateDomainsFavorRightSidePadding() throws {
@@ -190,11 +295,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("trailingDatePadding = bodyHealthDetailChartTrailingDatePadding(for: selectedRange)"))
         XCTAssertEqual(
             source.occurrenceCount(of: "self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive:"),
-            7
+            8
         )
         XCTAssertEqual(
             source.occurrenceCount(of: "bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive)"),
-            4
+            5
         )
         XCTAssertEqual(
             source.occurrenceCount(of: "immersive: immersive, immersivePairedBars: true)"),
@@ -394,25 +499,60 @@ final class ProjectConfigurationTests: XCTestCase {
             detailBodyBlock.range(of: "detailTrendComparisonCard", range: dayViewElseStart..<detailBodyBlock.endIndex)?.lowerBound
         )
         let readinessAboutStart = try XCTUnwrap(detailBodyBlock.range(of: "readinessWhyCard(for: readiness")?.lowerBound)
-        let helpTextStart = try XCTUnwrap(detailBodyBlock.range(of: "helpTextCard")?.lowerBound)
+        // Scoped past the generic branch's trend card: the Vitals branch above has
+        // its own (earlier) helpTextCard, and this ordering is about the generic one.
+        let helpTextStart = try XCTUnwrap(
+            detailBodyBlock.range(of: "helpTextCard", range: nonDayTrendCardStart..<detailBodyBlock.endIndex)?.lowerBound
+        )
 
         XCTAssertLessThan(sleepSelectedCardsStart, sleepTrendCardStart)
         XCTAssertLessThan(sleepTrendCardStart, sleepAboutStart)
         XCTAssertLessThan(metricDayChartStart, dayViewTrendCardStart)
         XCTAssertLessThan(metricDayChartStart, metricActivityAveragesStart)
         XCTAssertLessThan(metricActivityAveragesStart, dayViewTrendCardStart)
+        // The readiness "About your score" card sits after both branches' trend
+        // cards, immediately above the About Readiness help-text card (shared by
+        // the day-view and non-day branches).
         XCTAssertLessThan(dayViewTrendCardStart, dayViewElseStart)
-        XCTAssertLessThan(readinessAboutStart, nonDayTrendCardStart)
+        XCTAssertLessThan(nonDayTrendCardStart, readinessAboutStart)
+        XCTAssertLessThan(readinessAboutStart, helpTextStart)
         XCTAssertLessThan(dayViewTrendCardStart, helpTextStart)
         XCTAssertEqual(detailBodyBlock.occurrenceCount(of: "detailTrendComparisonCard"), 3)
+        XCTAssertEqual(detailBodyBlock.occurrenceCount(of: "readinessWhyCard(for: readiness"), 1)
         XCTAssertTrue(source.contains("BodyHomeTrendCardFactory.card("))
         XCTAssertTrue(source.contains("BodyHomeTrendCard(model: card, showsNavigationIndicator: false)"))
         XCTAssertTrue(source.contains("@StateObject private var trendComputationCache = BodyHomeTrendComputationCache()"))
-        XCTAssertTrue(source.contains("model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy"))
+        XCTAssertTrue(source.contains("model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy || model.kind == .readiness"))
         XCTAssertTrue(source.contains(#"return String(localized: "Heart Rate by Activity")"#))
         XCTAssertTrue(source.contains(#"return String(localized: "Average HRV")"#))
         XCTAssertTrue(source.contains(#"return String(localized: "Energy by Activity")"#))
+        XCTAssertTrue(source.contains(#"return String(localized: "Impact by Activity")"#))
         XCTAssertFalse(source.contains("Activity Heart Rate"))
+    }
+
+    func testReadinessDayViewKindStaysInSyncAcrossLists() throws {
+        // `HealthMetricKind.dayViewKinds` and `supportsMetricDayView` are two
+        // hand-maintained lists; readiness must appear in both or the feature
+        // silently disappears.
+        let detailSource = try bodyHomeViewText()
+        let dayViewGateStart = try XCTUnwrap(detailSource.range(of: "private var supportsMetricDayView: Bool")?.lowerBound)
+        let dayViewGateEnd = try XCTUnwrap(
+            detailSource.range(of: "private var metricDayViewEnabled", range: dayViewGateStart..<detailSource.endIndex)?.lowerBound
+        )
+        let gateBlock = String(detailSource[dayViewGateStart..<dayViewGateEnd])
+        let trueBranchEnd = try XCTUnwrap(gateBlock.range(of: "return true")?.lowerBound)
+        XCTAssertTrue(gateBlock[..<trueBranchEnd].contains(".readiness"))
+
+        let preferenceSource = try text(at: "Body/Models/BodyAppearancePreference.swift")
+        // Skip past the `[HealthMetricKind]` type annotation to the array literal.
+        let dayViewKindsStart = try XCTUnwrap(preferenceSource.range(of: "static let dayViewKinds")?.lowerBound)
+        let dayViewKindsLiteralStart = try XCTUnwrap(
+            preferenceSource.range(of: "= [", range: dayViewKindsStart..<preferenceSource.endIndex)?.upperBound
+        )
+        let dayViewKindsEnd = try XCTUnwrap(
+            preferenceSource.range(of: "]", range: dayViewKindsLiteralStart..<preferenceSource.endIndex)?.lowerBound
+        )
+        XCTAssertTrue(preferenceSource[dayViewKindsLiteralStart..<dayViewKindsEnd].contains(".readiness"))
     }
 
     func testLineHealthChartsDoNotRenderEmptyDatePlaceholderMarks() throws {
@@ -599,19 +739,21 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTrainingLoadTrendChartDrawsDynamicHorizontalCurrentIntervalBandWithoutInlineLabel() throws {
         let source = try bodyHomeViewText()
         let chartStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricTrendChart")?.lowerBound)
-        let chartBlock = String(source[chartStart...].prefix(12_000))
+        let chartBlock = String(source[chartStart...].prefix(14_000))
 
         XCTAssertTrue(chartBlock.contains("let highlightedRange: BodyHealthMetricTrendHighlightedRange?"))
         XCTAssertTrue(chartBlock.contains("let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?"))
         XCTAssertTrue(chartBlock.contains("let displayedHighlightedRange = activeHighlightedRange"))
         XCTAssertTrue(chartBlock.contains("if let highlightedRange = displayedHighlightedRange,"))
         XCTAssertTrue(chartBlock.contains("private var activeHighlightedRange: BodyHealthMetricTrendHighlightedRange?"))
-        XCTAssertTrue(chartBlock.contains("guard let highlightedRangeResolver, let activeHighlightSourcePoint else {"))
-        XCTAssertTrue(chartBlock.contains("return highlightedRangeResolver(activeHighlightSourcePoint.value) ?? highlightedRange"))
-        XCTAssertTrue(chartBlock.contains("private var activeHighlightSourcePoint: HealthTrendCalendarPoint?"))
-        XCTAssertTrue(chartBlock.contains("selectedTrendPoint ?? latestVisibleTrendPoint"))
-        XCTAssertTrue(chartBlock.contains("private var latestVisibleTrendPoint: HealthTrendCalendarPoint?"))
-        XCTAssertTrue(chartBlock.contains("visibleFinitePoints.last"))
+        XCTAssertTrue(chartBlock.contains("guard let highlightedRangeResolver, let activeHighlightSourceValue else {"))
+        XCTAssertTrue(chartBlock.contains("return highlightedRangeResolver(activeHighlightSourceValue) ?? highlightedRange"))
+        XCTAssertTrue(chartBlock.contains("private var activeHighlightSourceValue: Double?"))
+        // Idle must fall back to the caller's `highlightedRange` (live summary
+        // value), never the last plotted point — the plotted point is the frozen
+        // morning value and once showed the wrong band as "Current".
+        XCTAssertTrue(chartBlock.contains("selectedTrendPoint?.value ?? currentValuePoint?.value"))
+        XCTAssertFalse(chartBlock.contains("latestVisibleTrendPoint"))
         XCTAssertTrue(chartBlock.contains(".chartBackground { chartProxy in"))
         XCTAssertTrue(chartBlock.contains("highlightedRange.lowerPlotBound(in: chartYDomain)"))
         XCTAssertTrue(chartBlock.contains("highlightedRange.upperPlotBound(in: chartYDomain)"))
@@ -811,7 +953,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(engineSource.contains("HKQuery.predicateForObjects(from: Set(sources))"))
         XCTAssertTrue(engineSource.contains("BodyHealthDataSourceOption.individualSourceIdentityKey"))
         XCTAssertTrue(engineSource.contains("BodyHealthDataSourceOption.individualSourceID"))
-        XCTAssertTrue(engineSource.contains("sourcesByID[sourceID, default: []].append(source)"))
+        // Every source registers BOTH identity forms (plain bundle-ID and
+        // name-disambiguated) so an ID persisted by the device that saw
+        // same-bundle duplicates still resolves on a device that discovers
+        // only the selected source.
+        XCTAssertTrue(engineSource.contains("sourcesByID[plainID, default: []].append(source)"))
+        XCTAssertTrue(engineSource.contains("sourcesByID[disambiguatedID, default: []].append(source)"))
         XCTAssertFalse(engineSource.contains("sourcesByID[source.bundleIdentifier] = [source]"))
     }
 
@@ -822,7 +969,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let trendCardStart = try XCTUnwrap(homeSource.range(of: "private func metricTrendChart")?.lowerBound)
         let trendCardBlock = String(homeSource[trendCardStart...].prefix(10_000))
         let comparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonBarChart")?.lowerBound)
-        let comparisonChartBlock = String(homeSource[comparisonChartStart...].prefix(8_500))
+        let comparisonChartBlock = String(homeSource[comparisonChartStart...].prefix(9_500))
         let rangeComparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonRangeChart")?.lowerBound)
         let rangeComparisonChartBlock = String(homeSource[rangeComparisonChartStart...].prefix(8_000))
         let rangeBandChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHeartRateRangeTrendChart")?.lowerBound)
@@ -868,7 +1015,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let trendCardStart = try XCTUnwrap(homeSource.range(of: "private func metricTrendChart")?.lowerBound)
         let trendCardBlock = String(homeSource[trendCardStart...].prefix(9_000))
         let lineComparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonLineChart")?.lowerBound)
-        let lineComparisonChartBlock = String(homeSource[lineComparisonChartStart...].prefix(10_000))
+        // 12k: the floating-callout reporter added ~0.5k to the struct's body, pushing
+        // `selectedValues` (the BodyChartSelectionValue construction) past the old 10k.
+        let lineComparisonChartBlock = String(homeSource[lineComparisonChartStart...].prefix(12_000))
 
         XCTAssertTrue(appearanceSource.contains("var usesSourceComparisonLineChart: Bool"))
         XCTAssertTrue(trendCardBlock.contains("sourceLineComparisonTrend"))
@@ -1223,6 +1372,32 @@ final class ProjectConfigurationTests: XCTestCase {
         }
     }
 
+    func testWorkoutChartsRenderFilteredSnapshotWhileCorpusCacheStaysUnfiltered() throws {
+        // The calendar and type-breakdown charts must render the filtered
+        // display snapshot so the filter sheet and search narrow them like the
+        // cards list, while the search corpus cache must keep seeing the
+        // unfiltered snapshot and full workout list — its key includes
+        // `generatedAt`, so a filtered array would persist a partial corpus.
+        let source = try text(at: "Body/Views/BodyWorkoutsView.swift")
+
+        XCTAssertTrue(source.contains("workoutCalendarCard(snapshot: displaySnapshot)"))
+        XCTAssertTrue(source.contains("workoutTypeSummaryCard(snapshot: displaySnapshot, workouts: matchingWorkouts)"))
+        XCTAssertFalse(source.contains("snapshot: selectedSnapshot"))
+
+        let calendarStart = try XCTUnwrap(source.range(of: "WorkoutCalendarView(")?.lowerBound)
+        let calendarBlock = String(source[calendarStart...].prefix(200))
+        XCTAssertTrue(calendarBlock.contains("snapshot: snapshot"))
+
+        let breakdownStart = try XCTUnwrap(source.range(of: "WorkoutTypeBreakdownView(")?.lowerBound)
+        let breakdownBlock = String(source[breakdownStart...].prefix(200))
+        XCTAssertTrue(breakdownBlock.contains("snapshot: snapshot"))
+
+        let corpusStart = try XCTUnwrap(source.range(of: "searchCorpusCache.entries(")?.lowerBound)
+        let corpusBlock = String(source[corpusStart...].prefix(200))
+        XCTAssertTrue(corpusBlock.contains("for: baseSnapshot"))
+        XCTAssertTrue(corpusBlock.contains("workouts: allWorkouts"))
+    }
+
     func testAggregatedHealthChartsWireRangeLabelsAndBarWidths() throws {
         let source = try bodyHomeViewText()
 
@@ -1239,9 +1414,9 @@ final class ProjectConfigurationTests: XCTestCase {
         )
         XCTAssertEqual(
             source.occurrenceCount(of: "let chartBarWidth = selectedRange.heartRateRangeChartBarWidth(forAvailableWidth: proxy.size.width)"),
-            1
+            2
         )
-        XCTAssertEqual(source.occurrenceCount(of: "width: .fixed(chartBarWidth)"), 5)
+        XCTAssertEqual(source.occurrenceCount(of: "width: .fixed(chartBarWidth)"), 6)
     }
 
     func testBasicsWeightBodyFatMonthChartKeepsStandardPointMarks() throws {
@@ -1398,13 +1573,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.9;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 13;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.10;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 21;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
-        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.9;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 13;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.10;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 21;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1439,9 +1614,28 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.9 (build 13)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.10 (build 21)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 19)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 18)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 17)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 16)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 15)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 14)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 13)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 12)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 11)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 10)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 9)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 8)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 7)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 6)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 5)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 3)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 1)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.9 (build 13)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.9 (build 12)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.9 (build 11)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.9 (build 10)**"))
@@ -1485,6 +1679,61 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 21)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 21."))
+        XCTAssertTrue(versionHistory.contains("Vitals chart axis labels removed."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 19)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 19."))
+        XCTAssertTrue(versionHistory.contains("Vitals chart region proportions."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 18)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 18."))
+        XCTAssertTrue(versionHistory.contains("Vitals chart shape and outlier readouts."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 17)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 17."))
+        XCTAssertTrue(versionHistory.contains("Vitals detail refinements."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 16)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 16."))
+        XCTAssertTrue(versionHistory.contains("Vitals UI polish."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 15)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 15."))
+        XCTAssertTrue(versionHistory.contains("New Vitals metric (Beta)."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 14)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 14."))
+        XCTAssertTrue(versionHistory.contains("Activity Rings calendar month headers now count each ring's closed days."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 13)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 13."))
+        XCTAssertTrue(versionHistory.contains("Share flow opens full screen with the whole card always visible."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 12)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 12."))
+        XCTAssertTrue(versionHistory.contains("Photo share cards: move and resize the info block."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 11)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 11."))
+        XCTAssertTrue(versionHistory.contains("Redesigned the share card for all non-map backgrounds."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 10)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 10."))
+        XCTAssertTrue(versionHistory.contains("The readiness fill's front edge is now a sharp cut"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 9)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 9."))
+        XCTAssertTrue(versionHistory.contains("The Workouts page and workout widgets now follow the calendar into a new month"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 8)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 8."))
+        XCTAssertTrue(versionHistory.contains("The loading badge now plays random white pixel-grid animations"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 7)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 7."))
+        XCTAssertTrue(versionHistory.contains("Workouts filter and search now also narrow the calendar chart"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 6)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 6."))
+        XCTAssertTrue(versionHistory.contains("Chart scrub callouts now float on the topmost layer"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 5)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 5."))
+        XCTAssertTrue(versionHistory.contains("Added a current-readiness dot to the Readiness week chart."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 3."))
+        XCTAssertTrue(versionHistory.contains("Added a Readiness day view."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 2."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.10 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.10 build 1."))
         XCTAssertTrue(versionHistory.contains("## 0.9.9 (build 13)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.9 build 13."))
         XCTAssertTrue(versionHistory.contains("## 0.9.9 (build 12)"))
@@ -1725,10 +1974,29 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-0.9.9`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.9 build 13)"))
+        XCTAssertTrue(testPlan.contains("branch `body-0.9.10`"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.10 build 21)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 19)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 18)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 17)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 16)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 15)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 13)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 12)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 11)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 10)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 9)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 8)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 7)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 6)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 5)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 3)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 2)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.10 build 1)"))
         XCTAssertTrue(testPlan.contains("sync status badge"))
         XCTAssertTrue(testPlan.contains("Energy by Activity"))
+        XCTAssertFalse(testPlan.contains("branch `body-0.9.9`"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.9 build 13)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.9 build 12)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.9 build 11)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.9 build 10)"))
@@ -1832,19 +2100,23 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(badgeSource.contains("syncBadgeSuccessCount != successCountAtSyncStart"))
         XCTAssertTrue(storeSource.contains("@Published private(set) var syncBadgeSuccessCount = 0"))
         XCTAssertTrue(badgeSource.contains("struct BodySyncStatusBadgeLabel"))
-        XCTAssertTrue(badgeSource.contains("\"Syncing health data…\""))
+        XCTAssertTrue(badgeSource.contains("\"Loading data...\""))
+        XCTAssertFalse(badgeSource.contains("Syncing health data"))
         XCTAssertTrue(badgeSource.contains("\"Health data updated\""))
         XCTAssertTrue(badgeSource.contains(".accessibilityAddTraits(.updatesFrequently)"))
 
-        // The loading icon is the native marching-squares loader, driven from
-        // wall-clock time via TimelineView (no onAppear-started animation), with
-        // the system ProgressView kept as the Reduce Motion fallback.
-        XCTAssertTrue(badgeSource.contains("struct BodyMarchingSquaresLoader"))
+        // The loading icon is the native white pixel-grid loader (SwiftPixelGrid
+        // design), driven from wall-clock time via TimelineView (no
+        // onAppear-started animation), picking a random delay pattern per
+        // appearance, with the system ProgressView kept as the Reduce Motion
+        // fallback.
+        XCTAssertTrue(badgeSource.contains("struct BodyPixelGridLoader"))
+        XCTAssertTrue(badgeSource.contains("patterns.randomElement()"))
         XCTAssertTrue(badgeSource.contains("TimelineView(.animation"))
         XCTAssertTrue(badgeSource.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
         XCTAssertTrue(badgeSource.contains("if reduceMotion {"))
         XCTAssertTrue(badgeSource.contains("ProgressView().controlSize(.small).tint(.secondary)"))
-        XCTAssertTrue(badgeSource.contains("BodyMarchingSquaresLoader()"))
+        XCTAssertTrue(badgeSource.contains("BodyPixelGridLoader()"))
 
         XCTAssertFalse(homeSource.contains("bodyPullToRefreshLoadingOverlay"))
         XCTAssertFalse(homeSource.contains("BodyDataLoadingOverlay"))
@@ -1853,7 +2125,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(workoutsSource.contains("bodyPullToRefreshLoadingOverlay"))
         XCTAssertFalse(workoutsSource.contains("BodyDataLoadingOverlay"))
 
-        XCTAssertTrue(xcstrings.contains("\"Syncing health data…\" : {"))
+        XCTAssertTrue(xcstrings.contains("\"Loading data...\" : {"))
+        XCTAssertFalse(xcstrings.contains("\"Syncing health data…\" : {"))
         XCTAssertTrue(xcstrings.contains("\"Health data updated\" : {"))
     }
 
@@ -1891,9 +2164,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let widgetSource = try text(at: "BodyWidgetExtension/WorkoutCalendarWidget.swift")
 
         XCTAssertFalse(homeSource.contains("let calendar = Calendar.current"))
-        XCTAssertFalse(widgetSource.contains("Calendar.current.date(byAdding: .minute"))
+        XCTAssertFalse(widgetSource.contains("Calendar.current"))
         XCTAssertTrue(homeSource.contains("let calendar = Calendar.bodyGregorian"))
-        XCTAssertTrue(widgetSource.contains("Calendar.bodyGregorian.date(byAdding: .minute"))
+        XCTAssertTrue(widgetSource.contains("let calendar = Calendar.bodyGregorian"))
+        XCTAssertTrue(widgetSource.contains("calendar.date(byAdding: .minute"))
     }
 
     func testAppIconAssetsIncludePrimaryAndAlternateOptions() throws {
@@ -2054,7 +2328,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(appearanceSource.contains("case .readiness:"))
         XCTAssertTrue(settingsSource.contains("if card.isBeta"))
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v1")"#), 2)
-        XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v2")"#), 1)
+        XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v2")"#), 0)
+        XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v3")"#), 1)
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("Beta v2")"#), 0)
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.defaultTrendRangeKey)"))
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey)"))
@@ -2274,6 +2549,26 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(storeSource.contains(".paymentPendingError"))
         XCTAssertTrue(storeSource.contains("if unlocked && purchaseState == .pending"))
 
+        // A completed, non-cancelled purchase whose entitlement isn't active must not fall
+        // back to the buy card: purchase() does one bounded network re-check (the second
+        // `.fetchCurrent` call site) and otherwise parks in `.completedNotUnlocked`, which
+        // the entitlement stream clears on the late unlock. Restore distinguishes three
+        // outcomes — unlocked, lifetime product owned but entitlement inactive (the same
+        // recovery state, never a false "no purchases"), and genuinely nothing to restore.
+        XCTAssertTrue(storeSource.contains("case completedNotUnlocked"))
+        XCTAssertGreaterThanOrEqual(storeSource.occurrenceCount(of: "customerInfo(fetchPolicy: .fetchCurrent)"), 2)
+        XCTAssertTrue(storeSource.contains("purchaseState = isPro ? .idle : .completedNotUnlocked"))
+        XCTAssertTrue(storeSource.contains("if unlocked && purchaseState == .completedNotUnlocked"))
+        XCTAssertTrue(storeSource.contains("allPurchasedProductIdentifiers.contains(Self.lifetimeProductID)"))
+        XCTAssertTrue(storeSource.contains(#".failed(String(localized: "No purchases to restore."))"#))
+
+        // The paywall must not re-offer an enabled buy card while a completed purchase
+        // awaits its entitlement: the state renders a dedicated recovery card and counts
+        // as purchase-flow-active (Restore stays the recovery path).
+        let proViewSource = try text(at: "Body/Views/BodyProView.swift")
+        XCTAssertTrue(proViewSource.contains("BodyProVerifyingPurchaseCard()"))
+        XCTAssertTrue(proViewSource.contains("case .purchasing, .restoring, .pending, .completedNotUnlocked:"))
+
         // Migration guards: the native StoreKit plumbing is gone. RevenueCat verifies,
         // encodes revocation into `isActive`, and auto-finishes transactions; re-introducing
         // any of these would double-handle purchases or fight the SDK (observer mode).
@@ -2404,7 +2699,8 @@ final class ProjectConfigurationTests: XCTestCase {
             "Body/Views/Health/Charts/SourceComparisonCharts.swift",
             "Body/Views/Health/Charts/SleepCharts.swift",
             "Body/Views/Health/Charts/TrainingLoadCharts.swift",
-            "Body/Views/Health/Charts/ReadinessChart.swift"
+            "Body/Views/Health/Charts/ReadinessChart.swift",
+            "Body/Views/Health/Charts/VitalsCharts.swift"
         ]
         return try files.compactMap { file -> String? in
             try? text(at: file)
@@ -2432,6 +2728,13 @@ final class ProjectConfigurationTests: XCTestCase {
     /// was split across the main actor file and one or more `+...swift`
     /// extension files; tests that grep for engine substrings should look across
     /// the whole engine, not just the main file.
+    ///
+    /// The `BodyWatchSnapshotKit` files are part of that surface too: the
+    /// engine's HealthKit query leaves (source discovery + resolution, quantity
+    /// queries, sleep queries/grouping, workout query + mapping) were MOVED
+    /// there so Body and BodyWatch compile the same fetch code, and the engine
+    /// now calls in. Grepping the engine alone would silently stop covering
+    /// them.
     private func healthKitFetchEngineText() throws -> String {
         let files = [
             "Body/Services/HealthKitFetchEngine.swift",
@@ -2441,7 +2744,11 @@ final class ProjectConfigurationTests: XCTestCase {
             "Body/Services/HealthKitFetchEngine+ActivityRings.swift",
             "Body/Services/HealthKitFetchEngine+SourceOptions.swift",
             "Body/Services/HealthKitFetchEngine+Secondary.swift",
-            "Body/Services/HealthKitFetchEngine+IntradaySamples.swift"
+            "Body/Services/HealthKitFetchEngine+IntradaySamples.swift",
+            "BodyWatchSnapshotKit/BodyHealthSourceResolver.swift",
+            "BodyWatchSnapshotKit/BodyHealthQuantityFetch.swift",
+            "BodyWatchSnapshotKit/BodySleepFetch.swift",
+            "BodyWatchSnapshotKit/BodyWorkoutFetch.swift"
         ]
         return try files.map { try text(at: $0) }.joined(separator: "\n")
     }

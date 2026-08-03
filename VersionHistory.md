@@ -1,5 +1,126 @@
 # Version History
 
+## 0.9.10 (build 21)
+
+- **Vitals chart axis labels removed.** The Vitals detail hero's Week/Month/6 Months/Year charts no longer draw the trailing High/Typical/Low y-axis labels — the bars and the highlighted typical band carry the reference on their own, and the plot takes the freed trailing width.
+- Fixed the Readiness detail's "About your score" card marking the wrong band as Current (e.g. Moderate flagged while the displayed score read 64, a Low value): while nothing is scrubbed, the Current chip and the chart's highlighted status band now follow the same live score the hero displays instead of the last plotted (frozen morning) point, which can land in a different band. Scrubbing and the drained-score dot behave as before. The same idle fallback applies to the Training Load interval band.
+- Moved the About your score card to the bottom of the Readiness detail, just above the About Readiness card, and enlarged its title to match the other About cards.
+- **Body Pro purchase/restore feedback.** A completed purchase whose Pro entitlement hasn't resolved yet now performs one bounded network re-check and then replaces the buy card with a dedicated "Purchase Completed / Body Pro isn't unlocked yet" recovery card (the purchase button is withheld so a paying customer is never invited to buy again; Restore stays enabled as the recovery path), instead of silently returning to the buy card. Restore distinguishes three outcomes: it re-unlocks Pro, shows the same recovery card when the lifetime purchase exists but its entitlement is inactive, and says "No purchases to restore." only when no purchase exists. Any lingered notice clears automatically once Pro actually unlocks.
+- Fresh installs no longer show the sample "Preview" workouts as if they were real history: the app now starts from an honest empty workouts state until HealthKit data loads (preview content remains for the widget gallery and design previews).
+- Restored the Simplified Chinese Sleep Score explanation (updated for the v3 vitals-band wording) and the Settings "v3" badge localization, fixing the catalog-coverage test.
+- **Watch reliability.** A phone republish carrying identical data no longer discards an in-flight on-watch compute (the seed's transport timestamp is no longer part of its identity); future-dated freshness stamps (e.g. after a clock rollback) can no longer park watch recomputation, while normal phone/watch clock skew stays tolerated; and the metric detail pager now recovers to a valid page when the currently open metric is removed by a phone update mid-visit.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 21.
+
+## 0.9.10 (build 19)
+
+- **Sleep Score v3.** Five points move from Deep (15 → 10) to Vitals (10 → 15), and the Vitals category is now graded against the same robust typical bands the Vitals chart uses — full credit inside your personal band, falling proportionally to zero one band half-width past its edge. Heart rate and respiratory rate deduct on both high and low outliers; blood oxygen deducts on the low side only and keeps the absolute clinical 92–96% ramp as a ceiling (a 99%+ night is never penalized, while a clinically low reading still costs points even if typical for that sleeper). With fewer than ~14 nights of history the previous grading applies unchanged. The Settings ▸ Metrics Sleep Score badge now reads v3.
+- **Vitals chart region proportions.** The trend hero's typical band now takes about 45% of the plot height (roughly 1.5× the previous share): the High/Low regions draw on a compressed display scale (half scale past ±1) while the underlying ±3 deviation cap keeps outlier lengths granular and proportional. Vitals breakdown icons and their translucent tiles now switch from white in dark appearance to black in light appearance so every row stays visible on grouped backgrounds.
+- Fixed the Readiness Week chart's current-readiness dot lingering ~half a second (or seeming not to hide) after the scrub callout appeared: the status band's easing animation was applied chart-wide, so it also animated the dot's removal. The easing is now scoped to the band itself, and the dot, rule line, and selection point snap instantly while scrubbing.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 19.
+
+## 0.9.10 (build 18)
+
+- **Vitals chart shape and outlier readouts.** The trend hero's smallest mark now always renders as a circle: a bucket's bar is padded to at least its own width in scale units (computed from the chart's real geometry), so spread-less buckets can no longer draw as squat wider-than-tall blobs. In the Day View card, an outlier vital's reading is tinted purple (high) or pink (low) and cross-fades with the dots when switching days. Outlier magnitudes are more granular too: per-night deviations now cap at ±3 typical spreads instead of ±2 (the chart scale widened to match), so heavy-outlier stretches no longer saturate into same-length bars. New metric icons: Basics uses person, Vitals uses heart.badge.bolt (home cards, detail pages, and Settings > Metrics lists).
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 18.
+
+## 0.9.10 (build 17)
+
+- **Vitals detail refinements.** The merged night card is titled "Day View" like the other metric detail pages (the date picker carries the date), its scatter dots glide to their new positions and cross-fade color when switching days, and the breakdown icon tiles are translucent white behind the white glyphs. On the trend hero, a bucket with no real spread draws as a bar-width dot instead of a stubby capsule, and the purple/pink outlier colors are more saturated with a tighter blend and a minimum tip length past the band, so even a small excursion past the typical range clearly turns color.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 17.
+
+## 0.9.10 (build 16)
+
+- **Vitals UI polish.** The outlier trend hero now draws one continuous bar per bucket with a gradient anchored to the deviation scale — blue through the typical band, blending to dark purple toward High and light pink toward Low — and the purple/pink language replaces red on the Last Night dots, home preview rings, and scrub-callout dots. The Last Night scatter and per-vital breakdown merge into one card with white row icons, no region chips, and smaller dots, plus a date picker (free tier: last 3 days) to review any recent night's vitals. Home-card preview rings are smaller and the "Typical"/"N Outliers" headline sizes align with the numeric cards (28pt card / 40pt hero). About Vitals copy rewritten; Simplified Chinese now uses 生命体征 across the Vitals page.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 16.
+
+## 0.9.10 (build 15)
+
+- **New Vitals metric (Beta).** A new home summary card (after Sleep, toggleable in Settings → Summary Cards) reviews five overnight measurements — sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration — against personal typical ranges learned from your own recent nights (median ± 2×robust spread over an 8-week window; ~2 weeks of sleep data to calibrate). The card headline reads "Typical" or "N Outliers" with an Apple-Health-style preview: a blue typical band between gray high/low bars, one ring per vital. The detail page adds an outlier-deviation bar chart across Week/Month/6 Months/Year (Pro beyond Week), a Last Night typical-range scatter, a per-vital breakdown, and an About Vitals card. Vitals has no trend card by design and derives entirely from existing sleep data (no new Health permissions).
+- Fixed the sleep-vital range marker math so narrow personal typical bands (like skin temperature's) keep their markers inside the typical third of the plot.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 15.
+
+## 0.9.10 (build 14)
+
+- **Activity Rings calendar month headers now count each ring's closed days.** Next to the existing star total (days all three rings closed), each month shows three more counts — days the Move, Exercise, and Stand ring each closed — with a mini tri-ring icon highlighting the counted ring in white.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 14.
+
+## 0.9.10 (build 13)
+
+- **Share flow opens full screen with the whole card always visible.** The workout share flow now opens as a full-screen page instead of a sheet: a ✕ close button sits top-left, and the 9:16 card preview always fits the screen — on small phones the card previously could be cut off at the bottom.
+- The bottom Share/Save capsule buttons are replaced by native Liquid Glass circle buttons top-right (share = `square.and.arrow.up`, save = `square.and.arrow.down`; translucent material circles pre-iOS 26).
+- The plain "Route Only" route on the workout detail page now draws at 90% of its fitted size, up from 60%, so it reads larger and bolder against the black backdrop.
+- The workout detail page's top-right share button is now a Liquid Glass **Share** text capsule (previously a share icon that rendered slightly elliptical on iOS 26), and the share page title is now **Share** with a **Beta v2** badge.
+- Fixed the Workouts empty-state message rendering the year with digit grouping ("August 2,026"), and the month picker's VoiceOver label doing the same.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 13.
+
+## 0.9.10 (build 12)
+
+- **Photo share cards: move and resize the info block.** With a photo as the share background, drag the route trace + metrics block anywhere on the card and pinch to resize it; double-tap the preview to reset, and picking a new photo or switching backgrounds also resets. The exported image matches the preview placement exactly, placement is never remembered across opens, and a hint caption under the preview explains the gestures. Gradient presets and the map keep their fixed layouts.
+- The centered share card's metric text now carries the same soft shadow as the route trace, so it stays legible when the block sits over a bright photo area the scrims don't reach.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 12.
+
+## 0.9.10 (build 11)
+
+- **Redesigned the share card for all non-map backgrounds.** With a gradient preset (Midnight, Workout Color) or a photo as the background, the card is now headerless — no type icon, title, locality, or date — with the blue route trace running across the top and a centered stack of large metrics below it: a small label over a big value, Distance then Pace (Speed for speed-based types) then Time, falling back to elevation or avg heart rate when distance/pace is missing (up to 3 metrics), and the Body app icon and wordmark centered at the bottom. Only the map background keeps the existing header + bottom-row layout, and for a stored map pick the sheet stays in that classic layout while the snapshot loads so there's no flash into the centered layout.
+- The share sheet now opens on the Midnight background by default instead of the route map; the map loads when its tile is picked, and an explicit map pick is still remembered across opens.
+- Added a small blue "v2" beta capsule badge beside the "Share Workout" sheet title, matching the style of the settings sheets' v1/v2 badges.
+- The share card's own blue route trace (gradient and photo backgrounds) no longer draws green/red start/end dots; only the map background's route keeps its markers.
+- The Midnight share background is now pure black instead of a dark-gray-to-black fade.
+- Saving the share card now closes the share sheet automatically after the brief "Saved" confirmation; a failed save keeps the sheet open.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 11.
+
+## 0.9.10 (build 10)
+
+- **Sharper readiness fill edge.** The readiness fill's front edge is now a sharp cut instead of the previous short feather into the page background, so the Home hero's fill level reads precisely.
+- The workout calendar's empty-day grid cells now use the same fill in dark mode as in light mode (primary at 10% opacity, previously 14% in dark mode), matching the Coin app's calendar widget.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 10.
+
+## 0.9.10 (build 9)
+
+- **The Workouts page and workout widgets now follow the calendar into a new month.** When a month rolls over while the app stays alive (across midnight, or on returning to the foreground), the Workouts page automatically advances to the new — possibly still-empty — month if you were viewing the old current month; a deliberately browsed older month stays put. The live workout calendar and workout types widgets are now month-strict: they always render the actual current month, flipping at the boundary via a timeline entry dated at the month start, instead of holding last month's snapshot or falling back to the previous month's data when the new month has no workouts yet (the previous-month fallback now applies only to widget-gallery previews).
+- The month carousel refreshes its month list on appearance, so a just-rolled-over month can be found and centered immediately.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 9.
+
+## 0.9.10 (build 8)
+
+- **The loading badge now plays random white pixel-grid animations.** The sync badge's marching-squares loader is replaced with a 3×3 pixel display: nine white cells over a faint always-on base light up and fade with a soft glow in one of 17 delay patterns (waves, spiral, snake, rain, pinwheel, orbit, checkerboard, and more — design adapted from SwiftPixelGrid), picked at random each time the badge or the Workouts "Loading data…" pill appears. The completion checkmark is drawn in the same language — white lit pixels with the same glow. Reduce Motion still falls back to the standard spinner.
+- The sync badge's loading text now reads "Loading data..." (matching the Workouts month-load pill) instead of "Syncing health data…".
+- The by-Activity cards on metric detail pages (Energy/Impact/Heart Rate by Activity, Average HRV) now draw their row icons in the same continuous rounded-rectangle tile as the Workouts page's workout cards, instead of a circle.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 8.
+
+## 0.9.10 (build 7)
+
+- **Workouts filter and search now also narrow the calendar chart, type breakdown, and totals.** Previously the type-filter sheet and search field only filtered the workout cards list; now the calendar chart, the workout-type breakdown bars, and the monthly totals header (total duration and workout count) all reflect the same filtered set, and the calendar-day and type-breakdown popups list only the matching workouts. Clearing the filter and search restores the full month everywhere.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 7.
+
+## 0.9.10 (build 6)
+
+- **Chart scrub callouts now float on the topmost layer.** On the metric detail pages, scrubbing the hero chart draws the selection callout above everything on screen — including the navigation bar's back chevron and title, which previously drew over it. The navigation title no longer hides while scrubbing (the build-3 workaround), since the callout simply covers it. Charts in the cards below the hero keep their in-place callouts.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 6.
+
+## 0.9.10 (build 5)
+
+- **Added a current-readiness dot to the Readiness week chart.** On the Readiness detail's Week range, an 80%-opacity dot in the line's color now marks today's live (post-workout) score below the plotted morning point — drawn only for today, and only when a workout visibly lowered readiness that day. While nothing is scrubbed, the highlighted status band follows that dot instead of the morning point, so the band reads the current status; scrubbing still retargets the band to the touched day and hides the dot until release.
+- The watch app's Readiness detail chart draws the same faded current-readiness dot below today's point (the watch payload now carries the drained value; its status band already tracked the current status).
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 5.
+
+## 0.9.10 (build 3)
+
+- **Added a Readiness day view.** The Readiness detail now shows a date-tile day picker, a Day View line chart tracing the selected day's score from its frozen morning value down through each workout (workouts drawn as tinted bands with their icons), and an Impact by Activity card listing each workout's readiness drop — placed between the Days by Status chart and the About your score card. The line is derived from the morning score plus that day's workouts, and flat stretches draw only their start and end dots (instead of one per hour); the readiness row is toggleable in Settings > Metrics > Day View, and older picker days follow the existing 3-free-days Body Pro gating.
+- A Day View selection saved before this build (when Readiness wasn't offered) upgrades once to include Readiness; custom subsets, an all-off selection, and any choice made on this build — including turning off just Readiness — are preserved as saved.
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 3.
+
+## 0.9.10 (build 2)
+
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 2.
+- Tinted every app-styled sheet's iOS 26 Liquid Glass background with a half-opacity black wash so sheets no longer read as fully transparent.
+- Fixed the metric detail chart callout colliding with the navigation title: the title now hides while a chart point is selected.
+- Sleep consistency (the chart and the sleep score's Consistency category) now ignores daytime naps by reading bed/wake times from only the day's main sleep session.
+
+## 0.9.10 (build 1)
+
+- Updated the app, widget, watch, and test bundle version to 0.9.10 build 1.
+
 ## 0.9.9 (build 13)
 
 - **Restyled the workout share sheet's action buttons.** Share now sits on the left and Save on the right, and both carry the same flat translucent fill of the workout type's color under a thin white rim (no gradient or blur), instead of a tinted Share beside a neutral Save.

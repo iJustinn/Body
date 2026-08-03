@@ -16,8 +16,12 @@ import XCTest
 
 final class SleepStageSnapshotTests: XCTestCase {
     private func date(_ hour: Int, _ minute: Int = 0) -> Date {
+        date(day: 10, hour: hour, minute: minute)
+    }
+
+    private func date(day: Int, hour: Int, minute: Int = 0) -> Date {
         Calendar(identifier: .gregorian).date(
-            from: DateComponents(year: 2026, month: 6, day: 10, hour: hour, minute: minute)
+            from: DateComponents(year: 2026, month: 6, day: day, hour: hour, minute: minute)
         )!
     }
 
@@ -107,5 +111,86 @@ final class SleepStageSnapshotTests: XCTestCase {
         XCTAssertNil(decoded.timeZoneIdentifier)
         XCTAssertEqual(decoded.segments.count, 1)
         XCTAssertEqual(decoded.segments.first?.stage, .core)
+    }
+
+    // MARK: mainSession
+
+    func testMainSessionWithoutIntervalReturnsWholeSnapshot() {
+        // Fixtures and old caches carry no interval, so the main-session view must
+        // degrade to the whole-day snapshot rather than dropping the day's sleep.
+        let snapshot = SleepStageSnapshot(date: date(0), segments: [
+            SleepStageSegment(stage: .core, startDate: date(day: 9, hour: 23, minute: 30), endDate: date(7, 45)),
+            SleepStageSegment(stage: .core, startDate: date(14), endDate: date(15, 12))
+        ])
+
+        XCTAssertNil(snapshot.mainSessionInterval)
+        XCTAssertEqual(snapshot.mainSession, snapshot)
+    }
+
+    func testMainSessionKeepsOnlyNightSegmentsAndPreservesMetadata() {
+        // Wake-day snapshot holding the night 23:30–07:45 plus a 14:00–15:12 nap.
+        let bedtime = date(day: 9, hour: 23, minute: 30)
+        let wake = date(7, 45)
+        let napStart = date(14)
+        let napEnd = date(15, 12)
+        let nightSegments = [
+            SleepStageSegment(stage: .core, startDate: bedtime, endDate: date(3)),
+            SleepStageSegment(stage: .deep, startDate: date(3), endDate: date(4)),
+            SleepStageSegment(stage: .rem, startDate: date(4), endDate: wake)
+        ]
+        let snapshot = SleepStageSnapshot(
+            date: date(0),
+            segments: nightSegments + [
+                SleepStageSegment(stage: .core, startDate: napStart, endDate: napEnd)
+            ],
+            timeZoneIdentifier: "Europe/London",
+            mainSessionInterval: DateInterval(start: bedtime, end: wake)
+        )
+
+        let mainSession = snapshot.mainSession
+        XCTAssertEqual(mainSession.segments, nightSegments)
+        XCTAssertEqual(mainSession.date, snapshot.date)
+        XCTAssertEqual(mainSession.timeZoneIdentifier, "Europe/London")
+        XCTAssertEqual(mainSession.mainSessionInterval, snapshot.mainSessionInterval)
+
+        // The whole-day snapshot's wake time is the nap's end; the main session's
+        // is the night's.
+        XCTAssertEqual(snapshot.sleepEndDate, napEnd)
+        XCTAssertEqual(mainSession.sleepStartDate, bedtime)
+        XCTAssertEqual(mainSession.sleepEndDate, wake)
+    }
+
+    func testDecodesLegacyCacheWithoutMainSessionIntervalAndRoundTripsWithIt() throws {
+        let bedtime = date(day: 9, hour: 23, minute: 30)
+        let wake = date(7, 45)
+        let snapshot = SleepStageSnapshot(
+            date: date(0),
+            segments: [
+                SleepStageSegment(stage: .core, startDate: bedtime, endDate: wake),
+                SleepStageSegment(stage: .core, startDate: date(14), endDate: date(15, 12))
+            ],
+            mainSessionInterval: DateInterval(start: bedtime, end: wake)
+        )
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        var object = try XCTUnwrap(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertNotNil(object["mainSessionInterval"])
+        object.removeValue(forKey: "mainSessionInterval")
+        let stripped = try JSONSerialization.data(withJSONObject: object)
+
+        // An old on-disk cache predates the key; it must still decode (one nested
+        // failure discards the whole dashboard cache) with the field nil.
+        let legacy = try JSONDecoder().decode(SleepStageSnapshot.self, from: stripped)
+        XCTAssertNil(legacy.mainSessionInterval)
+        XCTAssertEqual(legacy.segments, snapshot.segments)
+        XCTAssertEqual(legacy.mainSession, legacy)
+
+        // With the field present the round-trip preserves it.
+        let roundTripped = try JSONDecoder().decode(SleepStageSnapshot.self, from: encoded)
+        XCTAssertEqual(roundTripped, snapshot)
+        XCTAssertEqual(roundTripped.mainSessionInterval, DateInterval(start: bedtime, end: wake))
+        XCTAssertEqual(roundTripped.mainSession.segments, [
+            SleepStageSegment(stage: .core, startDate: bedtime, endDate: wake)
+        ])
     }
 }

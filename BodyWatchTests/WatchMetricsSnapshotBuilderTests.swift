@@ -109,6 +109,52 @@ final class WatchMetricsSnapshotBuilderTests: XCTestCase {
         XCTAssertNotEqual(sleepMetric(in: sanitized)?.displayValue, "--")
     }
 
+    // MARK: - Readiness current-value dot (`weeklyCurrentValue`)
+
+    private func snapshot(readiness: ReadinessSummary, now: Date) -> WatchMetricsSnapshot {
+        var summary = HealthSummarySnapshot.placeholder
+        summary.readiness = readiness
+        return WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: summary,
+            trends: .empty,
+            lastRefreshDate: nil,
+            permissionSelection: .defaultValue,
+            temperatureUnitPreference: .celsius,
+            idealSleepDuration: 8 * 3_600,
+            now: now
+        )
+    }
+
+    func testDrainedReadinessCarriesWeeklyCurrentValue() {
+        let drained = ReadinessSummary(
+            score: 72,
+            status: ReadinessStatus.status(for: 72),
+            confidence: .high,
+            components: [],
+            drivers: [],
+            activityDrainMorningScore: 80
+        )
+
+        let readiness = snapshot(readiness: drained, now: day(4))
+            .metric(forKind: WatchMetricKindKey.readiness)
+        XCTAssertEqual(readiness?.weeklyCurrentValue, 72)
+    }
+
+    func testUndrainedReadinessOmitsWeeklyCurrentValue() {
+        let undrained = ReadinessSummary(
+            score: 80,
+            status: ReadinessStatus.status(for: 80),
+            confidence: .high,
+            components: [],
+            drivers: []
+        )
+
+        let readiness = snapshot(readiness: undrained, now: day(4))
+            .metric(forKind: WatchMetricKindKey.readiness)
+        XCTAssertEqual(readiness?.rawValue, 80)
+        XCTAssertNil(readiness?.weeklyCurrentValue)
+    }
+
     func testSanitizeBlanksSleepWhenLegacySnapshotHasNoNight() {
         // A snapshot built before `sleepNight` existed (or by an older phone)
         // decodes with a nil night: we can't verify it belongs to today, so it's

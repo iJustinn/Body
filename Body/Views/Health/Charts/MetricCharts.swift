@@ -14,7 +14,15 @@ struct BodyHealthMetricTrendChart: View {
     let valueFormatter: (Double) -> String
     let highlightedRange: BodyHealthMetricTrendHighlightedRange?
     let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?
+    /// A live "current" value dotted at 80% opacity in the line color under the
+    /// plotted point at `date` (Readiness: today's drained score under the
+    /// frozen morning point). While no point is scrubbed, the highlighted
+    /// status band follows this value instead of the latest plotted point.
+    let currentValuePoint: (date: Date, value: Double)?
     let activeHighlightedValue: Binding<Double?>?
+    /// Optional report-out of the scrub callout, so the immersive host can float it on
+    /// the topmost layer (above the nav bar). Nil keeps the in-chart annotation.
+    let floatingCallout: BodyChartFloatingCalloutState?
     let isSleepDetail: Bool
     let baselineValue: Double?
     let baselineDeviationFormatter: ((Double) -> String)?
@@ -44,7 +52,9 @@ struct BodyHealthMetricTrendChart: View {
         valueFormatter: @escaping (Double) -> String,
         highlightedRange: BodyHealthMetricTrendHighlightedRange? = nil,
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
+        currentValuePoint: (date: Date, value: Double)? = nil,
         activeHighlightedValue: Binding<Double?>? = nil,
+        floatingCallout: BodyChartFloatingCalloutState? = nil,
         isSleepDetail: Bool,
         baselineValue: Double? = nil,
         baselineDeviationFormatter: ((Double) -> String)? = nil,
@@ -58,7 +68,9 @@ struct BodyHealthMetricTrendChart: View {
         self.valueFormatter = valueFormatter
         self.highlightedRange = highlightedRange
         self.highlightedRangeResolver = highlightedRangeResolver
+        self.currentValuePoint = currentValuePoint
         self.activeHighlightedValue = activeHighlightedValue
+        self.floatingCallout = floatingCallout
         self.isSleepDetail = isSleepDetail
         self.baselineValue = baselineValue
         self.baselineDeviationFormatter = baselineDeviationFormatter
@@ -79,9 +91,11 @@ struct BodyHealthMetricTrendChart: View {
         let fallbackValues = series.limited(to: selectedRange).points.map(\.value).filter(\.isFinite)
         let highlightedRangeValues = highlightedRange?.domainValues ?? []
         let baselineDomainValues = baselineValue.map { [$0] } ?? []
+        let currentValueDomainValues = currentValuePoint.map { [$0.value] } ?? []
         let domainValues = (aggregatedValues.isEmpty ? fallbackValues : aggregatedValues)
             + highlightedRangeValues
             + baselineDomainValues
+            + currentValueDomainValues
         let yDomain = Self.computeYDomain(from: domainValues, chartStyle: chartStyle)
         self.chartYDomain = yDomain
 
@@ -95,23 +109,20 @@ struct BodyHealthMetricTrendChart: View {
     }
 
     private var activeHighlightedRange: BodyHealthMetricTrendHighlightedRange? {
-        guard let highlightedRangeResolver, let activeHighlightSourcePoint else {
+        guard let highlightedRangeResolver, let activeHighlightSourceValue else {
             return highlightedRange
         }
 
-        return highlightedRangeResolver(activeHighlightSourcePoint.value) ?? highlightedRange
+        return highlightedRangeResolver(activeHighlightSourceValue) ?? highlightedRange
     }
 
-    private var activeHighlightSourcePoint: HealthTrendCalendarPoint? {
-        selectedTrendPoint ?? latestVisibleTrendPoint
-    }
-
+    // Idle (no scrub, no current-value dot) reports nil so the band falls back
+    // to the caller's `highlightedRange`, built from the live summary value the
+    // hero displays. It must NOT fall back to the last plotted point: that can
+    // disagree with the live score (the plotted point is the frozen morning
+    // value) and briefly showed the wrong band as "Current".
     private var activeHighlightSourceValue: Double? {
-        activeHighlightSourcePoint?.value
-    }
-
-    private var latestVisibleTrendPoint: HealthTrendCalendarPoint? {
-        visibleFinitePoints.last
+        selectedTrendPoint?.value ?? currentValuePoint?.value
     }
 
     var body: some View {
@@ -187,6 +198,23 @@ struct BodyHealthMetricTrendChart: View {
                     }
                 }
 
+                // Hidden while a scrub callout is up: the band follows the
+                // scrubbed point then, and the dot would clutter the rule line.
+                if chartStyle == .line, let currentValuePoint, selectedTrendPoint == nil {
+                    PointMark(
+                        x: .value("Date", currentValuePoint.date, unit: .day),
+                        y: .value(title, currentValuePoint.value)
+                    )
+                    .symbol {
+                        Circle()
+                            .fill(symbolColor.opacity(0.8))
+                            .frame(
+                                width: selectedRange.lineCurrentPointDiameter,
+                                height: selectedRange.lineCurrentPointDiameter
+                            )
+                    }
+                }
+
                 if let selectedTrendPoint, let selectedTrendValue = selectedTrendPoint.value {
                     RuleMark(x: .value("Selected Date", selectedTrendPoint.date, unit: .day))
                         .foregroundStyle(chartStyle == .bar ? Color.clear : Color.secondary.opacity(0.48))
@@ -196,12 +224,9 @@ struct BodyHealthMetricTrendChart: View {
                             spacing: 8,
                             overflowResolution: bodyChartSelectionOverflowResolution
                         ) {
-                            BodyChartSelectionAnnotation(
-                                eyebrow: chartStyle == .bar ? barSelectionEyebrow : nil,
-                                values: selectionValues(for: selectedTrendValue),
-                                date: selectedTrendPoint.date,
-                                dateText: bodyChartSelectionDateText(for: selectedTrendPoint)
-                            )
+                            if floatingCallout == nil {
+                                selectionAnnotation(for: selectedTrendPoint, value: selectedTrendValue)
+                            }
                         }
 
                     if chartStyle == .line {
@@ -242,6 +267,13 @@ struct BodyHealthMetricTrendChart: View {
                             .offset(x: plotRect.minX, y: lowerY - stripeHeightPx)
                     }
                 }
+                // Band easing lives here, scoped to the background, NOT on the Chart:
+                // a chart-wide keyed transaction would also animate mark removal, so the
+                // current-value dot lingered ~0.55s after a scrub callout appeared.
+                .animation(
+                    reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0),
+                    value: highlightedRangeAnimationKey
+                )
             }
             .chartXAxis {
                 AxisMarks(values: .stride(by: .day, count: selectedRange.axisStrideDayCount)) { value in
@@ -281,9 +313,6 @@ struct BodyHealthMetricTrendChart: View {
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
             )
-            .transaction(value: highlightedRangeAnimationKey) { transaction in
-                transaction.animation = reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0)
-            }
             .transaction { transaction in
                 transaction.animation = nil
             }
@@ -293,7 +322,22 @@ struct BodyHealthMetricTrendChart: View {
             .onChange(of: activeHighlightSourceValue) { _, _ in
                 syncActiveHighlightedValue()
             }
+            .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedTrendPoint?.date) {
+                guard let point = selectedTrendPoint, let value = point.value else {
+                    return AnyView(EmptyView())
+                }
+                return AnyView(selectionAnnotation(for: point, value: value))
+            }
         }
+    }
+
+    private func selectionAnnotation(for selectedTrendPoint: HealthTrendCalendarPoint, value: Double) -> BodyChartSelectionAnnotation {
+        BodyChartSelectionAnnotation(
+            eyebrow: chartStyle == .bar ? barSelectionEyebrow : nil,
+            values: selectionValues(for: value),
+            date: selectedTrendPoint.date,
+            dateText: bodyChartSelectionDateText(for: selectedTrendPoint)
+        )
     }
 
     private var selectedTrendPoint: HealthTrendCalendarPoint? {
@@ -458,6 +502,7 @@ struct BodyHealthMetricDayChart: View {
     private let hourlyBuckets: [HealthTrendHourlyBucket]
     private let secondaryHourlyBuckets: [HealthTrendHourlyBucket]
     private let entries: [BodyHealthMetricDayChartEntry]
+    private let pointMarkEntries: [BodyHealthMetricDayChartEntry]
     private let finiteEntries: [BodyHealthMetricDayChartEntry]
     private let primaryEntriesByDate: [Date: BodyHealthMetricDayChartEntry]
     private let secondaryEntriesByDate: [Date: BodyHealthMetricDayChartEntry]
@@ -485,7 +530,8 @@ struct BodyHealthMetricDayChart: View {
         valueFormatter: @escaping (Double) -> String,
         contextIntervals: [BodyHealthMetricDayContextInterval] = [],
         aggregationLabel: String = String(localized: "HOURLY AVG"),
-        includesSampleBreakdown: Bool = true
+        includesSampleBreakdown: Bool = true,
+        collapsesUnchangedPoints: Bool = false
     ) {
         self.day = day
         self.title = title
@@ -516,6 +562,9 @@ struct BodyHealthMetricDayChart: View {
         )
         let allEntries = primaryEntries + secondaryEntries
         self.entries = allEntries
+        self.pointMarkEntries = collapsesUnchangedPoints
+            ? Self.collapsingUnchangedRunPoints(allEntries)
+            : allEntries
         self.finiteEntries = allEntries.filter { $0.averageValue.isFinite }
         self.primaryEntriesByDate = Dictionary(uniqueKeysWithValues: primaryEntries.map { ($0.plotDate, $0) })
         self.secondaryEntriesByDate = Dictionary(uniqueKeysWithValues: secondaryEntries.map { ($0.plotDate, $0) })
@@ -569,7 +618,9 @@ struct BodyHealthMetricDayChart: View {
                 .interpolationMethod(.linear)
                 .foregroundStyle(color(for: entry))
                 .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+            }
 
+            ForEach(pointMarkEntries) { entry in
                 PointMark(
                     x: .value("Time", entry.plotDate),
                     y: .value(title, entry.averageValue)
@@ -726,6 +777,27 @@ struct BodyHealthMetricDayChart: View {
             indices.append(current)
         }
         return indices
+    }
+
+    /// Keeps only the informative dots when a series holds flat runs: within
+    /// each line segment, an interior entry is dropped when both neighbors
+    /// share its value, so an unchanged stretch shows just its start and end
+    /// dots. The line itself still spans every entry.
+    static func collapsingUnchangedRunPoints(
+        _ entries: [BodyHealthMetricDayChartEntry]
+    ) -> [BodyHealthMetricDayChartEntry] {
+        var keptIDs = Set<String>()
+        for group in Dictionary(grouping: entries, by: \.seriesKey).values {
+            let sorted = group.sorted { $0.plotDate < $1.plotDate }
+            for (index, entry) in sorted.enumerated() {
+                let matchesPrevious = index > 0 && sorted[index - 1].averageValue == entry.averageValue
+                let matchesNext = index < sorted.count - 1 && sorted[index + 1].averageValue == entry.averageValue
+                if !(matchesPrevious && matchesNext) {
+                    keptIDs.insert(entry.id)
+                }
+            }
+        }
+        return entries.filter { keptIDs.contains($0.id) }
     }
 
     private static func makeEntries(

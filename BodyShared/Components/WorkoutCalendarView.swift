@@ -72,8 +72,6 @@ struct WorkoutCalendarCountMarker: Equatable {
 }
 
 struct WorkoutCalendarView: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     let snapshot: WorkoutMonthSnapshot
     let style: WorkoutCalendarDisplayStyle
     let fillsAvailableHeight: Bool
@@ -206,7 +204,7 @@ struct WorkoutCalendarView: View {
             )
         } else {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Color.primary.opacity(colorScheme == .dark ? 0.14 : 0.10))
+                .fill(Color.primary.opacity(0.1))
         }
     }
 

@@ -6,6 +6,7 @@
 import Foundation
 import HealthKit
 import WidgetKit
+import os
 
 /// How a refresh was triggered, which decides how much workout data is
 /// re-fetched eagerly and whether the engine's per-workout caches (effort
@@ -145,8 +146,72 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var syncBadgeSuccessCount = 0
     /// Date of the last refresh that re-fetched the dashboard vitals (not just
     /// workouts or ring history). Carried in the watch snapshot so the watch's
-    /// staleness logic isn't reset by workout-only refreshes.
+    /// staleness logic isn't reset by workout-only refreshes. Doubles as the
+    /// phone→watch compute seed's `dataThrough` watermark (Phase 3 of the
+    /// on-watch realtime compute plan) — it already advances ONLY when a full
+    /// dashboard refresh lands cleanly, which is exactly the data-coverage
+    /// guarantee `dataThrough` needs.
     private var lastVitalsRefreshDate: Date?
+    /// When readiness was last RE-DERIVED from freshly-fetched inputs. Distinct
+    /// from `lastVitalsRefreshDate`, which advances only on a clean full
+    /// dashboard refresh: a workout-only refresh (`refreshWorkoutMonth`, warm
+    /// resume) re-runs the workout fetch and
+    /// `reapplyActivityReadinessAfterWorkouts`, genuinely moving readiness
+    /// while the vitals watermark stands still. The watch stamps readiness from
+    /// THIS date (`publishWatchSnapshot`'s `perKindDataAsOf`), so a
+    /// workout-only push's fresher readiness isn't presented under a stale
+    /// timestamp and beaten by an older watch-computed value in
+    /// `WatchComputeMerge.merging`'s per-metric compare.
+    private var lastReadinessComputeDate: Date?
+    /// When the Training Load summary/series were last RE-DERIVED from a fresh
+    /// workout fetch. Deliberately SEPARATE from `lastReadinessComputeDate`:
+    /// the workout-only reapply path re-drains readiness but does NOT recompute
+    /// Training Load (that only happens in the dashboard fetch, gated on the
+    /// fetch selection's `.trainingLoad` bit) — advancing a joint watermark
+    /// there would label a stale Training Load as freshly computed and let it
+    /// overwrite a newer watch-computed value in the per-metric merge.
+    private var lastTrainingLoadComputeDate: Date?
+    /// Per-kind watermark for the OTHER watch metrics a single-metric detail
+    /// pull can refresh (HR, HRV, resting HR, sleep, skin temp), keyed by
+    /// `WatchMetricKindKey` string (== `HealthMetricKind.rawValue`, pinned by
+    /// `ProjectConfigurationTests`). Without it a clean detail pull publishes
+    /// the freshly fetched value under the OLD full-refresh stamp
+    /// (`lastVitalsRefreshDate` deliberately doesn't advance on a
+    /// `refreshedVitals: false` refresh), and a watch that computed that kind
+    /// locally in between keeps its older value in the freshest-wins merge.
+    private var lastMetricPullDates: [String: Date] = [:]
+    /// The phone's discovered source universe per compute kind (see
+    /// `HealthKitFetchEngine.watchComputeExpectedSourceIDs`), cached at each
+    /// source-options fetch and carried in the compute seed so the watch can
+    /// validate an All-Sources read against it.
+    private var cachedExpectedSourceIDsByKind: [String: [String]] = [:]
+    /// Dense day-indexed Training Load loads for the phone→watch compute seed,
+    /// refreshed alongside a clean full dashboard refresh whose fetch selection
+    /// included Training Load (see `updateCachedComputeTrainingLoadSeedIfNeeded`)
+    /// and after a Training Load detail pull / effort-edit refresh. `nil` until
+    /// the first such refresh this session (or if Workouts is disabled);
+    /// `publishWatchSnapshot` simply omits Training Load from the seed while
+    /// nil — `dataThrough` (from `lastVitalsRefreshDate`, not this property)
+    /// is what gates whether a seed is sent at all (cold start).
+    ///
+    /// `through` is the loads' own data-coverage watermark, carried in the seed
+    /// (`WatchComputeSeed.trainingLoadDataThrough`) because it can lag the
+    /// seed's overall `dataThrough`: a full refresh with the Training Load and
+    /// Readiness cards hidden advances `dataThrough` but deliberately skips the
+    /// load rebuild (cost gate). The watch refuses to replay loads whose
+    /// coverage no longer reaches its delta window — otherwise the uncovered
+    /// days would be silently zero-filled as fabricated rest days.
+    private var cachedComputeTrainingLoadSeed: (startDay: Date, loads: [Double], through: Date)?
+
+    /// Sole writer of a POPULATED `cachedComputeTrainingLoadSeed`: persists the
+    /// same value (`HealthDashboardSnapshotStore`) so a relaunch — whose
+    /// restored `dataThrough` lets a workout-only publish ship a seed before
+    /// any full Training Load refresh has run — carries the loads forward
+    /// instead of replacing the watch's complete seed with one missing them.
+    private func setCachedComputeTrainingLoadSeed(startDay: Date, loads: [Double], through: Date) {
+        cachedComputeTrainingLoadSeed = (startDay: startDay, loads: loads, through: through)
+        HealthDashboardSnapshotStore.saveWatchTrainingLoadSeed(startDay: startDay, loads: loads, through: through)
+    }
     @Published private(set) var loadingMonthKeys: Set<BodyWorkoutMonthKey> = []
     @Published private(set) var loadingActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
     @Published private(set) var hasMoreActivityRingHistory = true
@@ -233,7 +298,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     init(
-        initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrPlaceholder(),
+        initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrEmpty(),
         initialHealthDashboardSnapshot: HealthDashboardSnapshot = HealthDashboardSnapshotStore.loadOrEmpty(),
         initialSummaryContextSignature: String? = HealthDashboardSnapshotStore.loadSummaryContextSignature(),
         initialPermissionSelection: BodyHealthPermissionSelection = BodyHealthPermissionSelection.load(),
@@ -327,6 +392,33 @@ final class HealthKitWorkoutStore: ObservableObject {
         // Restore the persisted last-successful-refresh timestamp so the
         // cold-start sync path applies the same tiered TTL as a warm resume.
         lastSuccessfulRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
+        // Restore the compute seed's data watermark from the SAME persisted
+        // value: it was written only when a clean full refresh landed — the
+        // exact condition under which `lastVitalsRefreshDate` itself advances
+        // (`nextLastVitalsRefreshDate`), so the two are equal at every persist
+        // point. Without this, a relaunch inside the 5-minute TTL performs only
+        // a workout refresh, `dataThrough` stays nil, and a settings-only
+        // republish ships NO seed and NO settings signature — leaving the
+        // watch recomputing with an obsolete sleep goal / unit / score setting
+        // until the next full refresh happens to run. The restored dashboard
+        // summary/trends this seed would be built from were persisted by that
+        // same refresh, so the coverage claim stays honest.
+        lastVitalsRefreshDate = lastSuccessfulRefreshDate
+        // Restore the seed's expected-source coverage with the same lifetime:
+        // the restored `dataThrough` above lets a publish attach a seed BEFORE
+        // this session runs source discovery, and a seed carrying no
+        // expected-source lists licenses the watch's unfiltered All-Sources
+        // reads — silently reopening the incomplete-source-subset divergence
+        // the coverage check exists to prevent.
+        cachedExpectedSourceIDsByKind = HealthDashboardSnapshotStore.loadWatchExpectedSourceIDs()
+        // And the seed's Training Load piece: without it, a workout-only
+        // publish inside the refresh TTL ships a seed whose Training Load
+        // arrays are nil — replacing the watch's complete seed with one it
+        // can't recompute Training Load from, indefinitely if the phone's
+        // Training Load / Readiness cards are hidden (the rebuild is
+        // cost-gated on the dashboard actually fetching Training Load). The
+        // persisted `through` keeps the watch's coverage gate honest.
+        cachedComputeTrainingLoadSeed = HealthDashboardSnapshotStore.loadWatchTrainingLoadSeed()
         Task { await self.refreshCacheDiskSize() }
 
         // When Body Pro unlocks (or is revoked/refunded), re-fetch so the secondary-source
@@ -498,6 +590,36 @@ final class HealthKitWorkoutStore: ObservableObject {
                 recomputesReadiness: Self.readinessInputMetricKinds.contains(kind)
             )
             authorizationState = .authorized
+            if !metricFetch.hadQueryFailure, metricFetch.ranQueries {
+                // A clean metric-only pull genuinely re-derived readiness (any
+                // readiness-input kind triggers the recompute above) and — for
+                // Training Load — the trend/summary themselves. Advance the
+                // watch watermarks BEFORE `markRefreshSucceeded` publishes, or
+                // the freshly recomputed phone result ships under the OLD
+                // stamps and a watch compute that ran since would beat it.
+                // (`ranQueries` false means the permission is off and nothing
+                // was actually re-derived — nothing to re-stamp.)
+                if Self.readinessInputMetricKinds.contains(kind) {
+                    lastReadinessComputeDate = date
+                }
+                // A watch-displayed vitals kind pulled directly gets its own
+                // per-kind stamp too, so the freshly fetched value doesn't
+                // publish under the stale full-refresh date and lose to an
+                // older watch-computed value in the per-metric merge.
+                if Self.watchVitalsPullKinds.contains(kind) {
+                    lastMetricPullDates[kind.rawValue] = date
+                }
+                if kind == .trainingLoad {
+                    lastTrainingLoadComputeDate = date
+                    // The effort-edit path (`refreshAfterWrite(.trainingLoad)`)
+                    // lands here too: rebuild the seeded daily loads from the
+                    // fetch this pull just memoized, so the watch replays the
+                    // post-edit efforts instead of the pre-edit array.
+                    if let seed = await engine.trainingLoadDailyLoadSeed(calendar: calendar) {
+                        setCachedComputeTrainingLoadSeed(startDay: seed.startDay, loads: seed.loads, through: date)
+                    }
+                }
+            }
             // A metric pull whose query failed preserved the cached values
             // (nothing fetched), so pass the real outcome — the badge must not
             // confirm "updated" on a failed fetch. `ranQueries` is false when the
@@ -2286,6 +2408,18 @@ final class HealthKitWorkoutStore: ObservableObject {
         healthDataSourceOptionsByKind = [:]
         persistedDaySamplesHydration = nil
         lastSuccessfulRefreshDate = nil
+        // Drop the compute-seed watermark + cached Training Load piece too — a
+        // tombstoned install must not re-attach a stale seed (built from data
+        // this clear just wiped) on the next publish. `dataThrough` (from
+        // `lastVitalsRefreshDate`) is what gates whether `publishWatchSnapshot`
+        // sends a seed at all, so this also makes the very next publish
+        // correctly send none until a fresh full refresh lands.
+        lastVitalsRefreshDate = nil
+        lastReadinessComputeDate = nil
+        lastTrainingLoadComputeDate = nil
+        lastMetricPullDates = [:]
+        cachedComputeTrainingLoadSeed = nil
+        cachedExpectedSourceIDsByKind = [:]
         authorizationState = .unknown
         healthDataNotice = String(localized: "Local cache cleared. Refresh to load Apple Health data again.")
 
@@ -2305,6 +2439,8 @@ final class HealthKitWorkoutStore: ObservableObject {
                 WorkoutSnapshotStore.deletePrevious()
                 HealthDashboardSnapshotStore.delete()
                 HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
+                HealthDashboardSnapshotStore.clearWatchExpectedSourceIDs()
+                HealthDashboardSnapshotStore.clearWatchTrainingLoadSeed()
                 HealthDashboardSnapshotStore.clearActivityRingBackfillCompleted()
                 HealthWidgetSnapshotStore.delete()
                 continuation.resume()
@@ -2329,7 +2465,8 @@ final class HealthKitWorkoutStore: ObservableObject {
         WatchConnectivityPublisher.shared.send(
             reset,
             permissionRawValue: nil,
-            captureSequence: WatchConnectivityPublisher.shared.nextCaptureSequence()
+            captureSequence: WatchConnectivityPublisher.shared.nextCaptureSequence(),
+            computeSeedData: nil
         )
     }
 
@@ -2415,6 +2552,19 @@ final class HealthKitWorkoutStore: ObservableObject {
             // shortcut, so don't `markRefreshSucceeded` unless workouts landed.
             try await workoutRefresh
             authorizationState = .authorized
+            // Dashboard vitals + workouts have both just landed together (this
+            // path always refreshes the dashboard) — the one point to refresh
+            // the phone→watch compute seed's Training Load piece under the
+            // SAME engine anchor date the dashboard fetch used. Gated on
+            // `!hadQueryFailure` exactly like `lastVitalsRefreshDate` below, so
+            // the two can't drift out of lockstep.
+            await updateCachedComputeTrainingLoadSeedIfNeeded(
+                date: date,
+                calendar: calendar,
+                includesWorkouts: includesWorkouts,
+                fetchesTrainingLoad: dashboardFetchSelection.includes(.trainingLoad),
+                hadQueryFailure: hadQueryFailure
+            )
             // When the permission selection enables no readable types (all off,
             // or only dependent toggles like .dateOfBirth/.workoutMetrics left),
             // source discovery has no kinds, the dashboard fetch returns
@@ -2469,9 +2619,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         }()
 
         var hadQueryFailure = false
+        let dashboardFetchSelection = BodyDashboardFetchSelection.load()
         do {
             if updatesHealthSummary {
-                let dashboardFetchSelection = BodyDashboardFetchSelection.load()
                 await fetchHealthDataSourceOptions(calendar: calendar)
 
                 let (fetchedHealthSummary, fetchedHealthTrends, fetchedActivityRingHistory, leafFailure) =
@@ -2489,6 +2639,22 @@ final class HealthKitWorkoutStore: ObservableObject {
             }
             try await workoutRefresh
             authorizationState = .authorized
+            // Only when this call actually refreshed the dashboard (mirrors
+            // `refreshedVitals: updatesHealthSummary` below) have summary,
+            // trends, and workouts all just landed together under the same
+            // engine anchor date — the point to refresh the phone→watch
+            // compute seed's Training Load piece. `refreshWorkoutMonth`
+            // (`updatesHealthSummary == false`) skips this, leaving the seed
+            // as of the last full refresh.
+            if updatesHealthSummary {
+                await updateCachedComputeTrainingLoadSeedIfNeeded(
+                    date: refreshDate,
+                    calendar: calendar,
+                    includesWorkouts: includesWorkouts,
+                    fetchesTrainingLoad: dashboardFetchSelection.includes(.trainingLoad),
+                    hadQueryFailure: hadQueryFailure
+                )
+            }
             // A query ran if the dashboard fetch executed (`updatesHealthSummary`)
             // or the workout fetch did (`includesWorkouts`). When both are off —
             // e.g. `refreshWorkoutMonth` with Workouts permission disabled — no
@@ -2825,6 +2991,19 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// `HealthTrendSnapshot.readinessSourceSeries`). Refreshing any other
     /// single metric skips the per-day readiness recompute — its inputs
     /// cannot have changed.
+    /// The single-metric-pull kinds that map onto a watch card and therefore
+    /// need their own `perKindDataAsOf` stamp (`lastMetricPullDates`).
+    /// Readiness and Training Load carry their dedicated watermarks instead;
+    /// the raw values match `WatchMetricKindKey` (pinned by
+    /// `ProjectConfigurationTests`).
+    nonisolated static let watchVitalsPullKinds: Set<HealthMetricKind> = [
+        .heartRate,
+        .heartRateVariability,
+        .restingHeartRate,
+        .sleep,
+        .wristTemperature
+    ]
+
     nonisolated static let readinessInputMetricKinds: Set<HealthMetricKind> = [
         .readiness,
         .sleep,
@@ -2833,7 +3012,8 @@ final class HealthKitWorkoutStore: ObservableObject {
         .respiratoryRate,
         .oxygenSaturation,
         .trainingLoad,
-        .wristTemperature
+        .wristTemperature,
+        .vitals
     ]
 
     /// Permissions whose data feeds the Readiness score. Toggling one changes the
@@ -2941,49 +3121,44 @@ final class HealthKitWorkoutStore: ObservableObject {
         saveHealthWidgetSnapshot()
     }
 
-    /// A wake (sleep-end) older than this is treated as stale/missing — the drain
-    /// window falls back to midnight so a days-old sleep summary can't span days.
-    nonisolated static let maxWakeCycleSeconds: TimeInterval = 24 * 3_600
-
-    /// Wake time valid for freezing the scoring day's morning record: the sleep
-    /// session must have ended on the scoring day and not in the future. Otherwise
-    /// `nil`, so the freeze uses its 10:00-local fallback — a stale multi-day-old
-    /// sleep end must not anchor the freeze before that fallback.
+    /// Wake time valid for freezing the scoring day's morning record. Delegates to
+    /// the shared pure static (`ReadinessComputeSupport`) so the watch's on-device
+    /// compute reuses the identical math; kept here under the same name/signature
+    /// for existing call sites and tests.
     nonisolated static func freezeWakeTime(
         sleepEnd: Date?,
         scoringDay: Date,
         now: Date,
         calendar: Calendar
     ) -> Date? {
-        guard let sleepEnd, sleepEnd <= now, calendar.isDate(sleepEnd, inSameDayAs: scoringDay) else {
-            return nil
-        }
-        return sleepEnd
+        ReadinessComputeSupport.freezeWakeTime(sleepEnd: sleepEnd, scoringDay: scoringDay, now: now, calendar: calendar)
     }
 
-    /// Start of the current wake cycle for the activity-drain window: the most
-    /// recent sleep end when it is recent enough (so an evening workout's drain
-    /// survives past midnight), otherwise midnight — so a stale multi-day-old
-    /// sleep end can't make the window span days.
+    /// Start of the current wake cycle for the activity-drain window. Delegates to
+    /// the shared pure static (`ReadinessComputeSupport`); kept here under the same
+    /// name/signature for existing call sites and tests.
     nonisolated static func wakeCycleStart(now: Date, sleepEnd: Date?, calendar: Calendar) -> Date {
-        if let sleepEnd, sleepEnd <= now, now.timeIntervalSince(sleepEnd) <= maxWakeCycleSeconds {
-            return sleepEnd
-        }
-        return calendar.startOfDay(for: now)
+        ReadinessComputeSupport.wakeCycleStart(now: now, sleepEnd: sleepEnd, calendar: calendar)
     }
 
     /// Workouts done since the start of the current wake cycle, up to `now`.
-    /// These drive the same-day readiness drain.
+    /// These drive the same-day readiness drain. Keeps the month-cache read
+    /// (impure); the window filter itself is the shared pure
+    /// `ReadinessComputeSupport.wakeCycleWorkouts`.
     private func currentWakeCycleWorkouts(
         now: Date,
         sleepEnd: Date?,
         calendar: Calendar
     ) -> [WorkoutSummary] {
-        let cycleStart = Self.wakeCycleStart(now: now, sleepEnd: sleepEnd, calendar: calendar)
-        return monthSnapshots.values
+        let allWorkouts = monthSnapshots.values
             .flatMap(\.days)
             .flatMap(\.workouts)
-            .filter { $0.startDate >= cycleStart && $0.startDate <= now }
+        return ReadinessComputeSupport.wakeCycleWorkouts(
+            from: allWorkouts,
+            now: now,
+            sleepEnd: sleepEnd,
+            calendar: calendar
+        )
     }
 
     /// After the workout fetch lands, re-apply the activity drain + morning freeze
@@ -3002,6 +3177,13 @@ final class HealthKitWorkoutStore: ObservableObject {
         // drained from stale workout snapshots (e.g. a workout was deleted), so the
         // empty list must flow through to let the score rebound.
         let todaysWorkouts = currentWakeCycleWorkouts(now: now, sleepEnd: sleepEnd, calendar: calendar)
+        // Readiness is being re-derived (drain + morning freeze) from workouts
+        // that just landed — the watch's readiness watermark. This is the only
+        // place it advances on a WORKOUT-ONLY refresh, where
+        // `lastVitalsRefreshDate` deliberately stands still. Training Load's
+        // watermark does NOT advance here: this reapply never recomputes the
+        // Training Load summary/series, so stamping it fresh would be a lie.
+        lastReadinessComputeDate = date
 
         let updated = HealthDashboardSnapshot(
             summary: healthSummary,
@@ -3052,6 +3234,24 @@ final class HealthKitWorkoutStore: ObservableObject {
         saveHealthWidgetSnapshot()
     }
 
+    /// The next `lastVitalsRefreshDate` — the compute seed's `dataThrough`
+    /// watermark (C4) — for a refresh outcome. Advances only on a clean full
+    /// vitals refresh (`refreshedVitals && !hadQueryFailure`); every other
+    /// call (a settings-only republish passes `refreshedVitals: false`, a
+    /// leaf query failure passes `hadQueryFailure: true`) returns `current`
+    /// unchanged, so publishing more often — or a partial refresh — never
+    /// looks like fresher data to the watch. Pure so this is directly
+    /// unit-testable without a store instance.
+    nonisolated static func nextLastVitalsRefreshDate(
+        current: Date?,
+        date: Date,
+        refreshedVitals: Bool,
+        hadQueryFailure: Bool
+    ) -> Date? {
+        guard refreshedVitals, !hadQueryFailure else { return current }
+        return date
+    }
+
     /// Internal (not private) so tests can assert the TTL gating below without
     /// a HealthKit round trip.
     func markRefreshSucceeded(
@@ -3089,10 +3289,23 @@ final class HealthKitWorkoutStore: ObservableObject {
         // trends, or ring history) failed — don't arm the freshness TTL, so the
         // next resume retries the partial result instead of trusting it as
         // 5-minutes-fresh.
+        // The compute seed's `dataThrough` watermark: pure so the "settings-only
+        // republish carries it forward, a clean full refresh advances it" rule
+        // is unit-testable without a store instance (see
+        // `HealthKitWorkoutStoreComputeSeedTests`).
+        lastVitalsRefreshDate = Self.nextLastVitalsRefreshDate(
+            current: lastVitalsRefreshDate, date: date, refreshedVitals: refreshedVitals, hadQueryFailure: hadQueryFailure
+        )
         if refreshedVitals, !hadQueryFailure {
             lastSuccessfulRefreshDate = date
             HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(date)
-            lastVitalsRefreshDate = date
+            // A clean full refresh re-derived readiness from this fetch too, so
+            // its watch watermark advances with it. (The workout-only paths
+            // advance it on their own, from
+            // `reapplyActivityReadinessAfterWorkouts`; Training Load's own
+            // watermark advances from `updateCachedComputeTrainingLoadSeedIfNeeded`,
+            // which knows whether the fetch selection actually recomputed it.)
+            lastReadinessComputeDate = date
         }
         // The full-refresh paths suppress this and publish once after the
         // post-workout reapply, so the watch ships the drained value rather than
@@ -3101,6 +3314,52 @@ final class HealthKitWorkoutStore: ObservableObject {
         if publishesWatch {
             publishWatchSnapshot()
         }
+    }
+
+    /// Refreshes `cachedComputeTrainingLoadSeed` — the phone→watch compute
+    /// seed's Training Load piece — from the engine's memoized workout window,
+    /// called ONLY from the two full-refresh call sites at the point
+    /// dashboard vitals and workouts have both just landed. Gated on
+    /// `!hadQueryFailure` so it advances in lockstep with `lastVitalsRefreshDate`
+    /// (the seed's `dataThrough`): a refresh with a leaf failure updates
+    /// neither, so the two can never describe different data-coverage points.
+    /// Also gated on `includesWorkouts` (no workout data to compute from when
+    /// disabled), on `fetchesTrainingLoad`, and on the engine call succeeding —
+    /// any of those guards leaves the previous cache untouched rather than
+    /// blanking it, mirroring `fetchTrainingLoadSeries`'s keep-stale-on-failure
+    /// convention.
+    ///
+    /// `fetchesTrainingLoad` is the dashboard fetch selection's own
+    /// `.trainingLoad` bit, and it is a COST gate, not a correctness one: the
+    /// engine accessor reuses the memoized `sharedTrainingLoadWorkouts` window,
+    /// but only the dashboard's own Training Load fetch ever warms that memo.
+    /// For a user who has hidden both the Training Load and Readiness cards the
+    /// memo is cold on every refresh, so calling in anyway would run a fresh
+    /// ~408-day `fetchWorkoutSummaries` plus a per-workout effort fan-out —
+    /// with the effort cache cleared on user-initiated refreshes — purely to
+    /// populate a seed field. The watch keeps the last cached seed value
+    /// instead.
+    private func updateCachedComputeTrainingLoadSeedIfNeeded(
+        date: Date,
+        calendar: Calendar,
+        includesWorkouts: Bool,
+        fetchesTrainingLoad: Bool,
+        hadQueryFailure: Bool
+    ) async {
+        guard includesWorkouts, fetchesTrainingLoad, !hadQueryFailure else {
+            return
+        }
+        // The guard above certifies the dashboard fetch just recomputed the
+        // Training Load summary/series cleanly — the honest place to advance
+        // TL's watch watermark. Deliberately BEFORE the engine-seed guard
+        // below: the seed accessor reuses the memoized workout window and can
+        // fail independently of the summary fetch, and a failed seed refresh
+        // doesn't make the just-recomputed summary any less fresh.
+        lastTrainingLoadComputeDate = date
+        guard let seed = await engine.trainingLoadDailyLoadSeed(calendar: calendar) else {
+            return
+        }
+        setCachedComputeTrainingLoadSeed(startDay: seed.startDay, loads: seed.loads, through: date)
     }
 
     /// Rebuilds and republishes both companion snapshots (iOS widget + watch)
@@ -3142,6 +3401,55 @@ final class HealthKitWorkoutStore: ObservableObject {
         let captureSequence = WatchConnectivityPublisher.shared.nextCaptureSequence()
         let permissionRawValue = BodyHealthPermissionSelection.load().rawValue
 
+        // Phase 3 compute-seed capture, alongside the display-snapshot inputs
+        // above so both ship from the same consistent state. `summary`/
+        // `trends` are read LIVE (same as the display snapshot) — they're
+        // already the store's best current data whether this publish came
+        // from a full refresh or a settings-only republish (permission /
+        // preference changes refilter them in place without a new fetch), so
+        // no separate "carried" copy is needed. Only `dataThrough` and the
+        // Training Load piece are genuinely frozen between full refreshes:
+        // `lastVitalsRefreshDate` already advances ONLY on a clean full
+        // refresh (never on a republish), and `cachedComputeTrainingLoadSeed`
+        // is kept in lockstep with it (`updateCachedComputeTrainingLoadSeedIfNeeded`)
+        // — so a settings-only republish reaching this same code path
+        // automatically carries both forward unchanged, satisfying "never
+        // advance `dataThrough` on publication" without extra bookkeeping.
+        // `nil` `dataThrough` (no full refresh yet this session) sends no seed.
+        let dataThrough = lastVitalsRefreshDate
+        // Honest per-kind watermarks, SPLIT because they genuinely differ: a
+        // workout-only refresh re-drains readiness but never recomputes
+        // Training Load. Readiness `max`es with the vitals date so a full
+        // refresh whose Workouts permission is off (no
+        // `reapplyActivityReadinessAfterWorkouts`) still stamps it at least as
+        // fresh as the vitals it was computed from. Training Load stays nil
+        // until it is actually recomputed — the builder then falls back to the
+        // uniform vitals stamp (the pre-split legacy behavior for a value that
+        // has no fresher provenance).
+        let readinessComputeDate = [lastVitalsRefreshDate, lastReadinessComputeDate]
+            .compactMap { $0 }
+            .max()
+        let trainingLoadComputeDate = lastTrainingLoadComputeDate
+        let metricPullDates = lastMetricPullDates
+        let trainingLoadSeed = cachedComputeTrainingLoadSeed
+        let expectedSourceIDsByKind = cachedExpectedSourceIDsByKind
+        let followsSystemUnits = UserDefaults.standard.object(
+            forKey: BodyAppearancePreference.followsSystemUnitsKey
+        ) as? Bool ?? true
+        let selectedTemperatureUnitRaw = UserDefaults.standard.string(
+            forKey: BodyAppearancePreference.selectedTemperatureUnitKey
+        ) ?? BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
+        let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
+        let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
+        let healthDataSourceSelectionRaw = healthDataSourceSelection.rawValue
+        let combinesByName = combinesHealthDataSourcesByName
+        // Only the seed needs the 14-day time-zone map, and building it costs 14
+        // `UserDefaults` reads + `JSONDecoder` allocations on the main actor —
+        // so build it only when a seed will actually be assembled below.
+        let recentTimeZoneIdentifiersByDay = dataThrough == nil
+            ? [:]
+            : Self.recentTimeZoneIdentifiersByDay(now: now)
+
         Self.snapshotPersistQueue.async {
             var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
                 summary: summary,
@@ -3151,9 +3459,85 @@ final class HealthKitWorkoutStore: ObservableObject {
                 temperatureUnitPreference: temperatureUnitPreference,
                 idealSleepDuration: idealSleepDuration,
                 showSleepScore: showSleepScore,
-                now: now
+                now: now,
+                // Readiness and Training Load carry their own watermarks: a
+                // workout-only refresh re-drains readiness (only) while
+                // `lastRefreshDate` (the VITALS watermark) deliberately stands
+                // still. Stamping uniformly would present genuinely fresh
+                // readiness as stale — or, joint-stamping both, present a NOT
+                // recomputed Training Load as fresh. Either way the watch's
+                // per-metric compare then picks the wrong side. Every other
+                // kind (and a never-recomputed Training Load) falls through to
+                // the uniform vitals date.
+                perKindDataAsOf: { kind in
+                    switch kind {
+                    case WatchMetricKindKey.readiness:
+                        return readinessComputeDate
+                    case WatchMetricKindKey.trainingLoad:
+                        return trainingLoadComputeDate
+                    default:
+                        // A single-metric detail pull refreshes one vitals kind
+                        // without advancing the full-refresh date — take the
+                        // newer of the two so the pulled value doesn't ship
+                        // under a stale stamp.
+                        return [lastRefreshDate, metricPullDates[kind]]
+                            .compactMap { $0 }
+                            .max()
+                    }
+                }
             )
             snapshot.source = "phone"
+
+            // Build the compute seed off-actor too (trend trimming + zlib
+            // compression are the expensive parts). `nil` when no full
+            // refresh has landed yet this session, or when the encoded
+            // payload alone blows its size budget (the watch just keeps
+            // whatever seed it already has).
+            var computeSeedData: Data?
+            var computeSeedSettingsSignature: String?
+            if let dataThrough {
+                let settings = WatchComputeSettings(
+                    idealSleepDurationMinutes: Int((idealSleepDuration / 60).rounded()),
+                    followsSystemUnits: followsSystemUnits,
+                    selectedTemperatureUnitRaw: selectedTemperatureUnitRaw,
+                    showSleepScore: showSleepScore,
+                    showsSubMinuteAwakeSleepStages: showsSubMinuteAwakeStages,
+                    showsLeadingTrailingAwakeSleepStages: showsLeadingTrailingAwakeStages,
+                    healthDataSourceSelectionRaw: healthDataSourceSelectionRaw,
+                    combinesHealthDataSourcesByName: combinesByName,
+                    recentTimeZoneIdentifiersByDay: recentTimeZoneIdentifiersByDay
+                )
+                let seed = Self.makeComputeSeed(
+                    summary: summary,
+                    trends: trends,
+                    dataThrough: dataThrough,
+                    lastVitalsRefreshDate: lastRefreshDate,
+                    trainingLoadStartDay: trainingLoadSeed?.startDay,
+                    trainingLoadDailyLoads: trainingLoadSeed?.loads,
+                    trainingLoadDataThrough: trainingLoadSeed?.through,
+                    expectedSourceIDsByKind: expectedSourceIDsByKind.isEmpty ? nil : expectedSourceIDsByKind,
+                    settings: settings,
+                    publishedAt: now
+                )
+                // The signature ships even when the blob below is dropped for
+                // size or fails to encode — it's what lets the watch notice
+                // its STORED seed was built under settings the phone has since
+                // changed, and invalidate it instead of computing with a stale
+                // configuration.
+                computeSeedSettingsSignature = seed.settingsSignature
+                if let encoded = seed.encodedCompressed() {
+                    if encoded.count <= Self.computeSeedSizeBudgetBytes {
+                        computeSeedData = encoded
+                    } else {
+                        Self.computeSeedLogger.error(
+                            "Compute seed dropped: encoded size \(encoded.count, privacy: .public) bytes exceeded the \(Self.computeSeedSizeBudgetBytes, privacy: .public)-byte budget."
+                        )
+                    }
+                } else {
+                    Self.computeSeedLogger.error("Compute seed encode failed.")
+                }
+            }
+
             Task { @MainActor in
                 // A Clear Cache that bumped the epoch after this snapshot was
                 // captured must win — don't ship pre-clear metrics onto the wiped
@@ -3164,11 +3548,116 @@ final class HealthKitWorkoutStore: ObservableObject {
                 WatchConnectivityPublisher.shared.send(
                     snapshot,
                     permissionRawValue: permissionRawValue,
-                    captureSequence: captureSequence
+                    captureSequence: captureSequence,
+                    computeSeedData: computeSeedData,
+                    computeSeedSettingsSignature: computeSeedSettingsSignature
                 )
             }
         }
     }
+
+    /// Pure assembly of the phone→watch compute seed (Phase 3) from
+    /// already-captured inputs — no store/actor access, so it runs off-actor
+    /// in `publishWatchSnapshot` and is directly unit-testable. Trims `trends`
+    /// to the compute-relevant window ending at `dataThrough` (the seed's data
+    /// watermark, NOT `publishedAt`).
+    ///
+    /// `seriesRanges` is derived from the FULL, untrimmed `trends` — the same
+    /// series the phone's own snapshot draws its `rangeMin`/`rangeMax` from —
+    /// so the watch's range union reproduces the PHONE's displayed bounds. From
+    /// the trimmed 70-day slice it could not: a user whose yearly HR/HRV/RHR/
+    /// skin-temp extreme is older than the trim window would see the watch's
+    /// ring fill and chart bounds diverge from the phone's, and nothing in the
+    /// watch's own short delta could ever recover the missing extreme.
+    nonisolated static func makeComputeSeed(
+        summary: HealthSummarySnapshot,
+        trends: HealthTrendSnapshot,
+        dataThrough: Date,
+        lastVitalsRefreshDate: Date?,
+        trainingLoadStartDay: Date?,
+        trainingLoadDailyLoads: [Double]?,
+        trainingLoadDataThrough: Date?,
+        expectedSourceIDsByKind: [String: [String]]?,
+        settings: WatchComputeSettings,
+        publishedAt: Date
+    ) -> WatchComputeSeed {
+        let trimmedTrends = trends.watchComputeTrimmed(anchor: dataThrough, calendar: .bodyGregorian)
+        return WatchComputeSeed(
+            publishedAt: publishedAt,
+            dataThrough: dataThrough,
+            lastVitalsRefreshDate: lastVitalsRefreshDate,
+            summary: summary,
+            trends: trimmedTrends,
+            seriesRanges: WatchMetricsSnapshotBuilder.seriesRanges(from: trends),
+            trainingLoadStartDay: trainingLoadStartDay,
+            trainingLoadDailyLoads: trainingLoadDailyLoads,
+            trainingLoadDataThrough: trainingLoadDataThrough,
+            expectedSourceIDsByKind: expectedSourceIDsByKind,
+            settings: settings,
+            settingsSignature: Self.computeSettingsSignature(settings)
+        )
+    }
+
+    /// Stable hash of the compute-relevant settings (mirrors
+    /// `readinessRecordContextSignature`'s "join distinguishing fields into one
+    /// string" style): same inputs → same signature, so the watch can detect
+    /// "did anything that changes the math change?" without a field-by-field
+    /// compare. `recentTimeZoneIdentifiersByDay` is deliberately excluded —
+    /// it's data (and changes daily regardless of user intent), not a setting.
+    nonisolated static func computeSettingsSignature(_ settings: WatchComputeSettings) -> String {
+        "d[\(settings.idealSleepDurationMinutes)]" +
+            ";u[\(settings.followsSystemUnits ? "1" : "0")]" +
+            ";t[\(settings.selectedTemperatureUnitRaw)]" +
+            ";sc[\(settings.showSleepScore ? "1" : "0")]" +
+            ";sub[\(settings.showsSubMinuteAwakeSleepStages ? "1" : "0")]" +
+            ";lead[\(settings.showsLeadingTrailingAwakeSleepStages ? "1" : "0")]" +
+            // Sign the selection's CANONICAL (sorted) form, never the raw JSON:
+            // `JSONEncoder` dictionary key order can change between phone
+            // processes, and a signature that flips on relaunch makes the
+            // watch treat an ordinary republish as a settings change — strip
+            // fresher local provenance and fall back to older phone values.
+            ";src[\(BodyHealthDataSourceSelection.storedValue(from: settings.healthDataSourceSelectionRaw).canonicalSignature)]" +
+            ";comb[\(settings.combinesHealthDataSourcesByName ? "1" : "0")]"
+    }
+
+    /// Last-14-day time zone map for `WatchComputeSettings.recentTimeZoneIdentifiersByDay`,
+    /// keyed by ISO day string ("yyyy-MM-dd") — never `[Date: String]`, whose
+    /// JSON encoding is a nondeterministic unkeyed array. Lets the watch's
+    /// sleep assembly resolve a recent night's time zone the same way the
+    /// phone's `BodyTimeZoneLedger` does, falling back to
+    /// `TimeZone.current.identifier` for a day the ledger has no record for
+    /// (Phase 4). Days the ledger can't resolve are simply omitted.
+    nonisolated static func recentTimeZoneIdentifiersByDay(
+        now: Date,
+        calendar: Calendar = .bodyGregorian,
+        ledger: BodyTimeZoneLedger = BodyTimeZoneLedger()
+    ) -> [String: String] {
+        let dayFormatter = BodyDateFormatterCache.formatter(
+            dateFormat: "yyyy-MM-dd",
+            calendar: calendar,
+            locale: Locale(identifier: "en_US_POSIX"),
+            timeZone: calendar.timeZone
+        )
+        let anchorDay = calendar.startOfDay(for: now)
+        var map: [String: String] = [:]
+        for offset in 0..<14 {
+            guard let day = calendar.date(byAdding: .day, value: -offset, to: anchorDay),
+                  let identifier = ledger.zoneIdentifier(on: day) else {
+                continue
+            }
+            map[dayFormatter.string(from: day)] = identifier
+        }
+        return map
+    }
+
+    /// Size budget for the compute seed alone (before the display snapshot and
+    /// permission key are added on top) — the `WatchComputeSeedTests` size test
+    /// pins a realistic 70-day fixture comfortably under this. Separate from
+    /// `WatchConnectivityPublisher`'s whole-context budget, which accounts for
+    /// the other context keys too.
+    nonisolated private static let computeSeedSizeBudgetBytes = 50_000
+
+    nonisolated private static let computeSeedLogger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "WatchComputeSeed")
 
     /// Builds the slim widget snapshot from the current trends, sleep stages,
     /// source selection, and unit preferences, then writes it to the App Group
@@ -3523,6 +4012,15 @@ final class HealthKitWorkoutStore: ObservableObject {
             // kinds, so a kind whose source query failed keeps its previously
             // published options instead of being cleared.
             healthDataSourceOptionsByKind.merge(nextOptionsByKind) { _, next in next }
+            // Refresh the compute seed's expected-source lists from the same
+            // discovery (same per-kind keep-prior semantics), and persist them:
+            // `lastVitalsRefreshDate` is restored across relaunches, so the
+            // seed this coverage guards can be published before discovery has
+            // run in the new session.
+            cachedExpectedSourceIDsByKind.merge(
+                await engine.watchComputeExpectedSourceIDs()
+            ) { _, next in next }
+            HealthDashboardSnapshotStore.saveWatchExpectedSourceIDs(cachedExpectedSourceIDsByKind)
         }
     }
 
@@ -3539,177 +4037,11 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
 
+    /// Forwards to the shared `BodyWorkoutFetch` (Body + BodyWatch) so the watch
+    /// maps HealthKit activity types to `BodyWorkoutType` exactly as iOS does.
+    /// Signature kept for existing callers + tests.
     nonisolated static func workoutType(for activityType: HKWorkoutActivityType) -> BodyWorkoutType {
-        switch activityType.rawValue {
-        case 1:
-            return .americanFootball
-        case 2:
-            return .archery
-        case 3:
-            return .australianFootball
-        case 4:
-            return .badminton
-        case 5:
-            return .baseball
-        case 6:
-            return .basketball
-        case 7:
-            return .bowling
-        case 8:
-            return .boxing
-        case 9:
-            return .climbing
-        case 10:
-            return .cricket
-        case 11:
-            return .crossTraining
-        case 12:
-            return .curling
-        case 13:
-            return .cycling
-        case 14:
-            return .dance
-        case 15:
-            return .danceInspiredTraining
-        case 16:
-            return .elliptical
-        case 17:
-            return .equestrianSports
-        case 18:
-            return .fencing
-        case 19:
-            return .fishing
-        case 20:
-            return .functionalStrengthTraining
-        case 21:
-            return .golf
-        case 22:
-            return .gymnastics
-        case 23:
-            return .handball
-        case 24:
-            return .hiking
-        case 25:
-            return .hockey
-        case 26:
-            return .hunting
-        case 27:
-            return .lacrosse
-        case 28:
-            return .martialArts
-        case 29:
-            return .mindAndBody
-        case 30:
-            return .mixedMetabolicCardioTraining
-        case 31:
-            return .paddleSports
-        case 32:
-            return .play
-        case 33:
-            return .preparationAndReadiness
-        case 34:
-            return .racquetball
-        case 35:
-            return .rowing
-        case 36:
-            return .rugby
-        case 37:
-            return .running
-        case 38:
-            return .sailing
-        case 39:
-            return .skatingSports
-        case 40:
-            return .snowSports
-        case 41:
-            return .soccer
-        case 42:
-            return .softball
-        case 43:
-            return .squash
-        case 44:
-            return .stairClimbing
-        case 45:
-            return .surfingSports
-        case 46:
-            return .swimming
-        case 47:
-            return .tableTennis
-        case 48:
-            return .tennis
-        case 49:
-            return .trackAndField
-        case 50:
-            return .strengthTraining
-        case 51:
-            return .volleyball
-        case 52:
-            return .walking
-        case 53:
-            return .waterFitness
-        case 54:
-            return .waterPolo
-        case 55:
-            return .waterSports
-        case 56:
-            return .wrestling
-        case 57:
-            return .yoga
-        case 58:
-            return .barre
-        case 59:
-            return .coreTraining
-        case 60:
-            return .crossCountrySkiing
-        case 61:
-            return .downhillSkiing
-        case 62:
-            return .flexibility
-        case 63:
-            return .hiit
-        case 64:
-            return .jumpRope
-        case 65:
-            return .kickboxing
-        case 66:
-            return .pilates
-        case 67:
-            return .snowboarding
-        case 68:
-            return .stairs
-        case 69:
-            return .stepTraining
-        case 70:
-            return .wheelchairWalkPace
-        case 71:
-            return .wheelchairRunPace
-        case 72:
-            return .taiChi
-        case 73:
-            return .mixedCardio
-        case 74:
-            return .handCycling
-        case 75:
-            return .discSports
-        case 76:
-            return .fitnessGaming
-        case 77:
-            return .cardioDance
-        case 78:
-            return .socialDance
-        case 79:
-            return .pickleball
-        case 80:
-            return .cooldown
-        case 82:
-            return .swimBikeRun
-        case 83:
-            return .transition
-        case 84:
-            return .underwaterDiving
-        default:
-            return .other
-        }
+        BodyWorkoutFetch.workoutType(for: activityType)
     }
 }
 

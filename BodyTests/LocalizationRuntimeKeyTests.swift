@@ -14,10 +14,24 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Heart Rate",
             "Pressure",
             "Respiratory",
+            // Vitals breakdown row titles: SleepVitalDisplayRow.title is built from
+            // VitalKind.displayName (already resolved against BodyMetricsKit) and
+            // re-localized at runtime in BodyHealthMetricDetailView, so the resolved
+            // English text must also exist as a key here.
+            "Respiratory Rate",
             "Skin Temperature",
             "Blood Oxygen",
             "Sleep Duration",
-            "Splits"
+            "Splits",
+            // Vitals home-card title and detail navigation title: both built via
+            // String(localized: String.LocalizationValue(...)) from a plain "Vitals"
+            // literal (BodyHealthMetricCard, BodyHealthMetricDetailView).
+            "Vitals",
+            // Vitals empty-state copy (BodyHealthMetricDetailView): distinct literals for "no data
+            // for last night" vs. "no data for the selected day", each resolved at
+            // runtime, so both need their own catalog entry.
+            "No vitals for last night",
+            "No vitals for this day"
         ]
 
         try assertKeysTranslated(keys, in: catalog)
@@ -51,19 +65,39 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         )
     }
 
+    func testAboutVitalsBodyResolvesInBodyMetricsKitCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+
+        // HealthSummarySnapshot's "About Vitals" explainer is a long literal resolved
+        // against the BodyMetricsKit catalog at runtime; a one-character drift between
+        // the Swift literal and this key would silently ship English to zh-Hans users.
+        try assertKeysTranslated(
+            ["Vitals reviews overnight measurements of sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration. Each one is compared against your personal typical range, learned from about eight weeks of your own sleep data. Outliers can follow illness, alcohol, travel, or hard training, and they are not a diagnosis. It takes about two weeks of sleep data to calibrate.\nVitals follows the data sources you select for Sleep and for each individual vital, so choosing a single source may limit how many nights have data and how far back the charts reach."],
+            in: catalog
+        )
+    }
+
     func testWorkoutShareKeysResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
         let keys = [
+            "Share",
             "Share Workout",
+            "Beta v2",
             "Background",
             "Your Photo",
-            "Share",
+            "Close",
             "Midnight",
             "Workout Color",
             "Map",
             "Save",
-            "Saved",
+            "Save to Photos",
+            // Centered preset-card metric titles: built via String(localized:) in
+            // WorkoutShareMetricsBuilder.centeredMetrics, so they resolve at runtime.
+            "Distance",
+            "Pace",
+            "Speed",
+            "Time",
             "Couldn't Load Photo",
             "Couldn't Load Map",
             "Couldn't Create Image",

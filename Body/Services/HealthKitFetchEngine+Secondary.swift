@@ -77,7 +77,8 @@ extension HealthKitFetchEngine {
              .bodyMassIndex,
              .trainingLoad,
              .wristTemperature,
-             .timeInDaylight:
+             .timeInDaylight,
+             .vitals:
             return .empty
         }
     }
@@ -186,7 +187,8 @@ extension HealthKitFetchEngine {
              .exerciseMinutes,
              .trainingLoad,
              .wristTemperature,
-             .timeInDaylight:
+             .timeInDaylight,
+             .vitals:
             return .empty
         }
     }
@@ -241,7 +243,8 @@ extension HealthKitFetchEngine {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
-             .steps:
+             .steps,
+             .vitals:
             return .empty
         }
     }

@@ -49,6 +49,19 @@ enum TrainingLoadCalculator {
             return .empty
         }
 
+        return series(fromDailyLoads: dailyLoads)
+    }
+
+    /// The acute/chronic EWA ratio, run over an already-assembled dense
+    /// day-indexed load array. Factored out of `dailySeries` so the watch can
+    /// replay the identical math over a seeded + spliced daily-load array
+    /// (`dailyLoadValues(from:startDate:endDate:calendar:)`) without re-deriving
+    /// it from raw workouts.
+    static func series(fromDailyLoads dailyLoads: [(date: Date, load: Double)]) -> HealthTrendSeries {
+        guard !dailyLoads.isEmpty else {
+            return .empty
+        }
+
         let acuteSmoothing = smoothingFactor(forDayCount: acuteDayCount)
         let chronicSmoothing = smoothingFactor(forDayCount: chronicDayCount)
         var acuteLoad: Double?
@@ -80,6 +93,32 @@ enum TrainingLoadCalculator {
         return HealthTrendSeries(points: points)
     }
 
+    /// Dense day-indexed loads (one entry per calendar day, zero-filled for a
+    /// day with no workout) as a compact `(startDay, loads)` pair instead of
+    /// per-day `Date`s — the shape the phone→watch compute seed transports
+    /// (`WatchComputeSeed.trainingLoadDailyLoads`), reconstituted on the watch
+    /// by walking `startDay` forward one day per array index before feeding
+    /// `series(fromDailyLoads:)`. `nil` when the bounds are invalid/empty, same
+    /// as `dailyLoadPoints`.
+    static func dailyLoadValues(
+        from workouts: [WorkoutSummary],
+        startDate: Date? = nil,
+        endDate: Date? = nil,
+        calendar: Calendar = .bodyGregorian
+    ) -> (startDay: Date, loads: [Double])? {
+        let points = dailyLoadPoints(
+            from: workouts,
+            startDate: startDate,
+            endDate: endDate,
+            calendar: calendar
+        )
+        guard let startDay = points.first?.date else {
+            return nil
+        }
+
+        return (startDay: startDay, loads: points.map(\.load))
+    }
+
     static func summary(
         on date: Date = Date(),
         from workouts: [WorkoutSummary],
@@ -100,7 +139,9 @@ enum TrainingLoadCalculator {
         return HealthMetricSummary(value: value)
     }
 
-    private static func dailyLoadPoints(
+    /// Internal (not private) so `dailyLoadValues` and tests can reuse the
+    /// dense day-fill without duplicating it.
+    static func dailyLoadPoints(
         from workouts: [WorkoutSummary],
         startDate: Date?,
         endDate: Date?,

@@ -42,8 +42,10 @@ extension HealthKitFetchEngine {
         )
     }
 
+    /// Shared with the watch's delta re-query via `BodyHealthQuantityFetch` so
+    /// both sides normalize a percentage read the same way.
     nonisolated static func normalizedPercentDisplayValue(_ value: Double) -> Double {
-        value <= 1 ? value * 100 : value
+        BodyHealthQuantityFetch.normalizedPercent(value)
     }
 
     nonisolated static func dailyQuantityValue(
@@ -86,28 +88,17 @@ extension HealthKitFetchEngine {
         showsSubMinuteAwakeStages: Bool = true,
         showsLeadingTrailingAwakeStages: Bool = true
     ) -> SleepSummary? {
-        guard var summary = BodySleepSampleParser.sleepSummary(
+        // Watch sleep samples carry no `HKMetadataKeyTimeZone`, so the shared
+        // parser leaves the zone nil; the device time-zone ledger back-fills it
+        // for the wake day so timezone-aware scoring can recognize a travel
+        // night instead of always reading it in the current zone.
+        BodySleepFetch.sleepSummary(
             from: samples,
             date: date,
             showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
-            showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
-        ) else {
-            return nil
-        }
-
-        // Watch sleep samples carry no `HKMetadataKeyTimeZone`, so the shared
-        // parser leaves the zone nil. Back-fill it from the device time-zone
-        // ledger for the wake day so timezone-aware scoring can recognize a
-        // travel night instead of always reading it in the current zone.
-        if summary.stageSnapshot.timeZoneIdentifier == nil,
-           let ledgerZone = timeZoneLedger.zoneIdentifier(on: date) {
-            summary.stageSnapshot.timeZoneIdentifier = ledgerZone
-        }
-        return summary
-    }
-
-    nonisolated static func isSleepTimelineSample(_ sample: HKCategorySample) -> Bool {
-        BodySleepSampleParser.isSleepTimelineSample(sample)
+            showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages,
+            timeZoneIdentifier: { timeZoneLedger.zoneIdentifier(on: $0) }
+        )
     }
 
     nonisolated static func sleepStageSegments(
@@ -122,213 +113,8 @@ extension HealthKitFetchEngine {
         )
     }
 
-    nonisolated static func summary(
-        for workout: HKWorkout,
-        heartRateSamples: [WorkoutHeartRateSample] = [],
-        effortLevel: Double? = nil,
-        effortUnresolved: Bool? = nil,
-        cardioFitnessVO2Max: Double? = nil,
-        averageStepCadenceSPM: Double? = nil,
-        resolvedDistanceMeters: Double? = nil,
-        includesWorkoutMetrics: Bool = true
-    ) -> WorkoutSummary {
-        let activeEnergy = activeEnergyKilocalories(for: workout)
-        let averageHeartRate = averageHeartRate(from: heartRateSamples)
-        let type = HealthKitWorkoutStore.workoutType(for: workout.workoutActivityType)
-
-        return WorkoutSummary(
-            id: workout.uuid,
-            type: type,
-            startDate: workout.startDate,
-            duration: workout.duration,
-            activeEnergyKilocalories: activeEnergy,
-            totalEnergyKilocalories: totalEnergyKilocalories(for: workout) ?? activeEnergy,
-            distanceMeters: distanceMeters(for: workout, type: type) ?? resolvedDistanceMeters,
-            averageHeartRateBeatsPerMinute: averageHeartRate,
-            maximumHeartRateBeatsPerMinute: maximumHeartRate(from: heartRateSamples),
-            effortLevel: effortLevel,
-            effortUnresolved: effortUnresolved,
-            heartRateSamples: downsampleHeartRateSamples(heartRateSamples),
-            elevationAscendedMeters: elevationAscendedMeters(for: workout),
-            averagePowerWatts: includesWorkoutMetrics ? averagePowerWatts(for: workout, type: type) : nil,
-            averageStepCadenceSPM: includesWorkoutMetrics ? averageStepCadenceSPM : nil,
-            averageCyclingCadenceRPM: includesWorkoutMetrics ? averageCyclingCadenceRPM(for: workout, type: type) : nil,
-            swimmingStrokeCount: includesWorkoutMetrics ? swimmingStrokeCount(for: workout, type: type) : nil,
-            cardioFitnessVO2Max: includesWorkoutMetrics ? cardioFitnessVO2Max : nil,
-            sourceName: workout.sourceRevision.source.name
-        )
-    }
-
-    /// Summary for a workout whose heart-rate payload is reused from a cached
-    /// summary (passive resumes; eligibility decided by
-    /// `heartRateReuseEligibleWorkoutIDs`). Metadata comes fresh from the
-    /// `HKWorkout`; the cached average + samples are copied verbatim — the
-    /// cached average was computed from the raw samples *before* downsampling,
-    /// so re-deriving it from the stored ≤96 samples would drift.
-    nonisolated static func summary(
-        for workout: HKWorkout,
-        reusingHeartRateFrom cached: WorkoutSummary,
-        effortLevel: Double? = nil,
-        effortUnresolved: Bool? = nil,
-        cardioFitnessVO2Max: Double? = nil,
-        averageStepCadenceSPM: Double? = nil,
-        resolvedDistanceMeters: Double? = nil,
-        includesWorkoutMetrics: Bool = true
-    ) -> WorkoutSummary {
-        let activeEnergy = activeEnergyKilocalories(for: workout)
-        let type = HealthKitWorkoutStore.workoutType(for: workout.workoutActivityType)
-
-        return WorkoutSummary(
-            id: workout.uuid,
-            type: type,
-            startDate: workout.startDate,
-            duration: workout.duration,
-            activeEnergyKilocalories: activeEnergy,
-            totalEnergyKilocalories: totalEnergyKilocalories(for: workout) ?? activeEnergy,
-            distanceMeters: distanceMeters(for: workout, type: type) ?? resolvedDistanceMeters,
-            averageHeartRateBeatsPerMinute: cached.averageHeartRateBeatsPerMinute,
-            maximumHeartRateBeatsPerMinute: cached.maximumHeartRateBeatsPerMinute,
-            effortLevel: effortLevel,
-            effortUnresolved: effortUnresolved,
-            heartRateSamples: cached.heartRateSamples ?? [],
-            elevationAscendedMeters: elevationAscendedMeters(for: workout),
-            averagePowerWatts: includesWorkoutMetrics ? averagePowerWatts(for: workout, type: type) : nil,
-            averageStepCadenceSPM: includesWorkoutMetrics ? averageStepCadenceSPM : nil,
-            averageCyclingCadenceRPM: includesWorkoutMetrics ? averageCyclingCadenceRPM(for: workout, type: type) : nil,
-            swimmingStrokeCount: includesWorkoutMetrics ? swimmingStrokeCount(for: workout, type: type) : nil,
-            cardioFitnessVO2Max: includesWorkoutMetrics ? cardioFitnessVO2Max : nil,
-            sourceName: workout.sourceRevision.source.name
-        )
-    }
-
-    nonisolated private static func activeEnergyKilocalories(for workout: HKWorkout) -> Double? {
-        guard let activeEnergyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) else {
-            return nil
-        }
-
-        return workout.statistics(for: activeEnergyType)?
-            .sumQuantity()?
-            .doubleValue(for: .kilocalorie())
-    }
-
-    nonisolated private static func totalEnergyKilocalories(for workout: HKWorkout) -> Double? {
-        let activeEnergy = activeEnergyKilocalories(for: workout)
-        guard let basalEnergyType = HKQuantityType.quantityType(forIdentifier: .basalEnergyBurned),
-              let basalEnergy = workout.statistics(for: basalEnergyType)?
-              .sumQuantity()?
-              .doubleValue(for: .kilocalorie()) else {
-            return activeEnergy
-        }
-
-        return (activeEnergy ?? 0) + basalEnergy
-    }
-
-    nonisolated private static func averageHeartRate(from samples: [WorkoutHeartRateSample]) -> Double? {
-        let values = samples.map(\.beatsPerMinute).filter(\.isFinite)
-        guard !values.isEmpty else {
-            return nil
-        }
-
-        return values.reduce(0, +) / Double(values.count)
-    }
-
-    nonisolated private static func maximumHeartRate(from samples: [WorkoutHeartRateSample]) -> Double? {
-        samples.map(\.beatsPerMinute).filter(\.isFinite).max()
-    }
-
-    nonisolated private static func elevationAscendedMeters(for workout: HKWorkout) -> Double? {
-        (workout.metadata?[HKMetadataKeyElevationAscended] as? HKQuantity)?.doubleValue(for: .meter())
-    }
-
-    /// The distance `HKQuantityType` identifier for an activity, or nil when the
-    /// activity isn't distance-tracking. Shared by the synchronous statistics read
-    /// and the per-workout distance sample query in the fetch engine.
-    nonisolated static func distanceQuantityTypeIdentifier(for type: BodyWorkoutType) -> HKQuantityTypeIdentifier? {
-        switch type.paceStyle {
-        case .distancePace:
-            return (type == .wheelchairWalkPace || type == .wheelchairRunPace)
-                ? .distanceWheelchair
-                : .distanceWalkingRunning
-        case .speed:
-            return .distanceCycling
-        case .swimPace:
-            return .distanceSwimming
-        case .none:
-            return nil
-        }
-    }
-
-    /// Total workout distance (m): the legacy `totalDistance` aggregate when
-    /// present, otherwise the activity-appropriate distance statistic attached to
-    /// the workout. Distance that lives only in the workout's associated samples
-    /// (not its attached statistics) is resolved asynchronously in the fetch engine
-    /// and passed in as `resolvedDistanceMeters`.
-    nonisolated private static func distanceMeters(for workout: HKWorkout, type: BodyWorkoutType) -> Double? {
-        if let total = workout.totalDistance?.doubleValue(for: .meter()) {
-            return total
-        }
-
-        guard let identifier = distanceQuantityTypeIdentifier(for: type),
-              let distanceType = HKQuantityType.quantityType(forIdentifier: identifier) else {
-            return nil
-        }
-        return workout.statistics(for: distanceType)?.sumQuantity()?.doubleValue(for: .meter())
-    }
-
-    /// Average running/cycling power (W), best-effort from the workout's attached
-    /// statistics — present only when the recording source accumulated it.
-    nonisolated private static func averagePowerWatts(for workout: HKWorkout, type: BodyWorkoutType) -> Double? {
-        let identifier: HKQuantityTypeIdentifier
-        if type.supportsRunningPower {
-            identifier = .runningPower
-        } else if type.paceStyle == .speed {
-            identifier = .cyclingPower
-        } else {
-            return nil
-        }
-        return discreteAverage(for: workout, identifier: identifier, unit: .watt())
-    }
-
-    nonisolated private static func averageCyclingCadenceRPM(for workout: HKWorkout, type: BodyWorkoutType) -> Double? {
-        guard type.paceStyle == .speed else { return nil }
-        return discreteAverage(
-            for: workout,
-            identifier: .cyclingCadence,
-            unit: HKUnit.count().unitDivided(by: .minute())
-        )
-    }
-
-    nonisolated private static func swimmingStrokeCount(for workout: HKWorkout, type: BodyWorkoutType) -> Double? {
-        guard type.paceStyle == .swimPace,
-              let strokeType = HKQuantityType.quantityType(forIdentifier: .swimmingStrokeCount) else {
-            return nil
-        }
-        return workout.statistics(for: strokeType)?.sumQuantity()?.doubleValue(for: .count())
-    }
-
-    nonisolated private static func discreteAverage(
-        for workout: HKWorkout,
-        identifier: HKQuantityTypeIdentifier,
-        unit: HKUnit
-    ) -> Double? {
-        guard let quantityType = HKQuantityType.quantityType(forIdentifier: identifier) else {
-            return nil
-        }
-        return workout.statistics(for: quantityType)?.averageQuantity()?.doubleValue(for: unit)
-    }
-
-    nonisolated private static func downsampleHeartRateSamples(
-        _ samples: [WorkoutHeartRateSample],
-        maximumCount: Int = 96
-    ) -> [WorkoutHeartRateSample] {
-        let sortedSamples = samples.sorted { $0.date < $1.date }
-        guard sortedSamples.count > maximumCount, maximumCount > 1 else {
-            return sortedSamples
-        }
-
-        let stride = Double(sortedSamples.count - 1) / Double(maximumCount - 1)
-        return (0..<maximumCount).map { index in
-            sortedSamples[Int((Double(index) * stride).rounded())]
-        }
-    }
+    // `HKWorkout` → `WorkoutSummary` mapping (and the activity-type switch it
+    // uses) now lives in the shared `BodyWorkoutFetch` (Body + BodyWatch) so the
+    // watch builds identical workout summaries; call sites use
+    // `BodyWorkoutFetch.summary(...)` directly.
 }

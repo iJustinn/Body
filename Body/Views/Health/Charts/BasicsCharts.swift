@@ -13,6 +13,9 @@ struct BodyBasicsTrendChart: View {
     let weightFormatter: (Double) -> String
     let bodyFatFormatter: (Double) -> String
     let immersive: Bool
+    /// Optional report-out of the scrub callout, so the immersive host can float it on
+    /// the topmost layer (above the nav bar). Nil keeps the in-chart annotation.
+    let floatingCallout: BodyChartFloatingCalloutState?
 
     private let weightCalendarPoints: [HealthTrendCalendarPoint]
     private let bodyFatCalendarPoints: [HealthTrendCalendarPoint]
@@ -39,7 +42,8 @@ struct BodyBasicsTrendChart: View {
         bodyFatColor: Color,
         weightFormatter: @escaping (Double) -> String,
         bodyFatFormatter: @escaping (Double) -> String,
-        immersive: Bool = false
+        immersive: Bool = false,
+        floatingCallout: BodyChartFloatingCalloutState? = nil
     ) {
         self.selectedRange = selectedRange
         self.weightColor = weightColor
@@ -47,6 +51,7 @@ struct BodyBasicsTrendChart: View {
         self.weightFormatter = weightFormatter
         self.bodyFatFormatter = bodyFatFormatter
         self.immersive = immersive
+        self.floatingCallout = floatingCallout
 
         let weightPoints = trend.weight.lineChartCalendarPoints(
             to: selectedRange,
@@ -172,12 +177,9 @@ struct BodyBasicsTrendChart: View {
                         spacing: 8,
                         overflowResolution: bodyChartSelectionOverflowResolution
                     ) {
-                        BodyChartSelectionAnnotation(
-                            eyebrow: nil,
-                            values: selectionValues(for: selectedTrendDate),
-                            date: selectedTrendDate,
-                            dateText: selectedTrendDateText
-                        )
+                        if floatingCallout == nil {
+                            selectionAnnotation(for: selectedTrendDate)
+                        }
                     }
 
                 if let selectedWeightPoint = weightFinitePointsByDate[selectedTrendDate],
@@ -249,6 +251,12 @@ struct BodyBasicsTrendChart: View {
         }
         .chartXSelection(value: $selectedDate)
         .simultaneousGesture(chartPressGesture)
+        .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedTrendDate) {
+            guard let selectedTrendDate else {
+                return AnyView(EmptyView())
+            }
+            return AnyView(selectionAnnotation(for: selectedTrendDate))
+        }
         .id(selectedRange.rawValue)
         .transition(
             .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -260,6 +268,15 @@ struct BodyBasicsTrendChart: View {
 
     private var selectedTrendDate: Date? {
         selectedTrendPoint?.date
+    }
+
+    private func selectionAnnotation(for date: Date) -> BodyChartSelectionAnnotation {
+        BodyChartSelectionAnnotation(
+            eyebrow: nil,
+            values: selectionValues(for: date),
+            date: date,
+            dateText: selectedTrendDateText
+        )
     }
 
     private var selectedTrendPoint: HealthTrendCalendarPoint? {

@@ -44,15 +44,14 @@ actor HealthKitFetchEngine {
     /// workout, and both the training-load fetch and the month
     /// refreshes re-walk the same historical workouts every refresh. Found
     /// scores are trusted for the process; workouts confirmed score-less are
-    /// only skipped once they ended over `effortConfirmationAge` ago (ratings
-    /// land right after a workout). User-initiated refreshes clear both via
+    /// only skipped once they ended over
+    /// `BodyWorkoutEffortFetcher.effortConfirmationAge` ago (ratings land right
+    /// after a workout). User-initiated refreshes clear both via
     /// `clearWorkoutEffortCache()` so a re-rated workout reconciles on any
     /// pull-to-refresh; a cold launch always starts clean. Entries for
     /// deleted workouts are just unused (bounded by workouts seen per process).
     var effortLevelsByWorkoutID: [UUID: Double] = [:]
     var confirmedNoEffortWorkoutIDs: Set<UUID> = []
-
-    nonisolated static let effortConfirmationAge: TimeInterval = 48 * 60 * 60
 
     nonisolated static let logger = Logger(
         subsystem: "com.zihengthedeveloper.Body",
@@ -328,129 +327,51 @@ actor HealthKitFetchEngine {
             return .timeInDaylight
         case .steps:
             return .steps
+        case .vitals:
+            return .sleep
         }
     }
 
+    /// Kind → permission category. The mapping itself lives in the shared
+    /// `BodyHealthSourceResolver` (Body + BodyWatch) so the watch's own compute
+    /// gates each kind exactly as the phone does.
     func healthPermission(forSourceKind kind: HealthMetricKind) -> BodyHealthPermission {
-        switch kind {
-        case .sleep:
-            return .sleep
-        case .basics:
-            return .basics
-        case .steps:
-            return .steps
-        case .heartRate,
-             .restingHeartRate,
-             .heartRateVariability:
-            return .heart
-        case .respiratoryRate:
-            return .respiratory
-        case .oxygenSaturation:
-            return .bloodOxygen
-        case .activeEnergy,
-             .restingEnergy:
-            return .energy
-        case .exerciseMinutes:
-            return .exerciseMinutes
-        case .wristTemperature:
-            return .wristTemperature
-        case .timeInDaylight:
-            return .timeInDaylight
-        default:
-            return .heart
-        }
+        BodyHealthSourceResolver.permission(forSourceKind: kind)
     }
 
     private func healthSampleType(forSourceKind kind: HealthMetricKind) -> HKSampleType? {
         healthSampleTypes(forSourceKind: kind).first
     }
 
+    /// Kind → the sample types source discovery fans over. Shared with the
+    /// watch via `BodyHealthSourceResolver` so both sides discover — and
+    /// therefore key — the same sources for a kind.
     func healthSampleTypes(forSourceKind kind: HealthMetricKind) -> [HKSampleType] {
-        switch kind {
-        case .sleep:
-            return [HKObjectType.categoryType(forIdentifier: .sleepAnalysis)].compactMap { $0 }
-        case .basics:
-            return [
-                HKObjectType.quantityType(forIdentifier: .bodyMass),
-                HKObjectType.quantityType(forIdentifier: .bodyFatPercentage),
-                HKObjectType.quantityType(forIdentifier: .bodyMassIndex)
-            ].compactMap { $0 }
-        case .heartRate:
-            return [HKObjectType.quantityType(forIdentifier: .heartRate)].compactMap { $0 }
-        case .restingHeartRate:
-            return [HKObjectType.quantityType(forIdentifier: .restingHeartRate)].compactMap { $0 }
-        case .heartRateVariability:
-            return [HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN)].compactMap { $0 }
-        case .respiratoryRate:
-            return [HKObjectType.quantityType(forIdentifier: .respiratoryRate)].compactMap { $0 }
-        case .steps:
-            return [HKObjectType.quantityType(forIdentifier: .stepCount)].compactMap { $0 }
-        case .oxygenSaturation:
-            return [HKObjectType.quantityType(forIdentifier: .oxygenSaturation)].compactMap { $0 }
-        case .activeEnergy:
-            return [HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)].compactMap { $0 }
-        case .restingEnergy:
-            return [HKObjectType.quantityType(forIdentifier: .basalEnergyBurned)].compactMap { $0 }
-        case .exerciseMinutes:
-            return [HKObjectType.quantityType(forIdentifier: .appleExerciseTime)].compactMap { $0 }
-        case .wristTemperature:
-            return [HKObjectType.quantityType(forIdentifier: .appleSleepingWristTemperature)].compactMap { $0 }
-        case .timeInDaylight:
-            return [HKObjectType.quantityType(forIdentifier: .timeInDaylight)].compactMap { $0 }
-        default:
-            return []
-        }
+        BodyHealthSourceResolver.sourceSampleTypes(for: kind)
     }
 
     // MARK: - Predicates
 
-    /// Tri-state resolution of a metric's source selection into a query
-    /// predicate. `.unresolved` (a specific source is selected but source
-    /// discovery has not succeeded for this kind this process) must SKIP the
-    /// query with failure semantics — otherwise a nil predicate would silently
-    /// query every source and show all-source data for a custom-source user
-    /// (H4). `.allSources` intentionally applies no source filter (all-sources
-    /// / no-comparison selection, or a genuinely deleted source whose discovery
-    /// nonetheless succeeded).
-    enum SourceQueryResolution {
-        case allSources
-        case predicate(NSPredicate)
-        case unresolved
-    }
+    /// The decision logic lives in the shared `BodyHealthSourceResolver` (Body +
+    /// BodyWatch); this alias keeps the engine's own spelling of the result type.
+    typealias SourceQueryResolution = BodyHealthSourceQueryResolution
 
+    /// Resolves this metric's selected source against the sources discovered on
+    /// the actor (`healthSourcesByKind`). iOS passes `strictWhenMissing: false`:
+    /// a selection whose id is absent from a SUCCESSFUL discovery means the
+    /// source is genuinely gone, so the query widens to all sources. (The watch
+    /// passes `true` — see `BodyHealthSourceResolver.resolution`.) An absent
+    /// bucket still means discovery never succeeded this process, which stays
+    /// `.unresolved` so leaves skip with failure semantics (H4).
     func sourceQueryResolution(
         for kind: HealthMetricKind,
         option explicitOption: BodyHealthDataSourceOption? = nil
     ) -> SourceQueryResolution {
-        let option = explicitOption ?? healthDataSourceSelection.option(for: kind)
-        guard !option.isAllSources, !option.isNoComparison else {
-            return .allSources
-        }
-
-        // A specific source is selected. Absent `healthSourcesByKind[kind]`
-        // means discovery has not succeeded for this kind this process (never
-        // ran, or failed and kept no prior map) — the selection is unresolved,
-        // so skip rather than fall back to all sources. A present-but-missing
-        // id means discovery succeeded and the source is genuinely gone, so
-        // fall back to all sources.
-        guard let discoveredSources = healthSourcesByKind[kind] else {
-            return .unresolved
-        }
-        guard let sources = discoveredSources[option.id], !sources.isEmpty else {
-            return .allSources
-        }
-
-        guard sources.count > 1 else {
-            guard let source = sources.first else {
-                return .allSources
-            }
-            return .predicate(HKQuery.predicateForObjects(from: source))
-        }
-
-        let sourcePredicates = sources.map { source in
-            HKQuery.predicateForObjects(from: source)
-        }
-        return .predicate(NSCompoundPredicate(orPredicateWithSubpredicates: sourcePredicates))
+        BodyHealthSourceResolver.resolution(
+            option: explicitOption ?? healthDataSourceSelection.option(for: kind),
+            discovered: healthSourcesByKind[kind],
+            strictWhenMissing: false
+        )
     }
 
     /// Whether a metric's source selection is unresolved — a specific source is
@@ -481,38 +402,30 @@ actor HealthKitFetchEngine {
         return nil
     }
 
+    /// The window + source predicate a leaf query runs with. The combining
+    /// itself lives in the shared `BodyHealthSourceResolver` so the watch builds
+    /// identical predicates; the engine resolves the source side from its actor
+    /// state first.
     func combinedPredicate(
         startDate: Date? = nil,
         endDate: Date? = nil,
         sourceKind: HealthMetricKind? = nil,
         sourceOption: BodyHealthDataSourceOption? = nil
     ) -> NSPredicate? {
-        var predicates: [NSPredicate] = []
-
-        if startDate != nil || endDate != nil {
-            predicates.append(HKQuery.predicateForSamples(withStart: startDate, end: endDate))
-        }
-
+        var resolvedSourcePredicate: NSPredicate?
         if let sourceKind {
-            let sourcePredicate: NSPredicate?
             if let sourceOption {
-                sourcePredicate = self.sourcePredicate(for: sourceKind, option: sourceOption)
+                resolvedSourcePredicate = sourcePredicate(for: sourceKind, option: sourceOption)
             } else {
-                sourcePredicate = self.sourcePredicate(for: sourceKind)
-            }
-            if let sourcePredicate {
-                predicates.append(sourcePredicate)
+                resolvedSourcePredicate = sourcePredicate(for: sourceKind)
             }
         }
 
-        switch predicates.count {
-        case 0:
-            return nil
-        case 1:
-            return predicates[0]
-        default:
-            return NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
-        }
+        return BodyHealthSourceResolver.combinedPredicate(
+            startDate: startDate,
+            endDate: endDate,
+            sourcePredicate: resolvedSourcePredicate
+        )
     }
 
     // MARK: - Intervals
@@ -743,10 +656,11 @@ actor HealthKitFetchEngine {
 
     // MARK: - Quantity / sample helpers
 
-    enum DailyQuantityAggregation {
-        case average
-        case latest
-    }
+    /// How a day's samples collapse into that day's value. Defined in the
+    /// shared `BodyDailyQuantityAggregation` (Body + BodyWatch) so both sides
+    /// run the same statistics options + statistic read-back; aliased here for
+    /// the engine's existing call sites.
+    typealias DailyQuantityAggregation = BodyDailyQuantityAggregation
 
     func fetchDailyQuantitySeries(
         for identifier: HKQuantityTypeIdentifier,
@@ -772,65 +686,25 @@ actor HealthKitFetchEngine {
             sourceOption: sourceOption
         )
 
-        let options: HKStatisticsOptions
-        switch aggregation {
-        case .average:
-            options = .discreteAverage
-        case .latest:
-            options = .mostRecent
-        }
-
-        let anchor = calendar.startOfDay(for: interval.start)
-        var intervalComponents = DateComponents()
-        intervalComponents.day = 1
-
-        return await withCheckedContinuation { continuation in
-            let query = HKStatisticsCollectionQuery(
-                quantityType: quantityType,
-                quantitySamplePredicate: predicate,
-                options: options,
-                anchorDate: anchor,
-                intervalComponents: intervalComponents
-            )
-
-            query.initialResultsHandler = { _, statisticsCollection, error in
-                guard let statisticsCollection else {
-                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
-                    continuation.resume(returning: nil)
-                    return
-                }
-
-                var points: [HealthTrendDataPoint] = []
-                statisticsCollection.enumerateStatistics(from: interval.start, to: interval.end) { statistics, _ in
-                    let quantity: HKQuantity?
-                    switch aggregation {
-                    case .average:
-                        quantity = statistics.averageQuantity()
-                    case .latest:
-                        quantity = statistics.mostRecentQuantity()
-                    }
-
-                    guard let quantity else {
-                        return
-                    }
-
-                    let value = valueTransform(quantity.doubleValue(for: unit))
-                    guard value.isFinite else {
-                        return
-                    }
-
-                    points.append(
-                        HealthTrendDataPoint(
-                            date: calendar.startOfDay(for: statistics.startDate),
-                            value: value
-                        )
-                    )
-                }
-
-                continuation.resume(returning: HealthTrendSeries(points: points))
-            }
-
-            healthStore.execute(query)
+        // `nil` on failure keeps the caller's cached series (see
+        // `resolvedTrendSeries`); the statistics-collection query itself lives
+        // in the shared `BodyHealthQuantityFetch`.
+        switch await BodyHealthQuantityFetch.dailyQuantitySeries(
+            store: healthStore,
+            quantityType: quantityType,
+            predicate: predicate,
+            aggregation: aggregation,
+            unit: unit,
+            start: interval.start,
+            end: interval.end,
+            calendar: calendar,
+            valueTransform: valueTransform,
+            onFailure: { Self.logTrendQueryFailure(identifier.rawValue, error: $0) }
+        ) {
+        case .failure:
+            return nil
+        case .success(let series):
+            return series
         }
     }
 
@@ -1039,6 +913,8 @@ actor HealthKitFetchEngine {
         }
     }
 
+    /// The most recent DAY's value over the trend window (not the most recent
+    /// sample) — the headline for metrics whose card reads a daily aggregate.
     private func dailyQuantitySummary(
         for identifier: HKQuantityTypeIdentifier,
         unit: HKUnit,
@@ -1047,23 +923,37 @@ actor HealthKitFetchEngine {
         sourceKind: HealthMetricKind? = nil,
         valueTransform: @escaping (Double) -> Double = { $0 }
     ) async -> QueryOutcome<HealthMetricSummary> {
-        let series = await fetchDailyQuantitySeries(
-            for: identifier,
-            unit: unit,
-            aggregation: aggregation,
-            calendar: calendar,
-            sourceKind: sourceKind,
-            valueTransform: valueTransform
-        )
-
-        guard let series else {
-            return .failure
-        }
-        guard let latestPoint = series.points.last else {
+        guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .success(nil)
         }
+        if let sourceKind, sourceSelectionUnresolved(for: sourceKind) {
+            return .failure
+        }
 
-        return .success(HealthMetricSummary(value: latestPoint.value))
+        let interval = recentHealthTrendInterval(calendar: calendar)
+        let predicate = combinedPredicate(
+            startDate: interval.start,
+            endDate: interval.end,
+            sourceKind: sourceKind
+        )
+
+        switch await BodyHealthQuantityFetch.dailyQuantitySummary(
+            store: healthStore,
+            quantityType: quantityType,
+            predicate: predicate,
+            aggregation: aggregation,
+            unit: unit,
+            start: interval.start,
+            end: interval.end,
+            calendar: calendar,
+            valueTransform: valueTransform,
+            onFailure: { Self.logTrendQueryFailure(identifier.rawValue, error: $0) }
+        ) {
+        case .failure:
+            return .failure
+        case .success(let summary):
+            return .success(summary)
+        }
     }
 
     private func dailyCumulativeQuantitySummary(
@@ -1122,7 +1012,7 @@ actor HealthKitFetchEngine {
                     }
                 }
 
-                continuation.resume(returning: .success(latestValue.map(HealthMetricSummary.init(value:))))
+                continuation.resume(returning: .success(latestValue.map { HealthMetricSummary(value: $0) }))
             }
 
             healthStore.execute(query)
@@ -1281,36 +1171,25 @@ actor HealthKitFetchEngine {
             return .failure
         }
 
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+        // No date predicate: the newest sample counts however old it is. The
+        // shared leaf returns the sample itself so callers that need the real
+        // reading time (the watch stamps freshness from it) can use it.
         let predicate = combinedPredicate(sourceKind: sourceKind)
 
-        return await withCheckedContinuation { continuation in
-            let query = HKSampleQuery(
-                sampleType: quantityType,
-                predicate: predicate,
-                limit: 1,
-                sortDescriptors: [sort]
-            ) { _, samples, error in
-                guard let samples else {
-                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
-                    continuation.resume(returning: .failure)
-                    return
-                }
-
-                guard let sample = samples.compactMap({ $0 as? HKQuantitySample }).first else {
-                    continuation.resume(returning: .success(nil))
-                    return
-                }
-
-                let value = sample.quantity.doubleValue(for: unit)
-                continuation.resume(
-                    returning: .success(
-                        HealthMetricSummary(value: valueTransform(value))
-                    )
-                )
+        switch await BodyHealthQuantityFetch.latestQuantitySample(
+            store: healthStore,
+            quantityType: quantityType,
+            predicate: predicate,
+            onFailure: { Self.logTrendQueryFailure(identifier.rawValue, error: $0) }
+        ) {
+        case .failure:
+            return .failure
+        case .success(let sample):
+            guard let sample else {
+                return .success(nil)
             }
-
-            healthStore.execute(query)
+            let value = sample.quantity.doubleValue(for: unit)
+            return .success(HealthMetricSummary(value: valueTransform(value), measuredAt: sample.endDate))
         }
     }
 
@@ -1431,8 +1310,11 @@ actor HealthKitFetchEngine {
         allowsHeartRateReuse: Bool = false,
         reusableSummariesByID: [UUID: WorkoutSummary] = [:]
     ) async throws -> [WorkoutSummary] {
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: [.strictStartDate])
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+        // Window + ordering come from the shared `BodyWorkoutFetch` so the
+        // watch's delta fetch covers exactly the same workouts (the mapping
+        // below shares `BodyWorkoutFetch.summary(for:)` with it too).
+        let predicate = BodyWorkoutFetch.workoutPredicate(start: startDate, end: endDate)
+        let sort = BodyWorkoutFetch.startDateAscendingSort
 
         // Cancellation (superseded refresh, dismissed month) stops the in-flight
         // query and throws `CancellationError`, so the caller (and training load)
@@ -1587,7 +1469,7 @@ actor HealthKitFetchEngine {
             if let cached = cachedSummary,
                reusedHeartRateIDs.contains(workout.uuid) || heartRateBatchFailed {
                 summaries.append(
-                    Self.summary(
+                    BodyWorkoutFetch.summary(
                         for: workout,
                         reusingHeartRateFrom: cached,
                         effortLevel: effortLevel,
@@ -1600,7 +1482,7 @@ actor HealthKitFetchEngine {
                 )
             } else {
                 summaries.append(
-                    Self.summary(
+                    BodyWorkoutFetch.summary(
                         for: workout,
                         heartRateSamples: resolvedHeartRateSamples?[workout.uuid] ?? [],
                         effortLevel: effortLevel,
@@ -1778,8 +1660,9 @@ actor HealthKitFetchEngine {
     }
 
     /// Queried workouts that came back score-less and are old enough
-    /// (`effortConfirmationAge`) that a rating is no longer expected — these
-    /// are confirmed score-less and skipped for the rest of the process.
+    /// (`BodyWorkoutEffortFetcher.effortConfirmationAge`) that a rating is no
+    /// longer expected — these are confirmed score-less and skipped for the
+    /// rest of the process.
     /// Recent unrated workouts stay unconfirmed so the next refresh re-asks.
     /// `queried` must contain only workouts whose effort query **completed
     /// successfully** — an errored query proves nothing and must stay
@@ -1791,7 +1674,7 @@ actor HealthKitFetchEngine {
     ) -> Set<UUID> {
         Set(
             queried
-                .filter { !foundIDs.contains($0.id) && now.timeIntervalSince($0.endDate) > effortConfirmationAge }
+                .filter { !foundIDs.contains($0.id) && now.timeIntervalSince($0.endDate) > BodyWorkoutEffortFetcher.effortConfirmationAge }
                 .map(\.id)
         )
     }
@@ -2107,7 +1990,7 @@ actor HealthKitFetchEngine {
     ) async -> (values: [UUID: Double], failedIDs: Set<UUID>) {
         let eligible = workouts.filter {
             $0.totalDistance == nil
-                && HealthKitFetchEngine.distanceQuantityTypeIdentifier(
+                && BodyWorkoutFetch.distanceQuantityTypeIdentifier(
                     for: HealthKitWorkoutStore.workoutType(for: $0.workoutActivityType)
                 ) != nil
         }
@@ -2152,7 +2035,7 @@ actor HealthKitFetchEngine {
     /// the cached distance instead of blanking it).
     private func workoutDistanceMeters(for workout: HKWorkout) async -> QueryOutcome<Double> {
         let type = HealthKitWorkoutStore.workoutType(for: workout.workoutActivityType)
-        guard let identifier = HealthKitFetchEngine.distanceQuantityTypeIdentifier(for: type),
+        guard let identifier = BodyWorkoutFetch.distanceQuantityTypeIdentifier(for: type),
               let distanceType = HKQuantityType.quantityType(forIdentifier: identifier) else {
             return .success(nil)
         }
@@ -2794,7 +2677,7 @@ actor HealthKitFetchEngine {
         switch kind {
         case .readiness:
             break
-        case .sleep:
+        case .sleep, .vitals:
             async let sleepSummary = fetchSleepSummary(calendar: calendar)
             async let sleepHistory = fetchDailySleepHistory(calendar: calendar, cachedSleepHistory: existing.trends.sleepHistory)
             async let sleepHistorySecondary = fetchSecondarySleepHistory(calendar: calendar)

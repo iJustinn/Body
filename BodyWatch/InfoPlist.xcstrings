@@ -41,13 +41,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body reads heart rate and heart rate variability from Apple Health on your Apple Watch to refresh those readings when your iPhone isn't nearby."
+            "value" : "Body reads workouts, workout effort, sleep, heart rate, resting heart rate, HRV, respiratory rate, blood oxygen, and skin temperature from Apple Health on your Apple Watch so it can update your metrics on your wrist when your iPhone isn't nearby."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body 在你的 Apple Watch 上从健康 App 读取心率和心率变异性，以便在 iPhone 不在附近时更新这些数据。"
+            "value" : "Body 在你的 Apple Watch 上从健康 App 读取锻炼、锻炼强度、睡眠、心率、静息心率、心率变异性、呼吸频率、血氧和皮肤温度，以便在 iPhone 不在附近时也能在手表上更新你的指标。"
           }
         }
       }

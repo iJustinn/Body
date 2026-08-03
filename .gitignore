@@ -98,3 +98,6 @@ Apple_Health_*.xlsx
 *.tmp
 *.bak
 *.orig
+
+# Rendered share-card example images (generated locally, not shipped)
+share-examples/

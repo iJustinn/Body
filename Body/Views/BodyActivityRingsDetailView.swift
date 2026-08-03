@@ -591,15 +591,41 @@ struct BodyActivityRingsDetailView: View {
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
 
-                HStack(spacing: 4) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                HStack(spacing: 12) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
 
-                    Text("x \(month.completedRingCount)")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        Text("x \(month.completedRingCount)")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                    }
+                    .foregroundColor(.secondary)
+                    .accessibilityLabel("\(month.completedRingCount) completed days")
+
+                    HStack(spacing: 4) {
+                        BodyActivityRingCloseCountIcon(highlight: .move)
+                        Text("x \(month.closedMoveRingCount)")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                    }
+                    .foregroundColor(.secondary)
+                    .accessibilityLabel("\(month.closedMoveRingCount) days Move ring closed")
+
+                    HStack(spacing: 4) {
+                        BodyActivityRingCloseCountIcon(highlight: .exercise)
+                        Text("x \(month.closedExerciseRingCount)")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                    }
+                    .foregroundColor(.secondary)
+                    .accessibilityLabel("\(month.closedExerciseRingCount) days Exercise ring closed")
+
+                    HStack(spacing: 4) {
+                        BodyActivityRingCloseCountIcon(highlight: .stand)
+                        Text("x \(month.closedStandRingCount)")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                    }
+                    .foregroundColor(.secondary)
+                    .accessibilityLabel("\(month.closedStandRingCount) days Stand ring closed")
                 }
-                .foregroundColor(.secondary)
-                .accessibilityLabel("\(month.completedRingCount) completed days")
             }
             .frame(maxWidth: .infinity)
 
@@ -652,6 +678,41 @@ struct BodyActivityRingsDetailView: View {
         }
 
         return "\(date.formatted(.dateTime.month(.abbreviated))), \(date.formatted(.dateTime.year()))"
+    }
+}
+
+private struct BodyActivityRingCloseCountIcon: View {
+    enum Ring { case move, exercise, stand }
+
+    let highlight: Ring
+
+    var body: some View {
+        // A single Canvas so the three strokes rasterize together — as separate
+        // Circle views they pixel-snap independently and drift off-center from
+        // one month header to the next.
+        Canvas { context, size in
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let rings: [(diameter: CGFloat, ring: Ring)] = [(9.5, .move), (6.5, .exercise), (3.5, .stand)]
+            for (diameter, ring) in rings {
+                let rect = CGRect(
+                    x: center.x - diameter / 2,
+                    y: center.y - diameter / 2,
+                    width: diameter,
+                    height: diameter
+                )
+                context.stroke(
+                    Circle().path(in: rect),
+                    with: .color(color(for: ring)),
+                    lineWidth: 1.3
+                )
+            }
+        }
+        .frame(width: 11, height: 11)
+        .accessibilityHidden(true)
+    }
+
+    private func color(for ring: Ring) -> Color {
+        ring == highlight ? .white : Color.secondary.opacity(0.45)
     }
 }
 

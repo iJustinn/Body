@@ -16,11 +16,12 @@ struct WorkoutShareMetric: Equatable {
     let value: String
 }
 
-/// Picks up to 2 metrics for the share card, in priority order, by reusing the
-/// same `WorkoutDetailPresentation` the detail page already built — so values,
-/// units, and locale never drift from what the user just saw. Only title/value
-/// are copied; `WorkoutDetailMetric.comparison` (the "vs 30-day avg" badge)
-/// never appears on a shared image.
+/// Picks the share card's metrics, in priority order, by reusing the same
+/// `WorkoutDetailPresentation` the detail page already built — so values, units,
+/// and locale never drift from what the user just saw. Only title/value are
+/// copied; `WorkoutDetailMetric.comparison` (the "vs 30-day avg" badge) never
+/// appears on a shared image. Two selections, one per card layout: `metrics` for
+/// the classic card's bottom row, `centeredMetrics` for the centered card's stack.
 enum WorkoutShareMetricsBuilder {
     static func metrics(for presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> [WorkoutShareMetric] {
         // The bottom-left row. Distance and duration live in the card's header (the
@@ -35,6 +36,28 @@ enum WorkoutShareMetricsBuilder {
         return Array(candidates.compactMap { $0 }.prefix(2))
     }
 
+    /// Up to 3 metrics for the centered card, where every metric is a label-over-value
+    /// block — so distance and duration are part of the stack here rather than living in
+    /// a header. Distance, rate, and time lead; elevation/avg HR only fill slots the
+    /// workout couldn't (a distance-less or rate-less type), never push those out.
+    static func centeredMetrics(for presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> [WorkoutShareMetric] {
+        let distance: WorkoutShareMetric?
+        if let heroValue = presentation.heroDistanceValue, let heroUnit = presentation.heroDistanceUnit {
+            distance = WorkoutShareMetric(title: String(localized: "Distance"), value: heroValue + " " + heroUnit)
+        } else {
+            distance = distanceTileMetric(presentation: presentation)
+        }
+
+        let candidates: [WorkoutShareMetric?] = [
+            distance,
+            shortRateMetric(presentation: presentation, type: type),
+            WorkoutShareMetric(title: String(localized: "Time"), value: presentation.durationClockText),
+            elevationMetric(presentation: presentation, type: type),
+            averageHeartRateMetric(presentation: presentation)
+        ]
+        return Array(candidates.compactMap { $0 }.prefix(3))
+    }
+
     /// The Details `.distance` tile, for workouts that don't promote distance to the
     /// hero corner (e.g. a strength workout with a recorded distance). Not present
     /// (e.g. a distance-less strength workout) → no candidate.
@@ -44,8 +67,12 @@ enum WorkoutShareMetricsBuilder {
 
     /// Pace/speed/swim-pace, matched by `Kind` — never by localized title, so it can't
     /// mix up two types whose tiles happen to share a translation (e.g. running's and
-    /// swimming's both say "Avg Pace").
-    private static func rateMetric(presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> WorkoutShareMetric? {
+    /// swimming's both say "Avg Pace"). The style comes back with the tile so callers
+    /// can relabel without repeating the match.
+    private static func rateTile(
+        presentation: WorkoutDetailPresentation,
+        type: BodyWorkoutType
+    ) -> (tile: WorkoutDetailMetric, style: WorkoutPaceStyle)? {
         let kind: WorkoutDetailMetric.Kind
         switch type.paceStyle {
         case .distancePace: kind = .pace
@@ -53,7 +80,26 @@ enum WorkoutShareMetricsBuilder {
         case .swimPace: kind = .swimPace
         case .none: return nil
         }
-        return tile(kind, in: presentation).map { WorkoutShareMetric(title: $0.title, value: $0.value) }
+        guard let tile = tile(kind, in: presentation) else { return nil }
+        return (tile: tile, style: type.paceStyle)
+    }
+
+    private static func rateMetric(presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> WorkoutShareMetric? {
+        rateTile(presentation: presentation, type: type).map { WorkoutShareMetric(title: $0.tile.title, value: $0.tile.value) }
+    }
+
+    /// Same value, but titled "Pace"/"Speed" instead of the tile's "Avg Pace"/"Avg Speed":
+    /// the centered layout's labels are short by design, and its blocks are already read
+    /// as workout averages.
+    private static func shortRateMetric(presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> WorkoutShareMetric? {
+        guard let rate = rateTile(presentation: presentation, type: type) else { return nil }
+        let title: String
+        switch rate.style {
+        case .distancePace, .swimPace: title = String(localized: "Pace")
+        case .speed: title = String(localized: "Speed")
+        case .none: return nil
+        }
+        return WorkoutShareMetric(title: title, value: rate.tile.value)
     }
 
     /// Elevation only makes sense for activities that actually climb — hiking/climbing-
@@ -171,8 +217,10 @@ enum BodyWorkoutSharePreset: String, CaseIterable, Identifiable {
     func gradient(tint: Color) -> LinearGradient {
         switch self {
         case .midnight:
+            // Pure black, not a gray fade — flat by design; kept as a LinearGradient
+            // only so both presets share a return type.
             return LinearGradient(
-                colors: [Color(white: 0.16), Color.black],
+                colors: [Color.black, Color.black],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -194,8 +242,8 @@ enum BodyWorkoutSharePreset: String, CaseIterable, Identifiable {
     }
 }
 
-/// What the share sheet restores when it opens: the free route map (the default)
-/// or a gradient preset. Photos stay session-only — a Pro entitlement can lapse
+/// What the share sheet restores when it opens: a gradient preset (Midnight is the
+/// default) or the route map. Photos stay session-only — a Pro entitlement can lapse
 /// between sessions, and `WorkoutShareBackgroundPolicy` is the only seam that
 /// decides whether one may render.
 enum BodyWorkoutShareBackgroundChoice: Equatable {
@@ -203,7 +251,7 @@ enum BodyWorkoutShareBackgroundChoice: Equatable {
     case preset(BodyWorkoutSharePreset)
 
     /// Unchanged from the preset-only key it replaces: a stored "ocean"/"sunset"/
-    /// "forest" from an earlier build is now unknown and resolves to `.map`.
+    /// "forest" from an earlier build is now unknown and resolves to the default.
     static let storageKey = "workoutShareBackgroundPreset"
 
     private static let mapRawValue = "map"
@@ -215,12 +263,50 @@ enum BodyWorkoutShareBackgroundChoice: Equatable {
         }
     }
 
-    /// The default when nothing (or something invalid, including a retired preset)
-    /// is stored.
+    /// Midnight when nothing (or something invalid, including a retired preset) is
+    /// stored; the map only ever comes back from an explicit "map" pick.
     static func stored(rawValue: String?) -> BodyWorkoutShareBackgroundChoice {
-        guard let rawValue, rawValue != mapRawValue else { return .map }
-        guard let preset = BodyWorkoutSharePreset(rawValue: rawValue) else { return .map }
+        guard let rawValue else { return .preset(.midnight) }
+        if rawValue == mapRawValue { return .map }
+        guard let preset = BodyWorkoutSharePreset(rawValue: rawValue) else { return .preset(.midnight) }
         return .preset(preset)
+    }
+}
+
+/// Where the centered card's info block (route trace + metric stack) sits, relative to
+/// its default placement — the user drags and pinches it over a photo background, and
+/// both the preview and the export read the same value so what's shared is what was
+/// seen. Session-only, like the photo itself. The bounds keep a gesture from throwing
+/// the block off into nowhere; they don't guarantee visibility, since an extreme
+/// scale + offset pair can still clip it to a sliver — double-tapping to reset is the
+/// recovery for that.
+struct WorkoutShareInfoTransform: Equatable {
+    /// In card points (the 360×640 space), not preview points.
+    var offset: CGSize
+    var scale: CGFloat
+
+    static let identity = WorkoutShareInfoTransform(offset: .zero, scale: 1)
+
+    static let scaleRange: ClosedRange<CGFloat> = 0.5...1.5
+    /// Half the card on each axis.
+    static let maximumOffsetWidth: CGFloat = 180
+    static let maximumOffsetHeight: CGFloat = 320
+
+    /// A degenerate gesture value (NaN/infinite) clamps to the identity component
+    /// rather than to a bound — a non-finite number has no meaningful side.
+    func clamped() -> WorkoutShareInfoTransform {
+        WorkoutShareInfoTransform(
+            offset: CGSize(
+                width: Self.clamp(offset.width, limit: Self.maximumOffsetWidth, identity: 0),
+                height: Self.clamp(offset.height, limit: Self.maximumOffsetHeight, identity: 0)
+            ),
+            scale: scale.isFinite ? min(max(scale, Self.scaleRange.lowerBound), Self.scaleRange.upperBound) : 1
+        )
+    }
+
+    private static func clamp(_ value: CGFloat, limit: CGFloat, identity: CGFloat) -> CGFloat {
+        guard value.isFinite else { return identity }
+        return min(max(value, -limit), limit)
     }
 }
 

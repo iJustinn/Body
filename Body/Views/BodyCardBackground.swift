@@ -55,7 +55,28 @@ struct BodyCardBackgroundModifier: ViewModifier {
     }
 }
 
+private enum BodySheetBackgroundStyle {
+    /// Black wash over the iOS 26 Liquid Glass sheet background so sheets read as tinted
+    /// glass instead of fully clear. The app is dark-only, so this is unconditional.
+    static let glassTintOpacity = 0.50
+}
+
 extension View {
+    /// Standard sheet backdrop: a black wash over the iOS 26 Liquid Glass, or the opaque
+    /// base color on older systems (which have no glass to tint).
+    func bodySheetBackground(_ base: Color = Color(.systemGroupedBackground)) -> some View {
+        background {
+            Group {
+                if #available(iOS 26.0, *) {
+                    Color.black.opacity(BodySheetBackgroundStyle.glassTintOpacity)
+                } else {
+                    base
+                }
+            }
+            .ignoresSafeArea()
+        }
+    }
+
     func bodyCardBackground(cornerRadius: CGFloat = 30, translucent: Bool = false, translucentFillOpacity: Double = 0.06) -> some View {
         modifier(BodyCardBackgroundModifier(cornerRadius: cornerRadius, translucent: translucent, translucentFillOpacity: translucentFillOpacity))
     }

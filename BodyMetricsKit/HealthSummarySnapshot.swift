@@ -24,6 +24,7 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
     case wristTemperature
     case timeInDaylight
     case steps
+    case vitals
 
     var id: String {
         rawValue
@@ -121,6 +122,11 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
                 title: String(localized: "About Steps", table: "BodyMetricsKit"),
                 body: String(localized: "Steps estimate your walking and running step count from Apple Health sources. Phones and wearables can count differently depending on where they are worn or carried. The trend is best used to compare your usual activity level over time.", table: "BodyMetricsKit")
             )
+        case .vitals:
+            return HealthMetricDetailHelpText(
+                title: String(localized: "About Vitals", table: "BodyMetricsKit"),
+                body: String(localized: "Vitals reviews overnight measurements of sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration. Each one is compared against your personal typical range, learned from about eight weeks of your own sleep data. Outliers can follow illness, alcohol, travel, or hard training, and they are not a diagnosis. It takes about two weeks of sleep data to calibrate.\nVitals follows the data sources you select for Sleep and for each individual vital, so choosing a single source may limit how many nights have data and how far back the charts reach.", table: "BodyMetricsKit")
+            )
         }
     }
 
@@ -140,7 +146,8 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
-             .steps:
+             .steps,
+             .vitals:
             return HealthMetricDetailDataSourceText(sourceText: "Apple Health")
         case .bodyMass,
              .bodyFatPercentage,
@@ -466,6 +473,8 @@ struct HealthSummarySnapshot: Codable, Equatable {
             next.timeInDaylight = refreshed.timeInDaylight
         case .steps:
             next.steps = refreshed.steps
+        case .vitals:
+            next.sleep = refreshed.sleep
         }
 
         return next
@@ -479,6 +488,13 @@ struct HealthSummarySnapshot: Codable, Equatable {
 
 struct HealthMetricSummary: Codable, Equatable {
     var value: Double?
+    /// The `endDate` of the sample behind `value`, for latest-sample headline
+    /// metrics (HR, Resting HR, HRV) — the value's EVENT watermark, carried so
+    /// the watch merge can compare measurements event-to-event instead of
+    /// against the phone's query time (which, under HealthKit replication lag,
+    /// rejects a genuinely newer reading that synced only to the watch). nil
+    /// for aggregate-style metrics and snapshots persisted before this field.
+    var measuredAt: Date? = nil
 }
 
 struct HealthDashboardSnapshot: Codable, Equatable {

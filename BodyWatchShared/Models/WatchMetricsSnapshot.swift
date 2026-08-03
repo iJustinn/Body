@@ -149,6 +149,19 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// snapshot builder). Provenance alongside `WatchMetricsSnapshot.source`.
     var computedAt: Date? = nil
 
+    /// When the reading behind `displayValue` was actually MEASURED (a latest
+    /// sample's `endDate`; the sleep night's end) — the value's event
+    /// watermark, distinct from `computedAt`, which for a phone publish is the
+    /// refresh/query time. The merge compares nonblank measurements
+    /// event-to-event through this: under HealthKit replication lag the
+    /// phone's query time exceeds the event time of the (older) sample it
+    /// actually saw, and comparing against it would both reject a genuinely
+    /// newer watch reading and let a later push overwrite one. Stamped by the
+    /// shared builder for HR / Resting HR / HRV / Sleep; nil for computed
+    /// metrics (Readiness, Training Load), whose `computedAt` is the honest
+    /// watermark, and for payloads from before this field.
+    var measuredAt: Date? = nil
+
     /// Tint that can't be derived from `kind` alone — Readiness carries its
     /// status-band color here. `nil` ⇒ fall back to the kind's static tint.
     var tint: WatchMetricColor? = nil
@@ -163,6 +176,13 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// (Readiness, Training Load) — TODAY's status range, in the same unit as
     /// `weekly`. `nil` for unbanded metrics. See `WatchStatusBand`.
     var statusBand: WatchStatusBand? = nil
+
+    /// Today's live value when same-day activity lowered it below today's
+    /// `weekly` slot (Readiness: the drained score under the frozen morning
+    /// point) — feeds the detail sparkline's faded "current" dot. nil when
+    /// nothing drained and for every other metric. Optional + defaulted per
+    /// the schema-evolution note below.
+    var weeklyCurrentValue: Double? = nil
 
     var id: String { kind }
 
@@ -189,6 +209,8 @@ struct WatchMetric: Codable, Equatable, Identifiable {
         metric.fillFraction = 0
         metric.rawValue = nil
         metric.liveUpdatedAt = nil
+        metric.measuredAt = nil
+        metric.weeklyCurrentValue = nil
         return metric
     }
 }
@@ -200,9 +222,12 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     var generatedAt: Date
     var lastRefreshDate: Date?
     var metrics: [WatchMetric]
-    /// Which device produced this snapshot — now always "phone" (the watch no
-    /// longer computes its own). Kept for schema compatibility with older
-    /// snapshots; the merge decides by recency + value presence.
+    /// Which device produced this snapshot: "phone" for an iPhone publish,
+    /// "watch" for one the watch computed on-device from the phone's compute
+    /// seed. Provenance only — the merge decides by per-metric recency and
+    /// value presence, and a watch compute never advances the phone's
+    /// `(publisherEpoch, revision)` line, so the displayed snapshot keeps the
+    /// phone's `source` even after adopting watch-computed metrics.
     var source: String? = nil
     /// The calendar day the carried Sleep metric belongs to (the sleep
     /// session's day), stamped by the snapshot builder. Lets the watch re-check

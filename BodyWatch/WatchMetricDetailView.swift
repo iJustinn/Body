@@ -3,7 +3,9 @@
 //  BodyWatch
 //
 //  Immersive drill-down from a dashboard card (or a tapped complication): the
-//  metric tint washes the whole screen, the title sits top-right, the recent-
+//  metric's fixed kind color washes the whole screen (the status-band color
+//  appears only on the band highlight and the status label, matching the iOS
+//  detail page), the title sits top-right, the recent-
 //  week chart sits below it, and the current value reads large at the
 //  bottom-left — followed, for Readiness and Training Load, by the status level
 //  beside it ("85 · HIGH"). The tint fill is the page's own background so it
@@ -23,7 +25,12 @@ struct WatchMetricDetailView: View {
     /// against when the data was built, not against the current date.
     var referenceDate: Date = Date()
 
-    private var tintColor: Color { Color(metric.resolvedTint) }
+    /// The page theme (title, background wash, chart line): the metric's static
+    /// kind color, matching the iOS detail page — never the status-band color.
+    private var pageTint: Color { Color(WatchMetricKindKey.tint(forKind: metric.kind)) }
+    /// The dynamic status color (band highlight, status label); falls back to
+    /// the kind color for metrics without a status band.
+    private var statusTint: Color { Color(metric.resolvedTint) }
 
     private var weekly: [Double?]? {
         guard let weekly = metric.weekly, weekly.contains(where: { $0 != nil }) else { return nil }
@@ -41,8 +48,10 @@ struct WatchMetricDetailView: View {
                 if let weekly {
                     WatchSparklineView(
                         values: weekly,
-                        tint: tintColor,
+                        tint: pageTint,
                         band: metric.statusBand,
+                        bandTint: statusTint,
+                        currentValue: metric.weeklyCurrentValue,
                         dayLabels: weekdayLabels(count: weekly.count)
                     )
                     .frame(height: 86)
@@ -72,7 +81,7 @@ struct WatchMetricDetailView: View {
             Spacer(minLength: 0)
             Text(metric.title)
                 .font(.system(size: 16, weight: .semibold, design: .rounded))
-                .foregroundStyle(tintColor)
+                .foregroundStyle(pageTint)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
@@ -98,7 +107,7 @@ struct WatchMetricDetailView: View {
                     .foregroundStyle(.white.opacity(0.5))
                 Text(label.uppercased())
                     .font(.system(size: 17, weight: .heavy, design: .rounded))
-                    .foregroundStyle(tintColor)
+                    .foregroundStyle(statusTint)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
             }
@@ -108,7 +117,7 @@ struct WatchMetricDetailView: View {
 
     private var backgroundGradient: LinearGradient {
         LinearGradient(
-            colors: [tintColor.opacity(0.45), Color.black],
+            colors: [pageTint.opacity(0.45), Color.black],
             startPoint: .top,
             endPoint: .bottom
         )

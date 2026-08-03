@@ -184,6 +184,7 @@
       }
     },
     "%@ %lld" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -473,7 +474,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$@%2$@，活动%3$@，锻炼%4$@，站立%5$@"
+            "value" : "%1$@%2$@，活动%3$@，运动%4$@，站立%5$@"
           }
         }
       }
@@ -540,6 +541,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld天"
+          }
+        }
+      }
+    },
+    "%lld days Exercise ring closed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld days Exercise ring closed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运动圆环已关闭%lld天"
+          }
+        }
+      }
+    },
+    "%lld days Move ring closed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld days Move ring closed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "活动圆环已关闭%lld天"
+          }
+        }
+      }
+    },
+    "%lld days Stand ring closed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld days Stand ring closed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "站立圆环已关闭%lld天"
           }
         }
       }
@@ -1326,7 +1375,6 @@
       }
     },
     "Beta v2" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1696,6 +1744,23 @@
         }
       }
     },
+    "Body Pro isn't unlocked yet. Try Restore Purchases below, or contact support if this persists." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body Pro isn't unlocked yet. Try Restore Purchases below, or contact support if this persists."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body Pro 尚未解锁。请尝试下方的恢复购买；如仍未解锁，请联系支持。"
+          }
+        }
+      }
+    },
     "Body reads Apple Health data locally to power the app and widgets." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1713,18 +1778,18 @@
         }
       }
     },
-    "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines, and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero." : {
+    "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines — sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band — and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines, and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero."
+            "value" : "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines — sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band — and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body 会根据该睡眠时段可用的数据为每晚评分：睡眠量、连续性、入睡时间规律性、深睡和快速眼动占比、睡眠心率变异性带来的压力、睡眠体征以及皮肤温度。压力、体征和体温会与你近期的夜间基准进行比较评分，总分经过校准，只有真正优质的夜晚才会得高分。缺失的传感器数据会被跳过，而不会按零分计算。"
+            "value" : "Body 会根据该睡眠时段可用的数据为每晚评分：睡眠量、连续性、入睡时间规律性、深睡和快速眼动占比、睡眠心率变异性带来的压力、睡眠体征以及皮肤温度。压力、体征和体温会与你近期的夜间基准进行比较评分，其中睡眠体征采用与生命体征图表相同的典型范围，数值偏离该范围越远、扣分也越多，总分经过校准，只有真正优质的夜晚才会得高分。缺失的传感器数据会被跳过，而不会按零分计算。"
           }
         }
       }
@@ -2161,6 +2226,23 @@
         }
       }
     },
+    "Close" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭"
+          }
+        }
+      }
+    },
     "Close map" : {
       "localizations" : {
         "en" : {
@@ -2393,6 +2475,22 @@
         }
       }
     },
+    "Couldn't Save" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't Save"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存"
+          }
+        }
+      }
+    },
     "Couldn't Save Image" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2406,22 +2504,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法保存图片"
-          }
-        }
-      }
-    },
-    "Couldn't Save" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn't Save"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法保存"
           }
         }
       }
@@ -2471,7 +2553,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "每日锻炼分钟数总计"
+            "value" : "每日运动时长总计"
           }
         }
       }
@@ -2859,6 +2941,23 @@
         }
       }
     },
+    "Deviation" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deviation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "偏差"
+          }
+        }
+      }
+    },
     "Difference Range" : {
       "localizations" : {
         "en" : {
@@ -2955,6 +3054,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "在色谱上拖动颜色即可为其重新着色，或在预览中拖动分隔线来调整每种颜色所占的空间。"
+          }
+        }
+      }
+    },
+    "Drag to move. Pinch to resize. Double-tap to reset." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag to move. Pinch to resize. Double-tap to reset."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拖动可移动，捏合可缩放，双击可重置。"
           }
         }
       }
@@ -3118,7 +3233,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "锻炼"
+            "value" : "运动"
           }
         }
       }
@@ -3135,7 +3250,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "锻炼分钟数趋势"
+            "value" : "运动时长趋势"
           }
         }
       }
@@ -3525,6 +3640,22 @@
         }
       }
     },
+    "High Deviation" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Deviation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高偏差"
+          }
+        }
+      }
+    },
     "Hour-by-hour chart for a chosen day" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3640,6 +3771,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "图标"
+          }
+        }
+      }
+    },
+    "Impact by Activity" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impact by Activity"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各活动影响"
           }
         }
       }
@@ -3808,6 +3955,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "公里"
+          }
+        }
+      }
+    },
+    "Last Night" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last Night"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "昨晚"
           }
         }
       }
@@ -4058,6 +4222,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最低%@"
+          }
+        }
+      }
+    },
+    "Low Deviation" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Deviation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低偏差"
           }
         }
       }
@@ -4325,7 +4505,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "活动、锻炼和站立进度"
+            "value" : "活动、运动和站立进度"
           }
         }
       }
@@ -4514,6 +4694,23 @@
         }
       }
     },
+    "No purchases to restore." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No purchases to restore."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有可恢复的购买。"
+          }
+        }
+      }
+    },
     "No Readiness yet" : {
       "localizations" : {
         "en" : {
@@ -4647,6 +4844,7 @@
       }
     },
     "No sleep vitals today" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4678,6 +4876,38 @@
         }
       }
     },
+    "No vitals for last night" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No vitals for last night"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "昨晚没有生命体征数据"
+          }
+        }
+      }
+    },
+    "No vitals for this day" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No vitals for this day"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这一天没有生命体征数据"
+          }
+        }
+      }
+    },
     "No workout types for this month" : {
       "localizations" : {
         "en" : {
@@ -4694,18 +4924,34 @@
         }
       }
     },
-    "No workouts for %@ %lld" : {
+    "No workouts for %@ %@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No workouts for %1$@ %2$lld"
+            "value" : "No workouts for %1$@ %2$@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%2$lld年%1$@没有运动"
+            "value" : "%2$@年%1$@没有运动"
+          }
+        }
+      }
+    },
+    "No workouts for this day" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No workouts for this day"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这一天没有运动"
           }
         }
       }
@@ -5078,6 +5324,40 @@
         }
       }
     },
+    "Overnight vitals vs your typical range" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Overnight vitals vs your typical range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隔夜生命体征与你的典型范围对比"
+          }
+        }
+      }
+    },
+    "Pace" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pace"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配速"
+          }
+        }
+      }
+    },
     "Pct." : {
       "localizations" : {
         "en" : {
@@ -5313,6 +5593,23 @@
         }
       }
     },
+    "Purchase Completed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Purchase Completed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "购买已完成"
+          }
+        }
+      }
+    },
     "Purchase could not be completed." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5387,6 +5684,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态"
+          }
+        }
+      }
+    },
+    "READINESS" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "READINESS"
           }
         },
         "zh-Hans" : {
@@ -5629,6 +5942,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重置筛选条件"
+          }
+        }
+      }
+    },
+    "Reset Layout" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset Layout"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置布局"
           }
         }
       }
@@ -5917,6 +6246,22 @@
         }
       }
     },
+    "Route Style" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Route Style"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "路线样式"
+          }
+        }
+      }
+    },
     "Save" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5967,19 +6312,19 @@
         }
       }
     },
-    "Saved" : {
+    "Save to Photos" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Saved"
+            "value" : "Save to Photos"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已保存"
+            "value" : "存储到照片"
           }
         }
       }
@@ -6646,6 +6991,7 @@
       }
     },
     "Sleep Vitals" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6773,6 +7119,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "日照时间"
+          }
+        }
+      }
+    },
+    "Speed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Speed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "速度"
           }
         }
       }
@@ -7039,23 +7402,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "在阶段时长和最佳范围之间切换"
-          }
-        }
-      }
-    },
-    "Syncing health data…" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Syncing health data…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在同步健康数据…"
           }
         }
       }
@@ -7378,6 +7724,86 @@
         }
       }
     },
+    "Typical Band End" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Typical Band End"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "典型范围终点"
+          }
+        }
+      }
+    },
+    "Typical Band Start" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Typical Band Start"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "典型范围起点"
+          }
+        }
+      }
+    },
+    "Typical Boundary" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Typical Boundary"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "典型范围边界"
+          }
+        }
+      }
+    },
+    "Typical Lower Bound" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Typical Lower Bound"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "典型范围下限"
+          }
+        }
+      }
+    },
+    "Typical Upper Bound" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Typical Upper Bound"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "典型范围上限"
+          }
+        }
+      }
+    },
     "Unavailable" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7581,6 +8007,23 @@
         }
       }
     },
+    "v3" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v3"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v3"
+          }
+        }
+      }
+    },
     "Version" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7611,6 +8054,55 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "紫罗兰"
+          }
+        }
+      }
+    },
+    "Vitals" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vitals"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "生命体征"
+          }
+        }
+      }
+    },
+    "Vitals needs about two weeks of sleep data to learn your typical ranges." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vitals needs about two weeks of sleep data to learn your typical ranges."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "生命体征需要约两周的睡眠数据来学习你的典型范围。"
+          }
+        }
+      }
+    },
+    "Vitals outlier trend" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vitals outlier trend"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "生命体征异常趋势"
           }
         }
       }
@@ -7811,6 +8303,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此设备不支持运动强度。"
+          }
+        }
+      }
+    },
+    "Workout Route" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workout Route"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运动路线"
           }
         }
       }
@@ -8028,7 +8536,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的锻炼分钟数"
+            "value" : "你的运动时长"
           }
         }
       }

@@ -6,7 +6,9 @@
 //  scaled to fit, a background strip (free gradient presets + a free route-map
 //  tile + a Pro-gated photo tile), and Save/Share actions that rasterize the card
 //  via `ImageRenderer` and hand the 1080×1920 image to the photo library or the
-//  system share sheet.
+//  system share sheet. On a photo background the preview also drives the card's info
+//  block: drag to move it, pinch to resize, double-tap to reset — session-only, and
+//  the same transform feeds the export so the image matches the preview.
 //
 
 import SwiftUI
@@ -22,9 +24,10 @@ struct BodyWorkoutShareSheet: View {
     let presentation: WorkoutDetailPresentation
 
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
+    @Environment(\.dismiss) private var dismiss
 
     @AppStorage(BodyWorkoutShareBackgroundChoice.storageKey) private var storedBackground: String =
-        BodyWorkoutShareBackgroundChoice.map.rawValue
+        BodyWorkoutShareBackgroundChoice.preset(.midnight).rawValue
 
     @State private var selectedPhoto: UIImage?
     @State private var photoItem: PhotosPickerItem?
@@ -46,10 +49,16 @@ struct BodyWorkoutShareSheet: View {
     @State private var isSavingImage = false
     @State private var didSave = false
     @State private var payload: WorkoutSharePayload?
+    /// Where the user has dragged/pinched the info block, between gestures.
+    @State private var committedInfoTransform = WorkoutShareInfoTransform.identity
+    /// The live drag+pinch, held as one value so a single `.updating` on the composite
+    /// gesture owns both halves.
+    @GestureState private var inFlightInfoGesture = WorkoutShareInfoGesture.idle
 
     /// Computed once from the shared presentation so the card's values never drift
     /// from the detail page and the projection isn't redone on every body pass.
     private let metrics: [WorkoutShareMetric]
+    private let centeredMetrics: [WorkoutShareMetric]
     private let routePoints: [CGPoint]?
 
     init(workout: WorkoutSummary, route: WorkoutRoute, presentation: WorkoutDetailPresentation) {
@@ -57,6 +66,7 @@ struct BodyWorkoutShareSheet: View {
         self.route = route
         self.presentation = presentation
         self.metrics = WorkoutShareMetricsBuilder.metrics(for: presentation, type: workout.type)
+        self.centeredMetrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type)
         self.routePoints = WorkoutShareRouteProjection.normalizedPoints(for: route.coordinates)
     }
 
@@ -113,14 +123,84 @@ struct BodyWorkoutShareSheet: View {
         return .preset(.midnight)
     }
 
+    /// Only the map keeps the classic card. Keyed off `activeSelection`, never
+    /// `activeBackground`: while a map snapshot loads, the background reports Midnight,
+    /// and deriving from it would flash the centered layout before the map lands. A
+    /// *failed* map load is the other way around — the selection itself becomes the
+    /// Midnight preset, which is centered on purpose.
+    private var cardLayout: WorkoutShareCardLayout {
+        switch activeSelection {
+        case .preset, .photo: return .centered
+        case .map: return .classic
+        }
+    }
+
+    /// Where the info block sits, for the preview and the export alike. Only a photo
+    /// background is repositionable, and anything else reports the identity placement —
+    /// so a preset, the map, or a Pro entitlement that lapses while a photo is still
+    /// held can never render a transform the user isn't looking at.
+    private var activeInfoTransform: WorkoutShareInfoTransform {
+        guard activeSelection == .photo else { return .identity }
+        return Self.merged(committedInfoTransform, with: inFlightInfoGesture).clamped()
+    }
+
+    private static func merged(
+        _ transform: WorkoutShareInfoTransform,
+        with gesture: WorkoutShareInfoGesture
+    ) -> WorkoutShareInfoTransform {
+        WorkoutShareInfoTransform(
+            offset: CGSize(
+                width: transform.offset.width + gesture.translation.width,
+                height: transform.offset.height + gesture.translation.height
+            ),
+            scale: transform.scale * gesture.magnification
+        )
+    }
+
     private func cardView() -> BodyWorkoutShareCardView {
         BodyWorkoutShareCardView(
             presentation: presentation,
             metrics: metrics,
+            centeredMetrics: centeredMetrics,
             routePoints: routePoints,
             locality: route.locality,
             type: workout.type,
-            background: activeBackground
+            background: activeBackground,
+            layout: cardLayout,
+            infoTransform: activeInfoTransform
+        )
+    }
+
+    /// Drag and pinch as one composite gesture. `minimumDistance: 0` is what makes the
+    /// block track from the first point of travel, and the single `.updating`/`.onEnded` pair
+    /// lives on the composite rather than on either half: a per-half `onEnded` fires
+    /// while the composite's `@GestureState` is still live, double-applying the delta
+    /// as soon as one finger lifts before the other.
+    private func infoBlockGesture(previewScale: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .simultaneously(with: MagnifyGesture())
+            .updating($inFlightInfoGesture) { value, state, _ in
+                state = Self.infoGesture(for: value, previewScale: previewScale)
+            }
+            .onEnded { value in
+                committedInfoTransform = Self.merged(
+                    committedInfoTransform,
+                    with: Self.infoGesture(for: value, previewScale: previewScale)
+                ).clamped()
+            }
+    }
+
+    /// The preview draws the card scaled to fit its width, so a finger's travel in
+    /// preview points divides back into card points before it moves anything.
+    private static func infoGesture(
+        for value: SimultaneousGesture<DragGesture, MagnifyGesture>.Value,
+        previewScale: CGFloat
+    ) -> WorkoutShareInfoGesture {
+        let translation = value.first?.translation ?? .zero
+        let divisor = previewScale.isFinite && previewScale > 0 ? previewScale : 1
+        return WorkoutShareInfoGesture(
+            translation: CGSize(width: translation.width / divisor, height: translation.height / divisor),
+            magnification: value.second?.magnification ?? 1
         )
     }
 
@@ -129,17 +209,99 @@ struct BodyWorkoutShareSheet: View {
             ZStack {
                 backdrop
 
-                ScrollView {
-                    VStack(spacing: 28) {
+                // No ScrollView: the preview has to fit the cover's height, and a
+                // scroll view's unbounded height would let the 9:16 box size off the
+                // width alone and run off the bottom.
+                VStack(spacing: 28) {
+                    VStack(spacing: 10) {
                         cardPreview
-                        backgroundSection
+                        // Always laid out, only shown in photo mode: appearing/
+                        // disappearing would resize the preview — and so the gesture's
+                        // scale divisor — the instant the user enters photo mode.
+                        Text("Drag to move. Pinch to resize. Double-tap to reset.")
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundColor(.white.opacity(0.6))
+                            .multilineTextAlignment(.center)
+                            .opacity(activeSelection == .photo ? 1 : 0)
+                            .accessibilityHidden(activeSelection != .photo)
                     }
-                    .padding(20)
+                    .frame(maxHeight: .infinity)
+                    backgroundSection
+                }
+                .padding(20)
+            }
+            // The title stays set for accessibility/back-button inheritance; the
+            // principal item is what actually draws, so the beta badge can sit beside it.
+            .navigationTitle(Text("Share"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 8) {
+                        Text("Share")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+
+                        Text("Beta v2")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(.blue)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(.blue.opacity(0.14), in: Capsule())
+                    }
+                }
+
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .modifier(ShareToolbarIconChrome())
+                    }
+                    .accessibilityLabel(Text("Close"))
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await export() }
+                    } label: {
+                        Group {
+                            if isRendering {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "square.and.arrow.up")
+                            }
+                        }
+                        .modifier(ShareToolbarIconChrome())
+                    }
+                    .disabled(isBusy)
+                    .accessibilityLabel(Text("Share Workout"))
+                }
+
+                // Separates the two trailing actions into their own glass circles;
+                // without it iOS 26 merges adjacent toolbar items into one capsule.
+                if #available(iOS 26.0, *) {
+                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await saveToPhotos() }
+                    } label: {
+                        Group {
+                            if didSave {
+                                Image(systemName: "checkmark")
+                            } else if isSavingImage {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "square.and.arrow.down")
+                            }
+                        }
+                        .modifier(ShareToolbarIconChrome())
+                    }
+                    .disabled(isBusy)
+                    .accessibilityLabel(Text("Save to Photos"))
                 }
             }
-            .navigationTitle(Text("Share Workout"))
-            .navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .bottom) { shareBar }
             .sheet(item: $payload) { payload in
                 BodyShareActivityView(image: payload.image) { self.payload = nil }
             }
@@ -158,6 +320,17 @@ struct BodyWorkoutShareSheet: View {
                 if isPhotoAccessDenied {
                     Text("Body needs permission to add photos. Allow it in Settings › Body › Photos, then try again.")
                 }
+            }
+            // Keyed off photo mode itself, so every way in or out of it — a first pick, a
+            // switch to a preset/map, a failed load, a lapsed entitlement — starts the
+            // block from its default slot.
+            .onChange(of: activeSelection == .photo) { _, _ in
+                committedInfoTransform = .identity
+            }
+            // And off the photo itself: replacing photo A with photo B never leaves
+            // photo mode, so the mode key alone would keep A's placement over B.
+            .onChange(of: selectedPhoto) { _, _ in
+                committedInfoTransform = .identity
             }
             .task(id: photoItem) { await loadSelectedPhoto() }
             .task {
@@ -192,9 +365,37 @@ struct BodyWorkoutShareSheet: View {
             .aspectRatio(360.0 / 640.0, contentMode: .fit)
             .overlay {
                 GeometryReader { proxy in
-                    cardView()
-                        .frame(width: 360, height: 640)
-                        .scaleEffect(proxy.size.width / 360, anchor: .topLeading)
+                    let previewScale = proxy.size.width / 360
+                    // Top-leading, not centered: in photo mode the gesture layer grows
+                    // this stack to the proxy size, and centering would inset the fixed
+                    // 360×640 card before the top-leading scale — on an iPad-width
+                    // preview that shows as blank space plus a clipped right/bottom edge.
+                    ZStack(alignment: .topLeading) {
+                        cardView()
+                            .frame(width: 360, height: 640)
+                            .scaleEffect(previewScale, anchor: .topLeading)
+
+                        if activeSelection == .photo {
+                            // An unscaled layer above the card: the gesture has to report
+                            // translations in preview points for the ÷ previewScale above
+                            // to be right on iPad, where the preview isn't ~1:1. The
+                            // double tap goes on simultaneously — a zero-distance drag
+                            // swallows taps otherwise.
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .highPriorityGesture(infoBlockGesture(previewScale: previewScale))
+                                .simultaneousGesture(
+                                    TapGesture(count: 2).onEnded {
+                                        withAnimation { committedInfoTransform = .identity }
+                                    }
+                                )
+                                // VoiceOver's double tap is its own activation gesture,
+                                // so the reset needs a named action of its own.
+                                .accessibilityAction(named: Text("Reset Layout")) {
+                                    committedInfoTransform = .identity
+                                }
+                        }
+                    }
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -354,45 +555,6 @@ struct BodyWorkoutShareSheet: View {
         .accessibilityAddTraits(isPhotoActive ? [.isSelected] : [])
     }
 
-    private var shareBar: some View {
-        HStack(spacing: 12) {
-            Button {
-                Task { await export() }
-            } label: {
-                HStack(spacing: 8) {
-                    if isRendering {
-                        ProgressView().tint(.white)
-                    }
-                    Text("Share")
-                }
-                .modifier(ShareActionChrome(tint: workout.type.color))
-            }
-            .buttonStyle(.plain)
-            .disabled(isBusy)
-
-            Button {
-                Task { await saveToPhotos() }
-            } label: {
-                HStack(spacing: 8) {
-                    if didSave {
-                        Image(systemName: "checkmark")
-                        Text("Saved")
-                    } else {
-                        if isSavingImage {
-                            ProgressView().tint(.white)
-                        }
-                        Text("Save")
-                    }
-                }
-                .modifier(ShareActionChrome(tint: workout.type.color))
-            }
-            .buttonStyle(.plain)
-            .disabled(isBusy)
-        }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 12)
-    }
-
     /// Also busy while the *active* background is still loading — rendering then would
     /// silently rasterize the previous/preset background instead. A map load abandoned
     /// for a preset/photo doesn't hold the buttons hostage.
@@ -445,12 +607,13 @@ struct BodyWorkoutShareSheet: View {
             return
         }
 
-        // Confirmation lives on the button itself; revert on its own task so `defer`
-        // can re-enable both buttons right away.
+        // Confirmation lives on the button itself; hold it just long enough to read,
+        // then close the sheet — a successful save is this flow's natural end. On its
+        // own task so `defer` re-enables both buttons right away.
         didSave = true
         Task {
-            try? await Task.sleep(for: .seconds(2))
-            didSave = false
+            try? await Task.sleep(for: .seconds(1))
+            dismiss()
         }
     }
 
@@ -669,24 +832,29 @@ struct BodyWorkoutShareSheet: View {
     }
 }
 
-/// The chrome both share-bar actions share: a flat translucent fill of the workout
-/// type's color under a thin white rim — deliberately flat (no gradient, material
-/// blur, or specular sheen) to match the app's glass language.
-private struct ShareActionChrome: ViewModifier {
-    let tint: Color
-
+/// The backing behind each toolbar icon. On iOS 26 the toolbar draws native Liquid
+/// Glass around the item, so the label stays bare; earlier releases get a matching
+/// circular material puck instead of an unbacked glyph on the tinted backdrop.
+private struct ShareToolbarIconChrome: ViewModifier {
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content
-            .font(.system(size: 17, weight: .semibold, design: .rounded))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 15)
-            .background(tint.opacity(0.85), in: Capsule())
-            .overlay {
-                Capsule()
-                    .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
-            }
+        if #available(iOS 26.0, *) {
+            content
+        } else {
+            content
+                .frame(width: 36, height: 36)
+                .background(.ultraThinMaterial, in: Circle())
+        }
     }
+}
+
+/// The in-flight half of the info block's placement: the composite gesture's drag and
+/// pinch as one `@GestureState` value, already converted from preview to card points.
+private struct WorkoutShareInfoGesture: Equatable {
+    var translation: CGSize = .zero
+    var magnification: CGFloat = 1
+
+    static let idle = WorkoutShareInfoGesture()
 }
 
 private struct WorkoutSharePayload: Identifiable {

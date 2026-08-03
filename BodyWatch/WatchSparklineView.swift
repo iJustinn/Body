@@ -20,6 +20,13 @@ struct WatchSparklineView: View {
     let tint: Color
     /// Today's status band to highlight (Readiness, Training Load); `nil` otherwise.
     var band: WatchStatusBand? = nil
+    /// Color for the band highlight (the status color, per the iOS charts);
+    /// `nil` draws the band with `tint`.
+    var bandTint: Color? = nil
+    /// Today's live value when it dropped below today's plotted slot
+    /// (Readiness: the drained score under the frozen morning point) — drawn
+    /// as a faded tint dot in today's column. `nil` otherwise.
+    var currentValue: Double? = nil
     /// Per-day labels (oldest → today), drawn along the bottom of the chart.
     var dayLabels: [String] = []
 
@@ -62,6 +69,16 @@ struct WatchSparklineView: View {
                         if let point {
                             pointDot(at: point, isCurrent: index == currentIndex)
                         }
+                    }
+
+                    // The faded "current" dot under today's plotted point —
+                    // where readiness actually is now after today's drain.
+                    if let dotValue = Self.currentDotValue(values: values, currentValue: currentValue),
+                       let todayPoint = plotPoints.last ?? nil {
+                        Circle()
+                            .fill(tint.opacity(0.8))
+                            .frame(width: currentPointDiameter, height: currentPointDiameter)
+                            .position(x: todayPoint.x, y: y(for: dotValue, plotHeight: plotHeight, domain: domain))
                     }
                 }
 
@@ -114,18 +131,19 @@ struct WatchSparklineView: View {
             let yTop = y(for: topValue, plotHeight: plotHeight, domain: domain)
             let yBottom = y(for: bottomValue, plotHeight: plotHeight, domain: domain)
             let centerX = size.width / 2
+            let bandColor = bandTint ?? tint
 
             ZStack {
                 Rectangle()
-                    .fill(tint.opacity(0.22))
+                    .fill(bandColor.opacity(0.22))
                     .frame(width: size.width, height: Swift.max(yBottom - yTop, 0))
                     .position(x: centerX, y: (yTop + yBottom) / 2)
                 Rectangle()
-                    .fill(tint.opacity(0.75))
+                    .fill(bandColor.opacity(0.75))
                     .frame(width: size.width, height: stripeHeight)
                     .position(x: centerX, y: yTop + stripeHeight / 2)
                 Rectangle()
-                    .fill(tint.opacity(0.75))
+                    .fill(bandColor.opacity(0.75))
                     .frame(width: size.width, height: stripeHeight)
                     .position(x: centerX, y: yBottom - stripeHeight / 2)
             }
@@ -141,12 +159,28 @@ struct WatchSparklineView: View {
             .position(point)
     }
 
+    /// The value for the faded "current" dot under today's (last) slot, or
+    /// `nil`: needs a finite today reading and a finite current value strictly
+    /// below it — the dot only marks a same-day decrease.
+    static func currentDotValue(values: [Double?], currentValue: Double?) -> Double? {
+        guard let currentValue, currentValue.isFinite,
+              let todayValue = values.last ?? nil, todayValue.isFinite,
+              currentValue < todayValue else {
+            return nil
+        }
+        return currentValue
+    }
+
     // MARK: - Geometry
 
-    /// Y domain over the finite values plus any finite band bounds, padded 12%
-    /// and clamped ≥ 0 — mirroring the iPhone line chart's `computeYDomain`.
+    /// Y domain over the finite values plus any finite band bounds and the
+    /// current-value dot, padded 12% and clamped ≥ 0 — mirroring the iPhone
+    /// line chart's `computeYDomain`.
     private func yDomain() -> (lo: Double, hi: Double)? {
         var domainValues = values.compactMap { $0 }.filter(\.isFinite)
+        if let dotValue = Self.currentDotValue(values: values, currentValue: currentValue) {
+            domainValues.append(dotValue)
+        }
         if let band {
             if let low = band.min, low.isFinite { domainValues.append(low) }
             if let high = band.max, high.isFinite { domainValues.append(high) }

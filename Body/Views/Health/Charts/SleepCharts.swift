@@ -802,7 +802,6 @@ struct SleepVitalDisplayRow: Identifiable {
     let value: String
     let unit: String
     let symbolName: String
-    let tintColor: Color
     let numericValue: Double
     let referenceRange: SleepVitalReferenceRange
 
@@ -823,9 +822,11 @@ private extension SleepVitalRegion {
     var dotColor: Color {
         switch self {
         case .typical:
-            return Color(red: 0.25, green: 0.62, blue: 1.00)
-        case .low, .high:
-            return Color(red: 1.00, green: 0.24, blue: 0.20)
+            return BodyVitalsChartStyle.typicalColor
+        case .high:
+            return BodyVitalsChartStyle.highColor
+        case .low:
+            return BodyVitalsChartStyle.lowColor
         }
     }
 }
@@ -851,6 +852,19 @@ struct BodySleepVitalsRegionChart: View {
 
 struct BodySleepVitalsRegionPlot: View {
     let rows: [SleepVitalDisplayRow]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Marker geometry and color inputs per dot: when the day picker lands on
+    /// another night the dots glide to their new positions and cross-fade color
+    /// instead of snapping.
+    private struct DotAnimationKey: Equatable {
+        let position: Double
+        let region: SleepVitalRegion
+    }
+
+    private var animationKey: [DotAnimationKey] {
+        rows.map { DotAnimationKey(position: $0.markerPosition, region: $0.region) }
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -858,11 +872,12 @@ struct BodySleepVitalsRegionPlot: View {
                 Path { path in
                     let width = proxy.size.width
                     let height = proxy.size.height
+                    let outlierBand = height * BodyHealthDetailChartLayout.sleepVitalsOutlierBandFraction
                     path.addRect(CGRect(x: 0, y: 0, width: width, height: height))
-                    path.move(to: CGPoint(x: 0, y: height / 3))
-                    path.addLine(to: CGPoint(x: width, y: height / 3))
-                    path.move(to: CGPoint(x: 0, y: height * 2 / 3))
-                    path.addLine(to: CGPoint(x: width, y: height * 2 / 3))
+                    path.move(to: CGPoint(x: 0, y: outlierBand))
+                    path.addLine(to: CGPoint(x: width, y: outlierBand))
+                    path.move(to: CGPoint(x: 0, y: height - outlierBand))
+                    path.addLine(to: CGPoint(x: width, y: height - outlierBand))
                 }
                 .stroke(Color.secondary.opacity(0.20), lineWidth: 1)
 
@@ -886,6 +901,10 @@ struct BodySleepVitalsRegionPlot: View {
                         )
                 }
             }
+            .animation(
+                reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0),
+                value: animationKey
+            )
         }
     }
 
@@ -898,7 +917,27 @@ struct BodySleepVitalsRegionPlot: View {
     }
 
     private func yPosition(for row: SleepVitalDisplayRow, height: CGFloat) -> CGFloat {
-        height * CGFloat(1 - row.markerPosition)
+        height * (1 - displayPosition(for: row.markerPosition))
+    }
+
+    /// `markerPosition` splits its 0…1 scale into equal thirds, but the plot
+    /// draws High and Low shorter than the typical band — so each third is
+    /// remapped onto the band it is actually drawn in before becoming a Y
+    /// offset, keeping a dot in the same relative spot within its region.
+    private func displayPosition(for markerPosition: Double) -> CGFloat {
+        let outlier = BodyHealthDetailChartLayout.sleepVitalsOutlierBandFraction
+        let typical = 1 - 2 * outlier
+        let position = CGFloat(min(max(markerPosition, 0), 1))
+
+        if position < 1.0 / 3 {
+            return position * 3 * outlier
+        }
+
+        if position < 2.0 / 3 {
+            return outlier + (position - 1.0 / 3) * 3 * typical
+        }
+
+        return outlier + typical + (position - 2.0 / 3) * 3 * outlier
     }
 }
 
@@ -951,10 +990,10 @@ struct BodySleepVitalRegionDot: View {
     var body: some View {
         Circle()
             .fill(Color(.systemGroupedBackground))
-            .frame(width: 19, height: 19)
+            .frame(width: 15, height: 15)
             .overlay(
                 Circle()
-                    .stroke(row.region.dotColor, lineWidth: 5)
+                    .stroke(row.region.dotColor, lineWidth: 4)
             )
             .shadow(color: row.region.dotColor.opacity(row.region == .typical ? 0 : 0.26), radius: 5)
             .accessibilityLabel("\(row.title): \(row.value) \(row.unit), \(accessibilityRegion)")
@@ -974,19 +1013,25 @@ struct BodySleepVitalRegionDot: View {
 
 struct BodySleepVitalRegionLabels: View {
     var body: some View {
-        VStack(spacing: 0) {
-            regionLabel("High")
-            regionLabel("Typical")
-            regionLabel("Low")
+        // Weighted rather than three equal slices, so each word stays centered
+        // on the shorter High/Low bands the plot now draws.
+        GeometryReader { proxy in
+            let outlierBand = proxy.size.height * BodyHealthDetailChartLayout.sleepVitalsOutlierBandFraction
+
+            VStack(spacing: 0) {
+                regionLabel("High", height: outlierBand)
+                regionLabel("Typical", height: proxy.size.height - outlierBand * 2)
+                regionLabel("Low", height: outlierBand)
+            }
         }
         .font(.system(size: 15, weight: .bold, design: .rounded))
         .foregroundColor(Color.secondary.opacity(0.62))
     }
 
-    private func regionLabel(_ title: LocalizedStringKey) -> some View {
+    private func regionLabel(_ title: LocalizedStringKey, height: CGFloat) -> some View {
         Text(title)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .center)
     }
 }

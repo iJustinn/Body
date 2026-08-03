@@ -256,6 +256,22 @@
         }
       }
     },
+    "A light activity today nudged your readiness down a little, but it's still high. Train as planned." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A light activity today nudged your readiness down a little, but it's still high. Train as planned."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的轻度活动让状态略有下降，但状态依然良好，可按计划训练。"
+          }
+        }
+      }
+    },
     "About Active Energy" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -353,7 +369,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "关于锻炼分钟数"
+            "value" : "关于运动时长"
           }
         }
       }
@@ -562,6 +578,23 @@
         }
       }
     },
+    "About Vitals" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Vitals"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于生命体征"
+          }
+        }
+      }
+    },
     "About Weight" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -591,7 +624,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "活动 %@"
+            "value" : "活动消耗"
           }
         }
       }
@@ -715,6 +748,22 @@
         }
       }
     },
+    "Apple Maps" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Maps"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple 地图"
+          }
+        }
+      }
+    },
     "Archery" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -783,13 +832,13 @@
         }
       }
     },
-    "Avg HR" : {
+    "Avg Heart Rate" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avg HR"
+            "value" : "Avg Heart Rate"
           }
         },
         "zh-Hans" : {
@@ -800,13 +849,13 @@
         }
       }
     },
-    "Avg Heart Rate" : {
+    "Avg HR" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avg Heart Rate"
+            "value" : "Avg HR"
           }
         },
         "zh-Hans" : {
@@ -1966,7 +2015,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "锻炼分钟数总计"
+            "value" : "运动时长总计"
           }
         }
       }
@@ -1983,7 +2032,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "锻炼分钟数"
+            "value" : "运动时长"
           }
         }
       }
@@ -2000,7 +2049,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "锻炼分钟数统计被健康 App 判定为较高强度活动或运动的时间。该数值可能与训练时长不同，因为强度、心率和动作都会影响判定。可用它查看近期活动是否持续达到有效强度。"
+            "value" : "运动时长统计被健康 App 判定为较高强度活动或运动的时间。该数值可能与训练时长不同，因为强度、心率和动作都会影响判定。可用它查看近期活动是否持续达到有效强度。"
           }
         }
       }
@@ -2222,6 +2271,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "心脏"
+          }
+        }
+      }
+    },
+    "Heart Rate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heart Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率"
           }
         }
       }
@@ -2580,6 +2646,22 @@
         }
       }
     },
+    "Just a light activity today. Your poor readiness reflects your recovery signals, so rest well to recover better." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Just a light activity today. Your poor readiness reflects your recovery signals, so rest well to recover better."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天只是轻度活动，较差的状态来自身体的恢复信号。请多休息让身体更好的恢复。"
+          }
+        }
+      }
+    },
     "Kickboxing" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2851,6 +2933,22 @@
         }
       }
     },
+    "Map" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Map"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "地图"
+          }
+        }
+      }
+    },
     "Martial Arts" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3101,7 +3199,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "活动、锻炼与站立圆环"
+            "value" : "活动、运动与站立圆环"
           }
         }
       }
@@ -3203,6 +3301,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未记录强度"
+          }
+        }
+      }
+    },
+    "Only a light activity today, so your low readiness mainly reflects your recovery signals, not training." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only a light activity today, so your low readiness mainly reflects your recovery signals, not training."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天只是轻度活动，偏低的状态主要来自身体的恢复信号，而非训练。"
           }
         }
       }
@@ -3321,6 +3435,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "普拉提"
+          }
+        }
+      }
+    },
+    "Plain" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plain"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "简约"
           }
         }
       }
@@ -3680,6 +3810,23 @@
         }
       }
     },
+    "Respiratory Rate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Respiratory Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "呼吸频率"
+          }
+        }
+      }
+    },
     "Respiratory rate is above baseline." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3782,6 +3929,40 @@
         }
       }
     },
+    "Resting heart rate is higher than your baseline, so your system hasn't fully settled. Keep it light." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resting heart rate is higher than your baseline, so your system hasn't fully settled. Keep it light."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "静息心率高于你的基准，身体还没完全缓过来。今天保持低强度。"
+          }
+        }
+      }
+    },
+    "Resting heart rate is higher than your baseline. Readiness is moderate; hold the intensity back." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resting heart rate is higher than your baseline. Readiness is moderate; hold the intensity back."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "静息心率高于你的基准。状态中等，注意收着点强度。"
+          }
+        }
+      }
+    },
     "Resting heart rate is markedly higher than your baseline. Prioritize rest until it settles." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3799,19 +3980,19 @@
         }
       }
     },
-    "Resting heart rate is higher than your baseline, so your system hasn't fully settled. Keep it light." : {
+    "Resting heart rate is slightly higher than your baseline, but every other signal is strong. Prime to go." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Resting heart rate is higher than your baseline, so your system hasn't fully settled. Keep it light."
+            "value" : "Resting heart rate is slightly higher than your baseline, but every other signal is strong. Prime to go."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "静息心率高于你的基准，身体还没完全缓过来。今天保持低强度。"
+            "value" : "静息心率略高于你的基准，但其他指标都很稳。今天状态很好。"
           }
         }
       }
@@ -3850,40 +4031,6 @@
         }
       }
     },
-    "Resting heart rate is higher than your baseline. Readiness is moderate; hold the intensity back." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Resting heart rate is higher than your baseline. Readiness is moderate; hold the intensity back."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "静息心率高于你的基准。状态中等，注意收着点强度。"
-          }
-        }
-      }
-    },
-    "Resting heart rate is slightly higher than your baseline, but every other signal is strong. Prime to go." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Resting heart rate is slightly higher than your baseline, but every other signal is strong. Prime to go."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "静息心率略高于你的基准，但其他指标都很稳。今天状态很好。"
-          }
-        }
-      }
-    },
     "Restless sleep has readiness at a moderate level. Keep the effort in check." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3914,6 +4061,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "骑行"
+          }
+        }
+      }
+    },
+    "Route Only" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Route Only"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅路线"
           }
         }
       }
@@ -4338,6 +4501,23 @@
         }
       }
     },
+    "Sleep Duration" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep Duration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠时长"
+          }
+        }
+      }
+    },
     "Sleep duration is below goal." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4473,6 +4653,70 @@
         }
       }
     },
+    "sleep.bar.awake" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awake"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清醒"
+          }
+        }
+      }
+    },
+    "sleep.bar.core" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Core"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "核心"
+          }
+        }
+      }
+    },
+    "sleep.bar.deep" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deep"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深度"
+          }
+        }
+      }
+    },
+    "sleep.bar.rem" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "REM"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "眼动"
+          }
+        }
+      }
+    },
     "Sleeping skin temperature" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4592,6 +4836,23 @@
         }
       }
     },
+    "Speed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Speed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "速度"
+          }
+        }
+      }
+    },
     "Squash" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4690,23 +4951,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "踏步训练"
-          }
-        }
-      }
-    },
-    "Speed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Speed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "速度"
           }
         }
       }
@@ -4983,6 +5227,103 @@
         }
       }
     },
+    "Today's activity was light, so your moderate readiness mainly reflects your recovery signals. Keep the load controlled." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's activity was light, so your moderate readiness mainly reflects your recovery signals. Keep the load controlled."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天只是轻度活动，中等状态主要反映身体的恢复信号。注意控制负荷。"
+          }
+        }
+      }
+    },
+    "Today's sleep data isn't in yet. Get some rest and check back later for a more accurate result." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's sleep data isn't in yet. Get some rest and check back later for a more accurate result."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的睡眠数据还没同步，好好休息，稍后再回来查看更准确的结果。"
+          }
+        }
+      }
+    },
+    "Today's workout brought readiness from high down to low. That was a considerable session, so rest and recover fully for the rest of the day." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's workout brought readiness from high down to low. That was a considerable session, so rest and recover fully for the rest of the day."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的运动让身体状态从良好降至偏低，这是不小的消耗。今天余下的时间请充分休息和恢复。"
+          }
+        }
+      }
+    },
+    "Today's workout has lowered your readiness. This is training load, not under recovery. Focus on resting for the rest of the day." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's workout has lowered your readiness. This is training load, not under recovery. Focus on resting for the rest of the day."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的运动拉低了状态，这是训练消耗，并非恢复不足。今天建议休息为主。"
+          }
+        }
+      }
+    },
+    "Today's workout took some energy out of you, but readiness is still high. You can carry on with your training." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's workout took some energy out of you, but readiness is still high. You can carry on with your training."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的运动消耗了一些精力，但状态依然良好，后续的训练依然可以继续。"
+          }
+        }
+      }
+    },
+    "Today's workout was very demanding, taking readiness from an exceptional state all the way down to a low point. That's a big training load, so some active recovery for the rest of the day would help." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's workout was very demanding, taking readiness from an exceptional state all the way down to a low point. That's a big training load, so some active recovery for the rest of the day would help."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的运动强度非常大，从极其出色的状态一路降至低谷。这是相当大的训练消耗，接下来的时间进行一些主动恢复会更有帮助。"
+          }
+        }
+      }
+    },
     "Total %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4995,7 +5336,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "总计 %@"
+            "value" : "总消耗"
           }
         }
       }
@@ -5215,6 +5556,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "生命体征"
+          }
+        }
+      }
+    },
+    "Vitals reviews overnight measurements of sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration. Each one is compared against your personal typical range, learned from about eight weeks of your own sleep data. Outliers can follow illness, alcohol, travel, or hard training, and they are not a diagnosis. It takes about two weeks of sleep data to calibrate.\nVitals follows the data sources you select for Sleep and for each individual vital, so choosing a single source may limit how many nights have data and how far back the charts reach." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vitals reviews overnight measurements of sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration. Each one is compared against your personal typical range, learned from about eight weeks of your own sleep data. Outliers can follow illness, alcohol, travel, or hard training, and they are not a diagnosis. It takes about two weeks of sleep data to calibrate.\nVitals follows the data sources you select for Sleep and for each individual vital, so choosing a single source may limit how many nights have data and how far back the charts reach."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "生命体征回顾夜间测量的睡眠心率、呼吸频率、皮肤温度、血氧和睡眠时长，并将每项数据与你的个人典型范围进行比较。该范围通过大约八周的睡眠数据学习得出。异常值可能与生病、饮酒、旅行或高强度训练有关，并非诊断结果。大约需要两周的睡眠数据才能完成校准。\n生命体征采用你为睡眠及各项体征选择的数据来源，因此选择单一来源可能会减少有数据的夜晚数量，并限制图表可回溯的范围。"
           }
         }
       }
@@ -5542,6 +5900,54 @@
         }
       }
     },
+    "You've already worked out today and readiness is still prime. There's room to push a little harder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You've already worked out today and readiness is still prime. There's room to push a little harder."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天已经运动过，状态依然出色，可以再上点强度。"
+          }
+        }
+      }
+    },
+    "You've done enough training today. You've reached training fatigue, and doing more could risk injury. Prioritize rest and recovery." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You've done enough training today. You've reached training fatigue, and doing more could risk injury. Prioritize rest and recovery."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的运动已经达标。已经达到训练疲劳，再进行训练有可能导致受伤，请优先休息与恢复。"
+          }
+        }
+      }
+    },
+    "Your lower readiness is mainly from today's workout. It reflects the effort you put in, not poor recovery. Give your body some rest for the rest of the day." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your lower readiness is mainly from today's workout. It reflects the effort you put in, not poor recovery. Give your body some rest for the rest of the day."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "状态偏低主要是今天运动所致，反映的是你付出的努力，而非恢复不佳。接下来的时间给身体放松一下。"
+          }
+        }
+      }
+    },
     "Your signals sit comfortably above baseline — you're well prepared to train." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5571,263 +5977,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "各项信号都稳定高于基准。今天适合训练。"
-          }
-        }
-      }
-    },
-    "Today's sleep data isn't in yet. Get some rest and check back later for a more accurate result." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Today's sleep data isn't in yet. Get some rest and check back later for a more accurate result."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天的睡眠数据还没同步，好好休息，稍后再回来查看更准确的结果。"
-          }
-        }
-      }
-    },
-    "Today's workout took some energy out of you, but readiness is still high. You can carry on with your training." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Today's workout took some energy out of you, but readiness is still high. You can carry on with your training."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天的运动消耗了一些精力，但状态依然良好，后续的训练依然可以继续。"
-          }
-        }
-      }
-    },
-    "Today's workout has lowered your readiness. This is training load, not under recovery. Focus on resting for the rest of the day." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Today's workout has lowered your readiness. This is training load, not under recovery. Focus on resting for the rest of the day."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天的运动拉低了状态，这是训练消耗，并非恢复不足。今天建议休息为主。"
-          }
-        }
-      }
-    },
-    "Your lower readiness is mainly from today's workout. It reflects the effort you put in, not poor recovery. Give your body some rest for the rest of the day." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your lower readiness is mainly from today's workout. It reflects the effort you put in, not poor recovery. Give your body some rest for the rest of the day."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "状态偏低主要是今天运动所致，反映的是你付出的努力，而非恢复不佳。接下来的时间给身体放松一下。"
-          }
-        }
-      }
-    },
-    "You've done enough training today. You've reached training fatigue, and doing more could risk injury. Prioritize rest and recovery." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You've done enough training today. You've reached training fatigue, and doing more could risk injury. Prioritize rest and recovery."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天的运动已经达标。已经达到训练疲劳，再进行训练有可能导致受伤，请优先休息与恢复。"
-          }
-        }
-      }
-    },
-    "You've already worked out today and readiness is still prime. There's room to push a little harder." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You've already worked out today and readiness is still prime. There's room to push a little harder."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天已经运动过，状态依然出色，可以再上点强度。"
-          }
-        }
-      }
-    },
-    "A light activity today nudged your readiness down a little, but it's still high. Train as planned." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A light activity today nudged your readiness down a little, but it's still high. Train as planned."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天的轻度活动让状态略有下降，但状态依然良好，可按计划训练。"
-          }
-        }
-      }
-    },
-    "Today's activity was light, so your moderate readiness mainly reflects your recovery signals. Keep the load controlled." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Today's activity was light, so your moderate readiness mainly reflects your recovery signals. Keep the load controlled."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天只是轻度活动，中等状态主要反映身体的恢复信号。注意控制负荷。"
-          }
-        }
-      }
-    },
-    "Only a light activity today, so your low readiness mainly reflects your recovery signals, not training." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Only a light activity today, so your low readiness mainly reflects your recovery signals, not training."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天只是轻度活动，偏低的状态主要来自身体的恢复信号，而非训练。"
-          }
-        }
-      }
-    },
-    "Just a light activity today. Your poor readiness reflects your recovery signals, so rest well to recover better." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Just a light activity today. Your poor readiness reflects your recovery signals, so rest well to recover better."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天只是轻度活动，较差的状态来自身体的恢复信号。请多休息让身体更好的恢复。"
-          }
-        }
-      }
-    },
-    "Today's workout was very demanding, taking readiness from an exceptional state all the way down to a low point. That's a big training load, so some active recovery for the rest of the day would help." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Today's workout was very demanding, taking readiness from an exceptional state all the way down to a low point. That's a big training load, so some active recovery for the rest of the day would help."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天的运动强度非常大，从极其出色的状态一路降至低谷。这是相当大的训练消耗，接下来的时间进行一些主动恢复会更有帮助。"
-          }
-        }
-      }
-    },
-    "Today's workout brought readiness from high down to low. That was a considerable session, so rest and recover fully for the rest of the day." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Today's workout brought readiness from high down to low. That was a considerable session, so rest and recover fully for the rest of the day."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天的运动让身体状态从良好降至偏低，这是不小的消耗。今天余下的时间请充分休息和恢复。"
-          }
-        }
-      }
-    },
-    "sleep.bar.awake" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Awake"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "清醒"
-          }
-        }
-      }
-    },
-    "sleep.bar.rem" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "REM"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "眼动"
-          }
-        }
-      }
-    },
-    "sleep.bar.core" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Core"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "核心"
-          }
-        }
-      }
-    },
-    "sleep.bar.deep" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deep"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "深度"
           }
         }
       }

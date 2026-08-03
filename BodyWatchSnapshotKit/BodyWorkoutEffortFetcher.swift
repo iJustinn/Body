@@ -20,6 +20,13 @@ enum BodyWorkoutEffortOutcome {
 }
 
 enum BodyWorkoutEffortFetcher {
+    /// How long after a workout ends a missing effort score stops being
+    /// "not rated yet" and becomes "confirmed score-less". Ratings land right
+    /// after a workout, so a query that comes back empty for a workout younger
+    /// than this stays retryable. The single shared constant for every caching
+    /// layer built on this fetcher (iOS engine today, watch compute next).
+    static let effortConfirmationAge: TimeInterval = 48 * 60 * 60
+
     static func savedEffortOutcome(for workout: HKWorkout, store: HKHealthStore) async -> BodyWorkoutEffortOutcome {
         guard let effortType = HKObjectType.quantityType(forIdentifier: .workoutEffortScore) else {
             return .failed

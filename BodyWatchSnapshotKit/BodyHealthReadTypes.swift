@@ -119,4 +119,60 @@ enum BodyHealthReadTypes {
 
         return types
     }
+
+    /// The read set the WATCH's on-device compute needs — a strict subset of
+    /// `readObjectTypes`, covering only what `WatchDeltaFetcher` actually
+    /// queries for the seven watch metrics: workouts (+ effort scores) for
+    /// Training Load and the readiness activity drain, the three heart types,
+    /// respiratory rate and blood oxygen (readiness autonomic inputs and
+    /// nocturnal vitals), sleep, and wrist temperature.
+    ///
+    /// Deliberately narrower than the phone's request: no workout routes, body
+    /// measurements, energy, exercise minutes, daylight, steps, activity
+    /// summaries or date of birth — the watch renders none of those, and a
+    /// HealthKit read prompt should ask for no more than the app will read.
+    /// Each entry is still gated on the phone's permission selection, which the
+    /// watch adopts one-way, so a category hidden on the phone is never
+    /// requested here either.
+    nonisolated static func watchComputeReadObjectTypes(
+        for selection: BodyHealthPermissionSelection = .defaultValue
+    ) -> Set<HKObjectType> {
+        var types: Set<HKObjectType> = []
+
+        if selection.includes(.workouts) {
+            types.insert(HKObjectType.workoutType())
+            if let effortType = HKObjectType.quantityType(forIdentifier: .workoutEffortScore) {
+                types.insert(effortType)
+            }
+        }
+
+        var quantityIdentifiers: [HKQuantityTypeIdentifier] = []
+        if selection.includes(.heart) {
+            quantityIdentifiers += [
+                .heartRate,
+                .restingHeartRate,
+                .heartRateVariabilitySDNN
+            ]
+        }
+        if selection.includes(.respiratory) {
+            quantityIdentifiers.append(.respiratoryRate)
+        }
+        if selection.includes(.bloodOxygen) {
+            quantityIdentifiers.append(.oxygenSaturation)
+        }
+        if selection.includes(.wristTemperature) {
+            quantityIdentifiers.append(.appleSleepingWristTemperature)
+        }
+
+        quantityIdentifiers
+            .compactMap { HKObjectType.quantityType(forIdentifier: $0) }
+            .forEach { types.insert($0) }
+
+        if selection.includes(.sleep),
+           let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) {
+            types.insert(sleepType)
+        }
+
+        return types
+    }
 }

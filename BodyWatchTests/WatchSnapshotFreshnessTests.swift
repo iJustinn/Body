@@ -154,4 +154,57 @@ final class WatchSnapshotFreshnessTests: XCTestCase {
             WatchMetricsSnapshot.staleInterval
         )
     }
+
+    // MARK: - Clock-domain freshness helpers (WatchMetricsModel)
+    //
+    // These back the watch-local (`lastComputeAttemptDate`, `lastComputeDate`)
+    // and phone-stamped (`lastRefreshDate`, `computedAt`/`liveUpdatedAt`)
+    // staleness gates in `WatchMetricsModel`. The gates themselves are private
+    // main-actor instance state driven from HealthKit/WatchConnectivity, so
+    // they aren't reachable from a unit test; these exercise the pure helper
+    // functions the gates are built on, which is the only testable seam for
+    // the future-date behavior described below.
+
+    func testFreshLocalDateRejectsFutureDate() {
+        // A watch-local clock rollback (or a bad persisted stamp): a date in
+        // the future must read as NOT fresh, so the caller treats it as stale
+        // and allows recompute rather than parking on it forever.
+        let now = t1
+        let future = t1.addingTimeInterval(60)
+        XCTAssertFalse(WatchMetricsModel.isFreshLocalDate(future, limit: WatchMetricsSnapshot.staleInterval, now: now))
+    }
+
+    func testFreshLocalDateAcceptsWithinLimitNotInFuture() {
+        let now = t1
+        let recent = t1.addingTimeInterval(-60)
+        XCTAssertTrue(WatchMetricsModel.isFreshLocalDate(recent, limit: WatchMetricsSnapshot.staleInterval, now: now))
+    }
+
+    func testFreshLocalDateRejectsBeyondLimit() {
+        let now = t1
+        let stale = t1.addingTimeInterval(-WatchMetricsSnapshot.staleInterval - 1)
+        XCTAssertFalse(WatchMetricsModel.isFreshLocalDate(stale, limit: WatchMetricsSnapshot.staleInterval, now: now))
+    }
+
+    func testFreshPhoneDateToleratesAFewSecondsInTheFuture() {
+        // Ordinary phone/watch clock skew: a phone-stamped date a few seconds
+        // ahead of the watch's clock must still read as fresh, not stale.
+        let now = t1
+        let slightlyFuture = t1.addingTimeInterval(5)
+        XCTAssertTrue(WatchMetricsModel.isFreshPhoneDate(slightlyFuture, limit: WatchMetricsSnapshot.staleInterval, now: now))
+    }
+
+    func testFreshPhoneDateRejectsFarBeyondSkewTolerance() {
+        // Past the staleInterval skew allowance, a future phone stamp is no
+        // longer ordinary clock skew and must read as stale.
+        let now = t1
+        let farFuture = t1.addingTimeInterval(WatchMetricsSnapshot.staleInterval + 60)
+        XCTAssertFalse(WatchMetricsModel.isFreshPhoneDate(farFuture, limit: WatchMetricsSnapshot.staleInterval, now: now))
+    }
+
+    func testFreshPhoneDateRejectsBeyondLimit() {
+        let now = t1
+        let stale = t1.addingTimeInterval(-WatchMetricsSnapshot.staleInterval - 1)
+        XCTAssertFalse(WatchMetricsModel.isFreshPhoneDate(stale, limit: WatchMetricsSnapshot.staleInterval, now: now))
+    }
 }

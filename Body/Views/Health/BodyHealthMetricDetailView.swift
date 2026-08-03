@@ -285,6 +285,30 @@ enum BodyMetricActivityAverages {
             }
     }
 
+    /// Per-workout readiness impact rows: each workout's marginal drain on the
+    /// day's score, shown negative. Workouts whose drain rounds below one point
+    /// are omitted.
+    static func makeReadinessImpact(timeline: ReadinessDayTimeline) -> [BodyMetricActivityAverage] {
+        timeline.impacts
+            .filter { $0.roundedDrainPoints >= 1 }
+            .map { impact in
+                BodyMetricActivityAverage(
+                    activity: .workout(impact.workoutType),
+                    startDate: impact.startDate,
+                    endDate: impact.endDate,
+                    averageValue: Double(-impact.roundedDrainPoints),
+                    source: impact.sourceName
+                )
+            }
+            .sorted {
+                if $0.startDate != $1.startDate {
+                    return $0.startDate < $1.startDate
+                }
+
+                return $0.title < $1.title
+            }
+    }
+
     static func makeSleepOnly(
         day: Date,
         series: HealthTrendSeries,
@@ -355,6 +379,11 @@ struct BodyHealthMetricDetailView: View {
     /// Shared with `BodyHomeView` so the Basics page's Weight/Body Fat cards are zoom sources for
     /// their detail push; nil off that stack (e.g. the readiness overlay), where they never render.
     let zoomNamespace: Namespace.ID?
+    /// Report-up channel for the hero chart's scrub callout. `BodyHomeView` renders it as
+    /// an overlay on the NavigationStack — the topmost layer — so the nav bar's back
+    /// chevron and title can't draw over it (they're UIKit chrome that always beats any
+    /// content inside this page).
+    let floatingCallout: BodyChartFloatingCalloutState?
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
@@ -379,10 +408,12 @@ struct BodyHealthMetricDetailView: View {
     init(
         model: BodyHealthMetricDetailModel,
         initialTrendRange: BodyHealthTrendRange = BodyHealthTrendRange.defaultValue,
-        zoomNamespace: Namespace.ID? = nil
+        zoomNamespace: Namespace.ID? = nil,
+        floatingCallout: BodyChartFloatingCalloutState? = nil
     ) {
         self.model = model
         self.zoomNamespace = zoomNamespace
+        self.floatingCallout = floatingCallout
         _selectedTrendRangeSelection = State(initialValue: initialTrendRange)
     }
 
@@ -447,6 +478,22 @@ struct BodyHealthMetricDetailView: View {
         .task {
             await workoutStore.loadIntradayMetricSamplesIfNeeded(model.kind)
         }
+        .task(id: selectedMetricDay) {
+            // The readiness day view derives its line from workouts, which live in
+            // month snapshots grouped by start-date month — an older picker day (or a
+            // midnight-spanning workout from the day before) can sit in an unloaded
+            // month. `loadMonthIfNeeded` is a cached no-op once the month is in.
+            guard model.kind == .readiness else { return }
+            let calendar = Calendar.bodyGregorian
+            let dayStart = calendar.startOfDay(for: selectedMetricDay)
+            let previousDay = calendar.date(byAdding: .day, value: -1, to: dayStart) ?? dayStart
+            for date in [dayStart, previousDay] {
+                let components = calendar.dateComponents([.month, .year], from: date)
+                if let month = components.month, let year = components.year {
+                    await workoutStore.loadMonthIfNeeded(month: month, year: year)
+                }
+            }
+        }
         .background {
             // Fixed (non-scrolling) backdrop for every metric detail: the metric tint
             // at the very top — behind the transparent nav bar — easing into the page
@@ -462,6 +509,13 @@ struct BodyHealthMetricDetailView: View {
         }
         .navigationTitle(String(localized: String.LocalizationValue(model.title)))
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: selectedTrendRange) { _, _ in
+            // The hero charts are keyed by range, so switching mid-scrub destroys the chart
+            // instance before it can report the selection ending. The reporter's
+            // `.onDisappear` clears too, but this exact stale-callout bug happened once —
+            // keep the belt-and-braces reset.
+            floatingCallout?.callout = nil
+        }
         .tint(model.symbolColor)
         .accentColor(model.symbolColor)
         .toolbar {
@@ -598,10 +652,10 @@ struct BodyHealthMetricDetailView: View {
              .respiratoryRate,
              .oxygenSaturation,
              .activeEnergy,
-             .steps:
+             .steps,
+             .readiness:
             return true
-        case .readiness,
-             .restingHeartRate,
+        case .restingHeartRate,
              .sleep,
              .basics,
              .bodyMass,
@@ -611,7 +665,8 @@ struct BodyHealthMetricDetailView: View {
              .exerciseMinutes,
              .trainingLoad,
              .wristTemperature,
-             .timeInDaylight:
+             .timeInDaylight,
+             .vitals:
             return false
         }
     }
@@ -658,7 +713,42 @@ struct BodyHealthMetricDetailView: View {
     // points for heart rate); these are read several times per render, so the
     // day slice is memoized until the series or selected day changes.
     private var selectedMetricDaySeries: HealthTrendSeries {
-        daySeriesCache.daySeries(from: liveDaySeries, on: selectedMetricDay, slot: .primary)
+        if model.kind == .readiness {
+            // Derived from the morning score + workouts, not fetched samples —
+            // tiny (~100 points), so it skips the day-series cache.
+            return selectedReadinessDayTimeline?.sampledSeries() ?? .empty
+        }
+
+        return daySeriesCache.daySeries(from: liveDaySeries, on: selectedMetricDay, slot: .primary)
+    }
+
+    private var selectedReadinessMorningScore: Int? {
+        let calendar = Calendar.bodyGregorian
+        let day = selectedMetricDay
+        if let entry = workoutStore.healthTrends.recordedReadiness
+            .first(where: { calendar.isDate($0.date, inSameDayAs: day) }) {
+            return entry.score
+        }
+        if let point = workoutStore.healthTrends.readiness.points
+            .first(where: { calendar.isDate($0.date, inSameDayAs: day) && $0.value.isFinite }) {
+            return Int(point.value.rounded())
+        }
+        if calendar.isDateInToday(day), let readiness = model.readiness {
+            return readiness.activityDrainMorningScore ?? readiness.score
+        }
+        return nil
+    }
+
+    private var selectedReadinessDayTimeline: ReadinessDayTimeline? {
+        guard model.kind == .readiness, let morningScore = selectedReadinessMorningScore else {
+            return nil
+        }
+
+        return ReadinessDayTimeline.make(
+            morningScore: morningScore,
+            workouts: workouts(on: selectedMetricDayInterval),
+            dayInterval: selectedMetricDayInterval
+        )
     }
 
     private var selectedMetricSecondaryDaySeries: HealthTrendSeries {
@@ -696,6 +786,11 @@ struct BodyHealthMetricDetailView: View {
                 workouts: workouts(on: selectedMetricDayInterval),
                 energyUnitPreference: selectedEnergyUnitPreference
             )
+        case .readiness:
+            guard let timeline = selectedReadinessDayTimeline else {
+                return []
+            }
+            return BodyMetricActivityAverages.makeReadinessImpact(timeline: timeline)
         default:
             return []
         }
@@ -816,7 +911,7 @@ struct BodyHealthMetricDetailView: View {
     private func readinessWhyCard(for readiness: ReadinessSummary, activeStatus: ReadinessStatus?) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("About your score")
-                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 
             VStack(alignment: .leading, spacing: 14) {
@@ -987,7 +1082,19 @@ struct BodyHealthMetricDetailView: View {
                 NavigationStack { BodyProView() }
             }
 
-            metricTrendChart(immersive: true)
+            if vitalsNeedsMoreSleepData {
+                // The calibration notice replaces the outlier hero: without a
+                // baseline the typical band and axes would chart nothing real.
+                Text("Vitals needs about two weeks of sleep data to learn your typical ranges.")
+                    .font(.system(.body, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: BodyHealthDetailChartLayout.standardHeight)
+            } else {
+                metricTrendChart(immersive: true)
+            }
 
             metricHeroValueRow
 
@@ -1027,6 +1134,13 @@ struct BodyHealthMetricDetailView: View {
                 aboutSleepScoreCard
             }
             dataSourceFooter
+        } else if isVitalsDetail {
+            if !vitalsSnapshot.nights.isEmpty {
+                metricDatePicker
+                vitalsNightCard
+            }
+            helpTextCard
+            dataSourceFooter
         } else {
             if isBasicsDetail {
                 basicsRangeCard
@@ -1037,15 +1151,15 @@ struct BodyHealthMetricDetailView: View {
                 metricActivityAveragesCard
                 detailTrendComparisonCard
             } else {
-                if model.kind == .readiness, let readiness = model.readiness {
-                    readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
-                }
                 detailTrendComparisonCard
             }
             if isBasicsDetail {
                 bodyMassIndexTrendCard
                 basicsMetricTrendCard(for: .bodyMass)
                 basicsMetricTrendCard(for: .bodyFatPercentage)
+            }
+            if model.kind == .readiness, let readiness = model.readiness {
+                readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
             }
             helpTextCard
             dataSourceFooter
@@ -1062,7 +1176,11 @@ struct BodyHealthMetricDetailView: View {
 
     @ViewBuilder
     private var heroValueLeading: some View {
-        if !model.value.isEmpty {
+        if model.kind == .vitals {
+            // The headline follows the chart: it reads the visible range, not the
+            // single latest night the home card shows.
+            BodyMetricStatusValueText(text: vitalsHeroStatusText, fontSize: 40)
+        } else if !model.value.isEmpty {
             heroBigValue(model.value, unit: model.unit)
         } else if let firstMetric = model.headerMetrics.first {
             heroBigValue(firstMetric.value, unit: firstMetric.unit)
@@ -1148,7 +1266,8 @@ struct BodyHealthMetricDetailView: View {
                 bodyFatFormatter: model.secondaryValueFormatter ?? {
                     BodyValueFormat.numberText($0, decimals: 1) + "%"
                 },
-                immersive: immersive
+                immersive: immersive,
+                floatingCallout: immersive ? floatingCallout : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend,
@@ -1165,7 +1284,8 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter,
                 showsAverageLineOverlay: true,
                 immersive: immersive,
-                yDomain: metricRangeYDomain
+                yDomain: metricRangeYDomain,
+                floatingCallout: immersive ? floatingCallout : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend {
@@ -1178,7 +1298,8 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter,
                 yDomain: metricRangeYDomain,
                 immersive: immersive,
-                chartIdentity: "\(model.kind.rawValue)-source-range-comparison-\(selectedTrendRange.rawValue)"
+                chartIdentity: "\(model.kind.rawValue)-source-range-comparison-\(selectedTrendRange.rawValue)",
+                floatingCallout: immersive ? floatingCallout : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if usesRangeTrendChart, let visibleMetricRangeSeries {
@@ -1190,7 +1311,8 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter,
                 showsAverageLineOverlay: model.kind == .heartRate || model.kind == .heartRateVariability,
                 immersive: immersive,
-                yDomain: metricRangeYDomain
+                yDomain: metricRangeYDomain,
+                floatingCallout: immersive ? floatingCallout : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if let sourceComparisonTrend = model.sourceComparisonTrend {
@@ -1202,7 +1324,8 @@ struct BodyHealthMetricDetailView: View {
                 secondaryColor: sourceComparisonSecondaryColor,
                 valueFormatter: model.valueFormatter,
                 immersive: immersive,
-                chartIdentity: "\(model.kind.rawValue)-source-comparison-\(selectedTrendRange.rawValue)"
+                chartIdentity: "\(model.kind.rawValue)-source-comparison-\(selectedTrendRange.rawValue)",
+                floatingCallout: immersive ? floatingCallout : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
@@ -1215,7 +1338,16 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter,
                 isSleepDetail: isSleepDetail,
                 immersive: immersive,
-                chartIdentity: "\(model.kind.rawValue)-source-line-comparison-\(selectedTrendRange.rawValue)"
+                chartIdentity: "\(model.kind.rawValue)-source-line-comparison-\(selectedTrendRange.rawValue)",
+                floatingCallout: immersive ? floatingCallout : nil
+            )
+            .frame(height: BodyHealthDetailChartLayout.standardHeight)
+        } else if model.kind == .vitals {
+            BodyVitalsOutlierTrendChart(
+                nights: visibleVitalsNights,
+                selectedRange: selectedTrendRange,
+                immersive: immersive,
+                floatingCallout: immersive ? floatingCallout : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else {
@@ -1228,7 +1360,11 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter,
                 highlightedRange: model.highlightedRange,
                 highlightedRangeResolver: model.highlightedRangeResolver,
+                currentValuePoint: model.kind == .readiness && selectedTrendRange == .recentWeek
+                    ? BodyReadinessStatusPresentation.currentTrendDot(readiness: model.readiness, series: model.series)
+                    : nil,
                 activeHighlightedValue: model.kind == .readiness ? $activeReadinessTrendValue : nil,
+                floatingCallout: immersive ? floatingCallout : nil,
                 isSleepDetail: isSleepDetail,
                 baselineValue: wristTemperatureTrendBaseline,
                 baselineDeviationFormatter: wristTemperatureTrendBaselineDeviationFormatter,
@@ -1449,7 +1585,11 @@ struct BodyHealthMetricDetailView: View {
                     valueFormatter: model.valueFormatter,
                     contextIntervals: selectedMetricDayContextIntervals,
                     aggregationLabel: selectedMetricDayAggregationLabel,
-                    includesSampleBreakdown: selectedMetricDayIncludesSampleBreakdown
+                    includesSampleBreakdown: selectedMetricDayIncludesSampleBreakdown,
+                    // The readiness line is a step function that is flat most of the
+                    // day — a dot on every hour reads as noise, so flat runs keep
+                    // only their start and end dots.
+                    collapsesUnchangedPoints: model.kind == .readiness
                 )
                 .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
                 .id(selectedMetricDay)
@@ -1466,7 +1606,7 @@ struct BodyHealthMetricDetailView: View {
 
     @ViewBuilder
     private var metricActivityAveragesCard: some View {
-        if model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy {
+        if model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy || model.kind == .readiness {
             let rows = selectedMetricActivityAverages
 
             VStack(alignment: .leading, spacing: 14) {
@@ -1505,6 +1645,8 @@ struct BodyHealthMetricDetailView: View {
             return String(localized: "Energy by Activity")
         case .heartRateVariability:
             return String(localized: "Average HRV")
+        case .readiness:
+            return String(localized: "Impact by Activity")
         default:
             return String(localized: "Heart Rate by Activity")
         }
@@ -1516,6 +1658,8 @@ struct BodyHealthMetricDetailView: View {
             return "No workout energy for this day"
         case .heartRateVariability:
             return "No sleep HRV for this day"
+        case .readiness:
+            return String(localized: "No workouts for this day")
         default:
             return "No sleep or workout heart rate for this day"
         }
@@ -1528,8 +1672,10 @@ struct BodyHealthMetricDetailView: View {
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(row.color)
                 .frame(width: 38, height: 38)
+                // Same continuous-corner tile as the Workouts page's workout-card
+                // icons (18 pt radius at 58 pt, scaled to this 38 pt slot).
                 .background(
-                    Circle()
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(row.color.opacity(0.14))
                 )
                 .accessibilityHidden(true)
@@ -1582,6 +1728,8 @@ struct BodyHealthMetricDetailView: View {
         switch model.kind {
         case .activeEnergy, .steps:
             return String(localized: "HOURLY TOTAL")
+        case .readiness:
+            return String(localized: "READINESS")
         default:
             return String(localized: "HOURLY AVG")
         }
@@ -1589,9 +1737,10 @@ struct BodyHealthMetricDetailView: View {
 
     private var selectedMetricDayIncludesSampleBreakdown: Bool {
         // Hourly cumulative metrics already report one value per hour — there's no
-        // intra-hour sample window to break down.
+        // intra-hour sample window to break down. Readiness samples are synthetic,
+        // so their sub-hour windows carry no information either.
         switch model.kind {
-        case .activeEnergy, .steps:
+        case .activeEnergy, .steps, .readiness:
             return false
         default:
             return true
@@ -1599,7 +1748,7 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var selectedMetricDayContextIntervals: [BodyHealthMetricDayContextInterval] {
-        guard model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy || model.kind == .steps else {
+        guard model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy || model.kind == .steps || model.kind == .readiness else {
             return []
         }
 
@@ -2083,7 +2232,7 @@ struct BodyHealthMetricDetailView: View {
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 
-            Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines, and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero.")
+            Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines — sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band — and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero.")
                 .font(.system(.body, design: .rounded))
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
@@ -2094,12 +2243,75 @@ struct BodyHealthMetricDetailView: View {
         .bodyCardBackground(translucent: true)
     }
 
-    private func sleepVitalsCard(_ vitals: SleepVitalsSummary, duration: TimeInterval?) -> some View {
-        let rows = sleepVitalRows(for: vitals, duration: duration)
+    // MARK: - Vitals
+
+    private var isVitalsDetail: Bool {
+        model.kind == .vitals
+    }
+
+    /// Every assessable night in the sleep history, graded against each vital's
+    /// own baseline. Memoized: the grading walks the whole history.
+    private var vitalsSnapshot: VitalsSnapshot {
+        guard isVitalsDetail else {
+            return .empty
+        }
+
+        let today = Date()
+        return trendComputationCache.vitalsSnapshot(
+            sleepHistory: model.sleepHistory,
+            currentDaySleep: workoutStore.healthSummary.sleep.asOf(today),
+            today: today,
+            calendar: .bodyGregorian
+        )
+    }
+
+    private var visibleVitalsNights: [VitalsNightAssessment] {
+        let calendar = Calendar.bodyGregorian
+        let currentDayStart = calendar.startOfDay(for: Date())
+        guard let startDate = calendar.date(
+            byAdding: .day,
+            value: -(selectedTrendRange.dayCount - 1),
+            to: currentDayStart
+        ) else {
+            return vitalsSnapshot.nights
+        }
+
+        return vitalsSnapshot.nights.filter { $0.date >= startDate }
+    }
+
+    /// Nothing has enough history to be graded yet — the baselines need roughly
+    /// two weeks of nights before any vital gets a typical range.
+    private var vitalsNeedsMoreSleepData: Bool {
+        isVitalsDetail && vitalsSnapshot.nights.isEmpty
+    }
+
+    private var vitalsHeroStatusText: String {
+        let nights = visibleVitalsNights
+        guard !nights.isEmpty else {
+            return "--"
+        }
+
+        return VitalsSnapshot.statusText(for: nights)
+    }
+
+    /// The graded night for the day the picker is on. `night.date` is already the
+    /// start of the wake day, so a same-day match is all this needs.
+    private var selectedVitalsNight: VitalsNightAssessment? {
+        let calendar = Calendar.bodyGregorian
+        let day = selectedMetricDay
+        return vitalsSnapshot.nights.first { calendar.isDate($0.date, inSameDayAs: day) }
+    }
+
+    /// Plot and per-vital rows for the selected night in one card, so the readings
+    /// sit directly under the marker that graded them. The date picker above
+    /// carries the day, so the title stays "Day View" like the other metric pages.
+    private var vitalsNightCard: some View {
+        let night = selectedVitalsNight
+        let rows = night.map(vitalsDisplayRows(for:)) ?? []
 
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Sleep Vitals")
+                Text("Day View")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
                     .lineLimit(1)
@@ -2107,8 +2319,8 @@ struct BodyHealthMetricDetailView: View {
 
                 Spacer(minLength: 12)
 
-                if !rows.isEmpty {
-                    Text(sleepVitalStatusTitle(for: rows))
+                if let night {
+                    Text(night.statusText)
                         .font(.system(.subheadline, design: .rounded))
                         .fontWeight(.bold)
                         .foregroundColor(.secondary)
@@ -2118,7 +2330,7 @@ struct BodyHealthMetricDetailView: View {
             }
 
             if rows.isEmpty {
-                Text("No sleep vitals today")
+                vitalsEmptyNightText
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -2126,6 +2338,19 @@ struct BodyHealthMetricDetailView: View {
             } else {
                 BodySleepVitalsRegionChart(rows: rows)
                     .frame(height: BodyHealthDetailChartLayout.sleepVitalsHeight)
+
+                Divider()
+
+                VStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        BodyVitalRowView(row: row)
+
+                        if index < rows.count - 1 {
+                            Divider()
+                                .padding(.leading, 50)
+                        }
+                    }
+                }
             }
         }
         .padding(18)
@@ -2133,90 +2358,54 @@ struct BodyHealthMetricDetailView: View {
         .bodyCardBackground(translucent: true)
     }
 
-    private func sleepVitalRows(for vitals: SleepVitalsSummary, duration: TimeInterval?) -> [SleepVitalDisplayRow] {
-        var rows: [SleepVitalDisplayRow] = []
-
-        if let heartRate = vitals.heartRate {
-            rows.append(SleepVitalDisplayRow(
-                title: String(localized: "Heart Rate"),
-                value: BodyValueFormat.numberText(heartRate.rounded(), decimals: 0),
-                unit: "BPM",
-                symbolName: "heart.fill",
-                tintColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                numericValue: heartRate,
-                referenceRange: SleepVitalReferenceRange(typicalLowerBound: 40, typicalUpperBound: 70)
-            ))
-        }
-
-        if let heartRateVariability = vitals.heartRateVariability {
-            rows.append(SleepVitalDisplayRow(
-                title: String(localized: "Pressure"),
-                value: BodyValueFormat.numberText(heartRateVariability.rounded(), decimals: 0),
-                unit: "ms HRV",
-                symbolName: "waveform.path.ecg",
-                tintColor: Color(red: 0.58, green: 0.42, blue: 0.95),
-                numericValue: heartRateVariability,
-                referenceRange: SleepVitalReferenceRange(typicalLowerBound: 40, typicalUpperBound: 70)
-            ))
-        }
-
-        if let respiratoryRate = vitals.respiratoryRate {
-            rows.append(SleepVitalDisplayRow(
-                title: String(localized: "Respiratory"),
-                value: BodyValueFormat.numberText(respiratoryRate.rounded(), decimals: 0),
-                unit: "br/min",
-                symbolName: "lungs.fill",
-                tintColor: Color(red: 0.00, green: 0.75, blue: 0.85),
-                numericValue: respiratoryRate,
-                referenceRange: SleepVitalReferenceRange(typicalLowerBound: 12, typicalUpperBound: 20)
-            ))
-        }
-
-        if let wristTemperatureCelsius = vitals.wristTemperatureCelsius {
-            let display = BodyValueFormat.temperatureDisplay(
-                celsius: wristTemperatureCelsius,
-                temperatureUnitPreference: selectedTemperatureUnitPreference
-            )
-            rows.append(SleepVitalDisplayRow(
-                title: String(localized: "Skin Temperature"),
-                value: display.value,
-                unit: display.unit,
-                symbolName: "thermometer.medium",
-                tintColor: Color(red: 0.14, green: 0.72, blue: 0.42),
-                numericValue: wristTemperatureCelsius,
-                referenceRange: SleepVitalReferenceRange(typicalLowerBound: 35.8, typicalUpperBound: 37.2)
-            ))
-        }
-
-        if let oxygenSaturation = vitals.oxygenSaturation {
-            rows.append(SleepVitalDisplayRow(
-                title: String(localized: "Blood Oxygen"),
-                value: BodyValueFormat.numberText(oxygenSaturation.rounded(), decimals: 0),
-                unit: "%",
-                symbolName: "drop.fill",
-                tintColor: Color(red: 0.00, green: 0.75, blue: 0.85),
-                numericValue: oxygenSaturation,
-                referenceRange: SleepVitalReferenceRange(typicalLowerBound: 95, typicalUpperBound: 100)
-            ))
-        }
-
-        if let duration {
-            rows.append(SleepVitalDisplayRow(
-                title: String(localized: "Sleep Duration"),
-                value: BodyValueFormat.sleepDurationText(for: duration),
-                unit: "",
-                symbolName: "bed.double.fill",
-                tintColor: model.symbolColor,
-                numericValue: duration / 3_600,
-                referenceRange: SleepVitalReferenceRange(typicalLowerBound: 7, typicalUpperBound: 9)
-            ))
-        }
-
-        return rows
+    private var vitalsEmptyNightText: Text {
+        Calendar.bodyGregorian.isDateInToday(selectedMetricDay)
+            ? Text("No vitals for last night")
+            : Text("No vitals for this day")
     }
 
-    private func sleepVitalStatusTitle(for rows: [SleepVitalDisplayRow]) -> String {
-        SleepVitalStatusTitle.text(for: rows.map(\.region))
+    /// Only the vitals that were actually measured that night get a row, so a
+    /// missing sensor leaves a gap rather than a fabricated reading. Each row
+    /// grades against that vital's personal range, not a population one.
+    private func vitalsDisplayRows(for night: VitalsNightAssessment) -> [SleepVitalDisplayRow] {
+        night.measurements.map { measurement in
+            let value: String
+            let unit: String
+
+            switch measurement.kind {
+            case .sleepingHeartRate:
+                value = BodyValueFormat.numberText(measurement.value.rounded(), decimals: 0)
+                unit = "BPM"
+            case .respiratoryRate:
+                value = BodyValueFormat.numberText(measurement.value.rounded(), decimals: 0)
+                unit = "br/min"
+            case .wristTemperature:
+                let display = BodyValueFormat.temperatureDisplay(
+                    celsius: measurement.value,
+                    temperatureUnitPreference: selectedTemperatureUnitPreference
+                )
+                value = display.value
+                unit = display.unit
+            case .bloodOxygen:
+                value = BodyValueFormat.numberText(measurement.value.rounded(), decimals: 0)
+                unit = "%"
+            case .sleepDuration:
+                value = BodyValueFormat.sleepDurationText(for: measurement.value * 3_600)
+                unit = ""
+            }
+
+            return SleepVitalDisplayRow(
+                title: measurement.kind.displayName,
+                value: value,
+                unit: unit,
+                symbolName: measurement.kind.symbolName,
+                // The plot places the marker against the reference range, so the
+                // numeric value stays in the vital's native unit (°C, hours) even
+                // when the label above is shown in °F.
+                numericValue: measurement.value,
+                referenceRange: measurement.referenceRange
+            )
+        }
     }
 
     private var visibleSeries: HealthTrendSeries {
@@ -2329,6 +2518,12 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var dayComparisonLegendItems: [BodyHealthSourceLegendItem] {
+        // The readiness day line is derived from the morning score + workouts,
+        // not fetched from a health source — a source/average legend would mislead.
+        guard model.kind != .readiness else {
+            return []
+        }
+
         var items: [BodyHealthSourceLegendItem] = []
         if !selectedMetricDaySeries.isEmpty {
             items.append(

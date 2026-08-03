@@ -38,30 +38,15 @@ enum SourceComparisonChartKind: Hashable, CaseIterable {
     case dayLine
 }
 
+// `sourceSelectableKinds` / `supportsHealthDataSourceSelection` moved to
+// `BodyWatchSnapshotKit/BodyHealthDataSourceSelection.swift` (Body + BodyWatch)
+// alongside `BodyHealthDataSourceSelection`, which needs them to decode the
+// phone's persisted selection on the watch.
 extension HealthMetricKind {
-    static let sourceSelectableKinds: [HealthMetricKind] = [
-        .heartRate,
-        .sleep,
-        .basics,
-        .heartRateVariability,
-        .restingHeartRate,
-        .respiratoryRate,
-        .steps,
-        .oxygenSaturation,
-        .activeEnergy,
-        .restingEnergy,
-        .exerciseMinutes,
-        .wristTemperature,
-        .timeInDaylight
-    ]
-
-    var supportsHealthDataSourceSelection: Bool {
-        Self.sourceSelectableKinds.contains(self)
-    }
-
     // Kinds whose detail page offers a per-day (intraday) view. Must stay in
     // sync with `supportsMetricDayView` in BodyHealthMetricDetailView.
     static let dayViewKinds: [HealthMetricKind] = [
+        .readiness,
         .heartRate,
         .heartRateVariability,
         .respiratoryRate,
@@ -95,7 +80,8 @@ extension HealthMetricKind {
              .bodyMassIndex,
              .trainingLoad,
              .wristTemperature,
-             .timeInDaylight:
+             .timeInDaylight,
+             .vitals:
             return []
         }
     }
@@ -144,233 +130,22 @@ extension HealthMetricKind {
     }
 }
 
-struct BodyHealthDataSourceOption: Codable, Equatable, Identifiable {
-    static let allSources = BodyHealthDataSourceOption(id: "all", name: "Apple Health")
-    static let noComparison = BodyHealthDataSourceOption(id: "none", name: String(localized: "No Comparison"))
-    private static let combinedSourcePrefix = "combined-name:"
-
-    let id: String
-    let name: String
-
-    var isAllSources: Bool {
-        id == Self.allSources.id
-    }
-
-    var isNoComparison: Bool {
-        id == Self.noComparison.id
-    }
-
-    var isCombinedSource: Bool {
-        id.hasPrefix(Self.combinedSourcePrefix)
-    }
-
-    var iconBundleIdentifierHint: String? {
-        if isAllSources || isNoComparison || isCombinedSource {
-            return nil
-        }
-
-        let disambiguatedPrefix = "source:bundle="
-        guard id.hasPrefix(disambiguatedPrefix) else {
-            return id
-        }
-
-        let remainder = id.dropFirst(disambiguatedPrefix.count)
-        guard let nameRange = remainder.range(of: "|name=") else {
-            return String(remainder)
-        }
-
-        return String(remainder[remainder.startIndex..<nameRange.lowerBound])
-    }
-
-    static func normalizedSourceName(_ name: String) -> String {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayName = trimmedName.isEmpty ? "Unknown Source" : trimmedName
-        let normalizedName = displayName
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            .lowercased()
-
-        if normalizedName == "iwatch x" || normalizedName == "iwatchx" {
-            return "iwatchx"
-        }
-
-        return normalizedName
-    }
-
-    static func combinedSourceDisplayName(for name: String) -> String {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayName = trimmedName.isEmpty ? "Unknown Source" : trimmedName
-        return normalizedSourceName(displayName) == "iwatchx" ? "iWatchX" : displayName
-    }
-
-    static func individualSourceIdentityKey(bundleIdentifier: String, name: String) -> String {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayName = trimmedName.isEmpty ? "Unknown Source" : trimmedName
-        let nameKey = displayName
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            .lowercased()
-        return "bundle=\(bundleIdentifier)|name=\(nameKey)"
-    }
-
-    static func individualSourceID(
-        bundleIdentifier: String,
-        name: String,
-        disambiguatesBundleIdentifier: Bool
-    ) -> String {
-        guard disambiguatesBundleIdentifier else {
-            return bundleIdentifier
-        }
-
-        return "source:\(individualSourceIdentityKey(bundleIdentifier: bundleIdentifier, name: name))"
-    }
-
-    static func combinedSourceID(for name: String) -> String {
-        combinedSourcePrefix + normalizedSourceName(name)
-    }
+// `BodyHealthDataSourceOption` itself now lives in
+// `BodyWatchSnapshotKit/BodyHealthSourceResolver.swift` (Body + BodyWatch) so
+// the watch keys discovered `HKSource`s by exactly the same persisted IDs.
+// Only the no-comparison sentinel stays here: its display name is localized
+// against the iOS catalog, and no shared/watch code needs the value.
+extension BodyHealthDataSourceOption {
+    static let noComparison = BodyHealthDataSourceOption(
+        id: BodyHealthDataSourceOption.noComparisonID,
+        name: String(localized: "No Comparison")
+    )
 }
 
-struct BodyHealthDataSourceSelection: Equatable {
-    private struct Storage: Codable {
-        var defaultOption: BodyHealthDataSourceOption?
-        var selectedOptions: [String: BodyHealthDataSourceOption]?
-    }
-
-    static let defaultValue = BodyHealthDataSourceSelection(defaultOption: .allSources, selectedOptions: [:])
-    static var defaultRawValue: String {
-        defaultValue.rawValue
-    }
-
-    var defaultOption: BodyHealthDataSourceOption
-    var selectedOptions: [HealthMetricKind: BodyHealthDataSourceOption]
-
-    init(
-        defaultOption: BodyHealthDataSourceOption = .allSources,
-        selectedOptions: [HealthMetricKind: BodyHealthDataSourceOption]
-    ) {
-        self.defaultOption = defaultOption.isNoComparison ? .allSources : defaultOption
-        self.selectedOptions = selectedOptions
-    }
-
-    var rawValue: String {
-        let storage = Dictionary(uniqueKeysWithValues: selectedOptions.map { kind, option in
-            (kind.rawValue, option)
-        })
-        let encodedStorage = Storage(
-            defaultOption: defaultOption.isAllSources ? nil : defaultOption,
-            selectedOptions: storage.isEmpty ? nil : storage
-        )
-
-        guard let data = try? JSONEncoder().encode(encodedStorage),
-              let value = String(data: data, encoding: .utf8)
-        else {
-            return "{}"
-        }
-
-        return value
-    }
-
-    func option(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
-        guard kind.supportsHealthDataSourceSelection else {
-            return .allSources
-        }
-
-        return selectedOptions[kind] ?? defaultOption
-    }
-
-    func setting(_ kind: HealthMetricKind, option: BodyHealthDataSourceOption) -> BodyHealthDataSourceSelection {
-        guard kind.supportsHealthDataSourceSelection else {
-            return self
-        }
-
-        var nextOptions = selectedOptions
-        let nextOption = option.isNoComparison ? BodyHealthDataSourceOption.allSources : option
-        if nextOption.id == defaultOption.id {
-            nextOptions.removeValue(forKey: kind)
-        } else {
-            nextOptions[kind] = nextOption
-        }
-
-        return BodyHealthDataSourceSelection(defaultOption: defaultOption, selectedOptions: nextOptions)
-    }
-
-    func settingDefault(option: BodyHealthDataSourceOption) -> BodyHealthDataSourceSelection {
-        let nextDefaultOption = option.isNoComparison ? BodyHealthDataSourceOption.allSources : option
-        let nextOptions = selectedOptions.filter { _, selectedOption in
-            selectedOption.id != defaultOption.id && selectedOption.id != nextDefaultOption.id
-        }
-
-        return BodyHealthDataSourceSelection(
-            defaultOption: nextDefaultOption,
-            selectedOptions: nextOptions
-        )
-    }
-
-    func clearingOverride(for kind: HealthMetricKind) -> BodyHealthDataSourceSelection {
-        var nextOptions = selectedOptions
-        nextOptions.removeValue(forKey: kind)
-        return BodyHealthDataSourceSelection(defaultOption: defaultOption, selectedOptions: nextOptions)
-    }
-
-    /// Stable digest of the selected primary sources, mirroring
-    /// `BodyHealthSecondaryDataSourceSelection.signature`. Stamped onto the
-    /// day-sample sidecar so hydration can reject intraday samples captured
-    /// under a different source selection (H6).
-    var signature: String {
-        (["default=\(defaultOption.id)"] + selectedOptions
-            .sorted { $0.key.rawValue < $1.key.rawValue }
-            .map { "\($0.key.rawValue)=\($0.value.id)" })
-            .joined(separator: "|")
-    }
-
-    static func storedValue(from rawValue: String) -> BodyHealthDataSourceSelection {
-        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedValue.isEmpty, let data = trimmedValue.data(using: .utf8) else {
-            return defaultValue
-        }
-
-        if let storage = try? JSONDecoder().decode(Storage.self, from: data),
-           storage.defaultOption != nil || storage.selectedOptions != nil {
-            let selectedOptionPairs: [(HealthMetricKind, BodyHealthDataSourceOption)] = (storage.selectedOptions ?? [:]).compactMap { rawKind, option in
-                guard let kind = HealthMetricKind(rawValue: rawKind),
-                      kind.supportsHealthDataSourceSelection else {
-                    return nil
-                }
-
-                return (kind, option.isNoComparison ? .allSources : option)
-            }
-            return BodyHealthDataSourceSelection(
-                defaultOption: storage.defaultOption ?? .allSources,
-                selectedOptions: Dictionary(uniqueKeysWithValues: selectedOptionPairs)
-            )
-        }
-
-        guard let legacyStorage = try? JSONDecoder().decode([String: BodyHealthDataSourceOption].self, from: data) else {
-            return defaultValue
-        }
-
-        let selectedOptionPairs: [(HealthMetricKind, BodyHealthDataSourceOption)] = legacyStorage.compactMap { rawKind, option in
-            guard let kind = HealthMetricKind(rawValue: rawKind),
-                  kind.supportsHealthDataSourceSelection else {
-                return nil
-            }
-
-            return (kind, option.isNoComparison ? .allSources : option)
-        }
-        let selectedOptions = Dictionary(uniqueKeysWithValues: selectedOptionPairs)
-
-        return BodyHealthDataSourceSelection(defaultOption: .allSources, selectedOptions: selectedOptions)
-    }
-
-    static func load(defaults: UserDefaults = .standard) -> BodyHealthDataSourceSelection {
-        storedValue(
-            from: defaults.string(forKey: BodyAppearancePreference.healthDataSourceSelectionKey)
-                ?? defaultRawValue
-        )
-    }
-
-    func save(defaults: UserDefaults = .standard) {
-        defaults.set(rawValue, forKey: BodyAppearancePreference.healthDataSourceSelectionKey)
-    }
-}
+// `BodyHealthDataSourceSelection` moved to
+// `BodyWatchSnapshotKit/BodyHealthDataSourceSelection.swift` (Body + BodyWatch):
+// the watch decodes the phone's persisted `rawValue` out of the compute seed, so
+// the encoding and its decoder must be one shared implementation.
 
 struct BodyHealthSecondaryDataSourceSelection: Equatable {
     private struct Storage: Codable {
@@ -651,10 +426,10 @@ struct BodyMetricDayViewSelection: Equatable {
             return "none"
         }
 
-        return HealthMetricKind.dayViewKinds
+        let kindList = HealthMetricKind.dayViewKinds
             .filter { enabledKinds.contains($0) }
             .map(\.rawValue)
-            .joined(separator: ",")
+        return ([Self.currentFormatMarker] + kindList).joined(separator: ",")
     }
 
     var enabledCount: Int {
@@ -676,6 +451,28 @@ struct BodyMetricDayViewSelection: Equatable {
         return BodyMetricDayViewSelection(enabledKinds: nextKinds)
     }
 
+    /// Marks a raw value written after the Readiness day view shipped. A value
+    /// without it that enables exactly `preReadinessDefaultKinds` predates the
+    /// readiness row and upgrades to the current default; a value carrying the
+    /// marker is authoritative, so deselecting only Readiness sticks. Unknown
+    /// tokens are already skipped by the kind parser, so old builds reading a
+    /// marked value simply ignore the marker.
+    private static let currentFormatMarker = "v2"
+
+    /// The full day-view list as it shipped before Readiness joined. A persisted
+    /// unmarked selection equal to this set predates the readiness row (it could
+    /// not be deselected when the value was saved) rather than expressing a
+    /// choice to exclude it, so it upgrades to the current default. Any other
+    /// subset — and "none" — is an intentional selection and is preserved as-is.
+    private static let preReadinessDefaultKinds: Set<HealthMetricKind> = [
+        .heartRate,
+        .heartRateVariability,
+        .respiratoryRate,
+        .oxygenSaturation,
+        .activeEnergy,
+        .steps
+    ]
+
     static func storedValue(from rawValue: String) -> BodyMetricDayViewSelection {
         let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedValue.isEmpty else {
@@ -686,11 +483,16 @@ struct BodyMetricDayViewSelection: Equatable {
             return BodyMetricDayViewSelection(enabledKinds: [])
         }
 
-        let kinds = Set(trimmedValue.split(separator: ",").compactMap {
-            HealthMetricKind(rawValue: String($0))
+        let tokens = trimmedValue.split(separator: ",").map(String.init)
+        let kinds = Set(tokens.compactMap {
+            HealthMetricKind(rawValue: $0)
         }.filter(HealthMetricKind.dayViewKinds.contains))
 
         guard !kinds.isEmpty else {
+            return defaultValue
+        }
+
+        guard tokens.contains(currentFormatMarker) || kinds != preReadinessDefaultKinds else {
             return defaultValue
         }
 
@@ -713,6 +515,7 @@ struct BodyDashboardFetchSelection: Equatable {
         .oxygenSaturation,
         .wristTemperature
     ]
+    private static let vitalsMetricKinds: Set<HealthMetricKind> = [.sleep]
 
     static let defaultValue = BodyDashboardFetchSelection(
         summaryCards: BodySummaryCardSelection.defaultValue,
@@ -747,6 +550,10 @@ struct BodyDashboardFetchSelection: Equatable {
 
         if metrics.contains(.readiness) {
             metrics.formUnion(Self.readinessDependencyKinds)
+        }
+
+        if metrics.contains(.vitals) {
+            metrics.formUnion(Self.vitalsMetricKinds)
         }
 
         metricKinds = metrics
@@ -981,9 +788,11 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     case respiratoryRate
     case activeEnergy
     case restingEnergy
+    case vitals
 
     static let defaultOrder: [BodyHomeCardKind] = [
         .sleep,
+        .vitals,
         .basics,
         .heartRate,
         .heartRateVariability,
@@ -1065,6 +874,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return .activeEnergy
         case .restingEnergy:
             return .restingEnergy
+        case .vitals:
+            return .vitals
         }
     }
 
@@ -1102,6 +913,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Active Energy")
         case .restingEnergy:
             return String(localized: "Resting Energy")
+        case .vitals:
+            return String(localized: "Vitals")
         }
     }
 
@@ -1139,12 +952,15 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Active calories")
         case .restingEnergy:
             return String(localized: "Resting calories")
+        case .vitals:
+            return String(localized: "Overnight vitals vs your typical range")
         }
     }
 
     var isBeta: Bool {
         switch self {
-        case .readiness:
+        case .readiness,
+             .vitals:
             return true
         case .activityRings,
              .exerciseMinutes,
@@ -1184,7 +1000,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         case .sleep:
             return "bed.double.fill"
         case .basics:
-            return "person.crop.circle.fill"
+            return "person"
         case .heartRate,
              .restingHeartRate:
             return "heart.fill"
@@ -1198,6 +1014,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return "flame.fill"
         case .restingEnergy:
             return "leaf.fill"
+        case .vitals:
+            return "heart.badge.bolt"
         }
     }
 
@@ -1228,6 +1046,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return Color(red: 1.00, green: 0.25, blue: 0.45)
         case .restingEnergy:
             return Color(red: 0.14, green: 0.72, blue: 0.42)
+        case .vitals:
+            return Color(red: 0.25, green: 0.62, blue: 1.00)
         }
     }
 

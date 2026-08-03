@@ -20,9 +20,16 @@ struct BodyWatchApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             // `onAppear` doesn't reliably re-fire when watchOS returns the app
-            // to the foreground, so re-check live HR/HRV staleness here too.
+            // to the foreground, so re-check staleness here too. Compute first,
+            // then the live HR/HRV fallback — see `WatchMetricsModel.onAppear`.
+            // This (plus app open and the manual refresh) is the ONLY thing that
+            // triggers a compute: no HealthKit background delivery, which is
+            // what made the first standalone-compute attempt a battery problem.
             if phase == .active {
-                Task { await model.refreshLiveMetricsIfStale() }
+                Task {
+                    await model.recomputeIfStale()
+                    await model.refreshLiveMetricsIfStale()
+                }
             }
         }
     }

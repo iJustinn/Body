@@ -24,6 +24,7 @@ enum BodyAppearancePreference {
     static let showSleepScoreKey = "showSleepScore"
     static let showWorkoutEffortSuggestionsKey = "showWorkoutEffortSuggestions"
     static let autoApplyWorkoutEffortKey = "autoApplyWorkoutEffort"
+    static let workoutRouteStyleKey = "workoutRouteStyle"
     static let sleepStageBreakdownShowsOptimalRangesKey = "sleepStageBreakdownShowsOptimalRanges"
     static let homeCardOrderKey = "homeCardOrder"
     static let summaryCardSelectionKey = "summaryCardSelection"
@@ -320,6 +321,39 @@ struct BodyHealthPermissionSelection: Equatable {
 
     func save(defaults: UserDefaults = .standard) {
         defaults.set(rawValue, forKey: BodyAppearancePreference.healthPermissionSelectionKey)
+    }
+}
+
+enum BodyWorkoutRouteStyle: String, CaseIterable, Identifiable {
+    case map
+    case plain
+
+    static let defaultValue: BodyWorkoutRouteStyle = .map
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .map:
+            return String(localized: "Map", table: "BodyMetricsKit")
+        case .plain:
+            return String(localized: "Plain", table: "BodyMetricsKit")
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .map:
+            return String(localized: "Apple Maps", table: "BodyMetricsKit")
+        case .plain:
+            return String(localized: "Route Only", table: "BodyMetricsKit")
+        }
+    }
+
+    static func storedValue(from rawValue: String) -> BodyWorkoutRouteStyle {
+        BodyWorkoutRouteStyle(rawValue: rawValue) ?? defaultValue
     }
 }
 

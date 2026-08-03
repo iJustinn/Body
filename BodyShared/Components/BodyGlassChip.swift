@@ -6,7 +6,8 @@
 import SwiftUI
 
 /// A rounded-rect "glass chip" backing for the colored workout surfaces
-/// (calendar day squares, type-breakdown bars). Flat by design to match the
+/// (calendar day squares, type-breakdown bars) and the chart scrub callouts.
+/// Flat by design to match the
 /// app's glass language: the workout color as a translucent flat fill with an
 /// optional thin white edge rim — no material blur, gradient, or specular
 /// sheen. `fillOpacity` tunes translucency; `showsRim` toggles the rim (the

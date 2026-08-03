@@ -414,6 +414,117 @@ final class SleepConsistencyChartModelTests: XCTestCase {
         XCTAssertEqual(model.consistencyPercentage, 100)
     }
 
+    // MARK: - Main session (naps excluded)
+
+    func testMainSessionIntervalKeepsNapOutOfTheNightBar() throws {
+        let day = try date(2026, 6, 10)
+        let bedtime = try date(2026, 6, 9, 23, 30)
+        let wake = try date(2026, 6, 10, 7, 45)
+        // Wake-day snapshot holding the night plus a 14:00–15:12 nap; the interval
+        // spans the night only, so the bar must stop at 07:45.
+        let snapshot = SleepStageSnapshot(
+            date: day,
+            segments: [
+                SleepStageSegment(stage: .core, startDate: bedtime, endDate: try date(2026, 6, 10, 3, 0)),
+                SleepStageSegment(stage: .rem, startDate: try date(2026, 6, 10, 3, 0), endDate: wake),
+                SleepStageSegment(
+                    stage: .core,
+                    startDate: try date(2026, 6, 10, 14, 0),
+                    endDate: try date(2026, 6, 10, 15, 12)
+                )
+            ],
+            mainSessionInterval: DateInterval(start: bedtime, end: wake)
+        )
+
+        let model = SleepConsistencyChartModel.make(entries: [(day: day, snapshot: snapshot)], calendar: calendar)
+
+        let night = try XCTUnwrap(model.nights.first)
+        XCTAssertEqual(night.bedOffsetHours, -0.5, accuracy: 0.001)
+        XCTAssertEqual(night.wakeOffsetHours, 7.75, accuracy: 0.001)
+        XCTAssertEqual(night.spans.count, 1)
+        XCTAssertEqual(night.spans[0].slices.map(\.stage), [.core, .rem])
+        XCTAssertTrue(night.spans.flatMap(\.slices).allSatisfy { $0.endOffsetHours <= 7.75 + 0.001 })
+    }
+
+    func testConsistencyPercentageWithNapsMatchesTheSameNightsWithoutThem() throws {
+        let firstDay = try date(2026, 6, 9)
+        let secondDay = try date(2026, 6, 10)
+        let firstBed = try date(2026, 6, 8, 23, 0)
+        let firstWake = try date(2026, 6, 9, 7, 0)
+        let secondBed = try date(2026, 6, 10, 2, 0)
+        let secondWake = try date(2026, 6, 10, 9, 0)
+
+        func snapshot(day: Date, bed: Date, wake: Date, nap: DateInterval?) -> SleepStageSnapshot {
+            var segments = [SleepStageSegment(stage: .core, startDate: bed, endDate: wake)]
+            if let nap {
+                segments.append(SleepStageSegment(stage: .core, startDate: nap.start, endDate: nap.end))
+            }
+
+            return SleepStageSnapshot(
+                date: day,
+                segments: segments,
+                mainSessionInterval: nap == nil ? nil : DateInterval(start: bed, end: wake)
+            )
+        }
+
+        let withoutNaps = SleepConsistencyChartModel.make(
+            entries: [
+                (day: firstDay, snapshot: snapshot(day: firstDay, bed: firstBed, wake: firstWake, nap: nil)),
+                (day: secondDay, snapshot: snapshot(day: secondDay, bed: secondBed, wake: secondWake, nap: nil))
+            ],
+            calendar: calendar
+        )
+        let withNaps = SleepConsistencyChartModel.make(
+            entries: [
+                (day: firstDay, snapshot: snapshot(
+                    day: firstDay,
+                    bed: firstBed,
+                    wake: firstWake,
+                    nap: DateInterval(start: try date(2026, 6, 9, 14, 0), end: try date(2026, 6, 9, 15, 12))
+                )),
+                (day: secondDay, snapshot: snapshot(
+                    day: secondDay,
+                    bed: secondBed,
+                    wake: secondWake,
+                    nap: DateInterval(start: try date(2026, 6, 10, 14, 0), end: try date(2026, 6, 10, 15, 12))
+                ))
+            ],
+            calendar: calendar
+        )
+
+        XCTAssertEqual(withNaps.consistencyPercentage, withoutNaps.consistencyPercentage)
+        XCTAssertEqual(withNaps.consistencyPercentage, 70)
+        XCTAssertEqual(withNaps.nights.map(\.bedOffsetHours), withoutNaps.nights.map(\.bedOffsetHours))
+        XCTAssertEqual(withNaps.nights.map(\.wakeOffsetHours), withoutNaps.nights.map(\.wakeOffsetHours))
+    }
+
+    func testNapWithoutMainSessionIntervalStillStretchesWakeTime() throws {
+        let day = try date(2026, 6, 10)
+        // Old cache: nap segments but no interval to slice by, so behavior stays
+        // exactly as it was — the bar runs to the nap's end.
+        let snapshot = SleepStageSnapshot(date: day, segments: [
+            SleepStageSegment(
+                stage: .core,
+                startDate: try date(2026, 6, 9, 23, 30),
+                endDate: try date(2026, 6, 10, 7, 45)
+            ),
+            SleepStageSegment(
+                stage: .core,
+                startDate: try date(2026, 6, 10, 14, 0),
+                endDate: try date(2026, 6, 10, 15, 12)
+            )
+        ])
+
+        let model = SleepConsistencyChartModel.make(entries: [(day: day, snapshot: snapshot)], calendar: calendar)
+
+        let night = try XCTUnwrap(model.nights.first)
+        XCTAssertEqual(night.bedOffsetHours, -0.5, accuracy: 0.001)
+        XCTAssertEqual(night.wakeOffsetHours, 15.2, accuracy: 0.001)
+        XCTAssertEqual(night.spans.count, 1)
+        XCTAssertEqual(night.spans[0].slices.count, 2)
+        XCTAssertEqual(night.spans[0].slices[1].endOffsetHours, 15.2, accuracy: 0.001)
+    }
+
     private func fixedCalendar(_ identifier: String) throws -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.firstWeekday = 1

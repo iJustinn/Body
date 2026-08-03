@@ -89,4 +89,30 @@ extension HealthKitFetchEngine {
             return nil
         }
     }
+
+    /// Dense day-indexed Training Load loads (408 slots) for the phone→watch
+    /// compute seed (on-watch realtime compute, Phase 3): reuses the SAME
+    /// memoized `sharedTrainingLoadWorkouts` window `fetchTrainingLoadSummary`/
+    /// `fetchTrainingLoadSeries` already populate this refresh, so calling
+    /// this alongside them (before the anchor date is cleared) never triggers
+    /// a second workout fetch. `nil` on a query failure — same keep-stale
+    /// convention as `fetchTrainingLoadSeries` — so the caller preserves its
+    /// previously-cached seed instead of publishing a blanked one.
+    func trainingLoadDailyLoadSeed(calendar: Calendar) async -> (startDay: Date, loads: [Double])? {
+        let end = anchorDate ?? Date()
+        let window = trainingLoadWorkoutsWindow(calendar: calendar)
+
+        do {
+            let workouts = try await sharedTrainingLoadWorkouts(window: window)
+            return TrainingLoadCalculator.dailyLoadValues(
+                from: workouts,
+                startDate: window.start,
+                endDate: end,
+                calendar: calendar
+            )
+        } catch {
+            Self.logTrendQueryFailure("trainingLoad", error: error)
+            return nil
+        }
+    }
 }

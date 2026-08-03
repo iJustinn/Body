@@ -1,852 +1,1054 @@
-# Body iOS Project Review
+# Body iOS Project Code Review
 
-**Review date:** July 12, 2026  
-**Branch:** body-0.9.8  
-**Reviewed commit:** 18575ed  
-**Method:** Whole-project static review of the iOS app, widget extension, watch app, watch widget, shared model packages, project configuration, persistence formats, and test targets.
+Review date: 2026-08-03  
+Reviewed revision: current on-disk worktree on branch body-0.9.10  
+Method: whole-project static review using CodeGraph call-path analysis, targeted source/configuration inspection, existing-test inspection, and independent finding validation.
 
 ## Executive Summary
 
-The project has a thoughtful core: UI-owned observable state is generally main-actor isolated, HealthKit work is moved into an actor, snapshot writes are atomic, widget placeholder handling is honest, source and permission controls are extensive, and the pure scoring/aggregation layer has substantial tests. No production force unwraps, forced casts, fatal errors, obvious credential leaks, or health-value logging were found.
+The project has a substantial amount of careful defensive work: HealthKit results are generally normalized before presentation, individual cache files use atomic replacement, the watch merge path has generation checks, expensive sleep/chart calculations have focused caches, and the pure-model test suite is broad. I found no credible Critical issue, no production force unwrap/cast that creates an obvious crash path, and no leaked secret or custom authentication-token handling.
 
-The remaining risks are concentrated at asynchronous boundaries. HealthKit callbacks frequently do not distinguish a failed query from a successful query with no samples; source-selection state can change while an actor is suspended; deletion is not ordered with queued persistence writes; and several cross-device freshness decisions use insufficient provenance. Those weaknesses can turn a transient HealthKit or timing failure into persisted blank data, mixed-source data, stale Watch data, or a cache that reappears after the user cleared it.
+The most important current defect is a logical Swift-concurrency race: a refresh can begin with one permission/source configuration and finish after those mutable settings have changed, allowing mixed-generation HealthKit results to be published and persisted. The next cluster is semantic rather than mechanical: sleep presentation preferences, naps, and overlapping stages can change scores or readiness in ways that do not represent the underlying night. Watch recovery and HealthKit cancellation also need hardening.
 
-This review found:
+Finding count:
 
-- 1 Critical issue
-- 12 High-severity issues
-- 20 Medium-severity issues
-- 15 Low-severity issues
-- 5 Suggestions
+- Critical: 0
+- High: 1
+- Medium: 20
+- Low: 15
+- Suggestions: 5
 
-CodeGraph was attempted first because the repository is indexed, but its database returned “database disk image is malformed” on the initial call and the required retry. The review therefore used direct source inspection and repository-wide searches. No build or test run was performed because this was a read-only audit; runtime-only behaviors called out below remain explicit verification items.
-
-## Fix Round Outcome (2026-07-13)
-
-A verified bug-fix round (branch `body-0.9.8`, five subagent waves) addressed the approved clear-wins + cheap-hardening batch. Of the 58 findings below, **31 were fixed** (several partial) and **27 were skipped or deferred** (by design, refuted, latent, or architecture-level). By severity:
-
-- **Critical:** 1 / 1 fixed — C1.
-- **High:** 11 / 12 fixed — all but H5 (FetchContext architecture, deferred).
-- **Medium:** 9 / 20 fixed — M2, M3, M5, M7, M10, M15, M16, M19, M20 (partial); the rest are by-design (M8, M9), invisible/latent (M11, M12), bounded (M13, M14), perf-measure-first (M17, M18), or deferred (M1, M4, M6).
-- **Low:** 10 / 15 fixed — L1, L2 (partial), L4, L6, L7, L10, L12, L13, L14, L15; L3 (perf), L5 (by design), L8, L9, and L11 deferred.
-- **Architectural (A1–A5) and Suggestions (S1–S5):** deferred; A1/A3/A5 are partially realized via the typed `QueryOutcome` failure boundary, versioned sidecar/watch signatures, and the new behavioral tests.
-
-Each finding below carries an **Outcome (2026-07-13)** line under its heading noting what was done (with key files) or why it was skipped.
-
-## Fix Round 2 (2026-07-14)
-
-Codex (GPT-5-family, read-only) re-audited the round-1 fixes and found ten "Fixed" outcomes above were actually partial, each with a concrete remaining gap: H2 (cold-start-only summary signature, sleep-vital `.valueOr([])` masking, and no failure flag on trends/ring history), H4 (the UI source picker still collapsed a stored selection to All Sources when discovery hadn't populated yet), H6 (source/combine setters never cleared stale-source day samples, and the sidecar signature omitted the combine flag), H7 (Clear Cache never reached the Watch), H8 (only `CancellationError` was rethrown from route/split/`fetchWorkout` reads; every other error still got negative-cached), H12 (a failed-and-uncached effort read still fabricated a default-5 training load), M5 (the wall-clock admission gate ran before revision assignment), M15 (no cancellation handler on the underlying HK queries), L7 (the Activity Rings completion star wasn't Reduce-Motion gated), and L15 (readiness still read the wall clock internally in four places). All ten gaps were verified against source, fixed, and are now genuinely Fixed — see each finding's **Round 2 (2026-07-14)** note below. H5's Outcome line also carried a false justification (claiming the settings paths already awaited the in-flight refresh before mutating selection); that has been corrected in place. H5 itself remains deferred, though H6a's day-sample stripping now closes the persistence side of that risk. iOS (681 tests) and watch (30 tests) suites pass.
-
-## Fix Round 3 (2026-07-14)
-
-A round-3 re-audit (Codex, GPT-5-family, read-only) checked the round-2 "Fixed" outcomes against source once more and found four residual gaps: H4/H2 (the engine-side `resolvedHealthDataSourceOption`/`resolvedSecondaryHealthDataSourceOption` resolvers in `HealthKitFetchEngine.swift` still collapsed an unresolved discovery to an all-sources/no-comparison fallback instead of keeping the stored selection, unlike the store-side resolvers and `sourceQueryResolution`'s tri-state that round 2 fixed), H8 (`readWorkoutStepSamples` still swallowed step-cadence read errors, including cancellation, into `[]` and got cached as confirmed data — the one split/route catch round 2 missed), H12 (the HR-reuse branch in `fetchWorkoutSummaries` used `??` fallbacks onto cached VO₂max/cadence, so a successful query confirming absence could never clear a stale reused value), and M15 (`CancellableQueryCoordinator.install` unlocked before calling `healthStore.execute`, so a cancel landing in that window stopped a no-op and let install execute the query anyway, leaking the HK work round 2 meant to close off). Each gap was verified against source, the fix was adversarially reviewed by Codex before being applied, and all four are now genuinely fixed — see each finding's **Round 3 (2026-07-14)** note below.
+This was a read-only audit apart from this report. Per the repository audit workflow, I did not run builds or tests. Where a test failure is described as deterministic, it is based on direct inspection of both the test and its current input data.
 
 ## Architectural Concerns
 
-### A1. HealthKit is not injectable at the failure boundary
+### Mutable refresh configuration is not modeled as one transaction
 
-**Outcome (2026-07-13): Partially realized / deferred.** A narrow typed outcome (`QueryOutcome`) was introduced at the failure boundary (H2–H4, H12), but full HealthKit injection is out of scope this round.
+HealthKitWorkoutStore and HealthKitFetchEngine treat permissions, primary source, secondary source, combine-by-name, the date anchor, progressive publication, cache signatures, and watch publication as related concepts, but they are not carried through a refresh as one immutable value. The engine actor prevents unsynchronized memory access; it does not prevent actor reentrancy from making one logical refresh observe multiple setting generations. This is the root cause of H-01.
 
-**Evidence:** [HealthKitFetchEngine.swift:21](Body/Services/HealthKitFetchEngine.swift#L21) constructs its own HKHealthStore. Query construction, callback interpretation, caching, source selection, and result assembly are consequently coupled to the concrete framework.
+The durable direction is an immutable DashboardFetchContext plus a monotonically increasing refresh generation. Every query leaf, progressive update, cache commit, widget update, and watch publication should identify the same context and generation.
 
-**Why it matters:** The highest-risk paths in this report—failure versus empty, cancellation, partial fan-out, source changes during suspension, and stale-result rejection—cannot be tested deterministically. Most existing tests exercise static post-processing or inspect source text rather than the live state machine.
+### Canonical health data and presentation preferences are mixed
 
-**Recommendation:** Inject a narrow asynchronous query client, not the entire HealthKit API. It should return typed outcomes such as success(value), permissionDisabled, noData, cancelled, and failure(error). Keep HKSample conversion in a production adapter and business rules in pure code.
+Sleep parsing currently removes samples based on display preferences before the result reaches scoring. The same flattened wake-day snapshot also serves several meanings: the visual timeline, total sleep, continuity opportunity, the main-night wake time, and readiness workout-drain boundaries. Those are not interchangeable when naps or overlapping writers exist.
 
-### A2. Refreshes are publications, not transactions
+Keep a normalized, lossless canonical sleep model. Derive presentation-filtered segments, main-session scoring inputs, nap totals, and wake-cycle boundaries from it explicitly.
 
-**Outcome (2026-07-13): Deferred.** The immutable FetchContext/generation model is deferred (see H5); the concrete settings paths await in-flight refreshes as an interim guard.
+### Persistence and transport state span multiple independently committed values
 
-**Evidence:** HealthKitFetchEngine is reentrant across HealthKit suspension points; HealthKitWorkoutStore progressively publishes summaries and later persists snapshots; source/permission settings mutate independently; and no refresh generation is checked before publication. Representative paths are [HealthKitWorkoutStore.swift:1208](Body/Services/HealthKitWorkoutStore.swift#L1208), [HealthKitWorkoutStore.swift:1985](Body/Services/HealthKitWorkoutStore.swift#L1985), and [HealthKitWorkoutStore.swift:2090](Body/Services/HealthKitWorkoutStore.swift#L2090).
+The dashboard main snapshot, intraday sidecar, freshness timestamp, source signatures, watch compute seed, and WatchConnectivity application context are stored or acknowledged separately. Each individual file write is generally sound, but there is no cross-file commit identity and some APIs collapse “unchanged” and “failed” into the same Boolean. This makes crash recovery and stale-state invalidation harder to reason about.
 
-**Why it matters:** A result may have been fetched under more than one source configuration, or may be obsolete by the time it commits. The current isRefreshing gate prevents some duplicate work but does not make the inputs immutable.
+Use versioned envelopes with a generation/content hash, structured I/O outcomes, and a single commit point for metadata that asserts freshness.
 
-**Recommendation:** Capture an immutable FetchContext at refresh start—generation, permissions, primary/secondary source signatures, source-grouping flag, entitlement state, calendar/time zone, and anchor date. Reject every result whose generation is no longer current.
+### Large integration hubs obscure ownership and test seams
 
-### A3. Persistence provenance is fragmented
+Body/Services/HealthKitWorkoutStore.swift is roughly 4,100 lines, Body/Services/HealthKitFetchEngine.swift and its extensions coordinate many query types, Body/Views/BodySettingsView.swift is roughly 3,300 lines, and Body/Views/BodyWorkoutsView.swift and Body/Views/Health/BodyHealthMetricDetailView.swift each own substantial orchestration. BodyProStore also calls the RevenueCat singleton directly.
 
-**Outcome (2026-07-13): Partially realized / deferred.** Persisted envelopes gained schema versions and source/permission signatures (H6) and the watch snapshot gained a publisher epoch + monotonic revision (M5); a uniform versioned envelope across every store remains deferred.
+These files are not automatically wrong because they are large, but they combine state ownership, policy, transport, persistence, and UI concerns. That makes the high-risk paths difficult to isolate in tests. Extract refresh coordination, snapshot repositories, purchase clients, month loading, date-boundary handling, and focused view models behind small protocols.
 
-**Evidence:** Dashboard data, an intraday sidecar, current/previous workout widget files, WatchConnectivity application context, and an on-watch App Group file each carry different freshness metadata. The day-sample sidecar has no source signature, Watch data orders primarily by Date, and a cache reset has no end-to-end tombstone.
+### Calendar boundaries are handled independently by each surface
 
-**Why it matters:** “Newest,” “non-empty,” and “same file size” are being used as proxies for authoritative data. That is insufficient when the user changes sources, clears data, the clock changes, or processes write concurrently.
-
-**Recommendation:** Version persisted envelopes and carry a monotonic revision, source/permission context, schema version, and explicit reset/no-data state through every companion snapshot.
-
-### A4. Several feature files have become integration hubs
-
-**Outcome (2026-07-13): Deferred.** No large-file extraction was undertaken; changes were kept surgical within the existing hubs.
-
-**Evidence:** BodySettingsView.swift and HealthKitWorkoutStore.swift are each over 3,000 lines; HealthKitFetchEngine.swift, BodyWorkoutsView.swift, BodyHealthMetricDetailView.swift, and BodyHomeView.swift are each roughly 2,300–2,600 lines.
-
-**Why it matters:** Views co-locate navigation, gestures, persistence bindings, expensive presentation transforms, and asynchronous lifecycle tasks. The store combines permissions, refresh orchestration, persistence, prediction, widget/watch publication, and cache policy. The cancellation, timeout, settings, and per-render performance issues below are direct symptoms.
-
-**Recommendation:** Extract testable feature state machines: month browsing, workout-detail loading, settings drafts, trend presentation, companion publication, and persistence ownership. Keep the app-level store as an orchestrator rather than the implementation site for every concern.
-
-### A5. Configuration coverage relies too heavily on source-shape assertions
-
-**Outcome (2026-07-13): Partially realized.** Behavioral unit tests (failure semantics, sleep sessionization, cache hygiene, watch freshness, readiness coverage, save dedupe) and a per-target built-product privacy-manifest table were added; broader StoreKitTest / widget-timeline harnesses remain future work.
-
-**Evidence:** [ProjectConfigurationTests.swift](BodyTests/ProjectConfigurationTests.swift) contains many checks that search source or project text. These catch accidental deletion, but they cannot prove timeout behavior, task cancellation, state ordering, target resource inclusion in the built product, or StoreKit/Watch state transitions.
-
-**Recommendation:** Retain a small set of project-file invariants, then move behavioral expectations to injected unit tests, StoreKitTest, widget timeline tests, and a built-product privacy-manifest inspection.
+The phone, widgets, complications, and watch app each decide independently when “today,” the active sleep day, a month window, or a freshness interval changes. Several Low findings are variations of this problem. A shared, injectable boundary policy would make midnight, timezone-change, and clock-adjustment behavior deterministic.
 
 ## Critical
 
-### C1. Required-reason privacy manifests are missing or incomplete
-
-**Outcome (2026-07-13): Fixed.** Added FileTimestamp `C617.1` to the iOS widget manifest and new `PrivacyInfo.xcprivacy` files for the watch app (UserDefaults `CA92.1` + FileTimestamp `C617.1`) and watch widget (FileTimestamp `C617.1` only); `ProjectConfigurationTests.testPrivacyManifestsDeclareUserDefaultsAndNoTracking` now asserts a per-target category matrix, verified in the built products.
-
-**Confirmed from code.**
-
-**What:** The iOS widget manifest declares UserDefaults only at [BodyWidgetExtension/PrivacyInfo.xcprivacy:5](BodyWidgetExtension/PrivacyInfo.xcprivacy#L5), while shared code compiled into that executable reads file metadata at [HealthWidgetSnapshotStore.swift:124](BodyShared/Services/HealthWidgetSnapshotStore.swift#L124) and [WorkoutSnapshotStore.swift:133](BodyShared/Services/WorkoutSnapshotStore.swift#L133). BodyWatch has no PrivacyInfo.xcprivacy despite UserDefaults usage at [WatchMetricsModel.swift:82](BodyWatch/WatchMetricsModel.swift#L82) and file metadata usage at [WatchMetricsSnapshotStore.swift:119](BodyWatchShared/Services/WatchMetricsSnapshotStore.swift#L119). BodyWatchWidgetExtension also compiles that shared file-metadata code but has no manifest.
-
-**Risk:** Apple states that each bundle containing an executable that uses a required-reason API must contain a privacy manifest describing it, and App Store Connect does not accept apps that omit required reasons. This is a release-blocking submission risk, not merely documentation debt. See [Apple: Describing use of required reason API](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api) and [Apple: File timestamp required reasons](https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype).
-
-**Breadth:** iOS widget, watch app, and watch complication bundles. [ProjectConfigurationTests.swift:1293](BodyTests/ProjectConfigurationTests.swift#L1293) checks only the app and iOS widget and checks only UserDefaults, so CI cannot detect the two missing watch manifests or the widget’s missing FileTimestamp category.
-
-**Fix:**
-
-- Add FileTimestamp reason C617.1 to BodyWidgetExtension/PrivacyInfo.xcprivacy.
-- Add BodyWatch/PrivacyInfo.xcprivacy with UserDefaults reason CA92.1 and FileTimestamp reason C617.1.
-- Add BodyWatchWidgetExtension/PrivacyInfo.xcprivacy with FileTimestamp reason C617.1. Add UserDefaults too if final target membership includes a direct/defaults-using file.
-- Replace the current loop with target-specific expected categories, and inspect built products so target membership is verified rather than inferred from source paths.
+No Critical issue was confirmed. In particular, the review found no obvious production force unwrap/cast crash path, secret embedded in source, unbounded route rendering path, or proven data-destructive persistence operation.
 
 ## High
 
-### H1. Sleep stages are split into separate “nights” at midnight
+### H-01 — An in-flight dashboard refresh can publish a mixed permission/source configuration
 
-**Outcome (2026-07-13): Fixed.** New `BodyWatchSnapshotKit/BodySleepSessionizer.swift` stitches samples into sessions (2 h max gap) and attributes each to its wake day; `HealthKitFetchEngine+Sleep.swift` groups by wake-day session and derives overnight vitals from the main session's window only. Covered by `BodyTests/BodySleepSessionizerTests.swift`.
+**Locations**
 
-**Confirmed from code; device data is needed only to quantify prevalence.**
+- Body/Services/HealthKitWorkoutStore.swift:1463-1488, 1576-1589, 1605-1622, 1652-1715
+- Body/Services/HealthKitWorkoutStore.swift:2702-2786, 3091-3118
+- Body/Services/HealthKitFetchEngine.swift:195-213, 359-427, 488-527, 2088-2193
 
-**What:** Both current sleep and historical sleep group every HKCategorySample by calendar.startOfDay(sample.endDate) at [HealthKitFetchEngine+Sleep.swift:31](Body/Services/HealthKitFetchEngine+Sleep.swift#L31) and [HealthKitFetchEngine+Sleep.swift:103](Body/Services/HealthKitFetchEngine+Sleep.swift#L103). A Core segment ending at 23:50 and Deep/REM segments after midnight become different nights. The current summary selects only the latest bucket, and its vitals window at [HealthKitFetchEngine+Sleep.swift:63](Body/Services/HealthKitFetchEngine+Sleep.swift#L63) is derived from that truncated bucket.
+**Issue**
 
-**Risk:** Pre-midnight sleep and vitals disappear from the selected night. Duration, stage percentages, sleep score, consistency, overnight-vitals baselines, readiness, widgets, and Watch snapshots can all be wrong.
+Permission, primary-source, secondary-source, and combine-by-name mutations update store/engine state before waiting for the current refresh to finish. HealthKitFetchEngine is an actor, but its refresh fans out through many awaited queries. Actor methods are reentrant at those suspension points, and query leaves consult mutable engine selection state rather than a refresh-local snapshot.
 
-**Breadth:** Every overnight session containing a stage segment that ends before midnight, especially nonstandard sleep schedules or source-generated short stages.
+One refresh can therefore begin using the old source predicate, resume after a setting mutation, and run other leaves with the new predicate. HealthKitWorkoutStore progressively publishes partial results and later persists them using the store’s current signatures. This is a configuration-generation race, not an unsynchronized-memory race.
 
-**Fix:** Sessionize chronological samples first, using a documented maximum gap, normalize the complete session, and assign the session to its wake day. Put the rule in BodySleepSampleParser so current summary, history, widget, and Watch paths share it.
+**Risk and breadth**
 
-    let sessions = SleepSessionizer.sessions(from: samples, maximumGap: 2 * 60 * 60)
-    let days = Dictionary(grouping: sessions) {
-        calendar.startOfDay(for: $0.endDate)
+The user can see a dashboard assembled from different HealthKit source or permission policies. That inconsistent result can flow into trends, readiness, widgets, complications, watch seed data, and the disk cache. A corrective refresh normally limits duration, but it does not make the intermediate publication correct, and failure or termination can preserve it.
+
+**Fix**
+
+Capture every refresh input in one immutable Sendable context and pass it into every query leaf. Assign a generation before starting work. Accept progressive and final results only if both generation and context still match the store’s active refresh.
+
+    struct DashboardFetchContext: Sendable, Equatable {
+        let generation: UInt64
+        let anchorDate: Date
+        let permissions: BodyHealthPermissionSelection
+        let primarySource: BodyHealthSourceSelection
+        let secondarySource: BodyHealthSourceSelection
+        let combineSourcesByName: Bool
     }
 
-Add a raw-sample test spanning midnight and assert a single SleepDaySummary with the union interval and all stage durations.
-
-### H2. Transient HealthKit errors are interpreted as real empty data and persisted
-
-**Outcome (2026-07-13): Fixed.** Introduced `QueryOutcome` so a failed query keeps the cached value (resolved only against a cache captured under the same primary + permission signature) and skips the freshness-TTL advance, while a confirmed-empty / permission-off result still clears the tile; applied across every summary leaf in `HealthKitFetchEngine.swift`. Covered by `BodyTests/HealthKitFetchEngineFailureSemanticsTests.swift`. **Round 2 (2026-07-14): Fixed.** Closed three remaining gaps: the primary-summary signature is now persisted inside the dashboard snapshot itself (extended to also cover the two sleep-stage display prefs and the combine flag) so a cold-start failure can reuse the prior snapshot instead of discarding it; sleep-history vitals now merge per-vital against the cached night (matched by wake day) instead of `valueOr([])` blanking a vital on failure; and a new `hadQueryFailure` flag now also covers secondary trends, secondary range trends, sleep-vital failures, and activity-ring history/backfill (not just the summary), so any failed leaf withholds the freshness-TTL advance and the next resume retries. **Round 3 (2026-07-14): Fixed.** The round-3 re-audit found the ENGINE's own `resolvedHealthDataSourceOption`/`resolvedSecondaryHealthDataSourceOption` (`HealthKitFetchEngine.swift`) still collapsed an *unresolved* discovery (no successful source discovery this process — `healthSourcesByKind[kind] == nil`) to `.allSources`/`.noComparison`, unlike `sourceQueryResolution`'s tri-state and unlike the store-side resolvers fixed in round 2 (see H4). For a stored secondary selection, that meant every secondary fetcher returned the intentional `.empty` that clears the cached secondary series instead of `nil` (keep cache + `hadQueryFailure` + freshness-TTL withheld); the unresolved-primary collapse could also wrongly turn an `.allSources` secondary into `.noComparison` via the identity comparison in `selectedSecondaryHealthDataSourceOption`. Both resolvers now delegate the discovery decision to a new pure `resolvedSourceOption(_:discoveredNonemptyIDs:absentFallback:)` helper (nil = unresolved → keep stored option so leaf queries skip via `sourceSelectionUnresolved`; discovered-but-absent → fallback). Covered by new truth-table tests plus an actor-path test in `BodyTests/HealthKitFetchEngineFailureSemanticsTests.swift`.
-
-**Confirmed from code; locked-device/XPC reproduction should be verified on a device.**
-
-**What:** Representative callbacks ignore error and convert missing samples to nil/empty: latestQuantity at [HealthKitFetchEngine.swift:1039](Body/Services/HealthKitFetchEngine.swift#L1039), current sleep at [HealthKitFetchEngine+Sleep.swift:31](Body/Services/HealthKitFetchEngine+Sleep.swift#L31), sleep vitals at [HealthKitFetchEngine+Sleep.swift:266](Body/Services/HealthKitFetchEngine+Sleep.swift#L266), and activity rings at [HealthKitFetchEngine+ActivityRings.swift:23](Body/Services/HealthKitFetchEngine+ActivityRings.swift#L23). fetchHealthSummary substitutes empty models at [HealthKitFetchEngine.swift:1745](Body/Services/HealthKitFetchEngine.swift#L1745). The store publishes the summary at [HealthKitWorkoutStore.swift:2136](Body/Services/HealthKitWorkoutStore.swift#L2136) and can persist it before all concurrent work has resolved.
-
-**Risk:** A locked-device, HealthKit XPC, or partial query failure can blank cards, sleep, rings, and readiness inputs; the blank state is then saved and sent to widgets/Watch as a “successful” refresh. A later workout error does not undo the already published dashboard.
-
-**Breadth:** Current summary, ranges, secondary data, sleep vitals, activity rings, companion snapshots, and readiness.
-
-**Fix:** Use one typed result across the HealthKit boundary. Preserve cached data only on failure/cancellation; clear it only on a successful zero-sample result or explicit permission-off.
-
-    enum HealthFetch<Value> {
-        case success(Value)       // Value may legitimately be empty
-        case permissionDisabled
-        case cancelled
-        case failure(Error)
+    guard result.context == activeContext,
+          result.context.generation == activeGeneration else {
+        return
     }
 
-Resolve every field against the prior snapshot, then publish and persist one transaction. Add paired tests for “query failed” and “query succeeded with zero samples” for every query shape.
+Do not let leaf queries read mutable selection fields. Setting mutations should invalidate the active generation and start exactly one replacement refresh.
 
-### H3. Failed intraday queries delete valid cached samples
+**Recommended tests**
 
-**Outcome (2026-07-13): Fixed.** Intraday series fetches now return nil + log on a query error and merge only on success (a successful-empty result still replaces); the store keeps the cached series on failure. Files: `HealthKitFetchEngine.swift`, `+IntradaySamples.swift`, `+Secondary.swift`, `HealthKitWorkoutStore.swift`.
-
-**Confirmed from code.**
-
-**What:** fetchQuantitySampleSeries ignores query error and returns an empty series at [HealthKitFetchEngine.swift:1078](Body/Services/HealthKitFetchEngine.swift#L1078). mergeIntradaySamples treats that empty series as authoritative and removes cached samples from the overlap window at [HealthKitFetchEngine+IntradaySamples.swift:118](Body/Services/HealthKitFetchEngine+IntradaySamples.swift#L118). Active-energy and step series replace the entire cached window at [HealthKitWorkoutStore.swift:1014](Body/Services/HealthKitWorkoutStore.swift#L1014).
-
-**Risk:** Opening or refreshing a detail while HealthKit fails can erase the last 48 hours of HR/HRV/SpO₂ samples or the full hourly energy/step series. The damage can be persisted to the day-sample sidecar.
-
-**Breadth:** Every lazily loaded intraday chart, including primary and comparison series.
-
-**Fix:** Make the raw query throwing/result-typed and merge only success. A successful empty result may replace the overlap; failure must return the original series unchanged.
-
-### H4. Failed source discovery silently falls back to all sources for the session
-
-**Outcome (2026-07-13): Fixed.** Tri-state source resolution — a specific selection with no successful discovery this process is `.unresolved` (query skipped, cache kept) instead of an all-sources fallback; discovery merges per kind and the permission signature is recorded only on a fully successful discovery so failed kinds retry. Files: `HealthKitFetchEngine+SourceOptions.swift`, `HealthKitFetchEngine.swift`. **Round 2 (2026-07-14): Fixed.** The UI-facing source picker read a separate map from the query resolution above: `resolvedHealthDataSourceOption`/`resolvedSecondaryHealthDataSourceOption` in `HealthKitWorkoutStore.swift` collapsed a stored individual selection to All Sources / No Comparison whenever `healthDataSourceOptionsByKind` hadn't been populated yet (cold start, or mid-clear). They now keep the stored selection while discovery is unresolved and only fall back once the option is confirmed absent from a completed discovery. **Round 3 (2026-07-14): Fixed.** Same gap, one layer down: `resolvedHealthDataSourceOption`/`resolvedSecondaryHealthDataSourceOption` in `HealthKitFetchEngine.swift` — the ENGINE's own resolvers, distinct from the store-side ones round 2 fixed — still collapsed an unresolved discovery (`healthSourcesByKind[kind] == nil`, no successful discovery this process) to `.allSources`/`.noComparison` instead of keeping the stored selection (see H2 for the secondary-comparison fallout this also produced). Both resolvers now delegate to a new pure `resolvedSourceOption(_:discoveredNonemptyIDs:absentFallback:)` helper: nil discovery keeps the stored option (leaf queries skip via `sourceSelectionUnresolved`), discovered-but-absent falls back as before. Covered by new truth-table tests plus an actor-path test in `BodyTests/HealthKitFetchEngineFailureSemanticsTests.swift`.
-
-**Confirmed from code; the HealthKit failure itself should be reproduced on device.**
-
-**What:** HKSourceQuery ignores error and maps nil to an empty source list at [HealthKitFetchEngine+SourceOptions.swift:213](Body/Services/HealthKitFetchEngine+SourceOptions.swift#L213). fetchHealthDataSourceOptions then caches empty per-kind maps and records the current permission signature at [HealthKitFetchEngine+SourceOptions.swift:15](Body/Services/HealthKitFetchEngine+SourceOptions.swift#L15). sourcePredicate returns nil when the selected source cannot be found at [HealthKitFetchEngine.swift:322](Body/Services/HealthKitFetchEngine.swift#L322); nil means no source predicate, or all sources.
-
-**Risk:** Source-picker choices disappear and a user-selected device silently becomes an all-source aggregate. Metrics and readiness may change without an obvious error, and the bad discovery result is cached for the remainder of the session.
-
-**Breadth:** All source-selectable metrics.
-
-**Fix:** Return a failure outcome from each HKSourceQuery. Do not advance fetchedHealthDataSourcePermissionRawValue when any required discovery query fails. Preserve successful maps per kind and retry only failed kinds. A missing selected source should be an explicit unresolved state, never equivalent to allSources.
-
-### H5. Source settings can change during a suspended refresh, producing a mixed-source snapshot
-
-**Outcome (2026-07-13): Deferred.** The full FetchContext/generation architecture is out of scope; the signature-scoped cache reuse from H2/H6 covers the persisted-blank risk. **Round 2 (2026-07-14): Justification corrected, still deferred.** The prior claim that the concrete settings paths already await the in-flight refresh was wrong: `updateDefaultHealthDataSource`/`updateCombinesHealthDataSourcesByName`/`updateDefaultSecondaryHealthDataSource` mutate the store and engine selection BEFORE calling `awaitNextRefreshCompletion()`, and there is no refresh-generation guard, so an in-flight refresh reading engine state live can still publish and persist a mixed-source snapshot during that window — a real, if transient, risk. Round 2 closes the persistence side: after the awaited refresh, each setter now strips the affected day-sample series and persists the stripped sidecar before the corrective refetch (H6a), so a mixed-source snapshot can no longer survive on disk. The full FetchContext/generation architecture that would close the remaining in-memory publish race stays deferred; reordering the mutation to after the await was deliberately not done because it would lag the source picker UI for the length of the in-flight refresh.
-
-**Confirmed actor-reentrancy path; timing should be exercised with an injected delayed query.**
-
-**What:** HealthKitFetchEngine stores mutable source selections at [HealthKitFetchEngine.swift:24](Body/Services/HealthKitFetchEngine.swift#L24). Settings mutate store and engine selection at [HealthKitWorkoutStore.swift:1208](Body/Services/HealthKitWorkoutStore.swift#L1208) while an existing refresh may be suspended in HealthKit. Because actors are reentrant, early predicates can use the old selection and later predicates the new selection. The old refresh can still publish.
-
-**Risk:** One dashboard can mix devices or combine policies. The corrective refresh is not a safety guarantee: its task can be cancelled or fail after the mixed snapshot has already been saved.
-
-**Breadth:** Summary, trends, secondary comparisons, readiness inputs, widgets, and Watch.
-
-**Fix:** Capture a FetchContext and generation at refresh start; every leaf query receives that immutable context, and the store discards stale generations before any publication.
-
-    let context = await engine.makeFetchContext()
-    let result = await engine.fetchDashboard(context: context)
-    guard context.generation == refreshGeneration else { return }
-
-### H6. Persisted intraday samples are not scoped to the selected sources
-
-**Outcome (2026-07-13): Fixed.** `HealthTrendDaySampleSnapshot` gained a schema version plus primary/secondary/permission signatures; hydration only merges signature-matching, permission-filtered day samples, with a legacy-secondary-signature fallback and a one-time drop of legacy primary-scoped series. Files: `BodyMetricsKit/HealthTrend.swift`, `Body/Models/BodyAppearancePreference.swift`, `HealthKitWorkoutStore.swift`; tests in `HealthDashboardDaySamplesTests.swift`. **Round 2 (2026-07-14): Fixed.** The source/combine setters now clear the affected day-sample series (scoped per-kind for a single metric's source change, primary+secondary for the default-source/combine setters) after the awaited in-flight refresh and persist the stripped sidecar immediately — closing the gap where a full trend refresh re-emitted cached old-source samples verbatim and no setter cleared them, so they got saved under a freshly-stamped new-source signature. The sidecar schema is now version 2 and its primary/secondary signatures include `combinesHealthDataSourcesByName`; acceptance gates on `schemaVersion == 2` exactly, so v1 and any unrecognized future schema fail closed and the legacy day-sample cache is dropped once.
-
-**Confirmed from code.**
-
-**What:** HealthTrendDaySampleSnapshot carries only series data at [HealthTrend.swift:934](BodyMetricsKit/HealthTrend.swift#L934). On launch a changed secondary signature clears the dashboard series, but hydration at [HealthKitWorkoutStore.swift:903](Body/Services/HealthKitWorkoutStore.swift#L903) immediately merges empty fields from the old sidecar. Full trend refresh deliberately preserves cached day samples at [HealthKitFetchEngine.swift:1884](Body/Services/HealthKitFetchEngine.swift#L1884). Primary-source changes have no persisted signature at all.
-
-**Risk:** Charts can show the wrong device or a mixture of old-source and new-source samples across launches. Comparison charts can claim to compare two sources while one side contains data from a previous selection.
-
-**Breadth:** HR, resting HR, HRV, respiratory rate, SpO₂, active energy, steps, and every primary/secondary intraday path.
-
-**Fix:** Persist a versioned envelope containing primary and secondary selection signatures, combines-sources-by-name, permission signature, and samples. Clear/refetch only affected series when context changes, and add a generation check after every await in lazy loading.
-
-### H7. “Clear Cache” can be undone by queued or in-flight work
-
-**Outcome (2026-07-13): Fixed.** `clearLocalCache` is now async and ordered after pending writes; a MainActor `cacheEpoch` counter guards every resurrection-capable path and the Clear Cache button is disabled while refreshing. Known benign residual: a refresh that starts during the clear's sub-second awaits can write FRESH (not stale) data. Files: `HealthKitWorkoutStore.swift`, `BodySettingsView.swift`; tests `StoreCacheHygieneTests.swift`. **Round 2 (2026-07-14): Fixed.** Clear Cache never reached the Watch — `publishWatchSnapshot` had no epoch check, and the watch's blank-preserve merge kept every prior metric on a blank push, so even a same-process reset publish would neither be reliably ordered nor visibly clear anything. `publishWatchSnapshot` is now epoch-gated against `cacheEpoch`; Clear Cache separately sends a data-free `WatchMetricsSnapshot` with a new `isReset: true` flag directly (bypassing the epoch-gated path); the watch adopts (not merges) a reset that supersedes its current snapshot and persists it as a tombstone via `WatchMetricsSnapshotStore.save` — never deleting the file — so a delayed lower-revision push after a watch process restart can't resurrect the cleared data.
-
-**Confirmed from code.**
-
-**What:** clearLocalCache deletes files synchronously outside the persistence queue at [HealthKitWorkoutStore.swift:1873](Body/Services/HealthKitWorkoutStore.swift#L1873), while dashboard and workout saves are enqueued asynchronously at [HealthKitWorkoutStore.swift:2415](Body/Services/HealthKitWorkoutStore.swift#L2415) and [HealthKitWorkoutStore.swift:2832](Body/Services/HealthKitWorkoutStore.swift#L2832). Engine cache clearing is fire-and-forget. The Settings action remains enabled during refresh at [BodySettingsView.swift:2501](Body/Views/BodySettingsView.swift#L2501).
-
-**Risk:** The UI reports “Local cache cleared,” then an older queued save recreates the health files or an in-flight refresh republishes them. This violates the user’s privacy expectation and can repopulate widgets.
-
-**Breadth:** Dashboard, day samples, current/previous workout snapshots, widget snapshot, engine source/effort caches, and Watch state.
-
-**Fix:** Make clear async and generation-aware. Cancel or invalidate current refreshes, await engine clears, enqueue deletion on the same persistence owner after prior writes, publish an authoritative companion reset, and do not allow an older generation to save afterward.
-
-    refreshGeneration &+= 1
-    await persistence.clearAfterPendingWrites()
-    await engine.clearCaches()
-
-Add a test that blocks an older save, invokes clear, releases the queue, and verifies all files remain absent.
-
-### H8. Cancelling workout detail can poison route and split negative caches
-
-**Outcome (2026-07-13): Fixed.** `CancellationError` is rethrown from route/split reads and neither route nor splits are cached on cancel or failure; negative caching applies only to confirmed-absent data. Files: `HealthKitFetchEngine+Route.swift`, `+Splits.swift`, `HealthKitWorkoutStore.swift`. **Round 2 (2026-07-14): Fixed.** Round 1 only rethrew `CancellationError` — every other route/split query error still fell into a `catch { return [] / .empty }` fallback and got negative-cached like a confirmed-absent result, and `fetchWorkout(id:)` discarded its error entirely. All route and split query errors now propagate (the swallowing `catch` blocks were removed) and `fetchWorkout(id:)` is `async throws` and rethrows instead of returning `nil` on error; the store's route/split caches skip caching on any thrown error, so only a genuine empty result gets negative-cached (splits keep the pre-existing >24h-old-workout gate before caching a confirmed-empty result, so a recent, possibly still-syncing workout keeps retrying). **Round 3 (2026-07-14): Fixed.** One swallowing catch remained: `readWorkoutStepSamples` in `HealthKitFetchEngine+Splits.swift` converted any step-cadence read error (including cancellation) to `[]`, which `loadWorkoutSplitData` then cached as confirmed data, silently losing the cadence column for the session. Both step helpers are now `async throws` and errors propagate out of `workoutSplitData`; the store's existing catch returns `.empty` uncached so reopening retries. Documented tradeoff, matching the round-2 distance/route/`fetchWorkout` treatment: a step-read failure now aborts that invocation's whole `WorkoutSplitData` — distance splits hidden once, uncached, self-healing on reopen. Pinned by a source-contract test in `ProjectConfigurationTests.swift` (`testWorkoutStepSamplesPropagateReadFailuresInsteadOfSwallowingErrors`).
-
-**Confirmed from code.**
-
-**What:** BodyWorkoutDetailSheet launches route and split reads in a SwiftUI task at [BodyWorkoutsView.swift:889](Body/Views/BodyWorkoutsView.swift#L889). Dismissal cancels it, but the route descriptor catches every error and returns empty at [HealthKitFetchEngine+Route.swift:21](Body/Services/HealthKitFetchEngine+Route.swift#L21); the store caches nil at [HealthKitWorkoutStore.swift:841](Body/Services/HealthKitWorkoutStore.swift#L841). Splits similarly map cancellation/failure to empty at [HealthKitFetchEngine+Splits.swift:24](Body/Services/HealthKitFetchEngine+Splits.swift#L24) and cache old-workout emptiness at [HealthKitWorkoutStore.swift:863](Body/Services/HealthKitWorkoutStore.swift#L863).
-
-**Risk:** Open a workout and dismiss quickly; reopening can show no route or splits for the rest of the process even though HealthKit has them. The same issue occurs on transient descriptor errors.
-
-**Breadth:** Route workouts and pace/speed workouts, with historical workouts most affected by split negative caching.
-
-**Fix:** Propagate CancellationError and distinguish found, confirmedAbsent, and failed. Cache found or confirmed absence only.
-
-    catch is CancellationError {
-        throw CancellationError()
-    }
-
-Add delayed-engine tests that cancel the first load and prove reopening performs a second fetch and caches real data.
-
-### H9. The advertised 15-second month-load timeout can still wait indefinitely
-
-**Outcome (2026-07-13): Fixed.** Replaced the `withTaskGroup` race with a token-guarded first-wins latch and one reused in-flight task per month; the overlay always clears at 15 s while the load continues in the background, and a re-tap applies instantly once cached (L14 uniquing dictionary included). File: `Body/Views/BodyWorkoutsView.swift`.
-
-**Confirmed from Swift structured-concurrency semantics.**
-
-**What:** requestMonthYearSelection races load and sleep in withTaskGroup at [BodyWorkoutsView.swift:417](Body/Views/BodyWorkoutsView.swift#L417), takes the first result, then calls cancelAll. A task group cannot leave scope until all children finish. loadMonthIfNeeded waits through non-cancellation-aware checked continuations at [HealthKitWorkoutStore.swift:1608](Body/Services/HealthKitWorkoutStore.swift#L1608), so the cancelled load can keep the group alive and the blocking overlay at [BodyWorkoutsView.swift:123](Body/Views/BodyWorkoutsView.swift#L123) visible indefinitely.
-
-**Risk:** A stalled HealthKit query can trap the Workouts UI in loading despite the stated timeout.
-
-**Breadth:** Any uncached month/year selection.
-
-**Fix:** Put cancellation at the query boundary and separately time out UI ownership. A token/generation can clear pendingMonthSelection at 15 seconds while a shared load finishes or is abandoned; use defer so cancellation always clears UI state. Test with a fake load that intentionally ignores cancellation.
-
-### H10. Watch “live” HR/HRV uses query time instead of measurement time
-
-**Outcome (2026-07-13): Fixed.** Watch readings now carry `measuredAt`; both acceptance and `isStale` use per-kind windows (HR 30 min, HRV 4 h) judged by measurement time. Files: `BodyWatch/WatchHealthStore.swift`, `WatchMetricsModel.swift`; tests `WatchSnapshotFreshnessTests.swift`.
-
-**Confirmed from code.**
-
-**What:** WatchHealthStore accepts a sample up to four hours old and returns only Double at [WatchHealthStore.swift:37](BodyWatch/WatchHealthStore.swift#L37), discarding HKQuantitySample.endDate. WatchMetricsModel stamps liveUpdatedAt = Date() at [WatchMetricsModel.swift:232](BodyWatch/WatchMetricsModel.swift#L232). Merge logic at [WatchMetricsModel.swift:93](BodyWatch/WatchMetricsModel.swift#L93) treats that query timestamp as sample freshness.
-
-**Risk:** A several-hours-old reading is presented as live, suppresses another refresh, and can win over a genuinely newer phone snapshot.
-
-**Breadth:** Watch heart rate and HRV cards/complications, especially off-wrist or sensor-unavailable periods.
-
-**Fix:** Return value plus measuredAt and set liveUpdatedAt to sample.endDate. Apply a much tighter limit to “live” HR than to HRV.
-
-    struct WatchQuantityReading: Sendable {
-        let value: Double
-        let measuredAt: Date
-    }
-
-### H11. Morning readiness can freeze before overnight vitals finish syncing
-
-**Outcome (2026-07-13): Fixed.** Readiness records now carry a `ReadinessCoverage` over eight atomic inputs; within the freeze window a strict-superset on the same day upgrades the record, while the legacy one-shot sleep rule is preserved for coverage-less records. Files: `BodyMetricsKit/HealthSummarySnapshot.swift`, `HealthTrend.swift`; tests `ReadinessRecordCoverageTests.swift`.
-
-**Confirmed from code; real Watch sync timing should be verified on device.**
-
-**What:** RecordedReadinessEntry stores only includedSleep at [HealthTrend.swift:8](BodyMetricsKit/HealthTrend.swift#L8). freezingRecordedReadiness at [HealthSummarySnapshot.swift:692](BodyMetricsKit/HealthSummarySnapshot.swift#L692) permits one upgrade from “no sleep” to “has any sleep,” then makes the record immutable. Sleep duration/stages may arrive before overnight HR/HRV/temperature/SpO₂.
-
-**Risk:** A score frozen at wake + 10 minutes with sleep but incomplete vitals can remain permanently wrong. Later richer recomputation is overridden by the saved record in [HealthTrend.swift:1498](BodyMetricsKit/HealthTrend.swift#L1498).
-
-**Breadth:** Readiness history for users whose Watch health samples sync in phases or whose first morning refresh has a partial failure.
-
-**Fix:** Persist input coverage, not a Boolean. Within a bounded post-wake stabilization window, replace the record when coverage is a strict superset.
-
-    struct RecordedReadinessEntry {
-        var date: Date
-        var score: Int
-        var coverage: ReadinessCoverage
-    }
-
-Tests should freeze with duration only, then add HR/HRV, then add other overnight vitals; richer data may upgrade once, while later workout drain must not rewrite the morning record.
-
-### H12. Workout enrichment failures remove valid metrics and can fabricate training load
-
-**Outcome (2026-07-13): Fixed (narrow).** `fetchEffortLevels` distinguishes failed IDs from confirmed-unrated and HR batches reuse cached values on failure, so a default-5 training load is only used for confirmed-unrated or no-prior workouts. Files: `HealthKitFetchEngine.swift`, `HealthKitWorkoutStore.swift`. (The broader per-field FetchContext is deferred with H5.) **Round 2 (2026-07-14): Fixed.** A failed-and-uncached effort read still fell back to `TrainingLoadCalculator`'s default-5, indistinguishable from a genuinely unrated workout. `WorkoutSummary` now carries an `effortUnresolved` flag (failed query + no cached value) that `TrainingLoadCalculator.load` excludes from the acute/chronic calculation entirely, while a genuinely unrated workout still defaults to moderate (5) as before; the flag survives `removingWorkoutMetrics()` so it isn't silently reverted to fabricated-5 when Workout Metrics is disabled and cached snapshots are sanitized. VO₂max, cadence, and distance queries now also reuse the cached value on failure instead of collapsing to a missing field. `ActivityReadinessImpact.estimatedEffort` was deliberately left unchanged (out of surgical scope). **Round 3 (2026-07-14): Fixed.** The reuse fix itself had a gap: the HR-reuse branch in `fetchWorkoutSummaries` passed `resolvedVO2 ?? cached.cardioFitnessVO2Max` / `resolvedCadence ?? cached.averageStepCadenceSPM`, so a *successful* query confirming absence could never clear those fields for reused workouts — the stale value re-persisted every passive resume. The per-field decision is now the pure `resolvedWorkoutDetailMetric(fetched:failed:cached:)` (failure → cached; success → fetched, where nil is confirmed-absent and clears), used for VO₂max, cadence, and distance in both branches, with the `??` fallbacks removed. Truth-table tests in `HealthKitFetchEngineFailureSemanticsTests.swift` plus a reintroduction-guard source assertion in `ProjectConfigurationTests.swift`.
-
-**Confirmed from code; live HealthKit failure should be exercised on device.**
-
-**What:** A successful workout-list query is treated as success even when batched HR/detail subqueries fail. HR ignores error at [HealthKitFetchEngine.swift:1325](Body/Services/HealthKitFetchEngine.swift#L1325). Effort outcomes distinguish failure internally, but fetchEffortLevels collapses failed and confirmed-unrated into a missing dictionary value at [HealthKitFetchEngine.swift:1444](Body/Services/HealthKitFetchEngine.swift#L1444). [TrainingLoadCalculator.swift:16](BodyMetricsKit/TrainingLoadCalculator.swift#L16) converts missing effort to default 5.
-
-**Risk:** A transient failed effort read can become a fabricated effort 5, replacing the training-load series and altering readiness. Failed HR, VO₂max, cadence, or distance reads can replace cached workout fields with empty/nil values.
-
-**Breadth:** Workout details, month snapshots, predicted effort, training load, readiness, widgets, and Watch.
-
-**Fix:** Carry per-field outcomes into summary assembly. Default effort 5 only for confirmed noSavedEffort, never failure. On enrichment failure, preserve the cached field or fail the derived metric transaction. Add tests for one failed effort among otherwise successful workouts and for failed-versus-empty HR batches.
+- Delay selected fake HealthKit queries, change each of permission/primary/secondary/combine settings mid-refresh, and complete old queries out of order.
+- Assert that no old or mixed progressive value is published after invalidation.
+- Assert that disk, widget, and watch publications all carry the winning generation and signatures.
 
 ## Medium
 
-### M1. Overlapping explicit sleep stages are double-counted
+### M-01 — Fresh installs can expose fabricated “Preview” workouts as real data
 
-**Outcome (2026-07-13): Deferred.** Sleep duration is already union-merged; disjoint de-overlap of explicit stages only matters with two explicit-stage sources and was deferred.
+> **Status (2026-08-03):** Fixed in 0.9.10 build 21 — store init now uses `WorkoutSnapshotStore.loadOrEmpty()`; `.placeholder` remains for the widget gallery and design previews only.
 
-**Confirmed calculation; source-overlap frequency needs device data.**
+**Locations**
 
-**What:** [BodySleepSampleParser.swift:47](BodyWatchSnapshotKit/BodySleepSampleParser.swift#L47) carves unspecified sleep around explicit segments but concatenates explicit segments from multiple sources. [Sleep.swift:205](BodyMetricsKit/Sleep.swift#L205) sums their durations. Duplicate Deep samples from 01:00–02:00 therefore contribute two hours to a one-hour interval; conflicting Deep/REM overlaps also remain unresolved.
+- Body/Services/HealthKitWorkoutStore.swift:296-302
+- BodyShared/Services/WorkoutSnapshotStore.swift:194-200
+- BodyMetricsKit/WorkoutMonthSnapshot.swift:194-230, 240-257
+- Body/Views/BodyFirstLaunchOverlay.swift:31-106
+- Body/Views/MainTabView.swift:61-66
 
-**Risk:** Stage totals can exceed the canonical sleep window, inflating percentages, awake duration, stage credit, and continuity.
+**Issue**
 
-**Breadth:** Users with overlapping Watch/iPhone/third-party sleep sources, particularly when sources are combined by name.
+HealthKitWorkoutStore initializes workout state with WorkoutSnapshotStore.loadOrPlaceholder(). When no cache exists, that helper returns a placeholder containing nine fabricated workouts whose source is “Preview.” The first-launch “Not Now” action only dismisses the overlay for the session; it does not replace the placeholder with an honest empty snapshot.
 
-**Fix:** Normalize explicit stages into disjoint intervals with documented source/stage precedence. At minimum union same-stage intervals; conflicting-stage overlap needs a deterministic winner. Assert total allocated stage duration never exceeds the session window.
+**Risk and breadth**
 
-### M2. Auto-Apply can continue writing workout effort after the user turns it off
+A new user who declines or postpones Health access can enter the normal Workouts UI and see fake records, totals, and details without a persistent demo-mode label. In a health application, fabricated live-state data is a trust and correctness problem even though it is intentional preview content.
 
-**Outcome (2026-07-13): Fixed.** The auto-apply loop checks `shouldContinue` (prefs + `!Task.isCancelled`) per candidate and the settings task is retained and cancelled on OFF / onDisappear. Files: `HealthKitWorkoutStore.swift`, `BodySettingsView.swift`.
+**Fix**
 
-**Confirmed from code.**
+Initialize production state with a load-or-empty API. Reserve placeholder data for SwiftUI previews, screenshots, or an explicit clearly labeled demo mode.
 
-**What:** Settings starts an untracked task only on the true transition at [BodySettingsView.swift:1857](Body/Views/BodySettingsView.swift#L1857). The store reads the opt-in only once at [HealthKitWorkoutStore.swift:732](Body/Services/HealthKitWorkoutStore.swift#L732), then the loop at [HealthKitWorkoutStore.swift:689](Body/Services/HealthKitWorkoutStore.swift#L689) writes multiple candidates without rechecking cancellation or the current preference.
+    initialSnapshot = WorkoutSnapshotStore.load()
+        ?? .makeEmpty(containing: Date())
 
-**Risk:** The app can perform additional HealthKit writes after the user explicitly disabled the feature.
+**Recommended tests**
 
-**Breadth:** Recent eligible workouts in the active batch.
+- With no snapshot file, initialize the live store and dismiss onboarding; assert zero workouts and no “Preview” source.
+- Keep a separate preview fixture test so design-time content remains available.
 
-**Fix:** Retain and cancel the settings task on false/disappear, and enforce the invariant inside the service loop before every write:
+### M-02 — A completed purchase can return to an idle, locked paywall without explanation
 
-    guard !Task.isCancelled,
-          UserDefaults.standard.bool(forKey: autoApplyKey) else { break }
+> **Status (2026-08-03):** Fixed in 0.9.10 build 21 — a completed-but-not-entitled purchase performs one bounded `customerInfo(fetchPolicy: .fetchCurrent)` re-check, then parks in a new `.completedNotUnlocked` state that replaces the buy card with a dedicated recovery card (purchase disabled, Restore enabled); the entitlement stream clears it on late unlock. (`PurchasesClient` injection deferred with M-16.)
 
-Test by disabling after the first fake write and asserting no later candidate is saved.
+**Locations**
 
-### M3. Sleep-stage preference refreshes can be dropped
+- Body/Services/BodyProStore.swift:89-118, 162-178
+- Body/Views/BodyProView.swift:30-39, 93-104
 
-**Outcome (2026-07-13): Fixed.** New `refetchAfterSleepDisplayPreferenceChange()` awaits any in-flight refresh before re-fetching, and both sleep-preference onChange handlers point at it. Files: `HealthKitWorkoutStore.swift`, `BodySettingsView.swift`.
+**Issue**
 
-**Confirmed from code.**
+Every non-cancelled RevenueCat purchase result is applied and purchaseState is set back to idle. apply maps a missing or inactive configured entitlement to isPro = false. If product-to-entitlement configuration is wrong or entitlement propagation is delayed, a completed transaction can therefore redisplay the buy card without an actionable error.
 
-**What:** Two independent onChange handlers launch untracked refresh tasks at [BodySettingsView.swift:98](Body/Views/BodySettingsView.swift#L98). requestAuthorizationAndRefresh drops work when isRefreshing is already true. HealthKitFetchEngine captures each awake-stage preference at query start at [HealthKitFetchEngine+Sleep.swift:28](Body/Services/HealthKitFetchEngine+Sleep.swift#L28).
+**Risk and breadth**
 
-**Risk:** Toggle both preferences during one in-flight refresh and the second refresh may be discarded; the first task can commit old semantics until some unrelated later refresh.
+This is not guaranteed on a correctly configured RevenueCat project, but the failure mode is severe for the affected customer: the App Store transaction completes while paid features remain locked, and the UI offers no verification/recovery state.
 
-**Breadth:** Current sleep, history, score, readiness, widget, and Watch stage presentation.
+**Fix**
 
-**Fix:** Coalesce settings into a preference signature and guarantee a refresh for the latest signature after current work completes. A task(id:) or store-level pending-refresh generation is appropriate.
+Require the configured entitlement to be active before declaring the flow complete. On failure, perform one bounded sync/refetch and then present a distinct localized verification-failed state with Restore and support actions.
 
-### M4. Watch merge cannot represent authoritative no-data or cache reset
+    let info = result.customerInfo
+    guard info.entitlements[Self.entitlementID]?.isActive == true else {
+        purchaseState = .verificationFailed
+        return
+    }
+    apply(customerInfo: info)
+    purchaseState = .idle
 
-**Outcome (2026-07-13): Skipped / deferred.** The watch sleep-clear-on-blank-push half is intentional design (recorded in memory); the no-reset-tombstone gap was deferred with the broader per-metric watch state work (M6).
+Inject a PurchasesClient rather than calling Purchases.shared directly so all states can be tested.
 
-**Confirmed from code.**
+**Recommended tests**
 
-**What:** [WatchMetricsModel.swift:96](BodyWatch/WatchMetricsModel.swift#L96) preserves any prior non-readiness metric when the incoming metric is blank. That conflates “not fetched” with “the source now has no data,” deletion, source change, or phone cache reset. In addition, merging starts from the received snapshot; if it preserves a local Sleep metric but received.sleepNight is nil, sanitization at [WatchMetricsSnapshot.swift:237](BodyWatchShared/Models/WatchMetricsSnapshot.swift#L237) clears the preserved value immediately.
+- Active entitlement, missing entitlement, inactive entitlement, cancellation, transport error, delayed propagation, and successful recovery.
+- StoreKitTest sandbox flows for purchase, restore, refund/revocation, reinstall, and another device.
 
-**Risk:** Old metrics can survive indefinitely, while one intended local-preservation path for Sleep does the opposite. clearLocalCache does not publish a reset state that can override the merge rule.
+### M-03 — Display-only awake-stage preferences change Sleep Score and Readiness
 
-**Breadth:** Sleep, training load, temperature, HR/HRV, Watch dashboard, and complications.
+**Locations**
 
-**Fix:** Carry per-metric state: value, notFetched, noData, permissionDisabled; add a snapshot reset revision. Preserve local values only for notFetched. When preserving local Sleep, preserve its sleepNight too. Extract merging into a pure helper with exhaustive state tests.
+- Body/Services/HealthKitFetchEngine+Sleep.swift:32-49, 111-128
+- BodyWatchSnapshotKit/BodySleepSampleParser.swift:82-153
+- BodyMetricsKit/Sleep.swift:479-496
+- BodyMetricsKit/ReadinessScoreCalculator.swift:647-650
 
-### M5. Watch snapshot ordering loses subsecond updates
+**Issue**
 
-**Outcome (2026-07-13): Fixed.** `WatchMetricsSnapshot` gained `publisherEpoch` + monotonic `revision`; the comparator orders same-epoch pushes by revision (surviving clock rollback) and adopts a new epoch on reinstall. Files: `WatchMetricsSnapshot.swift`, `WatchMetricsModel.swift`, `WatchConnectivityPublisher.swift`; tests `WatchSnapshotFreshnessTests.swift` + `WatchRevisionAllocatorTests.swift`. **Round 2 (2026-07-14): Fixed.** The round-1 fix ordered pushes by revision once queued, but `WatchConnectivityPublisher.send`'s admission gate (`guard snapshot.generatedAt >= lastQueuedGeneratedAt`) still ran on wall-clock time before any revision was assigned, so a backward clock change could suppress every subsequent publish indefinitely. The publisher now owns a monotonic `captureSequence` (via `nextCaptureSequence()`) requested by the store at the same point it captures `generatedAt`; the admission gate compares `captureSequence >= lastQueuedCaptureSequence` instead, and the activation-retry path re-sends with the original sequence rather than a fresh one, so ordering is clock-immune.
+“Show Awake Under 1 Min” and “Show Awake at Start & End” are presented as chart-display choices, but they are passed into parsing and remove awake intervals from the stored stage snapshot. Sleep Score continuity and readiness then calculate from that filtered snapshot.
 
-**Confirmed from code.**
+**Risk and breadth**
 
-**What:** WatchMetricsSnapshot uses JSONEncoder/Decoder .iso8601 at [WatchMetricsSnapshot.swift:270](BodyWatchShared/Models/WatchMetricsSnapshot.swift#L270), which serializes the ordering Date without reliable fractional precision. The watch accepts only received.generatedAt > current.generatedAt at [WatchMetricsModel.swift:63](BodyWatch/WatchMetricsModel.swift#L63). Two phone publications within one encoded second can compare equal, dropping the later settings or permission state.
+Changing a visualization preference changes derived health scores without any HealthKit data changing. Phone and watch values can also diverge if they do not apply the same preference generation.
 
-**Risk:** Rapid updates can leave Watch on the earlier snapshot; clock rollback can make date ordering worse.
+**Fix**
 
-**Breadth:** All Watch metrics and synchronized settings.
+Preserve a canonical unfiltered, normalized stage timeline for calculations. Apply awake visibility rules only when producing chart segments.
 
-**Fix:** Add a monotonic UInt64 revision to the payload and persisted snapshot; compare revision when present, falling back to generatedAt only for old versions. Add an encoding test with publications 100 ms apart.
+    let canonicalStages = parser.normalizedStages(samples)
+    let score = calculator.score(canonicalStages)
+    let displayedStages = canonicalStages.filtered(for: displayPreferences)
 
-### M6. Failed WatchConnectivity application context has no reliable retry
+**Recommended tests**
 
-**Outcome (2026-07-13): Deferred.** Post-activation WatchConnectivity failures are mostly persistent conditions and frequent publications already mask them; bounded retry/backoff was deferred.
+- Assert that both Sleep Score and readiness are invariant across all awake-display preference combinations.
+- Assert only chart segment visibility changes.
 
-**Confirmed from code.**
+### M-04 — A separated nap can spuriously improve sleep continuity and readiness
 
-**What:** [WatchConnectivityPublisher.swift:69](Body/Services/WatchConnectivityPublisher.swift#L69) stores pending after updateApplicationContext throws. The only flush is activationDidComplete at [WatchConnectivityPublisher.swift:88](Body/Services/WatchConnectivityPublisher.swift#L88). An already-activated session will not complete activation again; failed activation can also re-enter activation without bounded backoff.
+**Locations**
 
-**Risk:** A metric, permission, or entitlement update can remain unsent until a newer unrelated publication overwrites it; repeated activation attempts can waste power.
+- BodyWatchSnapshotKit/BodySleepFetch.swift:84-117
+- BodyWatchSnapshotKit/BodySleepSampleParser.swift:22-40
+- BodyMetricsKit/Sleep.swift:479-496
+- BodyMetricsKit/ReadinessScoreCalculator.swift:647-650
 
-**Breadth:** Phone-to-Watch synchronization.
+**Issue**
 
-**Fix:** Classify transient versus permanent errors, retry transient failures with capped backoff, and flush pending on relevant session-state changes. Guard activationDidComplete on a successful activated state.
+The wake-day snapshot intentionally preserves naps alongside the main night. continuityCategory and readiness use the flattened snapshot’s earliest-start-to-latest-end dateInterval as the sleep opportunity denominator. With a 23:00–07:00 night and a 14:00–15:00 nap, the daytime gap expands that denominator even though the gap is neither sleep nor explicit awake time.
 
-### M7. Unit and sleep preferences update Watch but leave iOS widgets stale
+**Risk and breadth**
 
-**Outcome (2026-07-13): Fixed.** New `republishCompanionSnapshots()` rebuilds both the iOS widget and watch payloads and is invoked from every formatting preference, including new energy/weight handlers. Files: `HealthKitWorkoutStore.swift`, `BodySettingsView.swift`, `HealthWidgetSnapshotBuilder.swift`.
+Continuity can increase when a distant nap is added, boosting both the Sleep Score category and readiness. The result is mathematically inconsistent with the displayed meaning of continuity.
 
-**Confirmed from code.**
+**Fix**
 
-**What:** Settings onChange handlers at [BodySettingsView.swift:108](Body/Views/BodySettingsView.swift#L108) call publishWatchSnapshot only. Health-widget values are preformatted with temperature, energy, weight, sleep-goal, and Show Sleep Score preferences in [HealthWidgetSnapshotBuilder.swift:60](Body/Services/HealthWidgetSnapshotBuilder.swift#L60). Energy and weight changes have no equivalent companion callback.
+Calculate continuity from mainSession, or explicitly sum the opportunity intervals for each real sleep session. Naps may still contribute to the Amount category if that is the intended product policy.
 
-**Risk:** Home-screen widgets can retain the old unit, goal, or score display until a later HealthKit refresh.
+**Recommended tests**
 
-**Breadth:** Health metric and sleep widgets.
+- Add the same main night with and without a far-separated nap and assert unchanged continuity/readiness.
+- Cover multiple naps and an awake interval inside the main session.
 
-**Fix:** Add one republishCompanionSnapshots method that rebuilds both Watch and iOS widget payloads, then invoke it for every formatting/goal preference. Test saved snapshot output for each preference.
+### M-05 — A nap can reset the wake-cycle boundary and remove valid workout drain
 
-### M8. A valid empty current month is replaced by an unlabeled previous month in widgets
+**Locations**
 
-**Outcome (2026-07-13): Skipped — intentional design.** The previous-month fallback for the workout calendar/type widgets is deliberate; the user re-confirmed "leave as designed" on 2026-07-12 (recorded in project memory).
+- BodyWatchSnapshotKit/BodySleepFetch.swift:84-117
+- Body/Services/HealthKitWorkoutStore.swift:2488, 3056, 3174
+- BodyWatch/WatchComputeCoordinator.swift:238
+- BodyWatchSnapshotKit/WatchMetricsSnapshotBuilder.swift:64
 
-**Confirmed from code.**
+**Issue**
 
-**What:** [WorkoutSnapshotStore.swift:196](BodyShared/Services/WorkoutSnapshotStore.swift#L196) returns the previous snapshot whenever current.workoutCount == 0, even when the current file is valid and current. The live provider uses that method at [WorkoutCalendarWidget.swift:83](BodyWidgetExtension/WorkoutCalendarWidget.swift#L83). WorkoutCalendarView renders weekday/grid content without a visible snapshot month title.
+Several consumers use the flattened stageSnapshot.dateInterval.end as the most recent wake time. Because the snapshot includes naps, a 14:00–15:00 nap changes that value from the main night’s 07:00 wake time to 15:00.
 
-**Risk:** From the first day of a new month until the first workout, the “this month” calendar/type widgets can silently show last month’s activity.
+**Risk and breadth**
 
-**Breadth:** Workout calendar and workout-type widgets at every month boundary for users with no current-month workout yet.
+A morning or midday workout can disappear from same-day readiness drain after an afternoon nap, making readiness rebound incorrectly. The same semantics exist in phone and watch calculation paths.
 
-**Fix:** Fall back only when the current file is missing/stale, not when it is a valid empty current month. If product design intentionally shows the prior month, label the month prominently.
+**Fix**
 
-### M9. Widget timelines do not carry a deterministic midnight entry
+Expose one canonical mainSleepEndDate based on mainSessionInterval.end, with dateInterval.end only as a legacy-data fallback, and use it consistently in all readiness/watch builders.
 
-**Outcome (2026-07-13): Skipped — intentional design.** Single-entry widget timelines with no forced midnight entry are a deliberate design choice.
+**Recommended tests**
 
-**Confirmed from code; actual scheduling delay depends on WidgetKit.**
+- Night + morning workout + afternoon nap should retain the workout’s readiness drain.
+- Assert phone/watch parity for the same canonical snapshot.
 
-**What:** HealthMetric, SleepStages, WorkoutCalendar, HealthTrend, and Watch complication providers each create one entry and request another after roughly 30 minutes; representative lines are [HealthMetricWidget.swift:52](BodyWidgetExtension/HealthMetricWidget.swift#L52), [SleepStagesWidget.swift:35](BodyWidgetExtension/SleepStagesWidget.swift#L35), [WorkoutCalendarWidget.swift:66](BodyWidgetExtension/WorkoutCalendarWidget.swift#L66), and [WatchComplicationsProvider.swift:32](BodyWatchWidgetExtension/WatchComplicationsProvider.swift#L32).
+### M-06 — Overlapping stages from the same source can inflate stage totals and scores
 
-**Risk:** WidgetKit does not guarantee an exact .after refresh. Yesterday’s Sleep or “today” highlight can remain visible beyond midnight until the system grants the next timeline request.
+**Locations**
 
-**Breadth:** Date-bound widgets and complications.
+- BodyWatchSnapshotKit/BodySleepSampleParser.swift:171-190, 242-246
+- BodyMetricsKit/Sleep.swift:237-242, 384-399, 500-515
+- BodyTests/BodySleepSampleParserDedupTests.swift:175-205
 
-**Fix:** Include a second entry at the next local calendar midnight that clears date-bound sleep and advances the reference date. Compute with Calendar.date(byAdding:.day) rather than +86,400 to handle DST.
+**Issue**
 
-### M10. “Save if changed” is defeated by regenerated timestamps
+Single-source explicit stage segments bypass the cross-source normalization path, and overlaps from one writer are preserved. Stage duration(for:) raw-sums segment durations, and Deep/REM score components consume those totals.
 
-**Outcome (2026-07-13): Fixed.** Both snapshot stores now decode the existing file, substitute the prior `generatedAt`/`generatedDate`, and skip the write when the bytes are equal, preserving the timestamp as a search-corpus cache key. Files: `WorkoutSnapshotStore.swift`, `HealthWidgetSnapshotStore.swift`; tests `SnapshotStoreSaveDedupeTests.swift`.
+**Risk and breadth**
 
-**Confirmed from code.**
+Duplicated or conflicting samples from one HealthKit writer can make total stage minutes exceed actual sleep union time and inflate Deep/REM shares. Existing tests currently preserve the overlap rather than asserting a disjoint timeline.
 
-**What:** HealthWidgetSnapshot.generatedDate is rebuilt on every publication at [HealthWidgetSnapshotBuilder.swift:97](Body/Services/HealthWidgetSnapshotBuilder.swift#L97) but is not used by readers. WorkoutMonthSnapshot.make defaults generatedAt to Date at [WorkoutMonthSnapshot.swift:152](BodyMetricsKit/WorkoutMonthSnapshot.swift#L152). Byte equality in [HealthWidgetSnapshotStore.swift:39](BodyShared/Services/HealthWidgetSnapshotStore.swift#L39) and [WorkoutSnapshotStore.swift:45](BodyShared/Services/WorkoutSnapshotStore.swift#L45) therefore changes even when user-visible content does not.
+**Fix**
 
-**Risk:** Unnecessary atomic writes, JSON encoding, file-cache invalidation, and WidgetKit reload-budget pressure on passive/five-minute refreshes.
+Normalize each source independently into a non-overlapping timeline before applying cross-source ranking. Collapse same-stage duplicates and define deterministic precedence for conflicting stages.
 
-**Breadth:** App Group widget persistence and reload scheduling.
+**Recommended tests**
 
-**Fix:** Compare semantic payloads excluding generation metadata, remove unused generatedDate, or preserve prior generatedAt when content is equal. Test two independently built equal-content snapshots and assert the second save is a no-op.
+- Sum of stage durations must never exceed the union of the sleep interval.
+- Cover duplicate same-stage samples, conflicting same-source stages, and cross-source priority.
 
-### M11. Training-load readiness score improves at the penalty threshold
+### M-07 — Historical sleep is bucketed before its historical timezone is resolved
 
-**Outcome (2026-07-13): Skipped — latent.** The training-load component score is not rendered anywhere, so the ~1.30 discontinuity is not user-visible; left for a future scoring pass.
+**Locations**
 
-**Confirmed pure logic.**
+- BodyWatchSnapshotKit/BodySleepSessionizer.swift:81-91
+- BodyWatchSnapshotKit/BodySleepFetch.swift:96-145
+- Body/Services/HealthKitFetchEngine+Sleep.swift:15-18, 85-93
+- Body/Services/HealthKitFetchEngine.swift:512-527, 2096-2098, 2278-2280
 
-**What:** trainingLoadScore uses the sustainable curve through 1.30 at [ReadinessScoreCalculator.swift:781](BodyMetricsKit/ReadinessScoreCalculator.swift#L781). The sustainable score at 1.30 is 62 at [ReadinessScoreCalculator.swift:900](BodyMetricsKit/ReadinessScoreCalculator.swift#L900), but a value just above 1.30 starts a penalty curve at base 70. A worse load therefore raises the component score by about eight points.
+**Issue**
 
-**Risk:** The displayed component and any dependent explanation are non-monotonic at a clinically meaningful boundary.
+Sleep sessions are assigned to a wake day using the caller/current calendar. Only afterward does BodySleepFetch resolve HealthKit timezone metadata or the timezone ledger and stamp the result. That later zone cannot repair an already incorrect day bucket. The ledger’s production writes also occur inside sleep fetches, so disabling/hiding Sleep or lacking its permission can leave travel periods unrecorded.
 
-**Breadth:** Readiness days with training-load ratio around 1.30.
+**Risk and breadth**
 
-**Fix:** Make the penalty curve continuous from the 1.30 score, or redesign one monotonic curve. Add boundary tests for 1.299, 1.300, and 1.301.
+Travel across large offsets or the date line can associate a night with the wrong date, affecting sleep history, trends, readiness, widgets, and watch seed data. The problem can persist in historical cache entries.
 
-### M12. Readiness confidence uses the best baseline count and hides normal vitals
+**Fix**
 
-**Outcome (2026-07-13): Skipped — informational.** Readiness confidence and the vitals component are not displayed, so the described semantics have no user-facing effect today.
+Resolve the best timezone for each session/end instant before deriving its wake day. Record timezone changes independently on app activation and NSSystemTimeZoneDidChange, not as a side effect of successfully fetching Sleep.
 
-**Confirmed calculation; desired product semantics should be confirmed.**
+**Recommended tests**
 
-**What:** vitalsAssessment at [ReadinessScoreCalculator.swift:690](BodyMetricsKit/ReadinessScoreCalculator.swift#L690) returns nil when qualified vitals are normal, so vitals appear “unavailable” only on good days. confidence at [ReadinessScoreCalculator.swift:801](BodyMetricsKit/ReadinessScoreCalculator.swift#L801) receives bestBaselineDayCounts.max rather than the limiting evidence count. Long synthetic training history can therefore produce high confidence while physiological baselines are short.
+- Absolute sample intervals spanning Tokyo/New York travel should map to the intended local wake day.
+- Disable Sleep during travel, re-enable later, and verify ledger-based historical mapping.
 
-**Risk:** Confidence communicates more evidence than the score actually has, and component availability changes based on whether the reading is abnormal.
+### M-08 — A transient WatchConnectivity publication failure can strand the latest context
 
-**Breadth:** Readiness confidence/status explanation.
+**Locations**
 
-**Fix:** Track “reading available” separately from anomaly magnitude; produce a neutral vitals component for qualified normal readings. Base confidence on per-component thresholds or the limiting core baseline, not the maximum.
+- Body/Services/WatchConnectivityPublisher.swift:228-250, 298-319
 
-### M13. Effort calibration scores all prior workouts with the target day’s resting HR
+**Issue**
 
-**Outcome (2026-07-13): Skipped.** The calibration bias is already bounded by a ±2 clamp, capping any target-day resting-HR skew.
+On a non-size updateApplicationContext failure, the publisher keeps the context as pending. Pending work is drained by activation completion, but sessionReachabilityDidChange is empty. If the WCSession is already activated, no later activation callback is guaranteed.
 
-**Confirmed pure logic.**
+**Risk and breadth**
 
-**What:** [HealthKitWorkoutStore.swift:566](Body/Services/HealthKitWorkoutStore.swift#L566) supplies one target-workout resting-HR input. calibrationBias at [WorkoutEffortEstimator.swift:619](BodyMetricsKit/WorkoutEffortEstimator.swift#L619) re-scores every historical prior with that same input.
+The latest phone snapshot/settings can remain unsent until some unrelated future publication or session reactivation. Watch dashboard, complications, permissions, and source selection can remain stale.
 
-**Risk:** Changes in resting HR are incorrectly attributed to historical rating bias. For example, a target-day RHR of 50 is applied to workouts completed when RHR was 70, overstating their heart-rate reserve and shifting the learned offset.
+**Fix**
 
-**Breadth:** Predicted workout effort for users whose resting HR changes over time.
+Add a bounded retry state machine with backoff and latest-sequence-wins replacement. Flush on activation, reachability, and other appropriate WCSession transitions; do not require reachability for application-context delivery, but use transitions as retry signals.
 
-**Fix:** Supply a per-day resting-HR lookup and build a prior-specific input, or choose a calibration basis that deliberately does not use target-day RHR. Add a test with two distinct prior-day resting HR values.
+**Recommended tests**
 
-### M14. HealthKit write boundaries accept invalid or partial body-composition input
+- Inject one transient failure followed by success and assert automatic resend.
+- Queue several generations while failed and assert only the newest is delivered.
 
-**Outcome (2026-07-13): Skipped.** The only caller of the body-composition write path is a bounded picker UI, so invalid / infinite / future inputs cannot reach it.
+### M-09 — A malformed or future permission payload fails open to all app-level permissions
 
-**Confirmed app-side acceptance; HealthKit’s response to each invalid value needs runtime verification.**
+**Locations**
 
-**What:** [HealthKitFetchEngine+Write.swift:50](Body/Services/HealthKitFetchEngine+Write.swift#L50) checks weight only for > 0, so infinity passes; body fat accepts values above 100 and infinity; date may be arbitrarily future. Invalid fields can be silently skipped while valid siblings save. Effort clamps without first requiring a finite value at [HealthKitFetchEngine+Write.swift:142](Body/Services/HealthKitFetchEngine+Write.swift#L142).
+- BodyMetricsKit/BodyHealthSelections.swift:265-283
+- BodyWatch/WatchMetricsModel.swift:126-127, 407-430
 
-**Risk:** Opaque HealthKit errors, inconsistent partial saves, or invalid/future records if an internal caller bypasses the picker.
+**Issue**
 
-**Breadth:** Body composition and workout effort writes.
+Permission parsing compactMaps recognized tokens. If a present payload contains only unknown tokens, parsing returns the default selection, which enables all metrics. The watch stores the raw unvalidated string and considers synchronization complete based on presence.
 
-**Fix:** Validate all inputs atomically at the service boundary and throw a dedicated invalidInput error before creating any sample. Require finite values, product-approved ranges, at least one field, and a nonfuture date.
+**Risk and breadth**
 
-### M15. Raw intraday loading fetches a year of unlimited samples and is not cancellable
+A corrupted payload or a future-version payload read by an older app can broaden the app’s metric selection. This does not bypass iOS HealthKit authorization, but it violates the user’s in-app privacy/visibility policy and can trigger additional authorized reads.
 
-**Outcome (2026-07-13): Fixed.** Added `intradayDaySampleInterval(calendar:)` bounding intraday fetches to the UI-reachable ~33 days (with 48 h overlap), leaving the 365-day trend charts unaffected. File: `HealthKitFetchEngine.swift`. **Round 2 (2026-07-14): Fixed.** Bounding the fetch window didn't address the other half of the finding — none of the ~26 continuation-based query wrappers used `withTaskCancellationHandler`/`healthStore.stop`, so a cancelled task left the underlying HK query running. Added a `runCancellableQuery` helper with a lock-protected state machine (`pendingNoQuery` / `pendingWithQuery(HKQuery)` / `cancelled` / `completed`, handling cancellation landing before the query is even installed) and applied it to the two heaviest queries — `fetchQuantitySampleSeries` (intraday series) and the month workouts query; other lightweight wrappers are left unchanged (surgical scope). Follow-on: `handleRefreshError` now early-returns on `CancellationError` so a cancelled refresh no longer surfaces a failure notice to the user. **Round 3 (2026-07-14): Fixed.** `CancellableQueryCoordinator.install` set `.pendingWithQuery`, unlocked, then called `healthStore.execute(query)`; a cancel landing in that window stopped a not-yet-executed query (no-op) and resumed the caller, after which install executed the query anyway — leaking the HK work, the exact gap the round-2 fix targeted. The coordinator now has an explicit `.executing` phase with a deferred exactly-once stop (`.cancelledAwaitingStop` → install's post-execute re-check performs the single `stop`), injectable execute/stop closures, and internal visibility; deterministic latch-controlled race tests live in the new `BodyTests/CancellableQueryCoordinatorTests.swift`. Scope honestly unchanged: this still covers only the two `runCancellableQuery` call sites — `fetchQuantitySampleSeries` and the month-workouts query in `fetchWorkoutSummaries`; the other checked-continuation query wrappers (e.g. the effort/source/sleep/write paths) still execute HK queries without cancellation handling and remain a deliberate surgical deferral.
+**Fix**
 
-**Confirmed from code.**
+Distinguish “field absent on a fresh install” from “field present but invalid.” Version the payload. Reject an all-unknown present value and retain the last valid selection or fail closed; preserve recognized values in a mixed known/unknown payload.
 
-**What:** [HealthKitFetchEngine.swift:1078](Body/Services/HealthKitFetchEngine.swift#L1078) defaults to the 365-day trend interval, uses HKObjectQueryNoLimit, materializes all samples, and wraps HKSampleQuery in withCheckedContinuation without a cancellation handler. The detail day picker exposes only 30 past days plus tomorrow at [BodyHealthMetricDetailView.swift:615](Body/Views/Health/BodyHealthMetricDetailView.swift#L615).
+**Recommended tests**
 
-**Risk:** Heart-rate data can mean tens of thousands of objects, high memory/IPC cost, and continued work after the detail view is dismissed.
+- Absent, empty, all-unknown, mixed known/unknown, duplicate, and future-version payloads.
+- Assert the watch never expands selection after an invalid update.
 
-**Breadth:** First intraday load per metric/source, most severe for heart rate.
+### M-10 — Watch compute-seed semantic deduplication is defeated by a transport timestamp
 
-**Fix:** Fetch only the UI-reachable window plus overlap, or page/downsample older data if year navigation is planned. Use async descriptors or withTaskCancellationHandler and healthStore.stop(query).
+> **Status (2026-08-03):** Fixed in 0.9.10 build 21 — `WatchComputeSeed` now has a custom `encode(to:)` that omits `publishedAt` (CodingKeys/decode untouched for old payloads), so the store's byte compare dedups semantically.
 
-### M16. Intraday day-slice cache can return stale values
+**Locations**
 
-**Outcome (2026-07-13): Fixed.** `BodyMetricDaySeriesCache` now stores the source `HealthTrendSeries` and requires `entry.source == series` on a hit, so a backdated edit invalidates the cached day slice. File: `Body/Views/Health/BodyHealthMetricDetailView.swift`.
+- BodyWatchSnapshotKit/WatchComputeSeed.swift:118-128, 297-308
+- Body/Services/HealthKitWorkoutStore.swift:3520, 3582-3587
+- BodyWatch/WatchComputeSeedStore.swift:57-80
+- BodyWatch/WatchMetricsModel.swift:204-214
 
-**Confirmed from code.**
+**Issue**
 
-**What:** BodyMetricDaySeriesCache.Key at [BodyHealthMetricDetailView.swift:2342](Body/Views/Health/BodyHealthMetricDetailView.swift#L2342) includes selected day, count, firstDate, and lastDate only. A backdated edit or source refresh can change middle values while preserving every key field.
+publishedAt is documented as transport metadata and is refreshed for every publication, but deterministic encoding includes it. WatchComputeSeedStore compares exact bytes, so otherwise identical seeds are always considered changed.
 
-**Risk:** A detail chart and its average can continue showing old samples after the store publishes changed data.
+**Risk and breadth**
 
-**Breadth:** Intraday detail charts.
+Every redundant phone publication rewrites disk and increments watch compute generation. That can cancel/discard useful work or make current computation wait behind a stale multi-query pass, increasing latency and battery use.
 
-**Fix:** Include a content revision/fingerprint from HealthTrendSeries, or compare/hash the selected day’s points. Test two series with identical count/endpoints but different middle values.
+**Fix**
 
-### M17. Home trend assembly repeats full-series hashing during one render
+Compare a semantic content hash that excludes publishedAt, or normalize the timestamp before equality. Keep publishedAt only for diagnostics/freshness if needed.
 
-**Outcome (2026-07-13): Deferred — perf.** Home trend re-fingerprinting is a measure-first optimization; not addressed this round.
+**Recommended tests**
 
-**Confirmed from code; measure on target devices before choosing the final cache strategy.**
+- Two payloads differing only in publishedAt must return unchanged.
+- A real permission/source/metric change must still increment generation.
 
-**What:** hasHomeTrends, homeTrendsContent, canToggleAllHomeTrends, and visible card getters repeatedly invoke model assembly at [BodyHomeView.swift:632](Body/Views/BodyHomeView.swift#L632) and [BodyHomeView.swift:823](Body/Views/BodyHomeView.swift#L823). Cache hits still fingerprint every point at [BodyHomeView.swift:2321](Body/Views/BodyHomeView.swift#L2321). Progressive store publications amplify the work.
+### M-11 — Watch seed I/O APIs conflate “unchanged” with “failed”
 
-**Risk:** Avoidable main-thread CPU during Home updates with 365-day series.
+**Locations**
 
-**Breadth:** Home dashboard, especially all-metrics mode.
+- BodyWatch/WatchComputeSeedStore.swift:62-81, 141-151
+- BodyWatch/WatchMetricsModel.swift:204-214, 296-318
 
-**Fix:** Compute the visible models and toggle eligibility once per body pass, or key the model factory by a store-provided snapshot revision. Add a signpost assertion that each metric is fingerprinted at most once per body update.
+**Issue**
 
-### M18. Long-workout split computation repeats on unrelated detail state changes
+save returns false for both equal bytes and a URL/write failure. clear returns false for both an absent file and removal failure. Intake and reset paths cannot distinguish a no-op from failure, and generation invalidation depends on the resulting Boolean.
 
-**Outcome (2026-07-13): Deferred — perf.** Split-computation memoization is a measure-first optimization; not addressed this round.
+**Risk and breadth**
 
-**Confirmed from code.**
+A write failure can leave an old seed or old in-flight compute eligible. A failed clear can allow previously invalidated metrics to reappear on a later launch.
 
-**What:** splitsPresentation calls WorkoutSplitCalculator over raw distance samples at [BodyWorkoutsView.swift:1386](Body/Views/BodyWorkoutsView.swift#L1386) each time BodyWorkoutDetailSheet evaluates. Effort edits, prediction resolution, route updates, and store publications can all trigger it.
+**Fix**
 
-**Risk:** Large raw split series are recomputed on the main actor during interactions.
+Return a structured result such as unchanged, written, removed, or failed(Error). On a persistence failure, invalidate in-memory generations and fail closed even if cleanup cannot complete.
 
-**Breadth:** Long distance workouts with many distance samples.
+**Recommended tests**
 
-**Fix:** Memoize by split-data revision, units, workout bounds, and type; recompute only when those inputs change. Performance-test with a long synthetic run while editing effort.
+- Fault-inject URL, encode, write, and remove failures.
+- Verify old compute cannot publish after any failed replace/reset.
 
-### M19. Background customization writes UserDefaults on every drag frame
+### M-12 — Most HealthKit continuation queries are not cancellation-aware
 
-**Outcome (2026-07-13): Fixed.** The color/separator editors now drag against local `@State` drafts and persist to AppStorage only on gesture end. File: `BodySettingsView.swift`.
+**Locations**
 
-**Confirmed from code.**
+- Body/Services/HealthKitFetchEngine.swift:741, 816, 886, 987, 1052, 1119, 1572, 1845, 1958, 2043
+- BodyWatchSnapshotKit/BodyHealthQuantityFetch.swift:74, 118
+- BodyWatchSnapshotKit/BodySleepFetch.swift:60, 179
+- BodyWatch/WatchHealthStore.swift:115
+- BodyWatch/WatchComputeCoordinator.swift:35-60
 
-**What:** Persisted color/separator bindings parse and serialize AppStorage strings at [BodySettingsView.swift:1168](Body/Views/BodySettingsView.swift#L1168). Gesture onChanged handlers mutate them continuously at [BodySettingsView.swift:1627](Body/Views/BodySettingsView.swift#L1627) and [BodySettingsView.swift:1698](Body/Views/BodySettingsView.swift#L1698).
+**Issue**
 
-**Risk:** Preference-write churn and invalidation of all AppStorage consumers can make the editor visibly janky.
+Only a small subset of engine queries use the cancellation wrapper. Most withCheckedContinuation bridges do not stop the underlying HKQuery when their Swift Task is cancelled. The watch coordinator awaits an old fan-out before starting the next generation.
 
-**Breadth:** Background color and separator dragging.
+**Risk and breadth**
 
-**Fix:** Edit local State drafts, update preview from drafts, and persist on gesture end, Done, or a short throttle.
+After source, permission, seed, or lifecycle changes, stale queries continue consuming HealthKit work. A slow or never-completing query can delay the current watch generation and contributes to the month-loading retry issue in L-01.
 
-### M20. A pending purchase can strand every recovery action
+**Fix**
 
-**Outcome (2026-07-13): Fixed (partial).** While a purchase is pending, only re-purchase is disabled — Restore and Redeem stay enabled for in-session recovery. File: `Body/Views/BodyProView.swift`. (An authoritative-inactive auto-clear / "Check status" action was not added.)
+Generalize the existing lock-safe cancellable-query wrapper so cancellation stops the HKQuery and resumes exactly once. Allow a replacement watch generation to begin without awaiting obsolete work.
 
-**Confirmed state-machine path; Ask-to-Buy/SCA behavior should be tested with StoreKitTest.**
+**Recommended tests**
 
-**What:** BodyProStore clears pending only when entitlement becomes active at [BodyProStore.swift:161](Body/Services/BodyProStore.swift#L161). BodyProView treats pending as an active flow at [BodyProView.swift:29](Body/Views/BodyProView.swift#L29) and disables Purchase, Restore, and Redeem at [BodyProView.swift:130](Body/Views/BodyProView.swift#L130). A declined or abandoned external approval can remain pending until process restart.
+- Cancel before query start, during execution, and concurrently with completion.
+- Assert exactly-once continuation resume and that a new generation is not blocked by a noncompleting old query.
 
-**Risk:** The user has no in-session recovery/check action.
+### M-13 — Split average heart rate can be fabricated across gaps or from another split
 
-**Breadth:** Ask-to-Buy and SCA purchase attempts.
+**Locations**
 
-**Fix:** Disable only duplicate purchase submission while pending; retain Restore/manage/check-status actions. Clear pending after an authoritative inactive refresh or expose “Check status.” Cover the state machine with StoreKitTest or an injected purchase client.
+- BodyMetricsKit/WorkoutSplitCalculator.swift:425-469
+- BodyTests/WorkoutSplitCalculatorTests.swift:619-638
+
+**Issue**
+
+Average-HR integration interpolates across every adjacent sample without a maximum allowed gap. If a split has no coverage, it falls back to the nearest sample anywhere in the workout. A current test explicitly expects an empty later split to reuse 148 BPM from the prior split.
+
+**Risk and breadth**
+
+Long sensor dropouts appear as measured averages, and a split with no HR data can display another split’s heart rate. This undermines workout-detail accuracy.
+
+**Fix**
+
+Cap interpolation to a cadence-aware threshold, restrict boundary fallback to a small tolerance around the split, and return nil/“—” when coverage is insufficient. Optionally expose coverage percentage.
+
+**Recommended tests**
+
+- Empty split, long middle dropout, one boundary sample, sparse valid coverage, and watch pause intervals.
+
+### M-14 — Effort calibration applies the target day’s resting HR to every prior workout
+
+**Locations**
+
+- Body/Services/HealthKitWorkoutStore.swift:722-739
+- BodyMetricsKit/WorkoutEffortEstimator.swift:302-315, 393-412, 629-648
+
+**Issue**
+
+The store supplies one target-day resting-HR scalar. Calibration re-scores every prior workout through helpers that read that same scalar rather than each prior workout’s contemporaneous resting HR.
+
+**Risk and breadth**
+
+Real fitness, illness, or recovery changes can be interpreted as user-rating bias. Suggested effort and optional Auto-Apply HealthKit writes can shift by the calibration cap even when the user’s rating behavior is stable.
+
+**Fix**
+
+Carry day-keyed resting HR for each calibration workout, store the estimator basis with prior calibration records, or use one consistent non-HRR basis for both target and priors.
+
+**Recommended tests**
+
+- Keep workout data/ratings equal while varying target and prior-day RHR independently.
+- Assert calibration reflects rating bias rather than physiological baseline drift.
+
+### M-15 — Two live localization entries guarantee the catalog coverage test fails
+
+> **Status (2026-08-03):** Fixed in 0.9.10 build 21 — live sleep explanation translated (en + zh-Hans, stale duplicate deleted) and “v3” filled following the v1/v2 pattern; `testChineseLocalizationCatalogsAreComplete` is green.
+
+**Locations**
+
+- Body/Localizable.xcstrings:1764-1766
+- Body/Views/Health/BodyHealthMetricDetailView.swift:2238
+- Body/Localizable.xcstrings:7963-7965
+- Body/Views/BodySettingsView.swift:1898
+- BodyTests/ProjectConfigurationTests.swift:2607-2645
+
+**Issue**
+
+The live sleep-score explanation has an empty localization entry, and “v3” is also an empty entry. The configuration test force-unwraps localizations for every nonempty catalog key and requires translated English and Simplified Chinese values.
+
+**Risk and breadth**
+
+The current test is statically guaranteed to fail at one of these entries, and the sleep explanation falls back to its English source text in Chinese UI. The stale prior explanation is translated but no longer matches the live text.
+
+**Fix**
+
+Translate the current sleep explanation and remove/update the stale entry. For “v3,” either provide explicit values or mark it nontranslatable and update the test to intentionally skip entries whose shouldTranslate flag is false.
+
+**Recommended tests**
+
+- Keep the catalog coverage test, but make its nontranslatable policy explicit.
+- Add a zh-Hans smoke test for the sleep explanation and Settings version row.
+
+### M-16 — Production service singletons and hosted-test startup prevent isolation of critical flows
+
+**Locations**
+
+- Body/Services/BodyProStore.swift:56-156
+- Body/BodyApp.swift:15-24, 35-48
+- BodyTests/ProjectConfigurationTests.swift:2517-2581
+- body.xcodeproj/project.pbxproj:894-935
+
+**Issue**
+
+BodyProStore calls Purchases.shared directly. Existing monetization tests mainly assert source text and cached boolean behavior. BodyTests are hosted in Body.app, whose launch path configures RevenueCat/WatchConnectivity and starts HealthKit sync plus an entitlement refresh, with no test-service override.
+
+**Risk and breadth**
+
+Unit tests can couple to network, HealthKit authorization, App Group files, and singleton state. The purchase state machine, refresh race, persistence failures, and lifecycle behavior cannot be tested deterministically.
+
+**Fix**
+
+Introduce small PurchasesClient, HealthKitClient, WatchSessionClient, Clock, and SnapshotRepository protocols. Construct AppServices at the composition root and supply no-op/fake services to hosted tests. Keep truly pure tests unhosted where practical and retain a separate explicit integration scheme.
+
+**Recommended tests**
+
+- Purchase/restore state matrices with a fake client.
+- App launch with no service side effects in unit-test mode.
+- Parallel tests using separate temporary snapshot repositories.
+
+### M-17 — Metric detail rendering repeatedly rebuilds a whole-history workout index
+
+**Locations**
+
+- Body/Views/Health/BodyHealthMetricDetailView.swift:742-793, 1753-1806
+- Body/Views/Health/BodyHealthMetricDetailView.swift:403, 1369
+
+**Issue**
+
+workouts(on:) traverses every loaded month/day, flatMaps all workouts, rebuilds a UUID dictionary, filters, and sorts. Multiple body helpers request the same result independently. Readiness chart scrubbing updates selection state and can cause this work to recur during gestures.
+
+**Risk and breadth**
+
+Cost grows with every history month loaded. On older phones or large libraries, health detail scrubbing can hitch and allocate heavily.
+
+**Fix**
+
+Maintain an interval/date workout index in the store, or cache the selected-day result by day plus a workout-snapshot revision. Compute dayWorkouts once per body evaluation and pass it to all consumers.
+
+**Recommended tests**
+
+- Load many synthetic months and assert index-build count is unchanged while only chart selection moves.
+- Add signposts/performance tests around day selection and scrubbing.
+
+### M-18 — The rolling month carousel can show a different month from its binding
+
+**Locations**
+
+- Body/Views/BodyMonthYearPicker.swift:87-92, 209-216, 237-245
+
+**Issue**
+
+When the selected oldest month falls out of the rolling 36-month list, the visual index remains zero and now points to the new oldest month. The bound selectedMonth/selectedYear remain the removed month because a missing bound value is silently ignored.
+
+**Risk and breadth**
+
+The header can show one month while the Workouts content and subsequent navigation still use another.
+
+**Fix**
+
+Define one absent-selection policy: either retain the selected item in the list or clamp the binding and visual index together through the selection callback. Never update only the visual fallback.
+
+**Recommended tests**
+
+- Select the oldest month, advance the reference date one month, and assert displayed label, binding, and loaded snapshot remain identical.
+
+### M-19 — Home background editing is inaccessible without precision drag gestures
+
+**Locations**
+
+- Body/Views/BodySettingsView.swift:1281-1293, 1495-1634, 1694-1716, 1777-1797
+
+**Issue**
+
+Divider and color controls are drag-only. Disabled state uses allowsHitTesting rather than accessibility semantics. Profile selection uses an invisible Color.clear button label while visible text is a sibling, and deletion is exposed only through a custom swipe/reveal interaction.
+
+**Risk and breadth**
+
+VoiceOver, Switch Control, keyboard users, and users unable to make precise two-dimensional drags cannot reliably configure, select, rename, or delete this paid feature.
+
+**Fix**
+
+Make the visible row the actual Button label; expose selected traits plus named Rename/Delete actions. Add accessibilityAdjustableAction for divider percentages and labeled ColorPicker fallbacks. Use disabled and intentional accessibility visibility rather than hit testing alone.
+
+**Recommended tests**
+
+- Accessibility Inspector review.
+- XCUI flow that selects, adjusts, renames, and deletes a profile without drag gestures.
+
+### M-20 — Critical runtime flows have no UI or widget-provider test target
+
+**Locations**
+
+- body.xcodeproj/project.pbxproj:304-453
+- body.xcodeproj/xcshareddata/xcschemes/BodyWidgetExtension.xcscheme:26-32
+
+**Issue**
+
+The project contains phone and watch unit-test bundles but no XCUI target and no executable widget-provider runtime test target; the widget scheme TestAction is empty. The roughly 1,000 pure/configuration tests are valuable, but they cannot exercise onboarding, scene lifecycle, real navigation, StoreKit UI, WidgetKit scheduling, or accessibility.
+
+**Risk and breadth**
+
+Several highest-risk user journeys can regress while source-shape tests remain green: first launch/permission denial, purchase and restore, widget empty/Pro/midnight states, watch foregrounding, and Chinese layout.
+
+**Fix**
+
+Add a small deterministic UI smoke suite with launch arguments and injected services. Add provider-level tests that construct timelines at controlled dates without requiring the WidgetKit host.
+
+**Recommended tests**
+
+- See the dedicated Test Coverage Gaps section below.
 
 ## Low
 
-### L1. Resume freshness checks fail open when the system clock moves backward
+### L-01 — A genuinely hung month load remains cached after the 15-second UI timeout
 
-**Outcome (2026-07-13): Fixed.** `syncWhenAppBecomesActive` now treats a negative elapsed interval as stale in both checks. File: `HealthKitWorkoutStore.swift`.
+**Locations**
 
-**What:** [HealthKitWorkoutStore.swift:1485](Body/Services/HealthKitWorkoutStore.swift#L1485) treats a negative elapsed interval as less than 60/300 seconds. A future lastAppEntrySyncDate suppresses resumes until wall time catches up; a future persisted lastSuccessfulRefreshDate selects the “fresh dashboard” path.
+- Body/Views/BodyWorkoutsView.swift:469-518
 
-**Impact:** Health data can remain stale for hours or days after manual clock correction.
+**Issue**
 
-**Fix:** Treat elapsed < 0 as stale and reset the relevant timestamp. Add negative-elapsed tests.
+Ordinary failed loads correctly return false and remove their cached Task. A noncompleting or very long HealthKit load is different: the UI timeout clears only pendingMonthSelection, while monthLoadTasks continues to hold and reuse the same Task. Later taps time out against that task again.
 
-### L2. Route display waits for reverse geocoding
+**Risk and breadth**
 
-**Outcome (2026-07-13): Fixed (partial).** The store seam publishes coordinates first and resolves locality separately; the detail view still awaits the full route call, so the optional "show map before locality" polish is deferred. Files: `HealthKitWorkoutStore.swift`, `HealthKitFetchEngine+Route.swift`.
+One month can remain unretryable until the view/app is recreated, and the task can retain view-related state. This requires a hung query rather than a normal error, so it is Low by itself; M-12 makes the trigger credible.
 
-**What:** [HealthKitWorkoutStore.swift:841](Body/Services/HealthKitWorkoutStore.swift#L841) fetches coordinates, then awaits BodyReverseGeocoder before returning. [BodyWorkoutsView.swift:889](Body/Views/BodyWorkoutsView.swift#L889) assigns route only after the entire call.
+**Fix**
 
-**Impact:** A valid map hero remains absent behind a slow/throttled geocoder.
+Move coalescing into a store/coordinator with generation-aware deadlines. Once the underlying queries are cancellation-safe, evict and cancel the matching generation on timeout; a late old completion must not remove or navigate for a newer request.
 
-**Fix:** Publish coordinates immediately and resolve locality independently; update only the label later.
+### L-02 — Sleep surfaces do not schedule an exact midnight invalidation
 
-### L3. Home preview sizing uses global screen width
+**Locations**
 
-**Outcome (2026-07-13): Deferred — perf.** Container-width preview sizing is a measure-first change; not addressed this round.
+- BodyWidgetExtension/SleepStagesWidget.swift:35-59
+- BodyWidgetExtension/HealthMetricWidget.swift:52-77
+- BodyWatchWidgetExtension/WatchComplicationsProvider.swift:22-36
+- BodyWatch/WatchMetricsModel.swift:102-116
+- BodyWatch/BodyWatchApp.swift:21-32
 
-**What:** [BodyHomeView.swift:672](Body/Views/BodyHomeView.swift#L672) and [BodyHealthMetricCard.swift:23](Body/Views/Health/BodyHealthMetricCard.swift#L23) derive point counts/widths from UIScreen.main.bounds.
+**Issue**
 
-**Impact:** iPad Split View, Stage Manager, and multiwindow layouts can receive a “wide screen” preview in a compact container, causing compression and excess work.
+Providers sanitize sleep when constructing their current entry, then request the next reload after a 30-minute interval. WidgetKit may defer that earliest reload. The watch sanitizes on appearance, but its scene-active path can enter freshness throttles without first applying the day boundary.
 
-**Fix:** Use container width or a parent-supplied layout category and include it in the memo key.
+**Risk and breadth**
 
-### L4. Workout list popups eagerly construct every row
+Already-rendered widget, complication, or watch pixels can label yesterday’s sleep as current for some time after midnight. Phone render sites generally call asOf and are not included in this claim.
 
-**Outcome (2026-07-13): Fixed.** The workout list popup switched from `VStack` to `LazyVStack`. File: `Body/Views/BodyWorkoutListSheet.swift`.
+**Fix**
 
-**What:** [BodyWorkoutListSheet.swift:90](Body/Views/BodyWorkoutListSheet.swift#L90) uses VStack inside ScrollView for all selected workouts.
+Append an explicitly future-dated sanitized entry at the next local midnight, as WorkoutCalendarProvider already does for month rollover. Sanitize synchronously before watch foreground throttling.
 
-**Impact:** Large month/type selections create every row and formatter immediately.
+### L-03 — Dashboard main/sidecar/freshness values do not share a commit generation
 
-**Fix:** Use LazyVStack and test with several hundred workout summaries.
+**Locations**
 
-### L5. Gesture-only workout-detail dismissal is an accessibility risk
+- Body/Services/HealthDashboardSnapshotStore.swift:165-204, 208-238
+- Body/Services/HealthKitWorkoutStore.swift:394-406, 1229-1260, 3112-3120, 3299-3301
 
-**Outcome (2026-07-13): Skipped — intentional design.** The gesture-only workout-detail dismissal (no close button) is deliberate; drag-to-dismiss was verified working on the fullScreenCover path.
+**Issue**
 
-**What:** BodyWorkoutDetailSheet hides the navigation bar and has no dismiss action at [BodyWorkoutsView.swift:848](Body/Views/BodyWorkoutsView.swift#L848). The calendar/type path presents it with fullScreenCover at [BodyWorkoutListSheet.swift:129](Body/Views/BodyWorkoutListSheet.swift#L129). [ProjectConfigurationTests.swift:1556](BodyTests/ProjectConfigurationTests.swift#L1556) explicitly pins the absence of a close button.
+The stripped main snapshot is written before the intraday sidecar, while freshness metadata advances separately. A termination or write failure can pair generations when source/combine signatures happen to match.
 
-**Impact:** Drag-to-dismiss is undiscoverable and can be difficult with Switch Control, AssistiveTouch, motor impairments, or an interrupted transition. The fullScreenCover path needs direct device verification.
+**Risk and breadth**
 
-**Fix:** Add an accessible top-leading/back or close action using Environment dismiss. It can coexist with the zoom gesture.
+Hydration validation and incremental detail loading limit the likely result to stale/missing intraday chart samples, avoidable cache churn, or an overstated freshness/watch watermark—not broad corruption of the entire dashboard.
 
-### L6. Custom full-screen overlays do not declare modal accessibility
+**Fix**
 
-**Outcome (2026-07-13): Fixed.** Both the readiness overlay and the first-launch overlay now set `.isModal` and hide the background from accessibility while presented. Files: `BodyHomeView.swift`, `MainTabView.swift`, `BodyFirstLaunchOverlay.swift`.
+Put a generation UUID/content hash in both files, write the sidecar first, and make the main envelope the commit record. Advance freshness/signatures only after a successful matching commit.
 
-**What:** Readiness uses a plain overlay at [BodyHomeView.swift:472](Body/Views/BodyHomeView.swift#L472); initial load is also a custom overlay at [MainTabView.swift:57](Body/Views/MainTabView.swift#L57).
+### L-04 — Home trend lines visually bridge missing measurements
 
-**Impact:** VoiceOver may traverse controls visually blocked behind the overlay.
+> **Status (2026-08-03):** Intentional design — won’t fix. The user wants the preview line to look filled even with gaps in the actual data. Applies equally to the `BodyHealthMetricCard` polyline; do not re-flag either in future reviews.
 
-**Fix:** Prefer fullScreenCover, or mark the overlay modal, hide underlying accessibility nodes while presented, and move focus into the overlay. Add accessibility UI coverage.
+**Locations**
 
-### L7. Reduce Motion is inconsistently honored
+- Body/Views/Health/BodyHomeTrendCard.swift:567-590
+- BodyShared/Components/HealthWidgetTrendChartView.swift:207-248
+- BodyWatch/WatchSparklineView.swift
 
-**Outcome (2026-07-13): Fixed.** Reduce-motion gates were added to the star-hero count-up, the wave-fill slosh, and the Pro icon flip. Files: `BodyReadinessStarHero.swift`, `BodyProView.swift`. **Round 2 (2026-07-14): Fixed.** The round-1 gates missed the Activity Rings completion star — a separate view from the readiness star hero. `BodyActivityRingsCard` now reads `@Environment(\.accessibilityReduceMotion)` and skips the `.easeInOut(0.35)` fade animation and transition when Reduce Motion is on, matching the existing `BodyActivityRingGraphic` pattern. File: `BodyActivityRingsDetailView.swift`.
+**Issue**
 
-**What:** BodyReadinessStarHero observes reduce motion but still uses smooth/spring animation at [BodyReadinessStarHero.swift:54](Body/Views/BodyReadinessStarHero.swift#L54); activity completion and the Pro icon also animate without a complete reduce-motion branch.
+The home line plot removes nil values and draws one continuous path through the remaining points. A value/nil/value sequence appears connected, implying measurements or interpolation through the gap.
 
-**Impact:** Accessibility preference is not respected across major celebratory/transform animations.
+**Risk and breadth**
 
-**Fix:** Gate animations or apply immediate state transitions when accessibilityReduceMotion is true.
+This is a presentation error on line-style Home comparisons; it does not modify stored health data.
 
-### L8. Watch permission synchronization fails open on malformed data
+**Fix**
 
-**Outcome (2026-07-13): Skipped.** Strict fail-closed parsing of synchronized permissions is cross-version defense-in-depth against data the app itself never writes; deferred.
+Retain optional positions and draw one path per contiguous nonnil run. Reuse the correct gap behavior already present in the widget/watch chart implementations.
 
-**What:** [WatchMetricsModel.swift:80](BodyWatch/WatchMetricsModel.swift#L80) stores any nonnil permission string and thereby opens the Watch HealthKit read gate. [BodyHealthSelections.swift:264](BodyMetricsKit/BodyHealthSelections.swift#L264) uses an all-enabled fallback for malformed persisted values.
+### L-05 — Overlapping alternate-icon requests have no latest-request policy
 
-**Impact:** Corrupted paired-context data can enable HR/HRV reads that the phone selection did not authorize in-app.
+**Locations**
 
-**Fix:** Strictly parse remote data; distinguish missing fresh-install state from present-but-invalid state, and fail closed for invalid synchronized values.
+- Body/Views/BodySettingsView.swift:669-692, 2935-2964
 
-### L9. App Group load-cache identity has an ABA hole
+**Issue**
 
-**Outcome (2026-07-13): Skipped — theoretical.** The App Group load-cache ABA requires a same-size replacement with a colliding timestamp; atomic writes and sub-second mtimes make it non-actionable.
+All icon tiles remain enabled while UIApplication.setAlternateIconName is in flight, and completions have no token. Reverse completion order can dismiss for an older tap, show a stale error, or leave an unexpected final icon.
 
-**What:** Load caches in [HealthWidgetSnapshotStore.swift:78](BodyShared/Services/HealthWidgetSnapshotStore.swift#L78), [WorkoutSnapshotStore.swift:86](BodyShared/Services/WorkoutSnapshotStore.swift#L86), and [WatchMetricsSnapshotStore.swift:73](BodyWatchShared/Services/WatchMetricsSnapshotStore.swift#L73) key only on modification date and file size.
+**Fix**
 
-**Impact:** A same-size replacement with a colliding/restored timestamp can return stale decoded data.
+Disable the grid during one request or use a latest-request-wins token. Wrap UIApplication behind an injectable icon service and test reverse completions.
 
-**Fix:** Add file identifier/inode or a payload revision to the key, and explicitly invalidate local cache entries after save/delete. Add a same-size/same-mtime replacement test.
+### L-06 — Watch detail selection is not reconciled after its metric list changes
 
-### L10. The day-sample sidecar is not migration tolerant
+> **Status (2026-08-03):** Fixed in 0.9.10 build 21 — the pager reconciles via `.onChange(of: metrics.map(\.kind))`, snapping selection back to `initialKind` without animation when the selected metric disappears.
 
-**Outcome (2026-07-13): Fixed (with H6).** The day-sample sidecar's `init(from:)` uses `decodeIfPresent` with defaults for every field, so adding a metric no longer fails the whole legacy sidecar. File: `BodyMetricsKit/HealthTrend.swift`.
+**Locations**
 
-**What:** [HealthTrend.swift:931](BodyMetricsKit/HealthTrend.swift#L931) relies on synthesized Codable with every field required.
+- BodyWatch/WatchMetricDetailPager.swift:25-57
 
-**Impact:** Adding an intraday metric can make the entire older sidecar fail to decode rather than defaulting only the new field.
+**Issue**
 
-**Fix:** Add schemaVersion and a custom init(from:) using decodeIfPresent(... ) ?? .empty for each field.
+If the currently selected noninitial metric is removed by a settings/phone update, TabView retains a selection value for which no tag exists.
 
-### L11. RevenueCat’s long-lived listener task is not cancelled
+**Risk and breadth**
 
-**Outcome (2026-07-13): Skipped — intentional.** The RevenueCat listener task lives for the app-lifetime single store; cancelling it in deinit was judged unnecessary.
+The open watch detail pager can show a blank/wrong page until navigation resets.
 
-**What:** BodyProStore retains updatesTask at [BodyProStore.swift:47](Body/Services/BodyProStore.swift#L47), but has no deinit cancellation. Weak self prevents retaining the store; it does not cancel the underlying infinite Task consuming customerInfoStream.
+**Fix**
 
-**Impact:** Recreating the store can leave orphan stream consumers. Production breadth is low because the app normally owns one store for its lifetime.
+Observe metrics.map(\.kind) and clamp selection without animation to initialKind or the first remaining metric.
 
-**Fix:** Cancel updatesTask in deinit.
+### L-07 — Watch freshness throttles treat future timestamps as fresh
 
-### L12. The fallback Pro price is storefront-specific
+> **Status (2026-08-03):** Fixed in 0.9.10 build 21 — freshness split by clock domain: watch-local stamps reject negative elapsed (and a future persisted compute stamp is dropped at load); phone-stamped dates tolerate the 30-minute stale-interval skew so ordinary phone/watch drift doesn’t read as stale.
 
-**Outcome (2026-07-13): Fixed.** Removed the guessed `$9.99` fallback — the paywall shows a loading-price placeholder until the product resolves and an unavailable / Retry card on load failure. Files: `Body/Services/BodyProStore.swift`, `Body/Views/BodyProView.swift`.
+**Locations**
 
-**What:** [BodyProStore.swift:26](Body/Services/BodyProStore.swift#L26) and [BodyProView.swift:20](Body/Views/BodyProView.swift#L20) show “$9.99” before or after product loading failure.
+- BodyWatch/WatchMetricsModel.swift:479-492, 666-695
 
-**Impact:** Users in other storefronts see the wrong currency/price and can tap a product that is unavailable.
+**Issue**
 
-**Fix:** Show loading/unavailable until StoreProduct.localizedPriceString exists; do not guess a price.
+Freshness uses now.timeIntervalSince(date) <= limit without rejecting materially negative elapsed values. Clock rollback or a future persisted timestamp can suppress heart-rate/full recomputation until wall time catches up.
 
-### L13. ReadinessStatus classifies scores above 100 as poor
+**Fix**
 
-**Outcome (2026-07-13): Fixed.** `ReadinessStatus` now uses `case 95...` so scores above 100 classify as prime. File: `BodyMetricsKit/ReadinessModels.swift`.
+Treat only a bounded 0...limit interval as fresh, allow a small documented clock-skew tolerance, and invalidate larger negative values.
 
-**What:** [ReadinessModels.swift:18](BodyMetricsKit/ReadinessModels.swift#L18) matches prime only for 95...100, then sends every other value—including >100—to poor.
+### L-08 — Watch source discovery serializes independent HealthKit kinds
 
-**Impact:** Current calculators clamp inputs, so this is mainly a robustness/migration risk for corrupted or future persisted values.
+**Locations**
 
-**Fix:** Clamp before classification or use case 95....
+- BodyWatch/WatchSourceResolver.swift:39-77, 107-155
+- Body/Services/HealthKitFetchEngine+SourceOptions.swift:49-65
 
-### L14. The workout search cache can trap on duplicate IDs
+**Issue**
 
-**Outcome (2026-07-13): Fixed (with H9).** The workout search cache builds via `Dictionary(_:uniquingKeysWith:)`, so a duplicate ID no longer traps. File: `Body/Views/BodyWorkoutsView.swift`.
+The watch awaits source reads one kind at a time, while the phone groups independent work. Each read can issue a HealthKit query.
 
-**What:** [BodyWorkoutsView.swift:552](Body/Views/BodyWorkoutsView.swift#L552) builds Dictionary(uniqueKeysWithValues:). A duplicate WorkoutSummary.ID in a corrupted/legacy snapshot causes a runtime precondition failure.
+**Risk and breadth**
 
-**Impact:** The Workouts tab can crash on malformed cached data.
+Source refresh latency and watch battery cost scale with the number of selected kinds.
 
-**Fix:** Use Dictionary(..., uniquingKeysWith:) with an explicit winner and validate/deduplicate at snapshot decode.
+**Fix**
 
-### L15. Several small presentation inconsistencies remain
+Use a bounded task group and preserve deterministic reduction order. Cache identical quantity/source requests within one refresh.
 
-**Outcome (2026-07-13): Fixed (all four).** L15a locale time template (`WorkoutSummary.swift`), L15b widget chart splits at nil gaps (`HealthWidgetTrendChartView.swift`), L15c dead `sleepStageSnapshot` param removed (`HealthWidgetSnapshotBuilder.swift`), and L15d engine `anchorDate` threaded into the sleep window (`HealthKitFetchEngine+Sleep.swift`). **Round 2 (2026-07-14): Fixed.** L15d's original fix only threaded the anchor into the HealthKit sleep-window fetch; `ReadinessScoreCalculator` still created fresh `Date()` internally in `summary(on:)`, `dailySeries`, `sleepAssessment`, and `currentDaySleepSummary`, making historical/test computations nondeterministic. An explicit `today` parameter is now threaded through all four functions (and into `HealthDashboardSnapshot.readinessCoverage`'s `currentDaySleepInput`, which compared against a fresh `Date()` too), so callers pass one captured as-of date instead of each function reading the wall clock; live behavior is unchanged.
+### L-09 — The timezone ledger assumes records are appended chronologically
 
-**What:**
+**Locations**
 
-- [WorkoutSummary.swift:501](BodyMetricsKit/WorkoutSummary.swift#L501) hardcodes HH:mm instead of a locale-sensitive hour template.
-- [HealthWidgetTrendChartView.swift:207](BodyShared/Components/HealthWidgetTrendChartView.swift#L207) continues across missing points, visually connecting a gap; the Watch sparkline splits gaps.
-- [HealthWidgetSnapshotBuilder.swift:61](Body/Services/HealthWidgetSnapshotBuilder.swift#L61) accepts sleepStageSnapshot and immediately shadows it.
-- [HealthKitFetchEngine+Sleep.swift:24](Body/Services/HealthKitFetchEngine+Sleep.swift#L24) and readiness helpers use fresh Date() despite accepting anchor/as-of dates.
+- Body/Services/BodyTimeZoneLedger.swift:34-53
 
-**Impact:** Incorrect 24-hour formatting in some locales, misleading widget continuity, dead API surface, and nondeterministic historical/test computations.
+**Issue**
 
-**Fix:** Use localized date templates, reset paths at nil gaps, remove or honor the shadowed parameter, and thread one captured asOf through each computation.
+Lookup selects the last qualifying stored record rather than the qualifying record with the greatest effective date. Clock rollback, restored state, or out-of-order import can append an older record after a newer one.
+
+**Fix**
+
+Sort/coalesce on insertion or select max(by: effectiveDate) at lookup. Test out-of-order records and equal timestamps.
+
+### L-10 — Sleep source identity normalization depends on the current locale
+
+**Locations**
+
+- BodyWatchSnapshotKit/BodySleepSampleParser.swift:156-168
+- BodyWatchSnapshotKit/BodyHealthSourceResolver.swift:67-100
+
+**Issue**
+
+The parser lowercases/normalizes source identity with Locale.current while the shared source picker uses en_US_POSIX. Phone and watch in different locales can produce different identity keys for the same source name, especially around locale-sensitive “I” mappings.
+
+**Fix**
+
+Route both through the shared POSIX identity helper. Add Turkish-locale and mixed-device-locale tests.
+
+### L-11 — HealthKit write validation is incomplete and store publication can disagree with the persisted value
+
+**Locations**
+
+- Body/Services/HealthKitFetchEngine+Write.swift:45-85, 142-160
+- Body/Services/HealthKitWorkoutStore.swift:659-678
+
+**Issue**
+
+Weight/body-fat validation does not reject every nonfinite, implausible, future-date, or both-values-missing request atomically. Effort saving clamps the HealthKit value, but the store records the original score as its override.
+
+**Risk and breadth**
+
+Current UI bounds make invalid inputs unlikely, but internal/test callers can create a transient UI/persistence disagreement or attempt an invalid HealthKit write.
+
+**Fix**
+
+Validate the complete request first, return a typed invalidInput error, clamp/normalize once, and publish exactly the value passed to HealthKit.
+
+### L-12 — Restore with no active entitlement has no user-visible outcome
+
+> **Status (2026-08-03):** Fixed in 0.9.10 build 21 — restore distinguishes three outcomes: active entitlement → idle/owned; lifetime product purchased but entitlement inactive (`allPurchasedProductIdentifiers`) → the `.completedNotUnlocked` recovery card; no purchase at all → a localized “No purchases to restore.” notice via the existing `.failed` path. Notices clear automatically if Pro later unlocks.
+
+**Locations**
+
+- Body/Services/BodyProStore.swift:121-129
+- Body/Views/BodyProView.swift:54-63, 140-175
+
+**Issue**
+
+A successful restore request that finds no active entitlement returns to idle with no “nothing to restore” or success message.
+
+**Fix**
+
+Publish localized restored, nothingToRestore, revoked, and failed outcomes. Keep Restore available and direct ambiguous cases to support.
+
+### L-13 — The Body Pro SwiftUI preview remains permanently in “Checking”
+
+**Locations**
+
+- Body/Services/BodyProStore.swift:52-56
+- Body/Views/BodyProView.swift:25-28, 93-97, 580-584
+
+**Issue**
+
+The unconfigured preview store never resolves entitlement state, so the design-time preview cannot exercise the real free or Pro layout.
+
+**Fix**
+
+Provide explicit preview fixtures for unresolved, free, purchasing, failed, and Pro states.
+
+### L-14 — Free-form localized error descriptions are marked public in unified logs
+
+**Locations**
+
+- Body/Services/HealthKitFetchEngine.swift:66-69
+- BodyShared/Services/WorkoutSnapshotStore.swift:60-62, 100-102
+- Body/Services/HealthDashboardSnapshotStore.swift:178-194
+- BodyWatchShared/Services/WatchMetricsSnapshotStore.swift:65-67
+- Body/Services/RevenueCatConfiguration.swift:26
+
+**Issue**
+
+No health measurement or auth token is intentionally logged, and the RevenueCat appl_ key is public by design. However, arbitrary error.localizedDescription values are interpolated as public; they can contain file paths or internal diagnostic context. RevenueCat is also configured at info verbosity.
+
+**Fix**
+
+Log stable public context plus NSError domain/code, mark free-form descriptions private, and reduce RevenueCat release verbosity to warning/error while retaining richer debug logging.
+
+### L-15 — An open metric day picker does not explicitly roll its “today” window at midnight
+
+**Locations**
+
+- Body/Views/Health/BodyHealthMetricDetailView.swift:431-451, 708-710, 1523-1549
+
+**Issue**
+
+The free-day window and Today/future styling derive from Date() during rendering, but the view has no calendar-day notification or scene-phase reconciliation to guarantee a render after midnight.
+
+**Risk and breadth**
+
+A detail page left active across midnight can keep stale Today styling or free-day bounds until unrelated state changes.
+
+**Fix**
+
+Maintain an injectable today state and update it on NSCalendarDayChanged, timezone changes, and foregrounding.
 
 ## Suggestion
 
-### S1. Introduce a single persistence actor
+### S-01 — Set an explicit file-protection and backup policy for health caches
 
-**Outcome (2026-07-13): Deferred — suggestion.** A single persistence actor was not introduced this round.
+**Locations**
 
-Own dashboard, day sidecar, workout files, widget files, cache identities, disk-size reporting, and clear/reset ordering in one actor. This would make save/delete FIFO semantics explicit and remove DispatchQueue plus nested Task handoffs from HealthKitWorkoutStore.
+- Body/Services/HealthDashboardSnapshotStore.swift:180-240
+- BodyShared/Services/WorkoutSnapshotStore.swift
+- BodyShared/Services/HealthWidgetSnapshotStore.swift:82-90
+- BodyWatchShared/Services/WatchMetricsSnapshotStore.swift:58-64
+- BodyWatch/WatchComputeSeedStore.swift
 
-### S2. Add explicit data protection and backup policy for regenerable health caches
+Atomic writes and sandboxing are already present, and this review did not find plaintext credential storage. Still, health-derived caches rely on default file attributes and may be backed up unnecessarily.
 
-**Outcome (2026-07-13): Deferred — suggestion.** Explicit data-protection / backup policy for regenerable caches was not changed this round.
+Choose protection intentionally: complete protection for app-only private caches, or complete-until-first-user-authentication where widgets/complications must read after reboot. Mark regenerable caches excluded from backup. Verify the expected locked-device widget behavior before tightening protection.
 
-Snapshot JSON contains health/workout values. Document the intended file-protection class for app and App Group files, apply it explicitly after atomic replacement, and exclude regenerable app-cache files from backup where appropriate. Balance stronger protection against the requirement for widgets/Watch to read data while the phone is locked; make the choice deliberate and covered by a release check.
+### S-02 — Enable staged strict Swift concurrency checking
 
-### S3. Bound session caches
+**Locations**
 
-**Outcome (2026-07-13): Deferred — suggestion.** Session-cache bounding (LRU) was not added this round.
+- body.xcodeproj/project.pbxproj:787, 828, 857, 886, 909, 933 and watch/widget counterparts
 
-routeCache and distanceSampleCache in [HealthKitWorkoutStore.swift:148](Body/Services/HealthKitWorkoutStore.swift#L148) grow for the app session. Route data is downsampled to roughly 400 points, which is good, but a long browsing session can retain many routes/split arrays. Add a modest LRU/count limit and clear it on memory warning or source/permission change.
+Targets remain on Swift 5 mode without SWIFT_STRICT_CONCURRENCY. This concurrency-heavy project would benefit from enabling targeted checking, clearing warnings, then moving to complete checking/Swift 6. Add a configuration assertion so the setting does not silently regress.
 
-### S4. Move per-render transforms into revision-keyed presentation models
+This will not by itself fix H-01, which is a logical reentrancy issue, but it will expose unchecked Sendable/isolation boundaries early.
 
-**Outcome (2026-07-13): Deferred — suggestion.** Revision-keyed presentation models were not introduced; M16 addressed the specific stale-day-cache case.
+### S-03 — Split integration hubs around explicit service boundaries
 
-Home trend analysis, detail day slicing, split calculation, and settings drafts should consume immutable snapshot revisions. This reduces body complexity, avoids ad hoc fingerprints, and gives focused unit/performance tests without changing app-wide ownership.
+Prioritize these seams:
 
-### S5. Keep a release-time external configuration checklist
+- DashboardRefreshCoordinator: immutable context, generation, progressive/final acceptance.
+- DashboardSnapshotRepository: versioned transaction and freshness commit.
+- SleepModelBuilder: canonical normalization, main session, naps, presentation filtering.
+- PurchasesClient and BodyProStateMachine.
+- WorkoutMonthLoader with cancellation/deadline/coalescing.
+- AppBoundaryClock for day, month, timezone, and scene changes.
 
-**Outcome (2026-07-13): Deferred — suggestion.** A formal release-time external-configuration checklist was not added; the relevant gates are tracked in the TestPlan manual cases.
+Keep HealthKitWorkoutStore as the observable composition surface, but move policy and side effects into testable collaborators.
 
-The repository cannot verify RevenueCat dashboard entitlement/product mapping, App Store Connect product availability/price, privacy-report output, Watch target resource inclusion, or real HealthKit locked-device behavior. Record these as explicit release gates rather than implying source-string tests prove them.
+### S-04 — Treat RevenueCat dashboard verification as a release gate
+
+**Locations**
+
+- Body/Services/RevenueCatConfiguration.swift:15, 20
+- Body/Services/BodyProStore.swift:21
+- Body.storekit:31
+- body.xcodeproj/xcshareddata/xcschemes/Body.xcscheme:66-68
+
+The source key is the expected public appl_ form, the product identifier matches Body.storekit, and the StoreKit configuration is attached to the scheme. Source code cannot prove the external RevenueCat product-to-entitlement attachment. Before release, verify the exact app/key/environment, entitlement “Body: Health Dashboard Pro,” product attachment, offering, restore, refund/revocation, reinstall, and another-device behavior.
+
+### S-05 — Harden pure formatters against nonfinite cached/model input
+
+**Locations**
+
+- BodyMetricsKit/WorkoutSummary.swift:55-64
+- BodyMetricsKit/WorkoutSummary.swift duration-to-Int helpers
+
+Normal HealthKit/cache paths currently filter values sufficiently that this is not a confirmed runtime defect. For defense in depth, reject nonfinite max-HR/duration values before Double-to-Int conversion and return an unavailable placeholder. Add NaN and infinity model-fixture tests.
 
 ## Test Coverage Gaps
 
-The pure model suite is substantial, especially workout-month snapshots, readiness calculation, effort estimation, chart aggregation, cache migration, and widget snapshot construction. The most urgent missing tests are the asynchronous and cross-process state machines:
+The pure-model test base is a project strength, but the following critical paths need the most urgent executable coverage:
 
-1. **HealthKit failure semantics:** For every query shape, distinguish failed/cancelled from successful-empty and verify cached values are retained only on failure.
-2. **Sleep sessionization:** Raw samples spanning midnight, duplicate same-stage overlaps, conflicting-stage overlaps, and phased overnight-vitals arrival.
-3. **Refresh generation:** Suspend a fake query, change source/permission/preference, resume it, and assert no stale or mixed result publishes.
-4. **Day-sample provenance:** Primary, default-primary, secondary, combine-by-name, permission, entitlement, and launch-time signature changes.
-5. **Cache clear ordering:** Block a queued save, clear, release, and assert all disk files, widget state, Watch state, and engine caches remain cleared.
-6. **Workout detail cancellation:** Cancel route/split load, then reopen and prove a real retry occurs.
-7. **Month timeout:** Use a non-cooperative fake load and assert pending UI state clears at 15 seconds.
-8. **Auto-Apply cancellation:** Disable after the first write and assert no later HealthKit writes.
-9. **Watch state machine:** Measurement-time ordering, same-second phone revisions, noData versus notFetched, authoritative reset, malformed permissions, and retry/backoff.
-10. **Widget timelines/preferences:** Midnight entry behavior, empty-current-month behavior, semantic save dedupe, and every display-unit/goal preference.
-11. **StoreKit:** pending/declined/approved/restore transitions and product-unavailable UI using StoreKitTest or an injected RevenueCat client.
-12. **Accessibility/UI:** explicit detail dismissal, modal overlay focus, Reduce Motion, iPad Split View/Stage Manager sizing, and large workout lists.
-13. **Privacy manifests:** Assert expected required-reason categories for every built executable bundle, not only source files.
+1. **Refresh generation and configuration changes**
+   - Delayed fake HealthKit queries.
+   - Permission, primary/secondary source, and combine-by-name changes during a refresh.
+   - Progressive, final, disk, widget, and watch generation agreement.
+
+2. **Canonical sleep semantics**
+   - Score/readiness invariance under display preferences.
+   - Main night plus separated naps.
+   - Same-source overlap normalization.
+   - Historical timezone/date-line travel.
+   - Phone/watch parity.
+
+3. **First launch**
+   - No cache and no Health permission.
+   - “Not Now,” denial, partial authorization, and later enablement.
+   - Assert no fabricated production workout data.
+
+4. **Purchases**
+   - Full BodyProStore state matrix through an injected client.
+   - StoreKitTest purchase, cancel, verification anomaly, restore-none, restore-owned, refund/revocation, reinstall, another device, and customer-center return.
+
+5. **Persistence and transport fault injection**
+   - Dashboard failure between sidecar/main/freshness commits.
+   - Watch seed encode/write/remove failures.
+   - WatchConnectivity transient failure and latest-generation retry.
+
+6. **Cancellation and recovery**
+   - Exactly-once continuation behavior when HKQuery cancellation races completion.
+   - Hung month load, timeout, second attempt, and late first completion.
+   - Watch old-generation query that never completes.
+
+7. **Calendar/lifecycle behavior**
+   - Widget timelines one minute before midnight.
+   - Watch foreground after midnight while compute throttles are fresh.
+   - Metric detail and month carousel across day/month rollover.
+   - Clock rollback and timezone changes.
+
+8. **UI, localization, and accessibility**
+   - zh-Hans smoke coverage for Home, health details, Settings, and paywall.
+   - Background editor/profile operations without drag gestures.
+   - Alternate-icon reverse completions and watch pager list mutation.
+   - Deep links/navigation restoration and empty/error/loading states.
+
+Tests that assert source substrings or configuration shape should remain secondary guards; they are not substitutes for state-machine and user-flow tests.
 
 ## Reviewed Areas That Look Sound
 
-- HealthKitWorkoutStore is main-actor isolated, while HealthKitFetchEngine is an actor; refresh entry points generally claim isRefreshing before their first suspension.
-- The app owns HealthKitWorkoutStore with StateObject and injects it once; major SwiftUI ownership wrappers are generally appropriate.
-- No production try!, as!, fatalError, or obvious force-unwrap crash path was found.
-- Snapshot file writes use atomic replacement and deterministic sorted-key JSON. Load caches are lock protected.
-- Live widget paths do not fabricate sample workouts; placeholder data is limited to previews/gallery.
-- App Group identifiers and entitlements align across app, widgets, and Watch targets.
-- Workout route points are downsampled before map rendering, and UIViewRepresentable map teardown removes delegates/overlays/annotations.
-- Per-scroll-frame state in major Home/workout screens has been isolated from heavy content trees.
-- Permission-off filtering strips dependent data, and several primary trend/history queries already preserve cache on failure—the pattern should be extended consistently.
-- Daily aggregation generally uses explicit calendars and month workout queries use strict start dates.
-- Body-owned effort replacement saves/relates the new HealthKit sample before deleting prior Body samples.
-- No custom authentication/token networking layer exists. RevenueCat is the only production network SDK reviewed; its public SDK key is not a secret, and no sensitive health values or tokens were found in production logs.
+- No production try!, as!, fatalError, or precondition path was found that creates an obvious user-triggered crash. Test-only force operations were not treated as runtime defects.
+- The reviewed @unchecked Sendable wrappers use locking around their mutable state. Strict-concurrency checking is still recommended.
+- Query outcome/cache logic generally distinguishes confirmed empty results from fetch failures, avoiding stale-cache deletion on transient errors.
+- Cache epoch/tombstone handling and watch snapshot generation checks are careful and should be preserved.
+- Individual snapshot writes use deterministic encoding/atomic replacement or save-if-changed patterns. L-03 concerns cross-file commit identity, not torn bytes inside one atomic file.
+- HealthKit routes are bounded before rendering, the full-screen map dismantles delegates/overlays/annotations, and share-photo loading includes cancellation/latest-selection guards.
+- SwiftUI root ownership is generally correct: the app owns long-lived reference state with StateObject and descendants consume it through environment/observation.
+- Expensive intraday and sleep consistency chart calculations have focused memoization.
+- Dark-only appearance is intentional in the current product and was not reported as a theme bug.
+- App Group and HealthKit entitlements, privacy manifests, usage descriptions, and StoreKit product identifiers are internally consistent.
+- The RevenueCat public SDK key is not a secret and was not reported as credential leakage.
+- No custom networking/auth-token persistence layer exists beyond SDK-managed RevenueCat behavior.
 
 ## Priority Fix List
 
-1. **Complete all privacy manifests (C1).** This can block App Store submission. Benefit: release eligibility and a reliable target-level compliance test.
-2. **Sessionize sleep across midnight (H1).** This is a foundational data bug feeding sleep, vitals, readiness, widgets, and Watch. Benefit: correct nightly source-of-truth data.
-3. **Introduce failure-versus-empty HealthKit outcomes (H2/H3/H4/H12).** Benefit: transient platform failures stop destroying or fabricating persisted health state.
-4. **Add immutable refresh context and generation rejection (H5/H6).** Benefit: no mixed-source snapshots or stale source data after settings changes.
-5. **Make cache clear ordered, awaited, and authoritative (H7).** Benefit: the privacy action becomes truthful and old data cannot reappear.
-6. **Fix workout detail cancellation and the false timeout (H8/H9).** Benefit: routes/splits retry correctly and Workouts cannot remain behind an endless loading overlay.
-7. **Use Watch measurement timestamps and explicit revisions/states (H10, M4, M5).** Benefit: stale samples stop masquerading as live, and cross-device merges become deterministic.
-8. **Make readiness freezing coverage-aware (H11), then fix the training-load discontinuity (M11).** Benefit: historical readiness becomes stable for the right reason and the score remains monotonic.
-9. **Make Auto-Apply cancellation authoritative (M2).** Benefit: no HealthKit writes occur after opt-out.
-10. **Correct widget publication semantics (M7–M10).** Benefit: correct month/date/unit display with fewer writes and fewer reload-budget requests.
-11. **Bound/cancel raw intraday loading and fix cache keys (M15/M16).** Benefit: lower memory/IPC cost and no stale day chart after edits/source changes.
-12. **Add the asynchronous test harness described above.** This is the enabling investment for the riskiest fixes; without it, future regressions will continue to escape source-shape tests.
+1. **Make dashboard refreshes immutable and generation-checked (H-01).**  
+   This is the only confirmed High issue and has the broadest data-consistency impact. It also creates the correct foundation for cancellation, cache commits, widgets, and watch publication.
+
+2. **Separate canonical sleep data from presentation and main-session semantics (M-03 through M-06).**  
+   One coherent model change fixes four score/readiness accuracy defects and prevents phone/watch semantic drift.
+
+3. **Remove placeholder workouts from production initialization (M-01).**  
+   This is small, low-risk work with an immediate trust benefit for every new/permission-declining user.
+
+4. **Verify entitlements after purchase and inject PurchasesClient (M-02, M-16).**  
+   Prevent the worst paid-user failure and unlock deterministic monetization tests.
+
+5. **Resolve historical timezone before sleep bucketing and record zones independently (M-07).**  
+   This prevents durable travel-related misclassification that is difficult to repair later.
+
+6. **Repair watch transport/seed recovery (M-08 through M-11).**  
+   Structured I/O outcomes, semantic dedupe, and retry remove a cluster of stale-state and wasted-compute failures.
+
+7. **Make HealthKit queries cancellation-aware (M-12, L-01).**  
+   This improves lifecycle correctness, watch responsiveness, battery use, and month-load recovery.
+
+8. **Correct split HR and effort calibration math (M-13, M-14).**  
+   These are user-visible workout metrics and can feed HealthKit writes; correctness should precede UI polish.
+
+9. **Fix the two empty localization entries (M-15).**  
+   Restore a green catalog test and prevent English fallback in the Chinese sleep explanation.
+
+10. **Add the generation, sleep, purchase, and fault-injection tests before broader refactoring (M-16, M-20).**  
+    These tests define the behavioral contract and reduce the risk of extracting the large integration hubs.
+
+11. **Index workout queries and reconcile rolling UI state (M-17, M-18, L-05, L-06).**  
+    Expected benefit: smoother detail interaction and fewer visual/data mismatches.
+
+12. **Close accessibility and exact-boundary gaps (M-19, L-02, L-15).**  
+    Expected benefit: paid customization is usable by assistive-technology users, and sleep/date UI stays truthful across calendar changes.

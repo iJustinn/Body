@@ -223,8 +223,7 @@ private struct BodyReadinessWaveFill: View {
                 tint.opacity(0.28)
 
                 // Filled color region: solid tint with a soft horizontal highlight band
-                // centered on the score number's row, fading into the page at the fill
-                // front via the mask below.
+                // centered on the score number's row, cut sharply at the fill front.
                 ZStack {
                     Rectangle().fill(tint)
 
@@ -232,19 +231,6 @@ private struct BodyReadinessWaveFill: View {
                         .blendMode(.screen)
                 }
                 .frame(width: target * width)
-                .mask(
-                    // A crisp cut at the score: hold full color almost to the fill front,
-                    // then a short feather into the page so the percentage edge is clear.
-                    LinearGradient(
-                        stops: [
-                            .init(color: .black, location: 0.0),
-                            .init(color: .black, location: 0.98),
-                            .init(color: .clear, location: 1.0)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
                 .animation(reduceMotion ? nil : .interpolatingSpring(stiffness: 55, damping: 8.25), value: target)
 
                 // Concentrate the color up top and melt the lower portion into the page
