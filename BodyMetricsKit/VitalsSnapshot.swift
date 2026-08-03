@@ -253,13 +253,27 @@ enum VitalsCalculator {
         return VitalsNightAssessment(date: date, measurements: measurements)
     }
 
+    /// Distance from the baseline median in typical-band half-widths, clamped
+    /// to ±`deviationCap`; |deviation| > 1 is an outlier. Shared with the sleep
+    /// score's Vitals category so the score's typical bands match the chart's.
+    static func normalizedDeviation(
+        value: Double,
+        baseline: ReadinessScoreCalculator.Baseline
+    ) -> Double {
+        let bandHalfWidth = typicalBandMultiplier * baseline.spread
+        guard bandHalfWidth > 0 else {
+            return 0
+        }
+        return min(max((value - baseline.median) / bandHalfWidth, -deviationCap), deviationCap)
+    }
+
     private static func measurement(
         kind: VitalKind,
         value: Double,
         baseline: ReadinessScoreCalculator.Baseline
     ) -> VitalMeasurement {
         let bandHalfWidth = typicalBandMultiplier * baseline.spread
-        let deviation = min(max((value - baseline.median) / bandHalfWidth, -deviationCap), deviationCap)
+        let deviation = normalizedDeviation(value: value, baseline: baseline)
 
         let region: SleepVitalRegion
         if deviation < -1 {

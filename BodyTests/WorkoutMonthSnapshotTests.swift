@@ -3817,7 +3817,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         XCTAssertEqual(score.total, 98)
         XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .deep, .rem, .pressure, .vitals, .temperature])
-        XCTAssertEqual(score.categories.map(\.points), [25, 20, 15, 10, 14, 10, 5])
+        XCTAssertEqual(score.categories.map(\.points), [25, 20, 10, 10, 14, 15, 5])
         XCTAssertEqual(score.category(for: .deep)?.valueDescription, "15%")
         XCTAssertEqual(score.category(for: .rem)?.valueDescription, "20%")
         XCTAssertEqual(score.category(for: .pressure)?.valueDescription, "72 ms")
@@ -3853,7 +3853,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         XCTAssertEqual(score.total, 100)
         XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .deep, .rem])
-        XCTAssertEqual(score.categories.map(\.points), [25, 20, 15, 10])
+        XCTAssertEqual(score.categories.map(\.points), [25, 20, 10, 10])
     }
 
     func testSleepScoreAmountUsesIdealSleepDurationGoal() throws {
@@ -4427,7 +4427,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
         let score = try XCTUnwrap(summary.score)
 
-        XCTAssertEqual(score.category(for: .deep)?.points, 5)
+        XCTAssertEqual(score.category(for: .deep)?.points, 3)
         XCTAssertEqual(score.category(for: .deep)?.valueDescription, "8%")
         XCTAssertEqual(score.category(for: .pressure)?.points, 6)
         XCTAssertEqual(score.category(for: .pressure)?.valueDescription, "30 ms")
@@ -4491,16 +4491,19 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         // Crash nights keep some credit from a steady schedule now that
         // consistency is scored, so the low band sits a touch higher than the
-        // pre-consistency calibration.
-        XCTAssertLessThanOrEqual(totals[3], 65)
-        XCTAssertLessThanOrEqual(totals[5], 66)
-        XCTAssertLessThanOrEqual(totals[12], 64)
+        // pre-consistency calibration. Sleep Score v3 lifts them a few more
+        // points: a vital 1–2 typical-band half-widths out now earns
+        // proportional credit instead of the old ramp's near-zero, so these
+        // nights' mildly elevated heart rates cost less.
+        XCTAssertLessThanOrEqual(totals[3], 67)
+        XCTAssertLessThanOrEqual(totals[5], 70)
+        XCTAssertLessThanOrEqual(totals[12], 65)
         XCTAssertGreaterThanOrEqual(totals[10], 84)
         XCTAssertGreaterThanOrEqual(totals[9], 80)
 
         let mean = Double(totals.reduce(0, +)) / Double(totals.count)
         XCTAssertGreaterThanOrEqual(mean, 74)
-        XCTAssertLessThanOrEqual(mean, 82)
+        XCTAssertLessThanOrEqual(mean, 83)
         let spread = try XCTUnwrap(totals.max()) - (try XCTUnwrap(totals.min()))
         XCTAssertGreaterThanOrEqual(spread, 25)
     }
@@ -4628,7 +4631,126 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let history = SleepHistorySnapshot(days: try sleepScoreBaselineNights() + [night])
         let score = try sleepScore(on: night, history: history)
 
-        XCTAssertLessThanOrEqual(try XCTUnwrap(score.category(for: .vitals)?.points), 4)
+        // 69 bpm sits two typical-band half-widths above the 57 bpm robust
+        // median (spread floored to 3 → band ±6), exactly where region credit
+        // reaches zero.
+        XCTAssertEqual(try XCTUnwrap(score.category(for: .vitals)?.points), 0)
+        XCTAssertEqual(score.category(for: .vitals)?.maximumPoints, 15)
+    }
+
+    func testSleepScoreVitalsUseVitalsChartTypicalBands() throws {
+        func vitalsPoints(heartRate: Double) throws -> Int {
+            let night = try sleepScoreNight(
+                month: 6,
+                day: 1,
+                startHour: 1,
+                startMinute: 45,
+                asleepHours: 7.9,
+                deepHours: 1.15,
+                remHours: 1.85,
+                awakeHours: 0.3,
+                heartRate: heartRate
+            )
+            let history = SleepHistorySnapshot(days: try sleepScoreBaselineNights() + [night])
+            let score = try sleepScore(on: night, history: history)
+            return try XCTUnwrap(score.category(for: .vitals)?.points)
+        }
+
+        // Robust HR baseline over the 14 fixture nights: median 57, spread
+        // floored to 3 → typical band 51–63. Credit is full through the band
+        // edge and falls linearly to zero one half-width past it.
+        XCTAssertEqual(try vitalsPoints(heartRate: 63), 15)
+        XCTAssertEqual(try vitalsPoints(heartRate: 66), 8)
+        // Symmetric: a reading unusually LOW for this sleeper deducts too.
+        XCTAssertEqual(try vitalsPoints(heartRate: 48), 8)
+    }
+
+    func testSleepScoreVitalsRegionGradingNeedsFourteenNights() throws {
+        func vitalsPoints(historyNights: [SleepDaySummary]) throws -> Int {
+            let night = try sleepScoreNight(
+                month: 6,
+                day: 1,
+                startHour: 1,
+                startMinute: 45,
+                asleepHours: 7.9,
+                deepHours: 1.15,
+                remHours: 1.85,
+                awakeHours: 0.3,
+                heartRate: 66
+            )
+            let history = SleepHistorySnapshot(days: historyNights + [night])
+            let score = try sleepScore(on: night, history: history)
+            return try XCTUnwrap(score.category(for: .vitals)?.points)
+        }
+
+        let fourteenNights = try sleepScoreBaselineNights()
+        // 13 prior nights: no robust baseline yet, so the pre-v3 median ramp
+        // (zero credit at median + 10 bpm) still grades 66 bpm.
+        XCTAssertEqual(try vitalsPoints(historyNights: Array(fourteenNights.dropLast())), 2)
+        // The 14th night switches the same reading onto the chart's band.
+        XCTAssertEqual(try vitalsPoints(historyNights: fourteenNights), 8)
+    }
+
+    func testSleepScoreOxygenSaturationKeepsClinicalCeilingAndSkipsHighSide() throws {
+        func vitalsPoints(oxygenSaturation: Double) throws -> Int {
+            let night = try sleepScoreNight(
+                month: 6,
+                day: 1,
+                startHour: 1,
+                startMinute: 45,
+                asleepHours: 7.9,
+                deepHours: 1.15,
+                remHours: 1.85,
+                awakeHours: 0.3,
+                oxygenSaturation: oxygenSaturation
+            )
+            let history = SleepHistorySnapshot(days: try sleepScoreBaselineNights() + [night])
+            let score = try sleepScore(on: night, history: history)
+            return try XCTUnwrap(score.category(for: .vitals)?.points)
+        }
+
+        // Robust SpO₂ baseline over the fixture nights: median 97.2, spread
+        // floored to 1.0 → typical band 95.2–99.2.
+        // A high-side outlier never deducts.
+        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 99.5), 15)
+        // Inside the personal band the absolute clinical ramp still caps credit.
+        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 95.5), 13)
+        // Below the band the region ramp deducts past the clinical ramp.
+        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 94.2), 8)
+    }
+
+    func testSleepScoreStagelessNightBreadthAfterVitalsReweighting() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 1)
+        ))
+        let snapshot = SleepStageSnapshot(
+            date: Calendar.bodyGregorian.startOfDay(for: startDate),
+            segments: [
+                SleepStageSegment(
+                    stage: .core,
+                    startDate: startDate,
+                    endDate: startDate.addingTimeInterval(8 * 60 * 60)
+                )
+            ]
+        )
+        let summary = SleepSummary(
+            duration: 8 * 60 * 60,
+            stageSnapshot: snapshot,
+            vitals: SleepVitalsSummary(
+                heartRate: 55,
+                heartRateVariability: 60,
+                respiratoryRate: 14,
+                oxygenSaturation: 98,
+                wristTemperatureCelsius: 36.4
+            )
+        )
+        let score = try XCTUnwrap(summary.score)
+
+        // No detailed stages → Deep/REM are skipped and 80 points remain
+        // available (was 75 pre-v3); pins the breadth-aware decompression on
+        // this path after the Deep/Vitals reweighting.
+        XCTAssertEqual(score.categories.map(\.kind), [.duration, .continuity, .pressure, .vitals, .temperature])
+        XCTAssertEqual(score.total, 94)
     }
 
     func testSleepScoreFragmentedNightDrainsContinuity() throws {
@@ -4730,10 +4852,10 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             return try XCTUnwrap(score.category(for: .vitals)?.points)
         }
 
-        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 93), 3)
-        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 94), 5)
-        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 95), 8)
-        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 96), 10)
+        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 93), 4)
+        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 94), 8)
+        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 95), 11)
+        XCTAssertEqual(try vitalsPoints(oxygenSaturation: 96), 15)
     }
 
     func testHealthWidgetSnapshotBuilderEmitsSleepScoreDisplayValues() throws {

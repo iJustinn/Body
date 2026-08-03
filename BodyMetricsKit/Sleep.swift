@@ -388,7 +388,7 @@ struct SleepScoreSummary: Equatable {
                 sleepDuration: duration,
                 floorPercentage: 0.05,
                 fullCreditPercentage: 0.13,
-                maximumPoints: 15
+                maximumPoints: 10
             ))
             categoryScores.append(Self.stagePercentageCategory(
                 kind: .rem,
@@ -644,7 +644,9 @@ struct SleepScoreSummary: Equatable {
         var progressValues: [Double] = []
 
         if let heartRate = vitals.heartRate {
-            if let baseline = baselines.heartRate {
+            if let baseline = baselines.heartRateRobust {
+                progressValues.append(regionProgress(value: heartRate, baseline: baseline))
+            } else if let baseline = baselines.heartRate {
                 progressValues.append(min(max(1 - max(heartRate - (baseline + 2), 0) / 8, 0), 1))
             } else {
                 progressValues.append(Self.rangeProgress(value: heartRate, lowerBound: 45, upperBound: 65, tolerance: 20))
@@ -652,7 +654,9 @@ struct SleepScoreSummary: Equatable {
         }
 
         if let respiratoryRate = vitals.respiratoryRate {
-            if let baseline = baselines.respiratoryRate {
+            if let baseline = baselines.respiratoryRateRobust {
+                progressValues.append(regionProgress(value: respiratoryRate, baseline: baseline))
+            } else if let baseline = baselines.respiratoryRate {
                 progressValues.append(min(max(1 - (max(abs(respiratoryRate - baseline) - 0.5, 0) / 2), 0), 1))
             } else {
                 progressValues.append(Self.rangeProgress(value: respiratoryRate, lowerBound: 12, upperBound: 20, tolerance: 6))
@@ -660,8 +664,18 @@ struct SleepScoreSummary: Equatable {
         }
 
         if let oxygenSaturation = vitals.oxygenSaturation {
-            // Absolute clinical scale on purpose — low SpO₂ is adverse at any personal baseline.
-            progressValues.append(Self.increasingRangeProgress(value: oxygenSaturation, lowerBound: 92, target: 96))
+            // The absolute clinical scale stays the ceiling — low SpO₂ is adverse
+            // at any personal baseline — and with a robust baseline a reading
+            // unusually low for the sleeper deducts too. High-side outliers
+            // never deduct (99%+ is never penalized).
+            let clinicalProgress = Self.increasingRangeProgress(value: oxygenSaturation, lowerBound: 92, target: 96)
+            if let baseline = baselines.oxygenSaturationRobust {
+                let lowDeviation = max(0, -VitalsCalculator.normalizedDeviation(value: oxygenSaturation, baseline: baseline))
+                let lowRegionProgress = min(max(Self.vitalsRegionZeroCreditDeviation - lowDeviation, 0), 1)
+                progressValues.append(min(clinicalProgress, lowRegionProgress))
+            } else {
+                progressValues.append(clinicalProgress)
+            }
         }
 
         guard !progressValues.isEmpty else {
@@ -671,8 +685,17 @@ struct SleepScoreSummary: Equatable {
         return category(
             kind: .vitals,
             progress: progressValues.reduce(0, +) / Double(progressValues.count),
-            maximumPoints: 10
+            maximumPoints: 15
         )
+    }
+
+    /// Full credit inside the Vitals chart's typical band (|deviation| ≤ 1),
+    /// falling linearly to zero one band half-width past the edge
+    /// (|deviation| = 2, tighter than the chart's ±3 display cap so a severe
+    /// outlier still zeroes its share, matching the pre-v3 ramp severity).
+    private static func regionProgress(value: Double, baseline: ReadinessScoreCalculator.Baseline) -> Double {
+        let deviation = abs(VitalsCalculator.normalizedDeviation(value: value, baseline: baseline))
+        return min(max(Self.vitalsRegionZeroCreditDeviation - deviation, 0), 1)
     }
 
     private static func temperatureCategory(vitals: SleepVitalsSummary, baseline: Double?) -> SleepScoreCategory? {
@@ -700,6 +723,12 @@ struct SleepScoreSummary: Equatable {
         var heartRate: Double?
         var respiratoryRate: Double?
         var wristTemperatureCelsius: Double?
+        /// Robust baselines matching the Vitals chart's typical bands
+        /// (56-day window, median ± 2·robust-spread, ≥14 nights); nil until
+        /// enough history exists, which keeps the pre-v3 ramps as the fallback.
+        var heartRateRobust: ReadinessScoreCalculator.Baseline?
+        var respiratoryRateRobust: ReadinessScoreCalculator.Baseline?
+        var oxygenSaturationRobust: ReadinessScoreCalculator.Baseline?
 
         static let empty = SleepVitalsBaselines()
     }
@@ -745,11 +774,49 @@ struct SleepScoreSummary: Equatable {
             }
         }
 
+        // The vitals category's robust baselines read the FULL history —
+        // `robustBaseline` applies its own 56-day window and only uses nights
+        // before the scoring day — while the 14-day loop above keeps feeding
+        // the fallback medians, Pressure, and Temperature.
+        var heartRateDailyValues: [ReadinessScoreCalculator.DailyValue] = []
+        var respiratoryRateDailyValues: [ReadinessScoreCalculator.DailyValue] = []
+        var oxygenSaturationDailyValues: [ReadinessScoreCalculator.DailyValue] = []
+        for day in recentSleepHistory.days {
+            let vitals = day.summary.vitals
+            if let value = vitals.heartRate, value > 0 {
+                heartRateDailyValues.append(ReadinessScoreCalculator.DailyValue(date: day.date, value: value))
+            }
+            if let value = vitals.respiratoryRate, value > 0 {
+                respiratoryRateDailyValues.append(ReadinessScoreCalculator.DailyValue(date: day.date, value: value))
+            }
+            if let value = vitals.oxygenSaturation, value > 0 {
+                oxygenSaturationDailyValues.append(ReadinessScoreCalculator.DailyValue(date: day.date, value: value))
+            }
+        }
+
         return SleepVitalsBaselines(
             heartRateVariability: baselineMedian(heartRateVariability),
             heartRate: baselineMedian(heartRate),
             respiratoryRate: baselineMedian(respiratoryRate),
-            wristTemperatureCelsius: baselineMedian(wristTemperature)
+            wristTemperatureCelsius: baselineMedian(wristTemperature),
+            heartRateRobust: ReadinessScoreCalculator.robustBaseline(
+                for: date,
+                values: heartRateDailyValues,
+                floor: VitalsCalculator.Floor.heartRate,
+                calendar: calendar
+            ),
+            respiratoryRateRobust: ReadinessScoreCalculator.robustBaseline(
+                for: date,
+                values: respiratoryRateDailyValues,
+                floor: VitalsCalculator.Floor.respiratoryRate,
+                calendar: calendar
+            ),
+            oxygenSaturationRobust: ReadinessScoreCalculator.robustBaseline(
+                for: date,
+                values: oxygenSaturationDailyValues,
+                floor: VitalsCalculator.Floor.oxygenSaturation,
+                calendar: calendar
+            )
         )
     }
 
@@ -920,6 +987,10 @@ struct SleepScoreSummary: Equatable {
     private static let consistencySuspectedShiftSymmetryTolerance: TimeInterval = 30 * 60
     private static let vitalsBaselineDayCount = 14
     private static let minimumVitalsBaselineCount = 5
+    /// Where a vital's region-graded credit hits zero, in typical-band
+    /// half-widths from the baseline median: full credit through the band edge
+    /// (1), zero one half-width beyond it.
+    private static let vitalsRegionZeroCreditDeviation = 2.0
     private static let decompressionSteepness = 0.45
     private static let fullCategoryPoints = 115
     private static let secondsPerDay: TimeInterval = 24 * 60 * 60

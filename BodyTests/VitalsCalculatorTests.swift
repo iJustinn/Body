@@ -72,6 +72,18 @@ final class VitalsCalculatorTests: XCTestCase {
         XCTAssertEqual(latest.measurements.map(\.kind), [.sleepingHeartRate])
     }
 
+    func testNormalizedDeviationMatchesRegionBoundaries() {
+        let baseline = ReadinessScoreCalculator.Baseline(median: 60, spread: 3, validDayCount: 20)
+
+        // The typical band spans ±typicalBandMultiplier·spread; |deviation| = 1
+        // is the band edge (still typical), beyond it is an outlier region.
+        XCTAssertEqual(VitalsCalculator.normalizedDeviation(value: 66, baseline: baseline), 1.0)
+        XCTAssertEqual(VitalsCalculator.normalizedDeviation(value: 54, baseline: baseline), -1.0)
+        XCTAssertEqual(VitalsCalculator.normalizedDeviation(value: 63, baseline: baseline), 0.5)
+        XCTAssertEqual(VitalsCalculator.normalizedDeviation(value: 90, baseline: baseline), VitalsCalculator.deviationCap)
+        XCTAssertEqual(VitalsCalculator.normalizedDeviation(value: 20, baseline: baseline), -VitalsCalculator.deviationCap)
+    }
+
     // MARK: - Classification
 
     func testValueInsideTheTypicalBandStaysTypical() throws {

@@ -2,7 +2,9 @@
 
 ## 0.9.10 (build 19)
 
+- **Sleep Score v3.** Five points move from Deep (15 → 10) to Vitals (10 → 15), and the Vitals category is now graded against the same robust typical bands the Vitals chart uses — full credit inside your personal band, falling proportionally to zero one band half-width past its edge. Heart rate and respiratory rate deduct on both high and low outliers; blood oxygen deducts on the low side only and keeps the absolute clinical 92–96% ramp as a ceiling (a 99%+ night is never penalized, while a clinically low reading still costs points even if typical for that sleeper). With fewer than ~14 nights of history the previous grading applies unchanged. The Settings ▸ Metrics Sleep Score badge now reads v3.
 - **Vitals chart region proportions.** The trend hero's typical band now takes about 45% of the plot height (roughly 1.5× the previous share): the High/Low regions draw on a compressed display scale (half scale past ±1) while the underlying ±3 deviation cap keeps outlier lengths granular and proportional. Vitals breakdown icons and their translucent tiles now switch from white in dark appearance to black in light appearance so every row stays visible on grouped backgrounds.
+- Fixed the Readiness Week chart's current-readiness dot lingering ~half a second (or seeming not to hide) after the scrub callout appeared: the status band's easing animation was applied chart-wide, so it also animated the dot's removal. The easing is now scoped to the band itself, and the dot, rule line, and selection point snap instantly while scrubbing.
 - Updated the app, widget, watch, and test bundle version to 0.9.10 build 19.
 
 ## 0.9.10 (build 18)
