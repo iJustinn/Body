@@ -1744,6 +1744,23 @@
         }
       }
     },
+    "Body Pro isn't unlocked yet. Try Restore Purchases below, or contact support if this persists." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body Pro isn't unlocked yet. Try Restore Purchases below, or contact support if this persists."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body Pro 尚未解锁。请尝试下方的恢复购买；如仍未解锁，请联系支持。"
+          }
+        }
+      }
+    },
     "Body reads Apple Health data locally to power the app and widgets." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1762,21 +1779,17 @@
       }
     },
     "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines — sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band — and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero." : {
-
-    },
-    "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines, and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero." : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines, and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero."
+            "value" : "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines — sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band — and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body 会根据该睡眠时段可用的数据为每晚评分：睡眠量、连续性、入睡时间规律性、深睡和快速眼动占比、睡眠心率变异性带来的压力、睡眠体征以及皮肤温度。压力、体征和体温会与你近期的夜间基准进行比较评分，总分经过校准，只有真正优质的夜晚才会得高分。缺失的传感器数据会被跳过，而不会按零分计算。"
+            "value" : "Body 会根据该睡眠时段可用的数据为每晚评分：睡眠量、连续性、入睡时间规律性、深睡和快速眼动占比、睡眠心率变异性带来的压力、睡眠体征以及皮肤温度。压力、体征和体温会与你近期的夜间基准进行比较评分，其中睡眠体征采用与生命体征图表相同的典型范围，数值偏离该范围越远、扣分也越多，总分经过校准，只有真正优质的夜晚才会得高分。缺失的传感器数据会被跳过，而不会按零分计算。"
           }
         }
       }
@@ -4681,6 +4694,23 @@
         }
       }
     },
+    "No purchases to restore." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No purchases to restore."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有可恢复的购买。"
+          }
+        }
+      }
+    },
     "No Readiness yet" : {
       "localizations" : {
         "en" : {
@@ -5559,6 +5589,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "配置方案"
+          }
+        }
+      }
+    },
+    "Purchase Completed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Purchase Completed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "购买已完成"
           }
         }
       }
@@ -7961,7 +8008,21 @@
       }
     },
     "v3" : {
-
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v3"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v3"
+          }
+        }
+      }
     },
     "Version" : {
       "extractionState" : "manual",

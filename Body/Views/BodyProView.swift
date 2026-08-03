@@ -27,11 +27,13 @@ struct BodyProView: View {
     /// before their entitlement loads. Treated as resolved when there is no store.
     private var hasResolved: Bool { proStore?.hasResolved ?? true }
 
-    /// A purchase, restore, or pending approval is in flight — the (re-)purchase action is
-    /// disabled so it can't overlap or double-fire while already awaiting Ask-to-Buy approval.
+    /// A purchase, restore, or pending approval is in flight — or a completed purchase is
+    /// still awaiting its entitlement — so the (re-)purchase action is disabled: it can't
+    /// overlap, double-fire while awaiting Ask-to-Buy approval, or re-charge a buyer whose
+    /// completed purchase just hasn't unlocked yet (Restore is that state's recovery path).
     private var isPurchaseFlowActive: Bool {
         switch purchaseState {
-        case .purchasing, .restoring, .pending:
+        case .purchasing, .restoring, .pending, .completedNotUnlocked:
             return true
         case .idle, .failed:
             return false
@@ -46,7 +48,7 @@ struct BodyProView: View {
         switch purchaseState {
         case .purchasing, .restoring:
             return true
-        case .idle, .pending, .failed:
+        case .idle, .pending, .completedNotUnlocked, .failed:
             return false
         }
     }
@@ -94,6 +96,11 @@ struct BodyProView: View {
                 BodyProOwnedCard()
             } else if !hasResolved {
                 BodyProCheckingCard()
+            } else if purchaseState == .completedNotUnlocked {
+                // A completed purchase awaiting its entitlement must not re-offer the buy
+                // card (an enabled purchase arrow right after "your purchase completed"
+                // reads as a double-charge invitation) — the recovery path is Restore.
+                BodyProVerifyingPurchaseCard()
             } else if let displayPrice {
                 BodyProPurchaseOptionCard(
                     price: displayPrice,
@@ -428,6 +435,31 @@ private struct BodyProUnavailableCard: View {
             }
             .buttonStyle(.bordered)
             .tint(BodyProPalette.gold)
+        }
+        .padding(16)
+        .bodyCardBackground(cornerRadius: 24, translucent: true)
+    }
+}
+
+private struct BodyProVerifyingPurchaseCard: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "exclamationmark.seal.fill")
+                .font(.system(size: 30, weight: .bold))
+                .foregroundColor(BodyProPalette.gold)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Purchase Completed")
+                    .font(.system(size: 19, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                Text("Body Pro isn't unlocked yet. Try Restore Purchases below, or contact support if this persists.")
+                    .font(.system(.subheadline, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
         }
         .padding(16)
         .bodyCardBackground(cornerRadius: 24, translucent: true)

@@ -29,6 +29,10 @@ final class BodyProStore {
         case restoring
         /// Ask-to-Buy / SCA — the purchase is awaiting external approval.
         case pending
+        /// The App Store purchase completed but the Pro entitlement is not active —
+        /// RevenueCat propagation delay or a dashboard misconfiguration. Cleared once the
+        /// entitlement unlocks, like `.pending`.
+        case completedNotUnlocked
         case failed(String)
     }
 
@@ -103,7 +107,16 @@ final class BodyProStore {
             } else {
                 // Apply the returned CustomerInfo directly — don't wait on the stream.
                 apply(customerInfo: result.customerInfo)
-                purchaseState = .idle
+                if !isPro {
+                    // The purchase completed but the entitlement isn't active yet. One
+                    // bounded network re-check (no retry loop — the UI stays on `.purchasing`
+                    // for its duration, and the stream / foreground refresh still clears
+                    // `.completedNotUnlocked` later if this attempt is too early).
+                    if let info = try? await Purchases.shared.customerInfo(fetchPolicy: .fetchCurrent) {
+                        apply(customerInfo: info)
+                    }
+                }
+                purchaseState = isPro ? .idle : .completedNotUnlocked
             }
         } catch {
             // Ask-to-Buy / SCA deferrals surface as `.paymentPendingError`: do not unlock.
@@ -123,7 +136,19 @@ final class BodyProStore {
         do {
             let info = try await Purchases.shared.restorePurchases()
             apply(customerInfo: info)
-            purchaseState = .idle
+            if isPro {
+                purchaseState = .idle
+            } else if info.allPurchasedProductIdentifiers.contains(Self.lifetimeProductID) {
+                // The lifetime purchase exists but its entitlement didn't resolve —
+                // that's the same recovery state as a just-completed purchase, not
+                // "nothing to restore" (which would falsely tell a paying customer
+                // their purchase doesn't exist).
+                purchaseState = .completedNotUnlocked
+            } else {
+                // A restore that resolves no purchase at all is not a success — say so
+                // rather than dropping silently back to the buy card.
+                purchaseState = .failed(String(localized: "No purchases to restore."))
+            }
         } catch {
             purchaseState = .failed(String(localized: "Restore could not be completed."))
         }
@@ -170,6 +195,16 @@ final class BodyProStore {
         // unlocks — otherwise the paywall stays stuck on `.pending` after the approval
         // arrives, leaving Restore / Redeem disabled.
         if unlocked && purchaseState == .pending {
+            purchaseState = .idle
+        }
+        // Same for a purchase that completed before the entitlement propagated: the late
+        // unlock is what resolves it.
+        if unlocked && purchaseState == .completedNotUnlocked {
+            purchaseState = .idle
+        }
+        // A failure message ("No purchases to restore.") must not linger under the owned
+        // card once a later refresh unlocks Pro.
+        if unlocked, case .failed = purchaseState {
             purchaseState = .idle
         }
         // Writes the shared cache (value-guarded post) so the widget process and
