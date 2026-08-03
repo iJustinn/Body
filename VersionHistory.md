@@ -1,5 +1,9 @@
 # Version History
 
+## 0.9.11 (build 1)
+
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 1.
+
 ## 0.9.10 (build 21)
 
 - **Vitals chart axis labels removed.** The Vitals detail hero's Week/Month/6 Months/Year charts no longer draw the trailing High/Typical/Low y-axis labels — the bars and the highlighted typical band carry the reference on their own, and the plot takes the freed trailing width.
