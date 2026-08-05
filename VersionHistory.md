@@ -1,5 +1,12 @@
 # Version History
 
+## 0.9.11 (build 2)
+
+- Added an **About your interval** card to the Training Load detail, directly above the About Training Load card. It mirrors the Readiness "About your score" card: every interval (High Injury Risk → Medium Injury Risk → Optimal → Resting) with its ratio range and a one-line explanation, and a Current chip on the band the displayed ratio falls in — which follows the trend chart while you scrub, as Readiness's does.
+- The Heart Rate and Respiratory Rate details' **Day View** now draws hourly range bars: behind the hourly-average line, each hour gets a translucent gray capsule spanning its lowest-to-highest sample — the same treatment their Week/Month/6 Months/Year chart gives each day — and the y-axis widens to fit those extremes. Only these two day views get them; a compared secondary source still contributes just its line.
+- The Vitals card's dots preview now shows a **pending state** instead of disappearing while last night's vitals haven't arrived: the same three regions render dimmed with five gray rings resting in the typical band, and when the assessment lands the band takes its color and the rings glide to their regions (and colors) in one animation. Reduce Motion still lands on the same end state without the movement.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 2.
+
 ## 0.9.11 (build 1)
 
 - Updated the app, widget, watch, and test bundle version to 0.9.11 build 1.
