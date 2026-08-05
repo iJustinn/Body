@@ -501,6 +501,7 @@ struct BodyHealthMetricDayChart: View {
 
     private let hourlyBuckets: [HealthTrendHourlyBucket]
     private let secondaryHourlyBuckets: [HealthTrendHourlyBucket]
+    private let rangeEntries: [BodyHealthMetricDayRangeEntry]
     private let entries: [BodyHealthMetricDayChartEntry]
     private let pointMarkEntries: [BodyHealthMetricDayChartEntry]
     private let finiteEntries: [BodyHealthMetricDayChartEntry]
@@ -531,7 +532,8 @@ struct BodyHealthMetricDayChart: View {
         contextIntervals: [BodyHealthMetricDayContextInterval] = [],
         aggregationLabel: String = String(localized: "HOURLY AVG"),
         includesSampleBreakdown: Bool = true,
-        collapsesUnchangedPoints: Bool = false
+        collapsesUnchangedPoints: Bool = false,
+        showsHourlyRangeBars: Bool = false
     ) {
         self.day = day
         self.title = title
@@ -548,6 +550,10 @@ struct BodyHealthMetricDayChart: View {
         let secondaryBuckets = secondarySeries.hourlyAverageBuckets(on: day)
         self.hourlyBuckets = buckets
         self.secondaryHourlyBuckets = secondaryBuckets
+        // Primary-source bars only, matching the Week/Month/6M/Year range chart:
+        // the compared source contributes its line, not a second set of bars.
+        let rangeEntries = showsHourlyRangeBars ? Self.makeRangeEntries(from: buckets) : []
+        self.rangeEntries = rangeEntries
         self.latestBucketDate = buckets.last?.plotDate
         self.latestSecondaryBucketDate = secondaryBuckets.last?.plotDate
         let primaryEntries = Self.makeEntries(
@@ -568,7 +574,10 @@ struct BodyHealthMetricDayChart: View {
         self.finiteEntries = allEntries.filter { $0.averageValue.isFinite }
         self.primaryEntriesByDate = Dictionary(uniqueKeysWithValues: primaryEntries.map { ($0.plotDate, $0) })
         self.secondaryEntriesByDate = Dictionary(uniqueKeysWithValues: secondaryEntries.map { ($0.plotDate, $0) })
-        self.chartYDomain = Self.computeYDomain(from: buckets + secondaryBuckets)
+        self.chartYDomain = Self.computeYDomain(
+            from: buckets + secondaryBuckets,
+            rangeEntries: rangeEntries
+        )
 
         let calendar = Calendar.bodyGregorian
         let dayStart = calendar.startOfDay(for: day)
@@ -578,6 +587,12 @@ struct BodyHealthMetricDayChart: View {
     }
 
     var body: some View {
+        GeometryReader { proxy in
+            chart(rangeBarWidth: Self.rangeBarWidth(forAvailableWidth: proxy.size.width))
+        }
+    }
+
+    private func chart(rangeBarWidth: CGFloat) -> some View {
         Chart {
             ForEach(contextIntervals) { interval in
                 RectangleMark(
@@ -606,6 +621,28 @@ struct BodyHealthMetricDayChart: View {
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(interval.color)
                         .accessibilityHidden(true)
+                }
+            }
+
+            // Behind the line: each hour's min-max, in the same translucent gray
+            // the Week/Month/6M/Year range chart uses under its average line.
+            ForEach(rangeEntries) { entry in
+                if entry.lowValue == entry.highValue {
+                    PointMark(
+                        x: .value("Time", entry.plotDate),
+                        y: .value(title, entry.lowValue)
+                    )
+                    .symbolSize(bodyRangeChartPointSymbolSize(forBarWidth: rangeBarWidth))
+                    .foregroundStyle(Self.rangeBarColor)
+                } else {
+                    BarMark(
+                        x: .value("Time", entry.plotDate),
+                        yStart: .value("Low \(title)", entry.lowValue),
+                        yEnd: .value("High \(title)", entry.highValue),
+                        width: .fixed(rangeBarWidth)
+                    )
+                    .foregroundStyle(Self.rangeBarColor)
+                    .cornerRadius(rangeBarWidth / 2)
                 }
             }
 
@@ -734,6 +771,10 @@ struct BodyHealthMetricDayChart: View {
         entry.sourceRole == .primary ? color : secondaryColor
     }
 
+    /// Same translucent gray `BodyHeartRateRangeTrendChart` fills its bars with
+    /// while an average line runs over them.
+    private static let rangeBarColor = Color.secondary.opacity(0.24)
+
     private var contextTopLineLowerBound: Double {
         BodyHealthMetricDayContextBand.topStripeLowerBound(for: chartYDomain)
     }
@@ -748,8 +789,15 @@ struct BodyHealthMetricDayChart: View {
             }
     }
 
-    private static func computeYDomain(from buckets: [HealthTrendHourlyBucket]) -> ClosedRange<Double> {
-        let values = buckets.map(\.averageValue).filter(\.isFinite)
+    private static func computeYDomain(
+        from buckets: [HealthTrendHourlyBucket],
+        rangeEntries: [BodyHealthMetricDayRangeEntry] = []
+    ) -> ClosedRange<Double> {
+        // The bars reach each hour's extremes, so they have to be inside the
+        // domain or they clip at the plot edges.
+        let values = (buckets.map(\.averageValue)
+            + rangeEntries.flatMap { [$0.lowValue, $0.highValue] })
+            .filter(\.isFinite)
         guard let minimum = values.min(), let maximum = values.max() else {
             return 0...1
         }
@@ -800,6 +848,31 @@ struct BodyHealthMetricDayChart: View {
         return entries.filter { keptIDs.contains($0.id) }
     }
 
+    /// Low/high of every sample inside each hour — the intraday twin of the
+    /// range chart's per-day min/max bar.
+    static func makeRangeEntries(from buckets: [HealthTrendHourlyBucket]) -> [BodyHealthMetricDayRangeEntry] {
+        buckets.compactMap { bucket in
+            let values = bucket.samples.map(\.value).filter(\.isFinite)
+            guard let lowValue = values.min(), let highValue = values.max() else {
+                return nil
+            }
+
+            return BodyHealthMetricDayRangeEntry(
+                hourStart: bucket.hourStart,
+                plotDate: bucket.plotDate,
+                lowValue: lowValue,
+                highValue: highValue
+            )
+        }
+    }
+
+    /// Bar width for the 24 hourly slots, using the same slot-to-bar ratio the
+    /// Month range chart uses (7pt bars across ~30 slots).
+    static func rangeBarWidth(forAvailableWidth availableWidth: CGFloat) -> CGFloat {
+        let slotWidth = availableWidth / 24
+        return min(max(slotWidth * 0.62, 4), 14)
+    }
+
     private static func makeEntries(
         from buckets: [HealthTrendHourlyBucket],
         sourceName: String,
@@ -814,6 +887,19 @@ struct BodyHealthMetricDayChart: View {
                 segmentIndex: index
             )
         }
+    }
+}
+
+/// One hour's low/high, drawn as the transparent gray range bar behind the
+/// hourly-average line.
+struct BodyHealthMetricDayRangeEntry: Identifiable {
+    let hourStart: Date
+    let plotDate: Date
+    let lowValue: Double
+    let highValue: Double
+
+    var id: Date {
+        hourStart
     }
 }
 

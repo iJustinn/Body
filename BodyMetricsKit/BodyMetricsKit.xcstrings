@@ -3776,6 +3776,74 @@
         }
       }
     },
+    "Recent work is climbing faster than your baseline. Space out hard days and watch recovery." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recent work is climbing faster than your baseline. Space out hard days and watch recovery."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "近期训练量的上升快于你的基线。注意拉开高强度训练的间隔并关注恢复。"
+          }
+        }
+      }
+    },
+    "Recent work is well above your baseline. Ease back before strain outpaces recovery." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recent work is well above your baseline. Ease back before strain outpaces recovery."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "近期训练量远高于你的基线。适当减量，以免负荷超过恢复能力。"
+          }
+        }
+      }
+    },
+    "Recent work sits below your baseline. Good for recovery, or a sign training has tapered off." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recent work sits below your baseline. Good for recovery, or a sign training has tapered off."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "近期训练量低于你的基线。适合恢复，也可能说明训练量已经减少。"
+          }
+        }
+      }
+    },
+    "Recent work tracks your baseline. Sustainable territory for building fitness." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recent work tracks your baseline. Sustainable territory for building fitness."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "近期训练量与你的基线相当，适合稳步提升体能。"
+          }
+        }
+      }
+    },
     "REM" : {
       "extractionState" : "manual",
       "localizations" : {

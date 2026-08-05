@@ -54,7 +54,13 @@ struct BodyHealthMetricCard: View {
             // Preview points are derived once per model — the preview view
             // used to regroup the full trend series in chained computed
             // properties on every render of every card.
-            hasChartPreview = chartPreview != nil || chartRangePreview != nil || !previewDotEntries.isEmpty
+            // The dots preview keeps drawing its three regions while the night's
+            // vitals are pending, so the card doesn't lose the chart and get it
+            // back — it fills the skeleton in place.
+            hasChartPreview = chartPreview != nil
+                || chartRangePreview != nil
+                || !previewDotEntries.isEmpty
+                || chartPreviewStyle == .dots
             previewCalendarPoints = chartPreview.map {
                 BodyHomeMetricCardPreview.calendarPoints(from: $0, previewDayCount: previewDayCount)
             } ?? []
@@ -477,42 +483,73 @@ struct BodyHealthMetricCardTrendPreview: View {
         }
     }
 
+    /// One ring in the dots preview. A `nil` region is the waiting-for-data
+    /// skeleton: the ring reads gray and rests in the middle of the band until
+    /// the night's assessment lands.
+    private struct PreviewDot: Equatable {
+        var position: Double
+        var region: SleepVitalRegion?
+    }
+
+    /// One skeleton ring per vital, so the pending card shows the same number of
+    /// rings the assessed one will.
+    private static let placeholderDotCount = VitalKind.allCases.count
+
+    private var previewDots: [PreviewDot] {
+        guard !dotEntries.isEmpty else {
+            return Array(
+                repeating: PreviewDot(position: 0.5, region: nil),
+                count: Self.placeholderDotCount
+            )
+        }
+
+        return dotEntries.map { PreviewDot(position: $0.position, region: $0.region) }
+    }
+
+    private var isAwaitingDots: Bool {
+        dotEntries.isEmpty
+    }
+
     /// Health's Vitals preview, drawn the way Apple draws it: a thick gray
     /// capsule for the high region, a filled blue rounded band for the typical
     /// region, another gray capsule for the low region, and one dark-centered
     /// ring per vital — typical rings sit inside the band, outlier rings land
-    /// on the gray bar they escaped to.
+    /// on the gray bar they escaped to. Before the night's vitals are in, the
+    /// same three regions render dimmed with gray rings resting in the band;
+    /// when the assessment arrives the band takes its color and each ring
+    /// glides to the region it belongs in.
     private var dotsPreview: some View {
         GeometryReader { proxy in
             let layout = DotPreviewLayout(size: proxy.size)
+            let dots = previewDots
 
             ZStack {
                 Capsule(style: .continuous)
-                    .fill(Color.secondary.opacity(0.42))
+                    .fill(Color.secondary.opacity(isAwaitingDots ? 0.24 : 0.42))
                     .frame(width: proxy.size.width, height: layout.barHeight)
                     .position(x: proxy.size.width / 2, y: layout.topBarCenterY)
 
                 RoundedRectangle(cornerRadius: layout.bandCornerRadius, style: .continuous)
-                    .fill(Color(red: 0.21, green: 0.30, blue: 0.45))
+                    .fill(bandColor)
                     .frame(width: proxy.size.width, height: layout.bandHeight)
                     .position(x: proxy.size.width / 2, y: layout.bandCenterY)
 
                 Capsule(style: .continuous)
-                    .fill(Color.secondary.opacity(0.42))
+                    .fill(Color.secondary.opacity(isAwaitingDots ? 0.24 : 0.42))
                     .frame(width: proxy.size.width, height: layout.barHeight)
                     .position(x: proxy.size.width / 2, y: layout.bottomBarCenterY)
 
-                ForEach(Array(dotEntries.enumerated()), id: \.offset) { index, entry in
+                ForEach(Array(dots.enumerated()), id: \.offset) { index, dot in
                     Circle()
                         .fill(Color.black.opacity(0.62))
                         .overlay(
                             Circle()
-                                .strokeBorder(dotColor(for: entry), lineWidth: layout.dotStroke)
+                                .strokeBorder(dotColor(for: dot), lineWidth: layout.dotStroke)
                         )
                         .frame(width: layout.dotDiameter, height: layout.dotDiameter)
                         .position(
-                            x: dotX(at: index, in: proxy.size),
-                            y: layout.dotY(for: entry.position)
+                            x: dotX(at: index, in: proxy.size, count: dots.count),
+                            y: layout.dotY(for: dot.position)
                         )
                 }
             }
@@ -580,18 +617,24 @@ struct BodyHealthMetricCardTrendPreview: View {
         }
     }
 
-    private func dotX(at index: Int, in size: CGSize) -> CGFloat {
-        size.width * (CGFloat(index) + 0.5) / CGFloat(max(dotEntries.count, 1))
+    private func dotX(at index: Int, in size: CGSize, count: Int) -> CGFloat {
+        size.width * (CGFloat(index) + 0.5) / CGFloat(max(count, 1))
     }
 
-    private func dotColor(for entry: BodyHealthMetricCard.Model.DotEntry) -> Color {
-        switch entry.region {
+    private var bandColor: Color {
+        isAwaitingDots ? Color.secondary.opacity(0.24) : Color(red: 0.21, green: 0.30, blue: 0.45)
+    }
+
+    private func dotColor(for dot: PreviewDot) -> Color {
+        switch dot.region {
         case .typical:
             return BodyVitalsChartStyle.typicalColor
         case .high:
             return BodyVitalsChartStyle.highColor
         case .low:
             return BodyVitalsChartStyle.lowColor
+        case nil:
+            return Color.secondary.opacity(0.45)
         }
     }
 }

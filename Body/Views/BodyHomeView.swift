@@ -1237,7 +1237,8 @@ struct BodyHomeView: View {
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 chartStyle: .line,
                 highlightedRange: trainingLoadInterval,
-                highlightedRangeResolver: BodyTrainingLoadIntervalPresentation.make(for:)
+                highlightedRangeResolver: BodyTrainingLoadIntervalPresentation.make(for:),
+                trainingLoadValue: summary.trainingLoad.value
             )
         case .wristTemperature:
             let display = summary.wristTemperature.value.map {
@@ -1574,6 +1575,7 @@ struct BodyHomeView: View {
         chartStyle: BodyHealthMetricChartStyle = .line,
         highlightedRange: BodyHealthMetricTrendHighlightedRange? = nil,
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
+        trainingLoadValue: Double? = nil,
         sleepHistory: SleepHistorySnapshot = .empty,
         valueTransform: @escaping (Double) -> Double = { $0 }
     ) -> BodyHealthMetricDetailModel {
@@ -1601,6 +1603,7 @@ struct BodyHomeView: View {
             highlightedRangeResolver: highlightedRangeResolver,
             valueFormatter: { BodyValueFormat.numberText($0, decimals: decimals) + suffix },
             secondaryValueFormatter: nil,
+            trainingLoadValue: trainingLoadValue,
             sourceComparisonTrend: kind.usesSourceComparisonBarChart
                 ? workoutStore.sourceComparisonTrend(for: kind)?.mapValues(valueTransform)
                 : nil,

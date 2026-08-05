@@ -858,6 +858,22 @@
         }
       }
     },
+    "About your interval" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About your interval"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于你的区间"
+          }
+        }
+      }
+    },
     "About your score" : {
       "localizations" : {
         "en" : {

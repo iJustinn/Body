@@ -25,6 +25,9 @@ struct BodyHealthMetricDetailModel {
     let sleepHistory: SleepHistorySnapshot
     let sleepHistorySecondary: SleepHistorySnapshot
     let readiness: ReadinessSummary?
+    /// Live training-load ratio behind `value`, unformatted — the About your interval
+    /// card marks the band it falls in while nothing is scrubbed.
+    let trainingLoadValue: Double?
     let chartStyle: BodyHealthMetricChartStyle
     let highlightedRange: BodyHealthMetricTrendHighlightedRange?
     let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?
@@ -61,6 +64,7 @@ struct BodyHealthMetricDetailModel {
         valueFormatter: @escaping (Double) -> String,
         secondaryValueFormatter: ((Double) -> String)?,
         readiness: ReadinessSummary? = nil,
+        trainingLoadValue: Double? = nil,
         sourceComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
         sourceRangeComparisonTrend: BodyHealthSourceRangeComparisonTrend? = nil,
         sourceLineComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
@@ -86,6 +90,7 @@ struct BodyHealthMetricDetailModel {
         self.sleepHistory = sleepHistory
         self.sleepHistorySecondary = sleepHistorySecondary
         self.readiness = readiness
+        self.trainingLoadValue = trainingLoadValue
         self.chartStyle = chartStyle
         self.highlightedRange = highlightedRange
         self.highlightedRangeResolver = highlightedRangeResolver
@@ -401,6 +406,7 @@ struct BodyHealthMetricDetailView: View {
     @State private var showsDataSourcePicker = false
     @State private var showsAddMeasurementSheet = false
     @State private var activeReadinessTrendValue: Double?
+    @State private var activeTrainingLoadTrendValue: Double?
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     @StateObject private var daySeriesCache = BodyMetricDaySeriesCache()
     @StateObject private var sleepConsistencyCache = BodySleepConsistencyChartCache()
@@ -705,6 +711,31 @@ struct BodyHealthMetricDetailView: View {
         return model.readiness?.status
     }
 
+    private var activeTrainingLoadInterval: TrainingLoadInterval? {
+        guard model.kind == .trainingLoad else {
+            return nil
+        }
+
+        if let activeTrainingLoadTrendValue, activeTrainingLoadTrendValue.isFinite {
+            return TrainingLoadInterval.interval(for: activeTrainingLoadTrendValue)
+        }
+
+        return TrainingLoadInterval.interval(for: model.trainingLoadValue)
+    }
+
+    /// Scrub report-out channel for the metrics whose About card marks the band the
+    /// touched point falls in; other metrics don't track it.
+    private var activeTrendValueBinding: Binding<Double?>? {
+        switch model.kind {
+        case .readiness:
+            return $activeReadinessTrendValue
+        case .trainingLoad:
+            return $activeTrainingLoadTrendValue
+        default:
+            return nil
+        }
+    }
+
     private var recentDatePickerDates: [Date] {
         SleepHistorySnapshot.datePickerDates(dayCount: BodyHealthTrendRange.recentMonth.dayCount, futureDayCount: 1)
     }
@@ -905,6 +936,75 @@ struct BodyHealthMetricDetailView: View {
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .bodyCardBackground(translucent: true)
+        }
+    }
+
+    private func trainingLoadIntervalCard(activeInterval: TrainingLoadInterval?) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("About your interval")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(TrainingLoadInterval.displayOrder, id: \.self) { interval in
+                    trainingLoadIntervalExplanationRow(
+                        interval: interval,
+                        isCurrent: activeInterval == interval
+                    )
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(translucent: true)
+    }
+
+    private func trainingLoadIntervalExplanationRow(interval: TrainingLoadInterval, isCurrent: Bool) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(BodyTrainingLoadIntervalPresentation.color(for: interval))
+                .frame(width: 4)
+                .padding(.vertical, 3)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    // Interval titles run longer than the readiness status titles, so the
+                    // title compresses rather than wrapping the range and Current chip.
+                    Text(interval.title)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+
+                    Text(interval.rangeText)
+                        .font(.system(.subheadline, design: .monospaced))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(BodyTrainingLoadIntervalPresentation.color(for: interval))
+                        .fixedSize(horizontal: true, vertical: false)
+
+                    if isCurrent {
+                        Text("Current")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(BodyTrainingLoadIntervalPresentation.color(for: interval))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                BodyTrainingLoadIntervalPresentation.color(for: interval)
+                                    .opacity(0.14),
+                                in: Capsule()
+                            )
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+
+                Text(interval.explanation)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -1161,6 +1261,9 @@ struct BodyHealthMetricDetailView: View {
             if model.kind == .readiness, let readiness = model.readiness {
                 readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
             }
+            if model.kind == .trainingLoad {
+                trainingLoadIntervalCard(activeInterval: activeTrainingLoadInterval)
+            }
             helpTextCard
             dataSourceFooter
         }
@@ -1363,7 +1466,7 @@ struct BodyHealthMetricDetailView: View {
                 currentValuePoint: model.kind == .readiness && selectedTrendRange == .recentWeek
                     ? BodyReadinessStatusPresentation.currentTrendDot(readiness: model.readiness, series: model.series)
                     : nil,
-                activeHighlightedValue: model.kind == .readiness ? $activeReadinessTrendValue : nil,
+                activeHighlightedValue: activeTrendValueBinding,
                 floatingCallout: immersive ? floatingCallout : nil,
                 isSleepDetail: isSleepDetail,
                 baselineValue: wristTemperatureTrendBaseline,
@@ -1589,7 +1692,11 @@ struct BodyHealthMetricDetailView: View {
                     // The readiness line is a step function that is flat most of the
                     // day — a dot on every hour reads as noise, so flat runs keep
                     // only their start and end dots.
-                    collapsesUnchangedPoints: model.kind == .readiness
+                    collapsesUnchangedPoints: model.kind == .readiness,
+                    // Heart rate and respiratory rate plot min-max bars on their
+                    // Week/Month/6M/Year chart, so their Day View carries the same
+                    // bars per hour.
+                    showsHourlyRangeBars: model.kind == .heartRate || model.kind == .respiratoryRate
                 )
                 .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
                 .id(selectedMetricDay)
