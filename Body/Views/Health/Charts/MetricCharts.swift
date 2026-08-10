@@ -898,8 +898,8 @@ struct BodyHealthMetricDayRangeEntry: Identifiable {
     let lowValue: Double
     let highValue: Double
 
-    var id: Date {
-        hourStart
+    var id: Int {
+        hourStart.bodyHourOfDayIndex
     }
 }
 
@@ -910,7 +910,7 @@ struct BodyHealthMetricDayChartEntry: Identifiable {
     let segmentIndex: Int
 
     var id: String {
-        "\(sourceRole.rawValue)-\(bucket.id)"
+        "\(sourceRole.rawValue)-\(bucket.hourStart.bodyHourOfDayIndex)"
     }
 
     var seriesKey: String {
@@ -923,6 +923,17 @@ struct BodyHealthMetricDayChartEntry: Identifiable {
 
     var averageValue: Double {
         bucket.averageValue
+    }
+}
+
+private extension Date {
+    /// Hours since this date's own midnight. Day-chart marks use this as their
+    /// identity instead of the absolute hour timestamp so a mark keeps its
+    /// identity across days — moving the day picker morphs each dot to the new
+    /// day's value (like the sleep Vitals plot) rather than replacing it.
+    /// Elapsed hours, not the clock hour, which repeats on DST fall-back days.
+    var bodyHourOfDayIndex: Int {
+        Int(timeIntervalSince(Calendar.bodyGregorian.startOfDay(for: self)) / 3600)
     }
 }
 

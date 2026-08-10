@@ -9,6 +9,10 @@ import SwiftUI
 
 struct BodySleepStageChart: View {
     let snapshot: SleepStageSnapshot
+    /// Explicit axis tick spans (the Nap Stages card passes each nap's span so
+    /// every nap gets its start and end labeled); nil keeps the default single
+    /// pair of ticks at the first segment start and last segment end.
+    var axisMarkIntervals: [DateInterval]? = nil
 
     @State private var selectedStageDate: Date?
     @GestureState private var isSelectingStage = false
@@ -268,6 +272,9 @@ struct BodySleepStageChart: View {
     }
 
     private var xAxisValues: [Date] {
+        if let axisMarkIntervals, !axisMarkIntervals.isEmpty {
+            return axisMarkIntervals.flatMap { [$0.start, $0.end] }.sorted()
+        }
         guard let startDate = snapshot.segments.map(\.startDate).min(),
               let endDate = snapshot.segments.map(\.endDate).max() else {
             return []
@@ -279,6 +286,13 @@ struct BodySleepStageChart: View {
         guard let date = value.as(Date.self) else { return .top }
         if date == xAxisValues.first { return .topLeading }
         if date == xAxisValues.last { return .topTrailing }
+        // Interior span boundaries anchor away from their own span — a start
+        // label extends left into the gap and an end label extends right — so a
+        // short nap's pair of labels doesn't pile up inside its narrow span.
+        if let axisMarkIntervals {
+            if axisMarkIntervals.contains(where: { $0.start == date }) { return .topTrailing }
+            if axisMarkIntervals.contains(where: { $0.end == date }) { return .topLeading }
+        }
         return .top
     }
 

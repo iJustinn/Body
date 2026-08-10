@@ -1122,13 +1122,20 @@ struct BodyHealthMetricDetailView: View {
         }
 
         let primary = workoutStore.selectedHealthDataSourceOption(for: model.kind)
-        let primaryIcon = primary.isAllSources
-            ? "heart.text.square"
-            : BodyHealthSourceIcon.systemImageName(
+        let primaryIcon: String
+        if primary.isCustomSource {
+            // Custom sources carry the heart icon everywhere; the name-token
+            // lookup below would instead match whatever the user called them.
+            primaryIcon = "heart.fill"
+        } else if primary.isAllSources {
+            primaryIcon = "heart.text.square"
+        } else {
+            primaryIcon = BodyHealthSourceIcon.systemImageName(
                 name: primary.name,
                 bundleIdentifier: primary.iconBundleIdentifierHint,
                 fallback: "heart.text.square"
             )
+        }
 
         guard model.kind.supportsSecondaryHealthDataSourceSelection else {
             return [primaryIcon]
@@ -1139,13 +1146,18 @@ struct BodyHealthMetricDetailView: View {
             return [primaryIcon]
         }
 
-        let secondaryIcon = secondary.isAllSources
-            ? "square.text.square"
-            : BodyHealthSourceIcon.systemImageName(
+        let secondaryIcon: String
+        if secondary.isCustomSource {
+            secondaryIcon = "heart.fill"
+        } else if secondary.isAllSources {
+            secondaryIcon = "square.text.square"
+        } else {
+            secondaryIcon = BodyHealthSourceIcon.systemImageName(
                 name: secondary.name,
                 bundleIdentifier: secondary.iconBundleIdentifierHint,
                 fallback: "square.text.square"
             )
+        }
 
         return [primaryIcon, secondaryIcon]
     }
@@ -1710,13 +1722,14 @@ struct BodyHealthMetricDetailView: View {
                         showsHourlyRangeBars: model.kind == .heartRate || model.kind == .respiratoryRate
                     )
                     .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
-                    // Scoped so only day-series content changes animate (marks morph on
-                    // refresh landings with stable hourly identities); day switches still
-                    // crossfade via `.id` below, and the outer transaction keeps silencing
-                    // inherited scroll/date-picker animations.
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: selectedMetricDaySeries)
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: selectedMetricSecondaryDaySeries)
-                    .id(selectedMetricDay)
+                    // Scoped so only day-series content changes animate: marks glide to
+                    // their new positions — day switches included, since mark identity is
+                    // hour-of-day and survives the switch — matching the sleep Vitals
+                    // plot's dot morph (same curve as `BodySleepVitalsRegionPlot`). The
+                    // outer transaction keeps silencing inherited scroll/date-picker
+                    // animations.
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: selectedMetricDaySeries)
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: selectedMetricSecondaryDaySeries)
                     .transition(dayChartTransition)
                     .transaction { transaction in
                         transaction.animation = nil
@@ -2292,7 +2305,6 @@ struct BodyHealthMetricDetailView: View {
     // symmetric with `sleepStageCard`, which is handed the main session.
     private func napStageCard(_ snapshot: SleepStageSnapshot, sourceName: String? = nil) -> some View {
         let napsSnapshot = snapshot.napsSnapshot
-        let napTimeRanges = snapshot.napSessions.compactMap { napSessionTimeRangeText(for: $0) }
 
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
@@ -2322,7 +2334,10 @@ struct BodyHealthMetricDetailView: View {
                 }
             }
 
-            BodySleepStageChart(snapshot: napsSnapshot)
+            BodySleepStageChart(
+                snapshot: napsSnapshot,
+                axisMarkIntervals: snapshot.napSessions.compactMap(\.dateInterval)
+            )
                 .id("Nap Stages-\(sourceName ?? "default")-\(sleepStageChartIdentity(for: napsSnapshot))")
                 .transition(dayChartTransition)
                 .transaction { transaction in
@@ -2333,32 +2348,10 @@ struct BodyHealthMetricDetailView: View {
                 // becomes the single VoiceOver element that spells it out.
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(napStageBreakdownAccessibilityLabel(napsSnapshot))
-
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(napTimeRanges.enumerated()), id: \.offset) { _, timeRange in
-                    Text(timeRange)
-                        .font(.system(.caption, design: .rounded))
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .bodyCardBackground(translucent: true)
-    }
-
-    private func napSessionTimeRangeText(for session: SleepStageSnapshot) -> String? {
-        guard let interval = session.dateInterval else {
-            return nil
-        }
-
-        let startText = interval.start.formatted(.dateTime.hour().minute())
-        let endText = interval.end.formatted(.dateTime.hour().minute())
-        return "\(startText) – \(endText)"
     }
 
     // Mirrors `sleepStageBreakdownAccessibilityLabel` for the nap chart, which
