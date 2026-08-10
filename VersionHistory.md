@@ -4,6 +4,8 @@
 
 - **Day View now renders instantly.** A metric detail's Day View used to show "No data for this day" until a fresh Apple Health fetch completed; it now renders cached intraday data immediately on entry, then refreshes in the background on every visit (same refresh cadence as before).
 - **Day View chart animations.** When the background refresh lands, chart marks morph to their new positions and new data fades in; switching days cross-fades instead of snapping; Reduce Motion disables the chart motion.
+- **Sleep Stages card now shows only the main session.** A daytime nap no longer stretches the night's hypnogram across the whole day; the card (and the matching Home Screen widget) draws only the day's auto-detected primary session, while total sleep duration elsewhere is unchanged. The Heart Rate, HRV, Active Energy, Steps, and Readiness Day View charts likewise shade the night and each nap as separate sleep bands (nap bands get a moon icon) instead of one block spanning bedtime to the nap's end, and the Heart Rate/HRV "Sleep" activity-average row now averages over the night only.
+- **New Nap Stages card.** On a day with naps, a card matching the Sleep Stages card's style appears below it, combining every nap into one hypnogram with a start–end time listed for each nap and the total nap duration in its header.
 - Updated the app, widget, watch, and test bundle version to 0.9.11 build 3.
 
 ## 0.9.11 (build 2)
