@@ -1673,12 +1673,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.11;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.11;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 2;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 3;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1713,9 +1713,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.11 (build 2)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.11 (build 3)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 21)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.10 (build 19)**"))
@@ -1780,6 +1781,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.11 build 3."))
         XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 2)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.11 build 2."))
         XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 1)"))
@@ -2076,12 +2079,23 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(catchBlock.contains("distanceSampleCache["))
     }
 
+    func testDaySampleSidecarIsPersistedFromEnoughCallSites() throws {
+        // `persistDaySampleSidecar()` is what makes the day-sample sidecar durable —
+        // including the lazily fetched intraday merge that lets the metric detail
+        // Day View render cached data instantly on the next launch. Guard the call
+        // count so a future refactor can't silently drop that persistence.
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+
+        XCTAssertGreaterThanOrEqual(storeSource.occurrenceCount(of: "persistDaySampleSidecar()"), 6)
+    }
+
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
         XCTAssertTrue(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.11 build 2)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.11 build 3)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.11 build 2)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.11 build 1)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 21)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.10 build 19)"))

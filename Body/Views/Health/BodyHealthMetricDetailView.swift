@@ -1669,40 +1669,49 @@ struct BodyHealthMetricDetailView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            if selectedMetricDaySeries.isEmpty && selectedMetricSecondaryDaySeries.isEmpty {
-                Text("No data for this day")
-                    .font(.system(.body, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: BodyHealthDetailChartLayout.dayChartHeight)
-            } else {
-                BodyHealthMetricDayChart(
-                    series: selectedMetricDaySeries,
-                    secondarySeries: selectedMetricSecondaryDaySeries,
-                    day: selectedMetricDay,
-                    title: model.title,
-                    color: model.symbolColor,
-                    secondaryColor: sourceComparisonSecondaryColor,
-                    primarySourceName: workoutStore.selectedHealthDataSourceOption(for: model.kind).name,
-                    secondarySourceName: workoutStore.selectedSecondaryHealthDataSourceOption(for: model.kind).name,
-                    valueFormatter: model.valueFormatter,
-                    contextIntervals: selectedMetricDayContextIntervals,
-                    aggregationLabel: selectedMetricDayAggregationLabel,
-                    includesSampleBreakdown: selectedMetricDayIncludesSampleBreakdown,
-                    // The readiness line is a step function that is flat most of the
-                    // day — a dot on every hour reads as noise, so flat runs keep
-                    // only their start and end dots.
-                    collapsesUnchangedPoints: model.kind == .readiness,
-                    // Heart rate and respiratory rate plot min-max bars on their
-                    // Week/Month/6M/Year chart, so their Day View carries the same
-                    // bars per hour.
-                    showsHourlyRangeBars: model.kind == .heartRate || model.kind == .respiratoryRate
-                )
-                .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
-                .id(selectedMetricDay)
-                .transition(dayChartTransition)
-                .transaction { transaction in
-                    transaction.animation = nil
+            ZStack {
+                if selectedMetricDaySeries.isEmpty && selectedMetricSecondaryDaySeries.isEmpty {
+                    Text("No data for this day")
+                        .font(.system(.body, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: BodyHealthDetailChartLayout.dayChartHeight)
+                        .transition(dayChartTransition)
+                } else {
+                    BodyHealthMetricDayChart(
+                        series: selectedMetricDaySeries,
+                        secondarySeries: selectedMetricSecondaryDaySeries,
+                        day: selectedMetricDay,
+                        title: model.title,
+                        color: model.symbolColor,
+                        secondaryColor: sourceComparisonSecondaryColor,
+                        primarySourceName: workoutStore.selectedHealthDataSourceOption(for: model.kind).name,
+                        secondarySourceName: workoutStore.selectedSecondaryHealthDataSourceOption(for: model.kind).name,
+                        valueFormatter: model.valueFormatter,
+                        contextIntervals: selectedMetricDayContextIntervals,
+                        aggregationLabel: selectedMetricDayAggregationLabel,
+                        includesSampleBreakdown: selectedMetricDayIncludesSampleBreakdown,
+                        // The readiness line is a step function that is flat most of the
+                        // day — a dot on every hour reads as noise, so flat runs keep
+                        // only their start and end dots.
+                        collapsesUnchangedPoints: model.kind == .readiness,
+                        // Heart rate and respiratory rate plot min-max bars on their
+                        // Week/Month/6M/Year chart, so their Day View carries the same
+                        // bars per hour.
+                        showsHourlyRangeBars: model.kind == .heartRate || model.kind == .respiratoryRate
+                    )
+                    .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
+                    // Scoped so only day-series content changes animate (marks morph on
+                    // refresh landings with stable hourly identities); day switches still
+                    // crossfade via `.id` below, and the outer transaction keeps silencing
+                    // inherited scroll/date-picker animations.
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: selectedMetricDaySeries)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: selectedMetricSecondaryDaySeries)
+                    .id(selectedMetricDay)
+                    .transition(dayChartTransition)
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
                 }
             }
         }

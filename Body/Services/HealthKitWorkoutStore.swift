@@ -1306,6 +1306,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         let interval = HealthKitFetchEngine.intradayDaySampleInterval(calendar: calendar, anchor: nil)
         let cachedPrimary = healthTrends.daySeries(for: kind)
         let cachedSecondary = healthTrends.secondaryDaySeries(for: kind)
+        let capturedDaySampleSignatures = currentDaySampleSignatures()
 
         let primaryFetchStart: Date
         let secondaryFetchStart: Date
@@ -1420,11 +1421,22 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
         // A cache clear landed while the intraday samples fetched — don't merge
-        // them back onto the wiped trends.
-        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
+        // them back onto the wiped trends. The signature check covers the other
+        // mid-flight invalidations: the engine fetches and the `while isRefreshing`
+        // wait above can straddle a source switch, combine flip, or permission
+        // change, all of which strip the day samples. Merging old-source samples
+        // onto the freshly stripped trends would stamp them into the sidecar under
+        // the NEW selection's signature, which `scopedForHydration` then accepts
+        // forever — and nothing self-heals, because the incremental fetch
+        // early-returns once the cache covers the window.
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
+              currentDaySampleSignatures() == capturedDaySampleSignatures else {
             return
         }
         healthTrends = trends
+        // Make the lazily fetched series durable so the next launch renders the
+        // day chart straight from the sidecar.
+        persistDaySampleSidecar()
     }
 
     func refreshWorkoutMonth(month: Int, year: Int, intent: BodyWorkoutRefreshIntent = .userInitiated) async {
@@ -1595,7 +1607,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // cached intraday day samples and persist the invalidation before the
         // corrective refetch (H6a).
         healthTrends = healthTrends.strippingDaySamples()
-        persistStrippedDaySampleSidecar()
+        persistDaySampleSidecar()
 
         await requestAuthorizationAndRefresh()
     }
@@ -1628,7 +1640,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // drop all cached intraday day samples and persist the invalidation
         // before the corrective refetch (H6a).
         healthTrends = healthTrends.strippingDaySamples()
-        persistStrippedDaySampleSidecar()
+        persistDaySampleSidecar()
 
         await requestAuthorizationAndRefresh()
     }
@@ -1670,7 +1682,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // (incl. secondary day samples) and persist the invalidation before the
         // corrective refetch (H6a).
         healthTrends = healthTrends.clearingSecondarySeries()
-        persistStrippedDaySampleSidecar()
+        persistDaySampleSidecar()
 
         await requestAuthorizationAndRefresh()
     }
@@ -1697,7 +1709,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // series (leave the other charts intact) and persist the invalidation
         // before the corrective refetch (H6a).
         healthTrends = healthTrends.strippingPrimaryDaySamples(for: kind)
-        persistStrippedDaySampleSidecar()
+        persistDaySampleSidecar()
 
         await requestAuthorizationAndRefresh()
     }
@@ -1722,18 +1734,21 @@ final class HealthKitWorkoutStore: ObservableObject {
         // (incl. secondary day samples) and persist the invalidation before the
         // corrective refetch (H6a).
         healthTrends = healthTrends.clearingSecondarySeries()
-        persistStrippedDaySampleSidecar()
+        persistDaySampleSidecar()
 
         await refreshHealthMetric(kind)
     }
 
-    /// Persists the current in-memory dashboard snapshot + day-sample sidecar so
-    /// a source/combine-change day-sample strip (H6a) is DURABLE: if the
+    /// Persists the current in-memory dashboard snapshot + day-sample sidecar
+    /// outside a dashboard refresh, for the two paths that change day samples on
+    /// their own: a source/combine-change strip (H6a) must be DURABLE — if the
     /// corrective refresh errors, cancels, or the app is killed before it lands,
-    /// the poisoned sidecar would otherwise survive on disk and re-hydrate. The
-    /// stripped-empty series overwrite it. Mirrors the save block in
-    /// `updateHealthDashboardSnapshot`.
-    private func persistStrippedDaySampleSidecar() {
+    /// the poisoned sidecar would otherwise survive on disk and re-hydrate, so
+    /// the stripped-empty series overwrite it; and a lazily fetched intraday
+    /// series must be durable too, so the next launch renders the metric detail
+    /// Day View instantly from cache instead of waiting on HealthKit. Mirrors the
+    /// save block in `updateHealthDashboardSnapshot`.
+    private func persistDaySampleSidecar() {
         let snapshotToSave = HealthDashboardSnapshot(
             summary: healthSummary,
             trends: healthTrends,
@@ -1749,6 +1764,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 summaryContextSignature: summaryContextSignature
             )
             HealthDashboardSnapshotStore.saveSecondarySelectionSignature(secondarySignature)
+            Task { @MainActor in await self.refreshCacheDiskSize() }
         }
     }
 

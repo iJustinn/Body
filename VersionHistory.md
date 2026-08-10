@@ -1,5 +1,11 @@
 # Version History
 
+## 0.9.11 (build 3)
+
+- **Day View now renders instantly.** A metric detail's Day View used to show "No data for this day" until a fresh Apple Health fetch completed; it now renders cached intraday data immediately on entry, then refreshes in the background on every visit (same refresh cadence as before).
+- **Day View chart animations.** When the background refresh lands, chart marks morph to their new positions and new data fades in; switching days cross-fades instead of snapping; Reduce Motion disables the chart motion.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 3.
+
 ## 0.9.11 (build 2)
 
 - Added an **About your interval** card to the Training Load detail, directly above the About Training Load card. It mirrors the Readiness "About your score" card: every interval (High Injury Risk → Medium Injury Risk → Optimal → Resting) with its ratio range and a one-line explanation, and a Current chip on the band the displayed ratio falls in — which follows the trend chart while you scrub, as Readiness's does.
