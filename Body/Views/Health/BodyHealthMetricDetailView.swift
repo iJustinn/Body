@@ -324,7 +324,7 @@ enum BodyMetricActivityAverages {
     ) -> [BodyMetricActivityAverage] {
         let dayInterval = interval(for: day, calendar: calendar)
         guard let sleepSummary,
-              let sleepInterval = sleepSummary.stageSnapshot.dateInterval?.clamped(to: dayInterval),
+              let sleepInterval = sleepSummary.stageSnapshot.mainSession.dateInterval?.clamped(to: dayInterval),
               let average = average(in: sleepInterval, from: series)
                 ?? fallbackValue.flatMap({ $0.isFinite ? $0 : nil }) else {
             return []
@@ -903,17 +903,26 @@ struct BodyHealthMetricDetailView: View {
     private var selectedSleepCards: some View {
         if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
             sleepStageCard(
-                selectedSleepStageSnapshot,
+                selectedSleepStageSnapshot.mainSession,
                 sourceName: sourceLineComparisonTrend.primary.sourceName,
                 emptyMessage: "No sleep stages for this source on this day"
             )
             sleepStageCard(
-                selectedSecondarySleepStageSnapshot,
+                selectedSecondarySleepStageSnapshot.mainSession,
                 sourceName: sourceLineComparisonTrend.secondary.sourceName,
                 emptyMessage: "No sleep stages for this source on this day"
             )
         } else {
-            sleepStageCard(selectedSleepStageSnapshot)
+            sleepStageCard(selectedSleepStageSnapshot.mainSession)
+        }
+
+        if !selectedSleepStageSnapshot.napSessions.isEmpty {
+            // In comparison mode the primary source's name repeats here so the
+            // nap card doesn't read as part of the secondary card above it.
+            napStageCard(
+                selectedSleepStageSnapshot,
+                sourceName: model.sourceLineComparisonTrend?.primary.sourceName
+            )
         }
 
         sleepConsistencyCard
@@ -1871,7 +1880,11 @@ struct BodyHealthMetricDetailView: View {
         let dayInterval = selectedMetricDayInterval
         var intervals: [BodyHealthMetricDayContextInterval] = []
 
-        if let sleepInterval = sleepSummary(for: selectedMetricDay)?.stageSnapshot.dateInterval,
+        // The main session and each nap shade their own bands; the whole-day
+        // `dateInterval` would stretch one "sleep" region from bedtime to the
+        // end of an afternoon nap.
+        let stageSnapshot = sleepSummary(for: selectedMetricDay)?.stageSnapshot
+        if let sleepInterval = stageSnapshot?.mainSession.dateInterval,
            let clippedSleepInterval = sleepInterval.clamped(to: dayInterval) {
             intervals.append(
                 BodyHealthMetricDayContextInterval(
@@ -1883,6 +1896,21 @@ struct BodyHealthMetricDetailView: View {
                     color: Color(red: 0.20, green: 0.72, blue: 1.00)
                 )
             )
+        }
+
+        for napSession in stageSnapshot?.napSessions ?? [] {
+            if let napInterval = napSession.dateInterval?.clamped(to: dayInterval) {
+                intervals.append(
+                    BodyHealthMetricDayContextInterval(
+                        kind: .sleep,
+                        startDate: napInterval.start,
+                        endDate: napInterval.end,
+                        title: "Nap",
+                        symbolName: "moon.zzz.fill",
+                        color: Color(red: 0.20, green: 0.72, blue: 1.00)
+                    )
+                )
+            }
         }
 
         intervals.append(contentsOf: workouts(on: dayInterval).map { workout in
@@ -2258,6 +2286,94 @@ struct BodyHealthMetricDetailView: View {
         let dateIdentity = snapshot.date.map { String($0.timeIntervalSinceReferenceDate) } ?? "no-date"
         let segmentIdentity = snapshot.segments.map(\.id).joined(separator: "|")
         return "\(dateIdentity)-\(segmentIdentity)"
+    }
+
+    // Takes the whole-day snapshot and derives the naps itself, so callers stay
+    // symmetric with `sleepStageCard`, which is handed the main session.
+    private func napStageCard(_ snapshot: SleepStageSnapshot, sourceName: String? = nil) -> some View {
+        let napsSnapshot = snapshot.napsSnapshot
+        let napTimeRanges = snapshot.napSessions.compactMap { napSessionTimeRangeText(for: $0) }
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Nap Stages")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                Spacer(minLength: 12)
+
+                if napsSnapshot.mergedAsleepDuration > 0 {
+                    BodyAnimatedMetricValueText(
+                        value: BodyValueFormat.sleepDurationText(for: napsSnapshot.mergedAsleepDuration),
+                        fontSize: 22,
+                        color: .secondary,
+                        minimumScaleFactor: 0.75
+                    )
+                }
+
+                if let sourceName {
+                    Text(sourceName)
+                        .font(.system(.caption, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+
+            BodySleepStageChart(snapshot: napsSnapshot)
+                .id("Nap Stages-\(sourceName ?? "default")-\(sleepStageChartIdentity(for: napsSnapshot))")
+                .transition(dayChartTransition)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
+                .frame(height: BodyHealthDetailChartLayout.standardHeight)
+                // No summary row here to carry the breakdown, so the chart itself
+                // becomes the single VoiceOver element that spells it out.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(napStageBreakdownAccessibilityLabel(napsSnapshot))
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(napTimeRanges.enumerated()), id: \.offset) { _, timeRange in
+                    Text(timeRange)
+                        .font(.system(.caption, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(translucent: true)
+    }
+
+    private func napSessionTimeRangeText(for session: SleepStageSnapshot) -> String? {
+        guard let interval = session.dateInterval else {
+            return nil
+        }
+
+        let startText = interval.start.formatted(.dateTime.hour().minute())
+        let endText = interval.end.formatted(.dateTime.hour().minute())
+        return "\(startText) – \(endText)"
+    }
+
+    // Mirrors `sleepStageBreakdownAccessibilityLabel` for the nap chart, which
+    // has no visible per-stage row of its own.
+    private func napStageBreakdownAccessibilityLabel(_ snapshot: SleepStageSnapshot) -> String {
+        let total = SleepStage.allCases.reduce(0) { $0 + snapshot.duration(for: $1) }
+        let descriptions = SleepStage.allCases.map { stage -> String in
+            let duration = snapshot.duration(for: stage)
+            let percent = total > 0 ? Int((duration / total * 100).rounded()) : 0
+            return String(localized: "\(stage.displayName) \(percent) percent, \(BodyValueFormat.durationText(for: duration))")
+        }
+        let restorative = snapshot.restorativeDuration
+        let restorativePercent = total > 0 ? Int((restorative / total * 100).rounded()) : 0
+        let restorativeDescription = String(localized: "Restorative \(restorativePercent) percent, \(BodyValueFormat.durationText(for: restorative))")
+        return String(localized: "Nap stage breakdown. \(descriptions.joined(separator: ". ")). \(restorativeDescription).")
     }
 
     private var sleepConsistencyCard: some View {
