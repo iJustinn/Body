@@ -6,6 +6,19 @@
 import Foundation
 import HealthKit
 
+/// One individually discovered Apple Health source, flattened across every
+/// metric kind — the pool the custom-source membership UI picks from. Carries
+/// the locale-stable `identityKey` a `BodyCustomHealthSourceGroup` stores
+/// alongside the localized name the UI shows. A plain value struct, so it
+/// crosses the engine's actor boundary.
+struct BodyDiscoveredHealthSource: Equatable, Identifiable {
+    let identityKey: String
+    let name: String
+    let bundleIdentifier: String
+
+    var id: String { identityKey }
+}
+
 // Source-option discovery: enumerates the Apple Health sources available
 // for each source-selectable metric and groups them into combined-name
 // buckets (so e.g. two "Apple Watch" sources can show as one combined
@@ -34,6 +47,35 @@ extension HealthKitFetchEngine {
         }
         return result
     }
+    /// Every individual source discovered for ANY kind, deduped by identity key
+    /// — the membership pool for user-created custom sources. Union rather than
+    /// per-kind because a group is one selection reused across metrics: a scale
+    /// that only ever shows up under `.basics` still has to be pickable.
+    func discoveredIndividualHealthSources() -> [BodyDiscoveredHealthSource] {
+        var sourcesByIdentityKey: [String: BodyDiscoveredHealthSource] = [:]
+        for bucket in healthSourcesByKind.values {
+            for source in bucket.values.flatMap({ $0 }) {
+                let identityKey = BodyHealthDataSourceOption.individualSourceIdentityKey(
+                    bundleIdentifier: source.bundleIdentifier,
+                    name: BodyHealthSourceResolver.identityName(for: source)
+                )
+                guard sourcesByIdentityKey[identityKey] == nil else { continue }
+                sourcesByIdentityKey[identityKey] = BodyDiscoveredHealthSource(
+                    identityKey: identityKey,
+                    name: Self.displayName(for: source),
+                    bundleIdentifier: source.bundleIdentifier
+                )
+            }
+        }
+
+        return sourcesByIdentityKey.values.sorted { lhs, rhs in
+            if lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedSame {
+                return lhs.identityKey < rhs.identityKey
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
     func fetchHealthDataSourceOptions(calendar: Calendar) async -> [HealthMetricKind: [BodyHealthDataSourceOption]]? {
         let permissionRawValue = permissionSelection.rawValue
         if fetchedHealthDataSourcePermissionRawValue == permissionRawValue,
@@ -81,6 +123,7 @@ extension HealthKitFetchEngine {
             let (options, sourcesByID) = BodyHealthSourceResolver.sourceOptionsAndMap(
                 from: sources,
                 combinesSourcesByName: combinesHealthDataSourcesByName,
+                customGroups: customHealthSourceGroups,
                 displayName: Self.displayName(for:)
             )
             nextOptionsByKind[kindSource.kind] = options

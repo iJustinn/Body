@@ -627,6 +627,22 @@
         }
       }
     },
+    "%lld sources" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld sources"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个来源"
+          }
+        }
+      }
+    },
     "%lld weeks" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2524,6 +2540,22 @@
         }
       }
     },
+    "Create your own sources that merge several data sources into one." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create your own sources that merge several data sources into one."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "创建自己的来源，将多个数据来源合并为一个。"
+          }
+        }
+      }
+    },
     "Current" : {
       "localizations" : {
         "en" : {
@@ -2553,6 +2585,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自定义背景"
+          }
+        }
+      }
+    },
+    "Custom Data Sources" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Data Sources"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义数据来源"
+          }
+        }
+      }
+    },
+    "Custom Source" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Source"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义来源"
+          }
+        }
+      }
+    },
+    "Custom Sources" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Sources"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义来源"
           }
         }
       }
@@ -2871,6 +2951,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "要删除“%@”吗？"
+          }
+        }
+      }
+    },
+    "Delete Custom Source" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Custom Source"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除自定义来源"
           }
         }
       }
@@ -4526,6 +4622,54 @@
         }
       }
     },
+    "Name" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名称"
+          }
+        }
+      }
+    },
+    "Nap stage breakdown. %@. %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nap stage breakdown. %1$@. %2$@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "小睡阶段细分：%1$@。%2$@。"
+          }
+        }
+      }
+    },
+    "Nap Stages" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nap Stages"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "小睡阶段"
+          }
+        }
+      }
+    },
     "Neutral" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4539,6 +4683,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "中性"
+          }
+        }
+      }
+    },
+    "New Custom Source" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Custom Source"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新建自定义来源"
           }
         }
       }
@@ -4872,6 +5032,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "今天没有睡眠体征数据"
+          }
+        }
+      }
+    },
+    "No sources discovered yet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No sources discovered yet."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未发现任何来源。"
           }
         }
       }
@@ -5436,6 +5612,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用自己的混色和已存配置方案，个性化 App 背景。"
+          }
+        }
+      }
+    },
+    "Photo Activity Share" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Photo Activity Share"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "照片运动分享"
+          }
+        }
+      }
+    },
+    "Pick at least two sources to merge into this one." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick at least two sources to merge into this one."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "至少选择两个来源，合并为这一个来源。"
           }
         }
       }
@@ -6477,6 +6685,22 @@
         }
       }
     },
+    "Select Sources" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select Sources"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择来源"
+          }
+        }
+      }
+    },
     "Select which workout types to display" : {
       "localizations" : {
         "en" : {
@@ -6752,6 +6976,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示在主页、运动和设置中"
+          }
+        }
+      }
+    },
+    "Shown wherever this source can be picked." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shown wherever this source can be picked."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会显示在所有可选择此来源的位置。"
           }
         }
       }
@@ -7524,6 +7764,22 @@
         }
       }
     },
+    "This custom source will be removed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This custom source will be removed."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此自定义来源将被移除。"
+          }
+        }
+      }
+    },
     "This device does not support alternate app icons." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7951,6 +8207,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用 Body 小组件，在主屏幕上随时了解运动和指标动态。"
+          }
+        }
+      }
+    },
+    "Use your own photos as the background of workout share cards." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use your own photos as the background of workout share cards."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用自己的照片作为运动分享卡片的背景。"
           }
         }
       }

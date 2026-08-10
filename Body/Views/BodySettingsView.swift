@@ -2297,10 +2297,18 @@ private struct BodyMetricDayViewToggleRow: View {
     }
 }
 
+private struct BodyCustomSourceEditorTarget: Identifiable {
+    /// `nil` when the editor is opened to create a new custom source.
+    let group: BodyCustomHealthSourceGroup?
+
+    var id: String { group?.id ?? "new" }
+}
+
 private struct BodySourceSettingsSheet: View {
     @ObservedObject var workoutStore: HealthKitWorkoutStore
     @State private var updatingSelection: PendingSelection?
     @State private var showBodyProPaywall = false
+    @State private var customSourceEditorTarget: BodyCustomSourceEditorTarget?
 
     // Cached entitlement read (this is a sheet); reactive via the observed `workoutStore`.
     private var isSecondaryLocked: Bool {
@@ -2317,6 +2325,21 @@ private struct BodySourceSettingsSheet: View {
         let optionID: String
     }
 
+    private var customSourceGroups: [BodyCustomHealthSourceGroup] {
+        workoutStore.customHealthSourceGroups
+    }
+
+    private var canAddCustomSource: Bool {
+        customSourceGroups.count < BodyCustomHealthSourceGroupStore.maximumGroupCount
+    }
+
+    // While locked, a custom primary resolves to All Sources — show the
+    // checkmark there, not on the (still-persisted) paid source.
+    private var effectiveDefaultOption: BodyHealthDataSourceOption {
+        let option = workoutStore.defaultHealthDataSourceOption
+        return isSecondaryLocked && option.isCustomSource ? .allSources : option
+    }
+
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Source") {
             VStack(spacing: 18) {
@@ -2324,10 +2347,12 @@ private struct BodySourceSettingsSheet: View {
                     combineSourcesToggle
                 }
 
+                customSourcesSection
+
                 sourceOptionSection(
                     title: "Primary Data Source",
                     options: workoutStore.healthDataSourceDefaultOptions(),
-                    selectedOption: workoutStore.defaultHealthDataSourceOption,
+                    selectedOption: effectiveDefaultOption,
                     role: .primary,
                     tintColor: .cyan
                 )
@@ -2346,6 +2371,107 @@ private struct BodySourceSettingsSheet: View {
         .sheet(isPresented: $showBodyProPaywall) {
             NavigationStack { BodyProView() }
         }
+        .sheet(item: $customSourceEditorTarget) { target in
+            BodyCustomSourceEditorSheet(workoutStore: workoutStore, group: target.group)
+        }
+    }
+
+    private var customSourcesSection: some View {
+        BodySettingsCardSection("Custom Sources") {
+            ForEach(customSourceGroups) { group in
+                customSourceRow(group)
+
+                if group.id != customSourceGroups.last?.id || canAddCustomSource {
+                    Divider()
+                        .padding(.leading, 76)
+                }
+            }
+
+            if canAddCustomSource {
+                newCustomSourceRow
+            }
+        }
+    }
+
+    private func customSourceRow(_ group: BodyCustomHealthSourceGroup) -> some View {
+        Button {
+            if isSecondaryLocked {
+                showBodyProPaywall = true
+            } else {
+                customSourceEditorTarget = BodyCustomSourceEditorTarget(group: group)
+            }
+        } label: {
+            HStack(spacing: 14) {
+                BodySettingsIconTile(iconName: "heart.fill", color: .cyan)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(group.name)
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+
+                    Text("\(group.memberIdentityKeys.count) sources")
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+
+                Spacer(minLength: 12)
+
+                if isSecondaryLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.secondary)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(.caption, weight: .bold))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var newCustomSourceRow: some View {
+        Button {
+            if isSecondaryLocked {
+                showBodyProPaywall = true
+            } else {
+                customSourceEditorTarget = BodyCustomSourceEditorTarget(group: nil)
+            }
+        } label: {
+            HStack(spacing: 14) {
+                BodySettingsIconTile(iconName: "plus", color: .cyan)
+
+                Text("New Custom Source")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+
+                Spacer(minLength: 12)
+
+                if isSecondaryLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var combineSourcesToggle: some View {
@@ -2421,7 +2547,7 @@ private struct BodySourceSettingsSheet: View {
         // Lock only the rows in the same section while a selection in that
         // section is in flight — the other role's rows stay tappable.
         let isSectionLocked = updatingSelection?.role == role
-        let isProLocked = role == .secondary && isSecondaryLocked
+        let isProLocked = (role == .secondary || option.isCustomSource) && isSecondaryLocked
         return Button {
             updateSelection(option, role: role)
         } label: {
@@ -2460,6 +2586,10 @@ private struct BodySourceSettingsSheet: View {
     }
 
     private func optionIconName(for option: BodyHealthDataSourceOption, role: Role) -> String {
+        if option.isCustomSource {
+            return "heart.fill"
+        }
+
         if option.isNoComparison {
             return "minus.circle.fill"
         }
@@ -2484,7 +2614,7 @@ private struct BodySourceSettingsSheet: View {
     }
 
     private func updateSelection(_ option: BodyHealthDataSourceOption, role: Role) {
-        if role == .secondary, isSecondaryLocked {
+        if isSecondaryLocked, role == .secondary || option.isCustomSource {
             showBodyProPaywall = true
             return
         }

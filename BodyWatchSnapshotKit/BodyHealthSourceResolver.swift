@@ -30,6 +30,7 @@ struct BodyHealthDataSourceOption: Codable, Equatable, Identifiable {
     /// its localized display name belongs; only the ID is needed here.
     static let noComparisonID = "none"
     private static let combinedSourcePrefix = "combined-name:"
+    private static let customSourcePrefix = "custom:"
 
     let id: String
     let name: String
@@ -46,8 +47,12 @@ struct BodyHealthDataSourceOption: Codable, Equatable, Identifiable {
         id.hasPrefix(Self.combinedSourcePrefix)
     }
 
+    var isCustomSource: Bool {
+        id.hasPrefix(Self.customSourcePrefix)
+    }
+
     var iconBundleIdentifierHint: String? {
-        if isAllSources || isNoComparison || isCombinedSource {
+        if isAllSources || isNoComparison || isCombinedSource || isCustomSource {
             return nil
         }
 
@@ -114,6 +119,10 @@ struct BodyHealthDataSourceOption: Codable, Equatable, Identifiable {
 
     static func combinedSourceID(for name: String) -> String {
         combinedSourcePrefix + normalizedSourceName(name)
+    }
+
+    static func customSourceID(for identifier: UUID) -> String {
+        customSourcePrefix + identifier.uuidString
     }
 }
 
@@ -327,6 +336,40 @@ enum BodyHealthSourceResolver {
         return .sources(sources)
     }
 
+    /// Registers each user-created group's `custom:` ID as the union of its
+    /// members' own buckets, so a custom selection resolves through the very
+    /// same `sourcesByID` path (and OR-compound predicate) a `combined-name:`
+    /// selection does. Generic for the same reason `resolutionDecision` is:
+    /// nothing here depends on `HKSource`.
+    ///
+    /// A group whose members are ALL invisible to this device registers no
+    /// bucket at all rather than an empty one — that leaves the ID
+    /// present-but-missing, which is exactly the absent-bucket contract
+    /// `resolutionDecision` already defines: lenient (iOS) widens to all
+    /// sources, strict (watch) resolves `.unresolved` and the caller keeps what
+    /// it has. A PARTIALLY visible group resolves to the visible subset, the
+    /// same as a combined-name group discovered on one device only.
+    static func registeringCustomGroupBuckets<Source>(
+        _ sourcesByID: [String: [Source]],
+        customGroups: [BodyCustomHealthSourceGroup],
+        identityKey: (Source) -> String
+    ) -> [String: [Source]] {
+        var sourcesByID = sourcesByID
+        for group in customGroups {
+            var members: [Source] = []
+            var seenIdentityKeys: Set<String> = []
+            for memberKey in group.memberIdentityKeys.sorted() {
+                for source in sourcesByID["source:" + memberKey] ?? [] {
+                    guard seenIdentityKeys.insert(identityKey(source)).inserted else { continue }
+                    members.append(source)
+                }
+            }
+            guard !members.isEmpty else { continue }
+            sourcesByID[group.id] = members
+        }
+        return sourcesByID
+    }
+
     /// Combines an optional date window with an optional source predicate into
     /// the single predicate a leaf query runs with. Shared so the watch builds
     /// byte-identical predicates to the phone for the same window + selection.
@@ -375,9 +418,15 @@ enum BodyHealthSourceResolver {
     /// every ID and grouping key runs through the locale-stable
     /// `identityName(for:)` — the map is the part both platforms must build
     /// identically, and it must not shift with the UI language.
+    ///
+    /// `customGroups` only extends the MAP — the user-created options are
+    /// appended by the caller that owns them (they exist whether or not this
+    /// kind discovered any of their members), while resolving one still
+    /// requires a bucket registered here.
     static func sourceOptionsAndMap(
         from sources: [HKSource],
         combinesSourcesByName: Bool,
+        customGroups: [BodyCustomHealthSourceGroup] = [],
         displayName: (HKSource) -> String
     ) -> (options: [BodyHealthDataSourceOption], sourcesByID: [String: [HKSource]]) {
         let sortedSources = sources.sorted { lhs, rhs in
@@ -448,6 +497,17 @@ enum BodyHealthSourceResolver {
         for group in groupedSources.values {
             sourcesByID[BodyHealthDataSourceOption.combinedSourceID(for: identityName(for: group[0]))] = group
         }
+
+        sourcesByID = registeringCustomGroupBuckets(
+            sourcesByID,
+            customGroups: customGroups,
+            identityKey: { source in
+                BodyHealthDataSourceOption.individualSourceIdentityKey(
+                    bundleIdentifier: source.bundleIdentifier,
+                    name: identityName(for: source)
+                )
+            }
+        )
 
         let options: [BodyHealthDataSourceOption]
         if combinesSourcesByName {

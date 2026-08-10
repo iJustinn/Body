@@ -41,6 +41,7 @@ enum BodyAppearancePreference {
     static let healthDataSourceSelectionKey = "healthDataSourceSelection"
     static let secondaryHealthDataSourceSelectionKey = "secondaryHealthDataSourceSelection"
     static let combinesHealthDataSourcesByNameKey = "combinesHealthDataSourcesByName"
+    static let customHealthSourceGroupsKey = "customHealthSourceGroups"
     static let bodyProIconShowsBackKey = "bodyProIconShowsBack"
 
     static func bodyProIconAssetName(showsBack: Bool) -> String {

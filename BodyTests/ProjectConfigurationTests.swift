@@ -127,6 +127,67 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(engineSource.contains("selectedSecondaryHealthDataSourceOption(for: kind).isNoComparison"))
     }
 
+    /// User-created custom sources are a three-layer Body Pro feature (fetch
+    /// gate, render gate, watch-seed gate) whose layers can only disagree
+    /// silently — a locked phone showing All Sources while the watch keeps
+    /// filtering by the group is invisible until someone compares two screens.
+    /// None of the three chokepoints is reachable from a unit test (live actor,
+    /// main-actor store, HealthKit refresh), so the gates themselves are pinned
+    /// here; their pure inputs are exercised in
+    /// `HealthKitWorkoutStoreComputeSeedTests` and `BodyHealthSourceResolverTests`.
+    func testCustomHealthSourceGroupsAreProGatedOnEveryLayer() throws {
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let engineSource = try healthKitFetchEngineText()
+        let resolverSource = try text(at: "BodyWatch/WatchSourceResolver.swift")
+
+        // Fetch gate: both engine chokepoints (the query resolution and the
+        // option it reports) widen a custom pick to all sources while locked.
+        XCTAssertTrue(engineSource.contains("func sourceQueryResolution("))
+        XCTAssertEqual(
+            engineSource.occurrenceCount(of: "guard !option.isCustomSource || BodyProEntitlement.isUnlocked else {"),
+            2
+        )
+        XCTAssertTrue(engineSource.contains("static func registeringCustomGroupBuckets<Source>("))
+        XCTAssertTrue(engineSource.contains("func customHealthSourceIDsWithData()"))
+
+        // Render gate: the store's synchronous accessors apply the same gate, and
+        // report the group's CURRENT name (a rename must never rewrite — and
+        // re-sign — the stored selection).
+        XCTAssertTrue(storeSource.contains("private func resolvedCustomHealthSourceOption("))
+        XCTAssertTrue(storeSource.contains("guard BodyProEntitlement.isUnlocked,"))
+        XCTAssertTrue(storeSource.contains("let group = customHealthSourceGroups.first(where: { $0.id == option.id })"))
+        XCTAssertTrue(storeSource.contains("customIDsWithData.contains(option.id) ? group.option : absentFallback"))
+
+        // Seed gate: a locked entitlement ships the neutralized selection AND
+        // withholds the definitions, so the watch stops filtering too.
+        XCTAssertTrue(storeSource.contains("let isProUnlocked = BodyProEntitlement.isUnlocked"))
+        XCTAssertTrue(storeSource.contains("Self.selectionNeutralizingCustomSources(healthDataSourceSelection).rawValue"))
+        XCTAssertTrue(storeSource.contains("let customHealthSourceGroupsRaw = isProUnlocked && !customHealthSourceGroups.isEmpty"))
+
+        // Signature plumbing: the membership suffix is composed in ONE place and
+        // read through the two selection-signature helpers, so a cache written
+        // under one form is never hydrated against another.
+        XCTAssertTrue(storeSource.contains("static func customSourceGroupsSignatureSuffix("))
+        XCTAssertTrue(storeSource.contains("private func currentPrimarySelectionSignature() -> String"))
+        XCTAssertTrue(storeSource.contains("private func currentSecondarySelectionSignature() -> String"))
+        XCTAssertTrue(storeSource.contains(#"";groups[\(BodyCustomHealthSourceGroupStore.canonicalSignature(for: customGroups))]""#))
+
+        // Watch: every `sourceOptionsAndMap` call site registers the group
+        // buckets — a missed one leaves a synced `custom:` selection unresolved,
+        // which strictly skips the read and freezes the compute on seed values.
+        XCTAssertTrue(resolverSource.contains("customGroups: [BodyCustomHealthSourceGroup]"))
+        XCTAssertEqual(resolverSource.occurrenceCount(of: "sourceOptionsAndMap("), 2)
+        for callSite in resolverSource.components(separatedBy: "sourceOptionsAndMap(").dropFirst() {
+            XCTAssertTrue(String(callSite.prefix(400)).contains("customGroups: customGroups"))
+        }
+        for caller in ["BodyWatch/WatchDeltaFetcher.swift", "BodyWatch/WatchHealthStore.swift"] {
+            let callerSource = try text(at: caller)
+            XCTAssertTrue(callerSource.contains("BodyCustomHealthSourceGroupStore.groups("), caller)
+            XCTAssertTrue(callerSource.contains("customHealthSourceGroupsRaw ?? \"\""), caller)
+            XCTAssertTrue(callerSource.contains("customGroups: customGroups,"), caller)
+        }
+    }
+
     func testReadinessDailySeriesUsesCachedBaselineContext() throws {
         let source = try text(at: "BodyMetricsKit/ReadinessScoreCalculator.swift")
         let dailySeriesStart = try XCTUnwrap(source.range(of: "static func dailySeries(")?.lowerBound)
@@ -174,6 +235,9 @@ final class ProjectConfigurationTests: XCTestCase {
         // can't drift per sheet the way the hand-copied `#unavailable` snippet did.
         let expectations: [(file: String, tinted: Int, legacy: Int)] = [
             ("Body/Views/BodySettingsView.swift", 4, 0),
+            // The custom-source editor lives in its own file (it would otherwise
+            // have pushed the settings file's count to 5).
+            ("Body/Views/BodyCustomSourceEditorSheet.swift", 1, 0),
             ("Body/Views/BodyWorkoutListSheet.swift", 1, 0),
             ("Body/Views/Health/BodyHealthDataSourcePickerSheet.swift", 1, 0),
             ("Body/Views/Health/BodyAddBasicsMeasurementSheet.swift", 1, 0),
@@ -597,7 +661,7 @@ final class ProjectConfigurationTests: XCTestCase {
         )
         let detailBlock = String(source[detailStart...].prefix(900))
         let contextStart = try XCTUnwrap(source.range(of: "private var selectedMetricDayContextIntervals")?.lowerBound)
-        let contextBlock = String(source[contextStart...].prefix(2_400))
+        let contextBlock = String(source[contextStart...].prefix(3_000))
         let chartStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricDayChart")?.lowerBound)
         let chartEnd = try XCTUnwrap(
             source.range(of: "struct BodyHealthMetricDayRangeEntry", range: chartStart..<source.endIndex)?.lowerBound
@@ -606,8 +670,10 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(detailBlock.contains("sleepHistory: trends.sleepHistory"))
         XCTAssertTrue(contextBlock.contains("model.kind == .heartRate || model.kind == .heartRateVariability"))
-        XCTAssertTrue(contextBlock.contains("sleepSummary(for: selectedMetricDay)?.stageSnapshot.dateInterval"))
+        XCTAssertTrue(contextBlock.contains("stageSnapshot?.mainSession.dateInterval"))
+        XCTAssertTrue(contextBlock.contains("stageSnapshot?.napSessions"))
         XCTAssertTrue(contextBlock.contains(#"symbolName: "bed.double.fill""#))
+        XCTAssertTrue(contextBlock.contains(#"symbolName: "moon.zzz.fill""#))
         XCTAssertFalse(contextBlock.contains(#"symbolName: "moon.fill""#))
         XCTAssertTrue(contextBlock.contains("workouts(on: dayInterval)"))
         XCTAssertTrue(contextBlock.contains("color: workout.type.color"))
@@ -929,7 +995,11 @@ final class ProjectConfigurationTests: XCTestCase {
         // bound the block by the picker declaration rather than a fixed char window the
         // ever-growing detail view keeps outrunning.
         let detailViewBlock = String(source[detailViewStart..<pickerStart])
-        let pickerBlock = String(source[pickerStart...].prefix(8_000))
+        // 12k, not 8k: the custom-source rows (heart icon + Pro lock) grew the
+        // picker enough that `updateHealthDataSource` — the last statement in the
+        // file — sits ~350 chars inside the old window. This test asserts only
+        // positives, so a window that runs past the file's end is harmless.
+        let pickerBlock = String(source[pickerStart...].prefix(12_000))
 
         XCTAssertTrue(detailViewBlock.contains("model.kind.supportsHealthDataSourceSelection"))
         XCTAssertTrue(detailViewBlock.contains("workoutStore.selectedHealthDataSourceOption(for: model.kind)"))
@@ -2595,11 +2665,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(bodyProSource.contains("HStack(alignment: .top, spacing: 14)"))
         XCTAssertFalse(bodyProSource.contains(".padding(.top, 2)"))
         XCTAssertFalse(bodyProSource.contains(".padding(.top, 8)"))
-        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 5)
+        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 7)
         XCTAssertTrue(bodyProSource.contains("Longer-Range Charts"))
         XCTAssertTrue(bodyProSource.contains("Full Day History"))
         XCTAssertTrue(bodyProSource.contains("Custom Backgrounds"))
         XCTAssertTrue(bodyProSource.contains("Secondary Data Source"))
+        XCTAssertTrue(bodyProSource.contains("Custom Data Sources"))
+        XCTAssertTrue(bodyProSource.contains("Photo Activity Share"))
         XCTAssertFalse(bodyProSource.contains("Six-Month and Year Charts"))
         XCTAssertTrue(bodyProSource.contains("Body Widgets"))
         // StoreKit purchase wiring replaced the placeholder stubs.

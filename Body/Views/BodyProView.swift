@@ -579,6 +579,18 @@ private struct BodyProFeature: Identifiable {
             title: String(localized: "Body Widgets"),
             detail: String(localized: "Use Body widgets to keep workout and metric context on the Home Screen."),
             iconName: "square.grid.2x2.fill"
+        ),
+        BodyProFeature(
+            id: "custom-sources",
+            title: String(localized: "Custom Data Sources"),
+            detail: String(localized: "Create your own sources that merge several data sources into one."),
+            iconName: "heart.fill"
+        ),
+        BodyProFeature(
+            id: "photo-share",
+            title: String(localized: "Photo Activity Share"),
+            detail: String(localized: "Use your own photos as the background of workout share cards."),
+            iconName: "photo.fill"
         )
     ]
 }

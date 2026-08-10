@@ -187,6 +187,75 @@ final class WatchComputeSeedIntakeTests: XCTestCase {
         XCTAssertNil(WatchComputeSeedStore.load(fileURL: fileURL))
     }
 
+    // MARK: - Settings decode across phone vintages
+
+    /// The custom-source group definitions ride on `WatchComputeSettings` as an
+    /// OPTIONAL raw string. A phone that predates the feature (or one whose Body
+    /// Pro lapsed, which withholds the definitions) simply omits the key, and
+    /// that payload has to keep decoding — a throwing decode here would drop the
+    /// whole seed and freeze the compute.
+    func testSettingsDecodeWithAndWithoutTheCustomGroupsKey() throws {
+        let decoder = JSONDecoder()
+        let legacyJSON = """
+        {
+          "idealSleepDurationMinutes": 480,
+          "followsSystemUnits": true,
+          "selectedTemperatureUnitRaw": "celsius",
+          "showSleepScore": true,
+          "showsSubMinuteAwakeSleepStages": true,
+          "showsLeadingTrailingAwakeSleepStages": true,
+          "healthDataSourceSelectionRaw": "{}",
+          "combinesHealthDataSourcesByName": false
+        }
+        """
+
+        let legacy = try decoder.decode(WatchComputeSettings.self, from: Data(legacyJSON.utf8))
+        XCTAssertNil(legacy.customHealthSourceGroupsRaw)
+        // The rest of the payload still lands (a lenient decode must not silently
+        // default everything just because one key is new).
+        XCTAssertEqual(legacy.idealSleepDurationMinutes, 480)
+        XCTAssertEqual(legacy.healthDataSourceSelectionRaw, "{}")
+        // No definitions ⇒ no buckets to rebuild ⇒ a `custom:` selection stays
+        // unresolved and the watch keeps its seeded values.
+        XCTAssertTrue(BodyCustomHealthSourceGroupStore.groups(from: legacy.customHealthSourceGroupsRaw ?? "").isEmpty)
+
+        let groupsRaw = BodyCustomHealthSourceGroupStore.rawValue(
+            from: [
+                BodyCustomHealthSourceGroup(
+                    id: "custom:11111111-2222-3333-4444-555555555555",
+                    name: "Wrist",
+                    memberIdentityKeys: [
+                        "bundle=com.example.watch|name=watch",
+                        "bundle=com.example.phone|name=phone"
+                    ]
+                )
+            ]
+        )
+        let published = WatchComputeSettings(
+            idealSleepDurationMinutes: 480,
+            followsSystemUnits: true,
+            selectedTemperatureUnitRaw: "celsius",
+            showSleepScore: true,
+            showsSubMinuteAwakeSleepStages: true,
+            showsLeadingTrailingAwakeSleepStages: true,
+            healthDataSourceSelectionRaw: "{}",
+            combinesHealthDataSourcesByName: false,
+            customHealthSourceGroupsRaw: groupsRaw
+        )
+        let withGroups = try decoder.decode(
+            WatchComputeSettings.self,
+            from: try JSONEncoder().encode(published)
+        )
+
+        XCTAssertEqual(withGroups.customHealthSourceGroupsRaw, groupsRaw)
+        let decodedGroups = BodyCustomHealthSourceGroupStore.groups(from: try XCTUnwrap(withGroups.customHealthSourceGroupsRaw))
+        XCTAssertEqual(decodedGroups.count, 1)
+        XCTAssertEqual(
+            decodedGroups.first?.memberIdentityKeys,
+            ["bundle=com.example.phone|name=phone", "bundle=com.example.watch|name=watch"]
+        )
+    }
+
     // MARK: - Generation token (anti-resurrection)
 
     func testFinishedComputeIsDiscardedWhenTheGenerationMovedOrTheSnapshotWasReset() {

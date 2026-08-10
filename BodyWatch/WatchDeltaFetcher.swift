@@ -78,6 +78,9 @@ actor WatchDeltaFetcher {
         let selection = BodyHealthDataSourceSelection.storedValue(
             from: seed.settings.healthDataSourceSelectionRaw
         )
+        let customGroups = BodyCustomHealthSourceGroupStore.groups(
+            from: seed.settings.customHealthSourceGroupsRaw ?? ""
+        )
         let sleepStart = calendar.date(byAdding: .day, value: -1, to: windowStart) ?? windowStart
 
         // Resolve every source-selectable kind's predicate up front (one
@@ -87,6 +90,7 @@ actor WatchDeltaFetcher {
             for: BodyHealthSourceResolver.watchComputeSourceKinds,
             selection: selection,
             expectedSourceIDsByKind: seed.expectedSourceIDsByKind,
+            customGroups: customGroups,
             permission: permission,
             store: store
         )

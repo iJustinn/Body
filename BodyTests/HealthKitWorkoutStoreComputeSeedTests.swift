@@ -46,7 +46,8 @@ final class HealthKitWorkoutStoreComputeSeedTests: XCTestCase {
     private func settingsFixture(
         idealSleepDurationMinutes: Int = 480,
         showSleepScore: Bool = true,
-        healthDataSourceSelectionRaw: String = "{}"
+        healthDataSourceSelectionRaw: String = "{}",
+        customHealthSourceGroupsRaw: String? = nil
     ) -> WatchComputeSettings {
         WatchComputeSettings(
             idealSleepDurationMinutes: idealSleepDurationMinutes,
@@ -56,7 +57,8 @@ final class HealthKitWorkoutStoreComputeSeedTests: XCTestCase {
             showsSubMinuteAwakeSleepStages: true,
             showsLeadingTrailingAwakeSleepStages: true,
             healthDataSourceSelectionRaw: healthDataSourceSelectionRaw,
-            combinesHealthDataSourcesByName: false
+            combinesHealthDataSourcesByName: false,
+            customHealthSourceGroupsRaw: customHealthSourceGroupsRaw
         )
     }
 
@@ -318,6 +320,125 @@ final class HealthKitWorkoutStoreComputeSeedTests: XCTestCase {
         XCTAssertEqual(
             HealthKitWorkoutStore.computeSettingsSignature(withMap),
             HealthKitWorkoutStore.computeSettingsSignature(withoutMap)
+        )
+    }
+
+    // MARK: - computeSettingsSignature: custom source groups
+
+    private func customGroupsRaw(name: String = "Wrist", members: [String]) -> String {
+        BodyCustomHealthSourceGroupStore.rawValue(
+            from: [
+                BodyCustomHealthSourceGroup(
+                    id: "custom:11111111-2222-3333-4444-555555555555",
+                    name: name,
+                    memberIdentityKeys: members
+                )
+            ]
+        )
+    }
+
+    /// The upgrade guard: a user with no custom sources must sign EXACTLY the
+    /// bytes they signed before the feature existed, or every watch on the
+    /// planet discards its stored seed on the update. The pre-feature call shape
+    /// (no `customHealthSourceGroupsRaw` argument at all) is spelled out here
+    /// deliberately rather than reusing the fixture's default — that's the call
+    /// the shipped build made.
+    func testSettingsSignatureIsUnchangedWithoutCustomGroups() {
+        let preFeatureSettings = WatchComputeSettings(
+            idealSleepDurationMinutes: 480,
+            followsSystemUnits: true,
+            selectedTemperatureUnitRaw: BodyValueFormat.TemperatureUnitPreference.celsius.rawValue,
+            showSleepScore: true,
+            showsSubMinuteAwakeSleepStages: true,
+            showsLeadingTrailingAwakeSleepStages: true,
+            healthDataSourceSelectionRaw: "{}",
+            combinesHealthDataSourcesByName: false
+        )
+        let preFeature = HealthKitWorkoutStore.computeSettingsSignature(preFeatureSettings)
+
+        // Nil (no groups / Pro lapsed), an empty raw, and an empty JSON array all
+        // decode to "no groups" and must all sign the pre-feature bytes.
+        XCTAssertEqual(preFeature, HealthKitWorkoutStore.computeSettingsSignature(settingsFixture()))
+        XCTAssertEqual(
+            preFeature,
+            HealthKitWorkoutStore.computeSettingsSignature(settingsFixture(customHealthSourceGroupsRaw: ""))
+        )
+        XCTAssertEqual(
+            preFeature,
+            HealthKitWorkoutStore.computeSettingsSignature(settingsFixture(customHealthSourceGroupsRaw: "[]"))
+        )
+        XCTAssertFalse(preFeature.contains(";groups["))
+    }
+
+    func testSettingsSignatureTracksMembershipEditsButNotRenames() {
+        let watchKey = "bundle=com.example.watch|name=watch"
+        let phoneKey = "bundle=com.example.phone|name=phone"
+        let strapKey = "bundle=com.example.strap|name=strap"
+
+        let base = HealthKitWorkoutStore.computeSettingsSignature(
+            settingsFixture(customHealthSourceGroupsRaw: customGroupsRaw(members: [watchKey, phoneKey]))
+        )
+        let renamed = HealthKitWorkoutStore.computeSettingsSignature(
+            settingsFixture(customHealthSourceGroupsRaw: customGroupsRaw(name: "Everything", members: [watchKey, phoneKey]))
+        )
+        let edited = HealthKitWorkoutStore.computeSettingsSignature(
+            settingsFixture(customHealthSourceGroupsRaw: customGroupsRaw(members: [watchKey, phoneKey, strapKey]))
+        )
+
+        XCTAssertTrue(base.contains(";groups["))
+        // Creating the first group invalidates once (intentional); after that a
+        // rename must not re-seed the watch, and a membership edit must.
+        XCTAssertNotEqual(base, HealthKitWorkoutStore.computeSettingsSignature(settingsFixture()))
+        XCTAssertEqual(base, renamed)
+        XCTAssertNotEqual(base, edited)
+        XCTAssertFalse(base.contains("Wrist"))
+    }
+
+    // MARK: - Body Pro gate on the seed
+
+    /// The seed's own assembly (`publishWatchSnapshot`) can't run in a test host
+    /// — it needs a live main-actor store, a HealthKit refresh to have produced
+    /// a `dataThrough`, and the App Group container — so the gate is pinned
+    /// through its two pure inputs: the neutralized selection it ships, and the
+    /// signature that results once the groups raw is withheld. The gate
+    /// EXPRESSION itself (`isProUnlocked ? … : selectionNeutralizingCustomSources(…)`
+    /// plus the nil groups raw) is pinned in `ProjectConfigurationTests`.
+    func testLockedEntitlementSeedInputsCollapseCustomSourcesToAllSources() {
+        let custom = BodyHealthDataSourceOption(id: "custom:11111111-2222", name: "Wrist")
+        let individual = BodyHealthDataSourceOption(id: "source:bundle=com.example.tracker|name=tracker", name: "Tracker")
+        let selection = BodyHealthDataSourceSelection(
+            defaultOption: custom,
+            selectedOptions: [.heartRate: custom, .sleep: individual]
+        )
+
+        let neutralized = HealthKitWorkoutStore.selectionNeutralizingCustomSources(selection)
+
+        // Default and per-kind custom picks both widen…
+        XCTAssertEqual(neutralized.defaultOption, .allSources)
+        XCTAssertEqual(neutralized.option(for: .heartRate), .allSources)
+        // …while an ordinary per-kind override is left exactly as it was: the
+        // gate withholds the custom sources, it doesn't reset source selection.
+        XCTAssertEqual(neutralized.option(for: .sleep), individual)
+        // The phone-side selection is untouched — a lapse never erases.
+        XCTAssertEqual(selection.defaultOption, custom)
+
+        // What the locked seed then signs: no `custom:` id anywhere in `src[…]`
+        // and no `groups[…]` term at all (the raw ships nil).
+        let lockedSignature = HealthKitWorkoutStore.computeSettingsSignature(
+            settingsFixture(healthDataSourceSelectionRaw: neutralized.rawValue, customHealthSourceGroupsRaw: nil)
+        )
+        XCTAssertFalse(lockedSignature.contains("custom:"))
+        XCTAssertFalse(lockedSignature.contains(";groups["))
+        // …and it differs from the unlocked seed's signature, so the flip
+        // actually re-seeds the watch instead of leaving it filtering.
+        XCTAssertNotEqual(
+            lockedSignature,
+            HealthKitWorkoutStore.computeSettingsSignature(
+                settingsFixture(
+                    healthDataSourceSelectionRaw: selection.rawValue,
+                    customHealthSourceGroupsRaw: customGroupsRaw(members: ["bundle=com.example.watch|name=watch"])
+                )
+            )
         )
     }
 

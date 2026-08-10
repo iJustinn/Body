@@ -46,6 +46,11 @@ struct WatchComputeSettings: Codable, Equatable {
     /// type; carried as its raw string so this struct stays Foundation-only).
     var healthDataSourceSelectionRaw: String
     var combinesHealthDataSourcesByName: Bool
+    /// `BodyCustomHealthSourceGroupStore`'s persisted raw JSON, so the watch
+    /// rebuilds the same `custom:` source buckets the phone resolved against.
+    /// Nil when the phone has no groups (or Body Pro has lapsed), which keeps
+    /// the encoding byte-identical to a pre-feature seed.
+    var customHealthSourceGroupsRaw: String?
     /// Recent per-night time zones, keyed by ISO day string (`"yyyy-MM-dd"`) —
     /// NEVER `[Date: String]`, whose JSON encoding is a nondeterministic
     /// unkeyed array of key/value pairs that would defeat `.sortedKeys`
@@ -64,6 +69,7 @@ struct WatchComputeSettings: Codable, Equatable {
         case showsLeadingTrailingAwakeSleepStages
         case healthDataSourceSelectionRaw
         case combinesHealthDataSourcesByName
+        case customHealthSourceGroupsRaw
         case recentTimeZoneIdentifiersByDay
     }
 
@@ -76,6 +82,7 @@ struct WatchComputeSettings: Codable, Equatable {
         showsLeadingTrailingAwakeSleepStages: Bool,
         healthDataSourceSelectionRaw: String,
         combinesHealthDataSourcesByName: Bool,
+        customHealthSourceGroupsRaw: String? = nil,
         recentTimeZoneIdentifiersByDay: [String: String]? = nil
     ) {
         self.idealSleepDurationMinutes = idealSleepDurationMinutes
@@ -86,6 +93,7 @@ struct WatchComputeSettings: Codable, Equatable {
         self.showsLeadingTrailingAwakeSleepStages = showsLeadingTrailingAwakeSleepStages
         self.healthDataSourceSelectionRaw = healthDataSourceSelectionRaw
         self.combinesHealthDataSourcesByName = combinesHealthDataSourcesByName
+        self.customHealthSourceGroupsRaw = customHealthSourceGroupsRaw
         self.recentTimeZoneIdentifiersByDay = recentTimeZoneIdentifiersByDay
     }
 
@@ -104,6 +112,7 @@ struct WatchComputeSettings: Codable, Equatable {
         showsLeadingTrailingAwakeSleepStages = try container.decodeIfPresent(Bool.self, forKey: .showsLeadingTrailingAwakeSleepStages) ?? true
         healthDataSourceSelectionRaw = try container.decodeIfPresent(String.self, forKey: .healthDataSourceSelectionRaw) ?? ""
         combinesHealthDataSourcesByName = try container.decodeIfPresent(Bool.self, forKey: .combinesHealthDataSourcesByName) ?? false
+        customHealthSourceGroupsRaw = try container.decodeIfPresent(String.self, forKey: .customHealthSourceGroupsRaw)
         recentTimeZoneIdentifiersByDay = try container.decodeIfPresent([String: String].self, forKey: .recentTimeZoneIdentifiersByDay)
     }
 }

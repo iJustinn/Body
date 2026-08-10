@@ -64,11 +64,15 @@ actor WatchHealthStore {
         let selection = seed.map {
             BodyHealthDataSourceSelection.storedValue(from: $0.settings.healthDataSourceSelectionRaw)
         }
+        let customGroups = BodyCustomHealthSourceGroupStore.groups(
+            from: seed?.settings.customHealthSourceGroupsRaw ?? ""
+        )
 
         async let heartRate = WatchSourceResolver.read(
             for: .heartRate,
             selection: selection,
             expectedSourceIDsByKind: seed?.expectedSourceIDsByKind,
+            customGroups: customGroups,
             permission: permission,
             store: store
         )
@@ -76,6 +80,7 @@ actor WatchHealthStore {
             for: .heartRateVariability,
             selection: selection,
             expectedSourceIDsByKind: seed?.expectedSourceIDsByKind,
+            customGroups: customGroups,
             permission: permission,
             store: store
         )

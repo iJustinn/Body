@@ -40,6 +40,7 @@ enum WatchSourceResolver {
         for kind: HealthMetricKind,
         selection: BodyHealthDataSourceSelection?,
         expectedSourceIDsByKind: [String: [String]]?,
+        customGroups: [BodyCustomHealthSourceGroup],
         permission: BodyHealthPermissionSelection,
         store: HKHealthStore
     ) async -> WatchSourceRead {
@@ -63,6 +64,7 @@ enum WatchSourceResolver {
             return await allSourcesRead(
                 for: kind,
                 expectedSourceIDs: expectedSourceIDsByKind?[kind.rawValue],
+                customGroups: customGroups,
                 store: store
             )
         }
@@ -83,9 +85,14 @@ enum WatchSourceResolver {
         // phone already encodes which of the two they chose, so keying by it is
         // sufficient — and passing the flag would suggest a dependency that
         // isn't there.
+        // A custom group only some of whose members this watch can see resolves
+        // to the visible subset — the same partial-membership behavior a
+        // combined-name selection has here. Zero visible members registers no
+        // bucket, so strict resolution skips and the seeded values stand.
         let (_, sourcesByID) = BodyHealthSourceResolver.sourceOptionsAndMap(
             from: sources,
             combinesSourcesByName: false,
+            customGroups: customGroups,
             // The locale-stable IDENTITY name, never a localized display name:
             // the option IDs must key exactly as the phone keyed them.
             displayName: BodyHealthSourceResolver.identityName(for:)
@@ -109,6 +116,7 @@ enum WatchSourceResolver {
         for kinds: [HealthMetricKind],
         selection: BodyHealthDataSourceSelection?,
         expectedSourceIDsByKind: [String: [String]]?,
+        customGroups: [BodyCustomHealthSourceGroup],
         permission: BodyHealthPermissionSelection,
         store: HKHealthStore
     ) async -> [HealthMetricKind: WatchSourceRead] {
@@ -118,6 +126,7 @@ enum WatchSourceResolver {
                 for: kind,
                 selection: selection,
                 expectedSourceIDsByKind: expectedSourceIDsByKind,
+                customGroups: customGroups,
                 permission: permission,
                 store: store
             )
@@ -132,6 +141,7 @@ enum WatchSourceResolver {
     private static func allSourcesRead(
         for kind: HealthMetricKind,
         expectedSourceIDs: [String]?,
+        customGroups: [BodyCustomHealthSourceGroup],
         store: HKHealthStore
     ) async -> WatchSourceRead {
         guard let expectedSourceIDs, !expectedSourceIDs.isEmpty else {
@@ -149,6 +159,7 @@ enum WatchSourceResolver {
         let (_, sourcesByID) = BodyHealthSourceResolver.sourceOptionsAndMap(
             from: sources,
             combinesSourcesByName: false,
+            customGroups: customGroups,
             displayName: BodyHealthSourceResolver.identityName(for:)
         )
         let visible = Set(sourcesByID.keys)
