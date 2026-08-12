@@ -66,4 +66,62 @@ final class ChartFloatingCalloutLayerTests: XCTestCase {
 
         XCTAssertEqual(frame.minX, 8)
     }
+
+    // MARK: - Flipping placement (the calendar's hold-to-peek callout)
+
+    func testFlippingPlacementSitsAboveTheAnchorWhenItFits() {
+        let frame = BodyChartFloatingCalloutLayer.flippingCalloutFrame(
+            anchor: CGPoint(x: 200, y: 300),
+            anchorBottom: 348,
+            size: size,
+            in: container
+        )
+
+        XCTAssertEqual(frame.midX, 200)
+        XCTAssertEqual(frame.maxY, 292)
+        XCTAssertEqual(frame.size, size)
+    }
+
+    func testFlippingPlacementFlipsBelowTheAnchorWhenThereIsNoRoomAbove() {
+        let frame = BodyChartFloatingCalloutLayer.flippingCalloutFrame(
+            anchor: CGPoint(x: 200, y: 40),
+            anchorBottom: 88,
+            size: size,
+            in: container
+        )
+
+        // 8pt below the cell's bottom edge rather than clamped to the container
+        // top, where it would detach from the cell and cover the rows above.
+        XCTAssertEqual(frame.minY, 96)
+        XCTAssertEqual(frame.midX, 200)
+    }
+
+    func testFlippedCalloutStaysInsideTheContainerBottom() {
+        let frame = BodyChartFloatingCalloutLayer.flippingCalloutFrame(
+            anchor: CGPoint(x: 200, y: 20),
+            anchorBottom: container.height - 10,
+            size: size,
+            in: container
+        )
+
+        XCTAssertEqual(frame.maxY, container.height - 8)
+    }
+
+    func testFlippingPlacementClampsToHorizontalEdges() {
+        let leading = BodyChartFloatingCalloutLayer.flippingCalloutFrame(
+            anchor: CGPoint(x: 10, y: 300),
+            anchorBottom: 348,
+            size: size,
+            in: container
+        )
+        let trailing = BodyChartFloatingCalloutLayer.flippingCalloutFrame(
+            anchor: CGPoint(x: 395, y: 300),
+            anchorBottom: 348,
+            size: size,
+            in: container
+        )
+
+        XCTAssertEqual(leading.minX, 8)
+        XCTAssertEqual(trailing.maxX, container.width - 8)
+    }
 }

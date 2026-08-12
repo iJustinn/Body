@@ -355,6 +355,10 @@ struct BodyActivityRingsDetailView: View {
     /// without it, scroll-anchor vs. LazyVStack estimation churn once chained
     /// through years of history in one shot.
     @State private var remainingAutomaticLoads = 4
+    /// Hold-to-peek callout for a calendar day. Local to this screen (rather than
+    /// the home hero's shared channel) so it draws inside this scroll view and
+    /// can't survive a pop back to Home.
+    @State private var dayCallout = BodyChartFloatingCalloutState()
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
     private let calendar = Calendar.bodyGregorian
@@ -442,6 +446,9 @@ struct BodyActivityRingsDetailView: View {
                     .padding(.top, 8)
                     .accessibilityLabel("Loading earlier months")
             }
+        }
+        .overlay {
+            BodyChartFloatingCalloutLayer(state: dayCallout)
         }
         .task {
             refreshCalendarMonths()
@@ -639,7 +646,7 @@ struct BodyActivityRingsDetailView: View {
                 }
 
                 ForEach(month.days) { day in
-                    BodyActivityRingCalendarDayCell(day: day)
+                    BodyActivityRingCalendarDayCell(day: day, calloutState: dayCallout)
                 }
             }
         }
@@ -716,8 +723,54 @@ private struct BodyActivityRingCloseCountIcon: View {
     }
 }
 
+/// The peek's hold detector, as a UIKit recognizer so scrolling keeps working: a
+/// UIScrollView pan coexists with subview long presses (movement scrolls and
+/// cancels the press; a stationary hold fires it), whereas a SwiftUI
+/// `LongPressGesture.sequenced(before: DragGesture(minimumDistance: 0))` never
+/// fails and starves the scroll pan of every touch that starts on a cell.
+private struct BodyActivityRingPeekLongPressGesture: UIGestureRecognizerRepresentable {
+    @Binding var isPressed: Bool
+    /// `.gesture(_:isEnabled:)` requires a SwiftUI `Gesture`, which a representable
+    /// is not — so no-data/future cells disable the recognizer itself instead.
+    let isEnabled: Bool
+
+    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
+        let recognizer = UILongPressGestureRecognizer()
+        recognizer.minimumPressDuration = 0.35
+        recognizer.allowableMovement = 12
+        recognizer.isEnabled = isEnabled
+        return recognizer
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UILongPressGestureRecognizer, context: Context) {
+        recognizer.isEnabled = isEnabled
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
+        switch recognizer.state {
+        case .began:
+            isPressed = true
+        case .ended, .cancelled, .failed:
+            isPressed = false
+        default:
+            break
+        }
+    }
+}
+
 private struct BodyActivityRingCalendarDayCell: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let day: ActivityRingCalendarDay
+    /// Where a hold publishes this day's peek callout; the detail view's overlay
+    /// draws it above the calendar.
+    let calloutState: BodyChartFloatingCalloutState
+
+    /// True from the moment the long press succeeds until the finger lifts or the
+    /// scroll view cancels the touch. Driven by a UIKit long-press recognizer —
+    /// SwiftUI-only holds (a sequenced zero-distance drag) claim every touch that
+    /// lands on a cell and block the scroll pan from ever starting.
+    @State private var isPeeking = false
 
     var body: some View {
         VStack(spacing: 5) {
@@ -739,8 +792,83 @@ private struct BodyActivityRingCalendarDayCell: View {
             .frame(width: 38, height: 34)
         }
         .frame(maxWidth: .infinity, minHeight: 48)
+        // Without this only the day number's glyphs and the ring strokes take
+        // touches; the peek needs the whole cell.
+        .contentShape(Rectangle())
+        .background {
+            // The peek's anchor source. Read lazily — only once a press succeeds —
+            // instead of tracking every cell's frame: publishing geometry from ~150
+            // cells on each scroll frame would churn state in a view already
+            // sensitive to geometry feedback (see the load-budget note above).
+            GeometryReader { proxy in
+                Color.clear
+                    .onChange(of: isPeeking) { _, peeking in
+                        if peeking {
+                            showCallout(in: proxy.frame(in: .global))
+                        } else {
+                            hideCallout()
+                        }
+                    }
+            }
+        }
+        .gesture(BodyActivityRingPeekLongPressGesture(isPressed: $isPeeking, isEnabled: supportsPeek))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var supportsPeek: Bool {
+        day.hasData && !day.isFuture
+    }
+
+    private func showCallout(in cellFrame: CGRect) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        let callout = BodyChartFloatingCallout(
+            anchor: CGPoint(x: cellFrame.midX, y: cellFrame.minY),
+            content: AnyView(calloutContent),
+            placement: .aboveOrBelow(anchorBottom: cellFrame.maxY)
+        )
+
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
+            calloutState.callout = callout
+        }
+    }
+
+    private func hideCallout() {
+        guard calloutState.callout != nil else {
+            return
+        }
+
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
+            calloutState.callout = nil
+        }
+    }
+
+    /// Always three rows: a single-value annotation renders the big bare-number
+    /// layout instead of the colored list. Hidden from VoiceOver — the cell's own
+    /// label already reads all three metrics, and the callout is a touch-only peek.
+    private var calloutContent: some View {
+        BodyChartSelectionAnnotation(
+            eyebrow: nil,
+            values: [
+                BodyChartSelectionValue(
+                    title: String(localized: "Move"),
+                    value: bodyActivityRingCalloutValueText(day.summary.move, unit: "KCAL"),
+                    color: BodyActivityRingPalette.move
+                ),
+                BodyChartSelectionValue(
+                    title: String(localized: "Exercise"),
+                    value: bodyActivityRingCalloutValueText(day.summary.exercise, unit: "MIN"),
+                    color: BodyActivityRingPalette.exercise
+                ),
+                BodyChartSelectionValue(
+                    title: String(localized: "Stand"),
+                    value: bodyActivityRingCalloutValueText(day.summary.stand, unit: "HRS"),
+                    color: BodyActivityRingPalette.stand
+                )
+            ],
+            date: day.date
+        )
+        .accessibilityHidden(true)
     }
 
     private var dayNumberText: String {
@@ -911,6 +1039,23 @@ struct BodyActivityRingsCard: View {
     }
 }
 
+/// The whole-number text both ring readouts show ("503"), shared by the card's
+/// metric rows and the calendar's hold-to-peek callout so they can't disagree.
+private func bodyActivityRingRoundedText(_ value: Double) -> String {
+    BodyValueFormat.numberText(value.rounded(), decimals: 0)
+}
+
+/// "503/500 KCAL" for the peek callout, or the localized no-data text when the
+/// day is missing either half.
+private func bodyActivityRingCalloutValueText(_ metric: ActivityRingMetric, unit: String) -> String {
+    guard let value = metric.value, let goal = metric.goal else {
+        return String(localized: "no data")
+    }
+
+    let unitText = String(localized: String.LocalizationValue(unit))
+    return "\(bodyActivityRingRoundedText(value))/\(bodyActivityRingRoundedText(goal)) \(unitText)"
+}
+
 private struct BodyActivityRingMetricRow: View {
     @Environment(\.colorScheme) private var colorScheme
 
@@ -958,11 +1103,7 @@ private struct BodyActivityRingMetricRow: View {
             return "--/--"
         }
 
-        return "\(roundedText(value))/\(roundedText(goal))"
-    }
-
-    private func roundedText(_ value: Double) -> String {
-        BodyValueFormat.numberText(value.rounded(), decimals: 0)
+        return "\(bodyActivityRingRoundedText(value))/\(bodyActivityRingRoundedText(goal))"
     }
 
     private var metricTextColor: Color {
