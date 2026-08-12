@@ -1124,9 +1124,10 @@ struct BodyHealthMetricDetailView: View {
         let primary = workoutStore.selectedHealthDataSourceOption(for: model.kind)
         let primaryIcon: String
         if primary.isCustomSource {
-            // Custom sources carry the heart icon everywhere; the name-token
-            // lookup below would instead match whatever the user called them.
-            primaryIcon = "heart.fill"
+            // A custom source's icon resolves from the group (the user's pick,
+            // heart by default); the name-token lookup below would instead match
+            // whatever the user called it.
+            primaryIcon = workoutStore.customHealthSourceIconName(for: primary.id)
         } else if primary.isAllSources {
             primaryIcon = "heart.text.square"
         } else {
@@ -1148,7 +1149,7 @@ struct BodyHealthMetricDetailView: View {
 
         let secondaryIcon: String
         if secondary.isCustomSource {
-            secondaryIcon = "heart.fill"
+            secondaryIcon = workoutStore.customHealthSourceIconName(for: secondary.id)
         } else if secondary.isAllSources {
             secondaryIcon = "square.text.square"
         } else {
@@ -1730,6 +1731,7 @@ struct BodyHealthMetricDetailView: View {
                     // animations.
                     .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: selectedMetricDaySeries)
                     .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: selectedMetricSecondaryDaySeries)
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: selectedMetricDayContextIntervals)
                     .transition(dayChartTransition)
                     .transaction { transaction in
                         transaction.animation = nil

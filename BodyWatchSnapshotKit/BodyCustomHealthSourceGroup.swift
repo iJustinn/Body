@@ -26,11 +26,18 @@ struct BodyCustomHealthSourceGroup: Codable, Equatable, Identifiable {
     /// `canonicalSignature(for:)` can't shift with the order the membership UI
     /// happened to hand them over in.
     var memberIdentityKeys: [String]
+    /// SF Symbol picked by the user, or `nil` for the default icon — which, like
+    /// `name`'s fallback, is applied at the iOS UI layer. Encoding stays
+    /// synthesized so a `nil` icon simply omits the key and groups saved before
+    /// this field keep their exact JSON.
+    var iconSystemName: String?
 
-    init(id: String, name: String, memberIdentityKeys: [String]) {
+    init(id: String, name: String, memberIdentityKeys: [String], iconSystemName: String? = nil) {
         self.id = id
         self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         self.memberIdentityKeys = Array(Set(memberIdentityKeys)).sorted()
+        let trimmedIconSystemName = iconSystemName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.iconSystemName = (trimmedIconSystemName?.isEmpty ?? true) ? nil : trimmedIconSystemName
     }
 
     init(from decoder: Decoder) throws {
@@ -38,7 +45,8 @@ struct BodyCustomHealthSourceGroup: Codable, Equatable, Identifiable {
         self.init(
             id: try container.decode(String.self, forKey: .id),
             name: try container.decodeIfPresent(String.self, forKey: .name) ?? "",
-            memberIdentityKeys: try container.decodeIfPresent([String].self, forKey: .memberIdentityKeys) ?? []
+            memberIdentityKeys: try container.decodeIfPresent([String].self, forKey: .memberIdentityKeys) ?? [],
+            iconSystemName: try container.decodeIfPresent(String.self, forKey: .iconSystemName)
         )
     }
 
@@ -46,11 +54,16 @@ struct BodyCustomHealthSourceGroup: Codable, Equatable, Identifiable {
         BodyHealthDataSourceOption(id: id, name: name)
     }
 
-    static func custom(name: String, memberIdentityKeys: [String]) -> BodyCustomHealthSourceGroup {
+    static func custom(
+        name: String,
+        memberIdentityKeys: [String],
+        iconSystemName: String? = nil
+    ) -> BodyCustomHealthSourceGroup {
         BodyCustomHealthSourceGroup(
             id: BodyHealthDataSourceOption.customSourceID(for: UUID()),
             name: name,
-            memberIdentityKeys: memberIdentityKeys
+            memberIdentityKeys: memberIdentityKeys,
+            iconSystemName: iconSystemName
         )
     }
 }
@@ -86,8 +99,9 @@ enum BodyCustomHealthSourceGroupStore {
     }
 
     /// Deterministic digest of what the groups RESOLVE to — ids and membership,
-    /// never names. Signing `rawValue` instead would churn every cache and
-    /// re-seed the watch on a pure rename, which changes no query and no math.
+    /// never names or icons. Signing `rawValue` instead would churn every cache
+    /// and re-seed the watch on a pure rename or icon change, which changes no
+    /// query and no math.
     static func canonicalSignature(for groups: [BodyCustomHealthSourceGroup]) -> String {
         groups
             .sorted { $0.id < $1.id }

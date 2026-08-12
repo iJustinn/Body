@@ -18,6 +18,7 @@ struct BodyCustomSourceEditorSheet: View {
     let group: BodyCustomHealthSourceGroup?
 
     @State private var name: String
+    @State private var selectedIconSystemName: String
     @State private var selectedIdentityKeys: Set<String>
     @State private var isSaving = false
     @State private var isConfirmingDelete = false
@@ -28,6 +29,9 @@ struct BodyCustomSourceEditorSheet: View {
         _workoutStore = ObservedObject(wrappedValue: workoutStore)
         self.group = group
         _name = State(initialValue: group?.name ?? "")
+        _selectedIconSystemName = State(
+            initialValue: group?.iconSystemName ?? BodyHealthSourceIcon.customSourceDefaultSymbolName
+        )
         // Seeded from the stored membership, not from the discovered list, so
         // members that aren't visible right now (a source that hasn't written
         // data since, another device's app) survive an edit instead of being
@@ -57,6 +61,8 @@ struct BodyCustomSourceEditorSheet: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     nameSection
+
+                    iconSection
 
                     sourcesSection
 
@@ -121,6 +127,70 @@ struct BodyCustomSourceEditorSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.primary.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    private var iconSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader(
+                title: "Icon",
+                detail: "Shown wherever this source appears."
+            )
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 44), spacing: 10)],
+                spacing: 10
+            ) {
+                ForEach(BodyHealthSourceIcon.selectableSymbolNames, id: \.self) { symbolName in
+                    iconTile(symbolName)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    private func iconTile(_ symbolName: String) -> some View {
+        let isSelected = selectedIconSystemName == symbolName
+        return Button {
+            selectedIconSystemName = symbolName
+        } label: {
+            Image(systemName: symbolName)
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundColor(isSelected ? .white : tintColor)
+                // 44pt keeps every tile a comfortable tap target.
+                .frame(width: 44, height: 44)
+                .background(isSelected ? tintColor : tintColor.opacity(0.13))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isSaving)
+        .accessibilityLabel(Text(Self.iconAccessibilityLabel(for: symbolName)))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// SF Symbol names read as gibberish to VoiceOver, so each tile carries a
+    /// spoken name of its own.
+    private static func iconAccessibilityLabel(for symbolName: String) -> LocalizedStringKey {
+        switch symbolName {
+        case "heart.fill": return "Heart"
+        case "applewatch": return "Apple Watch"
+        case "applewatch.side.right": return "Fitness Band"
+        case "watch.analog": return "Watch"
+        case "iphone.gen3": return "iPhone"
+        case "ipad": return "iPad"
+        case "circle": return "Ring"
+        case "scalemass": return "Scale"
+        case "sensor": return "Sensor"
+        case "bed.double": return "Bed"
+        case "figure.run": return "Running"
+        case "fork.knife": return "Nutrition"
+        // Unreachable for the vocabulary above; the default icon's label is the
+        // safe answer for anything else.
+        default: return "Heart"
         }
     }
 
@@ -240,6 +310,11 @@ struct BodyCustomSourceEditorSheet: View {
         isSaving = true
         let memberIdentityKeys = Array(selectedIdentityKeys)
         let savedName = resolvedName
+        // The default icon persists as `nil`, so an untouched group keeps
+        // encoding exactly as it did before icons existed.
+        let savedIcon: String? = selectedIconSystemName == BodyHealthSourceIcon.customSourceDefaultSymbolName
+            ? nil
+            : selectedIconSystemName
         Task {
             if let group {
                 await workoutStore.updateCustomHealthSourceGroupMembers(
@@ -247,13 +322,18 @@ struct BodyCustomSourceEditorSheet: View {
                     memberIdentityKeys: memberIdentityKeys
                 )
 
-                if savedName != group.name {
-                    await workoutStore.renameCustomHealthSourceGroup(id: group.id, name: savedName)
+                if savedName != group.name || savedIcon != group.iconSystemName {
+                    await workoutStore.updateCustomHealthSourceGroupDisplay(
+                        id: group.id,
+                        name: savedName,
+                        iconSystemName: savedIcon
+                    )
                 }
             } else {
                 await workoutStore.addCustomHealthSourceGroup(
                     name: savedName,
-                    memberIdentityKeys: memberIdentityKeys
+                    memberIdentityKeys: memberIdentityKeys,
+                    iconSystemName: savedIcon
                 )
             }
             isSaving = false

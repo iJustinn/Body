@@ -2402,7 +2402,10 @@ private struct BodySourceSettingsSheet: View {
             }
         } label: {
             HStack(spacing: 14) {
-                BodySettingsIconTile(iconName: "heart.fill", color: .cyan)
+                BodySettingsIconTile(
+                    iconName: workoutStore.customHealthSourceIconName(for: group.id),
+                    color: .cyan
+                )
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(group.name)
@@ -2587,7 +2590,7 @@ private struct BodySourceSettingsSheet: View {
 
     private func optionIconName(for option: BodyHealthDataSourceOption, role: Role) -> String {
         if option.isCustomSource {
-            return "heart.fill"
+            return workoutStore.customHealthSourceIconName(for: option.id)
         }
 
         if option.isNoComparison {

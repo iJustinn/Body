@@ -23,9 +23,10 @@ final class BodyCustomHealthSourceGroupTests: XCTestCase {
     private func group(
         id: String,
         name: String = "Wrist",
-        members: [String]
+        members: [String],
+        iconSystemName: String? = nil
     ) -> BodyCustomHealthSourceGroup {
-        BodyCustomHealthSourceGroup(id: id, name: name, memberIdentityKeys: members)
+        BodyCustomHealthSourceGroup(id: id, name: name, memberIdentityKeys: members, iconSystemName: iconSystemName)
     }
 
     // MARK: - Init normalization
@@ -44,6 +45,17 @@ final class BodyCustomHealthSourceGroupTests: XCTestCase {
         XCTAssertNil(merged.option.iconBundleIdentifierHint)
     }
 
+    // MARK: - Icon
+
+    func testInitTrimsIconSystemNameAndBlankBecomesNil() {
+        XCTAssertEqual(
+            group(id: "custom:A", members: [watchKey, phoneKey], iconSystemName: "  applewatch  ").iconSystemName,
+            "applewatch"
+        )
+        XCTAssertNil(group(id: "custom:A", members: [watchKey, phoneKey], iconSystemName: "").iconSystemName)
+        XCTAssertNil(group(id: "custom:A", members: [watchKey, phoneKey], iconSystemName: "   ").iconSystemName)
+    }
+
     // MARK: - Round trip
 
     func testRawValueRoundTripsThroughTheStore() {
@@ -57,6 +69,41 @@ final class BodyCustomHealthSourceGroupTests: XCTestCase {
         )
 
         XCTAssertEqual(decoded, groups)
+    }
+
+    func testRawValueRoundTripsIconSystemName() {
+        let groups = [
+            group(id: "custom:A", name: "Wrist", members: [watchKey, phoneKey], iconSystemName: "applewatch"),
+            group(id: "custom:B", name: "Straps", members: [strapKey, phoneKey])
+        ]
+
+        let decoded = BodyCustomHealthSourceGroupStore.groups(
+            from: BodyCustomHealthSourceGroupStore.rawValue(from: groups)
+        )
+
+        XCTAssertEqual(decoded, groups)
+        XCTAssertEqual(decoded.first?.iconSystemName, "applewatch")
+        XCTAssertNil(decoded.last?.iconSystemName)
+    }
+
+    func testNilIconEncodesByteIdenticallyToThePreFeatureFormat() {
+        // No `iconSystemName` key at all — the exact bytes the compute seed and
+        // any persisted defaults entry shipped before this feature existed, so
+        // a user who never sets an icon signs nothing new.
+        let groups = [group(id: "custom:A", name: "Wrist", members: [watchKey, phoneKey])]
+        let rawValue = BodyCustomHealthSourceGroupStore.rawValue(from: groups)
+        let expected = #"[{"id":"custom:A","memberIdentityKeys":["\#(phoneKey)","\#(watchKey)"],"name":"Wrist"}]"#
+
+        XCTAssertEqual(rawValue, expected)
+        XCTAssertFalse(rawValue.contains("iconSystemName"))
+    }
+
+    func testDecodingPreFeatureJSONYieldsANilIcon() throws {
+        // A raw value written by a build that predates the icon field.
+        let raw = #"[{"id":"custom:A","memberIdentityKeys":["\#(watchKey)","\#(phoneKey)"],"name":"Wrist"}]"#
+        let decoded = try XCTUnwrap(BodyCustomHealthSourceGroupStore.groups(from: raw).first)
+
+        XCTAssertNil(decoded.iconSystemName)
     }
 
     func testDecodeNormalizesNamesAndMembersTheSameWayInitDoes() throws {
@@ -130,5 +177,44 @@ final class BodyCustomHealthSourceGroupTests: XCTestCase {
         // The empty string is what keeps a user who never made a group signing
         // exactly the bytes they signed before this feature existed.
         XCTAssertEqual(BodyCustomHealthSourceGroupStore.canonicalSignature(for: []), "")
+    }
+
+    func testCanonicalSignatureIgnoresTheIcon() {
+        // Icon is exactly as cosmetic as name: picking one must not invalidate
+        // a single cache or re-seed the watch.
+        let withIcon = group(id: "custom:A", members: [watchKey, phoneKey], iconSystemName: "applewatch")
+        let withoutIcon = group(id: "custom:A", members: [watchKey, phoneKey])
+
+        XCTAssertEqual(
+            BodyCustomHealthSourceGroupStore.canonicalSignature(for: [withIcon]),
+            BodyCustomHealthSourceGroupStore.canonicalSignature(for: [withoutIcon])
+        )
+    }
+
+    // MARK: - Membership-update icon preservation
+    //
+    // `HealthKitWorkoutStore.updateCustomHealthSourceGroupMembers` rebuilds the
+    // edited group through this exact initializer, forwarding the existing
+    // `iconSystemName`. There is no existing pattern in BodyTests for driving
+    // that store method directly: it funnels into `applyCustomHealthSourceGroups`,
+    // which runs a live HealthKit refetch/authorization pipeline (not just a
+    // save) unsuited to a unit test, and no other BodyTests file constructs
+    // `HealthKitWorkoutStore` to exercise it. This model-level test instead
+    // pins the rebuild contract the store method depends on: forwarding
+    // `iconSystemName` through the initializer when membership changes must be
+    // lossless, so a membership-edit save can never silently drop the icon.
+
+    func testRebuildingAGroupThroughTheInitializerForwardsTheIcon() {
+        let original = group(id: "custom:A", name: "Wrist", members: [watchKey, phoneKey], iconSystemName: "applewatch")
+
+        let rebuiltWithNewMembers = BodyCustomHealthSourceGroup(
+            id: original.id,
+            name: original.name,
+            memberIdentityKeys: [strapKey, phoneKey],
+            iconSystemName: original.iconSystemName
+        )
+
+        XCTAssertEqual(rebuiltWithNewMembers.iconSystemName, "applewatch")
+        XCTAssertEqual(rebuiltWithNewMembers.memberIdentityKeys, [phoneKey, strapKey])
     }
 }

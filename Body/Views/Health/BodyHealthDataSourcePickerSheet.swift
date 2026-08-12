@@ -175,7 +175,7 @@ struct BodyHealthDataSourcePickerSheet: View {
 
     private func rowIconName(for option: BodyHealthDataSourceOption, role: SourceRole) -> String {
         if option.isCustomSource {
-            return "heart.fill"
+            return workoutStore.customHealthSourceIconName(for: option.id)
         }
 
         if option.isAllSources || option.isNoComparison {

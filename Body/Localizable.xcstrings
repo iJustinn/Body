@@ -1143,6 +1143,23 @@
         }
       }
     },
+    "Apple Watch" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Watch"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Watch"
+          }
+        }
+      }
+    },
     "Apply" : {
       "localizations" : {
         "en" : {
@@ -1385,6 +1402,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "基础数据"
+          }
+        }
+      }
+    },
+    "Bed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "床"
           }
         }
       }
@@ -3467,6 +3501,23 @@
         }
       }
     },
+    "Fitness Band" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fitness Band"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "健身手环"
+          }
+        }
+      }
+    },
     "Flips the icon" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3682,6 +3733,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本地仪表盘缓存中已有健康摘要、趋势或活动圆环数据。"
+          }
+        }
+      }
+    },
+    "Heart" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heart"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心形"
           }
         }
       }
@@ -3966,6 +4034,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "有所上升"
+          }
+        }
+      }
+    },
+    "iPad" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPad"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPad"
+          }
+        }
+      }
+    },
+    "iPhone" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone"
           }
         }
       }
@@ -5263,6 +5365,23 @@
         }
       }
     },
+    "Nutrition" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nutrition"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "营养"
+          }
+        }
+      }
+    },
     "Off" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6437,6 +6556,23 @@
         }
       }
     },
+    "Ring" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ring"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "戒指"
+          }
+        }
+      }
+    },
     "Rose" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6482,6 +6618,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "路线样式"
+          }
+        }
+      }
+    },
+    "Running" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Running"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跑步"
           }
         }
       }
@@ -6566,6 +6719,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已存 %lld"
+          }
+        }
+      }
+    },
+    "Scale" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scale"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "体重秤"
           }
         }
       }
@@ -6797,6 +6967,23 @@
         }
       }
     },
+    "Sensor" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sensor"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "传感器"
+          }
+        }
+      }
+    },
     "Settings" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6976,6 +7163,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示在主页、运动和设置中"
+          }
+        }
+      }
+    },
+    "Shown wherever this source appears." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shown wherever this source appears."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在此数据来源出现的任何位置显示。"
           }
         }
       }
@@ -8441,6 +8644,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "较低"
+          }
+        }
+      }
+    },
+    "Watch" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Watch"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手表"
           }
         }
       }

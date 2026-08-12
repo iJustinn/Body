@@ -1697,13 +1697,33 @@ final class HealthKitWorkoutStore: ObservableObject {
         )
     }
 
-    func addCustomHealthSourceGroup(name: String, memberIdentityKeys: [String]) async {
+    func addCustomHealthSourceGroup(
+        name: String,
+        memberIdentityKeys: [String],
+        iconSystemName: String? = nil
+    ) async {
         guard customHealthSourceGroups.count < BodyCustomHealthSourceGroupStore.maximumGroupCount else {
             return
         }
 
-        let group = BodyCustomHealthSourceGroup.custom(name: name, memberIdentityKeys: memberIdentityKeys)
+        let group = BodyCustomHealthSourceGroup.custom(
+            name: name,
+            memberIdentityKeys: memberIdentityKeys,
+            iconSystemName: iconSystemName
+        )
         await applyCustomHealthSourceGroups(customHealthSourceGroups + [group])
+    }
+
+    /// The icon a custom source renders with, resolved live by group id (never
+    /// persisted into a selection, exactly like the display name) and validated
+    /// against the picker vocabulary so an unknown symbol falls back to the
+    /// default instead of rendering a blank image.
+    func customHealthSourceIconName(for optionID: String) -> String {
+        let iconName = customHealthSourceGroups.first { $0.id == optionID }?.iconSystemName
+        guard let iconName, BodyHealthSourceIcon.selectableSymbolNames.contains(iconName) else {
+            return BodyHealthSourceIcon.customSourceDefaultSymbolName
+        }
+        return iconName
     }
 
     func updateCustomHealthSourceGroupMembers(id: String, memberIdentityKeys: [String]) async {
@@ -1717,7 +1737,8 @@ final class HealthKitWorkoutStore: ObservableObject {
         nextGroups[index] = BodyCustomHealthSourceGroup(
             id: id,
             name: nextGroups[index].name,
-            memberIdentityKeys: memberIdentityKeys
+            memberIdentityKeys: memberIdentityKeys,
+            iconSystemName: nextGroups[index].iconSystemName
         )
         guard nextGroups != customHealthSourceGroups else {
             return
@@ -1726,13 +1747,14 @@ final class HealthKitWorkoutStore: ObservableObject {
         await applyCustomHealthSourceGroups(nextGroups)
     }
 
-    /// Renaming changes nothing a query, a cache, or the watch resolves against
-    /// (the canonical group signature excludes names), so this deliberately
-    /// skips the invalidation sequence — no refetch, no stripped day samples.
-    /// The selection is NOT rewritten either: display names resolve live through
-    /// the store's resolved-option accessors, while a stored name would leak
-    /// into `rawValue`-based signatures and churn every cache on a rename.
-    func renameCustomHealthSourceGroup(id: String, name: String) async {
+    /// The display attributes — name and icon — change nothing a query, a cache,
+    /// or the watch resolves against (the canonical group signature excludes
+    /// both), so this deliberately skips the invalidation sequence — no refetch,
+    /// no stripped day samples. The selection is NOT rewritten either: names and
+    /// icons resolve live through the store's resolved-option accessors, while a
+    /// stored copy would leak into `rawValue`-based signatures and churn every
+    /// cache on a cosmetic edit.
+    func updateCustomHealthSourceGroupDisplay(id: String, name: String, iconSystemName: String?) async {
         guard let index = customHealthSourceGroups.firstIndex(where: { $0.id == id }) else {
             return
         }
@@ -1741,7 +1763,8 @@ final class HealthKitWorkoutStore: ObservableObject {
         nextGroups[index] = BodyCustomHealthSourceGroup(
             id: id,
             name: name,
-            memberIdentityKeys: nextGroups[index].memberIdentityKeys
+            memberIdentityKeys: nextGroups[index].memberIdentityKeys,
+            iconSystemName: iconSystemName
         )
         guard nextGroups != customHealthSourceGroups else {
             return
