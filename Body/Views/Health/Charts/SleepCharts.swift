@@ -521,6 +521,7 @@ struct BodySleepConsistencyChart: View {
 
     private let gutterWidth: CGFloat = 50
     private let dayLabelHeight: CGFloat = 30
+    private let gutterLabelHeight: CGFloat = 14
 
     var body: some View {
         VStack(spacing: 8) {
@@ -557,7 +558,7 @@ struct BodySleepConsistencyChart: View {
             Text(timeText(forOffsetHours: offset))
                 .font(.system(.caption2, design: .rounded))
                 .foregroundStyle(Color.secondary)
-                .position(x: plotWidth + gutterWidth / 2, y: lineY)
+                .position(x: plotWidth + gutterWidth / 2, y: gutterLabelY(forLineY: lineY, plotHeight: plotHeight))
         }
     }
 
@@ -588,7 +589,7 @@ struct BodySleepConsistencyChart: View {
             .font(.system(.caption2, design: .rounded))
             .fontWeight(.bold)
             .foregroundStyle(Color.primary)
-            .position(x: plotWidth + gutterWidth / 2, y: lineY)
+            .position(x: plotWidth + gutterWidth / 2, y: gutterLabelY(forLineY: lineY, plotHeight: plotHeight))
     }
 
     @ViewBuilder
@@ -665,7 +666,10 @@ struct BodySleepConsistencyChart: View {
                     Text(day.formatted(.dateTime.weekday(.narrow)))
                         .font(.system(size: 10, weight: selected ? .heavy : .semibold, design: .rounded))
 
-                    Text(day.formatted(.dateTime.day()))
+                    // Bare day number: the locale-formatted day field appends a
+                    // suffix in some languages (e.g. "30日"), which crowds the
+                    // 14 columns.
+                    Text(Calendar.bodyGregorian.component(.day, from: day).formatted(.number.grouping(.never)))
                         .font(.system(size: 12, weight: selected ? .heavy : .semibold, design: .rounded))
                 }
                 .lineLimit(1)
@@ -697,6 +701,18 @@ struct BodySleepConsistencyChart: View {
         }
 
         return CGFloat((offset - domain.lowerBound) / span) * plotHeight
+    }
+
+    /// Keeps a gutter time label fully inside the plot: the rasterized layer
+    /// clips at its bounds, so a line sitting on the top or bottom edge would
+    /// otherwise have its centered label cut in half.
+    private func gutterLabelY(forLineY lineY: CGFloat, plotHeight: CGFloat) -> CGFloat {
+        guard plotHeight > gutterLabelHeight else {
+            return plotHeight / 2
+        }
+
+        let inset = gutterLabelHeight / 2
+        return min(max(lineY, inset), plotHeight - inset)
     }
 
     private func horizontalLine(at lineY: CGFloat, width: CGFloat) -> Path {
