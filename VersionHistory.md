@@ -1,5 +1,28 @@
 # Version History
 
+## 0.9.11 (build 10)
+
+- **Day View line tails now fade during day switches.** Stretches of the hourly-average line covering hours the new day has no data for used to freeze in place through the whole transition and then vanish, making the chart look stuck before redrawing. The line is now drawn as per-hour segment marks with day-stable identity — matching stretches morph, and stretches with no counterpart fade out where they stood.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 10.
+
+## 0.9.11 (build 9)
+
+- **Day View placeholder dots are now truly invisible.** Build 7's cross-day fade keeps a dot mark alive for every hour so dots fade instead of popping, but the placeholders for data-less hours drew fully visible — constant-height dot rows after switching to a sparser day, and twin dots beside isolated readings — because Swift Charts does not apply mark opacity to custom symbol views. The transparency now lives inside the dot symbol itself, so hours without data render nothing while the fade behavior stays.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 9.
+
+## 0.9.11 (build 8)
+
+- **Sleep Regularity card polish.** The top time label in the chart's right gutter is no longer cut off when its grid line sits on the plot's upper edge, and the day axis now shows bare day numbers instead of the locale's suffixed form (e.g. `12` rather than `12日`).
+- **Swipe from the left edge to close the Readiness detail.** It is presented as a cross-fade overlay rather than a navigation push, so it never got the system's interactive back gesture that every other detail page has. A left-edge swipe now closes it with the same cross-fade as its back chevron.
+- **Bigger tap target on the workout Share button.** The route map behind the workout detail page opens full screen when its area is tapped, and a near-miss on the Share capsule — or a hit on one of its rounded corners — used to land on the map instead. The button now carries invisible tap slop on its sides and bottom.
+- Hike workouts now read 徒步 in Simplified Chinese.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 8.
+
+## 0.9.11 (build 7)
+
+- **Day View day switches now morph in place.** Changing the selected day no longer slides chart marks sideways or folds the line into mid-animation zigzags: hourly bars shrink or extend and dots move vertically within their hour, sleep/workout highlight regions shrink or extend into the new day's same-type regions (main sleep to main sleep, naps in order, workouts matched by type), and marks or regions with no counterpart on the new day fade in or out. Under the hood, marks now plot on a fixed reference day so the chart's x-domain never moves, and highlight regions carry day-stable identity.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 7.
+
 ## 0.9.11 (build 6)
 
 - **Custom data sources (Body Pro).** Settings can now combine several discovered Apple Health sources into one named source for primary or comparison charts. Custom groups sync to the Apple Watch compute seed, preserve their setup if Pro lapses, and return automatically when entitlement is restored.

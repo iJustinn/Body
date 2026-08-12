@@ -913,7 +913,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let chartBlock = String(source[chartStart..<chartEnd])
         let barsStart = try XCTUnwrap(chartBlock.range(of: "ForEach(rangeEntries)")?.lowerBound)
         let lineStart = try XCTUnwrap(
-            chartBlock.range(of: "ForEach(entries)", range: barsStart..<chartBlock.endIndex)?.lowerBound
+            chartBlock.range(of: "ForEach(lineSegments)", range: barsStart..<chartBlock.endIndex)?.lowerBound
         )
 
         // Bars must be emitted before the line/point marks so they render behind
@@ -936,7 +936,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let source = try bodyHomeViewText()
         let previewStart = try XCTUnwrap(source.range(of: "private var dotsPreview: some View")?.lowerBound)
         let previewEnd = try XCTUnwrap(
-            source.range(of: "private struct DotPreviewLayout", range: previewStart..<source.endIndex)?.lowerBound
+            source.range(of: "struct DotPreviewLayout", range: previewStart..<source.endIndex)?.lowerBound
         )
         let previewBlock = String(source[previewStart..<previewEnd])
 
@@ -956,6 +956,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(previewBlock.contains("dotColor(for: dot)"))
         XCTAssertTrue(previewBlock.contains("y: layout.dotY(for: dot.position)"))
         XCTAssertTrue(previewBlock.contains(".animation(refreshAnimation, value: dotEntries)"))
+        // The three regions resize with the night's occupancy, so each must keep
+        // a stable shape identity for SwiftUI to morph rather than replace it:
+        // three unconditional RoundedRectangles, no Capsule, no ForEach over
+        // regions, no `if` wrapping one of them.
+        XCTAssertEqual(previewBlock.occurrenceCount(of: "RoundedRectangle(cornerRadius: layout.cornerRadius(for:"), 3)
+        XCTAssertFalse(previewBlock.contains("Capsule("))
+        XCTAssertTrue(previewBlock.contains("occupied: occupiedRegions(for: dots)"))
     }
 
     func testSummaryMetricValuesUseClockStyleNumericTransitions() throws {
@@ -1318,7 +1325,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(dayChartCardBlock.contains("selectedMetricSecondaryDaySeries"))
         XCTAssertTrue(dayChartCardBlock.contains("secondarySeries: selectedMetricSecondaryDaySeries"))
         XCTAssertTrue(dayChartBlock.contains("secondaryHourlyBuckets"))
-        XCTAssertTrue(dayChartBlock.contains("series: .value(\"Segment\", entry.seriesKey)"))
+        XCTAssertTrue(dayChartBlock.contains("series: .value(\"Segment\", segment.id)"))
         XCTAssertTrue(dayChartBlock.contains("BodyChartSelectionValue("))
         XCTAssertTrue(snapshotSource.contains("func secondaryDaySeries(for kind: HealthMetricKind) -> HealthTrendSeries"))
         XCTAssertTrue(engineSource.contains("func fetchSecondaryDaySamples("))
@@ -1743,12 +1750,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.11;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 6;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 10;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.11;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 6;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 10;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1783,9 +1790,13 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.11 (build 6)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.11 (build 10)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 9)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 8)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 7)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 2)**"))
@@ -1853,6 +1864,14 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 10)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.11 build 10."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 9)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.11 build 9."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 8)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.11 build 8."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 7)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.11 build 7."))
         XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 6)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.11 build 6."))
         XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 3)"))
@@ -2168,7 +2187,11 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.11 build 6)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.11 build 10)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.11 build 9)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.11 build 8)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.11 build 7)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.11 build 6)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.11 build 5)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.11 build 3)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.11 build 2)"))
