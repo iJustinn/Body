@@ -151,7 +151,7 @@ struct SleepVitalsSummary: Codable, Equatable {
     )
 }
 
-enum SleepVitalRegion: Equatable {
+enum SleepVitalRegion: Hashable {
     case low
     case typical
     case high
