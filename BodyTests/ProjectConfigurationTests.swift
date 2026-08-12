@@ -813,7 +813,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTrainingLoadTrendChartDrawsDynamicHorizontalCurrentIntervalBandWithoutInlineLabel() throws {
         let source = try bodyHomeViewText()
         let chartStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricTrendChart")?.lowerBound)
-        let chartBlock = String(source[chartStart...].prefix(14_000))
+        let chartBlock = String(source[chartStart...].prefix(22_000))
 
         XCTAssertTrue(chartBlock.contains("let highlightedRange: BodyHealthMetricTrendHighlightedRange?"))
         XCTAssertTrue(chartBlock.contains("let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?"))
@@ -1142,11 +1142,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let trendCardStart = try XCTUnwrap(homeSource.range(of: "private func metricTrendChart")?.lowerBound)
         let trendCardBlock = String(homeSource[trendCardStart...].prefix(10_000))
         let comparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonBarChart")?.lowerBound)
-        let comparisonChartBlock = String(homeSource[comparisonChartStart...].prefix(9_500))
+        let comparisonChartBlock = String(homeSource[comparisonChartStart...].prefix(13_000))
         let rangeComparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonRangeChart")?.lowerBound)
-        let rangeComparisonChartBlock = String(homeSource[rangeComparisonChartStart...].prefix(8_000))
+        let rangeComparisonChartBlock = String(homeSource[rangeComparisonChartStart...].prefix(12_000))
         let rangeBandChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHeartRateRangeTrendChart")?.lowerBound)
-        let rangeBandChartBlock = String(homeSource[rangeBandChartStart...].prefix(14_000))
+        let rangeBandChartBlock = String(homeSource[rangeBandChartStart...].prefix(20_000))
 
         // The source legend moved from the trend-card header to the hero value row
         // (`heroValueTrailing`); the comparison charts stay in `metricTrendChart`.
@@ -1172,7 +1172,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(comparisonChartBlock.contains("BodyChartSelectionValue("))
         XCTAssertTrue(rangeBandChartBlock.contains("secondaryRangePoints"))
         XCTAssertTrue(rangeBandChartBlock.contains("BarMark("))
-        XCTAssertTrue(rangeBandChartBlock.contains("series: .value(\"Source\", entry.sourceRole.rawValue)"))
+        XCTAssertTrue(rangeBandChartBlock.contains("series: .value(\"Segment\", segment.id)"))
         XCTAssertTrue(rangeBandChartBlock.contains("BodyChartSelectionValue("))
         XCTAssertTrue(rangeComparisonChartBlock.contains("sourceComparisonRangeChartBarWidth(forAvailableWidth:"))
         XCTAssertTrue(rangeComparisonChartBlock.contains("sourceComparisonChartCalendarPoints(to: selectedRange)"))
@@ -1190,14 +1190,14 @@ final class ProjectConfigurationTests: XCTestCase {
         let lineComparisonChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthSourceComparisonLineChart")?.lowerBound)
         // 12k: the floating-callout reporter added ~0.5k to the struct's body, pushing
         // `selectedValues` (the BodyChartSelectionValue construction) past the old 10k.
-        let lineComparisonChartBlock = String(homeSource[lineComparisonChartStart...].prefix(12_000))
+        let lineComparisonChartBlock = String(homeSource[lineComparisonChartStart...].prefix(16_000))
 
         XCTAssertTrue(appearanceSource.contains("var usesSourceComparisonLineChart: Bool"))
         XCTAssertTrue(trendCardBlock.contains("sourceLineComparisonTrend"))
         XCTAssertTrue(trendCardBlock.contains("BodyHealthSourceComparisonLineChart("))
         XCTAssertTrue(lineComparisonChartBlock.contains("comparison.primary.series.lineChartCalendarPoints(to: selectedRange)"))
         XCTAssertTrue(lineComparisonChartBlock.contains("comparison.secondary.series.lineChartCalendarPoints(to: selectedRange)"))
-        XCTAssertTrue(lineComparisonChartBlock.contains("series: .value(\"Source\", entry.sourceRole.rawValue)"))
+        XCTAssertTrue(lineComparisonChartBlock.contains("series: .value(\"Segment\", segment.id)"))
         XCTAssertTrue(lineComparisonChartBlock.contains("BodyChartSelectionValue("))
         XCTAssertTrue(storeSource.contains("func sourceLineComparisonTrend(for kind: HealthMetricKind) -> BodyHealthSourceComparisonTrend?"))
     }
@@ -1224,7 +1224,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(sleepStageCardBlock.contains(".foregroundColor(.secondary)"))
 
         let sleepChartStart = try XCTUnwrap(homeSource.range(of: "struct BodySleepStageChart")?.lowerBound)
-        let sleepChartBlock = String(homeSource[sleepChartStart...].prefix(4_000))
+        // The date-switch choreography (flat Core band + flatten state) sits
+        // ahead of the axis builders now, so the inspected window is wider.
+        let sleepChartBlock = String(homeSource[sleepChartStart...].prefix(8_000))
         XCTAssertTrue(sleepChartBlock.contains("Text(stage.axisLabel)"))
         // The summary call now lives inside the tap-to-toggle Button (durations <-> optimal
         // ranges), a little deeper in the card body, so widen the inspected window.
@@ -1275,7 +1277,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
         // Persisted toggle key + property (defaults to the existing duration summary).
         XCTAssertTrue(appearanceSource.contains(#"static let sleepStageBreakdownShowsOptimalRangesKey = "sleepStageBreakdownShowsOptimalRanges""#))
-        XCTAssertTrue(source.contains("@AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = false"))
+        XCTAssertTrue(source.contains("@AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = true"))
 
         // Tap-to-swap wiring lives inside sleepStageCard (durations <-> optimal ranges).
         XCTAssertTrue(cardBlock.contains("if sleepStageShowsOptimalRanges {"))
@@ -1750,12 +1752,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.11;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 10;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 12;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.11;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 10;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 12;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1790,9 +1792,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.11 (build 10)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.11 (build 12)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 11)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 10)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 9)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 8)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 7)**"))
@@ -1864,6 +1868,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 12)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.11 build 12."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 11)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.11 build 11."))
         XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 10)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.11 build 10."))
         XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 9)"))
@@ -2187,7 +2195,9 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.11 build 10)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.11 build 12)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.11 build 11)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.11 build 10)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.11 build 9)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.11 build 8)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.11 build 7)"))

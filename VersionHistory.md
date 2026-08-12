@@ -1,5 +1,16 @@
 # Version History
 
+## 0.9.11 (build 12)
+
+- **Range-switch morph animation.** Switching Week/Month/6M/Year on standard metric pages and the Heart Rate-style min-max range pages now morphs the chart instead of crossfading it: bars slide and shrink/extend as the time window zooms, the line stretches and dots glide to their new positions, marks with no counterpart in the new range fade in/out, and shared bucket dates (always including today's mark) morph value-to-value. The two-source comparison charts (bar, line, and min-max range) and the Vitals outlier chart morph the same way, so pages like a two-source Active Energy, Skin Temperature, and Vitals join in; Basics and BMI keep their crossfade for now. Reduce Motion swaps instantly.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 12.
+
+## 0.9.11 (build 11)
+
+- **Sleep stage breakdown defaults to the optimal-range bar chart.** The tappable breakdown below the stage timeline now opens showing the bar-chart view (stage percentages with their optimal-range bands) instead of the text durations; tapping still flips between the two and the choice still persists.
+- **Sleep stage timeline gets a collapse-and-expand date-switch animation.** Changing the selected day used to crossfade the whole stage chart. Now every Awake/REM/Deep segment sinks onto the Core row with its color blending smoothly into the Core tint — the connector lines between segments shrinking and recoloring in step — until everything merges into a single flat Core-colored band, and the new day's segments grow back out of it up to their stage rows, colors returning as they rise. Nothing slides sideways: each night is drawn as a fraction of its own bed-to-wake span, so the segments resize where they stand and the start/end times roll their digits over in place, in step with the card's duration. The whole move takes as long as that numeric flip (naps card included; instant with Reduce Motion; rapid day flips retarget the in-flight animation).
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 11.
+
 ## 0.9.11 (build 10)
 
 - **Day View line tails now fade during day switches.** Stretches of the hourly-average line covering hours the new day has no data for used to freeze in place through the whole transition and then vanish, making the chart look stuck before redrawing. The line is now drawn as per-hour segment marks with day-stable identity — matching stretches morph, and stretches with no counterpart fade out where they stood.
