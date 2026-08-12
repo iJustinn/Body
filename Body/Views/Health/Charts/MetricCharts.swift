@@ -442,7 +442,7 @@ struct BodyHealthMetricTrendChart: View {
 
 
 
-struct BodyHealthMetricDayContextInterval: Identifiable {
+struct BodyHealthMetricDayContextInterval: Identifiable, Equatable {
     enum Kind {
         case sleep
         case workout
@@ -454,9 +454,13 @@ struct BodyHealthMetricDayContextInterval: Identifiable {
     let title: String
     let symbolName: String
     let color: Color
+    /// Index within this interval's (kind, title) group, assigned by
+    /// `BodyHealthMetricDayChart.assigningOrdinals(to:)`. Defaults to 0 so
+    /// callers keep building intervals without one.
+    var ordinal: Int = 0
 
     var id: String {
-        "\(kind)-\(startDate.timeIntervalSinceReferenceDate)-\(endDate.timeIntervalSinceReferenceDate)-\(title)"
+        "\(kind)-\(title)-\(ordinal)"
     }
 
     var midpointDate: Date {
@@ -503,6 +507,7 @@ struct BodyHealthMetricDayChart: View {
     private let secondaryHourlyBuckets: [HealthTrendHourlyBucket]
     private let rangeEntries: [BodyHealthMetricDayRangeEntry]
     private let entries: [BodyHealthMetricDayChartEntry]
+    private let lineSegments: [BodyHealthMetricDayLineSegmentMark]
     private let pointMarkEntries: [BodyHealthMetricDayChartEntry]
     private let finiteEntries: [BodyHealthMetricDayChartEntry]
     private let primaryEntriesByDate: [Date: BodyHealthMetricDayChartEntry]
@@ -511,10 +516,15 @@ struct BodyHealthMetricDayChart: View {
     private let chartYDomain: ClosedRange<Double>
     private let latestBucketDate: Date?
     private let latestSecondaryBucketDate: Date?
+    private let dayStart: Date
 
     private static let pointDiameter: CGFloat = 8
     private static let currentPointDiameter: CGFloat = 10
     private static let segmentGapThreshold: TimeInterval = 4 * 60 * 60
+    /// Jan 1 2001 — a day with no DST transition anywhere. Every mark plots
+    /// into this fixed day (see `normalizedPlotDate(for:dayStart:)`) so the x
+    /// domain never moves across day switches.
+    private static let referenceDayStart = Calendar.bodyGregorian.startOfDay(for: Date(timeIntervalSinceReferenceDate: 0))
 
     @State private var selectedDate: Date?
     @GestureState private var isSelecting = false
@@ -542,7 +552,7 @@ struct BodyHealthMetricDayChart: View {
         self.primarySourceName = primarySourceName
         self.secondarySourceName = secondarySourceName
         self.valueFormatter = valueFormatter
-        self.contextIntervals = contextIntervals
+        self.contextIntervals = Self.assigningOrdinals(to: contextIntervals)
         self.aggregationLabel = aggregationLabel
         self.includesSampleBreakdown = includesSampleBreakdown
 
@@ -568,9 +578,18 @@ struct BodyHealthMetricDayChart: View {
         )
         let allEntries = primaryEntries + secondaryEntries
         self.entries = allEntries
-        self.pointMarkEntries = collapsesUnchangedPoints
+        let calendar = Calendar.bodyGregorian
+        let dayStart = calendar.startOfDay(for: day)
+        self.dayStart = dayStart
+        self.lineSegments = Self.makeLineSegments(from: allEntries, dayStart: dayStart)
+        let visibleDots = collapsesUnchangedPoints
             ? Self.collapsingUnchangedRunPoints(allEntries)
             : allEntries
+        self.pointMarkEntries = Self.addingPlaceholderDots(
+            to: visibleDots,
+            fullEntries: allEntries,
+            dayStart: dayStart
+        )
         self.finiteEntries = allEntries.filter { $0.averageValue.isFinite }
         self.primaryEntriesByDate = Dictionary(uniqueKeysWithValues: primaryEntries.map { ($0.plotDate, $0) })
         self.secondaryEntriesByDate = Dictionary(uniqueKeysWithValues: secondaryEntries.map { ($0.plotDate, $0) })
@@ -579,11 +598,7 @@ struct BodyHealthMetricDayChart: View {
             rangeEntries: rangeEntries
         )
 
-        let calendar = Calendar.bodyGregorian
-        let dayStart = calendar.startOfDay(for: day)
-        let nextDayStart = calendar.date(byAdding: .day, value: 1, to: dayStart)
-            ?? dayStart.addingTimeInterval(86_400)
-        self.chartXDomain = dayStart...nextDayStart
+        self.chartXDomain = Self.referenceDayStart...Self.referenceDayStart.addingTimeInterval(86_400)
     }
 
     var body: some View {
@@ -596,23 +611,23 @@ struct BodyHealthMetricDayChart: View {
         Chart {
             ForEach(contextIntervals) { interval in
                 RectangleMark(
-                    xStart: .value("\(interval.title) Start", interval.startDate),
-                    xEnd: .value("\(interval.title) End", interval.endDate),
+                    xStart: .value("\(interval.title) Start", normalizedDate(interval.startDate)),
+                    xEnd: .value("\(interval.title) End", normalizedDate(interval.endDate)),
                     yStart: .value("Context Minimum", chartYDomain.lowerBound),
                     yEnd: .value("Context Maximum", chartYDomain.upperBound)
                 )
                 .foregroundStyle(interval.color.opacity(interval.kind == .sleep ? 0.14 : 0.10))
 
                 RectangleMark(
-                    xStart: .value("\(interval.title) Top Start", interval.startDate),
-                    xEnd: .value("\(interval.title) Top End", interval.endDate),
+                    xStart: .value("\(interval.title) Top Start", normalizedDate(interval.startDate)),
+                    xEnd: .value("\(interval.title) Top End", normalizedDate(interval.endDate)),
                     yStart: .value("Context Top Start", contextTopLineLowerBound),
                     yEnd: .value("Context Top End", chartYDomain.upperBound)
                 )
                 .foregroundStyle(interval.color)
 
                 PointMark(
-                    x: .value("\(interval.title) Label", interval.midpointDate),
+                    x: .value("\(interval.title) Label", normalizedDate(interval.midpointDate)),
                     y: .value("Context Label", chartYDomain.upperBound)
                 )
                 .foregroundStyle(Color.clear)
@@ -629,14 +644,14 @@ struct BodyHealthMetricDayChart: View {
             ForEach(rangeEntries) { entry in
                 if entry.lowValue == entry.highValue {
                     PointMark(
-                        x: .value("Time", entry.plotDate),
+                        x: .value("Time", normalizedDate(entry.plotDate)),
                         y: .value(title, entry.lowValue)
                     )
                     .symbolSize(bodyRangeChartPointSymbolSize(forBarWidth: rangeBarWidth))
                     .foregroundStyle(Self.rangeBarColor)
                 } else {
                     BarMark(
-                        x: .value("Time", entry.plotDate),
+                        x: .value("Time", normalizedDate(entry.plotDate)),
                         yStart: .value("Low \(title)", entry.lowValue),
                         yEnd: .value("High \(title)", entry.highValue),
                         width: .fixed(rangeBarWidth)
@@ -646,20 +661,31 @@ struct BodyHealthMetricDayChart: View {
                 }
             }
 
-            ForEach(entries) { entry in
+            ForEach(lineSegments) { segment in
                 LineMark(
-                    x: .value("Time", entry.plotDate),
-                    y: .value(title, entry.averageValue),
-                    series: .value("Segment", entry.seriesKey)
+                    x: .value("Time", normalizedDate(segment.startPlotDate)),
+                    y: .value(title, segment.startValue),
+                    series: .value("Segment", segment.id)
                 )
                 .interpolationMethod(.linear)
-                .foregroundStyle(color(for: entry))
+                .foregroundStyle(color(for: segment.sourceRole))
                 .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                .opacity(segment.isPlaceholder ? 0 : 1)
+
+                LineMark(
+                    x: .value("Time", normalizedDate(segment.endPlotDate)),
+                    y: .value(title, segment.endValue),
+                    series: .value("Segment", segment.id)
+                )
+                .interpolationMethod(.linear)
+                .foregroundStyle(color(for: segment.sourceRole))
+                .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                .opacity(segment.isPlaceholder ? 0 : 1)
             }
 
             ForEach(pointMarkEntries) { entry in
                 PointMark(
-                    x: .value("Time", entry.plotDate),
+                    x: .value("Time", normalizedDate(entry.plotDate)),
                     y: .value(title, entry.averageValue)
                 )
                 .symbol {
@@ -669,11 +695,15 @@ struct BodyHealthMetricDayChart: View {
                         pointDiameter: Self.pointDiameter,
                         currentPointDiameter: Self.currentPointDiameter
                     )
+                    // Inside the symbol view, not a mark modifier — Charts
+                    // does not apply mark opacity to custom `.symbol {}`
+                    // content, which would leave the placeholders visible.
+                    .opacity(entry.isPlaceholder ? 0 : 1)
                 }
             }
 
             if let selectedBucket {
-                RuleMark(x: .value("Selected Time", selectedBucket.plotDate))
+                RuleMark(x: .value("Selected Time", normalizedDate(selectedBucket.plotDate)))
                     .foregroundStyle(Color.secondary.opacity(0.48))
                     .lineStyle(StrokeStyle(lineWidth: 1.4))
                     .annotation(
@@ -692,7 +722,7 @@ struct BodyHealthMetricDayChart: View {
 
                 ForEach(selectedEntries(for: selectedBucket.plotDate)) { entry in
                     PointMark(
-                        x: .value("Selected Time", entry.plotDate),
+                        x: .value("Selected Time", normalizedDate(entry.plotDate)),
                         y: .value(title, entry.averageValue)
                     )
                     .foregroundStyle(color(for: entry))
@@ -741,9 +771,16 @@ struct BodyHealthMetricDayChart: View {
             return nil
         }
 
+        // The chart selection reports a reference-day date; map it back onto
+        // the real day before comparing against the entries' real plot dates.
+        let realSelectedDate = dayStart.addingTimeInterval(selectedDate.timeIntervalSince(Self.referenceDayStart))
         return finiteEntries.min { first, second in
-            abs(first.plotDate.timeIntervalSince(selectedDate)) < abs(second.plotDate.timeIntervalSince(selectedDate))
+            abs(first.plotDate.timeIntervalSince(realSelectedDate)) < abs(second.plotDate.timeIntervalSince(realSelectedDate))
         }
+    }
+
+    private func normalizedDate(_ date: Date) -> Date {
+        Self.normalizedPlotDate(for: date, dayStart: dayStart)
     }
 
     private func selectedEntries(for date: Date) -> [BodyHealthMetricDayChartEntry] {
@@ -768,7 +805,11 @@ struct BodyHealthMetricDayChart: View {
     }
 
     private func color(for entry: BodyHealthMetricDayChartEntry) -> Color {
-        entry.sourceRole == .primary ? color : secondaryColor
+        color(for: entry.sourceRole)
+    }
+
+    private func color(for role: BodyHealthSourceRole) -> Color {
+        role == .primary ? color : secondaryColor
     }
 
     /// Same translucent gray `BodyHeartRateRangeTrendChart` fills its bars with
@@ -811,6 +852,36 @@ struct BodyHealthMetricDayChart: View {
         return max(0, minimum - padding)...(maximum + padding)
     }
 
+    /// The selected day's time-of-day offsets, replotted onto the fixed
+    /// reference day. The constant x-domain is what lets marks morph in place
+    /// across day switches — plotting real dates shifts both the values and
+    /// the domain by 24h, which Swift Charts animates as a horizontal slide.
+    /// The clamp pins a DST long day's spill past hour 24 to the domain edge.
+    static func normalizedPlotDate(for date: Date, dayStart: Date) -> Date {
+        referenceDayStart.addingTimeInterval(
+            min(max(date.timeIntervalSince(dayStart), 0), 86_400)
+        )
+    }
+
+    /// Day-stable identity for the context highlight areas: the ordinal is
+    /// the interval's index within its (kind, title) group of the start-sorted
+    /// array, so a same-type highlight (Sleep↔Sleep, Run↔Run) keeps its id
+    /// across day switches and morphs — shrinks or extends in place — while
+    /// unmatched types exit/enter with a fade.
+    static func assigningOrdinals(
+        to intervals: [BodyHealthMetricDayContextInterval]
+    ) -> [BodyHealthMetricDayContextInterval] {
+        var counts: [String: Int] = [:]
+        return intervals.map { interval in
+            let key = "\(interval.kind)-\(interval.title)"
+            let ordinal = counts[key, default: 0]
+            counts[key] = ordinal + 1
+            var assigned = interval
+            assigned.ordinal = ordinal
+            return assigned
+        }
+    }
+
     static func segmentIndices(
         forSortedPlotDates dates: [Date],
         gapThreshold: TimeInterval = segmentGapThreshold
@@ -825,6 +896,129 @@ struct BodyHealthMetricDayChart: View {
             indices.append(current)
         }
         return indices
+    }
+
+    /// The hourly-average line, split into one two-point series per
+    /// consecutive-reading pair (same ≥4h gap rule as `segmentIndices`), keyed
+    /// by the pair's starting hour. Swift Charts cannot interpolate a single
+    /// line whose vertex set changes across a day switch — vertices with no
+    /// counterpart freeze until the animation ends, then pop. Pair marks that
+    /// exist on both days morph in place; hours without a pair carry an
+    /// invisible zero-length placeholder (at the hour's own reading if it has
+    /// one, else the nearest hour's) so a vanishing stretch of line fades out
+    /// where it stood instead of freezing.
+    static func makeLineSegments(
+        from entries: [BodyHealthMetricDayChartEntry],
+        dayStart: Date
+    ) -> [BodyHealthMetricDayLineSegmentMark] {
+        let entriesByRole = Dictionary(grouping: entries, by: \.sourceRole)
+
+        return entriesByRole.keys.sorted { $0.rawValue < $1.rawValue }.flatMap { role -> [BodyHealthMetricDayLineSegmentMark] in
+            let finite = (entriesByRole[role] ?? [])
+                .filter { $0.averageValue.isFinite }
+                .sorted { $0.plotDate < $1.plotDate }
+            guard !finite.isEmpty else {
+                return []
+            }
+
+            var segments: [BodyHealthMetricDayLineSegmentMark] = []
+            var pairStartHours = Set<Int>()
+            for (start, end) in zip(finite, finite.dropFirst())
+            where end.plotDate.timeIntervalSince(start.plotDate) < segmentGapThreshold {
+                let hour = start.bucket.hourStart.bodyHourOfDayIndex
+                pairStartHours.insert(hour)
+                segments.append(
+                    BodyHealthMetricDayLineSegmentMark(
+                        sourceRole: role,
+                        hourIndex: hour,
+                        startPlotDate: start.plotDate,
+                        startValue: start.averageValue,
+                        endPlotDate: end.plotDate,
+                        endValue: end.averageValue
+                    )
+                )
+            }
+
+            let finiteByHour = Dictionary(
+                finite.map { ($0.bucket.hourStart.bodyHourOfDayIndex, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            let finiteHours = finiteByHour.keys.sorted()
+            let placeholders = (0..<24)
+                .filter { !pairStartHours.contains($0) }
+                .compactMap { hour -> BodyHealthMetricDayLineSegmentMark? in
+                    let nearestHour = finiteHours.min { (abs($0 - hour), $0) < (abs($1 - hour), $1) }
+                    guard let source = finiteByHour[hour] ?? nearestHour.flatMap({ finiteByHour[$0] }) else {
+                        return nil
+                    }
+                    let plotDate = finiteByHour[hour]?.plotDate
+                        ?? dayStart.addingTimeInterval(TimeInterval(hour) * 3_600 + 1_800)
+                    return BodyHealthMetricDayLineSegmentMark(
+                        sourceRole: role,
+                        hourIndex: hour,
+                        startPlotDate: plotDate,
+                        startValue: source.averageValue,
+                        endPlotDate: plotDate,
+                        endValue: source.averageValue,
+                        isPlaceholder: true
+                    )
+                }
+            return segments + placeholders
+        }
+    }
+
+    /// Every hour of the day carries a dot mark so a cross-day switch animates
+    /// opacity instead of inserting or removing marks — Swift Charts pops
+    /// those rather than fading them. Hours without a visible dot get an
+    /// invisible placeholder pinned at that hour's own value (a collapsed flat
+    /// run) or the nearest hour's value, so a dot with no counterpart on the
+    /// other day fades in or out in place. A source with no data at all adds
+    /// no placeholders — there is no value to fade through.
+    static func addingPlaceholderDots(
+        to visibleEntries: [BodyHealthMetricDayChartEntry],
+        fullEntries: [BodyHealthMetricDayChartEntry],
+        dayStart: Date
+    ) -> [BodyHealthMetricDayChartEntry] {
+        let visibleByRole = Dictionary(grouping: visibleEntries, by: \.sourceRole)
+        let fullByRole = Dictionary(grouping: fullEntries, by: \.sourceRole)
+
+        return fullByRole.keys.sorted { $0.rawValue < $1.rawValue }.flatMap { role -> [BodyHealthMetricDayChartEntry] in
+            let visible = visibleByRole[role] ?? []
+            let finiteByHour = Dictionary(
+                (fullByRole[role] ?? [])
+                    .filter { $0.averageValue.isFinite }
+                    .map { ($0.bucket.hourStart.bodyHourOfDayIndex, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            guard !finiteByHour.isEmpty else {
+                return visible
+            }
+
+            let visibleHours = Set(visible.map { $0.bucket.hourStart.bodyHourOfDayIndex })
+            let finiteHours = finiteByHour.keys.sorted()
+            let placeholders = (0..<24)
+                .filter { !visibleHours.contains($0) }
+                .compactMap { hour -> BodyHealthMetricDayChartEntry? in
+                    // A collapsed-away hour fades at its own value; a truly
+                    // empty hour borrows the nearest hour's (earlier on ties).
+                    let nearestHour = finiteHours.min { (abs($0 - hour), $0) < (abs($1 - hour), $1) }
+                    guard let source = finiteByHour[hour] ?? nearestHour.flatMap({ finiteByHour[$0] }) else {
+                        return nil
+                    }
+                    return BodyHealthMetricDayChartEntry(
+                        sourceName: source.sourceName,
+                        sourceRole: role,
+                        bucket: HealthTrendHourlyBucket(
+                            hourStart: dayStart.addingTimeInterval(TimeInterval(hour) * 3_600),
+                            averageValue: source.averageValue,
+                            samples: []
+                        ),
+                        segmentIndex: 0,
+                        isPlaceholder: true
+                    )
+                }
+            return visible + placeholders
+        }
     }
 
     /// Keeps only the informative dots when a series holds flat runs: within
@@ -903,11 +1097,32 @@ struct BodyHealthMetricDayRangeEntry: Identifiable {
     }
 }
 
+/// One straight stretch of the hourly-average line (or its invisible
+/// placeholder), keyed by starting hour so the mark keeps its identity across
+/// day switches — see `BodyHealthMetricDayChart.makeLineSegments`.
+struct BodyHealthMetricDayLineSegmentMark: Identifiable {
+    let sourceRole: BodyHealthSourceRole
+    let hourIndex: Int
+    let startPlotDate: Date
+    let startValue: Double
+    let endPlotDate: Date
+    let endValue: Double
+    var isPlaceholder = false
+
+    var id: String {
+        "\(sourceRole.rawValue)-seg-\(hourIndex)"
+    }
+}
+
 struct BodyHealthMetricDayChartEntry: Identifiable {
     let sourceName: String
     let sourceRole: BodyHealthSourceRole
     let bucket: HealthTrendHourlyBucket
     let segmentIndex: Int
+    /// `true` for the invisible hour-filling dots added by
+    /// `BodyHealthMetricDayChart.addingPlaceholderDots` — rendered at opacity 0
+    /// so a real dot on another day fades through them instead of popping.
+    var isPlaceholder = false
 
     var id: String {
         "\(sourceRole.rawValue)-\(bucket.hourStart.bodyHourOfDayIndex)"
