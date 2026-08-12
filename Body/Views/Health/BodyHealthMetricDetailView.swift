@@ -395,7 +395,7 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
-    @AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = false
+    @AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = true
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @State private var selectedTrendRangeSelection: BodyHealthTrendRange
     @State private var showBodyProPaywall = false
@@ -1423,7 +1423,9 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter,
                 yDomain: metricRangeYDomain,
                 immersive: immersive,
-                chartIdentity: "\(model.kind.rawValue)-source-range-comparison-\(selectedTrendRange.rawValue)",
+                // Range switches must UPDATE the comparison charts so they
+                // morph between ranges; metric/variant changes still reset them.
+                chartIdentity: "\(model.kind.rawValue)-source-range-comparison",
                 floatingCallout: immersive ? floatingCallout : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
@@ -1449,7 +1451,7 @@ struct BodyHealthMetricDetailView: View {
                 secondaryColor: sourceComparisonSecondaryColor,
                 valueFormatter: model.valueFormatter,
                 immersive: immersive,
-                chartIdentity: "\(model.kind.rawValue)-source-comparison-\(selectedTrendRange.rawValue)",
+                chartIdentity: "\(model.kind.rawValue)-source-comparison",
                 floatingCallout: immersive ? floatingCallout : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
@@ -1463,7 +1465,7 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter,
                 isSleepDetail: isSleepDetail,
                 immersive: immersive,
-                chartIdentity: "\(model.kind.rawValue)-source-line-comparison-\(selectedTrendRange.rawValue)",
+                chartIdentity: "\(model.kind.rawValue)-source-line-comparison",
                 floatingCallout: immersive ? floatingCallout : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
@@ -1485,7 +1487,10 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter,
                 highlightedRange: model.highlightedRange,
                 highlightedRangeResolver: model.highlightedRangeResolver,
-                currentValuePoint: model.kind == .readiness && selectedTrendRange == .recentWeek
+                // Passed for every range, not just the week: the chart hides it
+                // with opacity off the week range, and withholding it there
+                // would remove the mark and pop it on a range switch.
+                currentValuePoint: model.kind == .readiness
                     ? BodyReadinessStatusPresentation.currentTrendDot(readiness: model.readiness, series: model.series)
                     : nil,
                 activeHighlightedValue: activeTrendValueBinding,
@@ -1494,7 +1499,9 @@ struct BodyHealthMetricDetailView: View {
                 baselineValue: wristTemperatureTrendBaseline,
                 baselineDeviationFormatter: wristTemperatureTrendBaselineDeviationFormatter,
                 immersive: immersive,
-                chartIdentity: "\(model.kind.rawValue)-\(selectedTrendRange.rawValue)"
+                // Range switches must UPDATE the chart so it morphs between
+                // ranges; metric changes still reset it.
+                chartIdentity: "\(model.kind.rawValue)"
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         }
@@ -2210,7 +2217,11 @@ struct BodyHealthMetricDetailView: View {
                     .frame(maxWidth: .infinity, minHeight: 220)
             } else {
                 BodySleepStageChart(snapshot: snapshot)
-                    .id("\(title)-\(sourceName ?? "default")-\(sleepStageChartIdentity(for: snapshot))")
+                    // Identity deliberately excludes the snapshot: a day switch
+                    // must UPDATE the chart (its collapse-to-Core choreography
+                    // runs from onChange), not replace it. Source switches
+                    // still reset it.
+                    .id("\(title)-\(sourceName ?? "default")")
                     .transition(dayChartTransition)
                     .transaction { transaction in
                         transaction.animation = nil
@@ -2297,12 +2308,6 @@ struct BodyHealthMetricDetailView: View {
         return String(localized: "Sleep stage breakdown. \(descriptions.joined(separator: ". ")). \(restorativeDescription).")
     }
 
-    private func sleepStageChartIdentity(for snapshot: SleepStageSnapshot) -> String {
-        let dateIdentity = snapshot.date.map { String($0.timeIntervalSinceReferenceDate) } ?? "no-date"
-        let segmentIdentity = snapshot.segments.map(\.id).joined(separator: "|")
-        return "\(dateIdentity)-\(segmentIdentity)"
-    }
-
     // Takes the whole-day snapshot and derives the naps itself, so callers stay
     // symmetric with `sleepStageCard`, which is handed the main session.
     private func napStageCard(_ snapshot: SleepStageSnapshot, sourceName: String? = nil) -> some View {
@@ -2340,7 +2345,7 @@ struct BodyHealthMetricDetailView: View {
                 snapshot: napsSnapshot,
                 axisMarkIntervals: snapshot.napSessions.compactMap(\.dateInterval)
             )
-                .id("Nap Stages-\(sourceName ?? "default")-\(sleepStageChartIdentity(for: napsSnapshot))")
+                .id("Nap Stages-\(sourceName ?? "default")")
                 .transition(dayChartTransition)
                 .transaction { transaction in
                     transaction.animation = nil

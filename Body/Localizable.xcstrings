@@ -3518,6 +3518,70 @@
         }
       }
     },
+    "Flatten End" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flatten End"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平铺结束"
+          }
+        }
+      }
+    },
+    "Flatten Start" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flatten Start"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平铺起点"
+          }
+        }
+      }
+    },
+    "Flatten Y End" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flatten Y End"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平铺Y轴终点"
+          }
+        }
+      }
+    },
+    "Flatten Y Start" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flatten Y Start"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平铺Y轴起点"
+          }
+        }
+      }
+    },
     "Flips the icon" : {
       "extractionState" : "manual",
       "localizations" : {

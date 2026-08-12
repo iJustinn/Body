@@ -18,9 +18,11 @@ struct BodyHeartRateRangeTrendChart: View {
     /// the topmost layer (above the nav bar). Nil keeps the in-chart annotation.
     let floatingCallout: BodyChartFloatingCalloutState?
 
-    private let rangePoints: [HealthTrendRangeCalendarPoint]
     private let secondaryRangePoints: [HealthTrendRangeCalendarPoint]
+    private let barEntries: [BodyHeartRateRangeBarEntry]
     private let averageEntries: [BodyHeartRateRangeAverageEntry]
+    private let lineSegments: [BodyHeartRateRangeLineSegmentMark]
+    private let dotEntries: [BodyHeartRateRangeAverageEntry]
     private let finiteRangePoints: [HealthTrendRangeCalendarPoint]
     private let latestPrimaryAveragePointDate: Date?
     private let latestSecondaryAveragePointDate: Date?
@@ -61,7 +63,6 @@ struct BodyHeartRateRangeTrendChart: View {
 
         let points = rangeSeries.chartCalendarPoints(to: selectedRange)
         let secondaryPoints = secondaryRangeSeries?.chartCalendarPoints(to: selectedRange) ?? []
-        self.rangePoints = points
         self.secondaryRangePoints = secondaryPoints
         self.finiteRangePoints = points.filter(\.hasValue)
         self.latestPrimaryAveragePointDate = points.last { point in
@@ -70,11 +71,42 @@ struct BodyHeartRateRangeTrendChart: View {
         self.latestSecondaryAveragePointDate = secondaryPoints.last { point in
             point.averageValue?.isFinite == true
         }?.date
-        self.averageEntries = Self.averageEntries(
+        let averageEntries = Self.averageEntries(
             primaryPoints: points,
             secondaryPoints: secondaryPoints,
             primarySourceName: primarySourceName,
             secondarySourceName: secondarySourceName
+        )
+        self.averageEntries = averageEntries
+        // Every range's buckets, not just the selected one: dates outside the
+        // current range render as invisible placeholders carrying their own
+        // range's geometry, so a range switch morphs shared marks in place and
+        // fades the rest instead of inserting/removing marks (which Swift
+        // Charts pops).
+        let otherRanges = BodyHealthTrendRange.allCases.filter { $0 != selectedRange }
+        let otherPrimaryPoints = otherRanges.map { rangeSeries.chartCalendarPoints(to: $0) }
+        let otherAverageEntries = zip(
+            otherPrimaryPoints,
+            otherRanges.map { secondaryRangeSeries?.chartCalendarPoints(to: $0) ?? [] }
+        ).map { primary, secondary in
+            Self.averageEntries(
+                primaryPoints: primary,
+                secondaryPoints: secondary,
+                primarySourceName: primarySourceName,
+                secondarySourceName: secondarySourceName
+            )
+        }
+        self.barEntries = Self.unionBarEntries(
+            currentPoints: points,
+            otherRangePoints: otherPrimaryPoints
+        )
+        self.lineSegments = Self.unionAverageLineSegments(
+            currentEntries: averageEntries,
+            otherRangeEntries: otherAverageEntries
+        )
+        self.dotEntries = Self.unionAverageDotEntries(
+            currentEntries: averageEntries,
+            otherRangeEntries: otherAverageEntries
         )
         let domainValues = (points + secondaryPoints).flatMap { point -> [Double] in
             guard let low = point.lowValue, let high = point.highValue else {
@@ -100,25 +132,35 @@ struct BodyHeartRateRangeTrendChart: View {
                         .lineStyle(StrokeStyle(lineWidth: 1.4))
                 }
 
-                ForEach(rangePoints) { point in
-                    if let lowValue = point.lowValue, let highValue = point.highValue {
-                        if lowValue == highValue {
-                            PointMark(
-                                x: .value("Date", point.date, unit: .day),
-                                y: .value(title, lowValue)
-                            )
-                            .symbolSize(bodyRangeChartPointSymbolSize(forBarWidth: chartBarWidth))
-                            .foregroundStyle(rangeBarColor)
-                        } else {
-                            BarMark(
-                                x: .value("Date", point.date, unit: .day),
-                                yStart: .value("Low \(title)", lowValue),
-                                yEnd: .value("High \(title)", highValue),
-                                width: .fixed(chartBarWidth)
-                            )
-                            .foregroundStyle(rangeBarColor)
-                            .cornerRadius(chartBarWidth / 2)
-                        }
+                ForEach(barEntries) { entry in
+                    if let lowValue = entry.point.lowValue, let highValue = entry.point.highValue {
+                        // Both forms exist for every bucket and only opacity
+                        // picks between them: a low == high bucket needs the
+                        // dot and every other needs the bar, and letting a
+                        // range switch change WHICH mark the date has
+                        // removes/inserts it, which Swift Charts pops. The
+                        // zero-height bar under a dot stays at opacity 0.
+                        PointMark(
+                            x: .value("Date", entry.point.date, unit: .day),
+                            y: .value(title, lowValue)
+                        )
+                        .symbolSize(bodyRangeChartPointSymbolSize(forBarWidth: chartBarWidth))
+                        .foregroundStyle(rangeBarColor)
+                        .opacity(!entry.isPlaceholder && lowValue == highValue ? 1 : 0)
+                        // Opacity is only visual: without this the hidden twin
+                        // and every off-range placeholder still get announced.
+                        .accessibilityHidden(entry.isPlaceholder || lowValue != highValue)
+
+                        BarMark(
+                            x: .value("Date", entry.point.date, unit: .day),
+                            yStart: .value("Low \(title)", lowValue),
+                            yEnd: .value("High \(title)", highValue),
+                            width: .fixed(chartBarWidth)
+                        )
+                        .foregroundStyle(rangeBarColor)
+                        .cornerRadius(chartBarWidth / 2)
+                        .opacity(!entry.isPlaceholder && lowValue != highValue ? 1 : 0)
+                        .accessibilityHidden(entry.isPlaceholder || lowValue == highValue)
                     }
                 }
 
@@ -185,10 +227,19 @@ struct BodyHeartRateRangeTrendChart: View {
                 }
                 return AnyView(selectionAnnotation(for: point, lowValue: lowValue, highValue: highValue))
             }
-            .id("heart-rate-range-\(selectedRange.rawValue)")
+            // Stable across range switches: a per-range id would replace the
+            // chart instead of updating it, popping every mark rather than
+            // letting them morph.
+            .id("heart-rate-range")
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
             )
+            // Keyed on the range ONLY: a broader key would also animate
+            // scrub-mark removal.
+            .animation(reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0), value: selectedRange)
+            .onChange(of: selectedRange) {
+                selectedDate = nil
+            }
             .transaction { transaction in
                 transaction.animation = nil
             }
@@ -198,17 +249,37 @@ struct BodyHeartRateRangeTrendChart: View {
     @ChartContentBuilder
     private var averageLineOverlay: some ChartContent {
         if showsAverageLineOverlay {
-            ForEach(averageEntries) { entry in
+            // One two-point series per consecutive-average pair instead of one
+            // run per source: Swift Charts cannot interpolate a single line
+            // whose vertex set changes across a range switch — vertices with
+            // no counterpart freeze until the animation ends, then pop. Pair
+            // marks shared across ranges morph in place; the rest fade.
+            ForEach(lineSegments) { segment in
                 LineMark(
-                    x: .value("Date", entry.date, unit: .day),
-                    y: .value("Average \(title)", entry.value),
-                    series: .value("Source", entry.sourceRole.rawValue)
+                    x: .value("Date", segment.startDate, unit: .day),
+                    y: .value("Average \(title)", segment.startValue),
+                    series: .value("Segment", segment.id)
                 )
                 .interpolationMethod(.linear)
-                .foregroundStyle(color(for: entry))
+                .foregroundStyle(color(for: segment.sourceRole))
                 .lineStyle(StrokeStyle(lineWidth: BodyLineChartPreviewStyle.lineWidth, lineCap: .round, lineJoin: .round))
+                .opacity(segment.isPlaceholder ? 0 : 1)
+                .accessibilityHidden(segment.isPlaceholder)
 
-                if selectedRange.showsPointMarks {
+                LineMark(
+                    x: .value("Date", segment.endDate, unit: .day),
+                    y: .value("Average \(title)", segment.endValue),
+                    series: .value("Segment", segment.id)
+                )
+                .interpolationMethod(.linear)
+                .foregroundStyle(color(for: segment.sourceRole))
+                .lineStyle(StrokeStyle(lineWidth: BodyLineChartPreviewStyle.lineWidth, lineCap: .round, lineJoin: .round))
+                .opacity(segment.isPlaceholder ? 0 : 1)
+                .accessibilityHidden(segment.isPlaceholder)
+            }
+
+            if selectedRange.showsPointMarks {
+                ForEach(dotEntries) { entry in
                     if selectedRange.usesPreviewLineChartStyle {
                         PointMark(
                             x: .value("Date", entry.date, unit: .day),
@@ -221,7 +292,13 @@ struct BodyHeartRateRangeTrendChart: View {
                                 pointDiameter: selectedRange.linePointDiameter,
                                 currentPointDiameter: selectedRange.lineCurrentPointDiameter
                             )
+                            // Inside the symbol view, not a mark modifier —
+                            // Charts does not apply mark opacity to custom
+                            // `.symbol {}` content, which would leave the
+                            // placeholders visible.
+                            .opacity(entry.isPlaceholder ? 0 : 1)
                         }
+                        .accessibilityHidden(entry.isPlaceholder)
                     } else {
                         PointMark(
                             x: .value("Date", entry.date, unit: .day),
@@ -229,6 +306,8 @@ struct BodyHeartRateRangeTrendChart: View {
                         )
                         .foregroundStyle(color(for: entry))
                         .symbolSize(28)
+                        .opacity(entry.isPlaceholder ? 0 : 1)
+                        .accessibilityHidden(entry.isPlaceholder)
                     }
                 }
             }
@@ -321,7 +400,11 @@ struct BodyHeartRateRangeTrendChart: View {
     }
 
     private func color(for entry: BodyHeartRateRangeAverageEntry) -> Color {
-        entry.sourceRole == .primary ? symbolColor : secondaryColor
+        color(for: entry.sourceRole)
+    }
+
+    private func color(for role: BodyHealthSourceRole) -> Color {
+        role == .primary ? symbolColor : secondaryColor
     }
 
     private var chartPressGesture: some Gesture {
@@ -377,6 +460,87 @@ struct BodyHeartRateRangeTrendChart: View {
 
         return primaryEntries + secondaryEntries
     }
+
+    /// The current range's bars verbatim, plus every other range's valued
+    /// buckets as invisible placeholders carrying their own range's geometry.
+    /// Dates are claimed with current-range priority so ids stay unique — but
+    /// only by a bucket that actually draws: an empty day yields its date to a
+    /// valued off-range bucket, which then morphs rather than popping in.
+    static func unionBarEntries(
+        currentPoints: [HealthTrendRangeCalendarPoint],
+        otherRangePoints: [[HealthTrendRangeCalendarPoint]]
+    ) -> [BodyHeartRateRangeBarEntry] {
+        bodyUnionMorphEntries(
+            current: currentPoints.map { BodyHeartRateRangeBarEntry(point: $0, isPlaceholder: false) },
+            otherRanges: otherRangePoints.map { points in
+                points.map { BodyHeartRateRangeBarEntry(point: $0, isPlaceholder: false) }
+            },
+            isDrawn: { $0.point.hasValue },
+            placeholder: { BodyHeartRateRangeBarEntry(point: $0.point, isPlaceholder: true) }
+        )
+    }
+
+    /// The current range's average-line pairs, plus every other range's pairs
+    /// whose id has no current counterpart as invisible zero-length
+    /// placeholders — a segment appearing there on another range grows out of
+    /// its own start point instead of popping in.
+    static func unionAverageLineSegments(
+        currentEntries: [BodyHeartRateRangeAverageEntry],
+        otherRangeEntries: [[BodyHeartRateRangeAverageEntry]]
+    ) -> [BodyHeartRateRangeLineSegmentMark] {
+        var segments = averageLineSegments(from: currentEntries, isPlaceholder: false)
+        var claimedIDs = Set(segments.map(\.id))
+        for entries in otherRangeEntries {
+            for segment in averageLineSegments(from: entries, isPlaceholder: true)
+            where !claimedIDs.contains(segment.id) {
+                claimedIDs.insert(segment.id)
+                segments.append(segment)
+            }
+        }
+        return segments
+    }
+
+    /// One segment per consecutive pair of a source's (already finite) average
+    /// entries. Placeholder segments collapse onto their own start point.
+    static func averageLineSegments(
+        from entries: [BodyHeartRateRangeAverageEntry],
+        isPlaceholder: Bool
+    ) -> [BodyHeartRateRangeLineSegmentMark] {
+        let entriesByRole = Dictionary(grouping: entries, by: \.sourceRole)
+        return entriesByRole.keys.sorted { $0.rawValue < $1.rawValue }.flatMap { role -> [BodyHeartRateRangeLineSegmentMark] in
+            let sorted = (entriesByRole[role] ?? []).sorted { $0.date < $1.date }
+            return zip(sorted, sorted.dropFirst()).map { start, end in
+                BodyHeartRateRangeLineSegmentMark(
+                    sourceRole: role,
+                    startDate: start.date,
+                    startValue: start.value,
+                    endDate: isPlaceholder ? start.date : end.date,
+                    endValue: isPlaceholder ? start.value : end.value,
+                    isPlaceholder: isPlaceholder
+                )
+            }
+        }
+    }
+
+    /// The current range's average dots verbatim, plus every other range's
+    /// dots whose role-date id has no current counterpart as invisible
+    /// placeholders at their own value.
+    static func unionAverageDotEntries(
+        currentEntries: [BodyHeartRateRangeAverageEntry],
+        otherRangeEntries: [[BodyHeartRateRangeAverageEntry]]
+    ) -> [BodyHeartRateRangeAverageEntry] {
+        var entries = currentEntries
+        var claimedIDs = Set(entries.map(\.id))
+        for rangeEntries in otherRangeEntries {
+            for entry in rangeEntries where !claimedIDs.contains(entry.id) {
+                claimedIDs.insert(entry.id)
+                var placeholder = entry
+                placeholder.isPlaceholder = true
+                entries.append(placeholder)
+            }
+        }
+        return entries
+    }
 }
 
 struct BodyHeartRateRangeAverageEntry: Identifiable {
@@ -384,8 +548,38 @@ struct BodyHeartRateRangeAverageEntry: Identifiable {
     let sourceRole: BodyHealthSourceRole
     let date: Date
     let value: Double
+    var isPlaceholder: Bool = false
 
     var id: String {
         "\(sourceRole.rawValue)-\(date.timeIntervalSinceReferenceDate)"
+    }
+}
+
+/// One range bucket's min-max bar (or its invisible off-range placeholder),
+/// keyed by bucket date so the mark keeps its identity across range switches —
+/// see `BodyHeartRateRangeTrendChart.unionBarEntries`.
+struct BodyHeartRateRangeBarEntry: Identifiable {
+    let point: HealthTrendRangeCalendarPoint
+    let isPlaceholder: Bool
+
+    var id: Date {
+        point.date
+    }
+}
+
+/// One straight stretch of the average line (or its invisible zero-length
+/// placeholder), keyed by source role + pair start date so the mark keeps its
+/// identity across range switches — see
+/// `BodyHeartRateRangeTrendChart.unionAverageLineSegments`.
+struct BodyHeartRateRangeLineSegmentMark: Identifiable {
+    let sourceRole: BodyHealthSourceRole
+    let startDate: Date
+    let startValue: Double
+    let endDate: Date
+    let endValue: Double
+    var isPlaceholder: Bool = false
+
+    var id: String {
+        "\(sourceRole.rawValue)-seg-\(startDate.timeIntervalSinceReferenceDate)"
     }
 }

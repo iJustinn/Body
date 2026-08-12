@@ -14,33 +14,70 @@ struct BodySleepStageChart: View {
     /// pair of ticks at the first segment start and last segment end.
     var axisMarkIntervals: [DateInterval]? = nil
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedStageDate: Date?
     @GestureState private var isSelectingStage = false
+    /// Lags `snapshot` while the date-switch choreography runs: the old night
+    /// stays rendered through the collapse, swaps mid-flight while flattened,
+    /// and the new night renders through the expansion. `nil` until the first
+    /// switch (render falls back to the `snapshot` prop).
+    @State private var displayedSnapshot: SleepStageSnapshot?
+    @State private var displayedAxisMarkIntervals: [DateInterval]?
+    /// While `true`, every stage segment sits on the Core row at opacity 0 and
+    /// the flat Core-colored band carries the whole visual.
+    @State private var isFlattened = false
+    /// Invalidates in-flight choreography completions when a newer date switch
+    /// supersedes them.
+    @State private var transitionGeneration = 0
 
     var body: some View {
         Chart {
+            // The choreography's base: a single Core-row band spanning the
+            // night. Segments dissolve into it on collapse and the new
+            // segments grow back out of it. One stable mark, always at the
+            // same place — the plot space is fractional, so it never travels.
+            if let nightSpan = Self.nightSpan(of: renderSnapshot) {
+                // Padded by the bridge-cover overhang so no Core-colored
+                // segment pokes past the band while flattened.
+                RectangleMark(
+                    xStart: .value("Flatten Start", normalizedDate(nightSpan.lowerBound.addingTimeInterval(-segmentBridgeCoverWidth))),
+                    xEnd: .value("Flatten End", normalizedDate(nightSpan.upperBound.addingTimeInterval(segmentBridgeCoverWidth))),
+                    yStart: .value("Flatten Y Start", Self.flattenedYRange.lowerBound),
+                    yEnd: .value("Flatten Y End", Self.flattenedYRange.upperBound)
+                )
+                .foregroundStyle(color(for: .core))
+                .opacity(isFlattened ? 1 : 0)
+                // Purely a transition prop — never part of the reading.
+                .accessibilityHidden(true)
+            }
+
+            // Bridges and segments stay fully opaque through the choreography:
+            // they shrink onto the Core row while their colors blend into the
+            // Core tint, so by the swap everything is Core-on-Core and the
+            // mid-flight snapshot change (old marks out, new marks in) is
+            // invisible against the band.
             ForEach(stageBridges) { bridge in
                 RectangleMark(
-                    xStart: .value("Bridge Start", bridge.startDate),
-                    xEnd: .value("Bridge End", bridge.endDate),
-                    yStart: .value("Bridge Y Start", bridge.yStart),
-                    yEnd: .value("Bridge Y End", bridge.yEnd)
+                    xStart: .value("Bridge Start", normalizedDate(bridge.startDate)),
+                    xEnd: .value("Bridge End", normalizedDate(bridge.endDate)),
+                    yStart: .value("Bridge Y Start", isFlattened ? Self.flattenedYRange.lowerBound : bridge.yStart),
+                    yEnd: .value("Bridge Y End", isFlattened ? Self.flattenedYRange.upperBound : bridge.yEnd)
                 )
                 .foregroundStyle(bridgeGradient(for: bridge))
             }
 
-            ForEach(snapshot.segments) { segment in
+            ForEach(renderSnapshot.segments) { segment in
                 RectangleMark(
-                    xStart: .value("Start", segmentRenderStartDate(for: segment)),
-                    xEnd: .value("End", segmentRenderEndDate(for: segment)),
-                    yStart: .value("Stage Start", segment.stage.chartPosition - 0.32),
-                    yEnd: .value("Stage End", segment.stage.chartPosition + 0.32)
+                    xStart: .value("Start", normalizedDate(segmentRenderStartDate(for: segment))),
+                    xEnd: .value("End", normalizedDate(segmentRenderEndDate(for: segment))),
+                    yStart: .value("Stage Start", Self.segmentYRange(for: segment.stage, isFlattened: isFlattened).lowerBound),
+                    yEnd: .value("Stage End", Self.segmentYRange(for: segment.stage, isFlattened: isFlattened).upperBound)
                 )
-                .foregroundStyle(color(for: segment.stage))
+                .foregroundStyle(color(for: isFlattened ? .core : segment.stage))
             }
 
             if let selectedStageSegment {
-                RuleMark(x: .value("Selected Segment", segmentMidpointDate(for: selectedStageSegment)))
+                RuleMark(x: .value("Selected Segment", normalizedDate(segmentMidpointDate(for: selectedStageSegment))))
                     .foregroundStyle(Color.secondary.opacity(0.48))
                     .lineStyle(StrokeStyle(lineWidth: 1.4))
                     .annotation(
@@ -66,10 +103,17 @@ struct BodySleepStageChart: View {
                 AxisTick()
                     .foregroundStyle(Color.secondary.opacity(0.28))
                 AxisValueLabel(anchor: xAxisLabelAnchor(for: value)) {
-                    if let date = value.as(Date.self) {
-                        Text(date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)))
+                    if let date = value.as(Date.self), let text = axisTimeText(forNormalized: date) {
+                        // The tick sits at a fixed fraction of the plot, so the
+                        // label keeps its identity across a date switch and its
+                        // digits roll over in place instead of sliding — the
+                        // same numeric transition the metric values use.
+                        Text(text)
                             .font(.system(.caption2, design: .rounded))
                             .foregroundStyle(Color.secondary)
+                            .monospacedDigit()
+                            .contentTransition(reduceMotion ? .identity : .numericText())
+                            .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: text)
                     }
                 }
             }
@@ -92,6 +136,171 @@ struct BodySleepStageChart: View {
         }
         .chartXSelection(value: $selectedStageDate)
         .simultaneousGesture(stageChartPressGesture)
+        // Scoped like the day chart's morph animations: the detail view wraps
+        // this chart in a `.transaction { animation = nil }`, so the phases
+        // animate via these value-keyed modifiers, not ambient transactions.
+        // Collapse + expand together take `Self.transitionDuration`, matching
+        // the numeric flip the times and the card's duration run. Only the
+        // flatten flag is animated: the night itself swaps instantly while
+        // flat, so the incoming marks are born on the Core row.
+        .animation(reduceMotion ? nil : .easeInOut(duration: Self.phaseDuration), value: isFlattened)
+        .onAppear {
+            // Seed the lagging copy while it still holds this night: by the
+            // time `onChange` runs, `snapshot` is already the incoming one, so
+            // an unseeded chart would have no outgoing night to collapse and
+            // the first date switch would pop.
+            if displayedSnapshot == nil {
+                displayedSnapshot = snapshot
+                displayedAxisMarkIntervals = axisMarkIntervals
+            }
+        }
+        .onChange(of: snapshot) { oldSnapshot, newSnapshot in
+            transition(from: oldSnapshot, to: newSnapshot, axisMarkIntervals: axisMarkIntervals)
+        }
+    }
+
+    /// The night currently rendered — see `displayedSnapshot`.
+    private var renderSnapshot: SleepStageSnapshot {
+        displayedSnapshot ?? snapshot
+    }
+
+    private var renderAxisMarkIntervals: [DateInterval]? {
+        displayedSnapshot == nil ? axisMarkIntervals : displayedAxisMarkIntervals
+    }
+
+    /// The date-switch choreography: every segment sinks onto the Core row and
+    /// dissolves into the flat band, the band alone travels to the new night's
+    /// span, then the new segments grow out of it back to their stage rows.
+    private func transition(
+        from oldSnapshot: SleepStageSnapshot,
+        to newSnapshot: SleepStageSnapshot,
+        axisMarkIntervals newIntervals: [DateInterval]?
+    ) {
+        transitionGeneration += 1
+        let generation = transitionGeneration
+        selectedStageDate = nil
+
+        // Covers a snapshot that changed before `onAppear` seeded the lagging
+        // copy — the outgoing night is what the collapse animates from, and
+        // it is already gone from `snapshot` by now.
+        if displayedSnapshot == nil {
+            displayedSnapshot = oldSnapshot
+        }
+
+        guard !reduceMotion,
+              !renderSnapshot.segments.isEmpty,
+              !newSnapshot.segments.isEmpty else {
+            displayedSnapshot = newSnapshot
+            displayedAxisMarkIntervals = newIntervals
+            isFlattened = false
+            return
+        }
+
+        isFlattened = true
+        // Sequenced by wall clock rather than animation completions so the
+        // call site's transaction override cannot collapse the phases into
+        // one; the scoped `.animation(value:)` modifiers drive each phase.
+        // The night swaps at the midpoint, while everything is flat and
+        // Core-colored, so the change of data itself is never visible.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.phaseDuration) {
+            guard generation == transitionGeneration else { return }
+
+            // Instantly, and still flattened: segment and bridge ids change
+            // with the night, so the incoming marks have to be born on the
+            // Core row. Animating this swap, or clearing `isFlattened` in the
+            // same update, would instead insert them on their stage rows —
+            // which Swift Charts pops rather than grows.
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                displayedSnapshot = newSnapshot
+                displayedAxisMarkIntervals = newIntervals
+            }
+
+            // One frame later, so that flattened render actually commits
+            // before the expansion releases the new night to its stage rows.
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.swapSettleDelay) {
+                guard generation == transitionGeneration else { return }
+                isFlattened = false
+            }
+        }
+    }
+
+    /// Collapse, a frame to publish the incoming night flattened, then expand —
+    /// together the length of the numeric flip the times and the card's
+    /// duration text run, so the segments finish settling exactly as the
+    /// digits stop rolling.
+    static let transitionDuration: TimeInterval = 0.4
+    static let swapSettleDelay: TimeInterval = 1.0 / 60
+    static var phaseDuration: TimeInterval { (transitionDuration - swapSettleDelay) / 2 }
+
+    /// A segment's y-extent: its own stage row, or the Core row while the
+    /// choreography has the chart flattened.
+    static func segmentYRange(for stage: SleepStage, isFlattened: Bool) -> ClosedRange<Double> {
+        let center = isFlattened ? SleepStage.core.chartPosition : stage.chartPosition
+        return (center - 0.32)...(center + 0.32)
+    }
+
+    static var flattenedYRange: ClosedRange<Double> {
+        segmentYRange(for: .core, isFlattened: true)
+    }
+
+    // MARK: - Fractional plot space
+
+    /// Every night is plotted as a fraction of its own bed-to-wake span on
+    /// this fixed window, so the x domain never changes: a date switch resizes
+    /// the segments where they stand instead of sliding the night sideways,
+    /// and the start/end ticks keep their identity so their labels can roll
+    /// their digits over rather than travel. The reference instant and span
+    /// are arbitrary — only the fractions are ever read.
+    static let plotReferenceStart = Date(timeIntervalSinceReferenceDate: 0)
+    static let plotSpan: TimeInterval = 3_600
+    /// Breathing room on both ends, as a fraction of the span — about the 15
+    /// minutes the old absolute-date domain padded a typical night by.
+    static let plotPaddingFraction = 0.033
+
+    static func normalizedPlotDate(for date: Date, nightSpan: ClosedRange<Date>?) -> Date {
+        guard let nightSpan else {
+            return plotReferenceStart
+        }
+
+        let duration = nightSpan.upperBound.timeIntervalSince(nightSpan.lowerBound)
+        guard duration > 0 else {
+            return plotReferenceStart
+        }
+
+        let fraction = date.timeIntervalSince(nightSpan.lowerBound) / duration
+        return plotReferenceStart.addingTimeInterval(fraction * plotSpan)
+    }
+
+    /// Inverse of `normalizedPlotDate` — the chart's own selection and its
+    /// axis labels speak in plot space and have to read back real clock times.
+    static func realDate(forNormalized normalized: Date, nightSpan: ClosedRange<Date>?) -> Date? {
+        guard let nightSpan else {
+            return nil
+        }
+
+        let duration = nightSpan.upperBound.timeIntervalSince(nightSpan.lowerBound)
+        guard duration > 0 else {
+            return nil
+        }
+
+        let fraction = normalized.timeIntervalSince(plotReferenceStart) / plotSpan
+        return nightSpan.lowerBound.addingTimeInterval(fraction * duration)
+    }
+
+    private func normalizedDate(_ date: Date) -> Date {
+        Self.normalizedPlotDate(for: date, nightSpan: Self.nightSpan(of: renderSnapshot))
+    }
+
+    /// First segment start through last segment end, or nil with no segments.
+    static func nightSpan(of snapshot: SleepStageSnapshot) -> ClosedRange<Date>? {
+        guard let start = snapshot.segments.map(\.startDate).min(),
+              let end = snapshot.segments.map(\.endDate).max(),
+              start <= end else {
+            return nil
+        }
+        return start...end
     }
 
     private struct StageBridge: Identifiable {
@@ -105,7 +314,7 @@ struct BodySleepStageChart: View {
     }
 
     private var stageBridges: [StageBridge] {
-        let segments = snapshot.segments
+        let segments = renderSnapshot.segments
         guard segments.count >= 2 else { return [] }
 
         var bridges: [StageBridge] = []
@@ -152,10 +361,12 @@ struct BodySleepStageChart: View {
     }
 
     private func bridgeGradient(for bridge: StageBridge) -> LinearGradient {
+        // Flattened, both stops read Core so the connector's color blends into
+        // the band in step with its geometry collapsing onto the Core row.
         LinearGradient(
             colors: [
-                color(for: bridge.upperStage).opacity(0.92),
-                color(for: bridge.lowerStage).opacity(0.92)
+                color(for: isFlattened ? .core : bridge.upperStage).opacity(0.92),
+                color(for: isFlattened ? .core : bridge.lowerStage).opacity(0.92)
             ],
             startPoint: .top,
             endPoint: .bottom
@@ -167,7 +378,15 @@ struct BodySleepStageChart: View {
             return nil
         }
 
-        return segmentSelection(for: selectedStageDate)
+        // The scrub reports a plot-space date; segments are matched in real time.
+        guard let realDate = Self.realDate(
+            forNormalized: selectedStageDate,
+            nightSpan: Self.nightSpan(of: renderSnapshot)
+        ) else {
+            return nil
+        }
+
+        return segmentSelection(for: realDate)
     }
 
     private var stageChartPressGesture: some Gesture {
@@ -181,7 +400,7 @@ struct BodySleepStageChart: View {
     }
 
     private func segmentSelection(for date: Date) -> SleepStageSegment? {
-        let visibleSegments = snapshot.segments.filter { segment in
+        let visibleSegments = renderSnapshot.segments.filter { segment in
             segmentRenderStartDate(for: segment) <= date && date <= segmentRenderEndDate(for: segment)
         }
 
@@ -191,7 +410,7 @@ struct BodySleepStageChart: View {
             return visibleSegment
         }
 
-        let nearestSegment = snapshot.segments.min {
+        let nearestSegment = renderSnapshot.segments.min {
             segmentSelectionDistance(from: date, to: $0) < segmentSelectionDistance(from: date, to: $1)
         }
 
@@ -264,22 +483,46 @@ struct BodySleepStageChart: View {
         date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
     }
 
+    /// Constant: the night is scaled into it rather than it being fitted to
+    /// the night, which is what keeps marks from sliding on a date switch.
     private var chartXDomain: ClosedRange<Date> {
-        let startDate = snapshot.segments.map(\.startDate).min() ?? Date()
-        let endDate = snapshot.segments.map(\.endDate).max() ?? Date()
-        let padding: TimeInterval = 15 * 60
-        return startDate.addingTimeInterval(-padding)...endDate.addingTimeInterval(padding)
+        let padding = Self.plotSpan * Self.plotPaddingFraction
+        let lowerBound = Self.plotReferenceStart.addingTimeInterval(-padding)
+        let upperBound = Self.plotReferenceStart.addingTimeInterval(Self.plotSpan + padding)
+        return lowerBound...upperBound
     }
 
     private var xAxisValues: [Date] {
-        if let axisMarkIntervals, !axisMarkIntervals.isEmpty {
-            return axisMarkIntervals.flatMap { [$0.start, $0.end] }.sorted()
+        realAxisValues.map { normalizedDate($0) }
+    }
+
+    private var realAxisValues: [Date] {
+        if let renderAxisMarkIntervals, !renderAxisMarkIntervals.isEmpty {
+            return renderAxisMarkIntervals.flatMap { [$0.start, $0.end] }.sorted()
         }
-        guard let startDate = snapshot.segments.map(\.startDate).min(),
-              let endDate = snapshot.segments.map(\.endDate).max() else {
+        guard let startDate = renderSnapshot.segments.map(\.startDate).min(),
+              let endDate = renderSnapshot.segments.map(\.endDate).max() else {
             return []
         }
         return [startDate, endDate]
+    }
+
+    /// The clock time a plot-space tick stands for. The single-span chart's
+    /// two ticks sit at fixed fractions, so they read the INCOMING night —
+    /// their digits start rolling as the collapse begins, in step with the
+    /// card's duration text, rather than waiting for the mid-flight swap. The
+    /// naps chart's ticks move with its data, so those stay on the rendered
+    /// night to keep each label paired with the nap under it.
+    private func axisTimeText(forNormalized normalized: Date) -> String? {
+        let labelSnapshot = renderAxisMarkIntervals == nil ? snapshot : renderSnapshot
+        guard let date = Self.realDate(
+            forNormalized: normalized,
+            nightSpan: Self.nightSpan(of: labelSnapshot) ?? Self.nightSpan(of: renderSnapshot)
+        ) else {
+            return nil
+        }
+
+        return date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
     }
 
     private func xAxisLabelAnchor(for value: AxisValue) -> UnitPoint {
@@ -289,9 +532,9 @@ struct BodySleepStageChart: View {
         // Interior span boundaries anchor away from their own span — a start
         // label extends left into the gap and an end label extends right — so a
         // short nap's pair of labels doesn't pile up inside its narrow span.
-        if let axisMarkIntervals {
-            if axisMarkIntervals.contains(where: { $0.start == date }) { return .topTrailing }
-            if axisMarkIntervals.contains(where: { $0.end == date }) { return .topLeading }
+        if let renderAxisMarkIntervals {
+            if renderAxisMarkIntervals.contains(where: { normalizedDate($0.start) == date }) { return .topTrailing }
+            if renderAxisMarkIntervals.contains(where: { normalizedDate($0.end) == date }) { return .topLeading }
         }
         return .top
     }
