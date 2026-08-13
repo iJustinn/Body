@@ -1,5 +1,9 @@
 # Version History
 
+## 0.9.12 (build 1)
+
+- Updated the app, widget, watch, and test bundle version to 0.9.12 build 1.
+
 ## 0.9.11 (build 13)
 
 - **Basics and BMI charts join the range-switch morph.** Switching Week/Month/6M/Year on the Basics detail page used to crossfade the dual-axis Weight & Body Fat chart and the BMI chart to the new range. Both now morph like every other trend chart: the lines stretch between the dates they share, dots glide to their new positions, and points with no counterpart in the new range fade in or out where they stand. Reduce Motion still swaps instantly.
