@@ -96,7 +96,7 @@ enum HealthWidgetSnapshotBuilder {
             generatedDate: date,
             metricTrends: metricTrends,
             sleep: sleepStages(
-                from: sleepStageSnapshot,
+                from: sleepStageSnapshot.mainSession,
                 sourceName: primarySourceName(.sleep),
                 calendar: calendar
             )

@@ -1,5 +1,70 @@
 # Version History
 
+## 0.9.11 (build 13)
+
+- **Basics and BMI charts join the range-switch morph.** Switching Week/Month/6M/Year on the Basics detail page used to crossfade the dual-axis Weight & Body Fat chart and the BMI chart to the new range. Both now morph like every other trend chart: the lines stretch between the dates they share, dots glide to their new positions, and points with no counterpart in the new range fade in or out where they stand. Reduce Motion still swaps instantly.
+- **Longer ranges now morph instead of appearing.** The Heart Rate-style min-max pages and the Vitals outlier chart were handed only the selected range's history, so a switch to a longer range could still only morph the marks the short range already covered — everything older popped in. Every morphing chart now receives the full history it needs to hold those marks ready.
+- **Chart legends roll their numbers over too.** The labels beside a chart — a source comparison's "Apple Watch Avg 784 kcal" rows, the "Range 9-241 ms" header on the min-max pages, the Basics legend's averages, and every other "Avg …" header — used to hard-cut to the new figure while the chart morphed under them. Their digits now flip in place, in the same motion and timing as the hero value above them (instant with Reduce Motion).
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 13.
+
+## 0.9.11 (build 12)
+
+- **Range-switch morph animation.** Switching Week/Month/6M/Year on standard metric pages and the Heart Rate-style min-max range pages now morphs the chart instead of crossfading it: bars slide and shrink/extend as the time window zooms, the line stretches and dots glide to their new positions, marks with no counterpart in the new range fade in/out, and shared bucket dates (always including today's mark) morph value-to-value. The two-source comparison charts (bar, line, and min-max range) and the Vitals outlier chart morph the same way, so pages like a two-source Active Energy, Skin Temperature, and Vitals join in; Basics and BMI keep their crossfade for now. Reduce Motion swaps instantly.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 12.
+
+## 0.9.11 (build 11)
+
+- **Sleep stage breakdown defaults to the optimal-range bar chart.** The tappable breakdown below the stage timeline now opens showing the bar-chart view (stage percentages with their optimal-range bands) instead of the text durations; tapping still flips between the two and the choice still persists.
+- **Sleep stage timeline gets a collapse-and-expand date-switch animation.** Changing the selected day used to crossfade the whole stage chart. Now every Awake/REM/Deep segment sinks onto the Core row with its color blending smoothly into the Core tint — the connector lines between segments shrinking and recoloring in step — until everything merges into a single flat Core-colored band, and the new day's segments grow back out of it up to their stage rows, colors returning as they rise. Nothing slides sideways: each night is drawn as a fraction of its own bed-to-wake span, so the segments resize where they stand and the start/end times roll their digits over in place, in step with the card's duration. The whole move takes as long as that numeric flip (naps card included; instant with Reduce Motion; rapid day flips retarget the in-flight animation).
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 11.
+
+## 0.9.11 (build 10)
+
+- **Day View line tails now fade during day switches.** Stretches of the hourly-average line covering hours the new day has no data for used to freeze in place through the whole transition and then vanish, making the chart look stuck before redrawing. The line is now drawn as per-hour segment marks with day-stable identity — matching stretches morph, and stretches with no counterpart fade out where they stood.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 10.
+
+## 0.9.11 (build 9)
+
+- **Day View placeholder dots are now truly invisible.** Build 7's cross-day fade keeps a dot mark alive for every hour so dots fade instead of popping, but the placeholders for data-less hours drew fully visible — constant-height dot rows after switching to a sparser day, and twin dots beside isolated readings — because Swift Charts does not apply mark opacity to custom symbol views. The transparency now lives inside the dot symbol itself, so hours without data render nothing while the fade behavior stays.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 9.
+
+## 0.9.11 (build 8)
+
+- **Sleep Regularity card polish.** The top time label in the chart's right gutter is no longer cut off when its grid line sits on the plot's upper edge, and the day axis now shows bare day numbers instead of the locale's suffixed form (e.g. `12` rather than `12日`).
+- **Swipe from the left edge to close the Readiness detail.** It is presented as a cross-fade overlay rather than a navigation push, so it never got the system's interactive back gesture that every other detail page has. A left-edge swipe now closes it with the same cross-fade as its back chevron.
+- **Bigger tap target on the workout Share button.** The route map behind the workout detail page opens full screen when its area is tapped, and a near-miss on the Share capsule — or a hit on one of its rounded corners — used to land on the map instead. The button now carries invisible tap slop on its sides and bottom.
+- Hike workouts now read 徒步 in Simplified Chinese.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 8.
+
+## 0.9.11 (build 7)
+
+- **Day View day switches now morph in place.** Changing the selected day no longer slides chart marks sideways or folds the line into mid-animation zigzags: hourly bars shrink or extend and dots move vertically within their hour, sleep/workout highlight regions shrink or extend into the new day's same-type regions (main sleep to main sleep, naps in order, workouts matched by type), and marks or regions with no counterpart on the new day fade in or out. Under the hood, marks now plot on a fixed reference day so the chart's x-domain never moves, and highlight regions carry day-stable identity.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 7.
+
+## 0.9.11 (build 6)
+
+- **Custom data sources (Body Pro).** Settings can now combine several discovered Apple Health sources into one named source for primary or comparison charts. Custom groups sync to the Apple Watch compute seed, preserve their setup if Pro lapses, and return automatically when entitlement is restored.
+- **Sleep Stages card now shows only the main session.** A daytime nap no longer stretches the night's hypnogram across the whole day; the card (and the matching Home Screen widget) draws only the day's auto-detected primary session, while total sleep duration elsewhere is unchanged. The Heart Rate, HRV, Active Energy, Steps, and Readiness Day View charts likewise shade the night and each nap as separate sleep bands (nap bands get a moon icon) instead of one block spanning bedtime to the nap's end, and the Heart Rate/HRV "Sleep" activity-average row now averages over the night only.
+- **New Nap Stages card.** On a day with naps, a card matching the Sleep Stages card's style appears below it, combining every nap into one hypnogram (nap times read off the chart's x-axis) with the total nap duration in its header.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 6.
+
+## 0.9.11 (build 3)
+
+- **Day View now renders instantly.** A metric detail's Day View used to show "No data for this day" until a fresh Apple Health fetch completed; it now renders cached intraday data immediately on entry, then refreshes in the background on every visit (same refresh cadence as before).
+- **Day View chart animations.** When the background refresh lands, chart marks morph to their new positions and new data fades in; switching days glides each dot, line, and range bar to the new day's values — the same dot morph the sleep Vitals plot uses; Reduce Motion disables the chart motion.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 3.
+
+## 0.9.11 (build 2)
+
+- Added an **About your interval** card to the Training Load detail, directly above the About Training Load card. It mirrors the Readiness "About your score" card: every interval (High Injury Risk → Medium Injury Risk → Optimal → Resting) with its ratio range and a one-line explanation, and a Current chip on the band the displayed ratio falls in — which follows the trend chart while you scrub, as Readiness's does.
+- The Heart Rate and Respiratory Rate details' **Day View** now draws hourly range bars: behind the hourly-average line, each hour gets a translucent gray capsule spanning its lowest-to-highest sample — the same treatment their Week/Month/6 Months/Year chart gives each day — and the y-axis widens to fit those extremes. Only these two day views get them; a compared secondary source still contributes just its line.
+- The Vitals card's dots preview now shows a **pending state** instead of disappearing while last night's vitals haven't arrived: the same three regions render dimmed with five gray rings resting in the typical band, and when the assessment lands the band takes its color and the rings glide to their regions (and colors) in one animation. Reduce Motion still lands on the same end state without the movement.
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 2.
+
+## 0.9.11 (build 1)
+
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 1.
+
 ## 0.9.10 (build 21)
 
 - **Vitals chart axis labels removed.** The Vitals detail hero's Week/Month/6 Months/Year charts no longer draw the trailing High/Typical/Low y-axis labels — the bars and the highlighted typical band carry the reference on their own, and the plot takes the freed trailing width.

@@ -25,6 +25,7 @@ actor HealthKitFetchEngine {
     var healthDataSourceSelection: BodyHealthDataSourceSelection
     var secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection
     var combinesHealthDataSourcesByName: Bool
+    var customHealthSourceGroups: [BodyCustomHealthSourceGroup]
 
     var healthSourcesByKind: [HealthMetricKind: [String: [HKSource]]] = [:]
     var fetchedHealthDataSourcePermissionRawValue: String?
@@ -182,12 +183,14 @@ actor HealthKitFetchEngine {
         permission: BodyHealthPermissionSelection,
         healthDataSourceSelection: BodyHealthDataSourceSelection,
         secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection,
-        combinesHealthDataSourcesByName: Bool
+        combinesHealthDataSourcesByName: Bool,
+        customHealthSourceGroups: [BodyCustomHealthSourceGroup] = []
     ) {
         self.permissionSelection = permission
         self.healthDataSourceSelection = healthDataSourceSelection
         self.secondaryHealthDataSourceSelection = secondaryHealthDataSourceSelection
         self.combinesHealthDataSourcesByName = combinesHealthDataSourcesByName
+        self.customHealthSourceGroups = customHealthSourceGroups
     }
 
     // MARK: - Selection setters
@@ -210,6 +213,21 @@ actor HealthKitFetchEngine {
         }
 
         combinesHealthDataSourcesByName = combines
+        clearSourceCache()
+    }
+
+    func setCustomHealthSourceGroups(_ groups: [BodyCustomHealthSourceGroup]) {
+        // Compared by CANONICAL signature, not by value: only ids and
+        // membership decide which buckets get registered, so a pure rename must
+        // not clear the discovery cache — nothing refetches after a rename, and
+        // an emptied cache would leave every source selection unresolved (leaf
+        // queries skipping with failure semantics, H4) until the next refresh.
+        let previousSignature = BodyCustomHealthSourceGroupStore.canonicalSignature(for: customHealthSourceGroups)
+        customHealthSourceGroups = groups
+        guard previousSignature != BodyCustomHealthSourceGroupStore.canonicalSignature(for: groups) else {
+            return
+        }
+
         clearSourceCache()
     }
 
@@ -367,8 +385,17 @@ actor HealthKitFetchEngine {
         for kind: HealthMetricKind,
         option explicitOption: BodyHealthDataSourceOption? = nil
     ) -> SourceQueryResolution {
-        BodyHealthSourceResolver.resolution(
-            option: explicitOption ?? healthDataSourceSelection.option(for: kind),
+        let option = explicitOption ?? healthDataSourceSelection.option(for: kind)
+        // Body Pro gate at the fetch chokepoint, mirroring the secondary gate in
+        // `selectedSecondaryHealthDataSourceOption`: a lapsed subscription keeps
+        // the user-created group definition but every query widens back to all
+        // sources, so the filtering stops without the selection being erased.
+        guard !option.isCustomSource || BodyProEntitlement.isUnlocked else {
+            return .allSources
+        }
+
+        return BodyHealthSourceResolver.resolution(
+            option: option,
             discovered: healthSourcesByKind[kind],
             strictWhenMissing: false
         )
@@ -562,7 +589,15 @@ actor HealthKitFetchEngine {
     }
 
     func selectedHealthDataSourceOption(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
-        resolvedHealthDataSourceOption(healthDataSourceSelection.option(for: kind), for: kind)
+        let option = healthDataSourceSelection.option(for: kind)
+        // Same Body Pro gate as `sourceQueryResolution`, so the option this
+        // reports (secondary de-duplication, day-sample signatures) matches what
+        // the queries actually ran with while the subscription is lapsed.
+        guard !option.isCustomSource || BodyProEntitlement.isUnlocked else {
+            return .allSources
+        }
+
+        return resolvedHealthDataSourceOption(option, for: kind)
     }
 
     func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
@@ -609,6 +644,23 @@ actor HealthKitFetchEngine {
         healthSourcesByKind[kind].map { bucket in
             Set(bucket.filter { !$0.value.isEmpty }.keys)
         }
+    }
+
+    /// Per kind, the user-created group ids that registered a non-empty bucket —
+    /// the store caches this so its synchronous render-time resolution collapses
+    /// a member-less group to All Sources exactly where a query would. A kind
+    /// whose discovery has not succeeded is ABSENT rather than empty, matching
+    /// the nil-bucket "keep the stored option" contract above.
+    func customHealthSourceIDsWithData() -> [HealthMetricKind: Set<String>] {
+        let groupIDs = Set(customHealthSourceGroups.map(\.id))
+        var result: [HealthMetricKind: Set<String>] = [:]
+        for kind in healthSourcesByKind.keys {
+            guard let discoveredIDs = discoveredNonemptyHealthSourceIDs(for: kind) else {
+                continue
+            }
+            result[kind] = groupIDs.intersection(discoveredIDs)
+        }
+        return result
     }
 
     func resolvedHealthDataSourceOption(

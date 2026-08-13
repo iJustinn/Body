@@ -151,7 +151,7 @@ struct SleepVitalsSummary: Codable, Equatable {
     )
 }
 
-enum SleepVitalRegion: Equatable {
+enum SleepVitalRegion: Hashable {
     case low
     case typical
     case high
@@ -299,6 +299,71 @@ struct SleepStageSnapshot: Codable, Equatable {
         }
         return session
     }
+
+    /// The day's naps: the segments *outside* `mainSessionInterval` (the exact
+    /// negation of `mainSession`'s filter) grouped into sessions by the same 2h
+    /// gap rule the raw-sample sessionizer uses, in start order. A `nil`
+    /// interval (old caches, fixtures) means no session split was detected, so
+    /// there are no naps to separate out and the result is empty.
+    var napSessions: [SleepStageSnapshot] {
+        guard let interval = mainSessionInterval else {
+            return []
+        }
+
+        let napSegments = segments.filter {
+            $0.endDate <= interval.start || $0.startDate >= interval.end
+        }
+
+        // Segments are ordered by start (then end) and may overlap, so the gap
+        // is measured from the latest end seen so far rather than the previous
+        // segment's end — otherwise a long aggregate sample followed by a short
+        // detailed one inside it would split one nap in two.
+        var groups: [[SleepStageSegment]] = []
+        var currentGroup: [SleepStageSegment] = []
+        var runningMaxEnd = Date.distantPast
+        for segment in napSegments {
+            if currentGroup.isEmpty || segment.startDate.timeIntervalSince(runningMaxEnd) <= Self.napSessionGap {
+                currentGroup.append(segment)
+                runningMaxEnd = max(runningMaxEnd, segment.endDate)
+            } else {
+                groups.append(currentGroup)
+                currentGroup = [segment]
+                runningMaxEnd = segment.endDate
+            }
+        }
+        if !currentGroup.isEmpty {
+            groups.append(currentGroup)
+        }
+
+        // A group needs real asleep time to be a nap: the merged-asleep test
+        // also drops awake-only strays, since only sleep stages count toward it.
+        return groups.compactMap { group in
+            var session = self
+            session.segments = group
+            session.mainSessionInterval = nil
+            guard session.mergedAsleepDuration >= Self.minimumNapAsleepDuration else {
+                return nil
+            }
+            return session
+        }
+    }
+
+    /// Every nap segment in a single snapshot for the combined nap chart,
+    /// keeping the parser's start-date ordering. Empty when the day has no naps.
+    var napsSnapshot: SleepStageSnapshot {
+        var snapshot = self
+        snapshot.segments = napSessions.flatMap(\.segments)
+        snapshot.mainSessionInterval = nil
+        return snapshot
+    }
+
+    /// Keep in sync with `BodySleepSessionizer.maximumSessionGap`: naps are
+    /// split from the same raw samples by the same 2h rule, but the sessionizer
+    /// can't be referenced from here (the widget extension compiles
+    /// `BodyMetricsKit` without `BodyWatchSnapshotKit`).
+    private static let napSessionGap: TimeInterval = 2 * 60 * 60
+    /// A stray minute of sleep outside the main session isn't a nap.
+    private static let minimumNapAsleepDuration: TimeInterval = 5 * 60
 
     var sleepStartDate: Date? {
         segments

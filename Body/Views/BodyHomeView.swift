@@ -436,9 +436,7 @@ struct BodyHomeView: View {
         // system pops a pushed detail to root (the overlay lives outside the nav stack).
         .onChange(of: summaryReselectCount) { _, _ in
             if readinessDetailPresented {
-                withAnimation(.easeInOut(duration: 0.28)) {
-                    readinessDetailPresented = false
-                }
+                dismissReadinessDetail()
             }
         }
     }
@@ -500,8 +498,8 @@ struct BodyHomeView: View {
 
     /// The Readiness star's detail, presented as a full-screen cross-fade overlay rather
     /// than a navigation push (so it fades instead of zooming/sliding). Wrapped in its own
-    /// NavigationStack for the title bar; a tap Back button dismisses — there is no
-    /// swipe-from-edge back gesture in this mode.
+    /// NavigationStack for the title bar; the Back button and a swipe in from the left
+    /// edge both dismiss it through `dismissReadinessDetail()`.
     private var readinessDetailOverlay: some View {
         NavigationStack {
             BodyHealthMetricDetailView(
@@ -512,9 +510,7 @@ struct BodyHomeView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.28)) {
-                            readinessDetailPresented = false
-                        }
+                        dismissReadinessDetail()
                     } label: {
                         Image(systemName: "chevron.backward")
                             .fontWeight(.semibold)
@@ -522,6 +518,38 @@ struct BodyHomeView: View {
                     .accessibilityLabel("Back")
                 }
             }
+        }
+        .simultaneousGesture(readinessEdgeBackGesture)
+    }
+
+    /// Stands in for the interactive pop the other detail pages get for free: this one
+    /// isn't on a navigation stack that can pop, so the system's edge gesture never arms.
+    /// Recognized simultaneously so it can't block the page's own scrolling or chart
+    /// scrubbing, and it dismisses with the Back button's cross-fade rather than tracking
+    /// the finger — the overlay has no slide-off transition to follow.
+    private var readinessEdgeBackGesture: some Gesture {
+        DragGesture(minimumDistance: 20, coordinateSpace: .global)
+            .onEnded { value in
+                guard Self.isEdgeBackSwipe(startX: value.startLocation.x, translation: value.translation) else {
+                    return
+                }
+
+                dismissReadinessDetail()
+            }
+    }
+
+    /// A drag counts as a back swipe when it starts within the system's edge-gesture
+    /// strip, travels far enough to the right, and stays no steeper than 45° — so a
+    /// scroll, a chart scrub, or a leftward drag never dismisses the page.
+    static func isEdgeBackSwipe(startX: CGFloat, translation: CGSize) -> Bool {
+        startX <= 20
+            && translation.width >= 80
+            && abs(translation.height) <= translation.width
+    }
+
+    private func dismissReadinessDetail() {
+        withAnimation(.easeInOut(duration: 0.28)) {
+            readinessDetailPresented = false
         }
     }
 
@@ -1237,7 +1265,8 @@ struct BodyHomeView: View {
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 chartStyle: .line,
                 highlightedRange: trainingLoadInterval,
-                highlightedRangeResolver: BodyTrainingLoadIntervalPresentation.make(for:)
+                highlightedRangeResolver: BodyTrainingLoadIntervalPresentation.make(for:),
+                trainingLoadValue: summary.trainingLoad.value
             )
         case .wristTemperature:
             let display = summary.wristTemperature.value.map {
@@ -1574,6 +1603,7 @@ struct BodyHomeView: View {
         chartStyle: BodyHealthMetricChartStyle = .line,
         highlightedRange: BodyHealthMetricTrendHighlightedRange? = nil,
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
+        trainingLoadValue: Double? = nil,
         sleepHistory: SleepHistorySnapshot = .empty,
         valueTransform: @escaping (Double) -> Double = { $0 }
     ) -> BodyHealthMetricDetailModel {
@@ -1601,6 +1631,7 @@ struct BodyHomeView: View {
             highlightedRangeResolver: highlightedRangeResolver,
             valueFormatter: { BodyValueFormat.numberText($0, decimals: decimals) + suffix },
             secondaryValueFormatter: nil,
+            trainingLoadValue: trainingLoadValue,
             sourceComparisonTrend: kind.usesSourceComparisonBarChart
                 ? workoutStore.sourceComparisonTrend(for: kind)?.mapValues(valueTransform)
                 : nil,

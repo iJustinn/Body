@@ -8,10 +8,11 @@
 //  detail page), the title sits top-right, the recent-
 //  week chart sits below it, and the current value reads large at the
 //  bottom-left — followed, for Readiness and Training Load, by the status level
-//  beside it ("85 · HIGH"). The tint fill is the page's own background so it
+//  beside it ("85 · HIGH"), and on Sleep by the night's duration under the same
+//  dot ("85 pts · 7h 32m"). The tint fill is the page's own background so it
 //  slides with the vertical pager, giving a smooth color transition between
-//  metrics. Display-only: it reads the `weekly` series and `statusBand` the
-//  iPhone baked into the pushed snapshot (no watch compute).
+//  metrics. Display-only: it reads the `weekly` series, `statusBand`, and sleep
+//  score the iPhone baked into the pushed snapshot (no watch compute).
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -35,6 +36,33 @@ struct WatchMetricDetailView: View {
     private var weekly: [Double?]? {
         guard let weekly = metric.weekly, weekly.contains(where: { $0 != nil }) else { return nil }
         return weekly
+    }
+
+    /// The night's 0–100 sleep score, as the iPhone baked it into the Sleep
+    /// metric — nil when the phone's "Show Sleep Score" toggle is off, the
+    /// night has no score, or the snapshot's sleep was cleared as not-today.
+    /// Only the Sleep page reads it: Readiness already leads with its own
+    /// score, and no other metric carries one.
+    private var sleepScore: Int? {
+        metric.kind == WatchMetricKindKey.sleep ? metric.score : nil
+    }
+
+    /// The Sleep page leads with the score and demotes the night's duration
+    /// into the dot-separated slot the banded metrics use for their status
+    /// level ("85 pts · 7h 32m"); scoreless nights keep the plain duration
+    /// headline, and every other metric reads exactly as before.
+    private var headlineValue: String {
+        sleepScore.map { "\($0)" } ?? metric.displayValue
+    }
+
+    private var headlineUnit: String {
+        sleepScore == nil ? metric.unit : String(localized: "pts")
+    }
+
+    private var trailingLabel: String? {
+        guard sleepScore == nil else { return metric.displayValue }
+        guard let label = metric.statusBand?.label else { return nil }
+        return label.uppercased()
     }
 
     var body: some View {
@@ -88,24 +116,25 @@ struct WatchMetricDetailView: View {
     }
 
     /// Big current value at the bottom-left; for banded metrics the status level
-    /// sits beside it, dot-separated ("85 · HIGH" / "1.23 · OPTIMAL").
+    /// sits beside it, dot-separated ("85 · HIGH" / "1.23 · OPTIMAL"), and the
+    /// Sleep page reads its score the same way ("85 pts · 7h 32m").
     private var valueRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(metric.displayValue)
+            Text(headlineValue)
                 .font(.system(size: 42, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.4)
-            if !metric.unit.isEmpty {
-                Text(metric.unit)
+            if !headlineUnit.isEmpty {
+                Text(headlineUnit)
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.7))
             }
-            if let label = metric.statusBand?.label {
+            if let label = trailingLabel {
                 Text("·")
                     .font(.system(size: 18, weight: .bold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.5))
-                Text(label.uppercased())
+                Text(label)
                     .font(.system(size: 17, weight: .heavy, design: .rounded))
                     .foregroundStyle(statusTint)
                     .lineLimit(1)
@@ -152,6 +181,23 @@ struct WatchMetricDetailView: View {
             tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20),
             weekly: [0.95, 1.30, 1.05, 0.78, 1.32, 1.10, 1.23],
             statusBand: WatchStatusBand(min: 0.8, max: 1.3, label: "Optimal")
+        ))
+    }
+}
+
+#Preview("Sleep (scored)") {
+    NavigationStack {
+        WatchMetricDetailView(metric: WatchMetric(
+            kind: WatchMetricKindKey.sleep,
+            title: "Sleep",
+            displayValue: "7h 32m",
+            unit: "",
+            score: 85,
+            fillFraction: 0.85,
+            rawValue: 85,
+            rangeMin: 0,
+            rangeMax: 100,
+            weekly: [6.5, 7.2, nil, 8.1, 7.0, 6.8, 7.53]
         ))
     }
 }

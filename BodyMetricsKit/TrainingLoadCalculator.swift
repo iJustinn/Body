@@ -225,6 +225,34 @@ enum TrainingLoadInterval: Hashable {
         }
     }
 
+    /// Ratio range this interval covers, written the way the trend chart draws its
+    /// bands (shared boundaries, open-ended at the extremes).
+    var rangeText: String {
+        switch self {
+        case .stopTraining:
+            return "< 0.80"
+        case .optimal:
+            return "0.80-1.30"
+        case .mediumInjuryRisk:
+            return "1.30-1.50"
+        case .highInjuryRisk:
+            return "> 1.50"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .stopTraining:
+            return String(localized: "Recent work sits below your baseline. Good for recovery, or a sign training has tapered off.", table: "BodyMetricsKit")
+        case .optimal:
+            return String(localized: "Recent work tracks your baseline. Sustainable territory for building fitness.", table: "BodyMetricsKit")
+        case .mediumInjuryRisk:
+            return String(localized: "Recent work is climbing faster than your baseline. Space out hard days and watch recovery.", table: "BodyMetricsKit")
+        case .highInjuryRisk:
+            return String(localized: "Recent work is well above your baseline. Ease back before strain outpaces recovery.", table: "BodyMetricsKit")
+        }
+    }
+
     var lowerBound: Double? {
         switch self {
         case .stopTraining:

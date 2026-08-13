@@ -117,6 +117,92 @@ final class BodyHealthSourceResolverTests: XCTestCase {
         )
     }
 
+    // MARK: - User-created group buckets
+
+    private let watchKey = "bundle=com.example.watch|name=watch"
+    private let phoneKey = "bundle=com.example.phone|name=phone"
+    private let strapKey = "bundle=com.example.strap|name=strap"
+
+    private func customGroup(members: [String]) -> BodyCustomHealthSourceGroup {
+        BodyCustomHealthSourceGroup(
+            id: "custom:11111111-2222-3333-4444-555555555555",
+            name: "Wrist",
+            memberIdentityKeys: members
+        )
+    }
+
+    func testCustomGroupBucketUnionsItsMembersAndDedupesBySourceIdentity() {
+        let group = customGroup(members: [watchKey, phoneKey])
+        // The phone bucket deliberately also carries "Watch": a source can be
+        // reachable through more than one registered key (every source registers
+        // both its plain and its disambiguated ID), and the union must not list
+        // it twice — a duplicated member would OR the same predicate twice.
+        let discovered: [String: [String]] = [
+            "source:" + watchKey: ["Watch"],
+            "source:" + phoneKey: ["Phone", "Watch"],
+            "source:" + strapKey: ["Strap"]
+        ]
+
+        let registered = BodyHealthSourceResolver.registeringCustomGroupBuckets(
+            discovered,
+            customGroups: [group],
+            identityKey: { $0 }
+        )
+
+        // Members are walked in sorted key order (phone before watch), so the
+        // bucket is deterministic regardless of how the membership UI ordered them.
+        XCTAssertEqual(registered[group.id], ["Phone", "Watch"])
+        // A non-member's bucket is untouched, and the member buckets survive.
+        XCTAssertEqual(registered["source:" + strapKey], ["Strap"])
+        XCTAssertEqual(registered["source:" + watchKey], ["Watch"])
+
+        // Registered buckets resolve identically under both modes — a custom
+        // selection is no different from a combined-name one once its bucket exists.
+        for strict in [false, true] {
+            XCTAssertEqual(
+                decision(option: group.option, discovered: registered, strict: strict),
+                .sources(["Phone", "Watch"]),
+                "strict: \(strict)"
+            )
+        }
+    }
+
+    func testCustomGroupWithNoDiscoveredMembersRegistersNothing() {
+        let group = customGroup(members: [watchKey, phoneKey])
+        let discovered: [String: [String]] = ["source:" + strapKey: ["Strap"]]
+
+        let registered = BodyHealthSourceResolver.registeringCustomGroupBuckets(
+            discovered,
+            customGroups: [group],
+            identityKey: { $0 }
+        )
+
+        // Absent, NOT an empty bucket: absence is the case `resolutionDecision`
+        // already defines, so the group inherits the platform contract instead of
+        // needing one of its own.
+        XCTAssertNil(registered[group.id])
+        XCTAssertEqual(registered, discovered)
+        XCTAssertEqual(decision(option: group.option, discovered: registered, strict: false), .allSources)
+        XCTAssertEqual(decision(option: group.option, discovered: registered, strict: true), .unresolved)
+    }
+
+    func testPartiallyVisibleCustomGroupResolvesToTheVisibleSubset() {
+        // The watch commonly sees only some of the phone's sources; a group
+        // resolves to what's actually here (combined-name's precedent) rather
+        // than failing outright.
+        let group = customGroup(members: [watchKey, phoneKey])
+        let discovered: [String: [String]] = ["source:" + phoneKey: ["Phone"]]
+
+        let registered = BodyHealthSourceResolver.registeringCustomGroupBuckets(
+            discovered,
+            customGroups: [group],
+            identityKey: { $0 }
+        )
+
+        XCTAssertEqual(registered[group.id], ["Phone"])
+        XCTAssertEqual(decision(option: group.option, discovered: registered, strict: true), .sources(["Phone"]))
+    }
+
     // MARK: - Predicate assembly
 
     func testCombinedPredicateOnlyCompoundsWhatItWasGiven() {

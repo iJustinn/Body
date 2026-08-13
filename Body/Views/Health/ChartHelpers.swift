@@ -152,6 +152,7 @@ struct BodyBasicsTrendLegend: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.68)
+                    .bodyLegendNumberFlip(value: valueText)
             }
         }
     }
@@ -241,8 +242,22 @@ extension View {
 /// a global-coordinate anchor (x = the selection rule line, y = the plot's top edge)
 /// plus the rendered content.
 struct BodyChartFloatingCallout {
+    /// Where the callout sits relative to `anchor`.
+    enum Placement {
+        /// Above the anchor, clamped to the container's top edge. The scrub
+        /// charts' behavior: their anchor is the plot's top edge, which always
+        /// has room above it.
+        case aboveAnchor
+        /// Above the anchor, flipping below `anchorBottom` (a global y, like the
+        /// anchor itself) when the callout doesn't fit above. For callouts hung
+        /// off a *cell* — a top-row cell has nothing above it, so clamping would
+        /// detach the callout and cover its neighbors instead.
+        case aboveOrBelow(anchorBottom: CGFloat)
+    }
+
     let anchor: CGPoint
     let content: AnyView
+    var placement: Placement = .aboveAnchor
 }
 
 /// Report-up channel for the floating callout. An `@Observable` box (mirroring
@@ -267,11 +282,18 @@ struct BodyChartFloatingCalloutLayer: View {
         GeometryReader { geo in
             if let callout = state.callout {
                 let origin = geo.frame(in: .global).origin
-                let frame = Self.calloutFrame(
-                    anchor: CGPoint(x: callout.anchor.x - origin.x, y: callout.anchor.y - origin.y),
-                    size: calloutSize,
-                    in: geo.size
-                )
+                let anchor = CGPoint(x: callout.anchor.x - origin.x, y: callout.anchor.y - origin.y)
+                let frame = switch callout.placement {
+                case .aboveAnchor:
+                    Self.calloutFrame(anchor: anchor, size: calloutSize, in: geo.size)
+                case .aboveOrBelow(let anchorBottom):
+                    Self.flippingCalloutFrame(
+                        anchor: anchor,
+                        anchorBottom: anchorBottom - origin.y,
+                        size: calloutSize,
+                        in: geo.size
+                    )
+                }
 
                 callout.content
                     .onGeometryChange(for: CGSize.self) { proxy in
@@ -285,6 +307,14 @@ struct BodyChartFloatingCalloutLayer: View {
             }
         }
         .allowsHitTesting(false)
+        // A discrete callout (the calendar's hold-to-peek) publishes a fresh
+        // content view each press; without this the next one would render one
+        // frame positioned for the previous callout's measured size.
+        .onChange(of: state.callout == nil) { _, isCleared in
+            if isCleared {
+                calloutSize = .zero
+            }
+        }
     }
 
     /// Pure placement math: centered on the anchor x but kept on screen, bottom edge
@@ -295,6 +325,27 @@ struct BodyChartFloatingCalloutLayer: View {
         let spacing: CGFloat = 8
         let x = min(max(anchor.x - size.width / 2, margin), max(container.width - size.width - margin, margin))
         let y = max(anchor.y - spacing - size.height, 0)
+        return CGRect(x: x, y: y, width: size.width, height: size.height)
+    }
+
+    /// `calloutFrame`'s sibling for `.aboveOrBelow` placement: same horizontal
+    /// clamping, but when the callout doesn't fit 8pt above `anchor` it flips to
+    /// 8pt below `anchorBottom` (the anchored cell's bottom edge) instead of
+    /// sliding down over the anchor. Kept separate so `calloutFrame`'s
+    /// clamp-to-top behavior — what the scrub charts want — stays untouched.
+    static func flippingCalloutFrame(
+        anchor: CGPoint,
+        anchorBottom: CGFloat,
+        size: CGSize,
+        in container: CGSize
+    ) -> CGRect {
+        let margin: CGFloat = 8
+        let spacing: CGFloat = 8
+        let x = min(max(anchor.x - size.width / 2, margin), max(container.width - size.width - margin, margin))
+        let above = anchor.y - spacing - size.height
+        let y = above >= margin
+            ? above
+            : min(anchorBottom + spacing, max(container.height - size.height - margin, margin))
         return CGRect(x: x, y: y, width: size.width, height: size.height)
     }
 }
@@ -476,6 +527,32 @@ struct BodyAnimatedMetricValueText: View {
             .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: value)
             .lineLimit(1)
             .minimumScaleFactor(minimumScaleFactor)
+    }
+}
+
+/// The digit flip of `BodyAnimatedMetricValueText` as a modifier, for the
+/// secondary labels beside a chart — "Apple Watch Avg 784 kcal", "Range 9-241
+/// ms", the Basics legend's averages. Applied in place so each label keeps its
+/// own type style, and keyed on the rendered string so a range switch rolls the
+/// numbers over in step with the chart it labels.
+struct BodyLegendNumberFlip: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let value: String
+
+    func body(content: Content) -> some View {
+        content
+            // Digits keep a constant width, or the surrounding words shuffle
+            // sideways while the numbers roll.
+            .monospacedDigit()
+            .contentTransition(reduceMotion ? .identity : .numericText())
+            .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: value)
+    }
+}
+
+extension View {
+    func bodyLegendNumberFlip(value: String) -> some View {
+        modifier(BodyLegendNumberFlip(value: value))
     }
 }
 

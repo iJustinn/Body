@@ -54,7 +54,13 @@ struct BodyHealthMetricCard: View {
             // Preview points are derived once per model — the preview view
             // used to regroup the full trend series in chained computed
             // properties on every render of every card.
-            hasChartPreview = chartPreview != nil || chartRangePreview != nil || !previewDotEntries.isEmpty
+            // The dots preview keeps drawing its three regions while the night's
+            // vitals are pending, so the card doesn't lose the chart and get it
+            // back — it fills the skeleton in place.
+            hasChartPreview = chartPreview != nil
+                || chartRangePreview != nil
+                || !previewDotEntries.isEmpty
+                || chartPreviewStyle == .dots
             previewCalendarPoints = chartPreview.map {
                 BodyHomeMetricCardPreview.calendarPoints(from: $0, previewDayCount: previewDayCount)
             } ?? []
@@ -477,42 +483,76 @@ struct BodyHealthMetricCardTrendPreview: View {
         }
     }
 
-    /// Health's Vitals preview, drawn the way Apple draws it: a thick gray
-    /// capsule for the high region, a filled blue rounded band for the typical
-    /// region, another gray capsule for the low region, and one dark-centered
-    /// ring per vital — typical rings sit inside the band, outlier rings land
-    /// on the gray bar they escaped to.
+    /// One ring in the dots preview. A `nil` region is the waiting-for-data
+    /// skeleton: the ring reads gray and rests in the middle of the band until
+    /// the night's assessment lands.
+    private struct PreviewDot: Equatable {
+        var position: Double
+        var region: SleepVitalRegion?
+    }
+
+    /// One skeleton ring per vital, so the pending card shows the same number of
+    /// rings the assessed one will.
+    private static let placeholderDotCount = VitalKind.allCases.count
+
+    private var previewDots: [PreviewDot] {
+        guard !dotEntries.isEmpty else {
+            return Array(
+                repeating: PreviewDot(position: 0.5, region: nil),
+                count: Self.placeholderDotCount
+            )
+        }
+
+        return dotEntries.map { PreviewDot(position: $0.position, region: $0.region) }
+    }
+
+    private var isAwaitingDots: Bool {
+        dotEntries.isEmpty
+    }
+
+    /// Health's Vitals preview: three stacked rounded regions — high, the
+    /// typical band, low — and one dark-centered ring per vital resting in the
+    /// region its reading landed in. The regions share the preview's height by
+    /// where the rings are, so the space goes where the data is: rings in all
+    /// three splits it evenly, rings in two share it while the empty region
+    /// stays at its minimum, and rings in one region give it the tall slot.
+    /// Before the night's vitals are in, the same three regions render dimmed
+    /// at equal height with gray rings resting in the middle; when the
+    /// assessment arrives the band takes its color, the regions morph to their
+    /// new proportions, and each ring glides to the region it belongs in — one
+    /// motion, since every height here is a function of `dotEntries`.
     private var dotsPreview: some View {
         GeometryReader { proxy in
-            let layout = DotPreviewLayout(size: proxy.size)
+            let dots = previewDots
+            let layout = DotPreviewLayout(size: proxy.size, occupied: occupiedRegions(for: dots))
 
             ZStack {
-                Capsule(style: .continuous)
-                    .fill(Color.secondary.opacity(0.42))
-                    .frame(width: proxy.size.width, height: layout.barHeight)
-                    .position(x: proxy.size.width / 2, y: layout.topBarCenterY)
+                RoundedRectangle(cornerRadius: layout.cornerRadius(for: .high), style: .continuous)
+                    .fill(Color.secondary.opacity(isAwaitingDots ? 0.24 : 0.42))
+                    .frame(width: proxy.size.width, height: layout.height(for: .high))
+                    .position(x: proxy.size.width / 2, y: layout.centerY(for: .high))
 
-                RoundedRectangle(cornerRadius: layout.bandCornerRadius, style: .continuous)
-                    .fill(Color(red: 0.21, green: 0.30, blue: 0.45))
-                    .frame(width: proxy.size.width, height: layout.bandHeight)
-                    .position(x: proxy.size.width / 2, y: layout.bandCenterY)
+                RoundedRectangle(cornerRadius: layout.cornerRadius(for: .typical), style: .continuous)
+                    .fill(bandColor)
+                    .frame(width: proxy.size.width, height: layout.height(for: .typical))
+                    .position(x: proxy.size.width / 2, y: layout.centerY(for: .typical))
 
-                Capsule(style: .continuous)
-                    .fill(Color.secondary.opacity(0.42))
-                    .frame(width: proxy.size.width, height: layout.barHeight)
-                    .position(x: proxy.size.width / 2, y: layout.bottomBarCenterY)
+                RoundedRectangle(cornerRadius: layout.cornerRadius(for: .low), style: .continuous)
+                    .fill(Color.secondary.opacity(isAwaitingDots ? 0.24 : 0.42))
+                    .frame(width: proxy.size.width, height: layout.height(for: .low))
+                    .position(x: proxy.size.width / 2, y: layout.centerY(for: .low))
 
-                ForEach(Array(dotEntries.enumerated()), id: \.offset) { index, entry in
+                ForEach(Array(dots.enumerated()), id: \.offset) { index, dot in
                     Circle()
                         .fill(Color.black.opacity(0.62))
                         .overlay(
                             Circle()
-                                .strokeBorder(dotColor(for: entry), lineWidth: layout.dotStroke)
+                                .strokeBorder(dotColor(for: dot), lineWidth: layout.dotStroke)
                         )
                         .frame(width: layout.dotDiameter, height: layout.dotDiameter)
                         .position(
-                            x: dotX(at: index, in: proxy.size),
-                            y: layout.dotY(for: entry.position)
+                            x: dotX(at: index, in: proxy.size, count: dots.count),
+                            y: layout.dotY(for: dot.position)
                         )
                 }
             }
@@ -521,77 +561,168 @@ struct BodyHealthMetricCardTrendPreview: View {
         }
     }
 
-    /// Region geometry for the dots preview: gray bar, gap, blue band, gap,
-    /// gray bar — proportioned like the Health app's card.
-    private struct DotPreviewLayout {
-        let barHeight: CGFloat
+    /// Region geometry for the dots preview: high region, gap, typical band,
+    /// gap, low region. How the three split the drawable height depends on how
+    /// many of them hold rings — an even three-way split, an even split between
+    /// two with the empty region held at its minimum, or one region at its
+    /// maximum with the other two at minimum. The three heights always sum to
+    /// the drawable height, so the preview's fixed frame stays exactly filled
+    /// while the regions morph between cases.
+    ///
+    /// Not `private`: `BodyTests` exercises this height math directly.
+    struct DotPreviewLayout {
+        /// Height a region with no rings keeps, and the share of the plot the
+        /// gaps between regions take.
+        static let minRegionFraction: CGFloat = 0.17
+        static let gapFraction: CGFloat = 0.045
+
         let gap: CGFloat
-        let bandHeight: CGFloat
-        let bandTopY: CGFloat
+        let minRegionHeight: CGFloat
+        let maxRegionHeight: CGFloat
         let dotDiameter: CGFloat
         let dotStroke: CGFloat
-        private let height: CGFloat
+        private let highHeight: CGFloat
+        private let typicalHeight: CGFloat
+        private let lowHeight: CGFloat
 
-        init(size: CGSize) {
-            height = size.height
-            barHeight = max(size.height * 0.17, 4)
-            gap = max(size.height * 0.045, 1.5)
-            bandHeight = max(size.height - 2 * (barHeight + gap), 8)
-            bandTopY = barHeight + gap
-            dotDiameter = max(min(bandHeight * 0.32, size.width * 0.16), 5)
+        init(size: CGSize, occupied: Set<SleepVitalRegion>) {
+            gap = min(max(size.height * Self.gapFraction, 1.5), size.height / 8)
+            let available = max(size.height - 2 * gap, 1)
+            // Clamping the minimum to a third is what keeps the three heights
+            // summing to `available` in every case, however small the preview is.
+            let minimum = min(max(size.height * Self.minRegionFraction, 4), available / 3)
+            let maximum = available - 2 * minimum
+            minRegionHeight = minimum
+            maxRegionHeight = maximum
+
+            func regionHeight(_ region: SleepVitalRegion, occupiedHeight: CGFloat) -> CGFloat {
+                occupied.contains(region) ? occupiedHeight : minimum
+            }
+
+            switch occupied.count {
+            case 1:
+                highHeight = regionHeight(.high, occupiedHeight: maximum)
+                typicalHeight = regionHeight(.typical, occupiedHeight: maximum)
+                lowHeight = regionHeight(.low, occupiedHeight: maximum)
+            case 2:
+                let shared = (available - minimum) / 2
+                highHeight = regionHeight(.high, occupiedHeight: shared)
+                typicalHeight = regionHeight(.typical, occupiedHeight: shared)
+                lowHeight = regionHeight(.low, occupiedHeight: shared)
+            default:
+                // Rings in all three regions, or none at all while the night is
+                // still pending — both split the height evenly.
+                let third = available / 3
+                highHeight = third
+                typicalHeight = third
+                lowHeight = third
+            }
+
+            // Ring size stays fixed across every case so the rings glide rather
+            // than resize while the regions morph. `maximum` is the constant
+            // reference the typical band used to supply, and the minimum region
+            // height caps it so a ring can never outgrow the thinnest region.
+            dotDiameter = min(max(min(maximum * 0.32, size.width * 0.16), 5), minimum)
             dotStroke = max(dotDiameter * 0.26, 2)
         }
 
-        var bandCornerRadius: CGFloat {
-            max(bandHeight * 0.14, 3)
-        }
-
-        var topBarCenterY: CGFloat {
-            barHeight / 2
-        }
-
-        var bandCenterY: CGFloat {
-            bandTopY + bandHeight / 2
-        }
-
-        var bottomBarCenterY: CGFloat {
-            height - barHeight / 2
-        }
-
-        /// `markerPosition` maps the typical band to [1/3, 2/3]; that middle
-        /// third stretches over the blue band and the outer thirds collapse
-        /// onto their gray bars, mirroring the regions of the drawn shapes.
-        func dotY(for position: Double) -> CGFloat {
+        /// Which region a dot position lands in. Used both to place a ring and
+        /// to decide which regions are occupied, so the layout can never grow a
+        /// region the rings don't actually land in.
+        static func regionSlot(for position: Double) -> SleepVitalRegion {
             let clamped = min(max(position, 0), 1)
-            let halfDot = dotDiameter / 2
 
             if clamped > 2.0 / 3.0 {
-                return topBarCenterY
+                return .high
             }
 
             if clamped < 1.0 / 3.0 {
-                return bottomBarCenterY
+                return .low
             }
 
+            return .typical
+        }
+
+        func height(for region: SleepVitalRegion) -> CGFloat {
+            switch region {
+            case .high:
+                return highHeight
+            case .typical:
+                return typicalHeight
+            case .low:
+                return lowHeight
+            }
+        }
+
+        func topY(for region: SleepVitalRegion) -> CGFloat {
+            switch region {
+            case .high:
+                return 0
+            case .typical:
+                return highHeight + gap
+            case .low:
+                return highHeight + gap + typicalHeight + gap
+            }
+        }
+
+        func centerY(for region: SleepVitalRegion) -> CGFloat {
+            topY(for: region) + height(for: region) / 2
+        }
+
+        func cornerRadius(for region: SleepVitalRegion) -> CGFloat {
+            max(height(for: region) * 0.14, 3)
+        }
+
+        /// `markerPosition` maps the typical band to [1/3, 2/3]; that middle
+        /// third stretches over the typical region and the outer thirds collapse
+        /// onto the high and low regions, mirroring the drawn shapes.
+        func dotY(for position: Double) -> CGFloat {
+            let clamped = min(max(position, 0), 1)
+            let region = Self.regionSlot(for: clamped)
+
+            guard region == .typical else {
+                return centerY(for: region)
+            }
+
+            let halfDot = dotDiameter / 2
+            let bandTopY = topY(for: .typical)
             let bandFraction = (2.0 / 3.0 - clamped) * 3
             let minY = bandTopY + halfDot + 0.5
-            let maxY = bandTopY + bandHeight - halfDot - 0.5
-            return min(max(bandTopY + bandHeight * CGFloat(bandFraction), minY), maxY)
+            let maxY = bandTopY + typicalHeight - halfDot - 0.5
+            return min(max(bandTopY + typicalHeight * CGFloat(bandFraction), minY), maxY)
         }
     }
 
-    private func dotX(at index: Int, in size: CGSize) -> CGFloat {
-        size.width * (CGFloat(index) + 0.5) / CGFloat(max(dotEntries.count, 1))
+    /// Which regions currently hold a ring. Read from the dot positions rather
+    /// than `DotEntry.region` so the grown region and the drawn ring can never
+    /// disagree. Empty while the night is pending, which the layout reads as an
+    /// even three-way split.
+    private func occupiedRegions(for dots: [PreviewDot]) -> Set<SleepVitalRegion> {
+        guard !isAwaitingDots else {
+            return []
+        }
+
+        return Set(dots.map { DotPreviewLayout.regionSlot(for: $0.position) })
     }
 
-    private func dotColor(for entry: BodyHealthMetricCard.Model.DotEntry) -> Color {
-        switch entry.region {
+    private func dotX(at index: Int, in size: CGSize, count: Int) -> CGFloat {
+        size.width * (CGFloat(index) + 0.5) / CGFloat(max(count, 1))
+    }
+
+    private var bandColor: Color {
+        isAwaitingDots ? Color.secondary.opacity(0.24) : Color(red: 0.21, green: 0.30, blue: 0.45)
+    }
+
+    private func dotColor(for dot: PreviewDot) -> Color {
+        switch dot.region {
         case .typical:
             return BodyVitalsChartStyle.typicalColor
         case .high:
             return BodyVitalsChartStyle.highColor
         case .low:
             return BodyVitalsChartStyle.lowColor
+        case nil:
+            return Color.secondary.opacity(0.45)
         }
     }
 }

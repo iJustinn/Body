@@ -11,9 +11,9 @@ struct ActivityRingSummary: Codable, Equatable {
     var stand: ActivityRingMetric
 
     var isCompleted: Bool {
-        move.progress >= 1 &&
-            exercise.progress >= 1 &&
-            stand.progress >= 1
+        move.isClosed &&
+            exercise.isClosed &&
+            stand.isClosed
     }
 
     var isEmpty: Bool {
@@ -50,6 +50,22 @@ struct ActivityRingMetric: Codable, Equatable {
 
     var headProgress: Double {
         completionProgress.truncatingRemainder(dividingBy: 1)
+    }
+
+    /// Whether the ring counts as closed. Compares the whole-number values the UI
+    /// displays (both sides `.rounded()`), so a day shown as "500/500" earns its
+    /// star even when the raw HealthKit value is fractionally short (499.6/500).
+    var isClosed: Bool {
+        guard let value, let goal, value.isFinite, goal.isFinite else {
+            return false
+        }
+
+        let roundedGoal = goal.rounded()
+        guard roundedGoal >= 1 else {
+            return false
+        }
+
+        return value.rounded() >= roundedGoal
     }
 
     var showsFullStartMarker: Bool {
@@ -100,7 +116,7 @@ struct ActivityRingCalendarMonth: Equatable, Identifiable {
     var closedStandRingCount: Int { closedRingCount(\.stand) }
 
     private func closedRingCount(_ ring: KeyPath<ActivityRingSummary, ActivityRingMetric>) -> Int {
-        days.filter { $0.hasData && !$0.isFuture && $0.summary[keyPath: ring].progress >= 1 }.count
+        days.filter { $0.hasData && !$0.isFuture && $0.summary[keyPath: ring].isClosed }.count
     }
 }
 

@@ -6,6 +6,26 @@
 import Foundation
 
 enum BodyHealthSourceIcon {
+    static let customSourceDefaultSymbolName = "heart.fill"
+
+    /// The custom-source icon picker's vocabulary — spelled out here rather than
+    /// derived from `rules`, so editing a vendor-detection rule can never drop a
+    /// symbol out from under a user's persisted pick.
+    static let selectableSymbolNames: [String] = [
+        "heart.fill",
+        "applewatch",
+        "applewatch.side.right",
+        "watch.analog",
+        "iphone.gen3",
+        "ipad",
+        "circle",
+        "scalemass",
+        "sensor",
+        "bed.double",
+        "figure.run",
+        "fork.knife"
+    ]
+
     private struct Rule {
         let symbolName: String
         let nameKeywords: [String]

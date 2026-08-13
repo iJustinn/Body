@@ -32,8 +32,9 @@ struct BodyHealthMetricTrendChart: View {
     /// `false` keeps every other caller's chart unchanged.
     let immersive: Bool
 
-    private let visibleCalendarPoints: [HealthTrendCalendarPoint]
     private let visibleFinitePoints: [HealthTrendCalendarPoint]
+    private let markEntries: [BodyHealthTrendMarkEntry]
+    private let lineSegments: [BodyHealthTrendLineSegmentMark]
     private let chartXDomain: ClosedRange<Date>
     private let chartYDomain: ClosedRange<Double>
     private let latestVisibleCalendarDate: Date?
@@ -77,21 +78,39 @@ struct BodyHealthMetricTrendChart: View {
         self.immersive = immersive
         self.chartIdentity = chartIdentity
 
-        let calendarPoints: [HealthTrendCalendarPoint]
-        switch chartStyle {
-        case .line:
-            calendarPoints = series.lineChartCalendarPoints(to: selectedRange)
-        case .bar:
-            calendarPoints = series.chartCalendarPoints(to: selectedRange)
+        // Every range's points, not just the selected one: dates outside the
+        // current range become invisible placeholder marks, so switching
+        // ranges morphs shared dates in place and fades the rest instead of
+        // replacing the whole mark set.
+        var pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]] = [:]
+        for range in BodyHealthTrendRange.allCases {
+            switch chartStyle {
+            case .line:
+                pointsByRange[range] = series.lineChartCalendarPoints(to: range)
+            case .bar:
+                pointsByRange[range] = series.chartCalendarPoints(to: range)
+            }
         }
-        self.visibleCalendarPoints = calendarPoints
+        let calendarPoints = pointsByRange[selectedRange] ?? []
         self.visibleFinitePoints = calendarPoints.filter { $0.value?.isFinite == true }
+        self.markEntries = Self.makeTrendMarkEntries(
+            selectedRange: selectedRange,
+            pointsByRange: pointsByRange
+        )
+        self.lineSegments = chartStyle == .line
+            ? Self.makeTrendLineSegments(selectedRange: selectedRange, pointsByRange: pointsByRange)
+            : []
 
         let aggregatedValues = calendarPoints.compactMap(\.value).filter(\.isFinite)
         let fallbackValues = series.limited(to: selectedRange).points.map(\.value).filter(\.isFinite)
         let highlightedRangeValues = highlightedRange?.domainValues ?? []
         let baselineDomainValues = baselineValue.map { [$0] } ?? []
-        let currentValueDomainValues = currentValuePoint.map { [$0.value] } ?? []
+        // Only where the dot is drawn: the caller now passes it for every range
+        // so it can morph, and the off-week ranges must keep the domain they
+        // had when they received nil.
+        let currentValueDomainValues = selectedRange == .recentWeek
+            ? (currentValuePoint.map { [$0.value] } ?? [])
+            : []
         let domainValues = (aggregatedValues.isEmpty ? fallbackValues : aggregatedValues)
             + highlightedRangeValues
             + baselineDomainValues
@@ -122,7 +141,19 @@ struct BodyHealthMetricTrendChart: View {
     // disagree with the live score (the plotted point is the frozen morning
     // value) and briefly showed the wrong band as "Current".
     private var activeHighlightSourceValue: Double? {
-        selectedTrendPoint?.value ?? currentValuePoint?.value
+        // The caller passes the dot for every range so it can morph; off the
+        // week range it is invisible and must not feed the band either.
+        guard selectedTrendPoint != nil || showsCurrentValuePoint else {
+            return nil
+        }
+
+        return selectedTrendPoint?.value ?? currentValuePoint?.value
+    }
+
+    /// The dot belongs to the week chart only. Other ranges keep it resident at
+    /// opacity 0 — removing the mark pops it on a range switch.
+    private var showsCurrentValuePoint: Bool {
+        selectedRange == .recentWeek
     }
 
     var body: some View {
@@ -143,64 +174,111 @@ struct BodyHealthMetricTrendChart: View {
                         .lineStyle(StrokeStyle(lineWidth: 1.1, dash: [4, 4]))
                 }
 
-                ForEach(visibleCalendarPoints) { point in
-                    if let value = point.value {
-                        switch chartStyle {
-                        case .line:
-                            LineMark(
-                                x: .value("Date", point.date, unit: .day),
-                                y: .value(title, value)
-                            )
-                            .interpolationMethod(.linear)
-                            .foregroundStyle(lineChartStrokeColor)
-                            .lineStyle(StrokeStyle(lineWidth: lineChartStrokeWidth, lineCap: .round, lineJoin: .round))
+                switch chartStyle {
+                case .line:
+                    // Per-pair segments instead of one LineMark run: Swift
+                    // Charts cannot interpolate a single line whose vertex set
+                    // changes across a range switch — unmatched vertices
+                    // freeze, then pop. Paired segments that exist in both
+                    // ranges stretch in place; the rest fade at opacity 0.
+                    ForEach(lineSegments) { segment in
+                        LineMark(
+                            x: .value("Date", segment.startDate, unit: .day),
+                            y: .value(title, segment.startValue),
+                            series: .value("Segment", segment.id)
+                        )
+                        .interpolationMethod(.linear)
+                        .foregroundStyle(lineChartStrokeColor)
+                        .lineStyle(StrokeStyle(lineWidth: lineChartStrokeWidth, lineCap: .round, lineJoin: .round))
+                        .opacity(segment.isPlaceholder ? 0 : 1)
+                        .accessibilityHidden(segment.isPlaceholder)
 
-                            if selectedRange.showsPointMarks {
+                        LineMark(
+                            x: .value("Date", segment.endDate, unit: .day),
+                            y: .value(title, segment.endValue),
+                            series: .value("Segment", segment.id)
+                        )
+                        .interpolationMethod(.linear)
+                        .foregroundStyle(lineChartStrokeColor)
+                        .lineStyle(StrokeStyle(lineWidth: lineChartStrokeWidth, lineCap: .round, lineJoin: .round))
+                        .opacity(segment.isPlaceholder ? 0 : 1)
+                        // Both endpoints, or VoiceOver still reads the second
+                        // half of an invisible off-range segment.
+                        .accessibilityHidden(segment.isPlaceholder)
+                    }
+
+                    if selectedRange.showsPointMarks {
+                        ForEach(markEntries) { entry in
+                            // `dotValue` also covers a selected-range day with
+                            // no reading whose date carries another range's
+                            // value: the dot stays resident but invisible, so
+                            // selecting that range fades it in where it belongs
+                            // instead of inserting it.
+                            if let value = entry.dotValue {
                                 if selectedRange.usesPreviewLineChartStyle {
                                     PointMark(
-                                        x: .value("Date", point.date, unit: .day),
+                                        x: .value("Date", entry.date, unit: .day),
                                         y: .value(title, value)
                                     )
                                     .symbol {
                                         BodyLineChartPreviewPointSymbol(
                                             tintColor: symbolColor,
-                                            isCurrent: isLatestVisiblePoint(point),
+                                            isCurrent: isLatestVisiblePoint(entry),
                                             pointDiameter: selectedRange.linePointDiameter,
                                             currentPointDiameter: selectedRange.lineCurrentPointDiameter
                                         )
+                                        // Inside the symbol view, not a mark modifier — Charts
+                                        // does not apply mark opacity to custom `.symbol {}`
+                                        // content, which would leave the placeholders visible.
+                                        .opacity(entry.showsDot ? 1 : 0)
                                     }
+                                    // Opacity is only visual: an off-range
+                                    // placeholder would still be announced.
+                                    .accessibilityHidden(!entry.showsDot)
                                 } else {
                                     PointMark(
-                                        x: .value("Date", point.date, unit: .day),
+                                        x: .value("Date", entry.date, unit: .day),
                                         y: .value(title, value)
                                     )
                                     .foregroundStyle(symbolColor)
                                     .symbolSize(28)
+                                    .opacity(entry.showsDot ? 1 : 0)
+                                    .accessibilityHidden(!entry.showsDot)
                                 }
                             }
-                        case .bar:
+                        }
+                    }
+                case .bar:
+                    ForEach(markEntries) { entry in
+                        if let value = entry.value {
                             BarMark(
-                                x: .value("Date", point.date, unit: .day),
+                                x: .value("Date", entry.date, unit: .day),
                                 y: .value(title, value),
                                 width: .fixed(chartBarWidth)
                             )
                             .foregroundStyle(symbolColor.gradient)
                             .cornerRadius(4)
+                            .opacity(entry.isPlaceholder ? 0 : 1)
+                            .accessibilityHidden(entry.isPlaceholder)
+                        } else {
+                            BarMark(
+                                x: .value("Date", entry.date, unit: .day),
+                                y: .value(title, placeholderBarYValue),
+                                width: .fixed(chartBarWidth)
+                            )
+                            .foregroundStyle(Color.secondary.opacity(0.14))
+                            .cornerRadius(4)
+                            .opacity(entry.isPlaceholder ? 0 : 1)
+                            .accessibilityHidden(entry.isPlaceholder)
                         }
-                    } else if chartStyle == .bar {
-                        BarMark(
-                            x: .value("Date", point.date, unit: .day),
-                            y: .value(title, placeholderBarYValue),
-                            width: .fixed(chartBarWidth)
-                        )
-                        .foregroundStyle(Color.secondary.opacity(0.14))
-                        .cornerRadius(4)
                     }
                 }
 
-                // Hidden while a scrub callout is up: the band follows the
+                // Resident on every range and hidden by opacity, never removed:
+                // dropping the mark off the week range pops it on a switch.
+                // Hidden too while a scrub callout is up — the band follows the
                 // scrubbed point then, and the dot would clutter the rule line.
-                if chartStyle == .line, let currentValuePoint, selectedTrendPoint == nil {
+                if chartStyle == .line, let currentValuePoint {
                     PointMark(
                         x: .value("Date", currentValuePoint.date, unit: .day),
                         y: .value(title, currentValuePoint.value)
@@ -212,7 +290,12 @@ struct BodyHealthMetricTrendChart: View {
                                 width: selectedRange.lineCurrentPointDiameter,
                                 height: selectedRange.lineCurrentPointDiameter
                             )
+                            // Inside the symbol view, not a mark modifier —
+                            // Charts does not apply mark opacity to custom
+                            // `.symbol {}` content.
+                            .opacity(showsCurrentValuePoint && selectedTrendPoint == nil ? 1 : 0)
                     }
+                    .accessibilityHidden(!(showsCurrentValuePoint && selectedTrendPoint == nil))
                 }
 
                 if let selectedTrendPoint, let selectedTrendValue = selectedTrendPoint.value {
@@ -313,6 +396,13 @@ struct BodyHealthMetricTrendChart: View {
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
             )
+            // Keyed on the range ONLY: a broader key would also animate
+            // scrub-mark removal (see the lingering-dot note on the band
+            // animation above).
+            .animation(reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0), value: selectedRange)
+            .onChange(of: selectedRange) {
+                selectedDate = nil
+            }
             .transaction { transaction in
                 transaction.animation = nil
             }
@@ -357,8 +447,11 @@ struct BodyHealthMetricTrendChart: View {
         return "\(range.title)|\(lower)|\(upper)"
     }
 
-    private func isLatestVisiblePoint(_ point: HealthTrendCalendarPoint) -> Bool {
-        point.date == latestVisibleCalendarDate
+    // Placeholders can never match: `latestVisibleCalendarDate` is a
+    // current-range date, and placeholder entries are exactly the dates that
+    // are not.
+    private func isLatestVisiblePoint(_ entry: BodyHealthTrendMarkEntry) -> Bool {
+        entry.date == latestVisibleCalendarDate
     }
 
     private var lineChartStrokeColor: Color {
@@ -438,11 +531,113 @@ struct BodyHealthMetricTrendChart: View {
         let padding = max((maximum - minimum) * 0.12, 1)
         return max(0, minimum - padding)...(maximum + padding)
     }
+
+    /// One mark per distinct date across ALL ranges' calendar points. Dates
+    /// outside the selected range become invisible placeholders carrying their
+    /// owning range's value, so a range switch fades those marks in/out at
+    /// their true geometry instead of popping them; shared dates (today ends
+    /// every range) morph value-to-value. A date present in several ranges
+    /// resolves to the selected range's point first, then in fixed
+    /// `BodyHealthTrendRange.allCases` order (Week → Month → 6M → Year). A
+    /// selected-range day with no reading keeps its slot but borrows another
+    /// range's value as `offRangeValue`, so line style still has a dot to
+    /// morph — see `BodyHealthTrendMarkEntry.dotValue`.
+    static func makeTrendMarkEntries(
+        selectedRange: BodyHealthTrendRange,
+        pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]]
+    ) -> [BodyHealthTrendMarkEntry] {
+        var entriesByDate: [Date: BodyHealthTrendMarkEntry] = [:]
+        for point in pointsByRange[selectedRange] ?? [] {
+            entriesByDate[point.date] = BodyHealthTrendMarkEntry(
+                date: point.date,
+                value: point.value,
+                isPlaceholder: false
+            )
+        }
+        for range in BodyHealthTrendRange.allCases where range != selectedRange {
+            for point in pointsByRange[range] ?? [] {
+                guard var entry = entriesByDate[point.date] else {
+                    entriesByDate[point.date] = BodyHealthTrendMarkEntry(
+                        date: point.date,
+                        value: point.value,
+                        isPlaceholder: true
+                    )
+                    continue
+                }
+                // The date is taken, but a day with no reading draws no dot —
+                // common for today's still-incomplete data, which longer
+                // ranges already aggregate. Borrow that range's value as
+                // invisible dot geometry so the dot morphs in instead of
+                // popping; the entry itself stays put, keeping its gray
+                // no-data bar in bar style.
+                guard entry.value == nil,
+                      entry.offRangeValue == nil,
+                      point.value?.isFinite == true else {
+                    continue
+                }
+                entry.offRangeValue = point.value
+                entriesByDate[point.date] = entry
+            }
+        }
+        return entriesByDate.values.sorted { $0.date < $1.date }
+    }
+
+    /// The trend line split into one two-point series per consecutive-finite
+    /// pair, keyed by the pair's start date. A Week pair d→d+1 and a
+    /// compressed Month pair d→d+2 share id `seg-d`, so the segment stretches
+    /// in place across the switch. Other ranges' pair starts with no
+    /// selected-range counterpart collapse to zero-length placeholders at
+    /// their own start point, fading where they stood. Ids dedupe with
+    /// selected-range priority, then fixed `allCases` order.
+    static func makeTrendLineSegments(
+        selectedRange: BodyHealthTrendRange,
+        pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]]
+    ) -> [BodyHealthTrendLineSegmentMark] {
+        func finitePoints(for range: BodyHealthTrendRange) -> [HealthTrendCalendarPoint] {
+            (pointsByRange[range] ?? []).filter { $0.value?.isFinite == true }
+        }
+
+        var segmentsByID: [String: BodyHealthTrendLineSegmentMark] = [:]
+        let selectedFinite = finitePoints(for: selectedRange)
+        for (start, end) in zip(selectedFinite, selectedFinite.dropFirst()) {
+            guard let startValue = start.value, let endValue = end.value else {
+                continue
+            }
+            let segment = BodyHealthTrendLineSegmentMark(
+                startDate: start.date,
+                startValue: startValue,
+                endDate: end.date,
+                endValue: endValue,
+                isPlaceholder: false
+            )
+            segmentsByID[segment.id] = segment
+        }
+
+        for range in BodyHealthTrendRange.allCases where range != selectedRange {
+            for start in finitePoints(for: range).dropLast() {
+                guard let startValue = start.value else {
+                    continue
+                }
+                let placeholder = BodyHealthTrendLineSegmentMark(
+                    startDate: start.date,
+                    startValue: startValue,
+                    endDate: start.date,
+                    endValue: startValue,
+                    isPlaceholder: true
+                )
+                if segmentsByID[placeholder.id] == nil {
+                    segmentsByID[placeholder.id] = placeholder
+                }
+            }
+        }
+
+        return segmentsByID.values.sorted { $0.startDate < $1.startDate }
+    }
 }
 
 
 
-struct BodyHealthMetricDayContextInterval: Identifiable {
+struct BodyHealthMetricDayContextInterval: Identifiable, Equatable {
     enum Kind {
         case sleep
         case workout
@@ -454,9 +649,13 @@ struct BodyHealthMetricDayContextInterval: Identifiable {
     let title: String
     let symbolName: String
     let color: Color
+    /// Index within this interval's (kind, title) group, assigned by
+    /// `BodyHealthMetricDayChart.assigningOrdinals(to:)`. Defaults to 0 so
+    /// callers keep building intervals without one.
+    var ordinal: Int = 0
 
     var id: String {
-        "\(kind)-\(startDate.timeIntervalSinceReferenceDate)-\(endDate.timeIntervalSinceReferenceDate)-\(title)"
+        "\(kind)-\(title)-\(ordinal)"
     }
 
     var midpointDate: Date {
@@ -501,7 +700,9 @@ struct BodyHealthMetricDayChart: View {
 
     private let hourlyBuckets: [HealthTrendHourlyBucket]
     private let secondaryHourlyBuckets: [HealthTrendHourlyBucket]
+    private let rangeEntries: [BodyHealthMetricDayRangeEntry]
     private let entries: [BodyHealthMetricDayChartEntry]
+    private let lineSegments: [BodyHealthMetricDayLineSegmentMark]
     private let pointMarkEntries: [BodyHealthMetricDayChartEntry]
     private let finiteEntries: [BodyHealthMetricDayChartEntry]
     private let primaryEntriesByDate: [Date: BodyHealthMetricDayChartEntry]
@@ -510,10 +711,15 @@ struct BodyHealthMetricDayChart: View {
     private let chartYDomain: ClosedRange<Double>
     private let latestBucketDate: Date?
     private let latestSecondaryBucketDate: Date?
+    private let dayStart: Date
 
     private static let pointDiameter: CGFloat = 8
     private static let currentPointDiameter: CGFloat = 10
     private static let segmentGapThreshold: TimeInterval = 4 * 60 * 60
+    /// Jan 1 2001 — a day with no DST transition anywhere. Every mark plots
+    /// into this fixed day (see `normalizedPlotDate(for:dayStart:)`) so the x
+    /// domain never moves across day switches.
+    private static let referenceDayStart = Calendar.bodyGregorian.startOfDay(for: Date(timeIntervalSinceReferenceDate: 0))
 
     @State private var selectedDate: Date?
     @GestureState private var isSelecting = false
@@ -531,7 +737,8 @@ struct BodyHealthMetricDayChart: View {
         contextIntervals: [BodyHealthMetricDayContextInterval] = [],
         aggregationLabel: String = String(localized: "HOURLY AVG"),
         includesSampleBreakdown: Bool = true,
-        collapsesUnchangedPoints: Bool = false
+        collapsesUnchangedPoints: Bool = false,
+        showsHourlyRangeBars: Bool = false
     ) {
         self.day = day
         self.title = title
@@ -540,7 +747,7 @@ struct BodyHealthMetricDayChart: View {
         self.primarySourceName = primarySourceName
         self.secondarySourceName = secondarySourceName
         self.valueFormatter = valueFormatter
-        self.contextIntervals = contextIntervals
+        self.contextIntervals = Self.assigningOrdinals(to: contextIntervals)
         self.aggregationLabel = aggregationLabel
         self.includesSampleBreakdown = includesSampleBreakdown
 
@@ -548,6 +755,10 @@ struct BodyHealthMetricDayChart: View {
         let secondaryBuckets = secondarySeries.hourlyAverageBuckets(on: day)
         self.hourlyBuckets = buckets
         self.secondaryHourlyBuckets = secondaryBuckets
+        // Primary-source bars only, matching the Week/Month/6M/Year range chart:
+        // the compared source contributes its line, not a second set of bars.
+        let rangeEntries = showsHourlyRangeBars ? Self.makeRangeEntries(from: buckets) : []
+        self.rangeEntries = rangeEntries
         self.latestBucketDate = buckets.last?.plotDate
         self.latestSecondaryBucketDate = secondaryBuckets.last?.plotDate
         let primaryEntries = Self.makeEntries(
@@ -562,42 +773,56 @@ struct BodyHealthMetricDayChart: View {
         )
         let allEntries = primaryEntries + secondaryEntries
         self.entries = allEntries
-        self.pointMarkEntries = collapsesUnchangedPoints
+        let calendar = Calendar.bodyGregorian
+        let dayStart = calendar.startOfDay(for: day)
+        self.dayStart = dayStart
+        self.lineSegments = Self.makeLineSegments(from: allEntries, dayStart: dayStart)
+        let visibleDots = collapsesUnchangedPoints
             ? Self.collapsingUnchangedRunPoints(allEntries)
             : allEntries
+        self.pointMarkEntries = Self.addingPlaceholderDots(
+            to: visibleDots,
+            fullEntries: allEntries,
+            dayStart: dayStart
+        )
         self.finiteEntries = allEntries.filter { $0.averageValue.isFinite }
         self.primaryEntriesByDate = Dictionary(uniqueKeysWithValues: primaryEntries.map { ($0.plotDate, $0) })
         self.secondaryEntriesByDate = Dictionary(uniqueKeysWithValues: secondaryEntries.map { ($0.plotDate, $0) })
-        self.chartYDomain = Self.computeYDomain(from: buckets + secondaryBuckets)
+        self.chartYDomain = Self.computeYDomain(
+            from: buckets + secondaryBuckets,
+            rangeEntries: rangeEntries
+        )
 
-        let calendar = Calendar.bodyGregorian
-        let dayStart = calendar.startOfDay(for: day)
-        let nextDayStart = calendar.date(byAdding: .day, value: 1, to: dayStart)
-            ?? dayStart.addingTimeInterval(86_400)
-        self.chartXDomain = dayStart...nextDayStart
+        self.chartXDomain = Self.referenceDayStart...Self.referenceDayStart.addingTimeInterval(86_400)
     }
 
     var body: some View {
+        GeometryReader { proxy in
+            chart(rangeBarWidth: Self.rangeBarWidth(forAvailableWidth: proxy.size.width))
+        }
+    }
+
+    private func chart(rangeBarWidth: CGFloat) -> some View {
         Chart {
             ForEach(contextIntervals) { interval in
                 RectangleMark(
-                    xStart: .value("\(interval.title) Start", interval.startDate),
-                    xEnd: .value("\(interval.title) End", interval.endDate),
+                    xStart: .value("\(interval.title) Start", normalizedDate(interval.startDate)),
+                    xEnd: .value("\(interval.title) End", normalizedDate(interval.endDate)),
                     yStart: .value("Context Minimum", chartYDomain.lowerBound),
                     yEnd: .value("Context Maximum", chartYDomain.upperBound)
                 )
                 .foregroundStyle(interval.color.opacity(interval.kind == .sleep ? 0.14 : 0.10))
 
                 RectangleMark(
-                    xStart: .value("\(interval.title) Top Start", interval.startDate),
-                    xEnd: .value("\(interval.title) Top End", interval.endDate),
+                    xStart: .value("\(interval.title) Top Start", normalizedDate(interval.startDate)),
+                    xEnd: .value("\(interval.title) Top End", normalizedDate(interval.endDate)),
                     yStart: .value("Context Top Start", contextTopLineLowerBound),
                     yEnd: .value("Context Top End", chartYDomain.upperBound)
                 )
                 .foregroundStyle(interval.color)
 
                 PointMark(
-                    x: .value("\(interval.title) Label", interval.midpointDate),
+                    x: .value("\(interval.title) Label", normalizedDate(interval.midpointDate)),
                     y: .value("Context Label", chartYDomain.upperBound)
                 )
                 .foregroundStyle(Color.clear)
@@ -609,20 +834,55 @@ struct BodyHealthMetricDayChart: View {
                 }
             }
 
-            ForEach(entries) { entry in
+            // Behind the line: each hour's min-max, in the same translucent gray
+            // the Week/Month/6M/Year range chart uses under its average line.
+            ForEach(rangeEntries) { entry in
+                if entry.lowValue == entry.highValue {
+                    PointMark(
+                        x: .value("Time", normalizedDate(entry.plotDate)),
+                        y: .value(title, entry.lowValue)
+                    )
+                    .symbolSize(bodyRangeChartPointSymbolSize(forBarWidth: rangeBarWidth))
+                    .foregroundStyle(Self.rangeBarColor)
+                } else {
+                    BarMark(
+                        x: .value("Time", normalizedDate(entry.plotDate)),
+                        yStart: .value("Low \(title)", entry.lowValue),
+                        yEnd: .value("High \(title)", entry.highValue),
+                        width: .fixed(rangeBarWidth)
+                    )
+                    .foregroundStyle(Self.rangeBarColor)
+                    .cornerRadius(rangeBarWidth / 2)
+                }
+            }
+
+            ForEach(lineSegments) { segment in
                 LineMark(
-                    x: .value("Time", entry.plotDate),
-                    y: .value(title, entry.averageValue),
-                    series: .value("Segment", entry.seriesKey)
+                    x: .value("Time", normalizedDate(segment.startPlotDate)),
+                    y: .value(title, segment.startValue),
+                    series: .value("Segment", segment.id)
                 )
                 .interpolationMethod(.linear)
-                .foregroundStyle(color(for: entry))
+                .foregroundStyle(color(for: segment.sourceRole))
                 .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                .opacity(segment.isPlaceholder ? 0 : 1)
+                .accessibilityHidden(segment.isPlaceholder)
+
+                LineMark(
+                    x: .value("Time", normalizedDate(segment.endPlotDate)),
+                    y: .value(title, segment.endValue),
+                    series: .value("Segment", segment.id)
+                )
+                .interpolationMethod(.linear)
+                .foregroundStyle(color(for: segment.sourceRole))
+                .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                .opacity(segment.isPlaceholder ? 0 : 1)
+                .accessibilityHidden(segment.isPlaceholder)
             }
 
             ForEach(pointMarkEntries) { entry in
                 PointMark(
-                    x: .value("Time", entry.plotDate),
+                    x: .value("Time", normalizedDate(entry.plotDate)),
                     y: .value(title, entry.averageValue)
                 )
                 .symbol {
@@ -632,11 +892,18 @@ struct BodyHealthMetricDayChart: View {
                         pointDiameter: Self.pointDiameter,
                         currentPointDiameter: Self.currentPointDiameter
                     )
+                    // Inside the symbol view, not a mark modifier — Charts
+                    // does not apply mark opacity to custom `.symbol {}`
+                    // content, which would leave the placeholders visible.
+                    .opacity(entry.isPlaceholder ? 0 : 1)
                 }
+                // Opacity is only visual: the hour-filling placeholders would
+                // otherwise be announced as real readings.
+                .accessibilityHidden(entry.isPlaceholder)
             }
 
             if let selectedBucket {
-                RuleMark(x: .value("Selected Time", selectedBucket.plotDate))
+                RuleMark(x: .value("Selected Time", normalizedDate(selectedBucket.plotDate)))
                     .foregroundStyle(Color.secondary.opacity(0.48))
                     .lineStyle(StrokeStyle(lineWidth: 1.4))
                     .annotation(
@@ -655,7 +922,7 @@ struct BodyHealthMetricDayChart: View {
 
                 ForEach(selectedEntries(for: selectedBucket.plotDate)) { entry in
                     PointMark(
-                        x: .value("Selected Time", entry.plotDate),
+                        x: .value("Selected Time", normalizedDate(entry.plotDate)),
                         y: .value(title, entry.averageValue)
                     )
                     .foregroundStyle(color(for: entry))
@@ -704,9 +971,16 @@ struct BodyHealthMetricDayChart: View {
             return nil
         }
 
+        // The chart selection reports a reference-day date; map it back onto
+        // the real day before comparing against the entries' real plot dates.
+        let realSelectedDate = dayStart.addingTimeInterval(selectedDate.timeIntervalSince(Self.referenceDayStart))
         return finiteEntries.min { first, second in
-            abs(first.plotDate.timeIntervalSince(selectedDate)) < abs(second.plotDate.timeIntervalSince(selectedDate))
+            abs(first.plotDate.timeIntervalSince(realSelectedDate)) < abs(second.plotDate.timeIntervalSince(realSelectedDate))
         }
+    }
+
+    private func normalizedDate(_ date: Date) -> Date {
+        Self.normalizedPlotDate(for: date, dayStart: dayStart)
     }
 
     private func selectedEntries(for date: Date) -> [BodyHealthMetricDayChartEntry] {
@@ -731,8 +1005,16 @@ struct BodyHealthMetricDayChart: View {
     }
 
     private func color(for entry: BodyHealthMetricDayChartEntry) -> Color {
-        entry.sourceRole == .primary ? color : secondaryColor
+        color(for: entry.sourceRole)
     }
+
+    private func color(for role: BodyHealthSourceRole) -> Color {
+        role == .primary ? color : secondaryColor
+    }
+
+    /// Same translucent gray `BodyHeartRateRangeTrendChart` fills its bars with
+    /// while an average line runs over them.
+    private static let rangeBarColor = Color.secondary.opacity(0.24)
 
     private var contextTopLineLowerBound: Double {
         BodyHealthMetricDayContextBand.topStripeLowerBound(for: chartYDomain)
@@ -748,8 +1030,15 @@ struct BodyHealthMetricDayChart: View {
             }
     }
 
-    private static func computeYDomain(from buckets: [HealthTrendHourlyBucket]) -> ClosedRange<Double> {
-        let values = buckets.map(\.averageValue).filter(\.isFinite)
+    private static func computeYDomain(
+        from buckets: [HealthTrendHourlyBucket],
+        rangeEntries: [BodyHealthMetricDayRangeEntry] = []
+    ) -> ClosedRange<Double> {
+        // The bars reach each hour's extremes, so they have to be inside the
+        // domain or they clip at the plot edges.
+        let values = (buckets.map(\.averageValue)
+            + rangeEntries.flatMap { [$0.lowValue, $0.highValue] })
+            .filter(\.isFinite)
         guard let minimum = values.min(), let maximum = values.max() else {
             return 0...1
         }
@@ -761,6 +1050,36 @@ struct BodyHealthMetricDayChart: View {
 
         let padding = max((maximum - minimum) * 0.16, 1)
         return max(0, minimum - padding)...(maximum + padding)
+    }
+
+    /// The selected day's time-of-day offsets, replotted onto the fixed
+    /// reference day. The constant x-domain is what lets marks morph in place
+    /// across day switches — plotting real dates shifts both the values and
+    /// the domain by 24h, which Swift Charts animates as a horizontal slide.
+    /// The clamp pins a DST long day's spill past hour 24 to the domain edge.
+    static func normalizedPlotDate(for date: Date, dayStart: Date) -> Date {
+        referenceDayStart.addingTimeInterval(
+            min(max(date.timeIntervalSince(dayStart), 0), 86_400)
+        )
+    }
+
+    /// Day-stable identity for the context highlight areas: the ordinal is
+    /// the interval's index within its (kind, title) group of the start-sorted
+    /// array, so a same-type highlight (Sleep↔Sleep, Run↔Run) keeps its id
+    /// across day switches and morphs — shrinks or extends in place — while
+    /// unmatched types exit/enter with a fade.
+    static func assigningOrdinals(
+        to intervals: [BodyHealthMetricDayContextInterval]
+    ) -> [BodyHealthMetricDayContextInterval] {
+        var counts: [String: Int] = [:]
+        return intervals.map { interval in
+            let key = "\(interval.kind)-\(interval.title)"
+            let ordinal = counts[key, default: 0]
+            counts[key] = ordinal + 1
+            var assigned = interval
+            assigned.ordinal = ordinal
+            return assigned
+        }
     }
 
     static func segmentIndices(
@@ -777,6 +1096,129 @@ struct BodyHealthMetricDayChart: View {
             indices.append(current)
         }
         return indices
+    }
+
+    /// The hourly-average line, split into one two-point series per
+    /// consecutive-reading pair (same ≥4h gap rule as `segmentIndices`), keyed
+    /// by the pair's starting hour. Swift Charts cannot interpolate a single
+    /// line whose vertex set changes across a day switch — vertices with no
+    /// counterpart freeze until the animation ends, then pop. Pair marks that
+    /// exist on both days morph in place; hours without a pair carry an
+    /// invisible zero-length placeholder (at the hour's own reading if it has
+    /// one, else the nearest hour's) so a vanishing stretch of line fades out
+    /// where it stood instead of freezing.
+    static func makeLineSegments(
+        from entries: [BodyHealthMetricDayChartEntry],
+        dayStart: Date
+    ) -> [BodyHealthMetricDayLineSegmentMark] {
+        let entriesByRole = Dictionary(grouping: entries, by: \.sourceRole)
+
+        return entriesByRole.keys.sorted { $0.rawValue < $1.rawValue }.flatMap { role -> [BodyHealthMetricDayLineSegmentMark] in
+            let finite = (entriesByRole[role] ?? [])
+                .filter { $0.averageValue.isFinite }
+                .sorted { $0.plotDate < $1.plotDate }
+            guard !finite.isEmpty else {
+                return []
+            }
+
+            var segments: [BodyHealthMetricDayLineSegmentMark] = []
+            var pairStartHours = Set<Int>()
+            for (start, end) in zip(finite, finite.dropFirst())
+            where end.plotDate.timeIntervalSince(start.plotDate) < segmentGapThreshold {
+                let hour = start.bucket.hourStart.bodyHourOfDayIndex
+                pairStartHours.insert(hour)
+                segments.append(
+                    BodyHealthMetricDayLineSegmentMark(
+                        sourceRole: role,
+                        hourIndex: hour,
+                        startPlotDate: start.plotDate,
+                        startValue: start.averageValue,
+                        endPlotDate: end.plotDate,
+                        endValue: end.averageValue
+                    )
+                )
+            }
+
+            let finiteByHour = Dictionary(
+                finite.map { ($0.bucket.hourStart.bodyHourOfDayIndex, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            let finiteHours = finiteByHour.keys.sorted()
+            let placeholders = (0..<24)
+                .filter { !pairStartHours.contains($0) }
+                .compactMap { hour -> BodyHealthMetricDayLineSegmentMark? in
+                    let nearestHour = finiteHours.min { (abs($0 - hour), $0) < (abs($1 - hour), $1) }
+                    guard let source = finiteByHour[hour] ?? nearestHour.flatMap({ finiteByHour[$0] }) else {
+                        return nil
+                    }
+                    let plotDate = finiteByHour[hour]?.plotDate
+                        ?? dayStart.addingTimeInterval(TimeInterval(hour) * 3_600 + 1_800)
+                    return BodyHealthMetricDayLineSegmentMark(
+                        sourceRole: role,
+                        hourIndex: hour,
+                        startPlotDate: plotDate,
+                        startValue: source.averageValue,
+                        endPlotDate: plotDate,
+                        endValue: source.averageValue,
+                        isPlaceholder: true
+                    )
+                }
+            return segments + placeholders
+        }
+    }
+
+    /// Every hour of the day carries a dot mark so a cross-day switch animates
+    /// opacity instead of inserting or removing marks — Swift Charts pops
+    /// those rather than fading them. Hours without a visible dot get an
+    /// invisible placeholder pinned at that hour's own value (a collapsed flat
+    /// run) or the nearest hour's value, so a dot with no counterpart on the
+    /// other day fades in or out in place. A source with no data at all adds
+    /// no placeholders — there is no value to fade through.
+    static func addingPlaceholderDots(
+        to visibleEntries: [BodyHealthMetricDayChartEntry],
+        fullEntries: [BodyHealthMetricDayChartEntry],
+        dayStart: Date
+    ) -> [BodyHealthMetricDayChartEntry] {
+        let visibleByRole = Dictionary(grouping: visibleEntries, by: \.sourceRole)
+        let fullByRole = Dictionary(grouping: fullEntries, by: \.sourceRole)
+
+        return fullByRole.keys.sorted { $0.rawValue < $1.rawValue }.flatMap { role -> [BodyHealthMetricDayChartEntry] in
+            let visible = visibleByRole[role] ?? []
+            let finiteByHour = Dictionary(
+                (fullByRole[role] ?? [])
+                    .filter { $0.averageValue.isFinite }
+                    .map { ($0.bucket.hourStart.bodyHourOfDayIndex, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            guard !finiteByHour.isEmpty else {
+                return visible
+            }
+
+            let visibleHours = Set(visible.map { $0.bucket.hourStart.bodyHourOfDayIndex })
+            let finiteHours = finiteByHour.keys.sorted()
+            let placeholders = (0..<24)
+                .filter { !visibleHours.contains($0) }
+                .compactMap { hour -> BodyHealthMetricDayChartEntry? in
+                    // A collapsed-away hour fades at its own value; a truly
+                    // empty hour borrows the nearest hour's (earlier on ties).
+                    let nearestHour = finiteHours.min { (abs($0 - hour), $0) < (abs($1 - hour), $1) }
+                    guard let source = finiteByHour[hour] ?? nearestHour.flatMap({ finiteByHour[$0] }) else {
+                        return nil
+                    }
+                    return BodyHealthMetricDayChartEntry(
+                        sourceName: source.sourceName,
+                        sourceRole: role,
+                        bucket: HealthTrendHourlyBucket(
+                            hourStart: dayStart.addingTimeInterval(TimeInterval(hour) * 3_600),
+                            averageValue: source.averageValue,
+                            samples: []
+                        ),
+                        segmentIndex: 0,
+                        isPlaceholder: true
+                    )
+                }
+            return visible + placeholders
+        }
     }
 
     /// Keeps only the informative dots when a series holds flat runs: within
@@ -800,6 +1242,31 @@ struct BodyHealthMetricDayChart: View {
         return entries.filter { keptIDs.contains($0.id) }
     }
 
+    /// Low/high of every sample inside each hour — the intraday twin of the
+    /// range chart's per-day min/max bar.
+    static func makeRangeEntries(from buckets: [HealthTrendHourlyBucket]) -> [BodyHealthMetricDayRangeEntry] {
+        buckets.compactMap { bucket in
+            let values = bucket.samples.map(\.value).filter(\.isFinite)
+            guard let lowValue = values.min(), let highValue = values.max() else {
+                return nil
+            }
+
+            return BodyHealthMetricDayRangeEntry(
+                hourStart: bucket.hourStart,
+                plotDate: bucket.plotDate,
+                lowValue: lowValue,
+                highValue: highValue
+            )
+        }
+    }
+
+    /// Bar width for the 24 hourly slots, using the same slot-to-bar ratio the
+    /// Month range chart uses (7pt bars across ~30 slots).
+    static func rangeBarWidth(forAvailableWidth availableWidth: CGFloat) -> CGFloat {
+        let slotWidth = availableWidth / 24
+        return min(max(slotWidth * 0.62, 4), 14)
+    }
+
     private static func makeEntries(
         from buckets: [HealthTrendHourlyBucket],
         sourceName: String,
@@ -817,14 +1284,97 @@ struct BodyHealthMetricDayChart: View {
     }
 }
 
+/// One hour's low/high, drawn as the transparent gray range bar behind the
+/// hourly-average line.
+struct BodyHealthMetricDayRangeEntry: Identifiable {
+    let hourStart: Date
+    let plotDate: Date
+    let lowValue: Double
+    let highValue: Double
+
+    var id: Int {
+        hourStart.bodyHourOfDayIndex
+    }
+}
+
+/// One Week/Month/6M/Year chart mark (bar or dot), or its invisible
+/// cross-range placeholder — see
+/// `BodyHealthMetricTrendChart.makeTrendMarkEntries`.
+struct BodyHealthTrendMarkEntry: Identifiable {
+    let date: Date
+    /// Nil marks a selected-range day with no data (the gray placeholder bar
+    /// in bar style; no dot in line style).
+    let value: Double?
+    /// Another range's reading on this same date, kept only when `value` is
+    /// nil. Bar style ignores it and keeps drawing its gray no-data bar; line
+    /// style plots it invisibly so the dot exists before that range is
+    /// selected — see `dotValue`.
+    var offRangeValue: Double?
+    /// `true` when `date` exists only in another range's points; the entry
+    /// carries that range's own value and renders at opacity 0, so the mark
+    /// fades at its true geometry across a range switch instead of popping.
+    let isPlaceholder: Bool
+
+    var id: Date {
+        date
+    }
+
+    /// Where line style plots this entry's dot, visible or not.
+    var dotValue: Double? {
+        value ?? offRangeValue
+    }
+
+    /// A dot is drawn only for a reading the selected range actually has;
+    /// everything else is resident geometry at opacity 0.
+    var showsDot: Bool {
+        !isPlaceholder && value != nil
+    }
+}
+
+/// One straight stretch of the trend line (or its collapsed placeholder),
+/// keyed by start date so a segment keeps its identity across range
+/// switches — see `BodyHealthMetricTrendChart.makeTrendLineSegments`.
+struct BodyHealthTrendLineSegmentMark: Identifiable {
+    let startDate: Date
+    let startValue: Double
+    let endDate: Date
+    let endValue: Double
+    let isPlaceholder: Bool
+
+    var id: String {
+        "seg-\(startDate.timeIntervalSinceReferenceDate)"
+    }
+}
+
+/// One straight stretch of the hourly-average line (or its invisible
+/// placeholder), keyed by starting hour so the mark keeps its identity across
+/// day switches — see `BodyHealthMetricDayChart.makeLineSegments`.
+struct BodyHealthMetricDayLineSegmentMark: Identifiable {
+    let sourceRole: BodyHealthSourceRole
+    let hourIndex: Int
+    let startPlotDate: Date
+    let startValue: Double
+    let endPlotDate: Date
+    let endValue: Double
+    var isPlaceholder = false
+
+    var id: String {
+        "\(sourceRole.rawValue)-seg-\(hourIndex)"
+    }
+}
+
 struct BodyHealthMetricDayChartEntry: Identifiable {
     let sourceName: String
     let sourceRole: BodyHealthSourceRole
     let bucket: HealthTrendHourlyBucket
     let segmentIndex: Int
+    /// `true` for the invisible hour-filling dots added by
+    /// `BodyHealthMetricDayChart.addingPlaceholderDots` — rendered at opacity 0
+    /// so a real dot on another day fades through them instead of popping.
+    var isPlaceholder = false
 
     var id: String {
-        "\(sourceRole.rawValue)-\(bucket.id)"
+        "\(sourceRole.rawValue)-\(bucket.hourStart.bodyHourOfDayIndex)"
     }
 
     var seriesKey: String {
@@ -837,6 +1387,17 @@ struct BodyHealthMetricDayChartEntry: Identifiable {
 
     var averageValue: Double {
         bucket.averageValue
+    }
+}
+
+private extension Date {
+    /// Hours since this date's own midnight. Day-chart marks use this as their
+    /// identity instead of the absolute hour timestamp so a mark keeps its
+    /// identity across days — moving the day picker morphs each dot to the new
+    /// day's value (like the sleep Vitals plot) rather than replacing it.
+    /// Elapsed hours, not the clock hour, which repeats on DST fall-back days.
+    var bodyHourOfDayIndex: Int {
+        Int(timeIntervalSince(Calendar.bodyGregorian.startOfDay(for: self)) / 3600)
     }
 }
 
@@ -914,4 +1475,38 @@ struct BodyHealthMetricDayAnnotation: View {
     private func timeText(for date: Date) -> String {
         date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
     }
+}
+
+/// Merges the other ranges' marks into the selected range's marks so a range
+/// switch morphs instead of inserting and removing marks: an off-range mark
+/// whose id has no drawn counterpart here joins as an invisible placeholder at
+/// its own geometry, first range in `allCases` order winning a shared id.
+///
+/// A current entry that draws nothing — a day with no reading — does not claim
+/// its id; it hands its slot to an off-range valued entry, which then fades in
+/// place when that range is selected. Substituting rather than appending keeps
+/// ids unique, and current entries keep their order ahead of the placeholders.
+func bodyUnionMorphEntries<Entry: Identifiable>(
+    current: [Entry],
+    otherRanges: [[Entry]],
+    isDrawn: (Entry) -> Bool,
+    placeholder: (Entry) -> Entry
+) -> [Entry] {
+    let emptyCurrentIDs = Set(current.filter { !isDrawn($0) }.map(\.id))
+    var claimedIDs = Set(current.map(\.id)).subtracting(emptyCurrentIDs)
+    var substitutions: [Entry.ID: Entry] = [:]
+    var appended: [Entry] = []
+
+    for entries in otherRanges {
+        for entry in entries where isDrawn(entry) && !claimedIDs.contains(entry.id) {
+            claimedIDs.insert(entry.id)
+            if emptyCurrentIDs.contains(entry.id) {
+                substitutions[entry.id] = placeholder(entry)
+            } else {
+                appended.append(placeholder(entry))
+            }
+        }
+    }
+
+    return current.map { substitutions[$0.id] ?? $0 } + appended
 }

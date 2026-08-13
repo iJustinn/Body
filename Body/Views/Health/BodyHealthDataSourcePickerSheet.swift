@@ -129,7 +129,7 @@ struct BodyHealthDataSourcePickerSheet: View {
         let isSelected = selectedOption.id == option.id
         let isThisRowUpdating = updatingSelection == PendingSelection(role: role, optionID: option.id)
         let isSelectionLocked = updatingSelection != nil
-        let isProLocked = role == .secondary && isSecondaryLocked
+        let isProLocked = (role == .secondary || option.isCustomSource) && isSecondaryLocked
         return Button {
             updateSelection(option, role: role)
         } label: {
@@ -174,6 +174,10 @@ struct BodyHealthDataSourcePickerSheet: View {
     }
 
     private func rowIconName(for option: BodyHealthDataSourceOption, role: SourceRole) -> String {
+        if option.isCustomSource {
+            return workoutStore.customHealthSourceIconName(for: option.id)
+        }
+
         if option.isAllSources || option.isNoComparison {
             return optionIconName(for: role)
         }
@@ -194,7 +198,7 @@ struct BodyHealthDataSourcePickerSheet: View {
     }
 
     private func updateSelection(_ option: BodyHealthDataSourceOption, role: SourceRole) {
-        if role == .secondary, isSecondaryLocked {
+        if isSecondaryLocked, role == .secondary || option.isCustomSource {
             showBodyProPaywall = true
             return
         }

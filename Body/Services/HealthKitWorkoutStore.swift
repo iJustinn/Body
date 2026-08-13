@@ -128,7 +128,21 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var healthDataSourceSelection: BodyHealthDataSourceSelection
     @Published private(set) var secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection
     @Published private(set) var combinesHealthDataSourcesByName: Bool
+    /// User-created merged sources (Body Pro). Kept verbatim when the
+    /// entitlement lapses — every read path neutralizes a `custom:` selection
+    /// to All Sources instead, so re-subscribing restores the user's setup.
+    @Published private(set) var customHealthSourceGroups: [BodyCustomHealthSourceGroup]
+    /// Every individual source discovered for ANY kind — the membership pool
+    /// the custom-source editor picks from. Refreshed by
+    /// `fetchHealthDataSourceOptions`, empty until discovery first runs.
+    @Published private(set) var discoveredIndividualHealthSources: [BodyDiscoveredHealthSource] = []
     @Published private(set) var healthDataSourceOptionsByKind: [HealthMetricKind: [BodyHealthDataSourceOption]] = [:]
+    /// Per kind, the custom group ids that registered a non-empty source bucket
+    /// in the engine — mirrored here because the store's resolved-option
+    /// accessors are synchronous while the engine is an actor. A kind is ABSENT
+    /// (not empty) until its discovery succeeds, which the resolution below
+    /// reads as "keep the selection" exactly like the engine does (H4).
+    private var customSourceIDsWithDataByKind: [HealthMetricKind: Set<String>] = [:]
     @Published private(set) var healthDataNotice: String?
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastSuccessfulRefreshDate: Date?
@@ -305,17 +319,25 @@ final class HealthKitWorkoutStore: ObservableObject {
         initialHealthDataSourceSelection: BodyHealthDataSourceSelection = BodyHealthDataSourceSelection.load(),
         initialSecondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection = BodyHealthSecondaryDataSourceSelection.load(),
         initialCombinesHealthDataSourcesByName: Bool = UserDefaults.standard.bool(forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey),
+        initialCustomHealthSourceGroups: [BodyCustomHealthSourceGroup] = HealthKitWorkoutStore.loadCustomHealthSourceGroups(),
         date: Date = Date()
     ) {
         permissionSelection = initialPermissionSelection
         healthDataSourceSelection = initialHealthDataSourceSelection
         secondaryHealthDataSourceSelection = initialSecondaryHealthDataSourceSelection
         combinesHealthDataSourcesByName = initialCombinesHealthDataSourcesByName
+        customHealthSourceGroups = initialCustomHealthSourceGroups
+        // Composed from the loaded groups rather than the instance helper: the
+        // three signature consumers below run before `self` is fully
+        // initialized. `customSourceGroupsSignatureSuffix(for:)` is the one
+        // composition point, so the strings stay byte-identical.
+        let initialCustomSourceGroupsSuffix = Self.customSourceGroupsSignatureSuffix(for: initialCustomHealthSourceGroups)
         engine = HealthKitFetchEngine(
             permission: initialPermissionSelection,
             healthDataSourceSelection: initialHealthDataSourceSelection,
             secondaryHealthDataSourceSelection: initialSecondaryHealthDataSourceSelection,
-            combinesHealthDataSourcesByName: initialCombinesHealthDataSourcesByName
+            combinesHealthDataSourcesByName: initialCombinesHealthDataSourcesByName,
+            customHealthSourceGroups: initialCustomHealthSourceGroups
         )
         // Skip the readiness recompute at init: it's a per-day iteration over up
         // to ~365 trend points that would block the first frame. The cached
@@ -335,7 +357,8 @@ final class HealthKitWorkoutStore: ObservableObject {
             combinesHealthDataSourcesByName: initialCombinesHealthDataSourcesByName,
             idealSleepDuration: initialIdealSleepDuration,
             showsSubMinuteAwakeStages: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
-            showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
+            showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages(),
+            customSourceGroupsSignatureSuffix: initialCustomSourceGroupsSuffix
         )
         let initialTrends = initialHealthDashboardSnapshot.trends
         let hasStaleReadinessOverlay = !initialTrends.recordedReadiness.isEmpty
@@ -373,7 +396,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // the current selection/prefs still match the ones it was saved under.
         healthSummaryPrimarySignature = initialSummaryContextSignature
         let storedSecondarySignature = HealthDashboardSnapshotStore.loadSecondarySelectionSignature()
-        if storedSecondarySignature != initialSecondaryHealthDataSourceSelection.signature {
+        if storedSecondarySignature != initialSecondaryHealthDataSourceSelection.signature + initialCustomSourceGroupsSuffix {
             healthTrends = filteredHealthDashboardSnapshot.trends.clearingSecondarySeries()
         } else {
             healthTrends = filteredHealthDashboardSnapshot.trends
@@ -1248,8 +1271,8 @@ final class HealthKitWorkoutStore: ObservableObject {
         // other-source intraday points (H6). A legacy/v1 sidecar (no combine
         // stamp) fails closed and is dropped one-time.
         let scoped = daySamples.scopedForHydration(
-            currentPrimarySignature: healthDataSourceSelection.signature,
-            currentSecondarySignature: secondaryHealthDataSourceSelection.signature,
+            currentPrimarySignature: currentPrimarySelectionSignature(),
+            currentSecondarySignature: currentSecondarySelectionSignature(),
             currentCombinesByName: combinesHealthDataSourcesByName,
             permission: permissionSelection
         )
@@ -1306,6 +1329,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         let interval = HealthKitFetchEngine.intradayDaySampleInterval(calendar: calendar, anchor: nil)
         let cachedPrimary = healthTrends.daySeries(for: kind)
         let cachedSecondary = healthTrends.secondaryDaySeries(for: kind)
+        let capturedDaySampleSignatures = currentDaySampleSignatures()
 
         let primaryFetchStart: Date
         let secondaryFetchStart: Date
@@ -1420,11 +1444,22 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
         // A cache clear landed while the intraday samples fetched — don't merge
-        // them back onto the wiped trends.
-        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
+        // them back onto the wiped trends. The signature check covers the other
+        // mid-flight invalidations: the engine fetches and the `while isRefreshing`
+        // wait above can straddle a source switch, combine flip, or permission
+        // change, all of which strip the day samples. Merging old-source samples
+        // onto the freshly stripped trends would stamp them into the sidecar under
+        // the NEW selection's signature, which `scopedForHydration` then accepts
+        // forever — and nothing self-heals, because the incremental fetch
+        // early-returns once the cache covers the window.
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
+              currentDaySampleSignatures() == capturedDaySampleSignatures else {
             return
         }
         healthTrends = trends
+        // Make the lazily fetched series durable so the next launch renders the
+        // day chart straight from the sidecar.
+        persistDaySampleSidecar()
     }
 
     func refreshWorkoutMonth(month: Int, year: Int, intent: BodyWorkoutRefreshIntent = .userInitiated) async {
@@ -1507,7 +1542,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             return []
         }
 
-        return [BodyHealthDataSourceOption.allSources] + (healthDataSourceOptionsByKind[kind] ?? [])
+        return [BodyHealthDataSourceOption.allSources]
+            + (healthDataSourceOptionsByKind[kind] ?? [])
+            + customHealthSourceGroups.map(\.option)
     }
 
     func secondaryHealthDataSourceOptions(for kind: HealthMetricKind) -> [BodyHealthDataSourceOption] {
@@ -1515,16 +1552,29 @@ final class HealthKitWorkoutStore: ObservableObject {
             return []
         }
 
-        let primaryOption = selectedHealthDataSourceOption(for: kind)
-        let candidates = [BodyHealthDataSourceOption.allSources] + (healthDataSourceOptionsByKind[kind] ?? [])
-        let filtered = candidates.filter { $0.id != primaryOption.id }
+        let storedPrimaryOption = healthDataSourceSelection.option(for: kind)
+        // A locked (or member-less) custom primary REPORTS as All Sources, so
+        // filtering on the effective option alone would drop All Sources from
+        // the comparison list while still offering the group itself. Excluding
+        // the stored custom id instead keeps the list honest; the
+        // same-as-primary case is neutralized by
+        // `selectedSecondaryHealthDataSourceOption` regardless.
+        let excludedOptionID = storedPrimaryOption.isCustomSource
+            ? storedPrimaryOption.id
+            : selectedHealthDataSourceOption(for: kind).id
+        let candidates = [BodyHealthDataSourceOption.allSources]
+            + (healthDataSourceOptionsByKind[kind] ?? [])
+            + customHealthSourceGroups.map(\.option)
+        let filtered = candidates.filter { $0.id != excludedOptionID }
         return [BodyHealthDataSourceOption.noComparison] + filtered
     }
 
     func healthDataSourceDefaultOptions() -> [BodyHealthDataSourceOption] {
         includeSelectedSourceOptionIfNeeded(
             selectedHealthDataSourceOption: healthDataSourceSelection.defaultOption,
-            in: [BodyHealthDataSourceOption.allSources] + uniqueHealthDataSourceOptions(for: HealthMetricKind.sourceSelectableKinds)
+            in: [BodyHealthDataSourceOption.allSources]
+                + uniqueHealthDataSourceOptions(for: HealthMetricKind.sourceSelectableKinds)
+                + customHealthSourceGroups.map(\.option)
         )
     }
 
@@ -1532,6 +1582,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         let primaryOption = healthDataSourceSelection.defaultOption
         let candidates = [BodyHealthDataSourceOption.allSources]
             + uniqueHealthDataSourceOptions(for: HealthMetricKind.sourceSelectableKinds.filter(\.supportsSecondaryHealthDataSourceSelection))
+            + customHealthSourceGroups.map(\.option)
         let filteredCandidates = candidates.filter { $0.id != primaryOption.id }
         guard secondaryHealthDataSourceSelection.defaultOption.id != primaryOption.id else {
             return [BodyHealthDataSourceOption.noComparison] + filteredCandidates
@@ -1566,11 +1617,39 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     var defaultHealthDataSourceOption: BodyHealthDataSourceOption {
-        healthDataSourceSelection.defaultOption
+        resolvedDefaultCustomHealthSourceOption(
+            healthDataSourceSelection.defaultOption,
+            absentFallback: .allSources
+        )
     }
 
     var defaultSecondaryHealthDataSourceOption: BodyHealthDataSourceOption {
-        secondaryHealthDataSourceSelection.defaultOption
+        resolvedDefaultCustomHealthSourceOption(
+            secondaryHealthDataSourceSelection.defaultOption,
+            absentFallback: .noComparison
+        )
+    }
+
+    /// The Settings default rows read these two raw (no per-kind discovery to
+    /// resolve against), so the Body Pro gate and the live group name have to be
+    /// applied here as well: a lapsed subscription must show the effective All
+    /// Sources / No Comparison, and a renamed group must show its current name
+    /// without the selection — and every signature built from it — being
+    /// rewritten.
+    private func resolvedDefaultCustomHealthSourceOption(
+        _ option: BodyHealthDataSourceOption,
+        absentFallback: BodyHealthDataSourceOption
+    ) -> BodyHealthDataSourceOption {
+        guard option.isCustomSource else {
+            return option
+        }
+
+        guard BodyProEntitlement.isUnlocked,
+              let group = customHealthSourceGroups.first(where: { $0.id == option.id }) else {
+            return absentFallback
+        }
+
+        return group.option
     }
 
     func updateCombinesHealthDataSourcesByName(_ combines: Bool) async {
@@ -1595,7 +1674,160 @@ final class HealthKitWorkoutStore: ObservableObject {
         // cached intraday day samples and persist the invalidation before the
         // corrective refetch (H6a).
         healthTrends = healthTrends.strippingDaySamples()
-        persistStrippedDaySampleSidecar()
+        persistDaySampleSidecar()
+
+        await requestAuthorizationAndRefresh()
+    }
+
+    nonisolated static func loadCustomHealthSourceGroups(
+        defaults: UserDefaults = .standard
+    ) -> [BodyCustomHealthSourceGroup] {
+        BodyCustomHealthSourceGroupStore.groups(
+            from: defaults.string(forKey: BodyAppearancePreference.customHealthSourceGroupsKey) ?? ""
+        )
+    }
+
+    nonisolated private static func saveCustomHealthSourceGroups(
+        _ groups: [BodyCustomHealthSourceGroup],
+        defaults: UserDefaults = .standard
+    ) {
+        defaults.set(
+            BodyCustomHealthSourceGroupStore.rawValue(from: groups),
+            forKey: BodyAppearancePreference.customHealthSourceGroupsKey
+        )
+    }
+
+    func addCustomHealthSourceGroup(
+        name: String,
+        memberIdentityKeys: [String],
+        iconSystemName: String? = nil
+    ) async {
+        guard customHealthSourceGroups.count < BodyCustomHealthSourceGroupStore.maximumGroupCount else {
+            return
+        }
+
+        let group = BodyCustomHealthSourceGroup.custom(
+            name: name,
+            memberIdentityKeys: memberIdentityKeys,
+            iconSystemName: iconSystemName
+        )
+        await applyCustomHealthSourceGroups(customHealthSourceGroups + [group])
+    }
+
+    /// The icon a custom source renders with, resolved live by group id (never
+    /// persisted into a selection, exactly like the display name) and validated
+    /// against the picker vocabulary so an unknown symbol falls back to the
+    /// default instead of rendering a blank image.
+    func customHealthSourceIconName(for optionID: String) -> String {
+        let iconName = customHealthSourceGroups.first { $0.id == optionID }?.iconSystemName
+        guard let iconName, BodyHealthSourceIcon.selectableSymbolNames.contains(iconName) else {
+            return BodyHealthSourceIcon.customSourceDefaultSymbolName
+        }
+        return iconName
+    }
+
+    func updateCustomHealthSourceGroupMembers(id: String, memberIdentityKeys: [String]) async {
+        guard let index = customHealthSourceGroups.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        var nextGroups = customHealthSourceGroups
+        // Rebuilt through the initializer rather than mutated in place, so the
+        // members go through the same sort/dedupe every other entry point does.
+        nextGroups[index] = BodyCustomHealthSourceGroup(
+            id: id,
+            name: nextGroups[index].name,
+            memberIdentityKeys: memberIdentityKeys,
+            iconSystemName: nextGroups[index].iconSystemName
+        )
+        guard nextGroups != customHealthSourceGroups else {
+            return
+        }
+
+        await applyCustomHealthSourceGroups(nextGroups)
+    }
+
+    /// The display attributes — name and icon — change nothing a query, a cache,
+    /// or the watch resolves against (the canonical group signature excludes
+    /// both), so this deliberately skips the invalidation sequence — no refetch,
+    /// no stripped day samples. The selection is NOT rewritten either: names and
+    /// icons resolve live through the store's resolved-option accessors, while a
+    /// stored copy would leak into `rawValue`-based signatures and churn every
+    /// cache on a cosmetic edit.
+    func updateCustomHealthSourceGroupDisplay(id: String, name: String, iconSystemName: String?) async {
+        guard let index = customHealthSourceGroups.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        var nextGroups = customHealthSourceGroups
+        nextGroups[index] = BodyCustomHealthSourceGroup(
+            id: id,
+            name: name,
+            memberIdentityKeys: nextGroups[index].memberIdentityKeys,
+            iconSystemName: iconSystemName
+        )
+        guard nextGroups != customHealthSourceGroups else {
+            return
+        }
+
+        customHealthSourceGroups = nextGroups
+        Self.saveCustomHealthSourceGroups(nextGroups)
+        await engine.setCustomHealthSourceGroups(nextGroups)
+        publishWatchSnapshot()
+    }
+
+    func deleteCustomHealthSourceGroup(id: String) async {
+        guard customHealthSourceGroups.contains(where: { $0.id == id }) else {
+            return
+        }
+
+        // Eager selection cleanup, constructing both selections directly:
+        // `settingDefault` / `clearingOverride` also drop unrelated overrides
+        // that merely share an id with the old default, which is not what a
+        // deletion means. A left-behind `custom:` id would otherwise resolve to
+        // All Sources forever with no way to see or change it.
+        let nextSelection = BodyHealthDataSourceSelection(
+            defaultOption: healthDataSourceSelection.defaultOption.id == id
+                ? .allSources
+                : healthDataSourceSelection.defaultOption,
+            selectedOptions: healthDataSourceSelection.selectedOptions.filter { $0.value.id != id }
+        )
+        let nextSecondarySelection = BodyHealthSecondaryDataSourceSelection(
+            defaultOption: secondaryHealthDataSourceSelection.defaultOption.id == id
+                ? .noComparison
+                : secondaryHealthDataSourceSelection.defaultOption,
+            selectedOptions: secondaryHealthDataSourceSelection.selectedOptions.filter { $0.value.id != id }
+        )
+        healthDataSourceSelection = nextSelection
+        secondaryHealthDataSourceSelection = nextSecondarySelection
+        nextSelection.save()
+        nextSecondarySelection.save()
+        await engine.setHealthDataSourceSelection(nextSelection)
+        await engine.setSecondaryHealthDataSourceSelection(nextSecondarySelection)
+
+        await applyCustomHealthSourceGroups(customHealthSourceGroups.filter { $0.id != id })
+    }
+
+    /// Persist → engine → refetch options → the same invalidation sequence the
+    /// combine-flag toggle runs: membership decides which sources every series
+    /// merged, so the cached intraday day samples are dropped and that
+    /// invalidation persisted BEFORE the corrective refetch (H6a).
+    private func applyCustomHealthSourceGroups(_ groups: [BodyCustomHealthSourceGroup]) async {
+        customHealthSourceGroups = groups
+        Self.saveCustomHealthSourceGroups(groups)
+        await engine.setCustomHealthSourceGroups(groups)
+        await fetchHealthDataSourceOptions(calendar: .bodyGregorian)
+
+        // Wait out any in-flight refresh so the `isRefreshing` guard in
+        // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
+        // (matches the secondary-source variants).
+        await awaitNextRefreshCompletion()
+        guard !Task.isCancelled else {
+            return
+        }
+
+        healthTrends = healthTrends.strippingDaySamples()
+        persistDaySampleSidecar()
 
         await requestAuthorizationAndRefresh()
     }
@@ -1628,7 +1860,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // drop all cached intraday day samples and persist the invalidation
         // before the corrective refetch (H6a).
         healthTrends = healthTrends.strippingDaySamples()
-        persistStrippedDaySampleSidecar()
+        persistDaySampleSidecar()
 
         await requestAuthorizationAndRefresh()
     }
@@ -1670,7 +1902,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // (incl. secondary day samples) and persist the invalidation before the
         // corrective refetch (H6a).
         healthTrends = healthTrends.clearingSecondarySeries()
-        persistStrippedDaySampleSidecar()
+        persistDaySampleSidecar()
 
         await requestAuthorizationAndRefresh()
     }
@@ -1697,7 +1929,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // series (leave the other charts intact) and persist the invalidation
         // before the corrective refetch (H6a).
         healthTrends = healthTrends.strippingPrimaryDaySamples(for: kind)
-        persistStrippedDaySampleSidecar()
+        persistDaySampleSidecar()
 
         await requestAuthorizationAndRefresh()
     }
@@ -1722,25 +1954,28 @@ final class HealthKitWorkoutStore: ObservableObject {
         // (incl. secondary day samples) and persist the invalidation before the
         // corrective refetch (H6a).
         healthTrends = healthTrends.clearingSecondarySeries()
-        persistStrippedDaySampleSidecar()
+        persistDaySampleSidecar()
 
         await refreshHealthMetric(kind)
     }
 
-    /// Persists the current in-memory dashboard snapshot + day-sample sidecar so
-    /// a source/combine-change day-sample strip (H6a) is DURABLE: if the
+    /// Persists the current in-memory dashboard snapshot + day-sample sidecar
+    /// outside a dashboard refresh, for the two paths that change day samples on
+    /// their own: a source/combine-change strip (H6a) must be DURABLE — if the
     /// corrective refresh errors, cancels, or the app is killed before it lands,
-    /// the poisoned sidecar would otherwise survive on disk and re-hydrate. The
-    /// stripped-empty series overwrite it. Mirrors the save block in
-    /// `updateHealthDashboardSnapshot`.
-    private func persistStrippedDaySampleSidecar() {
+    /// the poisoned sidecar would otherwise survive on disk and re-hydrate, so
+    /// the stripped-empty series overwrite it; and a lazily fetched intraday
+    /// series must be durable too, so the next launch renders the metric detail
+    /// Day View instantly from cache instead of waiting on HealthKit. Mirrors the
+    /// save block in `updateHealthDashboardSnapshot`.
+    private func persistDaySampleSidecar() {
         let snapshotToSave = HealthDashboardSnapshot(
             summary: healthSummary,
             trends: healthTrends,
             activityRingHistory: activityRingHistory
         )
         let daySampleSignatures = currentDaySampleSignatures()
-        let secondarySignature = secondaryHealthDataSourceSelection.signature
+        let secondarySignature = currentSecondarySelectionSignature()
         let summaryContextSignature = healthSummaryPrimarySignature
         Self.snapshotPersistQueue.async {
             HealthDashboardSnapshotStore.save(
@@ -1749,6 +1984,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 summaryContextSignature: summaryContextSignature
             )
             HealthDashboardSnapshotStore.saveSecondarySelectionSignature(secondarySignature)
+            Task { @MainActor in await self.refreshCacheDiskSize() }
         }
     }
 
@@ -1792,6 +2028,10 @@ final class HealthKitWorkoutStore: ObservableObject {
             return option.isNoComparison ? .allSources : option
         }
 
+        guard !option.isCustomSource else {
+            return resolvedCustomHealthSourceOption(option, for: kind, absentFallback: .allSources)
+        }
+
         // Discovery hasn't populated this kind yet (cold start / mid-clear) —
         // keep the stored selection rather than collapsing it to All Sources
         // (H4); the map fills in once source discovery completes. Only an option
@@ -1806,6 +2046,33 @@ final class HealthKitWorkoutStore: ObservableObject {
         return option
     }
 
+    /// A `custom:` selection resolves against the GROUP list, not the per-kind
+    /// discovered options: a group exists whether or not this kind happened to
+    /// discover any of its members, and it reports the group's CURRENT name so a
+    /// rename shows everywhere without rewriting (and re-signing) the selection.
+    ///
+    /// It collapses to `absentFallback` in exactly two cases: Body Pro is locked
+    /// (mirroring the fetch gate in `HealthKitFetchEngine.sourceQueryResolution`,
+    /// so the row matches the widened query), or discovery HAS run for this kind
+    /// and registered no bucket for the group — the engine's lenient resolution
+    /// widened to all sources there, and the row must say so.
+    private func resolvedCustomHealthSourceOption(
+        _ option: BodyHealthDataSourceOption,
+        for kind: HealthMetricKind,
+        absentFallback: BodyHealthDataSourceOption
+    ) -> BodyHealthDataSourceOption {
+        guard BodyProEntitlement.isUnlocked,
+              let group = customHealthSourceGroups.first(where: { $0.id == option.id }) else {
+            return absentFallback
+        }
+
+        guard let customIDsWithData = customSourceIDsWithDataByKind[kind] else {
+            return group.option
+        }
+
+        return customIDsWithData.contains(option.id) ? group.option : absentFallback
+    }
+
     private func resolvedSecondaryHealthDataSourceOption(
         _ option: BodyHealthDataSourceOption,
         for kind: HealthMetricKind
@@ -1817,6 +2084,10 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         guard !option.isAllSources else {
             return option
+        }
+
+        guard !option.isCustomSource else {
+            return resolvedCustomHealthSourceOption(option, for: kind, absentFallback: .noComparison)
         }
 
         // Discovery hasn't populated this kind yet — keep the stored secondary
@@ -2406,6 +2677,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         loadingMonthKeys.removeAll()
         loadingActivityRingMonthKeys.removeAll()
         healthDataSourceOptionsByKind = [:]
+        customSourceIDsWithDataByKind = [:]
         persistedDaySamplesHydration = nil
         lastSuccessfulRefreshDate = nil
         // Drop the compute-seed watermark + cached Training Load piece too — a
@@ -2800,7 +3072,40 @@ final class HealthKitWorkoutStore: ObservableObject {
     private func currentPrimarySummarySignature() -> String {
         let showsSubMinuteAwake = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
         let showsLeadingTrailingAwake = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
-        return "\(healthDataSourceSelection.rawValue)|\(permissionSelection.rawValue)|\(combinesHealthDataSourcesByName)|\(showsSubMinuteAwake)|\(showsLeadingTrailingAwake)"
+        return "\(healthDataSourceSelection.rawValue)|\(permissionSelection.rawValue)|\(combinesHealthDataSourcesByName)|\(showsSubMinuteAwake)|\(showsLeadingTrailingAwake)" + customSourceGroupsSignatureSuffix
+    }
+
+    /// What a custom group's MEMBERSHIP adds to every cache signature. Empty
+    /// when there are no groups, so a user who never made one signs exactly the
+    /// bytes they signed before this feature existed — no cache is dropped and
+    /// no seed re-ships on upgrade. Names are excluded (the canonical signature
+    /// omits them), so a rename changes nothing either.
+    nonisolated static func customSourceGroupsSignatureSuffix(
+        for groups: [BodyCustomHealthSourceGroup]
+    ) -> String {
+        guard !groups.isEmpty else {
+            return ""
+        }
+
+        return "|groups=\(BodyCustomHealthSourceGroupStore.canonicalSignature(for: groups))"
+    }
+
+    private var customSourceGroupsSignatureSuffix: String {
+        Self.customSourceGroupsSignatureSuffix(for: customHealthSourceGroups)
+    }
+
+    /// The selection signatures every cache write AND every cache read must use
+    /// — a selection's own `.signature` says nothing about what the `custom:`
+    /// ids in it currently RESOLVE to, so a membership edit has to invalidate
+    /// through here. Reading and writing through the same two helpers is what
+    /// keeps the day-sample sidecar hydratable across a launch (a mismatch
+    /// silently drops the Day View cache every time).
+    private func currentPrimarySelectionSignature() -> String {
+        healthDataSourceSelection.signature + customSourceGroupsSignatureSuffix
+    }
+
+    private func currentSecondarySelectionSignature() -> String {
+        secondaryHealthDataSourceSelection.signature + customSourceGroupsSignatureSuffix
     }
 
     /// The source + permission signatures the day-sample sidecar is being
@@ -2811,8 +3116,8 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// instead of merging stale other-source intraday points (H6).
     private func currentDaySampleSignatures() -> HealthTrendDaySampleSignatures {
         HealthTrendDaySampleSignatures(
-            primarySelectionSignature: healthDataSourceSelection.signature,
-            secondarySelectionSignature: secondaryHealthDataSourceSelection.signature,
+            primarySelectionSignature: currentPrimarySelectionSignature(),
+            secondarySelectionSignature: currentSecondarySelectionSignature(),
             permissionSignature: permissionSelection.rawValue,
             combinesHealthDataSourcesByName: combinesHealthDataSourcesByName
         )
@@ -3103,7 +3408,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             trends: filteredSnapshot.trends,
             activityRingHistory: nextActivityRingHistory
         )
-        let secondarySignature = secondaryHealthDataSourceSelection.signature
+        let secondarySignature = currentSecondarySelectionSignature()
         let daySampleSignatures = currentDaySampleSignatures()
         // Persist the summary-context signature just stamped above so a cold
         // start can gate the summary reuse (H2a). Rides inside the snapshot, so
@@ -3441,7 +3746,19 @@ final class HealthKitWorkoutStore: ObservableObject {
         ) ?? BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
         let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
-        let healthDataSourceSelectionRaw = healthDataSourceSelection.rawValue
+        // Body Pro gate for the seed: the watch has no entitlement concept, so
+        // a lapsed subscription has to ship the All-Sources view the phone now
+        // renders — otherwise the watch keeps filtering by a group the phone
+        // stopped applying, and the two disagree indefinitely. The definitions
+        // are withheld, never erased; the entitlement observer republishes on a
+        // flip and the changed `src[…]`/`groups[…]` signature re-seeds.
+        let isProUnlocked = BodyProEntitlement.isUnlocked
+        let healthDataSourceSelectionRaw = isProUnlocked
+            ? healthDataSourceSelection.rawValue
+            : Self.selectionNeutralizingCustomSources(healthDataSourceSelection).rawValue
+        let customHealthSourceGroupsRaw = isProUnlocked && !customHealthSourceGroups.isEmpty
+            ? BodyCustomHealthSourceGroupStore.rawValue(from: customHealthSourceGroups)
+            : nil
         let combinesByName = combinesHealthDataSourcesByName
         // Only the seed needs the 14-day time-zone map, and building it costs 14
         // `UserDefaults` reads + `JSONDecoder` allocations on the main actor —
@@ -3505,6 +3822,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                     showsLeadingTrailingAwakeSleepStages: showsLeadingTrailingAwakeStages,
                     healthDataSourceSelectionRaw: healthDataSourceSelectionRaw,
                     combinesHealthDataSourcesByName: combinesByName,
+                    customHealthSourceGroupsRaw: customHealthSourceGroupsRaw,
                     recentTimeZoneIdentifiersByDay: recentTimeZoneIdentifiersByDay
                 )
                 let seed = Self.makeComputeSeed(
@@ -3605,7 +3923,16 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// compare. `recentTimeZoneIdentifiersByDay` is deliberately excluded —
     /// it's data (and changes daily regardless of user intent), not a setting.
     nonisolated static func computeSettingsSignature(_ settings: WatchComputeSettings) -> String {
-        "d[\(settings.idealSleepDurationMinutes)]" +
+        // Groups extend the signature ONLY when the seed actually carries some,
+        // so every pre-feature (and group-less) seed signs byte-identically and
+        // the watch doesn't discard its stored seed on upgrade. Signed in the
+        // canonical form for the same reason `src[…]` is: names and JSON key
+        // order must not move the signature.
+        let customGroups = BodyCustomHealthSourceGroupStore.groups(from: settings.customHealthSourceGroupsRaw ?? "")
+        let customGroupsFragment = customGroups.isEmpty
+            ? ""
+            : ";groups[\(BodyCustomHealthSourceGroupStore.canonicalSignature(for: customGroups))]"
+        return "d[\(settings.idealSleepDurationMinutes)]" +
             ";u[\(settings.followsSystemUnits ? "1" : "0")]" +
             ";t[\(settings.selectedTemperatureUnitRaw)]" +
             ";sc[\(settings.showSleepScore ? "1" : "0")]" +
@@ -3617,7 +3944,23 @@ final class HealthKitWorkoutStore: ObservableObject {
             // watch treat an ordinary republish as a settings change — strip
             // fresher local provenance and fall back to older phone values.
             ";src[\(BodyHealthDataSourceSelection.storedValue(from: settings.healthDataSourceSelectionRaw).canonicalSignature)]" +
-            ";comb[\(settings.combinesHealthDataSourcesByName ? "1" : "0")]"
+            ";comb[\(settings.combinesHealthDataSourcesByName ? "1" : "0")]" +
+            customGroupsFragment
+    }
+
+    /// The primary selection as a Pro-locked watch must see it: every `custom:`
+    /// pick mapped to All Sources. Built directly rather than through
+    /// `settingDefault`, whose same-id filtering would also drop unrelated
+    /// per-kind overrides.
+    nonisolated static func selectionNeutralizingCustomSources(
+        _ selection: BodyHealthDataSourceSelection
+    ) -> BodyHealthDataSourceSelection {
+        BodyHealthDataSourceSelection(
+            defaultOption: selection.defaultOption.isCustomSource ? .allSources : selection.defaultOption,
+            selectedOptions: selection.selectedOptions.mapValues { option in
+                option.isCustomSource ? BodyHealthDataSourceOption.allSources : option
+            }
+        )
     }
 
     /// Last-14-day time zone map for `WatchComputeSettings.recentTimeZoneIdentifiersByDay`,
@@ -3713,7 +4056,13 @@ final class HealthKitWorkoutStore: ObservableObject {
         combinesHealthDataSourcesByName: Bool,
         idealSleepDuration: TimeInterval,
         showsSubMinuteAwakeStages: Bool,
-        showsLeadingTrailingAwakeStages: Bool
+        showsLeadingTrailingAwakeStages: Bool,
+        // A `custom:` source id says nothing about what it RESOLVES to, so the
+        // group membership has to ride along or a membership edit would leave
+        // the frozen morning records tagged as still-current. Defaults to the
+        // empty suffix: no groups ⇒ byte-identical to every record already
+        // frozen on disk.
+        customSourceGroupsSignatureSuffix: String = ""
     ) -> String {
         let permissions = readinessInputPermissions
             .sorted { $0.rawValue < $1.rawValue }
@@ -3731,7 +4080,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // readiness sleep-continuity input (awake duration / sleep window), so
         // toggling either must drop and recompute the frozen morning records too.
         let awakeFlags = "a[\(showsSubMinuteAwakeStages ? "1" : "0")];l[\(showsLeadingTrailingAwakeStages ? "1" : "0")]"
-        return "p[\(permissions)];s[\(sources)];c[\(combinesHealthDataSourcesByName ? "1" : "0")];g[\(sleepGoalMinutes)];\(awakeFlags)"
+        return "p[\(permissions)];s[\(sources)];c[\(combinesHealthDataSourcesByName ? "1" : "0")];g[\(sleepGoalMinutes)];\(awakeFlags)" + customSourceGroupsSignatureSuffix
     }
 
     private func readinessRecordContextSignature() -> String {
@@ -3741,7 +4090,8 @@ final class HealthKitWorkoutStore: ObservableObject {
             combinesHealthDataSourcesByName: combinesHealthDataSourcesByName,
             idealSleepDuration: Self.storedIdealSleepDuration(),
             showsSubMinuteAwakeStages: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
-            showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
+            showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages(),
+            customSourceGroupsSignatureSuffix: customSourceGroupsSignatureSuffix
         )
     }
 
@@ -4022,6 +4372,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             ) { _, next in next }
             HealthDashboardSnapshotStore.saveWatchExpectedSourceIDs(cachedExpectedSourceIDsByKind)
         }
+
+        // OUTSIDE the `if let`: the engine returns nil once its permission
+        // signature is latched, and both of these must still populate on that
+        // path — the membership pool for the editor, and the per-kind custom
+        // bucket map the synchronous resolved-option accessors read.
+        discoveredIndividualHealthSources = await engine.discoveredIndividualHealthSources()
+        customSourceIDsWithDataByKind = await engine.customHealthSourceIDsWithData()
     }
 
 

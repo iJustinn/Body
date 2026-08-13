@@ -5240,6 +5240,27 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertFalse(ActivityRingSummary.empty.isCompleted)
     }
 
+    func testActivityRingCompletionMatchesDisplayedRoundedValues() {
+        // The card renders `value.rounded()`, so completion must agree with what
+        // the user reads: 499.6 displays as "500/500" and earns the star.
+        XCTAssertTrue(ActivityRingMetric(value: 499.6, goal: 500).isClosed)
+        // 499.4 displays as "499/500" — not closed.
+        XCTAssertFalse(ActivityRingMetric(value: 499.4, goal: 500).isClosed)
+        XCTAssertTrue(ActivityRingMetric(value: 500, goal: 500).isClosed)
+        XCTAssertFalse(ActivityRingMetric(value: nil, goal: 500).isClosed)
+        XCTAssertFalse(ActivityRingMetric(value: 500, goal: nil).isClosed)
+        // A goal that rounds to zero must not close via "0 >= 0".
+        XCTAssertFalse(ActivityRingMetric(value: 0.1, goal: 0.4).isClosed)
+
+        let roundsToComplete = ActivityRingSummary(
+            move: ActivityRingMetric(value: 499.6, goal: 500),
+            exercise: ActivityRingMetric(value: 39.7, goal: 40),
+            stand: ActivityRingMetric(value: 12, goal: 12)
+        )
+
+        XCTAssertTrue(roundsToComplete.isCompleted)
+    }
+
     func testActivityRingHistoryTracksLoadedEmptyMonthsWithoutDisplayingLeadingPlaceholders() throws {
         let calendar = Calendar.bodyGregorian
         let marchKey = ActivityRingMonthKey(month: 3, year: 2026)
@@ -5466,7 +5487,13 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             exercise: ActivityRingMetric(value: 10, goal: 30),
             stand: ActivityRingMetric(value: 12, goal: 12)
         )
-        let days = try (1...4).map { day in
+        // Displays as "500/500" Move (499.6 rounds up); Exercise/Stand stay short.
+        let roundedMoveSummary = ActivityRingSummary(
+            move: ActivityRingMetric(value: 499.6, goal: 500),
+            exercise: ActivityRingMetric(value: 10, goal: 30),
+            stand: ActivityRingMetric(value: 4, goal: 12)
+        )
+        let days = try (1...5).map { day in
             try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: day)))
         }
         let month = ActivityRingCalendarMonth(
@@ -5476,11 +5503,12 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 ActivityRingCalendarDay(date: days[0], summary: completedSummary, hasData: true, isFuture: false),
                 ActivityRingCalendarDay(date: days[1], summary: moveAndStandSummary, hasData: true, isFuture: false),
                 ActivityRingCalendarDay(date: days[2], summary: completedSummary, hasData: false, isFuture: false),
-                ActivityRingCalendarDay(date: days[3], summary: completedSummary, hasData: true, isFuture: true)
+                ActivityRingCalendarDay(date: days[3], summary: completedSummary, hasData: true, isFuture: true),
+                ActivityRingCalendarDay(date: days[4], summary: roundedMoveSummary, hasData: true, isFuture: false)
             ]
         )
 
-        XCTAssertEqual(month.closedMoveRingCount, 2)
+        XCTAssertEqual(month.closedMoveRingCount, 3)
         XCTAssertEqual(month.closedExerciseRingCount, 1)
         XCTAssertEqual(month.closedStandRingCount, 2)
         XCTAssertEqual(month.completedRingCount, 1)

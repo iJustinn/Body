@@ -627,6 +627,22 @@
         }
       }
     },
+    "%lld sources" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld sources"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个来源"
+          }
+        }
+      }
+    },
     "%lld weeks" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -854,6 +870,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关于睡眠评分"
+          }
+        }
+      }
+    },
+    "About your interval" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About your interval"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于你的区间"
           }
         }
       }
@@ -1111,6 +1143,23 @@
         }
       }
     },
+    "Apple Watch" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Watch"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Watch"
+          }
+        }
+      }
+    },
     "Apply" : {
       "localizations" : {
         "en" : {
@@ -1353,6 +1402,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "基础数据"
+          }
+        }
+      }
+    },
+    "Bed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "床"
           }
         }
       }
@@ -2508,6 +2574,22 @@
         }
       }
     },
+    "Create your own sources that merge several data sources into one." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create your own sources that merge several data sources into one."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "创建自己的来源，将多个数据来源合并为一个。"
+          }
+        }
+      }
+    },
     "Current" : {
       "localizations" : {
         "en" : {
@@ -2537,6 +2619,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自定义背景"
+          }
+        }
+      }
+    },
+    "Custom Data Sources" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Data Sources"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义数据来源"
+          }
+        }
+      }
+    },
+    "Custom Source" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Source"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义来源"
+          }
+        }
+      }
+    },
+    "Custom Sources" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Sources"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义来源"
           }
         }
       }
@@ -2855,6 +2985,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "要删除“%@”吗？"
+          }
+        }
+      }
+    },
+    "Delete Custom Source" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Custom Source"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除自定义来源"
           }
         }
       }
@@ -3355,6 +3501,87 @@
         }
       }
     },
+    "Fitness Band" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fitness Band"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "健身手环"
+          }
+        }
+      }
+    },
+    "Flatten End" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flatten End"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平铺结束"
+          }
+        }
+      }
+    },
+    "Flatten Start" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flatten Start"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平铺起点"
+          }
+        }
+      }
+    },
+    "Flatten Y End" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flatten Y End"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平铺Y轴终点"
+          }
+        }
+      }
+    },
+    "Flatten Y Start" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flatten Y Start"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平铺Y轴起点"
+          }
+        }
+      }
+    },
     "Flips the icon" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3570,6 +3797,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本地仪表盘缓存中已有健康摘要、趋势或活动圆环数据。"
+          }
+        }
+      }
+    },
+    "Heart" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heart"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心形"
           }
         }
       }
@@ -3854,6 +4098,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "有所上升"
+          }
+        }
+      }
+    },
+    "iPad" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPad"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPad"
+          }
+        }
+      }
+    },
+    "iPhone" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone"
           }
         }
       }
@@ -4276,6 +4554,7 @@
       }
     },
     "Metric" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4510,6 +4789,54 @@
         }
       }
     },
+    "Name" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名称"
+          }
+        }
+      }
+    },
+    "Nap stage breakdown. %@. %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nap stage breakdown. %1$@. %2$@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "小睡阶段细分：%1$@。%2$@。"
+          }
+        }
+      }
+    },
+    "Nap Stages" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nap Stages"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "小睡阶段"
+          }
+        }
+      }
+    },
     "Neutral" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4523,6 +4850,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "中性"
+          }
+        }
+      }
+    },
+    "New Custom Source" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Custom Source"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新建自定义来源"
           }
         }
       }
@@ -4860,6 +5203,22 @@
         }
       }
     },
+    "No sources discovered yet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No sources discovered yet."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未发现任何来源。"
+          }
+        }
+      }
+    },
     "No Training Load yet" : {
       "localizations" : {
         "en" : {
@@ -5067,6 +5426,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "尚未刷新"
+          }
+        }
+      }
+    },
+    "Nutrition" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nutrition"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "营养"
           }
         }
       }
@@ -5420,6 +5796,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用自己的混色和已存配置方案，个性化 App 背景。"
+          }
+        }
+      }
+    },
+    "Photo Activity Share" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Photo Activity Share"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "照片运动分享"
+          }
+        }
+      }
+    },
+    "Pick at least two sources to merge into this one." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick at least two sources to merge into this one."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "至少选择两个来源，合并为这一个来源。"
           }
         }
       }
@@ -6213,6 +6621,23 @@
         }
       }
     },
+    "Ring" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ring"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "戒指"
+          }
+        }
+      }
+    },
     "Rose" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6258,6 +6683,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "路线样式"
+          }
+        }
+      }
+    },
+    "Running" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Running"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跑步"
           }
         }
       }
@@ -6342,6 +6784,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已存 %lld"
+          }
+        }
+      }
+    },
+    "Scale" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scale"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "体重秤"
           }
         }
       }
@@ -6461,6 +6920,22 @@
         }
       }
     },
+    "Select Sources" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select Sources"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择来源"
+          }
+        }
+      }
+    },
     "Select which workout types to display" : {
       "localizations" : {
         "en" : {
@@ -6553,6 +7028,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已选体重日期"
+          }
+        }
+      }
+    },
+    "Sensor" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sensor"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "传感器"
           }
         }
       }
@@ -6736,6 +7228,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示在主页、运动和设置中"
+          }
+        }
+      }
+    },
+    "Shown wherever this source appears." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shown wherever this source appears."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在此数据来源出现的任何位置显示。"
+          }
+        }
+      }
+    },
+    "Shown wherever this source can be picked." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shown wherever this source can be picked."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会显示在所有可选择此来源的位置。"
           }
         }
       }
@@ -7508,6 +8032,22 @@
         }
       }
     },
+    "This custom source will be removed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This custom source will be removed."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此自定义来源将被移除。"
+          }
+        }
+      }
+    },
     "This device does not support alternate app icons." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7939,6 +8479,22 @@
         }
       }
     },
+    "Use your own photos as the background of workout share cards." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use your own photos as the background of workout share cards."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用自己的照片作为运动分享卡片的背景。"
+          }
+        }
+      }
+    },
     "Used for the comparison bars on this chart." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8153,6 +8709,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "较低"
+          }
+        }
+      }
+    },
+    "Watch" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Watch"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手表"
           }
         }
       }

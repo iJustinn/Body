@@ -158,4 +158,16 @@ final class BodyHealthSourceIconTests: XCTestCase {
             fallback
         )
     }
+
+    // MARK: - Custom source icon picker vocabulary
+
+    func testSelectableSymbolNamesHasNoDuplicates() {
+        let names = BodyHealthSourceIcon.selectableSymbolNames
+
+        XCTAssertEqual(names.count, Set(names).count)
+    }
+
+    func testSelectableSymbolNamesStartsWithTheDefault() {
+        XCTAssertEqual(BodyHealthSourceIcon.selectableSymbolNames.first, BodyHealthSourceIcon.customSourceDefaultSymbolName)
+    }
 }

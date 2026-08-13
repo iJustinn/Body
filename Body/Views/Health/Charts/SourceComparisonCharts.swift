@@ -38,6 +38,7 @@ struct BodyHealthSourceLegend: View {
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.68)
+                            .bodyLegendNumberFlip(value: averageText(for: item.averageValue))
                     }
                 }
             }
@@ -52,6 +53,7 @@ struct BodyHealthSourceLegend: View {
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
+                .bodyLegendNumberFlip(value: averageText(for: item.averageValue))
         }
     }
 
@@ -78,7 +80,8 @@ struct BodyHealthSourceComparisonLineChart: View {
     /// the topmost layer (above the nav bar). Nil keeps the in-chart annotation.
     let floatingCallout: BodyChartFloatingCalloutState?
 
-    private let entries: [BodyHealthSourceComparisonLineEntry]
+    private let lineSegments: [BodyHealthSourceComparisonLineSegmentMark]
+    private let dotEntries: [BodyHealthSourceComparisonLineEntry]
     private let finiteEntries: [BodyHealthSourceComparisonLineEntry]
     private let primaryPointsByDate: [Date: BodyHealthSourceComparisonLineEntry]
     private let secondaryPointsByDate: [Date: BodyHealthSourceComparisonLineEntry]
@@ -131,8 +134,15 @@ struct BodyHealthSourceComparisonLineChart: View {
             )
         }
         let allEntries = primaryEntries + secondaryEntries
-        self.entries = allEntries
         self.finiteEntries = allEntries.filter { $0.value?.isFinite == true }
+        // Union of every range's dates: off-range dates render as invisible
+        // placeholders at their own range's geometry, so a range switch morphs
+        // marks in place instead of popping them.
+        let otherRangeEntries = BodyHealthTrendRange.allCases
+            .filter { $0 != selectedRange }
+            .map { Self.lineEntries(comparison: comparison, range: $0) }
+        self.lineSegments = Self.unionLineSegments(currentEntries: allEntries, otherRangeEntries: otherRangeEntries)
+        self.dotEntries = Self.unionDotEntries(currentEntries: allEntries, otherRangeEntries: otherRangeEntries)
         self.primaryPointsByDate = Dictionary(uniqueKeysWithValues: primaryEntries.compactMap { entry in
             entry.value?.isFinite == true ? (entry.date, entry) : nil
         })
@@ -151,18 +161,37 @@ struct BodyHealthSourceComparisonLineChart: View {
 
     var body: some View {
         Chart {
-            ForEach(entries) { entry in
-                if let value = entry.value {
-                    LineMark(
-                        x: .value("Date", entry.date, unit: .day),
-                        y: .value(title, value),
-                        series: .value("Source", entry.sourceRole.rawValue)
-                    )
-                    .interpolationMethod(.linear)
-                    .foregroundStyle(lineStrokeColor(for: entry))
-                    .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
+            // One two-point series per consecutive pair instead of one run per
+            // source: a single line whose vertex set changes across a range
+            // switch freezes, then pops. Shared pair ids morph in place; the
+            // rest fade at opacity 0.
+            ForEach(lineSegments) { segment in
+                LineMark(
+                    x: .value("Date", segment.startDate, unit: .day),
+                    y: .value(title, segment.startValue),
+                    series: .value("Segment", segment.id)
+                )
+                .interpolationMethod(.linear)
+                .foregroundStyle(lineStrokeColor(for: segment.sourceRole))
+                .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
+                .opacity(segment.isPlaceholder ? 0 : 1)
+                .accessibilityHidden(segment.isPlaceholder)
 
-                    if selectedRange.showsPointMarks {
+                LineMark(
+                    x: .value("Date", segment.endDate, unit: .day),
+                    y: .value(title, segment.endValue),
+                    series: .value("Segment", segment.id)
+                )
+                .interpolationMethod(.linear)
+                .foregroundStyle(lineStrokeColor(for: segment.sourceRole))
+                .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
+                .opacity(segment.isPlaceholder ? 0 : 1)
+                .accessibilityHidden(segment.isPlaceholder)
+            }
+
+            if selectedRange.showsPointMarks {
+                ForEach(dotEntries) { entry in
+                    if let value = entry.value {
                         if selectedRange.usesPreviewLineChartStyle {
                             PointMark(
                                 x: .value("Date", entry.date, unit: .day),
@@ -175,7 +204,13 @@ struct BodyHealthSourceComparisonLineChart: View {
                                     pointDiameter: selectedRange.linePointDiameter,
                                     currentPointDiameter: selectedRange.lineCurrentPointDiameter
                                 )
+                                // Inside the symbol view — Charts does not apply
+                                // mark opacity to custom `.symbol {}` content.
+                                .opacity(entry.isPlaceholder ? 0 : 1)
                             }
+                            // Opacity is only visual: an off-range placeholder
+                            // would still be announced.
+                            .accessibilityHidden(entry.isPlaceholder)
                         } else {
                             PointMark(
                                 x: .value("Date", entry.date, unit: .day),
@@ -183,6 +218,8 @@ struct BodyHealthSourceComparisonLineChart: View {
                             )
                             .foregroundStyle(color(for: entry))
                             .symbolSize(28)
+                            .opacity(entry.isPlaceholder ? 0 : 1)
+                            .accessibilityHidden(entry.isPlaceholder)
                         }
                     }
                 }
@@ -260,6 +297,12 @@ struct BodyHealthSourceComparisonLineChart: View {
         .transition(
             .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
         )
+        // Keyed on the range ONLY: a broader key would also animate
+        // scrub-mark removal.
+        .animation(reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0), value: selectedRange)
+        .onChange(of: selectedRange) {
+            selectedDate = nil
+        }
         .transaction { transaction in
             transaction.animation = nil
         }
@@ -317,11 +360,15 @@ struct BodyHealthSourceComparisonLineChart: View {
     }
 
     private func color(for entry: BodyHealthSourceComparisonLineEntry) -> Color {
-        entry.sourceRole == .primary ? primaryColor : secondaryColor
+        color(for: entry.sourceRole)
     }
 
-    private func lineStrokeColor(for entry: BodyHealthSourceComparisonLineEntry) -> Color {
-        selectedRange.usesMetricColorLineStroke ? color(for: entry) : color(for: entry).opacity(0.72)
+    private func color(for role: BodyHealthSourceRole) -> Color {
+        role == .primary ? primaryColor : secondaryColor
+    }
+
+    private func lineStrokeColor(for role: BodyHealthSourceRole) -> Color {
+        selectedRange.usesMetricColorLineStroke ? color(for: role) : color(for: role).opacity(0.72)
     }
 
     private var lineStrokeWidth: CGFloat {
@@ -337,12 +384,111 @@ struct BodyHealthSourceComparisonLineChart: View {
                 selectedDate = nil
             }
     }
+
+    /// Both sources' entries at `range`'s own compressed line points, used to
+    /// seed placeholder geometry for off-range dates.
+    static func lineEntries(
+        comparison: BodyHealthSourceComparisonTrend,
+        range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> [BodyHealthSourceComparisonLineEntry] {
+        let primaryEntries = comparison.primary.series
+            .lineChartCalendarPoints(to: range, calendar: calendar, date: date)
+            .map {
+                BodyHealthSourceComparisonLineEntry(
+                    sourceName: comparison.primary.sourceName,
+                    sourceRole: .primary,
+                    point: $0
+                )
+            }
+        let secondaryEntries = comparison.secondary.series
+            .lineChartCalendarPoints(to: range, calendar: calendar, date: date)
+            .map {
+                BodyHealthSourceComparisonLineEntry(
+                    sourceName: comparison.secondary.sourceName,
+                    sourceRole: .secondary,
+                    point: $0
+                )
+            }
+        return primaryEntries + secondaryEntries
+    }
+
+    /// One segment per consecutive pair of a source's finite entries.
+    /// Placeholder segments collapse onto their own start point.
+    static func lineSegments(
+        from entries: [BodyHealthSourceComparisonLineEntry],
+        isPlaceholder: Bool
+    ) -> [BodyHealthSourceComparisonLineSegmentMark] {
+        let entriesByRole = Dictionary(
+            grouping: entries.filter { $0.value?.isFinite == true },
+            by: \.sourceRole
+        )
+        return entriesByRole.keys.sorted { $0.rawValue < $1.rawValue }.flatMap { role -> [BodyHealthSourceComparisonLineSegmentMark] in
+            let sorted = (entriesByRole[role] ?? []).sorted { $0.date < $1.date }
+            return zip(sorted, sorted.dropFirst()).compactMap { start, end in
+                guard let startValue = start.value, let endValue = end.value else {
+                    return nil
+                }
+
+                return BodyHealthSourceComparisonLineSegmentMark(
+                    sourceRole: role,
+                    startDate: start.date,
+                    startValue: startValue,
+                    endDate: isPlaceholder ? start.date : end.date,
+                    endValue: isPlaceholder ? startValue : endValue,
+                    isPlaceholder: isPlaceholder
+                )
+            }
+        }
+    }
+
+    /// The current range's per-source pairs, plus every other range's pairs
+    /// whose id has no current counterpart as invisible zero-length
+    /// placeholders — a segment appearing there on another range grows out of
+    /// its own start point instead of popping in.
+    static func unionLineSegments(
+        currentEntries: [BodyHealthSourceComparisonLineEntry],
+        otherRangeEntries: [[BodyHealthSourceComparisonLineEntry]]
+    ) -> [BodyHealthSourceComparisonLineSegmentMark] {
+        var segments = lineSegments(from: currentEntries, isPlaceholder: false)
+        var claimedIDs = Set(segments.map(\.id))
+        for entries in otherRangeEntries {
+            for segment in lineSegments(from: entries, isPlaceholder: true)
+            where !claimedIDs.contains(segment.id) {
+                claimedIDs.insert(segment.id)
+                segments.append(segment)
+            }
+        }
+        return segments
+    }
+
+    /// The current range's entries verbatim, plus every other range's finite
+    /// entries whose role-date id has no current counterpart as invisible
+    /// placeholders at their own value. A current entry with no reading draws
+    /// no dot, so it yields its id instead of suppressing that placeholder.
+    static func unionDotEntries(
+        currentEntries: [BodyHealthSourceComparisonLineEntry],
+        otherRangeEntries: [[BodyHealthSourceComparisonLineEntry]]
+    ) -> [BodyHealthSourceComparisonLineEntry] {
+        bodyUnionMorphEntries(
+            current: currentEntries,
+            otherRanges: otherRangeEntries,
+            isDrawn: { $0.value?.isFinite == true },
+            placeholder: { entry in
+                var placeholder = entry
+                placeholder.isPlaceholder = true
+                return placeholder
+            }
+        )
+    }
 }
 
 struct BodyHealthSourceComparisonLineEntry: Identifiable {
     let sourceName: String
     let sourceRole: BodyHealthSourceRole
     let point: HealthTrendCalendarPoint
+    var isPlaceholder: Bool = false
 
     var id: String {
         "\(sourceRole.rawValue)-\(point.date.timeIntervalSinceReferenceDate)"
@@ -354,6 +500,23 @@ struct BodyHealthSourceComparisonLineEntry: Identifiable {
 
     var value: Double? {
         point.value
+    }
+}
+
+/// One straight stretch of a source's comparison line (or its invisible
+/// zero-length placeholder), keyed by source role + pair start date so the
+/// mark keeps its identity across range switches — see
+/// `BodyHealthSourceComparisonLineChart.unionLineSegments`.
+struct BodyHealthSourceComparisonLineSegmentMark: Identifiable {
+    let sourceRole: BodyHealthSourceRole
+    let startDate: Date
+    let startValue: Double
+    let endDate: Date
+    let endValue: Double
+    var isPlaceholder: Bool = false
+
+    var id: String {
+        "\(sourceRole.rawValue)-seg-\(startDate.timeIntervalSinceReferenceDate)"
     }
 }
 
@@ -426,7 +589,16 @@ struct BodyHealthSourceComparisonBarChart: View {
             )
         }
         let allEntries = primaryEntries + secondaryEntries
-        self.entries = allEntries
+        // Union of every range's buckets: off-range bucket dates render as
+        // invisible placeholders at their own range's aggregated geometry and
+        // pair offsets, so a range switch morphs bars instead of popping them.
+        // Scrubbing and domains stay on the current range's entries.
+        self.entries = Self.unionBarEntries(
+            currentEntries: allEntries,
+            otherRangeEntries: BodyHealthTrendRange.allCases
+                .filter { $0 != selectedRange }
+                .map { Self.barEntries(comparison: comparison, range: $0) }
+        )
         self.finiteEntries = allEntries.filter { $0.value?.isFinite == true }
 
         let domainDates = allEntries.map(\.chartDate)
@@ -457,6 +629,8 @@ struct BodyHealthSourceComparisonBarChart: View {
                         )
                         .foregroundStyle(color(for: entry).gradient)
                         .cornerRadius(4)
+                        .opacity(entry.isPlaceholder ? 0 : 1)
+                        .accessibilityHidden(entry.isPlaceholder)
                     }
                 }
 
@@ -521,6 +695,12 @@ struct BodyHealthSourceComparisonBarChart: View {
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
             )
+            // Keyed on the range ONLY: a broader key would also animate
+            // scrub-mark removal.
+            .animation(reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0), value: selectedRange)
+            .onChange(of: selectedRange) {
+                selectedDate = nil
+            }
             .transaction { transaction in
                 transaction.animation = nil
             }
@@ -548,7 +728,9 @@ struct BodyHealthSourceComparisonBarChart: View {
 
     private func selectedValues(for selectedPoint: BodyHealthSourceComparisonBarEntry) -> [BodyChartSelectionValue] {
         entries
-            .filter { $0.date == selectedPoint.date && $0.value?.isFinite == true }
+            // Placeholders excluded: another range's bucket can share this
+            // date, and its value must never reach the callout.
+            .filter { !$0.isPlaceholder && $0.date == selectedPoint.date && $0.value?.isFinite == true }
             .sorted { $0.sourceRole.rawValue < $1.sourceRole.rawValue }
             .compactMap { entry -> BodyChartSelectionValue? in
                 guard let value = entry.value else {
@@ -576,6 +758,60 @@ struct BodyHealthSourceComparisonBarChart: View {
                 selectedDate = nil
             }
     }
+
+    /// Both sources' entries at `range`'s own doubled-bucket aggregation and
+    /// per-source pair offsets (mirroring the init's current-range math), used
+    /// to seed placeholder geometry for off-range bucket dates.
+    static func barEntries(
+        comparison: BodyHealthSourceComparisonTrend,
+        range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> [BodyHealthSourceComparisonBarEntry] {
+        let primaryPoints = comparison.primary.series
+            .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: date)
+        let secondaryPoints = comparison.secondary.series
+            .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: date)
+        let dateOffset = range.sourceComparisonChartDateOffset
+        let pairShift: TimeInterval = range.sourceComparisonChartAggregationDayCount == 1 ? dateOffset * 2 : 0
+        let primaryEntries = primaryPoints.map { point in
+            BodyHealthSourceComparisonBarEntry(
+                sourceName: comparison.primary.sourceName,
+                sourceRole: .primary,
+                point: point,
+                chartDate: point.date.addingTimeInterval(pairShift - dateOffset)
+            )
+        }
+        let secondaryEntries = secondaryPoints.map { point in
+            BodyHealthSourceComparisonBarEntry(
+                sourceName: comparison.secondary.sourceName,
+                sourceRole: .secondary,
+                point: point,
+                chartDate: point.date.addingTimeInterval(pairShift + dateOffset)
+            )
+        }
+        return primaryEntries + secondaryEntries
+    }
+
+    /// The current range's entries verbatim, plus every other range's finite
+    /// entries whose role-date id has no current counterpart as invisible
+    /// placeholders at their own range's geometry. A current entry with no
+    /// reading draws no bar, so it yields its id to a valued off-range bucket.
+    static func unionBarEntries(
+        currentEntries: [BodyHealthSourceComparisonBarEntry],
+        otherRangeEntries: [[BodyHealthSourceComparisonBarEntry]]
+    ) -> [BodyHealthSourceComparisonBarEntry] {
+        bodyUnionMorphEntries(
+            current: currentEntries,
+            otherRanges: otherRangeEntries,
+            isDrawn: { $0.value?.isFinite == true },
+            placeholder: { entry in
+                var placeholder = entry
+                placeholder.isPlaceholder = true
+                return placeholder
+            }
+        )
+    }
 }
 
 struct BodyHealthSourceComparisonBarEntry: Identifiable {
@@ -583,6 +819,7 @@ struct BodyHealthSourceComparisonBarEntry: Identifiable {
     let sourceRole: BodyHealthSourceRole
     let point: HealthTrendCalendarPoint
     let chartDate: Date
+    var isPlaceholder: Bool = false
 
     var id: String {
         "\(sourceRole.rawValue)-\(point.date.timeIntervalSinceReferenceDate)"
@@ -667,7 +904,16 @@ struct BodyHealthSourceComparisonRangeChart: View {
             )
         }
         let allEntries = primaryEntries + secondaryEntries
-        self.entries = allEntries
+        // Union of every range's buckets: off-range bucket dates render as
+        // invisible placeholders at their own range's aggregated geometry and
+        // pair offsets, so a range switch morphs bars instead of popping them.
+        // Scrubbing and domains stay on the current range's entries.
+        self.entries = Self.unionRangeEntries(
+            currentEntries: allEntries,
+            otherRangeEntries: BodyHealthTrendRange.allCases
+                .filter { $0 != selectedRange }
+                .map { Self.rangeEntries(comparison: comparison, range: $0) }
+        )
         self.finiteEntries = allEntries.filter(\.hasValue)
 
         let domainDates = allEntries.map(\.chartDate)
@@ -695,23 +941,33 @@ struct BodyHealthSourceComparisonRangeChart: View {
 
                 ForEach(entries) { entry in
                     if let lowValue = entry.lowValue, let highValue = entry.highValue {
-                        if lowValue == highValue {
-                            PointMark(
-                                x: .value("Date", entry.chartDate),
-                                y: .value(title, lowValue)
-                            )
-                            .symbolSize(bodyRangeChartPointSymbolSize(forBarWidth: chartBarWidth))
-                            .foregroundStyle(color(for: entry).gradient)
-                        } else {
-                            BarMark(
-                                x: .value("Date", entry.chartDate),
-                                yStart: .value("Low \(title)", lowValue),
-                                yEnd: .value("High \(title)", highValue),
-                                width: .fixed(chartBarWidth)
-                            )
-                            .foregroundStyle(color(for: entry).gradient)
-                            .cornerRadius(chartBarWidth / 2)
-                        }
+                        // Both forms exist for every entry and only opacity
+                        // picks between them: a low == high entry needs the dot
+                        // and every other needs the bar, and letting a range
+                        // switch change WHICH mark the entry has
+                        // removes/inserts it, which Swift Charts pops. The
+                        // zero-height bar under a dot stays at opacity 0.
+                        PointMark(
+                            x: .value("Date", entry.chartDate),
+                            y: .value(title, lowValue)
+                        )
+                        .symbolSize(bodyRangeChartPointSymbolSize(forBarWidth: chartBarWidth))
+                        .foregroundStyle(color(for: entry).gradient)
+                        .opacity(!entry.isPlaceholder && lowValue == highValue ? 1 : 0)
+                        // Both forms exist for every entry, so the hidden twin
+                        // and the placeholders must stay out of VoiceOver.
+                        .accessibilityHidden(entry.isPlaceholder || lowValue != highValue)
+
+                        BarMark(
+                            x: .value("Date", entry.chartDate),
+                            yStart: .value("Low \(title)", lowValue),
+                            yEnd: .value("High \(title)", highValue),
+                            width: .fixed(chartBarWidth)
+                        )
+                        .foregroundStyle(color(for: entry).gradient)
+                        .cornerRadius(chartBarWidth / 2)
+                        .opacity(!entry.isPlaceholder && lowValue != highValue ? 1 : 0)
+                        .accessibilityHidden(entry.isPlaceholder || lowValue == highValue)
                     }
                 }
 
@@ -776,6 +1032,13 @@ struct BodyHealthSourceComparisonRangeChart: View {
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
             )
+            // Keyed on the range alone so scrub-driven mark changes stay
+            // un-animated; the inner keyed animation still runs under the
+            // transaction override below.
+            .animation(reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0), value: selectedRange)
+            .onChange(of: selectedRange) {
+                selectedDate = nil
+            }
             .transaction { transaction in
                 transaction.animation = nil
             }
@@ -803,7 +1066,9 @@ struct BodyHealthSourceComparisonRangeChart: View {
 
     private func selectedValues(for selectedPoint: BodyHealthSourceComparisonRangeEntry) -> [BodyChartSelectionValue] {
         entries
-            .filter { $0.date == selectedPoint.date && $0.hasValue }
+            // Placeholders excluded: another range's bucket can share this
+            // date, and its values must never reach the callout.
+            .filter { !$0.isPlaceholder && $0.date == selectedPoint.date && $0.hasValue }
             .sorted { $0.sourceRole.rawValue < $1.sourceRole.rawValue }
             .compactMap { entry -> BodyChartSelectionValue? in
                 guard let lowValue = entry.lowValue,
@@ -842,6 +1107,61 @@ struct BodyHealthSourceComparisonRangeChart: View {
         let upper = max(ceil((maximum + max(maximum * 0.12, 10)) / 10) * 10, 120)
         return 0...upper
     }
+
+    /// One range's paired entries, carrying that range's own aggregation and
+    /// pair offsets so a placeholder sits exactly where the mark would sit if
+    /// the range were selected.
+    static func rangeEntries(
+        comparison: BodyHealthSourceRangeComparisonTrend,
+        range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> [BodyHealthSourceComparisonRangeEntry] {
+        let primaryPoints = comparison.primary.series
+            .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: date)
+        let secondaryPoints = comparison.secondary.series
+            .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: date)
+        let dateOffset = range.sourceComparisonChartDateOffset
+        let pairShift: TimeInterval = range.sourceComparisonChartAggregationDayCount == 1 ? dateOffset * 2 : 0
+        let primaryEntries = primaryPoints.map { point in
+            BodyHealthSourceComparisonRangeEntry(
+                sourceName: comparison.primary.sourceName,
+                sourceRole: .primary,
+                point: point,
+                chartDate: point.date.addingTimeInterval(pairShift - dateOffset)
+            )
+        }
+        let secondaryEntries = secondaryPoints.map { point in
+            BodyHealthSourceComparisonRangeEntry(
+                sourceName: comparison.secondary.sourceName,
+                sourceRole: .secondary,
+                point: point,
+                chartDate: point.date.addingTimeInterval(pairShift + dateOffset)
+            )
+        }
+        return primaryEntries + secondaryEntries
+    }
+
+    /// The current range's entries verbatim, plus every other range's valued
+    /// entries whose role-date id has no current counterpart as invisible
+    /// placeholders at their own range's geometry. A current entry with no
+    /// reading draws neither bar nor dot, so it yields its id to a valued
+    /// off-range bucket instead of suppressing it.
+    static func unionRangeEntries(
+        currentEntries: [BodyHealthSourceComparisonRangeEntry],
+        otherRangeEntries: [[BodyHealthSourceComparisonRangeEntry]]
+    ) -> [BodyHealthSourceComparisonRangeEntry] {
+        bodyUnionMorphEntries(
+            current: currentEntries,
+            otherRanges: otherRangeEntries,
+            isDrawn: \.hasValue,
+            placeholder: { entry in
+                var placeholder = entry
+                placeholder.isPlaceholder = true
+                return placeholder
+            }
+        )
+    }
 }
 
 struct BodyHealthSourceComparisonRangeEntry: Identifiable {
@@ -849,6 +1169,9 @@ struct BodyHealthSourceComparisonRangeEntry: Identifiable {
     let sourceRole: BodyHealthSourceRole
     let point: HealthTrendRangeCalendarPoint
     let chartDate: Date
+    /// Off-range bucket rendered invisibly so a range switch morphs instead of
+    /// inserting/removing marks — see `unionRangeEntries`.
+    var isPlaceholder: Bool = false
 
     var id: String {
         "\(sourceRole.rawValue)-\(point.date.timeIntervalSinceReferenceDate)"

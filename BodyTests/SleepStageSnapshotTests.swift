@@ -193,4 +193,97 @@ final class SleepStageSnapshotTests: XCTestCase {
             SleepStageSegment(stage: .core, startDate: bedtime, endDate: wake)
         ])
     }
+
+    // MARK: napSessions
+
+    /// Night 23:30–07:45 as the main session, plus whatever nap segments the
+    /// case needs.
+    private func snapshotWithNight(napSegments: [SleepStageSegment]) -> SleepStageSnapshot {
+        let bedtime = date(day: 9, hour: 23, minute: 30)
+        let wake = date(7, 45)
+        return SleepStageSnapshot(
+            date: date(0),
+            segments: [SleepStageSegment(stage: .core, startDate: bedtime, endDate: wake)] + napSegments,
+            timeZoneIdentifier: "Europe/London",
+            mainSessionInterval: DateInterval(start: bedtime, end: wake)
+        )
+    }
+
+    func testNapSessionsSplitAfternoonNapFromTheNight() {
+        let nap = SleepStageSegment(stage: .core, startDate: date(14), endDate: date(15, 12))
+        let snapshot = snapshotWithNight(napSegments: [nap])
+
+        let naps = snapshot.napSessions
+        XCTAssertEqual(naps.count, 1)
+        XCTAssertEqual(naps.first?.segments, [nap])
+        // Metadata rides along, but the nap is no longer inside a main session.
+        XCTAssertEqual(naps.first?.date, snapshot.date)
+        XCTAssertEqual(naps.first?.timeZoneIdentifier, "Europe/London")
+        XCTAssertNil(naps.first?.mainSessionInterval)
+
+        // The night's own card is untouched.
+        XCTAssertEqual(snapshot.mainSession.segments, [
+            SleepStageSegment(stage: .core, startDate: date(day: 9, hour: 23, minute: 30), endDate: date(7, 45))
+        ])
+        XCTAssertEqual(snapshot.napsSnapshot.segments, [nap])
+    }
+
+    func testNapSessionsSplitOnTwoHourGapOnly() {
+        // 10:40 → 14:00 is more than the 2h session gap: two naps.
+        let morningNap = SleepStageSegment(stage: .core, startDate: date(10), endDate: date(10, 40))
+        let afternoonNap = SleepStageSegment(stage: .core, startDate: date(14), endDate: date(14, 50))
+        let split = snapshotWithNight(napSegments: [morningNap, afternoonNap])
+
+        XCTAssertEqual(split.napSessions.map(\.segments), [[morningNap], [afternoonNap]])
+        XCTAssertEqual(split.napsSnapshot.segments, [morningNap, afternoonNap])
+
+        // 10:40 → 12:30 is inside the gap: one nap spanning both blocks.
+        let secondBlock = SleepStageSegment(stage: .core, startDate: date(12, 30), endDate: date(13, 10))
+        let joined = snapshotWithNight(napSegments: [morningNap, secondBlock])
+
+        XCTAssertEqual(joined.napSessions.map(\.segments), [[morningNap, secondBlock]])
+    }
+
+    func testNapSessionsMeasureGapFromLatestEndSoFar() {
+        // An aggregate 14:00–17:00 sample with detailed samples nested inside it.
+        // Measured from the previous segment's end, 14:30 → 16:50 would look like
+        // a 2h20 gap and wrongly split one nap in two.
+        let aggregate = SleepStageSegment(stage: .core, startDate: date(14), endDate: date(17))
+        let firstDetail = SleepStageSegment(stage: .core, startDate: date(14, 5), endDate: date(14, 30))
+        let lastDetail = SleepStageSegment(stage: .deep, startDate: date(16, 50), endDate: date(17))
+        let snapshot = snapshotWithNight(napSegments: [aggregate, firstDetail, lastDetail])
+
+        XCTAssertEqual(snapshot.napSessions.map(\.segments), [[aggregate, firstDetail, lastDetail]])
+    }
+
+    func testNapSessionsAreEmptyWithoutMainSessionInterval() {
+        // Old caches and fixtures carry no interval, so there's no night to
+        // separate naps from; the snapshot must not spawn phantom nap cards.
+        let snapshot = SleepStageSnapshot(date: date(0), segments: [
+            SleepStageSegment(stage: .core, startDate: date(day: 9, hour: 23, minute: 30), endDate: date(7, 45)),
+            SleepStageSegment(stage: .core, startDate: date(14), endDate: date(15, 12))
+        ])
+
+        XCTAssertNil(snapshot.mainSessionInterval)
+        XCTAssertTrue(snapshot.napSessions.isEmpty)
+        XCTAssertTrue(snapshot.napsSnapshot.isEmpty)
+    }
+
+    func testNapSessionsDropAwakeOnlyAndVeryShortGroups() {
+        let snapshot = snapshotWithNight(napSegments: [
+            SleepStageSegment(stage: .awake, startDate: date(10), endDate: date(11)),
+            SleepStageSegment(stage: .core, startDate: date(18), endDate: date(18, 3))
+        ])
+
+        XCTAssertTrue(snapshot.napSessions.isEmpty)
+        XCTAssertTrue(snapshot.napsSnapshot.isEmpty)
+    }
+
+    func testNapSessionsAreEmptyWithoutSegmentsOutsideMainSession() {
+        let snapshot = snapshotWithNight(napSegments: [])
+
+        XCTAssertTrue(snapshot.napSessions.isEmpty)
+        XCTAssertTrue(snapshot.napsSnapshot.isEmpty)
+        XCTAssertEqual(snapshot.napsSnapshot.date, snapshot.date)
+    }
 }

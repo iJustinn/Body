@@ -472,4 +472,55 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarURL.path))
         XCTAssertNil(HealthDashboardSnapshotStore.loadDaySamples(fileURL: fileURL))
     }
+
+    /// The lazily fetched intraday series are persisted so the next launch can
+    /// render the metric detail Day View from cache. Full disk round trip: the
+    /// stamps written by `save` must survive to the sidecar and still gate
+    /// hydration, so day samples fetched under one selection can never hydrate
+    /// under another.
+    func testSavedDaySampleSignaturesGateHydrationOnNextLaunch() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let fileURL = temporarySnapshotFileURL()
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+        }
+        let daySamples = sampleSeries(count: 24, baseValue: 68)
+        let snapshot = try makeSnapshot(heartRateDaySamples: daySamples)
+
+        XCTAssertTrue(HealthDashboardSnapshotStore.save(
+            snapshot,
+            daySampleSignatures: HealthTrendDaySampleSignatures(
+                primarySelectionSignature: "P1",
+                secondarySelectionSignature: "S1",
+                permissionSignature: BodyHealthPermissionSelection.defaultValue.rawValue,
+                combinesHealthDataSourcesByName: false
+            ),
+            defaults: defaults,
+            fileURL: fileURL
+        ))
+
+        let sidecar = try XCTUnwrap(HealthDashboardSnapshotStore.loadDaySamples(fileURL: fileURL))
+        XCTAssertEqual(sidecar.heartRateDaySamples, daySamples)
+
+        // Same selection next launch → the day chart hydrates from the sidecar.
+        let matched = sidecar.scopedForHydration(
+            currentPrimarySignature: "P1",
+            currentSecondarySignature: "S1",
+            currentCombinesByName: false,
+            permission: .defaultValue
+        )
+        XCTAssertEqual(matched.heartRateDaySamples, daySamples)
+
+        // Primary source switched while the app was closed → drop the samples
+        // instead of rendering another source's intraday points.
+        let switched = sidecar.scopedForHydration(
+            currentPrimarySignature: "P2",
+            currentSecondarySignature: "S1",
+            currentCombinesByName: false,
+            permission: .defaultValue
+        )
+        XCTAssertEqual(switched.heartRateDaySamples, .empty)
+    }
 }

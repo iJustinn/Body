@@ -985,6 +985,12 @@ struct BodyWorkoutDetailSheet: View {
     /// with the scroll, so the hero measurement fires on layout changes only.
     private static let contentSpace = "workoutDetailContent"
 
+    /// Invisible tap slop around the Share capsule. The map's full-screen tap
+    /// target sits directly behind it, so a near-miss — or a hit on a corner of
+    /// the capsule's bounding box, which the capsule shape doesn't cover — opened
+    /// the map instead of the share sheet.
+    private static let shareButtonTapSlop: CGFloat = 12
+
     private var routeStyle: BodyWorkoutRouteStyle {
         BodyWorkoutRouteStyle(rawValue: workoutRouteStyleRawValue) ?? .defaultValue
     }
@@ -1076,9 +1082,22 @@ struct BodyWorkoutDetailSheet: View {
                             .padding(.horizontal, 18)
                             .frame(height: 44)
                             .modifier(BodyWorkoutShareButtonBackground())
+                            // Grows the hit area without moving the capsule: the
+                            // trailing page padding below absorbs the sideways slop.
+                            // Nothing on top — the capsule already sits at the top of
+                            // the safe area, and expanding past it wouldn't hit-test.
+                            .padding(
+                                EdgeInsets(
+                                    top: 0,
+                                    leading: Self.shareButtonTapSlop,
+                                    bottom: Self.shareButtonTapSlop,
+                                    trailing: Self.shareButtonTapSlop
+                                )
+                            )
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .padding(.trailing, 20)
+                    .padding(.trailing, 20 - Self.shareButtonTapSlop)
                     .accessibilityLabel("Share Workout")
                     .transition(.opacity)
                 }

@@ -202,6 +202,7 @@ struct BodyVitalsOutlierTrendChart: View {
     let floatingCallout: BodyChartFloatingCalloutState?
 
     private let buckets: [BodyVitalsOutlierBucket]
+    private let barEntries: [BodyVitalsOutlierBarEntry]
     private let chartXDomain: ClosedRange<Date>
 
     @State private var selectedDate: Date?
@@ -221,7 +222,25 @@ struct BodyVitalsOutlierTrendChart: View {
         self.floatingCallout = floatingCallout
 
         let domainDates = Self.dayGrid(for: selectedRange, calendar: calendar, date: date)
-        self.buckets = Self.buckets(from: nights, days: domainDates, selectedRange: selectedRange, calendar: calendar)
+        let buckets = Self.buckets(from: nights, days: domainDates, selectedRange: selectedRange, calendar: calendar)
+        self.buckets = buckets
+        // Every range's buckets, not just the selected one: end dates outside
+        // the current range render as invisible placeholders carrying their
+        // own range's geometry, so a range switch morphs shared marks in place
+        // and fades the rest instead of inserting/removing marks (which Swift
+        // Charts pops).
+        let otherRanges = BodyHealthTrendRange.allCases.filter { $0 != selectedRange }
+        self.barEntries = Self.unionBarEntries(
+            currentBuckets: buckets,
+            otherRangeBuckets: otherRanges.map { range in
+                Self.buckets(
+                    from: nights,
+                    days: Self.dayGrid(for: range, calendar: calendar, date: date),
+                    selectedRange: range,
+                    calendar: calendar
+                )
+            }
+        )
         self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive)
     }
 
@@ -250,11 +269,11 @@ struct BodyVitalsOutlierTrendChart: View {
                         .lineStyle(StrokeStyle(lineWidth: 1.4))
                 }
 
-                ForEach(buckets) { bucket in
+                ForEach(barEntries) { entry in
                     // Padding a spread-less bucket to exactly the bar's width in
                     // deviation units makes the capsule's end caps meet: the
                     // smallest mark renders as a circle, not a squat blob.
-                    let bounds = bucket.barBounds(
+                    let bounds = entry.bucket.barBounds(
                         minimumSpan: BodyVitalsChartStyle.minimumBarSpan(
                             barWidth: chartBarWidth,
                             chartHeight: proxy.size.height
@@ -266,7 +285,7 @@ struct BodyVitalsOutlierTrendChart: View {
                         // `HealthTrendRangeCalendarPoint` heroes, so the
                         // newest bar lands on the domain edge instead of a
                         // bucket-width short of it.
-                        x: .value("Date", bucket.endDate, unit: .day),
+                        x: .value("Date", entry.bucket.endDate, unit: .day),
                         yStart: .value("Low Deviation", bounds.lowerBound),
                         yEnd: .value("High Deviation", bounds.upperBound),
                         width: .fixed(chartBarWidth)
@@ -282,7 +301,11 @@ struct BodyVitalsOutlierTrendChart: View {
                         )
                     )
                     .cornerRadius(chartBarWidth / 2)
-                    .accessibilityLabel(accessibilityLabel(for: bucket))
+                    .opacity(entry.isPlaceholder ? 0 : 1)
+                    .accessibilityLabel(accessibilityLabel(for: entry.bucket))
+                    // Invisible off-range placeholders must stay out of the
+                    // VoiceOver rotor.
+                    .accessibilityHidden(entry.isPlaceholder)
                 }
 
                 if let selectedBucket {
@@ -329,10 +352,19 @@ struct BodyVitalsOutlierTrendChart: View {
                 return AnyView(selectionAnnotation(for: bucket))
             }
             .accessibilityLabel(Text("Vitals outlier trend"))
-            .id("vitals-outliers-\(selectedRange.rawValue)")
+            // Stable across range switches: a per-range id would replace the
+            // chart instead of updating it, popping every mark rather than
+            // letting them morph.
+            .id("vitals-outliers")
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
             )
+            // Keyed on the range ONLY: a broader key would also animate
+            // scrub-mark removal.
+            .animation(reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0), value: selectedRange)
+            .onChange(of: selectedRange) {
+                selectedDate = nil
+            }
             .transaction { transaction in
                 transaction.animation = nil
             }
@@ -426,6 +458,39 @@ struct BodyVitalsOutlierTrendChart: View {
 
             return BodyVitalsOutlierBucket(date: bucketStart, endDate: bucketEnd, nights: bucketNights)
         }
+    }
+
+    /// The current range's buckets verbatim, plus every other range's buckets
+    /// as invisible placeholders carrying their own range's geometry. End
+    /// dates (the plotted x) are claimed with current-range priority so ids
+    /// stay unique.
+    static func unionBarEntries(
+        currentBuckets: [BodyVitalsOutlierBucket],
+        otherRangeBuckets: [[BodyVitalsOutlierBucket]]
+    ) -> [BodyVitalsOutlierBarEntry] {
+        var entries = currentBuckets.map { bucket in
+            BodyVitalsOutlierBarEntry(bucket: bucket, isPlaceholder: false)
+        }
+        var claimedEndDates = Set(currentBuckets.map(\.endDate))
+        for rangeBuckets in otherRangeBuckets {
+            for bucket in rangeBuckets where !claimedEndDates.contains(bucket.endDate) {
+                claimedEndDates.insert(bucket.endDate)
+                entries.append(BodyVitalsOutlierBarEntry(bucket: bucket, isPlaceholder: true))
+            }
+        }
+        return entries
+    }
+}
+
+/// One bucket's deviation bar (or its invisible off-range placeholder), keyed
+/// by bucket END date — the plotted x — so the mark keeps its identity across
+/// range switches; see `BodyVitalsOutlierTrendChart.unionBarEntries`.
+struct BodyVitalsOutlierBarEntry: Identifiable {
+    let bucket: BodyVitalsOutlierBucket
+    let isPlaceholder: Bool
+
+    var id: Date {
+        bucket.endDate
     }
 }
 
