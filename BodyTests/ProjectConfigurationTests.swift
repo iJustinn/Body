@@ -738,7 +738,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(chartBlock.contains("LineMark("))
         XCTAssertTrue(chartBlock.contains(#"y: .value("Average \(title)", entry.value)"#))
         XCTAssertTrue(chartBlock.contains("BodyLineChartPreviewPointSymbol("))
-        XCTAssertTrue(source.contains("} else if usesRangeTrendChart, let visibleMetricRangeSeries {"))
+        // Untrimmed history: the chart windows every range itself so the other
+        // ranges' marks stay resident and morph instead of popping in.
+        XCTAssertTrue(source.contains("} else if usesRangeTrendChart, let metricRangeSeries = model.rangeSeries {"))
+        XCTAssertFalse(source.contains("rangeSeries: visibleMetricRangeSeries,"))
         XCTAssertTrue(chartBlock.contains("if let selectedRangePoint {\n                    RuleMark(x: .value(\"Selected Date\", selectedRangePoint.date, unit: .day))"))
         XCTAssertTrue(chartBlock.contains(".foregroundStyle(Color.secondary.opacity(0.48))"))
         XCTAssertTrue(chartBlock.contains(".lineStyle(StrokeStyle(lineWidth: 1.4))"))
@@ -1424,11 +1427,77 @@ final class ProjectConfigurationTests: XCTestCase {
     func testBasicsTrendChartKeepsTopAxisBelowLegendBand() throws {
         let source = try bodyHomeViewText()
         let chartStart = try XCTUnwrap(source.range(of: "struct BodyBasicsTrendChart")?.lowerBound)
-        let chartBlock = String(source[chartStart...].prefix(12_000))
+        let chartBlock = String(source[chartStart...].prefix(18_000))
 
         XCTAssertTrue(chartBlock.contains("private let normalizedYDomain = 0.0...1.1"))
         XCTAssertTrue(chartBlock.contains(".chartYScale(domain: normalizedYDomain)"))
         XCTAssertFalse(chartBlock.contains(".chartYScale(domain: 0...1)"))
+    }
+
+    func testBasicsChartsMorphAcrossRangeSwitchesLikeTheOtherTrendCharts() throws {
+        let source = try text(at: "Body/Views/Health/Charts/BasicsCharts.swift")
+
+        // A per-range id replaces the chart on every switch, which pops every
+        // mark; both charts must keep a stable identity and animate instead.
+        XCTAssertFalse(source.contains(".id(selectedRange.rawValue)"))
+        XCTAssertTrue(source.contains(".id(\"basics-weight-body-fat\")"))
+        XCTAssertTrue(source.contains(".id(\"basics-body-mass-index\")"))
+        XCTAssertEqual(
+            source.occurrenceCount(of: ".animation(reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0), value: selectedRange)"),
+            2
+        )
+        // Every range's points stay resident, off-range ones invisible.
+        XCTAssertEqual(source.occurrenceCount(of: "BodyHealthMetricTrendChart.makeTrendMarkEntries("), 3)
+        XCTAssertEqual(source.occurrenceCount(of: "BodyHealthMetricTrendChart.makeTrendLineSegments("), 3)
+        XCTAssertEqual(source.occurrenceCount(of: ".opacity(entry.showsDot ? 1 : 0)"), 6)
+        XCTAssertEqual(source.occurrenceCount(of: ".accessibilityHidden(!entry.showsDot)"), 6)
+        // Weight and body fat share segment start dates: unprefixed ids would
+        // put both metrics in one series and join the two lines into one.
+        XCTAssertTrue(source.contains("series: .value(\"Segment\", \"weight-\\(segment.id)\")"))
+        XCTAssertTrue(source.contains("series: .value(\"Segment\", \"body-fat-\\(segment.id)\")"))
+        XCTAssertFalse(source.contains("series: .value(\"Metric\", \"Weight\")"))
+        XCTAssertFalse(source.contains("series: .value(\"Metric\", \"Body Fat\")"))
+    }
+
+    func testChartLegendNumbersFlipWhenTheirValuesChange() throws {
+        let helpers = try text(at: "Body/Views/Health/ChartHelpers.swift")
+        let comparison = try text(at: "Body/Views/Health/Charts/SourceComparisonCharts.swift")
+        let detail = try text(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+
+        // Same motion as the hero value's digit flip, so a range switch rolls
+        // the labels over in step with the chart they sit beside.
+        XCTAssertTrue(helpers.contains("struct BodyLegendNumberFlip: ViewModifier"))
+        XCTAssertTrue(helpers.contains(".contentTransition(reduceMotion ? .identity : .numericText())"))
+        XCTAssertTrue(helpers.contains(".animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: value)"))
+        XCTAssertTrue(helpers.contains(".monospacedDigit()"))
+
+        // The Basics legend's averages, both source-legend forms, and the
+        // "Avg …" / "Range …" header beside every other chart.
+        XCTAssertTrue(helpers.contains(".bodyLegendNumberFlip(value: valueText)"))
+        XCTAssertEqual(
+            comparison.occurrenceCount(of: ".bodyLegendNumberFlip(value: averageText(for: item.averageValue))"),
+            2
+        )
+        XCTAssertTrue(detail.contains(".bodyLegendNumberFlip(value: text)"))
+    }
+
+    func testMorphingRangeChartsReceiveUntrimmedHistory() throws {
+        let detail = try text(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+
+        // Each of these charts windows every range itself to keep the other
+        // ranges' marks resident. Handing one a series already limited to the
+        // selected range leaves the longer ranges nothing older to morph from,
+        // so their marks pop in — which is exactly what the morph avoids.
+        XCTAssertTrue(detail.contains("if let basicsTrend = model.basicsTrend {"))
+        XCTAssertTrue(detail.contains("trend: basicsTrend,"))
+        XCTAssertTrue(detail.contains("series: bodyMassIndexTrend,"))
+        XCTAssertTrue(detail.contains("nights: vitalsSnapshot.nights,"))
+        XCTAssertFalse(detail.contains("trend: visibleBasicsTrend,"))
+        XCTAssertFalse(detail.contains("series: visibleBodyMassIndexTrend,"))
+        XCTAssertFalse(detail.contains("nights: visibleVitalsNights,"))
+        // The range-limited values still back the readouts around the charts.
+        XCTAssertTrue(detail.contains("visibleBodyMassIndexTrend.averageValue"))
+        XCTAssertTrue(detail.contains("visibleBasicsTrend?.bodyFatHalfSpread"))
     }
 
     func testHealthKitFetchesBarAndRangeSecondarySourceComparisons() throws {
@@ -1605,8 +1674,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(source.contains("if showsWeightBodyFatPointMarks"))
         XCTAssertEqual(source.occurrenceCount(of: "if selectedRange.showsPointMarks"), 6)
 
+        // Wide enough for both of this chart's gates (the range-morph rework
+        // moved them apart), short of the BMI chart's own gate below.
         let chartStart = try XCTUnwrap(source.range(of: "struct BodyBasicsTrendChart")?.lowerBound)
-        let chartBlock = String(source[chartStart...].prefix(7_000))
+        let chartBlock = String(source[chartStart...].prefix(12_000))
         XCTAssertEqual(chartBlock.occurrenceCount(of: "if selectedRange.showsPointMarks"), 2)
     }
 
@@ -1752,12 +1823,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.11;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 12;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 13;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.11;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 12;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 13;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1792,9 +1863,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.11 (build 12)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.11 (build 13)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 12)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 11)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 10)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 9)**"))
@@ -1868,6 +1940,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 13)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.11 build 13."))
         XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 12)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.11 build 12."))
         XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 11)"))
@@ -2195,7 +2269,8 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.11 build 12)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.11 build 13)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.11 build 12)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.11 build 11)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.11 build 10)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.11 build 9)"))

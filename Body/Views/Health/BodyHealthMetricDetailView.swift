@@ -1381,9 +1381,13 @@ struct BodyHealthMetricDetailView: View {
     // hero value row.
     @ViewBuilder
     private func metricTrendChart(immersive: Bool) -> some View {
-        if let visibleBasicsTrend {
+        // Untrimmed history, not `visibleBasicsTrend`: every morphing chart
+        // windows each range itself so the other ranges' marks stay resident,
+        // and a series already limited to the selected range leaves them
+        // nothing older to morph from — the longer ranges would pop in.
+        if let basicsTrend = model.basicsTrend {
             BodyBasicsTrendChart(
-                trend: visibleBasicsTrend,
+                trend: basicsTrend,
                 selectedRange: selectedTrendRange,
                 weightColor: model.symbolColor,
                 bodyFatColor: basicsBodyFatColor,
@@ -1429,11 +1433,12 @@ struct BodyHealthMetricDetailView: View {
                 floatingCallout: immersive ? floatingCallout : nil
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
-        } else if usesRangeTrendChart, let visibleMetricRangeSeries {
+        } else if usesRangeTrendChart, let metricRangeSeries = model.rangeSeries {
             BodyHeartRateRangeTrendChart(
                 title: model.title,
                 selectedRange: selectedTrendRange,
-                rangeSeries: visibleMetricRangeSeries,
+                // Untrimmed, for the same reason as the Basics chart above.
+                rangeSeries: metricRangeSeries,
                 symbolColor: model.symbolColor,
                 valueFormatter: model.valueFormatter,
                 showsAverageLineOverlay: model.kind == .heartRate || model.kind == .heartRateVariability,
@@ -1471,7 +1476,9 @@ struct BodyHealthMetricDetailView: View {
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if model.kind == .vitals {
             BodyVitalsOutlierTrendChart(
-                nights: visibleVitalsNights,
+                // Untrimmed, for the same reason as the Basics chart above: the
+                // chart builds each range's buckets from its own day grid.
+                nights: vitalsSnapshot.nights,
                 selectedRange: selectedTrendRange,
                 immersive: immersive,
                 floatingCallout: immersive ? floatingCallout : nil
@@ -1591,7 +1598,7 @@ struct BodyHealthMetricDetailView: View {
             }
 
             BodyBasicsBodyMassIndexTrendChart(
-                series: visibleBodyMassIndexTrend,
+                series: bodyMassIndexTrend,
                 selectedRange: selectedTrendRange,
                 color: basicsBodyMassIndexColor,
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) }
@@ -2671,6 +2678,13 @@ struct BodyHealthMetricDetailView: View {
         visibleBasicsTrend?.bodyMassIndex ?? .empty
     }
 
+    /// The untrimmed BMI history the chart itself needs to keep every range's
+    /// marks resident; the range-limited series above still backs the average
+    /// readout above the chart.
+    private var bodyMassIndexTrend: HealthTrendSeries {
+        model.basicsTrend?.bodyMassIndex ?? .empty
+    }
+
     private var basicsRangeMetrics: [BodyMetricDisplayValue] {
         [
             BodyMetricDisplayValue(
@@ -2829,6 +2843,7 @@ struct BodyHealthMetricDetailView: View {
             .foregroundColor(.secondary)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
+            .bodyLegendNumberFlip(value: text)
     }
 }
 

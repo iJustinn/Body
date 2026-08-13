@@ -38,6 +38,7 @@ struct BodyHealthSourceLegend: View {
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.68)
+                            .bodyLegendNumberFlip(value: averageText(for: item.averageValue))
                     }
                 }
             }
@@ -52,6 +53,7 @@ struct BodyHealthSourceLegend: View {
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
+                .bodyLegendNumberFlip(value: averageText(for: item.averageValue))
         }
     }
 

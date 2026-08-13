@@ -152,6 +152,7 @@ struct BodyBasicsTrendLegend: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.68)
+                    .bodyLegendNumberFlip(value: valueText)
             }
         }
     }
@@ -526,6 +527,32 @@ struct BodyAnimatedMetricValueText: View {
             .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: value)
             .lineLimit(1)
             .minimumScaleFactor(minimumScaleFactor)
+    }
+}
+
+/// The digit flip of `BodyAnimatedMetricValueText` as a modifier, for the
+/// secondary labels beside a chart — "Apple Watch Avg 784 kcal", "Range 9-241
+/// ms", the Basics legend's averages. Applied in place so each label keeps its
+/// own type style, and keyed on the rendered string so a range switch rolls the
+/// numbers over in step with the chart it labels.
+struct BodyLegendNumberFlip: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let value: String
+
+    func body(content: Content) -> some View {
+        content
+            // Digits keep a constant width, or the surrounding words shuffle
+            // sideways while the numbers roll.
+            .monospacedDigit()
+            .contentTransition(reduceMotion ? .identity : .numericText())
+            .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: value)
+    }
+}
+
+extension View {
+    func bodyLegendNumberFlip(value: String) -> some View {
+        modifier(BodyLegendNumberFlip(value: value))
     }
 }
 

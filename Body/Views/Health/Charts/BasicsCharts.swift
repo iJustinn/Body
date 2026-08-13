@@ -17,8 +17,10 @@ struct BodyBasicsTrendChart: View {
     /// the topmost layer (above the nav bar). Nil keeps the in-chart annotation.
     let floatingCallout: BodyChartFloatingCalloutState?
 
-    private let weightCalendarPoints: [HealthTrendCalendarPoint]
-    private let bodyFatCalendarPoints: [HealthTrendCalendarPoint]
+    private let weightMarkEntries: [BodyHealthTrendMarkEntry]
+    private let bodyFatMarkEntries: [BodyHealthTrendMarkEntry]
+    private let weightLineSegments: [BodyHealthTrendLineSegmentMark]
+    private let bodyFatLineSegments: [BodyHealthTrendLineSegmentMark]
     private let weightDomain: ClosedRange<Double>
     private let bodyFatDomain: ClosedRange<Double>
     private let chartXDomain: ClosedRange<Date>
@@ -53,16 +55,40 @@ struct BodyBasicsTrendChart: View {
         self.immersive = immersive
         self.floatingCallout = floatingCallout
 
-        let weightPoints = trend.weight.lineChartCalendarPoints(
-            to: selectedRange,
-            maximumPointCount: BodyHealthTrendRange.bodyFatWeightLineChartMaximumPointCount
+        // Every range's points, not just the selected one: dates outside the
+        // current range stay resident as invisible placeholder marks, so a
+        // range switch morphs the shared dates in place and fades the rest
+        // instead of replacing the whole chart.
+        var weightPointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]] = [:]
+        var bodyFatPointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]] = [:]
+        for range in BodyHealthTrendRange.allCases {
+            weightPointsByRange[range] = trend.weight.lineChartCalendarPoints(
+                to: range,
+                maximumPointCount: BodyHealthTrendRange.bodyFatWeightLineChartMaximumPointCount
+            )
+            bodyFatPointsByRange[range] = trend.bodyFat.lineChartCalendarPoints(
+                to: range,
+                maximumPointCount: BodyHealthTrendRange.bodyFatWeightLineChartMaximumPointCount
+            )
+        }
+        let weightPoints = weightPointsByRange[selectedRange] ?? []
+        let bodyFatPoints = bodyFatPointsByRange[selectedRange] ?? []
+        self.weightMarkEntries = BodyHealthMetricTrendChart.makeTrendMarkEntries(
+            selectedRange: selectedRange,
+            pointsByRange: weightPointsByRange
         )
-        let bodyFatPoints = trend.bodyFat.lineChartCalendarPoints(
-            to: selectedRange,
-            maximumPointCount: BodyHealthTrendRange.bodyFatWeightLineChartMaximumPointCount
+        self.bodyFatMarkEntries = BodyHealthMetricTrendChart.makeTrendMarkEntries(
+            selectedRange: selectedRange,
+            pointsByRange: bodyFatPointsByRange
         )
-        self.weightCalendarPoints = weightPoints
-        self.bodyFatCalendarPoints = bodyFatPoints
+        self.weightLineSegments = BodyHealthMetricTrendChart.makeTrendLineSegments(
+            selectedRange: selectedRange,
+            pointsByRange: weightPointsByRange
+        )
+        self.bodyFatLineSegments = BodyHealthMetricTrendChart.makeTrendLineSegments(
+            selectedRange: selectedRange,
+            pointsByRange: bodyFatPointsByRange
+        )
         self.weightDomain = Self.paddedDomain(from: weightPoints)
         self.bodyFatDomain = Self.paddedDomain(from: bodyFatPoints)
 
@@ -94,75 +120,125 @@ struct BodyBasicsTrendChart: View {
 
     var body: some View {
         Chart {
-            ForEach(weightCalendarPoints) { point in
-                if let value = point.value {
-                    LineMark(
-                        x: .value("Date", point.date, unit: .day),
-                        y: .value("Weight", normalized(value, in: weightDomain)),
-                        series: .value("Metric", "Weight")
-                    )
-                    .interpolationMethod(.linear)
-                    .foregroundStyle(lineStrokeColor(for: weightColor))
-                    .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
+            // Per-pair segments instead of one LineMark run per metric: Swift
+            // Charts cannot interpolate a single line whose vertex set changes
+            // across a range switch — unmatched vertices freeze, then pop.
+            // Segment ids are namespaced by metric, or the two lines would
+            // share a series key on a shared date and join into one stroke.
+            ForEach(weightLineSegments) { segment in
+                LineMark(
+                    x: .value("Date", segment.startDate, unit: .day),
+                    y: .value("Weight", normalized(segment.startValue, in: weightDomain)),
+                    series: .value("Segment", "weight-\(segment.id)")
+                )
+                .interpolationMethod(.linear)
+                .foregroundStyle(lineStrokeColor(for: weightColor))
+                .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
+                .opacity(segment.isPlaceholder ? 0 : 1)
+                .accessibilityHidden(segment.isPlaceholder)
 
-                    if selectedRange.showsPointMarks {
+                LineMark(
+                    x: .value("Date", segment.endDate, unit: .day),
+                    y: .value("Weight", normalized(segment.endValue, in: weightDomain)),
+                    series: .value("Segment", "weight-\(segment.id)")
+                )
+                .interpolationMethod(.linear)
+                .foregroundStyle(lineStrokeColor(for: weightColor))
+                .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
+                .opacity(segment.isPlaceholder ? 0 : 1)
+                // Both endpoints, or VoiceOver still reads the second half of
+                // an invisible off-range segment.
+                .accessibilityHidden(segment.isPlaceholder)
+            }
+
+            if selectedRange.showsPointMarks {
+                ForEach(weightMarkEntries) { entry in
+                    if let value = entry.dotValue {
                         if selectedRange.usesPreviewLineChartStyle {
                             PointMark(
-                                x: .value("Date", point.date, unit: .day),
+                                x: .value("Date", entry.date, unit: .day),
                                 y: .value("Weight", normalized(value, in: weightDomain))
                             )
                             .symbol {
                                 BodyLineChartPreviewPointSymbol(
                                     tintColor: weightColor,
-                                    isCurrent: isLatestWeightPoint(point),
+                                    isCurrent: isLatestWeightEntry(entry),
                                     pointDiameter: selectedRange.linePointDiameter,
                                     currentPointDiameter: selectedRange.lineCurrentPointDiameter
                                 )
+                                // Inside the symbol view, not a mark modifier — Charts
+                                // does not apply mark opacity to custom `.symbol {}`
+                                // content, which would leave the placeholders visible.
+                                .opacity(entry.showsDot ? 1 : 0)
                             }
+                            // Opacity is only visual: an off-range placeholder
+                            // would still be announced.
+                            .accessibilityHidden(!entry.showsDot)
                         } else {
                             PointMark(
-                                x: .value("Date", point.date, unit: .day),
+                                x: .value("Date", entry.date, unit: .day),
                                 y: .value("Weight", normalized(value, in: weightDomain))
                             )
                             .foregroundStyle(weightColor)
                             .symbolSize(28)
+                            .opacity(entry.showsDot ? 1 : 0)
+                            .accessibilityHidden(!entry.showsDot)
                         }
                     }
                 }
             }
 
-            ForEach(bodyFatCalendarPoints) { point in
-                if let value = point.value {
-                    LineMark(
-                        x: .value("Date", point.date, unit: .day),
-                        y: .value("Body Fat", normalized(value, in: bodyFatDomain)),
-                        series: .value("Metric", "Body Fat")
-                    )
-                    .interpolationMethod(.linear)
-                    .foregroundStyle(lineStrokeColor(for: bodyFatColor))
-                    .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
+            ForEach(bodyFatLineSegments) { segment in
+                LineMark(
+                    x: .value("Date", segment.startDate, unit: .day),
+                    y: .value("Body Fat", normalized(segment.startValue, in: bodyFatDomain)),
+                    series: .value("Segment", "body-fat-\(segment.id)")
+                )
+                .interpolationMethod(.linear)
+                .foregroundStyle(lineStrokeColor(for: bodyFatColor))
+                .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
+                .opacity(segment.isPlaceholder ? 0 : 1)
+                .accessibilityHidden(segment.isPlaceholder)
 
-                    if selectedRange.showsPointMarks {
+                LineMark(
+                    x: .value("Date", segment.endDate, unit: .day),
+                    y: .value("Body Fat", normalized(segment.endValue, in: bodyFatDomain)),
+                    series: .value("Segment", "body-fat-\(segment.id)")
+                )
+                .interpolationMethod(.linear)
+                .foregroundStyle(lineStrokeColor(for: bodyFatColor))
+                .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
+                .opacity(segment.isPlaceholder ? 0 : 1)
+                .accessibilityHidden(segment.isPlaceholder)
+            }
+
+            if selectedRange.showsPointMarks {
+                ForEach(bodyFatMarkEntries) { entry in
+                    if let value = entry.dotValue {
                         if selectedRange.usesPreviewLineChartStyle {
                             PointMark(
-                                x: .value("Date", point.date, unit: .day),
+                                x: .value("Date", entry.date, unit: .day),
                                 y: .value("Body Fat", normalized(value, in: bodyFatDomain))
                             )
                             .symbol {
                                 BodyLineChartPreviewPointSymbol(
                                     tintColor: bodyFatColor,
-                                    isCurrent: isLatestBodyFatPoint(point),
+                                    isCurrent: isLatestBodyFatEntry(entry),
                                     pointDiameter: selectedRange.linePointDiameter,
                                     currentPointDiameter: selectedRange.lineCurrentPointDiameter
                                 )
+                                .opacity(entry.showsDot ? 1 : 0)
                             }
+                            .accessibilityHidden(!entry.showsDot)
                         } else {
                             PointMark(
-                                x: .value("Date", point.date, unit: .day),
+                                x: .value("Date", entry.date, unit: .day),
                                 y: .value("Body Fat", normalized(value, in: bodyFatDomain))
                             )
                             .foregroundStyle(bodyFatColor)
                             .symbolSize(28)
+                            .opacity(entry.showsDot ? 1 : 0)
+                            .accessibilityHidden(!entry.showsDot)
                         }
                     }
                 }
@@ -257,10 +333,19 @@ struct BodyBasicsTrendChart: View {
             }
             return AnyView(selectionAnnotation(for: selectedTrendDate))
         }
-        .id(selectedRange.rawValue)
+        // Stable across range switches: a per-range id would replace the chart
+        // instead of updating it, popping every mark rather than letting them
+        // morph.
+        .id("basics-weight-body-fat")
         .transition(
             .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
         )
+        // Keyed on the range ONLY: a broader key would also animate scrub-mark
+        // removal.
+        .animation(reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0), value: selectedRange)
+        .onChange(of: selectedRange) {
+            selectedDate = nil
+        }
         .transaction { transaction in
             transaction.animation = nil
         }
@@ -295,12 +380,12 @@ struct BodyBasicsTrendChart: View {
         }
     }
 
-    private func isLatestWeightPoint(_ point: HealthTrendCalendarPoint) -> Bool {
-        point.date == weightLatestCalendarDate
+    private func isLatestWeightEntry(_ entry: BodyHealthTrendMarkEntry) -> Bool {
+        entry.date == weightLatestCalendarDate
     }
 
-    private func isLatestBodyFatPoint(_ point: HealthTrendCalendarPoint) -> Bool {
-        point.date == bodyFatLatestCalendarDate
+    private func isLatestBodyFatEntry(_ entry: BodyHealthTrendMarkEntry) -> Bool {
+        entry.date == bodyFatLatestCalendarDate
     }
 
     private func lineStrokeColor(for color: Color) -> Color {
@@ -378,7 +463,8 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
     let color: Color
     let valueFormatter: (Double) -> String
 
-    private let calendarPoints: [HealthTrendCalendarPoint]
+    private let markEntries: [BodyHealthTrendMarkEntry]
+    private let lineSegments: [BodyHealthTrendLineSegmentMark]
     private let finitePoints: [HealthTrendCalendarPoint]
     private let chartXDomain: ClosedRange<Date>
     private let chartYDomain: ClosedRange<Double>
@@ -398,8 +484,23 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
         self.color = color
         self.valueFormatter = valueFormatter
 
-        let points = series.lineChartCalendarPoints(to: selectedRange)
-        self.calendarPoints = points
+        // Every range's points, not just the selected one: dates outside the
+        // current range stay resident as invisible placeholder marks, so a
+        // range switch morphs the shared dates in place and fades the rest
+        // instead of replacing the whole chart.
+        var pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]] = [:]
+        for range in BodyHealthTrendRange.allCases {
+            pointsByRange[range] = series.lineChartCalendarPoints(to: range)
+        }
+        let points = pointsByRange[selectedRange] ?? []
+        self.markEntries = BodyHealthMetricTrendChart.makeTrendMarkEntries(
+            selectedRange: selectedRange,
+            pointsByRange: pointsByRange
+        )
+        self.lineSegments = BodyHealthMetricTrendChart.makeTrendLineSegments(
+            selectedRange: selectedRange,
+            pointsByRange: pointsByRange
+        )
         self.finitePoints = points.filter { $0.value?.isFinite == true }
         self.chartYDomain = Self.computeYDomain(from: points)
 
@@ -411,37 +512,69 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
 
     var body: some View {
         Chart {
-            ForEach(calendarPoints) { point in
-                if let value = point.value {
-                    LineMark(
-                        x: .value("Date", point.date, unit: .day),
-                        y: .value("BMI", value)
-                    )
-                    .interpolationMethod(.linear)
-                    .foregroundStyle(lineStrokeColor)
-                    .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
+            // Per-pair segments instead of one LineMark run: Swift Charts
+            // cannot interpolate a single line whose vertex set changes across
+            // a range switch — unmatched vertices freeze, then pop. Paired
+            // segments that exist in both ranges stretch in place; the rest
+            // fade at opacity 0.
+            ForEach(lineSegments) { segment in
+                LineMark(
+                    x: .value("Date", segment.startDate, unit: .day),
+                    y: .value("BMI", segment.startValue),
+                    series: .value("Segment", segment.id)
+                )
+                .interpolationMethod(.linear)
+                .foregroundStyle(lineStrokeColor)
+                .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
+                .opacity(segment.isPlaceholder ? 0 : 1)
+                .accessibilityHidden(segment.isPlaceholder)
 
-                    if selectedRange.showsPointMarks {
+                LineMark(
+                    x: .value("Date", segment.endDate, unit: .day),
+                    y: .value("BMI", segment.endValue),
+                    series: .value("Segment", segment.id)
+                )
+                .interpolationMethod(.linear)
+                .foregroundStyle(lineStrokeColor)
+                .lineStyle(StrokeStyle(lineWidth: lineStrokeWidth, lineCap: .round, lineJoin: .round))
+                .opacity(segment.isPlaceholder ? 0 : 1)
+                // Both endpoints, or VoiceOver still reads the second half of
+                // an invisible off-range segment.
+                .accessibilityHidden(segment.isPlaceholder)
+            }
+
+            if selectedRange.showsPointMarks {
+                ForEach(markEntries) { entry in
+                    if let value = entry.dotValue {
                         if selectedRange.usesPreviewLineChartStyle {
                             PointMark(
-                                x: .value("Date", point.date, unit: .day),
+                                x: .value("Date", entry.date, unit: .day),
                                 y: .value("BMI", value)
                             )
                             .symbol {
                                 BodyLineChartPreviewPointSymbol(
                                     tintColor: color,
-                                    isCurrent: isLatestPoint(point),
+                                    isCurrent: isLatestEntry(entry),
                                     pointDiameter: selectedRange.linePointDiameter,
                                     currentPointDiameter: selectedRange.lineCurrentPointDiameter
                                 )
+                                // Inside the symbol view, not a mark modifier — Charts
+                                // does not apply mark opacity to custom `.symbol {}`
+                                // content, which would leave the placeholders visible.
+                                .opacity(entry.showsDot ? 1 : 0)
                             }
+                            // Opacity is only visual: an off-range placeholder
+                            // would still be announced.
+                            .accessibilityHidden(!entry.showsDot)
                         } else {
                             PointMark(
-                                x: .value("Date", point.date, unit: .day),
+                                x: .value("Date", entry.date, unit: .day),
                                 y: .value("BMI", value)
                             )
                             .foregroundStyle(color)
                             .symbolSize(28)
+                            .opacity(entry.showsDot ? 1 : 0)
+                            .accessibilityHidden(!entry.showsDot)
                         }
                     }
                 }
@@ -512,10 +645,19 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
         }
         .chartXSelection(value: $selectedDate)
         .simultaneousGesture(chartPressGesture)
-        .id(selectedRange.rawValue)
+        // Stable across range switches: a per-range id would replace the chart
+        // instead of updating it, popping every mark rather than letting them
+        // morph.
+        .id("basics-body-mass-index")
         .transition(
             .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
         )
+        // Keyed on the range ONLY: a broader key would also animate scrub-mark
+        // removal.
+        .animation(reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0), value: selectedRange)
+        .onChange(of: selectedRange) {
+            selectedDate = nil
+        }
         .transaction { transaction in
             transaction.animation = nil
         }
@@ -531,8 +673,8 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
         }
     }
 
-    private func isLatestPoint(_ point: HealthTrendCalendarPoint) -> Bool {
-        point.date == latestCalendarDate
+    private func isLatestEntry(_ entry: BodyHealthTrendMarkEntry) -> Bool {
+        entry.date == latestCalendarDate
     }
 
     private var lineStrokeColor: Color {

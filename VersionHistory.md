@@ -1,5 +1,12 @@
 # Version History
 
+## 0.9.11 (build 13)
+
+- **Basics and BMI charts join the range-switch morph.** Switching Week/Month/6M/Year on the Basics detail page used to crossfade the dual-axis Weight & Body Fat chart and the BMI chart to the new range. Both now morph like every other trend chart: the lines stretch between the dates they share, dots glide to their new positions, and points with no counterpart in the new range fade in or out where they stand. Reduce Motion still swaps instantly.
+- **Longer ranges now morph instead of appearing.** The Heart Rate-style min-max pages and the Vitals outlier chart were handed only the selected range's history, so a switch to a longer range could still only morph the marks the short range already covered — everything older popped in. Every morphing chart now receives the full history it needs to hold those marks ready.
+- **Chart legends roll their numbers over too.** The labels beside a chart — a source comparison's "Apple Watch Avg 784 kcal" rows, the "Range 9-241 ms" header on the min-max pages, the Basics legend's averages, and every other "Avg …" header — used to hard-cut to the new figure while the chart morphed under them. Their digits now flip in place, in the same motion and timing as the hero value above them (instant with Reduce Motion).
+- Updated the app, widget, watch, and test bundle version to 0.9.11 build 13.
+
 ## 0.9.11 (build 12)
 
 - **Range-switch morph animation.** Switching Week/Month/6M/Year on standard metric pages and the Heart Rate-style min-max range pages now morphs the chart instead of crossfading it: bars slide and shrink/extend as the time window zooms, the line stretches and dots glide to their new positions, marks with no counterpart in the new range fade in/out, and shared bucket dates (always including today's mark) morph value-to-value. The two-source comparison charts (bar, line, and min-max range) and the Vitals outlier chart morph the same way, so pages like a two-source Active Energy, Skin Temperature, and Vitals join in; Basics and BMI keep their crossfade for now. Reduce Motion swaps instantly.
