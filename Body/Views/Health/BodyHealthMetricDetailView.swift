@@ -481,7 +481,15 @@ struct BodyHealthMetricDetailView: View {
         .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
             Task { await workoutStore.refreshHealthMetric(model.kind) }
         }
-        .task {
+        // Keyed on entitlement, not bare: the Body Pro paywall is a sheet presented
+        // from this very view (`showBodyProPaywall`), so buying or restoring leaves
+        // this view mounted and a bare `.task` would never re-run. The entitlement
+        // handler deliberately empties the comparison day samples on any flip, so
+        // without this the paid comparison line stays missing until the user leaves
+        // and reopens the detail. Re-running here pulls the full window (an empty
+        // cache has no incremental anchor). The flip also re-runs this on a lapse,
+        // which is what clears the line in place.
+        .task(id: isBodyProUnlocked) {
             await workoutStore.loadIntradayMetricSamplesIfNeeded(model.kind)
         }
         .task(id: selectedMetricDay) {
@@ -2262,6 +2270,7 @@ struct BodyHealthMetricDetailView: View {
 
     private func sleepStageDurationSummary(_ snapshot: SleepStageSnapshot) -> some View {
         let restorative = snapshot.restorativeDuration
+        let restorativeText = BodyValueFormat.durationText(for: restorative)
 
         return VStack(spacing: 10) {
             HStack(spacing: 0) {
@@ -2270,18 +2279,21 @@ struct BodyHealthMetricDetailView: View {
                         Spacer(minLength: 8)
                     }
 
+                    let durationText = BodyValueFormat.durationText(for: snapshot.duration(for: stage))
+
                     VStack(alignment: .center, spacing: 7) {
                         Rectangle()
                             .fill(stage.bodyChartColor)
                             .frame(width: 28, height: 3)
 
-                        Text(BodyValueFormat.durationText(for: snapshot.duration(for: stage)))
+                        Text(durationText)
                             .font(.system(.callout, design: .rounded))
                             .fontWeight(.bold)
                             .foregroundColor(.primary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
                             .multilineTextAlignment(.center)
+                            .bodyLegendNumberFlip(value: durationText)
                             .fixedSize(horizontal: true, vertical: false)
                     }
                 }
@@ -2290,12 +2302,13 @@ struct BodyHealthMetricDetailView: View {
 
             Divider()
 
-            Text("Restorative \(BodyValueFormat.durationText(for: restorative))")
+            Text("Restorative \(restorativeText)")
                 .font(.system(.subheadline, design: .rounded))
                 .fontWeight(.semibold)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
+                .bodyLegendNumberFlip(value: restorativeText)
                 .frame(maxWidth: .infinity, alignment: .center)
         }
     }

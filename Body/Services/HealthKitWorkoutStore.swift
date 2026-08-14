@@ -455,7 +455,33 @@ final class HealthKitWorkoutStore: ObservableObject {
         ) { [weak self] _ in
             guard let self else { return }
             self.objectWillChange.send()
-            Task { await self.requestAuthorizationAndRefresh() }
+            Task { @MainActor in
+                // An entitlement flip has to invalidate, not just refetch: the full
+                // refresh re-ships the cached day samples verbatim rather than
+                // re-querying them, so the previous comparison series would survive
+                // on the trend and day charts.
+                //
+                // Wait out any in-flight refresh first — clearing ahead of it would
+                // be undone, and the refetch below would bounce off
+                // `requestAuthorizationAndRefresh`'s `isRefreshing` guard. Then
+                // hydrate BEFORE clearing so the sidecar's primary scope is restored
+                // and its payload is memoized, because the clear has to reach that
+                // memo too (see `invalidateMemoizedComparisonDaySamples`).
+                await self.awaitNextRefreshCompletion()
+                await self.hydratePersistedDaySamplesIfNeeded()
+                self.healthTrends = self.healthTrends.clearingSecondarySeries()
+                await self.invalidateMemoizedComparisonDaySamples()
+                self.persistDaySampleSidecar()
+                // Comparison day samples are deliberately NOT refetched here — they
+                // stay lazy (a single kind is ~50k raw samples). Leaving the cache
+                // genuinely empty is what makes
+                // `loadIntradayMetricSamplesIfNeeded` pull the full window instead
+                // of incrementally topping up pre-flip points. A metric detail that
+                // is already on screen when the flip lands re-runs that loader
+                // itself: its `.task` is keyed on entitlement, because the paywall
+                // is a sheet over that view and never unmounts it.
+                await self.requestAuthorizationAndRefresh()
+            }
         }
     }
 
@@ -598,6 +624,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 trends: healthTrends,
                 activityRingHistory: activityRingHistory
             )
+            let capturedDaySampleSignatures = currentDaySampleSignatures()
             let metricFetch = await engine.fetchHealthDashboardSnapshot(
                 for: kind,
                 calendar: calendar,
@@ -605,7 +632,19 @@ final class HealthKitWorkoutStore: ObservableObject {
                 idealSleepDuration: Self.storedIdealSleepDuration()
             )
             let nextSummary = healthSummary.replacingMetric(kind, with: metricFetch.snapshot.summary)
-            let nextTrends = healthTrends.replacingMetric(kind, with: metricFetch.snapshot.trends)
+            // The day-sample fetches inside the engine are incremental: they merge
+            // onto the `existing` cache captured above. The source mutators push the
+            // new selection into the engine BEFORE they wait out this refresh (see
+            // `updateSecondaryHealthDataSource`), so a switch landing mid-fetch would
+            // have the engine query the NEW source and merge it onto the OLD source's
+            // cached points — and `updateHealthDashboardSnapshot` would persist that
+            // mixed series stamped with the NEW signature, which `scopedForHydration`
+            // then accepts forever. Drop the fetched day samples in that case; the
+            // mutator clears and refetches them right after this refresh releases.
+            let fetchedTrends = currentDaySampleSignatures() == capturedDaySampleSignatures
+                ? metricFetch.snapshot.trends
+                : metricFetch.snapshot.trends.strippingDaySamples()
+            let nextTrends = healthTrends.replacingMetric(kind, with: fetchedTrends)
             await updateHealthDashboardSnapshot(
                 summary: nextSummary,
                 trends: nextTrends,
@@ -1252,7 +1291,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     func hydratePersistedDaySamplesIfNeeded() async {
         let epoch = cacheEpoch
         if persistedDaySamplesHydration == nil {
-            persistedDaySamplesHydration = Task.detached(priority: .utility) {
+            persistedDaySamplesHydration = Task.detached(priority: .userInitiated) {
                 HealthDashboardSnapshotStore.loadDaySamples()
             }
         }
@@ -1267,20 +1306,45 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         // Scope the sidecar to the current selection before merging so a source
-        // switch, combine-flag flip, or now-off permission can't resurrect stale
-        // other-source intraday points (H6). A legacy/v1 sidecar (no combine
-        // stamp) fails closed and is dropped one-time.
+        // switch, combine-flag flip, now-off permission, or a comparison the
+        // current selection resolves away can't resurrect stale intraday points
+        // (H6). A legacy/v1 sidecar (no combine stamp) fails closed and is dropped
+        // one-time.
         let scoped = daySamples.scopedForHydration(
             currentPrimarySignature: currentPrimarySelectionSignature(),
             currentSecondarySignature: currentSecondarySelectionSignature(),
             currentCombinesByName: combinesHealthDataSourcesByName,
-            permission: permissionSelection
+            permission: permissionSelection,
+            comparisonDisabledKinds: currentComparisonDisabledKinds()
         )
         guard !scoped.isEmpty else {
             return
         }
 
         healthTrends = healthTrends.mergingMissingDaySamples(from: scoped)
+    }
+
+    /// Strips the comparison series from the session's memoized sidecar load after
+    /// the caller has cleared them from `healthTrends`.
+    ///
+    /// `hydratePersistedDaySamplesIfNeeded` reads the sidecar ONCE per session and
+    /// reuses the resulting task's value, so a clear that only touches
+    /// `healthTrends` and the file is undone by the very next hydration — which the
+    /// entitlement handler's own corrective refresh performs. The live comparison
+    /// gate in `scopedForHydration` masks this while the comparison stays resolved
+    /// away, but a lapse → unlock inside one session reopens it and the unchanged
+    /// selection signatures then accept the pre-lapse payload.
+    ///
+    /// Re-points the memo instead of clearing it: `nil` would make the next
+    /// hydration re-read the file, which can beat the caller's asynchronous
+    /// `persistDaySampleSidecar()` write and restore exactly what was cleared. The
+    /// primary scope is preserved so a later hydration still works.
+    private func invalidateMemoizedComparisonDaySamples() async {
+        guard let loaded = await persistedDaySamplesHydration?.value else {
+            return
+        }
+        let stripped: HealthTrendDaySampleSnapshot? = loaded.strippingSecondaryDaySamples()
+        persistedDaySamplesHydration = Task { stripped }
     }
 
     /// Lazy-loads the intraday day-sample series used by the metric detail view's
@@ -1295,7 +1359,10 @@ final class HealthKitWorkoutStore: ObservableObject {
     func loadIntradayMetricSamplesIfNeeded(_ kind: HealthMetricKind) async {
         let usesHourlyBuckets: Bool
         switch kind {
-        case .heartRate, .restingHeartRate, .heartRateVariability, .respiratoryRate, .oxygenSaturation:
+        // `.restingHeartRate` is deliberately absent: it has no day view
+        // (`HealthMetricKind.dayViewKinds`), so its intraday samples were fetched
+        // and persisted but never rendered.
+        case .heartRate, .heartRateVariability, .respiratoryRate, .oxygenSaturation:
             usesHourlyBuckets = false
         case .activeEnergy, .steps:
             usesHourlyBuckets = true
@@ -1330,6 +1397,13 @@ final class HealthKitWorkoutStore: ObservableObject {
         let cachedPrimary = healthTrends.daySeries(for: kind)
         let cachedSecondary = healthTrends.secondaryDaySeries(for: kind)
         let capturedDaySampleSignatures = currentDaySampleSignatures()
+        // No comparison source selected (or the Pro gate / primary-collapse rule
+        // resolved it away). The fetch below short-circuits to an authoritative
+        // `.empty`, which must REPLACE the cached series — but `mergeIntradaySamples`
+        // retains everything before `refetchStart`, so an incremental boundary here
+        // would strand the previous source's points on the chart. Treat the whole
+        // window as authoritative so the empty result clears it.
+        let secondaryIsDisabled = selectedSecondaryHealthDataSourceOption(for: kind).isNoComparison
 
         let primaryFetchStart: Date
         let secondaryFetchStart: Date
@@ -1340,10 +1414,18 @@ final class HealthKitWorkoutStore: ObservableObject {
             secondaryFetchStart = interval.start
         } else {
             primaryFetchStart = HealthKitFetchEngine.incrementalFetchStart(after: cachedPrimary, windowStart: interval.start)
-            secondaryFetchStart = HealthKitFetchEngine.incrementalFetchStart(after: cachedSecondary, windowStart: interval.start)
+            secondaryFetchStart = secondaryIsDisabled
+                ? interval.start
+                : HealthKitFetchEngine.incrementalFetchStart(after: cachedSecondary, windowStart: interval.start)
 
-            // Cache already extends to the window end — nothing to add.
-            if primaryFetchStart >= interval.end, secondaryFetchStart >= interval.end {
+            // Cache already extends to the window end — nothing to add. A disabled
+            // comparison never satisfies the window-end test (its refetch start is
+            // pinned to `interval.start` above), so test what it actually needs:
+            // that the series it has to clear is already clear.
+            let secondarySatisfied = secondaryIsDisabled
+                ? cachedSecondary.isEmpty
+                : secondaryFetchStart >= interval.end
+            if primaryFetchStart >= interval.end, secondarySatisfied {
                 return
             }
         }
@@ -1358,8 +1440,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             endDate: interval.end
         )
         let secondarySamples: HealthTrendSeries?
-        if selectedSecondaryHealthDataSourceOption(for: kind).isNoComparison
-            || !permissionSelection.includes(permission) {
+        if secondaryIsDisabled {
             secondarySamples = .empty
         } else {
             secondarySamples = await engine.fetchSecondaryDaySamples(
@@ -1423,9 +1504,6 @@ final class HealthKitWorkoutStore: ObservableObject {
         case .heartRate:
             trends.heartRateDaySamples = mergedPrimary
             trends.heartRateDaySamplesSecondary = mergedSecondary
-        case .restingHeartRate:
-            trends.restingHeartRateDaySamples = mergedPrimary
-            trends.restingHeartRateDaySamplesSecondary = mergedSecondary
         case .heartRateVariability:
             trends.heartRateVariabilityDaySamples = mergedPrimary
             trends.heartRateVariabilityDaySamplesSecondary = mergedSecondary
@@ -2867,8 +2945,15 @@ final class HealthKitWorkoutStore: ObservableObject {
         reusesCachedWorkoutHeartRate: Bool = false
     ) async {
         let refreshDate = Date()
+        // Hydrate on BOTH paths, not just the dashboard one. The warm
+        // workout-only resume can still reach a snapshot save via
+        // `reapplyActivityReadinessAfterWorkouts`, and every
+        // `HealthDashboardSnapshotStore.save` rewrites the day-sample sidecar from
+        // the passed trends — an empty payload overwrites an existing file. So a
+        // relaunch inside the 5-minute TTL that picked up a new workout used to
+        // wipe the intraday cache off disk instead of merely not showing it.
+        await hydratePersistedDaySamplesIfNeeded()
         if updatesHealthSummary {
-            await hydratePersistedDaySamplesIfNeeded()
             await engine.setHealthTrendAnchorDate(refreshDate)
         }
 
@@ -3114,6 +3199,18 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// persist queue, so all four write paths stamp the same complete set and
     /// hydration can reject a sidecar captured under a now-different selection
     /// instead of merging stale other-source intraday points (H6).
+    /// Kinds whose comparison series the CURRENT selection resolves away — Body Pro
+    /// locked, an unresolvable secondary source, or a primary source changed to
+    /// match the secondary. None of these alter the stored secondary selection, so
+    /// they leave `currentSecondarySelectionSignature()` unchanged and the sidecar's
+    /// captured stamps can't express them; hydration has to read them live.
+    private func currentComparisonDisabledKinds() -> Set<HealthMetricKind> {
+        let kinds = HealthMetricKind.sourceSelectableKinds
+            .filter(\.supportsSecondaryHealthDataSourceSelection)
+            .filter { selectedSecondaryHealthDataSourceOption(for: $0).isNoComparison }
+        return Set(kinds)
+    }
+
     private func currentDaySampleSignatures() -> HealthTrendDaySampleSignatures {
         HealthTrendDaySampleSignatures(
             primarySelectionSignature: currentPrimarySelectionSignature(),

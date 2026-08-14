@@ -2315,8 +2315,6 @@ actor HealthKitFetchEngine {
         // and they are not displayed on the Home dashboard.
         let cachedHeartRateDaySamples = cachedTrends.heartRateDaySamples
         let cachedHeartRateDaySamplesSecondary = cachedTrends.heartRateDaySamplesSecondary
-        let cachedRestingHeartRateDaySamples = cachedTrends.restingHeartRateDaySamples
-        let cachedRestingHeartRateDaySamplesSecondary = cachedTrends.restingHeartRateDaySamplesSecondary
         let cachedHeartRateVariabilityDaySamples = cachedTrends.heartRateVariabilityDaySamples
         let cachedHeartRateVariabilityDaySamplesSecondary = cachedTrends.heartRateVariabilityDaySamplesSecondary
         let cachedRespiratoryRateDaySamples = cachedTrends.respiratoryRateDaySamples
@@ -2612,8 +2610,10 @@ actor HealthKitFetchEngine {
             sleepHistorySecondary: fetchedSleepHistorySecondary,
             heartRateDaySamples: cachedHeartRateDaySamples,
             heartRateDaySamplesSecondary: cachedHeartRateDaySamplesSecondary,
-            restingHeartRateDaySamples: cachedRestingHeartRateDaySamples,
-            restingHeartRateDaySamplesSecondary: cachedRestingHeartRateDaySamplesSecondary,
+            // Resting heart rate has no day view, so its intraday fields are never
+            // fetched and are published empty (flushing any legacy persisted samples).
+            restingHeartRateDaySamples: .empty,
+            restingHeartRateDaySamplesSecondary: .empty,
             heartRateVariabilityDaySamples: cachedHeartRateVariabilityDaySamples,
             heartRateVariabilityDaySamplesSecondary: cachedHeartRateVariabilityDaySamplesSecondary,
             respiratoryRateDaySamples: cachedRespiratoryRateDaySamples,
@@ -2633,9 +2633,11 @@ actor HealthKitFetchEngine {
     /// only asks HealthKit for samples newer than the cached series, then
     /// merges (mirroring `HealthKitWorkoutStore.loadIntradayMetricSamplesIfNeeded`)
     /// instead of re-shipping the full trend window of raw samples.
-    /// Secondary-source day samples still refetch fully — the comparison
-    /// source can change between refreshes, and an incremental merge would
-    /// extend the old source's samples instead of replacing them.
+    /// `fetchIncrementalSecondaryDaySamples` does the same for the comparison
+    /// source; the mid-refresh source-switch hazard that used to force a full
+    /// secondary refetch is handled by the day-sample signature guard in
+    /// `HealthKitWorkoutStore.refreshHealthMetric`, which discards fetched day
+    /// samples outright when the selection changed while this was in flight.
     private func fetchIncrementalPrimaryDaySamples(
         for kind: HealthMetricKind,
         cached: HealthTrendSeries,
@@ -2657,6 +2659,58 @@ actor HealthKitFetchEngine {
         // `hadQueryFailure` while still keeping the cached series via
         // `resolvedTrend`.
         guard let incoming = await fetchIntradayDaySamples(
+            for: kind,
+            calendar: calendar,
+            startDate: fetchStart,
+            endDate: interval.end
+        ) else {
+            return nil
+        }
+        return Self.mergeIntradaySamples(
+            existing: cached,
+            incoming: incoming,
+            windowStart: interval.start,
+            refetchStart: fetchStart
+        )
+    }
+
+    /// The comparison-source counterpart of `fetchIncrementalPrimaryDaySamples`.
+    /// Only for the sample-based kinds — the hourly cumulative kinds
+    /// (`.activeEnergy`, `.steps`) still refetch their full window because the
+    /// current hour's bucket overlaps and `mergeIntradaySamples` has no bucket
+    /// dedupe, matching the `usesHourlyBuckets` branch in
+    /// `HealthKitWorkoutStore.loadIntradayMetricSamplesIfNeeded`.
+    private func fetchIncrementalSecondaryDaySamples(
+        for kind: HealthMetricKind,
+        cached: HealthTrendSeries,
+        calendar: Calendar
+    ) async -> HealthTrendSeries? {
+        // A no-comparison selection (the Pro gate, an unresolved source, or the
+        // primary-collapse rule in `selectedSecondaryHealthDataSourceOption`) has
+        // to REPLACE the cached series, not merge into it: `mergeIntradaySamples`
+        // retains every cached point older than `refetchStart`, so merging an
+        // authoritative `.empty` at the 48h boundary would keep the old source's
+        // points on the chart forever.
+        guard !selectedSecondaryHealthDataSourceOption(for: kind).isNoComparison else {
+            return .empty
+        }
+
+        let interval = intradayDaySampleInterval(calendar: calendar)
+        let fetchStart = Self.incrementalFetchStart(after: cached, windowStart: interval.start)
+        guard fetchStart < interval.end else {
+            return Self.mergeIntradaySamples(
+                existing: cached,
+                incoming: .empty,
+                windowStart: interval.start,
+                refetchStart: fetchStart
+            )
+        }
+
+        // A failed sample query returns nil — surface it (rather than silently
+        // returning `cached`) so the caller folds the failure into
+        // `hadQueryFailure` while still keeping the cached series via
+        // `resolvedTrend`.
+        guard let incoming = await fetchSecondaryDaySamples(
             for: kind,
             calendar: calendar,
             startDate: fetchStart,
@@ -2804,7 +2858,11 @@ actor HealthKitFetchEngine {
                 cached: existing.trends.heartRateDaySamples,
                 calendar: calendar
             )
-            async let heartRateDaySamplesSecondary = fetchSecondaryDaySamples(for: .heartRate, calendar: calendar)
+            async let heartRateDaySamplesSecondary = fetchIncrementalSecondaryDaySamples(
+                for: .heartRate,
+                cached: existing.trends.heartRateDaySamplesSecondary,
+                calendar: calendar
+            )
 
             summary.heartRate = resolvedDashboardSummary(fetched: await heartRate, cached: existing.summary.heartRate) ?? HealthSummarySnapshot.empty.heartRate
             let fetchedHeartRatePair = await heartRatePair
@@ -2827,21 +2885,16 @@ actor HealthKitFetchEngine {
                 sourceKind: .restingHeartRate
             )
             async let restingHeartRateSecondaryTrend = fetchSecondaryTrend(for: .restingHeartRate, calendar: calendar)
-            async let restingHeartRateDaySamples = fetchIncrementalPrimaryDaySamples(
-                for: .restingHeartRate,
-                cached: existing.trends.restingHeartRateDaySamples,
-                calendar: calendar
-            )
-            async let restingHeartRateDaySamplesSecondary = fetchSecondaryDaySamples(
-                for: .restingHeartRate,
-                calendar: calendar
-            )
+            // No intraday fetch: resting heart rate has no day view
+            // (`supportsMetricDayView` / `HealthMetricKind.dayViewKinds` both
+            // exclude it — HealthKit records one RHR value per day, so an hourly
+            // chart would be a single dot). The `restingHeartRateDaySamples*`
+            // fields stay on the snapshot for decode back-compat and are left
+            // empty so any previously persisted samples flush out of the sidecar.
 
             summary.restingHeartRate = resolvedDashboardSummary(fetched: await restingHeartRate, cached: existing.summary.restingHeartRate) ?? HealthSummarySnapshot.empty.restingHeartRate
             trends.restingHeartRate = resolvedTrend(await restingHeartRateTrend, cached: existing.trends.restingHeartRate)
             trends.restingHeartRateSecondary = resolvedTrend(await restingHeartRateSecondaryTrend, cached: existing.trends.restingHeartRateSecondary)
-            trends.restingHeartRateDaySamples = resolvedTrend(await restingHeartRateDaySamples, cached: existing.trends.restingHeartRateDaySamples)
-            trends.restingHeartRateDaySamplesSecondary = resolvedTrend(await restingHeartRateDaySamplesSecondary, cached: existing.trends.restingHeartRateDaySamplesSecondary)
         case .bodyMass:
             async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
             async let bodyMassTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
@@ -2893,8 +2946,9 @@ actor HealthKitFetchEngine {
                 cached: existing.trends.heartRateVariabilityDaySamples,
                 calendar: calendar
             )
-            async let heartRateVariabilityDaySamplesSecondary = fetchSecondaryDaySamples(
+            async let heartRateVariabilityDaySamplesSecondary = fetchIncrementalSecondaryDaySamples(
                 for: .heartRateVariability,
+                cached: existing.trends.heartRateVariabilityDaySamplesSecondary,
                 calendar: calendar
             )
 
@@ -2951,8 +3005,9 @@ actor HealthKitFetchEngine {
                 cached: existing.trends.oxygenSaturationDaySamples,
                 calendar: calendar
             )
-            async let oxygenSaturationDaySamplesSecondary = fetchSecondaryDaySamples(
+            async let oxygenSaturationDaySamplesSecondary = fetchIncrementalSecondaryDaySamples(
                 for: .oxygenSaturation,
+                cached: existing.trends.oxygenSaturationDaySamplesSecondary,
                 calendar: calendar
             )
 
@@ -2995,6 +3050,9 @@ actor HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .activeEnergy
             )
+            // Hourly cumulative buckets: full window, not incremental (the current
+            // hour's bucket overlaps and the merge can't dedupe it). Same reason the
+            // primary above uses `fetchHourlyCumulativeQuantitySeries` directly.
             async let activeEnergyDaySamplesSecondary = fetchSecondaryDaySamples(
                 for: .activeEnergy,
                 calendar: calendar
@@ -3101,6 +3159,8 @@ actor HealthKitFetchEngine {
                 calendar: calendar,
                 sourceKind: .steps
             )
+            // Hourly cumulative buckets: full window, not incremental (see
+            // `.activeEnergy` above).
             async let stepsDaySamplesSecondary = fetchSecondaryDaySamples(
                 for: .steps,
                 calendar: calendar

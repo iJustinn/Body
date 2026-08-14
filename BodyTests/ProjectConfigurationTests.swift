@@ -1263,10 +1263,21 @@ final class ProjectConfigurationTests: XCTestCase {
         )
         let sleepConsistencyCardBlock = String(source[sleepConsistencyCardStart..<sleepConsistencyCardEnd])
 
+        let durationSummaryStart = sleepStageCardEnd
+        let durationSummaryEnd = try XCTUnwrap(
+            source.range(of: "private func sleepStageBreakdownAccessibilityLabel", range: durationSummaryStart..<source.endIndex)?.lowerBound
+        )
+        let durationSummaryBlock = String(source[durationSummaryStart..<durationSummaryEnd])
+
         XCTAssertTrue(sleepStageCardBlock.contains("BodyAnimatedMetricValueText("))
         XCTAssertTrue(sleepStageCardBlock.contains("value: BodyValueFormat.sleepDurationText(for: snapshot.mergedAsleepDuration)"))
         XCTAssertTrue(sleepConsistencyCardBlock.contains("BodyAnimatedMetricValueText("))
         XCTAssertTrue(sleepConsistencyCardBlock.contains(#"value: "\(consistencyPercentage)%""#))
+
+        // The plain-durations half of the breakdown toggle rolls its digits over
+        // on a day switch, like the optimal-range bars it swaps with.
+        XCTAssertTrue(durationSummaryBlock.contains(".bodyLegendNumberFlip(value: durationText)"))
+        XCTAssertTrue(durationSummaryBlock.contains(".bodyLegendNumberFlip(value: restorativeText)"))
     }
 
     func testSleepStageBreakdownTogglesToOptimalRangeChart() throws {
@@ -1312,6 +1323,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let chartBlock = String(source[chartStart..<chartEnd])
         XCTAssertTrue(chartBlock.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
         XCTAssertTrue(chartBlock.contains(".animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: fraction)"))
+
+        // Percent and duration columns roll their digits over with the bars.
+        XCTAssertEqual(chartBlock.components(separatedBy: ".bodyLegendNumberFlip(value: percentText)").count - 1, 2)
+        XCTAssertEqual(chartBlock.components(separatedBy: ".bodyLegendNumberFlip(value: durationText)").count - 1, 2)
     }
 
     func testSourceSelectableDayChartsUsePrimarySecondaryComparisonLines() throws {
@@ -1338,9 +1353,125 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(engineSource.contains("let secondaryOption = selectedSecondaryHealthDataSourceOption(for: kind)"))
         XCTAssertTrue(engineSource.contains("sourceOption: secondaryOption"))
         XCTAssertTrue(engineSource.contains("trends.heartRateDaySamplesSecondary = resolvedTrend(await heartRateDaySamplesSecondary"))
-        XCTAssertTrue(engineSource.contains("trends.restingHeartRateDaySamplesSecondary = resolvedTrend(await restingHeartRateDaySamplesSecondary"))
         XCTAssertTrue(engineSource.contains("trends.heartRateVariabilityDaySamplesSecondary = resolvedTrend(await heartRateVariabilityDaySamplesSecondary"))
         XCTAssertTrue(engineSource.contains("trends.oxygenSaturationDaySamplesSecondary = resolvedTrend(await oxygenSaturationDaySamplesSecondary"))
+        // Resting heart rate deliberately has NO intraday fetch: it is absent from
+        // `supportsMetricDayView` / `HealthMetricKind.dayViewKinds`, so its day
+        // samples were queried and persisted but never rendered.
+        XCTAssertFalse(engineSource.contains("trends.restingHeartRateDaySamplesSecondary = resolvedTrend(await"))
+        XCTAssertFalse(engineSource.contains("trends.restingHeartRateDaySamples = resolvedTrend(await"))
+    }
+
+    /// The per-metric refresh fetches comparison-source day samples incrementally
+    /// (48h trailing overlap merged onto the cache) for the sample-based kinds, and
+    /// deliberately NOT for the hourly cumulative kinds — their current-hour bucket
+    /// overlaps and `mergeIntradaySamples` has no bucket dedupe, so an incremental
+    /// merge would double-count today's energy/steps.
+    func testSecondaryDaySamplesFetchIncrementallyExceptHourlyBuckets() throws {
+        let engineSource = try healthKitFetchEngineText()
+
+        XCTAssertTrue(engineSource.contains("private func fetchIncrementalSecondaryDaySamples("))
+        // One definition plus one call site per sample-based kind (hr, hrv, spo2).
+        XCTAssertEqual(engineSource.occurrenceCount(of: "fetchIncrementalSecondaryDaySamples("), 4)
+        XCTAssertTrue(engineSource.contains("async let activeEnergyDaySamplesSecondary = fetchSecondaryDaySamples("))
+        XCTAssertTrue(engineSource.contains("async let stepsDaySamplesSecondary = fetchSecondaryDaySamples("))
+    }
+
+    /// The source mutators push a new selection into the engine BEFORE they wait out
+    /// an in-flight refresh, so the incremental day-sample merge can splice
+    /// new-source points onto old-source ones. `refreshHealthMetric` must detect the
+    /// mid-fetch signature change and drop the fetched day samples rather than
+    /// publish — and persist — a mixed-source series.
+    func testMetricRefreshDropsDaySamplesWhenSelectionChangesMidFetch() throws {
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let start = try XCTUnwrap(storeSource.range(of: "func refreshHealthMetric(")?.lowerBound)
+        let block = String(storeSource[start...].prefix(3_000))
+
+        XCTAssertTrue(block.contains("let capturedDaySampleSignatures = currentDaySampleSignatures()"))
+        XCTAssertTrue(block.contains("currentDaySampleSignatures() == capturedDaySampleSignatures"))
+        XCTAssertTrue(block.contains("strippingDaySamples()"))
+    }
+
+    /// Every `HealthDashboardSnapshotStore.save` rewrites the day-sample sidecar from
+    /// the trends it is handed, and an empty payload overwrites an existing file. The
+    /// warm workout-only resume can reach a save via
+    /// `reapplyActivityReadinessAfterWorkouts`, so it must hydrate first or a
+    /// relaunch inside the refresh TTL wipes the intraday cache off disk.
+    func testWarmWorkoutRefreshHydratesDaySamplesBeforeAnyPersist() throws {
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let start = try XCTUnwrap(
+            storeSource.range(of: "        reusesCachedWorkoutHeartRate: Bool = false\n    ) async {")?.lowerBound
+        )
+        let block = String(storeSource[start...].prefix(1_200))
+        let hydrate = try XCTUnwrap(block.range(of: "await hydratePersistedDaySamplesIfNeeded()")?.lowerBound)
+        let summaryGate = try XCTUnwrap(block.range(of: "if updatesHealthSummary {")?.lowerBound)
+
+        XCTAssertLessThan(hydrate, summaryGate, "Hydration must run on both refresh paths, not only the dashboard one.")
+    }
+
+    /// Hydration reuses ONE memoized sidecar load for the whole session, so anything
+    /// that invalidates comparison series has to be re-applied at merge time or the
+    /// memo quietly restores them. Entitlement and the primary-collapse rule are not
+    /// in the persisted signatures, so the store must pass them live.
+    func testHydrationDropsComparisonSeriesTheCurrentSelectionResolvesAway() throws {
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+
+        XCTAssertTrue(storeSource.contains("comparisonDisabledKinds: currentComparisonDisabledKinds()"))
+        XCTAssertTrue(storeSource.contains("selectedSecondaryHealthDataSourceOption(for: $0).isNoComparison"))
+    }
+
+    /// The entitlement handler's invalidation has to reach the memoized sidecar
+    /// load, not just `healthTrends` and the file — otherwise the corrective refresh
+    /// it kicks off re-merges the pre-flip comparison samples from the memo and
+    /// re-persists them. Order matters: hydrate (populate the memo + restore the
+    /// primary scope), clear, strip the memo, then persist.
+    func testProEntitlementChangeInvalidatesMemoizedComparisonDaySamples() throws {
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let start = try XCTUnwrap(storeSource.range(of: "BodyProEntitlement.didChangeNotification")?.lowerBound)
+        let block = String(storeSource[start...].prefix(2_000))
+
+        let hydrate = try XCTUnwrap(block.range(of: "await self.hydratePersistedDaySamplesIfNeeded()")?.lowerBound)
+        let clear = try XCTUnwrap(block.range(of: "clearingSecondarySeries()")?.lowerBound)
+        let invalidate = try XCTUnwrap(block.range(of: "await self.invalidateMemoizedComparisonDaySamples()")?.lowerBound)
+        let persist = try XCTUnwrap(block.range(of: "self.persistDaySampleSidecar()")?.lowerBound)
+
+        XCTAssertLessThan(hydrate, clear)
+        XCTAssertLessThan(clear, invalidate)
+        XCTAssertLessThan(invalidate, persist)
+        // Re-point the memo, never nil it: a nil forces a re-read that can beat the
+        // asynchronous sidecar write above and restore what was just cleared.
+        XCTAssertTrue(storeSource.contains("persistedDaySamplesHydration = Task { stripped }"))
+        XCTAssertFalse(block.contains("persistedDaySamplesHydration = nil"))
+    }
+
+    /// The Body Pro paywall is a sheet presented from the metric detail view, so
+    /// buying or restoring leaves that view mounted. The entitlement handler empties
+    /// the comparison day samples on any flip, so the detail's lazy intraday loader
+    /// must be keyed on entitlement — a bare `.task` would not re-run and the paid
+    /// comparison line would stay missing until the user left and reopened the page.
+    func testMetricDetailIntradayLoaderRerunsOnEntitlementFlip() throws {
+        let detailSource = try text(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+
+        // The paywall really is presented from this view (the premise for the key).
+        XCTAssertTrue(detailSource.contains("$showBodyProPaywall"))
+        XCTAssertTrue(detailSource.contains("""
+        .task(id: isBodyProUnlocked) {
+                    await workoutStore.loadIntradayMetricSamplesIfNeeded(model.kind)
+                }
+        """))
+    }
+
+    /// The intraday sidecar is the only cached series not restored synchronously in
+    /// the store's init, so app entry hydrates it before the refresh sync. It has to
+    /// be the SAME task body — sibling `.task` modifiers run concurrently, and the
+    /// read must win against any save the refresh triggers.
+    func testAppEntryHydratesDaySamplesBeforeSync() throws {
+        let appSource = try text(at: "Body/BodyApp.swift")
+        let hydrate = try XCTUnwrap(appSource.range(of: "hydratePersistedDaySamplesIfNeeded()")?.lowerBound)
+        let sync = try XCTUnwrap(appSource.range(of: "await workoutStore.syncWhenAppBecomesActive()")?.lowerBound)
+
+        XCTAssertLessThan(hydrate, sync)
+        XCTAssertTrue(appSource.contains("if !workoutStore.needsInitialHealthDataLoad {"))
     }
 
     func testChartLegendHeadersFillAvailableWidth() throws {
@@ -1584,7 +1715,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(refreshBlock.contains("for: kind"))
         XCTAssertTrue(refreshBlock.contains("existing: existing"))
         XCTAssertTrue(refreshBlock.contains("replacingMetric(kind, with: metricFetch.snapshot.summary)"))
-        XCTAssertTrue(refreshBlock.contains("replacingMetric(kind, with: metricFetch.snapshot.trends)"))
+        // Trends route through `fetchedTrends`, which is `metricFetch.snapshot.trends`
+        // with the day samples stripped when the source selection changed mid-fetch
+        // (see `testMetricRefreshDropsDaySamplesWhenSelectionChangesMidFetch`) — still
+        // a single-metric replace, never a full-dashboard one.
+        XCTAssertTrue(refreshBlock.contains("? metricFetch.snapshot.trends"))
+        XCTAssertTrue(refreshBlock.contains("replacingMetric(kind, with: fetchedTrends)"))
         XCTAssertFalse(refreshBlock.contains("engine.fetchHealthSummary(calendar: calendar)"))
         XCTAssertFalse(refreshBlock.contains("engine.fetchHealthTrends(calendar: calendar"))
     }

@@ -1181,6 +1181,21 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
             stepsDaySamplesSecondary.isEmpty
     }
 
+    /// Drops every comparison-source series, keeping the primary ones. Used to
+    /// re-point the session's memoized sidecar load after the app deliberately
+    /// invalidates the comparison caches, so a later hydration can still restore
+    /// the primary scope without resurrecting what was just cleared.
+    func strippingSecondaryDaySamples() -> HealthTrendDaySampleSnapshot {
+        var stripped = self
+        stripped.heartRateDaySamplesSecondary = .empty
+        stripped.restingHeartRateDaySamplesSecondary = .empty
+        stripped.heartRateVariabilityDaySamplesSecondary = .empty
+        stripped.oxygenSaturationDaySamplesSecondary = .empty
+        stripped.activeEnergyDaySamplesSecondary = .empty
+        stripped.stepsDaySamplesSecondary = .empty
+        return stripped
+    }
+
     /// Returns a copy safe to merge into the live trends during sidecar
     /// hydration: intraday series whose source scope no longer matches the
     /// current selection are dropped per-scope, and series whose permission is
@@ -1192,11 +1207,20 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
     /// BOTH scopes and is dropped one-time (the next stamped save re-writes it as
     /// v2, self-healing). A scope matches only when its selection signature AND
     /// the combine-sources flag both match (H6b).
+    ///
+    /// `comparisonDisabledKinds` is a LIVE gate, like `permission` and unlike the
+    /// captured signatures: it carries the kinds whose comparison the *current*
+    /// selection resolves away. Body Pro lapsing, or a primary source changed to
+    /// match the secondary, leaves the stored secondary selection — and therefore
+    /// `secondarySelectionSignature` — untouched, so scope matching alone would
+    /// happily restore those samples and undo the invalidation the entitlement or
+    /// source change just performed.
     func scopedForHydration(
         currentPrimarySignature: String,
         currentSecondarySignature: String,
         currentCombinesByName: Bool,
-        permission: BodyHealthPermissionSelection
+        permission: BodyHealthPermissionSelection,
+        comparisonDisabledKinds: Set<HealthMetricKind>
     ) -> HealthTrendDaySampleSnapshot {
         var scoped = self
 
@@ -1248,6 +1272,25 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         }
         if !permission.includes(.steps) {
             scoped.stepsDaySamples = .empty
+            scoped.stepsDaySamplesSecondary = .empty
+        }
+
+        if comparisonDisabledKinds.contains(.heartRate) {
+            scoped.heartRateDaySamplesSecondary = .empty
+        }
+        if comparisonDisabledKinds.contains(.restingHeartRate) {
+            scoped.restingHeartRateDaySamplesSecondary = .empty
+        }
+        if comparisonDisabledKinds.contains(.heartRateVariability) {
+            scoped.heartRateVariabilityDaySamplesSecondary = .empty
+        }
+        if comparisonDisabledKinds.contains(.oxygenSaturation) {
+            scoped.oxygenSaturationDaySamplesSecondary = .empty
+        }
+        if comparisonDisabledKinds.contains(.activeEnergy) {
+            scoped.activeEnergyDaySamplesSecondary = .empty
+        }
+        if comparisonDisabledKinds.contains(.steps) {
             scoped.stepsDaySamplesSecondary = .empty
         }
 

@@ -33,6 +33,19 @@ struct BodyApp: App {
                 .accentColor(.primary)
                 .preferredColorScheme(selectedTheme.colorScheme)
                 .task(priority: .utility) {
+                    // The intraday day-sample sidecar is the only cached series not
+                    // restored synchronously in the store's init, so the Day View
+                    // charts would otherwise stay empty until a full refresh or a
+                    // metric-detail visit hydrated it. Same task body as the sync
+                    // below, not a second `.task` — sibling `.task` modifiers run
+                    // concurrently, and the read has to win against any save the
+                    // refresh triggers. Skipped on a true first launch: the
+                    // day-sample fields count toward `needsInitialHealthDataLoad`,
+                    // so hydrating a stranded sidecar there would suppress the load
+                    // overlay and leave every passive load idled.
+                    if !workoutStore.needsInitialHealthDataLoad {
+                        await workoutStore.hydratePersistedDaySamplesIfNeeded()
+                    }
                     await workoutStore.syncWhenAppBecomesActive()
                 }
                 .onChange(of: scenePhase) { _, newPhase in
