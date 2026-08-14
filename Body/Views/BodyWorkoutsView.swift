@@ -933,6 +933,12 @@ struct BodyWorkoutDetailSheet: View {
     /// Gate so the prediction publishes once, after both the comparison history and max
     /// HR settle — no provisional (uncalibrated) value flashes before the inputs load.
     @State private var predictionInputsSettled = false
+    /// True once the 30-day history load has been awaited, whatever it found. The
+    /// comparison window's `isComplete` can never turn true when the months simply
+    /// cannot load (Workouts permission off, Apple Health unavailable, a failed fetch),
+    /// so without this the Details legend would sit on "Calculating…" forever. Kept
+    /// separate from `predictionInputsSettled`, which also waits on max HR.
+    @State private var comparisonMonthsSettled = false
     /// True while the editor holds a value pre-filled from the prediction that the user
     /// hasn't adjusted — the one signal `saveEditingEffort` uses to exclude an
     /// accepted-unchanged suggestion from calibration (no feedback loop).
@@ -1125,6 +1131,7 @@ struct BodyWorkoutDetailSheet: View {
         }
         .task(id: "\(workout.id.uuidString)-\(workoutStore.permissionSelection.rawValue)") {
             predictionInputsSettled = false
+            comparisonMonthsSettled = false
             prediction = nil
             editorPrefilledFromSuggestion = false
             editorAwaitingPrediction = false
@@ -1136,6 +1143,9 @@ struct BodyWorkoutDetailSheet: View {
             // chart falls back to the session-peak HR.
             async let maxHeartRate = workoutStore.userMaxHeartRate()
             await workoutStore.ensureComparisonMonthsLoaded(for: workout)
+            // Before the max-HR await, so the Details legend resolves as soon as the
+            // history lands instead of waiting on an unrelated query.
+            comparisonMonthsSettled = true
             resolvedMaxHeartRate = await maxHeartRate
             predictionInputsSettled = true
             refreshPrediction()
@@ -1317,17 +1327,14 @@ struct BodyWorkoutDetailSheet: View {
 
     private func workoutDetailsCard(presentation: WorkoutDetailPresentation) -> some View {
         let metrics = presentation.detailMetrics
-        let showsComparisonLegend = metrics.contains { $0.comparison != nil }
         return VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("Details")
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
 
-                if showsComparisonLegend {
-                    Text("vs 30-day avg")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundColor(.secondary)
+                if let availability = presentation.comparisonAvailability {
+                    BodyWorkoutComparisonLegend(availability: availability)
                 }
 
                 Spacer(minLength: 0)
@@ -1648,7 +1655,8 @@ struct BodyWorkoutDetailSheet: View {
             distanceUnitPreference: selectedDistanceUnitPreference,
             energyUnitPreference: selectedEnergyUnitPreference,
             comparisonWorkouts: comparison.priorWorkouts,
-            comparisonDataComplete: comparison.isComplete
+            comparisonDataComplete: comparison.isComplete,
+            comparisonLoadSettled: comparisonMonthsSettled
         )
     }
 
@@ -1702,6 +1710,41 @@ private struct BodyWorkoutShareButtonBackground: ViewModifier {
     }
 }
 
+/// The line beside the "Details" heading naming what the badges under it are showing.
+/// One `Text` whose string changes rather than three swapped views, so the wording
+/// crossfades into place while the badge digits roll over beneath it.
+private struct BodyWorkoutComparisonLegend: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let availability: WorkoutMetricComparisonAvailability
+
+    private var text: String {
+        switch availability {
+        case .ready:
+            return String(localized: "vs 30-day avg")
+        case .calculating:
+            return String(localized: "Calculating…")
+        case .insufficientHistory:
+            return String(localized: "Not enough history yet")
+        }
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 15, weight: .semibold, design: .rounded))
+            .foregroundColor(.secondary)
+            .lineLimit(1)
+            // The two placeholder states are markedly longer than "vs 30-day avg", so
+            // they shrink rather than wrap — a wrap would change the header's height
+            // mid-crossfade.
+            .minimumScaleFactor(0.8)
+            .contentTransition(reduceMotion ? .identity : .opacity)
+            // Same curve as `bodyLegendNumberFlip`, so the wording and the numbers
+            // settle together.
+            .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: text)
+    }
+}
+
 private struct BodyWorkoutDetailMetricTile: View {
     let title: String
     let value: String
@@ -1751,6 +1794,9 @@ private struct BodyWorkoutDetailMetricTile: View {
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.7)
+                                // The "0%" stand-in holds this slot until the history
+                                // lands, so the real percentage rolls in from it.
+                                .bodyLegendNumberFlip(value: comparison.badgeText)
                         }
                         if !valueParts.unit.isEmpty {
                             Text(valueParts.unit)

@@ -228,10 +228,24 @@ struct WorkoutDetailMetric: Equatable {
 /// A compact comparison badge shown above a metric's unit. `badgeText` is the visual
 /// token (e.g. "↑12%", "↓3%", "≈0%"); `accessibilityLabel` is the spoken VoiceOver form
 /// so the arrow glyph isn't read literally. The "vs 30-day avg" frame lives once in the
-/// section header, not in every badge.
+/// section header, not in every badge. `badgeText` may also be a "0%" stand-in — see
+/// `WorkoutMetricComparisonBuilder.placeholder(for:availability:current:locale:)` — whose
+/// spoken form says why there is no number yet.
 struct WorkoutMetricComparison: Equatable {
     let badgeText: String
     let accessibilityLabel: String
+}
+
+/// What the "Details" card's comparison legend says, and whether its tiles carry
+/// measured percentages or "0%" stand-ins. Held once per card rather than derived per
+/// tile, so the legend never disagrees with the badges under it.
+enum WorkoutMetricComparisonAvailability: Equatable {
+    /// At least one metric has a measured delta.
+    case ready
+    /// A spanned month is still loading, so the numbers are on their way.
+    case calculating
+    /// The window loaded (or gave up) with too little history to compare against.
+    case insufficientHistory
 }
 
 /// Builds the "↑ 12% vs 30-day avg" caption for a single detail metric against the
@@ -290,6 +304,69 @@ enum WorkoutMetricComparisonBuilder {
         }
 
         return caption(current: currentScalar, baseline: baseline, locale: locale)
+    }
+
+    // MARK: - Availability
+
+    /// The card-level state behind the legend beside "Details", or nil when this
+    /// workout has no comparable metric at all (a strength session whose every tile
+    /// reads "No Data" gets no legend and no stand-ins, exactly as before).
+    ///
+    /// `isSettled` is what stops "Calculating" from lasting forever: `isComplete` can
+    /// never turn true when the months simply cannot load — Workouts permission off,
+    /// Apple Health unavailable, a failed month fetch — so once the caller has awaited
+    /// the load, an incomplete window means there is nothing more coming.
+    static func availability(
+        for kinds: [WorkoutDetailMetric.Kind],
+        current: WorkoutSummary,
+        hasComparison: Bool,
+        isComplete: Bool,
+        isSettled: Bool
+    ) -> WorkoutMetricComparisonAvailability? {
+        guard kinds.contains(where: { scalar(for: $0, from: current) != nil }) else {
+            return nil
+        }
+
+        if hasComparison {
+            return .ready
+        }
+
+        return isComplete || isSettled ? .insufficientHistory : .calculating
+    }
+
+    /// The "0%" stand-in for a metric with no measured delta. It is a real badge rather
+    /// than an absence so the digits can roll over in place when the measurement lands —
+    /// a badge that appears from nothing can only pop.
+    ///
+    /// Gated on the same display scalar the baseline uses, so a tile that has no value
+    /// of its own never sprouts a 0% claiming it matched the average.
+    ///
+    /// Only while `.calculating`. The stand-in exists so digits can roll into place when
+    /// a measurement lands — once loading has settled there is no measurement coming, so
+    /// a "0%" would be a synthetic number presented as a result. That applies to both
+    /// settled states: under `.ready` the legend reads "vs 30-day avg" and the zero looks
+    /// measured, and under `.insufficientHistory` there is nothing left to roll into.
+    static func placeholder(
+        for kind: WorkoutDetailMetric.Kind,
+        availability: WorkoutMetricComparisonAvailability?,
+        current: WorkoutSummary,
+        locale: Locale
+    ) -> WorkoutMetricComparison? {
+        guard availability == .calculating, scalar(for: kind, from: current) != nil else {
+            return nil
+        }
+
+        let accessibilityLabel = String(
+            localized: "Calculating the 30-day comparison",
+            table: "BodyMetricsKit"
+        )
+
+        return WorkoutMetricComparison(
+            // Localized digits, so the stand-in matches the shape of the number that
+            // replaces it (Arabic/Hindi digits included).
+            badgeText: "\(BodyValueFormat.numberText(0, decimals: 0, locale: locale))%",
+            accessibilityLabel: accessibilityLabel
+        )
     }
 
     // MARK: - Scalars
@@ -484,6 +561,10 @@ struct WorkoutDetailPresentation: Equatable {
     let effortText: String
     let effortPresentation: WorkoutEffortPresentation?
     let detailMetrics: [WorkoutDetailMetric]
+    /// Drives the legend beside the "Details" heading. nil when the comparison feature
+    /// is off (previews, the share card) or nothing about this workout is comparable,
+    /// so those keep showing no legend at all.
+    let comparisonAvailability: WorkoutMetricComparisonAvailability?
     let heartRateSamples: [WorkoutHeartRateSample]
     let sourceText: String
 
@@ -496,7 +577,8 @@ struct WorkoutDetailPresentation: Equatable {
         distanceUnitPreference: BodyValueFormat.DistanceUnitPreference? = nil,
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories,
         comparisonWorkouts: [WorkoutSummary]? = nil,
-        comparisonDataComplete: Bool = true
+        comparisonDataComplete: Bool = true,
+        comparisonLoadSettled: Bool = true
     ) {
         let endDate = workout.startDate.addingTimeInterval(max(0, workout.duration))
 
@@ -709,20 +791,42 @@ struct WorkoutDetailPresentation: Equatable {
         // Attach the 30-day comparison caption to each metric when comparison data was
         // provided (nil == feature off, so existing callers/previews are unchanged).
         if let comparisonWorkouts {
-            metrics = metrics.map { metric in
+            let comparisons = metrics.map { metric in
+                WorkoutMetricComparisonBuilder.comparison(
+                    for: metric.kind,
+                    current: workout,
+                    priors: comparisonWorkouts,
+                    isComplete: comparisonDataComplete,
+                    locale: locale
+                )
+            }
+            let availability = WorkoutMetricComparisonBuilder.availability(
+                for: metrics.map(\.kind),
+                current: workout,
+                hasComparison: comparisons.contains { $0 != nil },
+                isComplete: comparisonDataComplete,
+                isSettled: comparisonLoadSettled
+            )
+
+            metrics = zip(metrics, comparisons).map { metric, comparison in
                 WorkoutDetailMetric(
                     kind: metric.kind,
                     title: metric.title,
                     value: metric.value,
-                    comparison: WorkoutMetricComparisonBuilder.comparison(
+                    // Every comparable tile keeps a badge in every state — a measured
+                    // delta, or the "0%" stand-in — so the number rolls into place when
+                    // the history lands rather than popping in.
+                    comparison: comparison ?? WorkoutMetricComparisonBuilder.placeholder(
                         for: metric.kind,
+                        availability: availability,
                         current: workout,
-                        priors: comparisonWorkouts,
-                        isComplete: comparisonDataComplete,
                         locale: locale
                     )
                 )
             }
+            comparisonAvailability = availability
+        } else {
+            comparisonAvailability = nil
         }
 
         detailMetrics = metrics

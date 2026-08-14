@@ -241,6 +241,190 @@ final class WorkoutMetricComparisonTests: XCTestCase {
         XCTAssertTrue(context.priorWorkouts.allSatisfy { $0.type == type })
     }
 
+    // MARK: - Card state and "0%" stand-ins
+
+    private func availability(
+        current: WorkoutSummary,
+        priors: [WorkoutSummary],
+        kinds: [WorkoutDetailMetric.Kind] = [.activeEnergy],
+        isComplete: Bool,
+        isSettled: Bool
+    ) -> WorkoutMetricComparisonAvailability? {
+        let hasComparison = kinds.contains { kind in
+            comparison(kind, current: current, priors: priors, isComplete: isComplete) != nil
+        }
+        return WorkoutMetricComparisonBuilder.availability(
+            for: kinds,
+            current: current,
+            hasComparison: hasComparison,
+            isComplete: isComplete,
+            isSettled: isSettled
+        )
+    }
+
+    func testStillLoadingReadsAsCalculating() {
+        let current = workout(activeEnergy: 300)
+        let priors = [workout(activeEnergy: 200), workout(activeEnergy: 200), workout(activeEnergy: 200)]
+        XCTAssertEqual(availability(current: current, priors: priors, isComplete: false, isSettled: false), .calculating)
+    }
+
+    func testIncompleteButSettledReadsAsInsufficientHistory() {
+        // The months can't load at all (permission off, Health unavailable, a failed
+        // fetch), so `isComplete` never turns true. Without the settled signal the card
+        // would sit on "Calculating…" forever.
+        let current = workout(activeEnergy: 300)
+        let priors = [workout(activeEnergy: 200), workout(activeEnergy: 200), workout(activeEnergy: 200)]
+        XCTAssertEqual(
+            availability(current: current, priors: priors, isComplete: false, isSettled: true),
+            .insufficientHistory
+        )
+    }
+
+    func testCompleteButBelowSampleFloorReadsAsInsufficientHistory() {
+        let current = workout(activeEnergy: 300)
+        let priors = [workout(activeEnergy: 200), workout(activeEnergy: 200)]
+        XCTAssertEqual(
+            availability(current: current, priors: priors, isComplete: true, isSettled: true),
+            .insufficientHistory
+        )
+    }
+
+    func testMeasuredMetricReadsAsReady() {
+        let current = workout(activeEnergy: 300)
+        let priors = [workout(activeEnergy: 200), workout(activeEnergy: 200), workout(activeEnergy: 200)]
+        XCTAssertEqual(availability(current: current, priors: priors, isComplete: true, isSettled: true), .ready)
+    }
+
+    func testWorkoutWithNothingComparableGetsNoLegend() {
+        // Every tile would read "No Data", so the card keeps its clean look: no legend
+        // and (below) no stand-ins either.
+        let current = workout(activeEnergy: nil, elevation: nil)
+        let priors = [workout(activeEnergy: 200), workout(activeEnergy: 200), workout(activeEnergy: 200)]
+        XCTAssertNil(
+            availability(
+                current: current,
+                priors: priors,
+                kinds: [.activeEnergy, .elevation],
+                isComplete: true,
+                isSettled: true
+            )
+        )
+    }
+
+    func testPlaceholderIsALocalizedZeroPercentOnlyForComparableMetrics() {
+        let current = workout(activeEnergy: 300, elevation: nil)
+
+        let energy = WorkoutMetricComparisonBuilder.placeholder(
+            for: .activeEnergy,
+            availability: .calculating,
+            current: current,
+            locale: enUS
+        )
+        XCTAssertEqual(energy?.badgeText, "0%")
+        XCTAssertEqual(energy?.accessibilityLabel, "Calculating the 30-day comparison")
+
+        // A metric this workout has no value for never sprouts a badge.
+        XCTAssertNil(
+            WorkoutMetricComparisonBuilder.placeholder(
+                for: .elevation,
+                availability: .calculating,
+                current: current,
+                locale: enUS
+            )
+        )
+
+        // Feature off — previews and the share card stay badge-free.
+        XCTAssertNil(
+            WorkoutMetricComparisonBuilder.placeholder(
+                for: .activeEnergy,
+                availability: nil,
+                current: current,
+                locale: enUS
+            )
+        )
+    }
+
+    /// The stand-in only makes sense while a measurement is still coming. Once
+    /// loading has settled there is nothing to roll into, and a "0%" would be a
+    /// synthetic number presented as a result — under `.ready` the legend reads
+    /// "vs 30-day avg" so it looks measured, and under `.insufficientHistory`
+    /// there is no comparison at all.
+    func testPlaceholderIsWithheldOnceLoadingHasSettled() {
+        for availability in [WorkoutMetricComparisonAvailability.ready, .insufficientHistory] {
+            XCTAssertNil(
+                WorkoutMetricComparisonBuilder.placeholder(
+                    for: .activeEnergy,
+                    availability: availability,
+                    current: workout(activeEnergy: 300),
+                    locale: enUS
+                ),
+                "\(availability) must not show a stand-in"
+            )
+        }
+    }
+
+    func testPlaceholderDigitsAreLocalizedLikeTheRealBadge() {
+        let arabic = Locale(identifier: "ar")
+        let placeholder = WorkoutMetricComparisonBuilder.placeholder(
+            for: .activeEnergy,
+            availability: .calculating,
+            current: workout(activeEnergy: 300),
+            locale: arabic
+        )
+        XCTAssertEqual(placeholder?.badgeText, "\(BodyValueFormat.numberText(0, decimals: 0, locale: arabic))%")
+        XCTAssertEqual(placeholder?.accessibilityLabel, "Calculating the 30-day comparison")
+    }
+
+    // MARK: - Presentation wiring
+
+    private func presentation(
+        current: WorkoutSummary,
+        priors: [WorkoutSummary]?,
+        isComplete: Bool = true,
+        isSettled: Bool = true
+    ) -> WorkoutDetailPresentation {
+        WorkoutDetailPresentation(
+            workout: current,
+            locale: enUS,
+            comparisonWorkouts: priors,
+            comparisonDataComplete: isComplete,
+            comparisonLoadSettled: isSettled
+        )
+    }
+
+    func testPresentationCarriesTheCardStateAndStandIns() {
+        let current = workout(activeEnergy: 300)
+        let priors = [workout(activeEnergy: 200), workout(activeEnergy: 200)]
+        let loading = presentation(current: current, priors: priors, isComplete: false, isSettled: false)
+
+        XCTAssertEqual(loading.comparisonAvailability, .calculating)
+        XCTAssertEqual(loading.detailMetrics.first { $0.kind == .activeEnergy }?.comparison?.badgeText, "0%")
+    }
+
+    func testTheBadgeIsPresentBeforeAndAfterTheHistoryLands() {
+        // The digits can only roll when the badge exists on both sides of the change —
+        // a badge that appears from nothing pops instead.
+        let current = workout(activeEnergy: 300)
+        let priors = [workout(activeEnergy: 200), workout(activeEnergy: 200), workout(activeEnergy: 200)]
+        let loading = presentation(current: current, priors: priors, isComplete: false, isSettled: false)
+        let loaded = presentation(current: current, priors: priors, isComplete: true, isSettled: true)
+
+        let loadingKinds = loading.detailMetrics.filter { $0.comparison != nil }.map(\.kind)
+        let loadedKinds = loaded.detailMetrics.filter { $0.comparison != nil }.map(\.kind)
+        XCTAssertFalse(loadedKinds.isEmpty)
+        XCTAssertEqual(loadingKinds, loadedKinds)
+        XCTAssertEqual(loaded.comparisonAvailability, .ready)
+        XCTAssertEqual(loaded.detailMetrics.first { $0.kind == .activeEnergy }?.comparison?.badgeText, "↑50%")
+    }
+
+    func testFeatureOffLeavesEveryMetricBadgeFree() {
+        let current = workout(activeEnergy: 300)
+        let off = presentation(current: current, priors: nil)
+
+        XCTAssertNil(off.comparisonAvailability)
+        XCTAssertTrue(off.detailMetrics.allSatisfy { $0.comparison == nil })
+    }
+
     private func date(_ year: Int, _ month: Int, _ day: Int) -> Date {
         Calendar.bodyGregorian.date(from: DateComponents(year: year, month: month, day: day, hour: 12))!
     }

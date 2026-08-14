@@ -218,6 +218,30 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertEqual(metricsWithComparison, metricsWithoutComparison)
     }
 
+    func testCalculatingStandInsNeverLeakIntoMetrics() {
+        // The share sheet is handed the detail's own presentation, so the "0%" stand-ins
+        // shown while the 30-day history loads travel there too. They must be as invisible
+        // to the share card as a measured badge is.
+        let current = workout(type: .running, distance: 5000, activeEnergy: 320, avgHR: 145)
+        let priors = (0..<5).map { _ in workout(type: .running, distance: 4800, activeEnergy: 300, avgHR: 140) }
+
+        let calculating = WorkoutDetailPresentation(
+            workout: current,
+            locale: enUS,
+            unitPreference: .metric,
+            comparisonWorkouts: priors,
+            comparisonDataComplete: false,
+            comparisonLoadSettled: false
+        )
+
+        XCTAssertEqual(calculating.comparisonAvailability, .calculating)
+        XCTAssertTrue(calculating.detailMetrics.contains { $0.comparison?.badgeText == "0%" })
+        XCTAssertEqual(
+            WorkoutShareMetricsBuilder.metrics(for: calculating, type: .running),
+            WorkoutShareMetricsBuilder.metrics(for: presentation(for: current), type: .running)
+        )
+    }
+
     // MARK: - Metrics: centered layout
 
     func testCenteredRunningIsDistancePaceTime() throws {
