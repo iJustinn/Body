@@ -557,22 +557,66 @@ extension View {
 }
 
 /// Word-shaped metric values ("Typical", "2 Outliers"). Same type style as
-/// `BodyAnimatedMetricValueText`, minus the monospaced digits, numeric-text
-/// transition and aggressive shrink that only make sense for numbers.
+/// `BodyAnimatedMetricValueText`, minus the aggressive shrink that only makes
+/// sense for numbers. A change that only moves the count ("2 Outliers" → "5
+/// Outliers") rolls the digits over like the numeric labels do; a change that
+/// moves the words ("Typical" → "5 Outliers") crossfades, since there is
+/// nothing to count between.
 struct BodyMetricStatusValueText: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let text: String
     let fontSize: CGFloat
 
+    /// Rendered separately from `text` so the transition style for a change is
+    /// picked from the outgoing value and is already in place when the new
+    /// value animates in.
+    @State private var displayedText: String
+    @State private var flipsDigits = false
+
+    init(text: String, fontSize: CGFloat) {
+        self.text = text
+        self.fontSize = fontSize
+        _displayedText = State(initialValue: text)
+    }
+
     var body: some View {
-        Text(text)
+        Text(displayedText)
             .font(.system(size: fontSize, weight: .bold, design: .rounded))
             .foregroundColor(.primary)
-            .contentTransition(reduceMotion ? .identity : .opacity)
-            .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: text)
+            // Digits keep a constant width, or the words shuffle sideways
+            // while the numbers roll.
+            .monospacedDigit()
+            .contentTransition(contentTransition)
             .lineLimit(1)
             .minimumScaleFactor(0.7)
+            .onChange(of: text) { oldValue, newValue in
+                flipsDigits = Self.changesDigitsOnly(from: oldValue, to: newValue)
+                withAnimation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0)) {
+                    displayedText = newValue
+                }
+            }
+    }
+
+    private var contentTransition: ContentTransition {
+        guard !reduceMotion else {
+            return .identity
+        }
+
+        return flipsDigits ? .numericText() : .opacity
+    }
+
+    /// Whether the two values differ only in their digits — the same words
+    /// around a different count, which is the one case worth flipping. Written
+    /// against the rendered strings so it holds in every language.
+    static func changesDigitsOnly(from oldText: String, to newText: String) -> Bool {
+        guard oldText != newText,
+              oldText.contains(where: \.isNumber),
+              newText.contains(where: \.isNumber) else {
+            return false
+        }
+
+        return oldText.filter { !$0.isNumber } == newText.filter { !$0.isNumber }
     }
 }
 
