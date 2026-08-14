@@ -1959,12 +1959,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.12;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.12;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 1;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 3;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -1999,9 +1999,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.12 (build 1)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.12 (build 3)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 13)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 12)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.11 (build 11)**"))
@@ -2077,6 +2079,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.12 build 3."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.12 build 2."))
         XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 1)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.12 build 1."))
         XCTAssertTrue(versionHistory.contains("## 0.9.11 (build 13)"))
@@ -2306,7 +2312,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testHealthKitUsageDescriptionListsRequestedHealthCategories() throws {
         let project = try text(at: "body.xcodeproj/project.pbxproj")
-        let usageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, swim strokes, distance, and date of birth from Apple Health to power your dashboard, charts, and widgets."
+        let usageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, swim strokes, distance, date of birth, and biological sex from Apple Health to power your dashboard, charts, and widgets."
 
         XCTAssertEqual(project.occurrenceCount(of: usageDescription), 2)
         XCTAssertFalse(project.contains("Body reads workout, sleep, heart, and body measurement data"))
@@ -2350,6 +2356,30 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(workoutsSource.contains(".fullScreenCover(item: $selectedWorkoutForDetails)"))
         XCTAssertFalse(workoutsSource.contains("selectedDetent"))
         XCTAssertFalse(sheetBlock.contains(".presentationDetents"))
+    }
+
+    func testWorkoutDetailsComparisonLegendNamesEachStateAndBadgesRollOver() throws {
+        let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
+
+        // The legend is one Text whose string changes, so the wording crossfades
+        // between states instead of a view being swapped in and out.
+        XCTAssertTrue(workoutsSource.contains("private struct BodyWorkoutComparisonLegend: View"))
+        XCTAssertTrue(workoutsSource.contains(#"case .ready:"#))
+        XCTAssertTrue(workoutsSource.contains(#"return String(localized: "vs 30-day avg")"#))
+        XCTAssertTrue(workoutsSource.contains(#"return String(localized: "Calculating…")"#))
+        XCTAssertTrue(workoutsSource.contains(#"return String(localized: "Not enough history yet")"#))
+        XCTAssertTrue(workoutsSource.contains(".contentTransition(reduceMotion ? .identity : .opacity)"))
+        XCTAssertTrue(workoutsSource.contains("if let availability = presentation.comparisonAvailability {"))
+        XCTAssertFalse(workoutsSource.contains("let showsComparisonLegend = metrics.contains { $0.comparison != nil }"))
+
+        // The badge digits roll from the "0%" stand-in to the measured percentage.
+        XCTAssertTrue(workoutsSource.contains(".bodyLegendNumberFlip(value: comparison.badgeText)"))
+
+        // The settled flag is what keeps "Calculating…" from lasting forever when the
+        // months can never load.
+        XCTAssertTrue(workoutsSource.contains("comparisonLoadSettled: comparisonMonthsSettled"))
+        XCTAssertTrue(workoutsSource.contains("comparisonMonthsSettled = false"))
+        XCTAssertTrue(workoutsSource.contains("comparisonMonthsSettled = true"))
     }
 
     func testWorkoutListSheetRowsOpenFullScreenDetail() throws {
@@ -2409,7 +2439,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.12 build 1)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.12 build 3)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.12 build 2)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.12 build 1)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.11 build 13)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.11 build 12)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.11 build 11)"))

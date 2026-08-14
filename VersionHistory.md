@@ -1,5 +1,18 @@
 # Version History
 
+## 0.9.12 (build 3)
+
+- New **Cardio Fitness** metric. A Summary grid card reads your latest VO₂ max estimate from Apple Health and shows it above a four-row levels preview, with a ring marking which of **Low**, **Below Average**, **Above Average**, or **High** the reading falls in; the ring glides between rows when a new reading moves you. The detail page shades your level behind the trend line, lists all four levels with their VO₂ max spans in an **About your level** card, and breaks the range down under **Days by Level**. Levels compare you against people of the same age and sex using published FRIEND registry percentiles, cut at the 20th, the median, and the 75th, and are available from ages 20 through 79; without a date of birth and biological sex in the Health app the chart still draws but no level is claimed. Because Apple Watch records one estimate per qualifying Outdoor Walk, Run, or Hike rather than continuously, this chart plots every reading on its own measurement date instead of averaging into buckets, so short ranges are often legitimately empty. Enable it under Settings > Data > Permissions > **Cardio Fitness**.
+- The workout detail's **Details** card no longer leaves a `0%` stand-in on a tile once its 30-day comparison has settled. The stand-in now appears only while the line beside the heading reads `Calculating…`, so a zero is never shown as a measured result under `vs 30-day avg` or alongside `Not enough history yet`.
+- Updated the app, widget, watch, and test bundle version to 0.9.12 build 3.
+
+## 0.9.12 (build 2)
+
+- The workout detail's **Details** card now names the state of its 30-day comparison instead of silently showing nothing: the line beside the heading reads `Calculating…` while the history loads and `Not enough history yet` when there isn't enough of it, with a `0%` stand-in on every comparable tile. When the history lands the badge digits roll over to the real percentages and the line crossfades back to `vs 30-day avg`. A stuck window (Workouts permission off, Apple Health unavailable, a failed fetch) settles to `Not enough history yet` rather than calculating forever.
+- The Sleep detail's stage breakdown rolls its numbers over when the selected day changes — Pct. and Duration in the optimal-range view, and each stage's duration plus the Restorative line in the plain-durations view.
+- The Vitals detail headline now rolls its digits when only the outlier count changes ("2 Outliers" → "5 Outliers") and keeps crossfading when the words change.
+- Updated the app, widget, watch, and test bundle version to 0.9.12 build 2.
+
 ## 0.9.12 (build 1)
 
 - Updated the app, widget, watch, and test bundle version to 0.9.12 build 1.
