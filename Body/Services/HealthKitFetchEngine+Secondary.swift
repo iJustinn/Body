@@ -78,7 +78,8 @@ extension HealthKitFetchEngine {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
-             .vitals:
+             .vitals,
+             .cardioFitness:
             return .empty
         }
     }
@@ -188,7 +189,8 @@ extension HealthKitFetchEngine {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
-             .vitals:
+             .vitals,
+             .cardioFitness:
             return .empty
         }
     }
@@ -244,7 +246,8 @@ extension HealthKitFetchEngine {
              .wristTemperature,
              .timeInDaylight,
              .steps,
-             .vitals:
+             .vitals,
+             .cardioFitness:
             return .empty
         }
     }

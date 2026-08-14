@@ -269,6 +269,58 @@ actor HealthKitFetchEngine {
         return 220 - Double(age)
     }
 
+    /// Age + biological sex — the two inputs the cardio fitness level bands are
+    /// indexed by — read from the Apple Health characteristics.
+    ///
+    /// Returns a `QueryOutcome` rather than a bare optional so a transient
+    /// characteristic-read error keeps the CACHED profile instead of
+    /// unclassifying the user: an unclassified reading hides the level band and
+    /// the card headline, which would be a visible regression for a failure that
+    /// resolves itself on the next refresh. `.success(nil)` is a confirmed
+    /// absence — permission off, no value on file, or a sex the norms have no
+    /// table for — and does clear it.
+    func cardioFitnessProfile(asOf now: Date = Date()) -> QueryOutcome<CardioFitnessProfile> {
+        guard permissionSelection.includes(.cardioFitness) else {
+            return .success(nil)
+        }
+
+        let birthComponents: DateComponents
+        let biologicalSex: HKBiologicalSex
+        do {
+            birthComponents = try healthStore.dateOfBirthComponents()
+            biologicalSex = try healthStore.biologicalSex().biologicalSex
+        } catch let error as HKError where error.code == .errorNoData {
+            // A characteristic the user never entered is a confirmed absence, not
+            // a failure — reporting `.failure` here would withhold the freshness
+            // TTL on every refresh forever for anyone who left it blank.
+            return .success(nil)
+        } catch {
+            return .failure
+        }
+
+        // `.notSet` / `.other` (and any future case) stay unclassified: the norms
+        // are published as two tables, and guessing one would be worse than
+        // showing no level at all.
+        let sex: CardioFitnessSex
+        switch biologicalSex {
+        case .female:
+            sex = .female
+        case .male:
+            sex = .male
+        case .notSet, .other:
+            return .success(nil)
+        @unknown default:
+            return .success(nil)
+        }
+
+        guard let birthDate = Calendar.current.date(from: birthComponents),
+              let age = Calendar.current.dateComponents([.year], from: birthDate, to: now).year,
+              (1...120).contains(age) else {
+            return .success(nil)
+        }
+        return .success(CardioFitnessProfile(ageYears: age, sex: sex))
+    }
+
     // MARK: - Authorization
 
     func requestAuthorization() async throws {
@@ -347,6 +399,8 @@ actor HealthKitFetchEngine {
             return .steps
         case .vitals:
             return .sleep
+        case .cardioFitness:
+            return .cardioFitness
         }
     }
 
@@ -2250,6 +2304,17 @@ actor HealthKitFetchEngine {
                 sourceKind: .steps
             )
         }
+        async let cardioFitness: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.cardioFitness, selection: selection, default: .success(nil)) {
+            // `latestQuantity`, not a daily summary: Apple Watch writes one VO₂max
+            // estimate every few days at best, so the newest reading is the current
+            // value however old it is — a day-scoped summary would read empty most
+            // days. No `sourceKind:` either; cardio fitness is deliberately not
+            // source-selectable.
+            await latestQuantity(for: .vo2Max, unit: HKUnit(from: "ml/kg*min"))
+        }
+        async let cardioFitnessProfileOutcome: QueryOutcome<CardioFitnessProfile> = fetchDashboardMetricIfNeeded(.cardioFitness, selection: selection, default: .success(nil)) {
+            await cardioFitnessProfile()
+        }
 
         // Resolve each leaf against the cached value: a `.failure` keeps the
         // cached field (only when the store passed `cachedSummary`, i.e. the
@@ -2282,6 +2347,8 @@ actor HealthKitFetchEngine {
         let resolvedWristTemperature = resolve(await wristTemperature, cachedSummary?.wristTemperature)
         let resolvedTimeInDaylight = resolve(await timeInDaylight, cachedSummary?.timeInDaylight)
         let resolvedSteps = resolve(await steps, cachedSummary?.steps)
+        let resolvedCardioFitness = resolve(await cardioFitness, cachedSummary?.cardioFitness)
+        let resolvedCardioFitnessProfile = resolve(await cardioFitnessProfileOutcome, cachedSummary?.cardioFitnessProfile)
 
         let snapshot = HealthSummarySnapshot(
             activityRings: resolvedActivityRings ?? HealthSummarySnapshot.empty.activityRings,
@@ -2300,7 +2367,9 @@ actor HealthKitFetchEngine {
             trainingLoad: resolvedTrainingLoad ?? HealthSummarySnapshot.empty.trainingLoad,
             wristTemperature: resolvedWristTemperature ?? HealthSummarySnapshot.empty.wristTemperature,
             timeInDaylight: resolvedTimeInDaylight ?? HealthSummarySnapshot.empty.timeInDaylight,
-            steps: resolvedSteps ?? HealthSummarySnapshot.empty.steps
+            steps: resolvedSteps ?? HealthSummarySnapshot.empty.steps,
+            cardioFitness: resolvedCardioFitness ?? HealthSummarySnapshot.empty.cardioFitness,
+            cardioFitnessProfile: resolvedCardioFitnessProfile
         )
         return HealthSummaryFetchResult(summary: snapshot, hadQueryFailure: anyLeafFailed)
     }
@@ -2538,6 +2607,17 @@ actor HealthKitFetchEngine {
         ) {
             await fetchSecondaryTrend(for: .steps, calendar: calendar)
         }
+        async let cardioFitness: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.cardioFitness, selection: selection, default: HealthTrendSeries.empty) {
+            // `.latest` per day, and no `sourceKind:` (not source-selectable). The
+            // series is genuinely sparse — only days carrying a reading come back —
+            // which the chart path is built for.
+            await fetchDailyQuantitySeries(
+                for: .vo2Max,
+                unit: HKUnit(from: "ml/kg*min"),
+                aggregation: .latest,
+                calendar: calendar
+            )
+        }
 
         // Resolve every leaf against its cached value and record whether ANY
         // leaf query failed. A `nil` fetched value means the HealthKit query
@@ -2606,6 +2686,7 @@ actor HealthKitFetchEngine {
             timeInDaylight: resolved(await timeInDaylight, cached: cachedTrends.timeInDaylight),
             steps: resolved(await steps, cached: cachedTrends.steps),
             stepsSecondary: resolved(await stepsSecondary, cached: cachedTrends.stepsSecondary),
+            cardioFitness: resolved(await cardioFitness, cached: cachedTrends.cardioFitness),
             sleepHistory: fetchedSleepHistory,
             sleepHistorySecondary: fetchedSleepHistorySecondary,
             heartRateDaySamples: cachedHeartRateDaySamples,
@@ -3171,6 +3252,24 @@ actor HealthKitFetchEngine {
             trends.stepsSecondary = resolvedTrend(await stepsSecondaryTrend, cached: existing.trends.stepsSecondary)
             trends.stepsDaySamples = resolvedTrend(await stepsDaySamples, cached: existing.trends.stepsDaySamples)
             trends.stepsDaySamplesSecondary = resolvedTrend(await stepsDaySamplesSecondary, cached: existing.trends.stepsDaySamplesSecondary)
+        case .cardioFitness:
+            // Latest reading (however old) + the sparse daily series, same shapes
+            // as the dashboard leaves. The demographics ride along so the level
+            // band can classify from a single-metric refresh too.
+            async let cardioFitness = latestQuantity(for: .vo2Max, unit: HKUnit(from: "ml/kg*min"))
+            async let cardioFitnessTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
+                for: .vo2Max,
+                unit: HKUnit(from: "ml/kg*min"),
+                aggregation: .latest,
+                calendar: calendar
+            )
+
+            summary.cardioFitness = resolvedDashboardSummary(fetched: await cardioFitness, cached: existing.summary.cardioFitness) ?? HealthSummarySnapshot.empty.cardioFitness
+            summary.cardioFitnessProfile = resolvedDashboardSummary(
+                fetched: cardioFitnessProfile(),
+                cached: existing.summary.cardioFitnessProfile
+            )
+            trends.cardioFitness = resolvedTrend(await cardioFitnessTrend, cached: existing.trends.cardioFitness)
         }
 
         return HealthDashboardMetricFetchResult(

@@ -28,6 +28,13 @@ struct BodyHealthMetricDetailModel {
     /// Live training-load ratio behind `value`, unformatted — the About your interval
     /// card marks the band it falls in while nothing is scrubbed.
     let trainingLoadValue: Double?
+    /// Live VO₂ max behind `value`, unformatted — the About your level card marks
+    /// the level it falls in while nothing is scrubbed.
+    let cardioFitnessValue: Double?
+    /// Age + sex the cardio fitness levels are indexed by. `nil` leaves every
+    /// level unclassified: rows render without their VO₂ spans and nothing is
+    /// marked current.
+    let cardioFitnessProfile: CardioFitnessProfile?
     let chartStyle: BodyHealthMetricChartStyle
     let highlightedRange: BodyHealthMetricTrendHighlightedRange?
     let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?
@@ -65,6 +72,8 @@ struct BodyHealthMetricDetailModel {
         secondaryValueFormatter: ((Double) -> String)?,
         readiness: ReadinessSummary? = nil,
         trainingLoadValue: Double? = nil,
+        cardioFitnessValue: Double? = nil,
+        cardioFitnessProfile: CardioFitnessProfile? = nil,
         sourceComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
         sourceRangeComparisonTrend: BodyHealthSourceRangeComparisonTrend? = nil,
         sourceLineComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
@@ -91,6 +100,8 @@ struct BodyHealthMetricDetailModel {
         self.sleepHistorySecondary = sleepHistorySecondary
         self.readiness = readiness
         self.trainingLoadValue = trainingLoadValue
+        self.cardioFitnessValue = cardioFitnessValue
+        self.cardioFitnessProfile = cardioFitnessProfile
         self.chartStyle = chartStyle
         self.highlightedRange = highlightedRange
         self.highlightedRangeResolver = highlightedRangeResolver
@@ -407,6 +418,7 @@ struct BodyHealthMetricDetailView: View {
     @State private var showsAddMeasurementSheet = false
     @State private var activeReadinessTrendValue: Double?
     @State private var activeTrainingLoadTrendValue: Double?
+    @State private var activeCardioFitnessTrendValue: Double?
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     @StateObject private var daySeriesCache = BodyMetricDaySeriesCache()
     @StateObject private var sleepConsistencyCache = BodySleepConsistencyChartCache()
@@ -680,6 +692,7 @@ struct BodyHealthMetricDetailView: View {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
+             .cardioFitness,
              .vitals:
             return false
         }
@@ -731,6 +744,51 @@ struct BodyHealthMetricDetailView: View {
         return TrainingLoadInterval.interval(for: model.trainingLoadValue)
     }
 
+    /// The profile only when the norm tables actually cover it. A missing profile
+    /// and an age outside 20...79 both leave every level unclassified, and the
+    /// level card treats them identically.
+    private var classifiableCardioFitnessProfile: CardioFitnessProfile? {
+        guard let profile = model.cardioFitnessProfile,
+              CardioFitnessLevel.cutoffs(for: profile) != nil else {
+            return nil
+        }
+
+        return profile
+    }
+
+    /// Every cardio fitness level boundary, so the chart's Y domain spans all
+    /// four bands in every range. Without it each range scales to whatever it
+    /// happened to contain, and the same reading sits at a different height from
+    /// one range to the next — which is exactly what a level chart shouldn't do.
+    /// Empty for every other metric, and when the profile can't be classified.
+    private var cardioFitnessLevelDomainValues: [Double] {
+        guard model.kind == .cardioFitness,
+              let profile = classifiableCardioFitnessProfile,
+              let cutoffs = CardioFitnessLevel.cutoffs(for: profile) else {
+            return []
+        }
+
+        return [cutoffs.p20, cutoffs.p50, cutoffs.p75]
+    }
+
+    private var activeCardioFitnessLevel: CardioFitnessLevel? {
+        guard model.kind == .cardioFitness else {
+            return nil
+        }
+
+        if let activeCardioFitnessTrendValue, activeCardioFitnessTrendValue.isFinite {
+            return CardioFitnessLevel.level(
+                for: activeCardioFitnessTrendValue,
+                profile: model.cardioFitnessProfile
+            )
+        }
+
+        return CardioFitnessLevel.level(
+            for: model.cardioFitnessValue,
+            profile: model.cardioFitnessProfile
+        )
+    }
+
     /// Scrub report-out channel for the metrics whose About card marks the band the
     /// touched point falls in; other metrics don't track it.
     private var activeTrendValueBinding: Binding<Double?>? {
@@ -739,6 +797,8 @@ struct BodyHealthMetricDetailView: View {
             return $activeReadinessTrendValue
         case .trainingLoad:
             return $activeTrainingLoadTrendValue
+        case .cardioFitness:
+            return $activeCardioFitnessTrendValue
         default:
             return nil
         }
@@ -1025,6 +1085,88 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
+    private func cardioFitnessLevelCard(activeLevel: CardioFitnessLevel?) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("About your level")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+
+            // Without a classifiable profile the rows carry no VO₂ spans, so say
+            // why here rather than leaving four unexplained bare titles.
+            if classifiableCardioFitnessProfile == nil {
+                Text("Levels compare you against people of the same age and sex. Add your date of birth and sex in the Health app to see yours. Levels are available from age 20 through 79.")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(CardioFitnessLevel.displayOrder, id: \.self) { level in
+                    cardioFitnessLevelExplanationRow(
+                        level: level,
+                        isCurrent: activeLevel == level
+                    )
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(translucent: true)
+    }
+
+    private func cardioFitnessLevelExplanationRow(level: CardioFitnessLevel, isCurrent: Bool) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(BodyCardioFitnessLevelPresentation.color(for: level))
+                .frame(width: 4)
+                .padding(.vertical, 3)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(level.title)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+
+                    // Absent whenever the profile can't be classified; the note
+                    // above the rows explains the gap.
+                    if let profile = classifiableCardioFitnessProfile,
+                       let rangeText = CardioFitnessLevel.rangeText(for: level, profile: profile) {
+                        Text(rangeText)
+                            .font(.system(.subheadline, design: .monospaced))
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BodyCardioFitnessLevelPresentation.color(for: level))
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+
+                    if isCurrent {
+                        Text("Current")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(BodyCardioFitnessLevelPresentation.color(for: level))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                BodyCardioFitnessLevelPresentation.color(for: level)
+                                    .opacity(0.14),
+                                in: Capsule()
+                            )
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+
+                Text(level.explanation)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private func readinessWhyCard(for readiness: ReadinessSummary, activeStatus: ReadinessStatus?) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("About your score")
@@ -1294,6 +1436,9 @@ struct BodyHealthMetricDetailView: View {
             if model.kind == .trainingLoad {
                 trainingLoadIntervalCard(activeInterval: activeTrainingLoadInterval)
             }
+            if model.kind == .cardioFitness {
+                cardioFitnessLevelCard(activeLevel: activeCardioFitnessLevel)
+            }
             helpTextCard
             dataSourceFooter
         }
@@ -1514,6 +1659,11 @@ struct BodyHealthMetricDetailView: View {
                 baselineValue: wristTemperatureTrendBaseline,
                 baselineDeviationFormatter: wristTemperatureTrendBaselineDeviationFormatter,
                 immersive: immersive,
+                usesSparseReadings: model.kind.usesSparseTrendReadings,
+                additionalDomainValues: cardioFitnessLevelDomainValues,
+                // Cardio Fitness is read against named levels, so the axis
+                // figures add nothing the band and the level card don't say.
+                hidesYAxisLabels: model.kind == .cardioFitness,
                 // Range switches must UPDATE the chart so it morphs between
                 // ranges; metric changes still reset it.
                 chartIdentity: "\(model.kind.rawValue)"
@@ -1522,9 +1672,9 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
-    // Readiness/training-load day breakdown bars, rendered below the hero value row so
-    // the big current value reads directly beneath the line chart and the
-    // day-by-status/interval bars sit under it.
+    // Readiness/training-load/cardio-fitness day breakdown bars, rendered below the
+    // hero value row so the big current value reads directly beneath the line chart
+    // and the day-by-status/interval/level bars sit under it.
     @ViewBuilder
     private var metricBreakdownChart: some View {
         if model.kind == .trainingLoad {
@@ -1539,6 +1689,15 @@ struct BodyHealthMetricDetailView: View {
             BodyReadinessStatusBreakdownChart(
                 series: model.series,
                 selectedRange: selectedTrendRange
+            )
+            .padding(.top, 4)
+        }
+
+        if model.kind == .cardioFitness {
+            BodyCardioFitnessLevelBreakdownChart(
+                series: model.series,
+                selectedRange: selectedTrendRange,
+                profile: model.cardioFitnessProfile
             )
             .padding(.top, 4)
         }

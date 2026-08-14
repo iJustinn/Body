@@ -78,6 +78,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
     var timeInDaylight: HealthTrendSeries
     var steps: HealthTrendSeries
     var stepsSecondary: HealthTrendSeries
+    var cardioFitness: HealthTrendSeries
     var sleepHistory: SleepHistorySnapshot
     var sleepHistorySecondary: SleepHistorySnapshot
     var heartRateDaySamples: HealthTrendSeries
@@ -136,6 +137,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         timeInDaylight: .empty,
         steps: .empty,
         stepsSecondary: .empty,
+        cardioFitness: .empty,
         sleepHistory: .empty,
         sleepHistorySecondary: .empty,
         heartRateDaySamples: .empty,
@@ -186,6 +188,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             timeInDaylight.isEmpty &&
             steps.isEmpty &&
             stepsSecondary.isEmpty &&
+            cardioFitness.isEmpty &&
             sleepHistory.isEmpty &&
             sleepHistorySecondary.isEmpty &&
             heartRateDaySamples.isEmpty &&
@@ -235,6 +238,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         timeInDaylight: HealthTrendSeries = .empty,
         steps: HealthTrendSeries = .empty,
         stepsSecondary: HealthTrendSeries = .empty,
+        cardioFitness: HealthTrendSeries = .empty,
         sleepHistory: SleepHistorySnapshot = .empty,
         sleepHistorySecondary: SleepHistorySnapshot = .empty,
         heartRateDaySamples: HealthTrendSeries = .empty,
@@ -283,6 +287,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.timeInDaylight = timeInDaylight
         self.steps = steps
         self.stepsSecondary = stepsSecondary
+        self.cardioFitness = cardioFitness
         self.sleepHistory = sleepHistory
         self.sleepHistorySecondary = sleepHistorySecondary
         self.heartRateDaySamples = heartRateDaySamples
@@ -333,6 +338,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case timeInDaylight
         case steps
         case stepsSecondary
+        case cardioFitness
         case sleepHistory
         case sleepHistorySecondary
         case heartRateDaySamples
@@ -414,6 +420,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         timeInDaylight = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .timeInDaylight) ?? .empty
         steps = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .steps) ?? .empty
         stepsSecondary = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .stepsSecondary) ?? .empty
+        cardioFitness = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .cardioFitness) ?? .empty
         sleepHistory = try container.decodeIfPresent(SleepHistorySnapshot.self, forKey: .sleepHistory) ?? .empty
         sleepHistorySecondary = try container.decodeIfPresent(
             SleepHistorySnapshot.self,
@@ -519,6 +526,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
             return timeInDaylight
         case .steps:
             return steps
+        case .cardioFitness:
+            return cardioFitness
         case .vitals:
             return .empty
         }
@@ -550,7 +559,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
-             .vitals:
+             .vitals,
+             .cardioFitness:
             return .empty
         }
     }
@@ -579,7 +589,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .wristTemperature,
              .timeInDaylight,
              .steps,
-             .vitals:
+             .vitals,
+             .cardioFitness:
             return .empty
         }
     }
@@ -607,7 +618,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .wristTemperature,
              .timeInDaylight,
              .steps,
-             .vitals:
+             .vitals,
+             .cardioFitness:
             return .empty
         }
     }
@@ -639,7 +651,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
-             .vitals:
+             .vitals,
+             .cardioFitness:
             return .empty
         }
     }
@@ -670,7 +683,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
-             .vitals:
+             .vitals,
+             .cardioFitness:
             return .empty
         }
     }
@@ -750,6 +764,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
             next.sleepSecondary = refreshed.sleepSecondary
             next.sleepHistory = refreshed.sleepHistory
             next.sleepHistorySecondary = refreshed.sleepHistorySecondary
+        case .cardioFitness:
+            next.cardioFitness = refreshed.cardioFitness
         }
 
         return next
@@ -878,6 +894,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             filtered.stepsDaySamples = .empty
             filtered.stepsDaySamplesSecondary = .empty
         }
+        if !selection.includes(.cardioFitness) {
+            filtered.cardioFitness = .empty
+        }
 
         return filtered
     }
@@ -959,7 +978,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
-             .vitals:
+             .vitals,
+             .cardioFitness:
             break
         }
         return stripped
@@ -1724,6 +1744,38 @@ struct HealthTrendSeries: Codable, Equatable {
         return chartPoints.compressedStableLineChartPoints(maximumCount: effectiveMaximumPointCount)
     }
 
+    /// Line chart points for a metric whose readings are sparse and irregular —
+    /// Cardio Fitness records one VO₂ max estimate per qualifying outdoor
+    /// workout, so a month often holds two.
+    ///
+    /// The dense path above averages each bucket and stamps the average at the
+    /// bucket's END date. That is right for a metric with a reading every day,
+    /// but with readings weeks apart it moves a point up to `aggregationDayCount
+    /// - 1` days from when it was actually measured (11 days on the year range)
+    /// and reports an average of readings that were never averaged. This keeps
+    /// each reading on its own day at its own value, and only compresses when
+    /// the real readings outnumber the range's visual cap — so the chart is a
+    /// plot of measurements rather than of buckets.
+    ///
+    /// Past the range's visual cap the series is thinned by DROPPING readings
+    /// rather than by averaging them, so every plotted point stays a reading
+    /// HealthKit actually recorded — see `evenlySampledLineChartPoints`.
+    func sparseLineChartCalendarPoints(
+        to range: BodyHealthTrendRange,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date(),
+        maximumPointCount: Int? = nil
+    ) -> [HealthTrendCalendarPoint] {
+        let readings = calendarPoints(to: range, calendar: calendar, date: date)
+            .filter(\.hasValue)
+        let effectiveMaximumPointCount = maximumPointCount ?? range.lineChartMaximumPointCount
+        guard let effectiveMaximumPointCount, readings.count > effectiveMaximumPointCount else {
+            return readings
+        }
+
+        return readings.evenlySampledLineChartPoints(maximumCount: effectiveMaximumPointCount)
+    }
+
     func chartSeries(
         to range: BodyHealthTrendRange,
         calendar: Calendar = .bodyGregorian,
@@ -1950,6 +2002,38 @@ private struct HealthTrendStableLineMergeCandidate {
 }
 
 private extension Array where Element == HealthTrendCalendarPoint {
+    /// Thins the series to `maximumCount` points by DROPPING readings, never by
+    /// combining them: every returned point is an original sample at its own
+    /// date and value.
+    ///
+    /// `compressedStableLineChartPoints` is the wrong tool for a sparse metric —
+    /// it merges adjacent buckets and emits their average stamped at the later
+    /// date, so a scrub would report a VO₂ max that was never measured on a day
+    /// it was never measured. That is the same distortion the sparse path exists
+    /// to avoid, just reached by a different route.
+    ///
+    /// The first and last readings are always kept so the visible span still
+    /// runs edge to edge; the rest are picked at an even stride. `count >
+    /// maximumCount` makes the stride strictly greater than 1, so no index is
+    /// selected twice.
+    func evenlySampledLineChartPoints(maximumCount: Int) -> [HealthTrendCalendarPoint] {
+        guard maximumCount > 0 else {
+            return []
+        }
+        guard count > maximumCount else {
+            return self
+        }
+        guard maximumCount > 1 else {
+            // A single slot shows the newest reading rather than the oldest.
+            return [self[count - 1]]
+        }
+
+        let stride = Double(count - 1) / Double(maximumCount - 1)
+        return (0..<maximumCount).map { position in
+            self[Swift.min(Int((Double(position) * stride).rounded()), count - 1)]
+        }
+    }
+
     func compressedStableLineChartPoints(maximumCount: Int) -> [HealthTrendCalendarPoint] {
         guard maximumCount > 0 else {
             return []

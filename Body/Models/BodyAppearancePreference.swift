@@ -81,7 +81,8 @@ extension HealthMetricKind {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
-             .vitals:
+             .vitals,
+             .cardioFitness:
             return []
         }
     }
@@ -285,6 +286,13 @@ struct BodyHealthSecondaryDataSourceSelection: Equatable {
     }
 }
 
+extension BodyAppearancePreference {
+    /// Set once the Cardio Fitness card has been offered to an existing layout.
+    /// Lives here rather than beside the other keys in `BodyHealthSelections.swift`
+    /// because the summary-card selection it migrates is iOS-only.
+    static let summaryCardCardioFitnessMigratedKey = "summaryCardCardioFitnessMigrated"
+}
+
 struct BodySummaryCardSelection: Equatable {
     static let defaultValue = BodySummaryCardSelection(selectedCards: Set(BodyHomeCardKind.defaultOrder))
     static var defaultRawValue: String {
@@ -342,6 +350,48 @@ struct BodySummaryCardSelection: Equatable {
         }
 
         return BodySummaryCardSelection(selectedCards: cards)
+    }
+
+    static func load(defaults: UserDefaults = .standard) -> BodySummaryCardSelection {
+        let stored = storedValue(
+            from: defaults.string(forKey: BodyAppearancePreference.summaryCardSelectionKey)
+                ?? defaultRawValue
+        )
+        return migratingCardioFitnessIfNeeded(stored, defaults: defaults)
+    }
+
+    /// One-time migration that shows the Cardio Fitness card to users whose saved
+    /// layout predates it. A stored selection only decodes the card raw values it
+    /// was written with and never adopts new defaults, so a customized layout would
+    /// otherwise never show the card — and because `BodyDashboardFetchSelection`
+    /// derives what to fetch from the selected cards, its HealthKit data would never
+    /// even be read. Only *visibility* needs this: `repairedOrder` already appends
+    /// cards missing from a stored order, so ordering fixes itself.
+    ///
+    /// Keyed independently of every other migration flag: the permission migration
+    /// early-returns on a flag anyone who has already launched the app carries, so
+    /// an extension of it could never deliver something new. Idempotent and
+    /// per-`defaults` domain; the flag also keeps a later opt-out from being undone.
+    private static func migratingCardioFitnessIfNeeded(
+        _ selection: BodySummaryCardSelection,
+        defaults: UserDefaults
+    ) -> BodySummaryCardSelection {
+        guard !defaults.bool(forKey: BodyAppearancePreference.summaryCardCardioFitnessMigratedKey) else {
+            return selection
+        }
+
+        // An empty selection is a deliberate "hide every card" choice, so adding one
+        // back would override it. The flag is still recorded, keeping this one-time.
+        var migrated = selection
+        if !selection.selectedCards.isEmpty {
+            migrated.selectedCards.insert(.cardioFitness)
+        }
+
+        if migrated != selection {
+            defaults.set(migrated.rawValue, forKey: BodyAppearancePreference.summaryCardSelectionKey)
+        }
+        defaults.set(true, forKey: BodyAppearancePreference.summaryCardCardioFitnessMigratedKey)
+        return migrated
     }
 }
 
@@ -565,10 +615,7 @@ struct BodyDashboardFetchSelection: Equatable {
 
     static func load(defaults: UserDefaults = .standard) -> BodyDashboardFetchSelection {
         BodyDashboardFetchSelection(
-            summaryCards: BodySummaryCardSelection.storedValue(
-                from: defaults.string(forKey: BodyAppearancePreference.summaryCardSelectionKey)
-                    ?? BodySummaryCardSelection.defaultRawValue
-            ),
+            summaryCards: BodySummaryCardSelection.load(defaults: defaults),
             trendCards: BodyHomeTrendCardSelection.storedValue(
                 from: defaults.string(forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
                     ?? BodyHomeTrendCardSelection.defaultRawValue
@@ -789,6 +836,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     case activeEnergy
     case restingEnergy
     case vitals
+    case cardioFitness
 
     static let defaultOrder: [BodyHomeCardKind] = [
         .sleep,
@@ -802,6 +850,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         .restingEnergy,
         .wristTemperature,
         .restingHeartRate,
+        .cardioFitness,
         .oxygenSaturation,
         .respiratoryRate,
         .exerciseMinutes,
@@ -876,6 +925,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return .restingEnergy
         case .vitals:
             return .vitals
+        case .cardioFitness:
+            return .cardioFitness
         }
     }
 
@@ -915,6 +966,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Resting Energy")
         case .vitals:
             return String(localized: "Vitals")
+        case .cardioFitness:
+            return String(localized: "Cardio Fitness")
         }
     }
 
@@ -954,13 +1007,16 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Resting calories")
         case .vitals:
             return String(localized: "Overnight vitals vs your typical range")
+        case .cardioFitness:
+            return String(localized: "VO₂ max fitness level")
         }
     }
 
     var isBeta: Bool {
         switch self {
         case .readiness,
-             .vitals:
+             .vitals,
+             .cardioFitness:
             return true
         case .activityRings,
              .exerciseMinutes,
@@ -1016,6 +1072,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return "leaf.fill"
         case .vitals:
             return "heart.badge.bolt"
+        case .cardioFitness:
+            return "arrow.up.heart.fill"
         }
     }
 
@@ -1042,7 +1100,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return Color(red: 0.50, green: 0.34, blue: 1.00)
         case .heartRate,
              .restingHeartRate,
-             .heartRateVariability:
+             .heartRateVariability,
+             .cardioFitness:
             return Color(red: 1.00, green: 0.25, blue: 0.45)
         case .restingEnergy:
             return Color(red: 0.14, green: 0.72, blue: 0.42)

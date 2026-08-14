@@ -20,6 +20,23 @@
         }
       }
     },
+    "%@ VO₂ max" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ VO₂ max"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 最大摄氧量"
+          }
+        }
+      }
+    },
     "--/100" : {
       "localizations" : {
         "en" : {
@@ -887,6 +904,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关于你的区间"
+          }
+        }
+      }
+    },
+    "About your level" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About your level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于你的水平"
           }
         }
       }
@@ -2158,6 +2192,22 @@
         }
       }
     },
+    "Calculating…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculating…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在计算…"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2171,6 +2221,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "取消"
+          }
+        }
+      }
+    },
+    "Cardio Fitness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cardio Fitness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有氧适能"
           }
         }
       }
@@ -2903,6 +2970,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "按区间划分的天数"
+          }
+        }
+      }
+    },
+    "Days by Level" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Days by Level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按水平划分的天数"
           }
         }
       }
@@ -4272,6 +4356,40 @@
         }
       }
     },
+    "Levels compare you against people of the same age and sex. Add your date of birth and sex in the Health app to see yours. Levels are available from age 20 through 79." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Levels compare you against people of the same age and sex. Add your date of birth and sex in the Health app to see yours — they are available from age 20 through 79."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分级会将你与同龄同性别的人进行比较。请在“健康”App 中填写你的出生日期和性别以查看你的水平。该分级适用于 20 至 79 岁。"
+          }
+        }
+      }
+    },
+    "Levels need your Health profile" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Levels need your Health profile"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分级需要你的健康资料"
+          }
+        }
+      }
+    },
     "Lifetime" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4938,6 +5056,23 @@
         }
       }
     },
+    "No Cardio Fitness yet" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Cardio Fitness yet"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无有氧适能数据"
+          }
+        }
+      }
+    },
     "No Comparison" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5361,6 +5496,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无"
+          }
+        }
+      }
+    },
+    "Not enough history yet" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not enough history yet"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "历史数据还不够"
           }
         }
       }
@@ -8660,6 +8811,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "生命体征异常趋势"
+          }
+        }
+      }
+    },
+    "VO₂ max fitness level" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VO₂ max fitness level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最大摄氧量体能水平"
           }
         }
       }

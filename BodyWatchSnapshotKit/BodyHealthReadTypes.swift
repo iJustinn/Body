@@ -107,6 +107,21 @@ enum BodyHealthReadTypes {
                 .stepCount
             ]
         }
+        if selection.includes(.cardioFitness) {
+            // The standalone Cardio Fitness metric: the VO₂max readings plus the
+            // two characteristics its level bands are indexed by. Birth date is
+            // requested here as well as in the `.heart` block above — otherwise a
+            // user with Heart off but Cardio Fitness on would authorize the
+            // readings and never be classifiable. `types` is a Set, so the
+            // duplicate request costs nothing.
+            quantityIdentifiers.append(.vo2Max)
+            if let biologicalSex = HKObjectType.characteristicType(forIdentifier: .biologicalSex) {
+                types.insert(biologicalSex)
+            }
+            if let dateOfBirth = HKObjectType.characteristicType(forIdentifier: .dateOfBirth) {
+                types.insert(dateOfBirth)
+            }
+        }
 
         quantityIdentifiers
             .compactMap { HKObjectType.quantityType(forIdentifier: $0) }

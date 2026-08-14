@@ -753,6 +753,7 @@ struct BodyHomeView: View {
                 symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
                 chartPreview: trends.series(for: .restingHeartRate)
             ),
+            cardioFitnessMetric(summary: summary),
             metric(
                 kind: .heartRateVariability,
                 title: "HRV",
@@ -1046,6 +1047,51 @@ struct BodyHomeView: View {
         )
     }
 
+    /// The headline is the reading itself, like every other numeric card. The
+    /// level is carried by the preview's ring rather than by words: level names
+    /// run long enough to truncate at card width ("Below Av…"), and the ring
+    /// already says which of the four bands the reading landed in.
+    private func cardioFitnessMetric(summary: HealthSummarySnapshot) -> BodyHealthMetricCard.Model {
+        let value = summary.cardioFitness.value
+        let profile = summary.cardioFitnessProfile
+
+        return BodyHealthMetricCard.Model(
+            kind: .cardioFitness,
+            title: "Cardio Fitness",
+            value: value.map { BodyValueFormat.numberText($0, decimals: 1) } ?? "--",
+            unit: "VO₂ max",
+            symbolName: "arrow.up.heart.fill",
+            symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
+            chartPreviewStyle: .levels,
+            levelPreviewEntry: cardioFitnessLevelPreviewEntry(value: value, profile: profile)
+        )
+    }
+
+    /// Where the reading sits inside its own level's band, which is what the
+    /// preview's ring is placed by.
+    private func cardioFitnessLevelPreviewEntry(
+        value: Double?,
+        profile: CardioFitnessProfile?
+    ) -> BodyHealthMetricCard.Model.LevelEntry? {
+        guard let value,
+              let profile,
+              let level = CardioFitnessLevel.level(for: value, profile: profile),
+              let bounds = CardioFitnessLevel.bounds(for: level, profile: profile) else {
+            return nil
+        }
+
+        // The lowest and highest bands are open-ended, so there is no span to
+        // measure the reading against — the ring rests in the middle of the row.
+        guard let lower = bounds.lower, let upper = bounds.upper, upper > lower else {
+            return BodyHealthMetricCard.Model.LevelEntry(level: level, position: 0.5)
+        }
+
+        return BodyHealthMetricCard.Model.LevelEntry(
+            level: level,
+            position: min(max((value - lower) / (upper - lower), 0), 1)
+        )
+    }
+
     private func basicsMetric(
         summary: HealthSummarySnapshot,
         chartPreview: HealthTrendSeries
@@ -1267,6 +1313,34 @@ struct BodyHomeView: View {
                 highlightedRange: trainingLoadInterval,
                 highlightedRangeResolver: BodyTrainingLoadIntervalPresentation.make(for:),
                 trainingLoadValue: summary.trainingLoad.value
+            )
+        case .cardioFitness:
+            // The hero stays numeric — the level name belongs to the band card
+            // and the shaded chart region, the same split Training Load uses.
+            return metricDetail(
+                kind: kind,
+                title: "Cardio Fitness",
+                summary: summary.cardioFitness,
+                unit: "VO₂ max",
+                decimals: 1,
+                symbolName: "arrow.up.heart.fill",
+                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
+                chartStyle: .line,
+                highlightedRange: BodyCardioFitnessLevelPresentation.make(
+                    for: summary.cardioFitness.value,
+                    profile: summary.cardioFitnessProfile
+                ),
+                highlightedRangeResolver: {
+                    BodyCardioFitnessLevelPresentation.make(
+                        for: $0,
+                        profile: summary.cardioFitnessProfile
+                    )
+                },
+                // The level card classifies from the same snapshot the band
+                // does, so the shaded region and the "Current" chip can't
+                // disagree about which level the reading is in.
+                cardioFitnessValue: summary.cardioFitness.value,
+                cardioFitnessProfile: summary.cardioFitnessProfile
             )
         case .wristTemperature:
             let display = summary.wristTemperature.value.map {
@@ -1604,6 +1678,8 @@ struct BodyHomeView: View {
         highlightedRange: BodyHealthMetricTrendHighlightedRange? = nil,
         highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)? = nil,
         trainingLoadValue: Double? = nil,
+        cardioFitnessValue: Double? = nil,
+        cardioFitnessProfile: CardioFitnessProfile? = nil,
         sleepHistory: SleepHistorySnapshot = .empty,
         valueTransform: @escaping (Double) -> Double = { $0 }
     ) -> BodyHealthMetricDetailModel {
@@ -1632,6 +1708,8 @@ struct BodyHomeView: View {
             valueFormatter: { BodyValueFormat.numberText($0, decimals: decimals) + suffix },
             secondaryValueFormatter: nil,
             trainingLoadValue: trainingLoadValue,
+            cardioFitnessValue: cardioFitnessValue,
+            cardioFitnessProfile: cardioFitnessProfile,
             sourceComparisonTrend: kind.usesSourceComparisonBarChart
                 ? workoutStore.sourceComparisonTrend(for: kind)?.mapValues(valueTransform)
                 : nil,
@@ -1698,6 +1776,7 @@ enum BodyHomeMetricCardPreview {
         case bar
         case range
         case dots
+        case levels
 
         static func matching(chartStyle: BodyHealthMetricChartStyle) -> Style {
             switch chartStyle {
@@ -1734,7 +1813,7 @@ enum BodyHomeMetricCardPreview {
         switch style {
         case .line:
             return linePreviewWidth
-        case .bar, .range, .dots:
+        case .bar, .range, .dots, .levels:
             return barPreviewWidth
         }
     }

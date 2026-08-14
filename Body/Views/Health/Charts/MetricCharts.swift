@@ -31,6 +31,20 @@ struct BodyHealthMetricTrendChart: View {
     /// hidden (Watch-style, label-free) while the X day labels stay. Default
     /// `false` keeps every other caller's chart unchanged.
     let immersive: Bool
+    /// When true the line plots each reading on its own day rather than
+    /// averaging readings into the range's buckets — see
+    /// `HealthMetricKind.usesSparseTrendReadings`. Line style only; `false`
+    /// keeps every existing caller's chart unchanged.
+    let usesSparseReadings: Bool
+    /// Values the Y domain must cover regardless of what was plotted, so a
+    /// reference frame stays on screen in every range (Cardio Fitness passes its
+    /// four level boundaries, so the line's place among the levels reads the
+    /// same way whichever range is selected). Empty leaves the domain to the data.
+    let additionalDomainValues: [Double]
+    /// Drops the Y axis's number labels while keeping its grid lines. For a
+    /// metric read against named levels rather than against absolute numbers,
+    /// the axis figures are noise.
+    let hidesYAxisLabels: Bool
 
     private let visibleFinitePoints: [HealthTrendCalendarPoint]
     private let markEntries: [BodyHealthTrendMarkEntry]
@@ -60,6 +74,9 @@ struct BodyHealthMetricTrendChart: View {
         baselineValue: Double? = nil,
         baselineDeviationFormatter: ((Double) -> String)? = nil,
         immersive: Bool = false,
+        usesSparseReadings: Bool = false,
+        additionalDomainValues: [Double] = [],
+        hidesYAxisLabels: Bool = false,
         chartIdentity: String
     ) {
         self.title = title
@@ -76,6 +93,9 @@ struct BodyHealthMetricTrendChart: View {
         self.baselineValue = baselineValue
         self.baselineDeviationFormatter = baselineDeviationFormatter
         self.immersive = immersive
+        self.usesSparseReadings = usesSparseReadings
+        self.additionalDomainValues = additionalDomainValues
+        self.hidesYAxisLabels = hidesYAxisLabels
         self.chartIdentity = chartIdentity
 
         // Every range's points, not just the selected one: dates outside the
@@ -86,7 +106,13 @@ struct BodyHealthMetricTrendChart: View {
         for range in BodyHealthTrendRange.allCases {
             switch chartStyle {
             case .line:
-                pointsByRange[range] = series.lineChartCalendarPoints(to: range)
+                // Sparse metrics keep each reading on its own day; bucketing
+                // them would shift a point days away from when it was measured.
+                // Either path still emits one entry per date, which is all the
+                // range morph needs to match marks across a range switch.
+                pointsByRange[range] = usesSparseReadings
+                    ? series.sparseLineChartCalendarPoints(to: range)
+                    : series.lineChartCalendarPoints(to: range)
             case .bar:
                 pointsByRange[range] = series.chartCalendarPoints(to: range)
             }
@@ -115,6 +141,9 @@ struct BodyHealthMetricTrendChart: View {
             + highlightedRangeValues
             + baselineDomainValues
             + currentValueDomainValues
+            // Folded in alongside the data rather than replacing it, so a
+            // reading outside the reference frame still can't be clipped.
+            + additionalDomainValues.filter(\.isFinite)
         let yDomain = Self.computeYDomain(from: domainValues, chartStyle: chartStyle)
         self.chartYDomain = yDomain
 
@@ -380,11 +409,13 @@ struct BodyHealthMetricTrendChart: View {
                             .foregroundStyle(Color.secondary.opacity(0.18))
                         AxisTick()
                             .foregroundStyle(Color.secondary.opacity(0.28))
-                        AxisValueLabel {
-                            if let yValue = value.as(Double.self) {
-                                Text(valueFormatter(yValue))
-                                    .font(.system(.caption2, design: .rounded))
-                                    .foregroundStyle(Color.secondary)
+                        if !hidesYAxisLabels {
+                            AxisValueLabel {
+                                if let yValue = value.as(Double.self) {
+                                    Text(valueFormatter(yValue))
+                                        .font(.system(.caption2, design: .rounded))
+                                        .foregroundStyle(Color.secondary)
+                                }
                             }
                         }
                     }

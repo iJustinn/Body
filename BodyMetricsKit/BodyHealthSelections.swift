@@ -38,6 +38,7 @@ enum BodyAppearancePreference {
     static let metricDayViewSelectionKey = "metricDayViewSelection"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
     static let healthPermissionExpandedMigratedKey = "healthPermissionExpandedMigrated"
+    static let healthCardioFitnessMigratedKey = "healthCardioFitnessMigrated"
     static let healthDataSourceSelectionKey = "healthDataSourceSelection"
     static let secondaryHealthDataSourceSelectionKey = "secondaryHealthDataSourceSelection"
     static let combinesHealthDataSourcesByNameKey = "combinesHealthDataSourcesByName"
@@ -88,6 +89,7 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
     case wristTemperature
     case timeInDaylight
     case steps
+    case cardioFitness
 
     var id: String {
         rawValue
@@ -123,6 +125,8 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
             return String(localized: "Time in Daylight", table: "BodyMetricsKit")
         case .steps:
             return String(localized: "Steps", table: "BodyMetricsKit")
+        case .cardioFitness:
+            return String(localized: "Cardio Fitness", table: "BodyMetricsKit")
         }
     }
 
@@ -156,6 +160,8 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
             return String(localized: "Daylight exposure time", table: "BodyMetricsKit")
         case .steps:
             return String(localized: "Step count totals", table: "BodyMetricsKit")
+        case .cardioFitness:
+            return String(localized: "VO₂ max and fitness level", table: "BodyMetricsKit")
         }
     }
 
@@ -189,6 +195,8 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
             return "sun.max.fill"
         case .steps:
             return "figure.walk"
+        case .cardioFitness:
+            return "heart.circle.fill"
         }
     }
 
@@ -202,7 +210,8 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
             return .indigo
         case .sleep:
             return Color(red: 0.20, green: 0.72, blue: 1.00)
-        case .heart:
+        case .heart,
+             .cardioFitness:
             return Color(red: 1.00, green: 0.25, blue: 0.45)
         case .dateOfBirth:
             return .brown
@@ -289,7 +298,11 @@ struct BodyHealthPermissionSelection: Equatable {
             from: defaults.string(forKey: BodyAppearancePreference.healthPermissionSelectionKey)
                 ?? defaultRawValue
         )
-        return migratingExpandedPermissionsIfNeeded(stored, defaults: defaults)
+        let expanded = migratingExpandedPermissionsIfNeeded(stored, defaults: defaults)
+        // Chained AFTER the expanded migration on purpose: that one can insert
+        // `.workoutMetrics` for a selection that predates the category, and the
+        // cardio fitness gate below reads it.
+        return migratingCardioFitnessPermissionIfNeeded(expanded, defaults: defaults)
     }
 
     /// One-time migration for users whose saved selection predates the `.workoutMetrics`
@@ -317,6 +330,39 @@ struct BodyHealthPermissionSelection: Equatable {
             migrated.save(defaults: defaults)
         }
         defaults.set(true, forKey: BodyAppearancePreference.healthPermissionExpandedMigratedKey)
+        return migrated
+    }
+
+    /// One-time migration for users whose saved selection predates the
+    /// `.cardioFitness` category. Deliberately carries its OWN key rather than
+    /// extending the migration above: that one early-returns on
+    /// `healthPermissionExpandedMigratedKey` and sets it permanently, so every
+    /// user who has already launched the app would skip anything added to it.
+    ///
+    /// The gate is `.workouts` AND `.workoutMetrics` because that pair is the
+    /// exact condition under which VO₂max was already readable
+    /// (`BodyHealthReadTypes.readObjectTypes`). Enabling the new category only
+    /// there preserves prior access without silently broadening the read set for
+    /// someone who had turned those categories off. Records its own flag so a
+    /// later intentional opt-out is never re-enabled; idempotent and per-`defaults`
+    /// domain, and fresh installs already default to all cases.
+    private static func migratingCardioFitnessPermissionIfNeeded(
+        _ selection: BodyHealthPermissionSelection,
+        defaults: UserDefaults
+    ) -> BodyHealthPermissionSelection {
+        guard !defaults.bool(forKey: BodyAppearancePreference.healthCardioFitnessMigratedKey) else {
+            return selection
+        }
+
+        var migrated = selection
+        if selection.includes(.workouts) && selection.includes(.workoutMetrics) {
+            migrated.enabledPermissions.insert(.cardioFitness)
+        }
+
+        if migrated != selection {
+            migrated.save(defaults: defaults)
+        }
+        defaults.set(true, forKey: BodyAppearancePreference.healthCardioFitnessMigratedKey)
         return migrated
     }
 

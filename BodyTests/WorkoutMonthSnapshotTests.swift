@@ -3423,7 +3423,8 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 .wristTemperature,
                 .timeInDaylight,
                 .steps,
-                .vitals
+                .vitals,
+                .cardioFitness
             ]
         )
         XCTAssertEqual(HealthMetricKind.readiness.detailDataSourceText?.sourceText, "Apple Health")

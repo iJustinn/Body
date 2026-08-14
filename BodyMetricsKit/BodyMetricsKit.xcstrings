@@ -357,6 +357,23 @@
         }
       }
     },
+    "About Cardio Fitness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Cardio Fitness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于有氧适能"
+          }
+        }
+      }
+    },
     "About Exercise Minutes" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1426,6 +1443,23 @@
         }
       }
     },
+    "Calculating the 30-day comparison" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculating the 30-day comparison"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在计算30天对比"
+          }
+        }
+      }
+    },
     "Cardio Dance" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1455,7 +1489,92 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "心肺适能"
+            "value" : "有氧适能"
+          }
+        }
+      }
+    },
+    "Cardio fitness is a measurement of your VO₂ max, the maximum amount of oxygen your body can use during exercise. It is one of the strongest single indicators of long-term health, and most people can raise it by increasing the intensity and frequency of cardiovascular exercise.\nApple Watch does not measure this continuously. It records one estimate after an Outdoor Walk, Outdoor Run, or Hike on relatively flat ground, when GPS and heart-rate signal are good and you work hard enough. Indoor and gym-equipment workouts do not count, and your first qualifying workout will not produce a reading, because Apple Watch needs about a day of wear first. That is why readings arrive every few days or weeks rather than daily, and why short ranges here are often empty.\nYour level compares your VO₂ max against people of the same age and sex, using normative data from the Fitness Registry and the Importance of Exercise National Database (FRIEND). Levels are available from age 20 through 79. Medications and conditions that limit your heart rate can cause an overestimate." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cardio fitness is a measurement of your VO₂ max — the maximum amount of oxygen your body can use during exercise. It is one of the strongest single indicators of long-term health, and most people can raise it by increasing the intensity and frequency of cardiovascular exercise.\nApple Watch does not measure this continuously. It records one estimate after an Outdoor Walk, Outdoor Run, or Hike on relatively flat ground, when GPS and heart-rate signal are good and you work hard enough. Indoor and gym-equipment workouts do not count, and your first qualifying workout will not produce a reading — Apple Watch needs about a day of wear first. That is why readings arrive every few days or weeks rather than daily, and why short ranges here are often empty.\nYour level compares your VO₂ max against people of the same age and sex, using normative data from the Fitness Registry and the Importance of Exercise National Database (FRIEND). Levels are available from age 20 through 79. Medications and conditions that limit your heart rate can cause an overestimate."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有氧适能衡量的是你的最大摄氧量，也就是运动时身体能够消耗的最大氧气量。它是长期健康最有力的单项指标之一，大多数人都可以通过提高有氧运动的强度和频率来提升它。\nApple Watch 并不会持续测量这一数据。它只在户外步行、户外跑步或徒步时记录一次估算值，且需要地面相对平坦、GPS 与心率信号良好，并达到足够的运动强度。室内运动和使用健身器械的运动不计入其中；你的第一次符合条件的运动也不会生成读数，因为 Apple Watch 需要先佩戴约一天。因此读数往往每隔几天或几周才出现一次，较短的时间范围也常常没有数据。\n你的水平是将你的最大摄氧量与同龄同性别人群进行比较，所用的常模数据来自 Fitness Registry and the Importance of Exercise National Database（FRIEND）。该分级适用于 20 至 79 岁。会限制心率的药物或疾病可能导致估算值偏高。"
+          }
+        }
+      }
+    },
+    "cardioFitness.level.aboveAverage" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Above Average"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高于平均"
+          }
+        }
+      }
+    },
+    "cardioFitness.level.belowAverage" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Below Average"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低于平均"
+          }
+        }
+      }
+    },
+    "cardioFitness.level.high" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高"
+          }
+        }
+      }
+    },
+    "cardioFitness.level.low" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低"
           }
         }
       }
@@ -3301,6 +3420,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未记录强度"
+          }
+        }
+      }
+    },
+    "Not enough history to compare" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not enough history to compare"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "历史数据不足，无法对比"
           }
         }
       }
@@ -5645,6 +5781,23 @@
         }
       }
     },
+    "VO₂ max and fitness level" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VO₂ max and fitness level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最大摄氧量与体能水平"
+          }
+        }
+      }
+    },
     "VO₂max, power, cadence, and swim strokes" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6029,6 +6182,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "各项信号都稳定高于基准。今天适合训练。"
+          }
+        }
+      }
+    },
+    "Your VO₂ max is above the midpoint for your age and sex. Keeping your current cardio routine should hold it there." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your VO₂ max is above the midpoint for your age and sex. Keeping your current cardio routine should hold it there."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的最大摄氧量高于同龄同性别人群的中位水平。保持目前的有氧运动习惯即可维持在这一水平。"
+          }
+        }
+      }
+    },
+    "Your VO₂ max is below most people of your age and sex. Regular cardiovascular exercise is the most reliable way to raise it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your VO₂ max is below most people of your age and sex. Regular cardiovascular exercise is the most reliable way to raise it."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的最大摄氧量低于大多数同龄同性别的人。规律的有氧运动是提升它最可靠的方式。"
+          }
+        }
+      }
+    },
+    "Your VO₂ max is well above most people of your age and sex. That is a strong marker of cardiorespiratory fitness." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your VO₂ max is well above most people of your age and sex — a strong marker of cardiorespiratory fitness."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的最大摄氧量远高于大多数同龄同性别的人。这是有氧适能出色的有力标志。"
+          }
+        }
+      }
+    },
+    "Your VO₂ max sits under the midpoint for your age and sex. Adding intensity or frequency to your cardio usually moves this up." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your VO₂ max sits under the midpoint for your age and sex. Adding intensity or frequency to your cardio usually moves this up."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的最大摄氧量低于同龄同性别人群的中位水平。提高有氧运动的强度或频率通常能让它上升。"
           }
         }
       }
