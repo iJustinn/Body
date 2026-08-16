@@ -120,6 +120,10 @@ final class CardioFitnessMigrationTests: XCTestCase {
             "sleep,heartRate",
             forKey: BodyAppearancePreference.summaryCardSelectionKey
         )
+        // The fetch selection unions both surfaces, and the trend list defaults to
+        // every card — so the trend card would supply the metric on its own. Silence
+        // it to keep this about summary-card visibility.
+        defaults.set("none", forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
         _ = BodyDashboardFetchSelection.load(defaults: defaults)
 
         // The user hides it again; a second load must respect that.
@@ -140,6 +144,8 @@ final class CardioFitnessMigrationTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set("none", forKey: BodyAppearancePreference.summaryCardSelectionKey)
+        // As above: the trend surface would otherwise pull the metric in by itself.
+        defaults.set("none", forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
 
         let fetch = BodyDashboardFetchSelection.load(defaults: defaults)
 
@@ -147,6 +153,88 @@ final class CardioFitnessMigrationTests: XCTestCase {
         XCTAssertTrue(
             defaults.bool(forKey: BodyAppearancePreference.summaryCardCardioFitnessMigratedKey),
             "still one-time"
+        )
+    }
+
+    // MARK: - Trend card visibility migration
+
+    /// Asserts on the trend selection itself rather than on `BodyDashboardFetchSelection`:
+    /// that type unions both selections, so the summary-card migration would mask a
+    /// trend-card one that never ran.
+    func testCustomizedTrendListGainsTheCardioFitnessTrendCard() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(
+            "heartRate,sleep,steps",
+            forKey: BodyAppearancePreference.homeTrendCardSelectionKey
+        )
+
+        let migrated = BodyHomeTrendCardSelection.load(defaults: defaults)
+
+        XCTAssertTrue(migrated.includes(BodyHomeTrendCardKind.cardioFitness))
+        XCTAssertTrue(
+            defaults.bool(forKey: BodyAppearancePreference.homeTrendCardCardioFitnessMigratedKey)
+        )
+        XCTAssertTrue(
+            defaults.string(forKey: BodyAppearancePreference.homeTrendCardSelectionKey)?
+                .contains("cardioFitness") == true,
+            "the views read this key through @AppStorage, so the migration has to write it back"
+        )
+    }
+
+    func testCardioFitnessTrendCardOptOutIsNotReEnabled() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(
+            "heartRate,sleep",
+            forKey: BodyAppearancePreference.homeTrendCardSelectionKey
+        )
+        _ = BodyHomeTrendCardSelection.load(defaults: defaults)
+
+        defaults.set(
+            "heartRate,sleep",
+            forKey: BodyAppearancePreference.homeTrendCardSelectionKey
+        )
+        let reloaded = BodyHomeTrendCardSelection.load(defaults: defaults)
+
+        XCTAssertFalse(reloaded.includes(BodyHomeTrendCardKind.cardioFitness))
+    }
+
+    func testEmptyTrendListIsNotGivenALoneCardioFitnessTrendCard() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("none", forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
+
+        let migrated = BodyHomeTrendCardSelection.load(defaults: defaults)
+
+        XCTAssertEqual(migrated.enabledCount, 0)
+        XCTAssertTrue(
+            defaults.bool(forKey: BodyAppearancePreference.homeTrendCardCardioFitnessMigratedKey),
+            "still one-time"
+        )
+    }
+
+    /// The two selections are stored under separate keys, so a user who customized
+    /// only one of them must still be migrated for the other.
+    func testTrendAndSummaryMigrationsRunIndependently() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("sleep,heartRate", forKey: BodyAppearancePreference.summaryCardSelectionKey)
+        defaults.set(true, forKey: BodyAppearancePreference.summaryCardCardioFitnessMigratedKey)
+        defaults.set("heartRate,sleep", forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
+
+        _ = BodyDashboardFetchSelection.load(defaults: defaults)
+
+        XCTAssertFalse(
+            BodySummaryCardSelection.load(defaults: defaults).includes(.cardioFitness),
+            "the summary migration already ran and must not run again"
+        )
+        XCTAssertTrue(
+            BodyHomeTrendCardSelection.load(defaults: defaults).includes(BodyHomeTrendCardKind.cardioFitness)
         )
     }
 }

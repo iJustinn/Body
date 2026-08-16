@@ -291,6 +291,12 @@ extension BodyAppearancePreference {
     /// Lives here rather than beside the other keys in `BodyHealthSelections.swift`
     /// because the summary-card selection it migrates is iOS-only.
     static let summaryCardCardioFitnessMigratedKey = "summaryCardCardioFitnessMigrated"
+
+    /// Set once the Cardio Fitness trend card has been offered to an existing
+    /// layout. Keyed separately from the summary-card flag above: the two
+    /// selections are stored independently, so a user who customized one but not
+    /// the other must still be migrated for both.
+    static let homeTrendCardCardioFitnessMigratedKey = "homeTrendCardCardioFitnessMigrated"
 }
 
 struct BodySummaryCardSelection: Equatable {
@@ -461,6 +467,43 @@ struct BodyHomeTrendCardSelection: Equatable {
 
         return BodyHomeTrendCardSelection(selectedCards: cards)
     }
+
+    static func load(defaults: UserDefaults = .standard) -> BodyHomeTrendCardSelection {
+        let stored = storedValue(
+            from: defaults.string(forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
+                ?? defaultRawValue
+        )
+        return migratingCardioFitnessIfNeeded(stored, defaults: defaults)
+    }
+
+    /// The trend-card twin of `BodySummaryCardSelection.migratingCardioFitnessIfNeeded`.
+    /// A saved trend selection only decodes the raw values it was written with, so a
+    /// customized list would never pick up a newly added card.
+    ///
+    /// The views read this selection through `@AppStorage`, not through `load`, so the
+    /// write below is what reaches them: it lands in the same defaults key they observe,
+    /// and `BodyDashboardFetchSelection.load` runs on the launch dashboard fetch.
+    private static func migratingCardioFitnessIfNeeded(
+        _ selection: BodyHomeTrendCardSelection,
+        defaults: UserDefaults
+    ) -> BodyHomeTrendCardSelection {
+        guard !defaults.bool(forKey: BodyAppearancePreference.homeTrendCardCardioFitnessMigratedKey) else {
+            return selection
+        }
+
+        // An empty selection is a deliberate "hide every trend" choice, so adding one
+        // back would override it. The flag is still recorded, keeping this one-time.
+        var migrated = selection
+        if !selection.selectedCards.isEmpty {
+            migrated.selectedCards.insert(.cardioFitness)
+        }
+
+        if migrated != selection {
+            defaults.set(migrated.rawValue, forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
+        }
+        defaults.set(true, forKey: BodyAppearancePreference.homeTrendCardCardioFitnessMigratedKey)
+        return migrated
+    }
 }
 
 struct BodyMetricDayViewSelection: Equatable {
@@ -616,10 +659,7 @@ struct BodyDashboardFetchSelection: Equatable {
     static func load(defaults: UserDefaults = .standard) -> BodyDashboardFetchSelection {
         BodyDashboardFetchSelection(
             summaryCards: BodySummaryCardSelection.load(defaults: defaults),
-            trendCards: BodyHomeTrendCardSelection.storedValue(
-                from: defaults.string(forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
-                    ?? BodyHomeTrendCardSelection.defaultRawValue
-            ),
+            trendCards: BodyHomeTrendCardSelection.load(defaults: defaults),
             starredMetric: BodyHomeCardKind.starredMetric(
                 from: defaults.string(forKey: BodyAppearancePreference.starredMetricKey)
                     ?? BodyHomeCardKind.readiness.rawValue
@@ -633,6 +673,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
     case heartRate
     case restingHeartRate
     case heartRateVariability
+    case cardioFitness
     case respiratoryRate
     case oxygenSaturation
     case sleep
@@ -651,6 +692,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
         .heartRate,
         .restingHeartRate,
         .heartRateVariability,
+        .cardioFitness,
         .respiratoryRate,
         .oxygenSaturation,
         .sleep,
@@ -687,6 +729,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Resting Heart Rate")
         case .heartRateVariability:
             return String(localized: "HRV")
+        case .cardioFitness:
+            return String(localized: "Cardio Fitness")
         case .respiratoryRate:
             return String(localized: "Respiratory Rate")
         case .oxygenSaturation:
@@ -724,6 +768,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Resting heart trend")
         case .heartRateVariability:
             return String(localized: "Readiness signal trend")
+        case .cardioFitness:
+            return String(localized: "VO₂ max trend")
         case .respiratoryRate:
             return String(localized: "Breathing rate trend")
         case .oxygenSaturation:
@@ -760,6 +806,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return "heart.fill"
         case .heartRateVariability:
             return "waveform.path.ecg"
+        case .cardioFitness:
+            return "arrow.up.heart.fill"
         case .respiratoryRate:
             return "lungs.fill"
         case .oxygenSaturation:
@@ -793,7 +841,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return Color(red: 0.12, green: 0.68, blue: 0.55)
         case .heartRate,
              .restingHeartRate,
-             .heartRateVariability:
+             .heartRateVariability,
+             .cardioFitness:
             return Color(red: 1.00, green: 0.25, blue: 0.45)
         case .respiratoryRate,
              .oxygenSaturation,
@@ -1014,11 +1063,11 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
 
     var isBeta: Bool {
         switch self {
-        case .readiness,
-             .vitals,
-             .cardioFitness:
+        case .readiness:
             return true
-        case .activityRings,
+        case .vitals,
+             .cardioFitness,
+             .activityRings,
              .exerciseMinutes,
              .trainingLoad,
              .wristTemperature,
