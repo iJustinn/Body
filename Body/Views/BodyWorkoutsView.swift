@@ -895,6 +895,22 @@ private final class BodyWorkoutDetailScrollState {
     var offset: CGFloat = 0
 }
 
+/// Holds the 3D route hero's rotation, for the same reason as the scroll state above:
+/// a drag writes on every frame, and only the hero reading it should redraw. `yaw` is
+/// the settled angle in radians, `drag` the in-flight swipe folded into it when the
+/// finger lifts. Internal so the hero can take it; not `private` for that reason alone.
+@Observable
+final class BodyWorkoutRouteYawState {
+    var yaw: Double = 0
+    var drag: Double = 0
+    /// True from the first qualifying swipe frame until just after the finger lifts.
+    /// The tap gap's Button fires on that same touch-up, so it reads this to tell a
+    /// rotation's release from a tap — otherwise every swipe would also open the
+    /// full-screen map. Read only inside the button's action (not its body), so
+    /// flipping it never re-renders the sheet.
+    var isSwiping = false
+}
+
 /// Dims the fixed route-map hero as the sheet content floats up over it. Reads
 /// `scrollState.offset` itself so only this overlay re-renders per scroll frame, not
 /// all of `BodyWorkoutDetailSheet`.
@@ -915,6 +931,10 @@ private struct BodyWorkoutMapDimOverlay: View {
 }
 
 struct BodyWorkoutDetailSheet: View {
+    /// Pops the push from the Workouts list and closes the full-screen cover from the
+    /// list sheet alike — the nav bar is hidden, so the custom Back button below drives
+    /// this instead of the system back chevron.
+    @Environment(\.dismiss) private var dismiss
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
@@ -957,6 +977,9 @@ struct BodyWorkoutDetailSheet: View {
     /// body rebuilds the comparison/splits/HR-chart derivations on each evaluation.
     /// (Mirrors `BodyHomeScrollState`.)
     @State private var scrollState = BodyWorkoutDetailScrollState()
+    /// Rotation of the 3D route hero. Session-only: the sheet — and with it this
+    /// state — is rebuilt on each presentation, so the route always opens at rest.
+    @State private var routeYawState = BodyWorkoutRouteYawState()
     @State private var showsFullScreenRouteMap = false
     @State private var showsShareSheet = false
     /// Resting screen y of the metrics column's top — the distance text when the
@@ -1057,7 +1080,7 @@ struct BodyWorkoutDetailSheet: View {
                     // route carries no altitude.
                     sheetBackdrop
 
-                    BodyWorkoutRoute3DHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset)
+                    BodyWorkoutRoute3DHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset, yawState: routeYawState)
                         .frame(height: mapHeight)
                         .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
                         .overlay {
@@ -1088,6 +1111,25 @@ struct BodyWorkoutDetailSheet: View {
             proxy.safeAreaInsets.top
         } action: { inset in
             topSafeAreaInset = inset
+        }
+        .overlay(alignment: .topLeading) {
+            // The nav bar is hidden, so this stands in for the system back button —
+            // same safe-area trick as the Share capsule opposite it. Always visible
+            // (no route/settle gating) since both entry paths (push from the list,
+            // full-screen cover from the list sheet) need a way back.
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 44, height: 44)
+                    .modifier(BodyWorkoutBackButtonBackground())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 20)
+            .accessibilityLabel("Back")
         }
         .overlay(alignment: .topTrailing) {
             // The ZStack keeps its safe-area insets, so the button clears the
@@ -1205,6 +1247,106 @@ struct BodyWorkoutDetailSheet: View {
         .ignoresSafeArea()
     }
 
+    /// Transparent gap that reveals the map background above; the content below floats
+    /// over it with no backing of its own. The map itself is behind the ScrollView and
+    /// can't be hit-tested, so the gap doubles as its tap target — and, in 3D, as the
+    /// surface the rotation swipe lands on. Map and Plain get exactly the button they
+    /// had before rotation existed.
+    @ViewBuilder
+    private var routeTapGap: some View {
+        let gap = Button {
+            // The release that ends a rotation swipe lands here too; only a real
+            // tap opens the map.
+            guard !routeYawState.isSwiping else { return }
+            showsFullScreenRouteMap = true
+        } label: {
+            Color.clear
+                .frame(height: mapHeight - contentTopOverlap)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Route map")
+
+        if routeStyle == .threeD {
+            gap
+                .accessibilityHint("Shows a full screen interactive map. Swipe left or right to rotate the 3D route.")
+                // VoiceOver can't perform the swipe itself, so the same rotation is
+                // offered as two 30° steps.
+                // Same handedness as the swipe: "right" moves the near edge right.
+                .accessibilityAction(named: Text("Rotate Left")) { turnRoute(by: .pi / 6) }
+                .accessibilityAction(named: Text("Rotate Right")) { turnRoute(by: -.pi / 6) }
+                .simultaneousGesture(routeYawGesture)
+        } else {
+            gap
+                .accessibilityHint("Shows a full screen interactive map")
+        }
+    }
+
+    /// Radians of rotation per point of horizontal swipe (~0.6°/pt): half a screen
+    /// width turns the route about a quarter turn. Negative because the finger drags
+    /// the ribbon's NEAR edge: with the camera looking north from the south, moving
+    /// that edge rightwards is a counter-clockwise turn seen from above, and the
+    /// projection's positive yaw is clockwise.
+    private static let routeYawRadiansPerPoint = -Double.pi / 300
+
+    /// Horizontal swipe on the 3D hero's tap gap, turning the route about its own
+    /// centre. Recognized simultaneously so it never blocks the sheet's scrolling or
+    /// the gap's own tap, and it writes only to the yaw state so a drag frame redraws
+    /// the hero alone.
+    private var routeYawGesture: some Gesture {
+        DragGesture(minimumDistance: 8, coordinateSpace: .global)
+            .onChanged { value in
+                // Recomputed rather than latched, so a swipe that turns vertical
+                // mid-drag hands the rotation back instead of leaving it stuck.
+                let isSwipe = Self.isRouteYawSwipe(value)
+                routeYawState.drag = isSwipe
+                    ? Double(value.translation.width) * Self.routeYawRadiansPerPoint
+                    : 0
+                // Latched, not recomputed: once a drag has rotated the route, its
+                // release must not read as a tap even if it ended near-vertical.
+                if isSwipe {
+                    routeYawState.isSwiping = true
+                }
+            }
+            .onEnded { value in
+                if Self.isRouteYawSwipe(value) {
+                    turnRoute(by: Double(value.translation.width) * Self.routeYawRadiansPerPoint)
+                }
+                routeYawState.drag = 0
+                // The Button's action fires on this same touch-up, in an order SwiftUI
+                // doesn't promise — clear the latch on the next run-loop turn so the
+                // action sees it either way.
+                let yawState = routeYawState
+                DispatchQueue.main.async {
+                    yawState.isSwiping = false
+                }
+            }
+    }
+
+    /// A drag turns the route when it starts clear of the system's edge-back strip
+    /// (which must stay a back swipe, cf. `BodyHomeView.isEdgeBackSwipe`) and runs more
+    /// sideways than up and down — a scroll must never spin the route.
+    private static func isRouteYawSwipe(_ value: DragGesture.Value) -> Bool {
+        value.startLocation.x > 20 && abs(value.translation.width) > abs(value.translation.height)
+    }
+
+    private func turnRoute(by delta: Double) {
+        routeYawState.yaw = Self.normalizedYaw(routeYawState.yaw + delta)
+    }
+
+    /// Folds a settled angle into (−π, π], so turning the same way over and over can't
+    /// grow the stored yaw without bound.
+    private static func normalizedYaw(_ yaw: Double) -> Double {
+        var normalized = yaw.truncatingRemainder(dividingBy: 2 * .pi)
+        if normalized > .pi {
+            normalized -= 2 * .pi
+        }
+        if normalized <= -.pi {
+            normalized += 2 * .pi
+        }
+        return normalized
+    }
+
     private var compactWorkoutContent: some View {
         // Build the presentation once per body pass and thread it to the sections that
         // read it. It calls `comparisonContext(for:)` and constructs a full
@@ -1213,20 +1355,7 @@ struct BodyWorkoutDetailSheet: View {
         let presentation = presentation
         return VStack(spacing: 0) {
             if route != nil {
-                // Transparent gap that reveals the map background above; the
-                // content below floats over it with no backing of its own. The
-                // map itself is behind the ScrollView and can't be hit-tested,
-                // so the gap doubles as its tap target.
-                Button {
-                    showsFullScreenRouteMap = true
-                } label: {
-                    Color.clear
-                        .frame(height: mapHeight - contentTopOverlap)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Route map")
-                .accessibilityHint("Shows a full screen interactive map")
+                routeTapGap
             }
 
             VStack(spacing: 18) {
@@ -1732,6 +1861,18 @@ private struct BodyWorkoutShareButtonBackground: ViewModifier {
             content.glassEffect(.regular, in: .capsule)
         } else {
             content.background(.ultraThinMaterial, in: Capsule())
+        }
+    }
+}
+
+/// iOS 26 Liquid Glass circle for the detail back button — the circular twin of
+/// `BodyWorkoutShareButtonBackground`; pre-26 mirrors the same material treatment.
+private struct BodyWorkoutBackButtonBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular, in: .circle)
+        } else {
+            content.background(.ultraThinMaterial, in: Circle())
         }
     }
 }

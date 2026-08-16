@@ -289,9 +289,28 @@ enum BodyWorkoutRouteHeroFit {
     /// composed figure around the same center rather than a full-bleed edge-to-edge fill.
     private static let sizeFactor: CGFloat = 0.9
 
-    /// Aspect-preserving fit to the padded width, height capped so the route clears the
-    /// content below it, and the points' bounding box centered on `targetCenterY`.
+    /// `points` mapped into hero space by `transform(fitting:)`.
     static func fittedPoints(_ points: [CGPoint], in size: CGSize, targetCenterY: CGFloat, topInset: CGFloat) -> [CGPoint]? {
+        guard let fit = transform(fitting: points, in: size, targetCenterY: targetCenterY, topInset: topInset) else {
+            return nil
+        }
+        return points.map { point in
+            CGPoint(x: fit.offset.x + point.x * fit.scale, y: fit.offset.y + point.y * fit.scale)
+        }
+    }
+
+    /// The affine mapping (uniform scale then translate) that frames `points`:
+    /// aspect-preserving fit to the padded width, height capped so the route clears the
+    /// content below it, and the points' bounding box centered on `targetCenterY`.
+    /// Exposed separately from `fittedPoints` so the 3D hero can frame one pose of the
+    /// ribbon — its rest pose — and then draw a different, turned one through the same
+    /// mapping.
+    static func transform(
+        fitting points: [CGPoint],
+        in size: CGSize,
+        targetCenterY: CGFloat,
+        topInset: CGFloat
+    ) -> (scale: CGFloat, offset: CGPoint)? {
         guard points.count >= 2, size.width > 0 else {
             return nil
         }
@@ -321,19 +340,18 @@ enum BodyWorkoutRouteHeroFit {
 
         let centerX = (minX + maxX) / 2
         let centerY = (minY + maxY) / 2
-        return points.map { point in
-            CGPoint(
-                x: size.width / 2 + (point.x - centerX) * scale,
-                y: targetCenterY + (point.y - centerY) * scale
-            )
-        }
+        return (
+            scale,
+            CGPoint(x: size.width / 2 - centerX * scale, y: targetCenterY - centerY * scale)
+        )
     }
 }
 
 /// Map-free route hero drawn as an oblique elevation ribbon (Route Style › 3D): the
 /// lifted route line in the workout's tint, translucent walls dropping to a faint
 /// ground trace. Purely decorative — no markers, pace coloring, or labels — and it
-/// falls back to the plain trace when the route carries no usable altitude.
+/// falls back to the plain trace when the route carries no usable altitude. The
+/// route turns with the sheet's horizontal swipe (`yawState`).
 struct BodyWorkoutRoute3DHero: View {
     let route: WorkoutRoute
     let tint: Color
@@ -341,6 +359,11 @@ struct BodyWorkoutRoute3DHero: View {
     let targetCenterY: CGFloat
     /// Top safe-area inset; see `BodyWorkoutRouteMapHero`.
     let topInset: CGFloat
+    /// Live rotation of the route about its own centre. Read here rather than passed
+    /// as a plain angle so a drag frame re-renders this hero alone, not the whole
+    /// detail sheet. The plain fallback below ignores it — a flat trace has no
+    /// third axis to turn about.
+    let yawState: BodyWorkoutRouteYawState
 
     /// Faint trace of where the route ran on the ground, under the ribbon.
     private static let groundOpacity = 0.35
@@ -353,7 +376,7 @@ struct BodyWorkoutRoute3DHero: View {
     var body: some View {
         // Project once per layout pass rather than per `Canvas` redraw: routes carry
         // thousands of fixes.
-        let projected = WorkoutRoute3DProjection.projected(for: route.coordinates)
+        let projected = WorkoutRoute3DProjection.projected(for: route.coordinates, yaw: yawState.yaw + yawState.drag)
         return Group {
             if let projected {
                 ribbon(projected)
@@ -369,17 +392,23 @@ struct BodyWorkoutRoute3DHero: View {
         Canvas { context, size in
             // Fit the lifted line and the ground trace as one shape: two separate
             // fits would scale and center them independently and shear the walls.
-            guard let fitted = BodyWorkoutRouteHeroFit.fittedPoints(
-                projected.top + projected.base,
+            // The fit is taken from the route's rest pose, so turning it neither
+            // resizes nor re-centres the ribbon — a route swung end-on can reach past
+            // the hero band, which the frame clips.
+            guard let fit = BodyWorkoutRouteHeroFit.transform(
+                fitting: projected.fitReference,
                 in: size,
                 targetCenterY: targetCenterY,
                 topInset: topInset
             ) else {
                 return
             }
+            let place = { (point: CGPoint) in
+                CGPoint(x: fit.offset.x + point.x * fit.scale, y: fit.offset.y + point.y * fit.scale)
+            }
             let count = projected.top.count
-            let top = Array(fitted.prefix(count))
-            let base = Array(fitted.suffix(count))
+            let top = projected.top.map(place)
+            let base = projected.base.map(place)
 
             var groundPath = Path()
             groundPath.addLines(base)

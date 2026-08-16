@@ -193,6 +193,60 @@ final class WorkoutRoute3DProjectionTests: XCTestCase {
         )
     }
 
+    // MARK: - Yaw
+
+    /// A due-east route at constant latitude: the latitude span is below the
+    /// projection's degenerate epsilon, so every ground point sits at y = 0.5, while
+    /// the longitude span sets the scale and spreads x across the full 0...1.
+    private func eastWestRoute() -> [RouteCoordinate] {
+        (0..<10).map { index in
+            RouteCoordinate(latitude: 10, longitude: 20.00 + Double(index) * 0.002, speed: 0, altitude: 100)
+        }
+    }
+
+    func testDefaultYawIsZero() throws {
+        let coordinates = route([0, 50, 100, 150, 200])
+
+        XCTAssertEqual(
+            try XCTUnwrap(WorkoutRoute3DProjection.projected(for: coordinates)),
+            try XCTUnwrap(WorkoutRoute3DProjection.projected(for: coordinates, yaw: 0))
+        )
+    }
+
+    func testQuarterTurnSwingsTheEastEndTowardsTheCamera() throws {
+        let coordinates = eastWestRoute()
+        let ground = try XCTUnwrap(WorkoutShareRouteProjection.normalizedPoints(for: coordinates))
+        // The fixture's premise: the last fix sits at the east end of a flat line.
+        XCTAssertEqual(ground[9].x, 1, accuracy: 1e-9)
+        XCTAssertEqual(ground[9].y, 0.5, accuracy: 1e-9)
+
+        let projected = try XCTUnwrap(WorkoutRoute3DProjection.projected(for: coordinates, yaw: .pi / 2))
+
+        // A quarter turn clockwise takes (1, 0.5) to (0.5, 1) on the ground, which the
+        // camera then squashes to y = 1 * 0.55.
+        XCTAssertEqual(Double(projected.base[9].x), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(Double(projected.base[9].y), groundSquash, accuracy: 1e-9)
+    }
+
+    func testFitReferenceIsTheRestPoseAndDoesNotTurn() throws {
+        let coordinates = route([0, 50, 100, 150, 200])
+        let rest = try XCTUnwrap(WorkoutRoute3DProjection.projected(for: coordinates))
+        let turned = try XCTUnwrap(WorkoutRoute3DProjection.projected(for: coordinates, yaw: 1.3))
+
+        XCTAssertEqual(rest.fitReference, rest.top + rest.base)
+        // The hero frames by this, so it has to stay put while the ribbon rotates.
+        XCTAssertEqual(turned.fitReference, rest.fitReference)
+        XCTAssertNotEqual(turned.top, rest.top)
+    }
+
+    func testNonFiniteYawIsTreatedAsZero() throws {
+        let coordinates = route([0, 50, 100, 150, 200])
+        let unturned = try XCTUnwrap(WorkoutRoute3DProjection.projected(for: coordinates, yaw: 0))
+
+        XCTAssertEqual(try XCTUnwrap(WorkoutRoute3DProjection.projected(for: coordinates, yaw: .nan)), unturned)
+        XCTAssertEqual(try XCTUnwrap(WorkoutRoute3DProjection.projected(for: coordinates, yaw: .infinity)), unturned)
+    }
+
     // MARK: - Count / order preservation
 
     func testCountAndOrderArePreserved() throws {

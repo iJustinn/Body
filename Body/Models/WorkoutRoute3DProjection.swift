@@ -8,6 +8,10 @@
 //  and altitudes into a lifted `top` line and the `base` line directly beneath it,
 //  in unit-ish camera space (y down). The hero fits both into hero space.
 //
+//  The route can also be turned about its own centre (`yaw`), which is what the
+//  hero's horizontal swipe drives; the projection hands back the rest pose alongside
+//  the turned one so the framing doesn't move while it spins.
+//
 
 import Foundation
 import CoreGraphics
@@ -35,16 +39,26 @@ enum WorkoutRoute3DProjection {
     private static let groundSquash = 0.55
 
     /// The two polylines of the ribbon, same count and route order: `top` is the
-    /// lifted line, `base` the ground trace directly below each of its points.
+    /// lifted line, `base` the ground trace directly below each of its points —
+    /// plus the pose the caller should frame by.
     struct Projected3D: Equatable {
         let top: [CGPoint]
         let base: [CGPoint]
+        /// The rest (yaw 0) ribbon, `top + base`, whatever the requested yaw. The hero
+        /// fits this rather than the turned ribbon, so the route frames exactly as it
+        /// did before rotation existed and neither the scale nor the centre shifts
+        /// while it turns. At yaw 0 it is `top + base`.
+        let fitReference: [CGPoint]
     }
 
     /// The ribbon for this route, or `nil` when it can't be drawn — a degenerate
     /// (treadmill-jitter) ground trace, or too few fixes carrying altitude. Callers
     /// fall back to the flat route trace.
-    static func projected(for coordinates: [RouteCoordinate]) -> Projected3D? {
+    ///
+    /// - Parameter yaw: Rotation of the ground plane about the route's centre, in
+    ///   radians — positive turns the route clockwise as seen from above. Non-finite
+    ///   values are treated as 0.
+    static func projected(for coordinates: [RouteCoordinate], yaw: Double = 0) -> Projected3D? {
         // Filter once with the same predicate `normalizedPoints` uses, so the
         // altitudes read off `filtered` stay index-aligned with the points it
         // returns (it re-filters the already-filtered input harmlessly).
@@ -74,28 +88,60 @@ enum WorkoutRoute3DProjection {
         let range = hi - lo
         let reliefUnits = maximumReliefUnits * min(1, range / fullReliefMetres)
 
+        // The lift is a property of the altitude alone, so it survives the yaw and is
+        // computed once for both poses below.
+        let heights = altitudes.map { altitude -> Double in
+            // A flat (or unusable) range lifts every point onto the same deck.
+            guard range > 0, range.isFinite else {
+                return 0
+            }
+            return min(max((altitude - lo) / range, 0), 1) * reliefUnits
+        }
+
+        let angle = yaw.isFinite ? yaw : 0
+        let rest = lifted(ground: ground, heights: heights)
+        // Yaw 0 reuses the rest pose outright: no rotation arithmetic runs, so the
+        // unturned ribbon is bit-identical to the pre-rotation projection.
+        let turned = angle == 0 ? rest : lifted(ground: rotated(ground: ground, angle: angle), heights: heights)
+        let fitReference = rest.top + rest.base
+
+        guard turned.top.allSatisfy({ $0.x.isFinite && $0.y.isFinite }),
+              turned.base.allSatisfy({ $0.x.isFinite && $0.y.isFinite }),
+              fitReference.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else {
+            return nil
+        }
+        return Projected3D(top: turned.top, base: turned.base, fitReference: fitReference)
+    }
+
+    /// Raises a ground trace into the ribbon: the ground plane squashed by the oblique
+    /// camera, and the deck + relief lift standing above each of its points.
+    private static func lifted(ground: [CGPoint], heights: [Double]) -> (top: [CGPoint], base: [CGPoint]) {
         var top: [CGPoint] = []
         var base: [CGPoint] = []
         top.reserveCapacity(ground.count)
         base.reserveCapacity(ground.count)
         for (index, point) in ground.enumerated() {
-            // A flat (or unusable) range lifts every point onto the same deck.
-            let height: Double
-            if range > 0, range.isFinite {
-                height = min(max((altitudes[index] - lo) / range, 0), 1) * reliefUnits
-            } else {
-                height = 0
-            }
             let groundY = point.y * groundSquash
-            top.append(CGPoint(x: point.x, y: groundY - deckUnits - height))
+            top.append(CGPoint(x: point.x, y: groundY - deckUnits - heights[index]))
             base.append(CGPoint(x: point.x, y: groundY))
         }
+        return (top, base)
+    }
 
-        guard top.allSatisfy({ $0.x.isFinite && $0.y.isFinite }),
-              base.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else {
-            return nil
+    /// Turns the unit-square ground trace about the route's centre (0.5, 0.5), before
+    /// the ground squash — so the camera stays put and the route spins under it,
+    /// rather than the whole squashed picture rotating in the plane of the screen.
+    private static func rotated(ground: [CGPoint], angle: Double) -> [CGPoint] {
+        let cosAngle = cos(angle)
+        let sinAngle = sin(angle)
+        return ground.map { point in
+            let dx = Double(point.x) - 0.5
+            let dy = Double(point.y) - 0.5
+            return CGPoint(
+                x: 0.5 + dx * cosAngle - dy * sinAngle,
+                y: 0.5 + dx * sinAngle + dy * cosAngle
+            )
         }
-        return Projected3D(top: top, base: base)
     }
 
     /// Fills the gaps in a partly-covered altitude track: internal gaps interpolate
