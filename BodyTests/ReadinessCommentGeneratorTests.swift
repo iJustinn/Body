@@ -58,7 +58,7 @@ final class ReadinessCommentGeneratorTests: XCTestCase {
         // and advice are already right for this band/driver/drain, so the model is
         // never left guessing.
         XCTAssertTrue(prompt.contains("Reference comment: \(summary.heroExplanation)"))
-        XCTAssertTrue(prompt.contains("Reword the reference comment now."))
+        XCTAssertTrue(prompt.contains("Reply with only the reworded comment as one paragraph"))
         XCTAssertTrue(
             ReadinessCommentPromptBuilder.instructions(locale: englishLocale)
                 .contains("reword the reference, not to write something new")
@@ -183,6 +183,70 @@ final class ReadinessCommentGeneratorTests: XCTestCase {
         let english = ReadinessCommentPromptBuilder.instructions(locale: englishLocale)
         XCTAssertTrue(english.contains("Never mention the app, Apple Health"))
         XCTAssertTrue(english.contains("Never mention any number, score, percentage, or points"))
+    }
+
+    // MARK: - Sanitizer
+
+    func testSanitizerRejectsEchoedBriefAndKeepsPlainComments() {
+        // The exact shape a device once rendered under the hero: the reworded line
+        // followed by the whole brief, labels included.
+        let echoed = """
+        Today's workout brought readiness from high down to low. That was a considerable session, so rest and recover fully for the rest of the day.
+
+        Respiratory rate is above baseline. Today's workout has noticeably lowered readiness since the morning. That is training load, not poor recovery.
+
+        Training verdict: no.
+
+        That was a demanding session; rest and recover fully for the rest of the day.
+        """
+        XCTAssertNil(ReadinessCommentPromptBuilder.sanitizedComment(from: echoed))
+
+        // A single label on one line is still an echo.
+        XCTAssertNil(ReadinessCommentPromptBuilder.sanitizedComment(from: "Advice: rest today."))
+        XCTAssertNil(ReadinessCommentPromptBuilder.sanitizedComment(from: "training verdict: yes — go train."))
+        // Two paragraphs are never a comment.
+        XCTAssertNil(ReadinessCommentPromptBuilder.sanitizedComment(from: "Rest today.\n\nYou earned it."))
+        XCTAssertNil(ReadinessCommentPromptBuilder.sanitizedComment(from: "   \n "))
+        XCTAssertNil(ReadinessCommentPromptBuilder.sanitizedComment(from: nil))
+
+        XCTAssertEqual(
+            ReadinessCommentPromptBuilder.sanitizedComment(from: "  Breathing is a touch high, but you're well recovered. Train as planned.\n"),
+            "Breathing is a touch high, but you're well recovered. Train as planned."
+        )
+    }
+
+    func testSanitizerRejectsDashesAndSemicolons() {
+        // Plain sentences only — the model is told to split instead, and anything
+        // that slips through falls back to the authored line.
+        XCTAssertNil(ReadinessCommentPromptBuilder.sanitizedComment(from: "HRV is a little low — train as planned."))
+        XCTAssertNil(ReadinessCommentPromptBuilder.sanitizedComment(from: "HRV is a little low – train as planned."))
+        XCTAssertNil(ReadinessCommentPromptBuilder.sanitizedComment(from: "HRV is a little low - train as planned."))
+        XCTAssertNil(ReadinessCommentPromptBuilder.sanitizedComment(from: "HRV is a little low; train as planned."))
+        XCTAssertNil(ReadinessCommentPromptBuilder.sanitizedComment(from: "心率变异性偏低；照常训练。"))
+        // Hyphenated words are fine.
+        XCTAssertEqual(
+            ReadinessCommentPromptBuilder.sanitizedComment(from: "Well-rested and ready. Train as planned."),
+            "Well-rested and ready. Train as planned."
+        )
+    }
+
+    func testAdviceStringsAreAlreadyPlainSentences() {
+        // The model rewords the advice, so the advice itself must model the target
+        // style: no dashes, no semicolons.
+        for status in [ReadinessStatus.prime, .high, .moderate, .low, .poor, .unavailable] {
+            for drain in [false, true] {
+                let advice = ReadinessCommentPromptBuilder.trainingVerdict(for: status, meaningfulDrain: drain).advice
+                XCTAssertNotNil(ReadinessCommentPromptBuilder.sanitizedComment(from: advice), advice)
+            }
+        }
+        let english = ReadinessCommentPromptBuilder.instructions(locale: englishLocale)
+        XCTAssertTrue(english.contains("Never use a dash of any kind or a semicolon"))
+    }
+
+    func testInstructionsDemandASingleParagraphReply() {
+        let english = ReadinessCommentPromptBuilder.instructions(locale: englishLocale)
+        XCTAssertTrue(english.contains("Respond with the rewritten comment only"))
+        XCTAssertTrue(ReadinessCommentPromptBuilder.prompt(for: readiness()).hasSuffix("nothing else."))
     }
 
     // MARK: - Signature

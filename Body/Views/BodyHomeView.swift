@@ -502,6 +502,15 @@ struct BodyHomeView: View {
         )
     }
 
+    /// Hero press-and-hold: throw away today's comment and write a new one.
+    private func regenerateReadinessComment() {
+        guard readinessDataIsLoaded else { return }
+        readinessComment.regenerate(
+            for: workoutStore.healthSummary.readiness,
+            enabled: showReadinessAIComment
+        )
+    }
+
     private var homeCardOrder: [BodyHomeCardKind] {
         BodyHomeCardKind.storedOrder(from: homeCardOrderRawValue)
     }
@@ -548,7 +557,8 @@ struct BodyHomeView: View {
                     BodyReadinessHeroLabel(
                         readiness: workoutStore.healthSummary.readiness,
                         morningScore: todaysMorningReadiness,
-                        aiComment: heroAIComment
+                        aiComment: heroAIComment,
+                        onRegenerateAIComment: regenerateReadinessComment
                     )
                 }
                 .buttonStyle(.plain)

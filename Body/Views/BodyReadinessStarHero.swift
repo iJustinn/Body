@@ -63,6 +63,9 @@ struct BodyReadinessHeroLabel: View {
     /// unsupported, or generation failed), a placeholder while Apple Intelligence writes,
     /// or the generated comment itself.
     var aiComment: BodyReadinessAIComment = .authored
+    /// Press-and-hold (3 s) on a generated comment asks Apple Intelligence for a
+    /// fresh rewrite. Nil disables the hold; the authored line never offers it.
+    var onRegenerateAIComment: (() -> Void)? = nil
 
     /// Animated score for the big number — counts up from 0 on launch and rolls to each
     /// new value, kept roughly in sync with the backdrop fill's rise.
@@ -183,6 +186,11 @@ struct BodyReadinessHeroLabel: View {
                     .transition(statusTextTransition)
             }
             .animation(aiCommentAnimation, value: explanationString)
+            .contentShape(Rectangle())
+            .gesture(BodyReadinessCommentRegenerateGesture(
+                isEnabled: onRegenerateAIComment != nil && aiComment != .authored && aiComment != .generating,
+                onRecognized: { onRegenerateAIComment?() }
+            ))
 
             if let startedTodayText {
                 Text(startedTodayText)
@@ -231,6 +239,35 @@ struct BodyReadinessHeroLabel: View {
             label += ". " + String(localized: "Apple Intelligence comment: \(text)")
         }
         return label
+    }
+}
+
+/// A 3-second hold on the generated comment. UIKit rather than SwiftUI so it
+/// coexists with the hero's tap-to-open button and the surrounding scroll: a tap
+/// still opens the detail, a scroll still scrolls, and only a stationary hold
+/// regenerates (see the Activity Rings peek gesture for the same reasoning).
+private struct BodyReadinessCommentRegenerateGesture: UIGestureRecognizerRepresentable {
+    static let minimumPressDuration: TimeInterval = 3
+
+    let isEnabled: Bool
+    let onRecognized: () -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
+        let recognizer = UILongPressGestureRecognizer()
+        recognizer.minimumPressDuration = Self.minimumPressDuration
+        recognizer.allowableMovement = 12
+        recognizer.isEnabled = isEnabled
+        return recognizer
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UILongPressGestureRecognizer, context: Context) {
+        recognizer.isEnabled = isEnabled
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
+        guard recognizer.state == .began else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        onRecognized()
     }
 }
 

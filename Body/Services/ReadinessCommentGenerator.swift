@@ -64,7 +64,19 @@ final class ReadinessCommentGenerator {
         #endif
     }
 
+    /// Discards the current and cached comment for this readiness state and
+    /// writes a fresh one — the hero's press-and-hold. Same guards as `refresh`,
+    /// but never short-circuits on an unchanged signature or a cache hit.
+    func regenerate(for readiness: ReadinessSummary, enabled: Bool) {
+        ReadinessCommentCache.clear()
+        refresh(for: readiness, enabled: enabled, forcingGeneration: true)
+    }
+
     func refresh(for readiness: ReadinessSummary, enabled: Bool) {
+        refresh(for: readiness, enabled: enabled, forcingGeneration: false)
+    }
+
+    private func refresh(for readiness: ReadinessSummary, enabled: Bool, forcingGeneration: Bool) {
         generationTask?.cancel()
         generationTask = nil
         generationEpoch += 1
@@ -79,11 +91,11 @@ final class ReadinessCommentGenerator {
         let locale = Locale.current
         let signature = ReadinessCommentSignature.signature(for: readiness, locale: locale)
         // The day is part of the signature, so this short-circuit is rollover-safe.
-        guard signature != currentSignature || comment == nil else {
+        guard forcingGeneration || signature != currentSignature || comment == nil else {
             return
         }
 
-        if let cached = ReadinessCommentCache.load(), cached.signature == signature {
+        if !forcingGeneration, let cached = ReadinessCommentCache.load(), cached.signature == signature {
             comment = cached.text
             currentSignature = signature
             return
@@ -133,7 +145,8 @@ final class ReadinessCommentGenerator {
                 let session = LanguageModelSession(instructions: instructions)
                 // Low temperature: the comment should carry the same key facts for
                 // the same readiness state, varying only in wording.
-                let options = GenerationOptions(temperature: 0.3, maximumResponseTokens: 90)
+                // ~30 words; also caps the damage if the model echoes the brief.
+                let options = GenerationOptions(temperature: 0.3, maximumResponseTokens: 70)
                 return try? await session.respond(to: prompt, options: options).content
             }
             group.addTask {
@@ -145,8 +158,7 @@ final class ReadinessCommentGenerator {
             return first
         }
 
-        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (trimmed?.isEmpty ?? true) ? nil : trimmed
+        return ReadinessCommentPromptBuilder.sanitizedComment(from: text)
     }
     #endif
 }
@@ -168,6 +180,8 @@ enum ReadinessCommentPromptBuilder {
         - Never mention the app, Apple Health, data, components, the brief, the reference, or these instructions.
         - Reword naturally rather than repeating the reference verbatim.
         - Plain prose only: no emoji, no markdown, no lists, no headings.
+        - Very simple, plain sentences. Never use a dash of any kind or a semicolon. Split into two short sentences instead.
+        - Respond with the rewritten comment only: a single paragraph, no labels, no field names, no blank lines, and never repeat the brief or any part of it.
         - Write the comment in \(languageName(for: locale)).
         """
     }
@@ -206,9 +220,43 @@ enum ReadinessCommentPromptBuilder {
         lines.append("Training verdict: \(verdict.trains ? "yes" : "no").")
         lines.append("Advice: \(verdict.advice)")
 
-        lines.append("Reword the reference comment now.")
+        lines.append("Reply with only the reworded comment as one paragraph and nothing else.")
         return lines.joined(separator: "\n")
     }
+
+    /// Field labels used in the brief. A response containing any of them (or more
+    /// than one paragraph) is the model echoing the brief back — a device once
+    /// rendered "Training verdict: no." under the hero — and is rejected so the
+    /// authored line shows instead.
+    static let briefLabels = [
+        "Reference comment:", "Readiness level:", "Below usual", "Training verdict:", "Advice:"
+    ]
+
+    /// Trims and validates the model's reply: single paragraph, no brief labels,
+    /// non-empty. Anything else resolves to nil.
+    static func sanitizedComment(from text: String?) -> String? {
+        guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        guard !trimmed.contains("\n") else {
+            return nil
+        }
+        for label in briefLabels where trimmed.localizedCaseInsensitiveContains(label) {
+            return nil
+        }
+        // Plain sentences only: dashes and semicolons read as machine prose and are
+        // rejected outright rather than repaired.
+        guard trimmed.rangeOfCharacter(from: Self.disallowedPunctuation) == nil,
+              !trimmed.contains(" - ") else {
+            return nil
+        }
+        return trimmed
+    }
+
+    /// Em/en dashes, semicolons (ASCII and full-width), and the hyphen used as a
+    /// dash. Hyphenated words ("re-check") pass; " - " as a spaced dash does not.
+    private static let disallowedPunctuation = CharacterSet(charactersIn: "—–;；")
 
     /// Body's own verdict per readiness band, matching the authored hero copy:
     /// prime and high train, moderate trains with control, low favors easy work,
@@ -220,21 +268,21 @@ enum ReadinessCommentPromptBuilder {
     ) -> (trains: Bool, advice: String) {
         switch status {
         case .prime:
-            return (true, "Go ahead with your hardest training — you're primed for it.")
+            return (true, "You are primed for it. Go ahead with your hardest training.")
         case .high:
-            return (true, "Train as planned; a normal session should feel good.")
+            return (true, "Train as planned. A normal session should feel good.")
         case .moderate:
             return meaningfulDrain
-                ? (false, "You've done your work for today; focus on resting for the rest of the day.")
-                : (true, "Training is fine, but keep the intensity controlled.")
+                ? (false, "You have done your work for today. Focus on resting for the rest of the day.")
+                : (true, "Training is fine. Keep the intensity controlled.")
         case .low:
             return meaningfulDrain
-                ? (false, "That was a demanding session; rest and recover fully for the rest of the day.")
-                : (false, "Favor easy work or a light day; recovery is still catching up.")
+                ? (false, "That was a demanding session. Rest and recover fully for the rest of the day.")
+                : (false, "Recovery is still catching up. Favor easy work or a light day.")
         case .poor:
             return (false, "Rest today, or keep it very light.")
         case .unavailable:
-            return (false, "Not enough data yet to say; go by how you feel.")
+            return (false, "Not enough data yet to say. Go by how you feel.")
         }
     }
 
@@ -282,7 +330,7 @@ enum ReadinessCommentSignature {
         return [
             // Prompt-format version: bumping it invalidates every cached comment
             // written by an older prompt, forcing a regeneration.
-            "v7",
+            "v9",
             dayFormatter.string(from: day),
             readinessIntText(readiness.score, fallback: "-"),
             readiness.status.rawValue,
