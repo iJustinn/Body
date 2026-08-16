@@ -24,6 +24,7 @@ enum BodyAppearancePreference {
     static let showSleepScoreKey = "showSleepScore"
     static let showWorkoutEffortSuggestionsKey = "showWorkoutEffortSuggestions"
     static let autoApplyWorkoutEffortKey = "autoApplyWorkoutEffort"
+    static let showReadinessAICommentKey = "showReadinessAIComment"
     static let workoutRouteStyleKey = "workoutRouteStyle"
     static let sleepStageBreakdownShowsOptimalRangesKey = "sleepStageBreakdownShowsOptimalRanges"
     static let homeCardOrderKey = "homeCardOrder"
@@ -374,6 +375,8 @@ struct BodyHealthPermissionSelection: Equatable {
 enum BodyWorkoutRouteStyle: String, CaseIterable, Identifiable {
     case map
     case plain
+    /// Oblique, elevation-extruded ribbon when the route carries altitude; falls back to Plain otherwise.
+    case threeD = "3d"
 
     static let defaultValue: BodyWorkoutRouteStyle = .map
 
@@ -387,6 +390,8 @@ enum BodyWorkoutRouteStyle: String, CaseIterable, Identifiable {
             return String(localized: "Map", table: "BodyMetricsKit")
         case .plain:
             return String(localized: "Plain", table: "BodyMetricsKit")
+        case .threeD:
+            return String(localized: "3D", table: "BodyMetricsKit")
         }
     }
 
@@ -396,6 +401,8 @@ enum BodyWorkoutRouteStyle: String, CaseIterable, Identifiable {
             return String(localized: "Apple Maps", table: "BodyMetricsKit")
         case .plain:
             return String(localized: "Route Only", table: "BodyMetricsKit")
+        case .threeD:
+            return String(localized: "Elevation Ribbon", table: "BodyMetricsKit")
         }
     }
 

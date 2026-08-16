@@ -740,8 +740,8 @@ struct WorkoutDetailPresentation: Equatable {
             ))
         }
 
-        metrics.append(WorkoutDetailMetric(kind: .activeEnergy, title: String(localized: "Active \(energyUnitPreference.detailTitleUnit)", table: "BodyMetricsKit"), value: activeEnergyText ?? String(localized: "No Data", table: "BodyMetricsKit")))
-        metrics.append(WorkoutDetailMetric(kind: .totalEnergy, title: String(localized: "Total \(energyUnitPreference.detailTitleUnit)", table: "BodyMetricsKit"), value: totalEnergyText ?? String(localized: "No Data", table: "BodyMetricsKit")))
+        metrics.append(WorkoutDetailMetric(kind: .activeEnergy, title: String(localized: "Active \(energyUnitPreference.unitLabel)", table: "BodyMetricsKit"), value: activeEnergyText ?? String(localized: "No Data", table: "BodyMetricsKit")))
+        metrics.append(WorkoutDetailMetric(kind: .totalEnergy, title: String(localized: "Total \(energyUnitPreference.unitLabel)", table: "BodyMetricsKit"), value: totalEnergyText ?? String(localized: "No Data", table: "BodyMetricsKit")))
         metrics.append(WorkoutDetailMetric(kind: .avgHeartRate, title: String(localized: "Avg Heart Rate", table: "BodyMetricsKit"), value: averageHeartRateText ?? String(localized: "No Data", table: "BodyMetricsKit")))
         if let maxHeartRate = workout.maximumHeartRateBeatsPerMinute {
             metrics.append(WorkoutDetailMetric(
@@ -756,14 +756,14 @@ struct WorkoutDetailPresentation: Equatable {
             metrics.append(WorkoutDetailMetric(
                 kind: .stepCadence,
                 title: String(localized: "Step Cadence", table: "BodyMetricsKit"),
-                value: BodyValueFormat.cadenceText(stepCadence, unit: "SPM", locale: locale)
+                value: BodyValueFormat.cadenceText(stepCadence, unit: "spm", locale: locale)
             ))
         }
         if let cyclingCadence = workout.averageCyclingCadenceRPM, cyclingCadence > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .cyclingCadence,
                 title: String(localized: "Cycling Cadence", table: "BodyMetricsKit"),
-                value: BodyValueFormat.cadenceText(cyclingCadence, unit: "RPM", locale: locale)
+                value: BodyValueFormat.cadenceText(cyclingCadence, unit: "rpm", locale: locale)
             ))
         }
         if let power = workout.averagePowerWatts, power > 0 {
@@ -992,15 +992,6 @@ enum BodyValueFormat {
             switch self {
             case .kilocalories:
                 return "kcal"
-            case .kilojoules:
-                return "kJ"
-            }
-        }
-
-        var detailTitleUnit: String {
-            switch self {
-            case .kilocalories:
-                return "Kcal"
             case .kilojoules:
                 return "kJ"
             }
@@ -1248,7 +1239,7 @@ enum BodyValueFormat {
         numberText(watts.rounded(), decimals: 0, locale: locale) + " W"
     }
 
-    /// Cadence with an activity-specific unit ("SPM" for foot, "RPM" for cycling).
+    /// Cadence with an activity-specific unit ("spm" for foot, "rpm" for cycling).
     static func cadenceText(_ cadence: Double, unit: String, locale: Locale = .current) -> String {
         numberText(cadence.rounded(), decimals: 0, locale: locale) + " " + unit
     }

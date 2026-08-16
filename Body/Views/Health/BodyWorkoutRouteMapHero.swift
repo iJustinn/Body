@@ -10,7 +10,10 @@
 //
 //  `BodyWorkoutRoutePlainHero` is the map-free alternative (Route Style › Plain):
 //  the same route stroked in the workout's tint, with no tiles, pace shading, or
-//  end markers.
+//  end markers. `BodyWorkoutRoute3DHero` (Route Style › 3D) draws that same trace
+//  as an oblique elevation ribbon, falling back to the plain hero when the route
+//  carries no altitude. Both map-free heroes frame the route through the shared
+//  `BodyWorkoutRouteHeroFit`.
 //
 
 import SwiftUI
@@ -239,14 +242,6 @@ struct BodyWorkoutRoutePlainHero: View {
     /// Top safe-area inset; see `BodyWorkoutRouteMapHero`.
     let topInset: CGFloat
 
-    /// Side inset so the stroke never runs into the screen edges.
-    private static let sidePadding: CGFloat = 24
-    /// Smallest gap kept between the route's top edge and the safe area above it.
-    private static let topMargin: CGFloat = 12
-    /// Drawn at 90% of the fitted size: just enough inset that the trace reads as a
-    /// composed figure around the same center rather than a full-bleed edge-to-edge fill.
-    private static let sizeFactor: CGFloat = 0.9
-
     var body: some View {
         // Project once per layout pass rather than per `Canvas` redraw: routes carry
         // thousands of fixes.
@@ -266,10 +261,37 @@ struct BodyWorkoutRoutePlainHero: View {
         }
     }
 
-    /// Maps the unit-square projection into hero space: aspect-preserving fit to the
-    /// padded width, height capped so the route clears the content below it, and the
-    /// route's bounding box centered on `targetCenterY`.
+    /// The fitted trace as a single open path.
     private static func path(for points: [CGPoint], in size: CGSize, targetCenterY: CGFloat, topInset: CGFloat) -> Path? {
+        guard let fitted = BodyWorkoutRouteHeroFit.fittedPoints(points, in: size, targetCenterY: targetCenterY, topInset: topInset),
+              let first = fitted.first else {
+            return nil
+        }
+
+        var path = Path()
+        path.move(to: first)
+        for point in fitted.dropFirst() {
+            path.addLine(to: point)
+        }
+        return path
+    }
+}
+
+/// Shared framing for the map-free heroes: maps a unit-square projection into hero
+/// space so the plain trace and the 3D ribbon sit in exactly the same place.
+/// Internal rather than private so the fit can be unit-tested.
+enum BodyWorkoutRouteHeroFit {
+    /// Side inset so the stroke never runs into the screen edges.
+    private static let sidePadding: CGFloat = 24
+    /// Smallest gap kept between the route's top edge and the safe area above it.
+    private static let topMargin: CGFloat = 12
+    /// Drawn at 90% of the fitted size: just enough inset that the trace reads as a
+    /// composed figure around the same center rather than a full-bleed edge-to-edge fill.
+    private static let sizeFactor: CGFloat = 0.9
+
+    /// Aspect-preserving fit to the padded width, height capped so the route clears the
+    /// content below it, and the points' bounding box centered on `targetCenterY`.
+    static func fittedPoints(_ points: [CGPoint], in size: CGSize, targetCenterY: CGFloat, topInset: CGFloat) -> [CGPoint]? {
         guard points.count >= 2, size.width > 0 else {
             return nil
         }
@@ -299,19 +321,101 @@ struct BodyWorkoutRoutePlainHero: View {
 
         let centerX = (minX + maxX) / 2
         let centerY = (minY + maxY) / 2
-        var path = Path()
-        for (index, point) in points.enumerated() {
-            let mapped = CGPoint(
+        return points.map { point in
+            CGPoint(
                 x: size.width / 2 + (point.x - centerX) * scale,
                 y: targetCenterY + (point.y - centerY) * scale
             )
-            if index == 0 {
-                path.move(to: mapped)
+        }
+    }
+}
+
+/// Map-free route hero drawn as an oblique elevation ribbon (Route Style › 3D): the
+/// lifted route line in the workout's tint, translucent walls dropping to a faint
+/// ground trace. Purely decorative — no markers, pace coloring, or labels — and it
+/// falls back to the plain trace when the route carries no usable altitude.
+struct BodyWorkoutRoute3DHero: View {
+    let route: WorkoutRoute
+    let tint: Color
+    /// Y the route's vertical center should land on; see `BodyWorkoutRouteMapHero`.
+    let targetCenterY: CGFloat
+    /// Top safe-area inset; see `BodyWorkoutRouteMapHero`.
+    let topInset: CGFloat
+
+    /// Faint trace of where the route ran on the ground, under the ribbon.
+    private static let groundOpacity = 0.35
+    /// Walls between the ground trace and the lifted line fade from the line down to
+    /// the ground, so the ribbon reads as a lit edge with a shaded drop rather than a
+    /// solid slab — and stays readable where the route folds back over itself.
+    private static let wallTopOpacity = 0.34
+    private static let wallBottomOpacity = 0.04
+
+    var body: some View {
+        // Project once per layout pass rather than per `Canvas` redraw: routes carry
+        // thousands of fixes.
+        let projected = WorkoutRoute3DProjection.projected(for: route.coordinates)
+        return Group {
+            if let projected {
+                ribbon(projected)
             } else {
-                path.addLine(to: mapped)
+                // A route with no usable altitude has no ribbon to draw — the fallback
+                // lives here so the detail sheet never branches on the route's data.
+                BodyWorkoutRoutePlainHero(route: route, tint: tint, targetCenterY: targetCenterY, topInset: topInset)
             }
         }
-        return path
+    }
+
+    private func ribbon(_ projected: WorkoutRoute3DProjection.Projected3D) -> some View {
+        Canvas { context, size in
+            // Fit the lifted line and the ground trace as one shape: two separate
+            // fits would scale and center them independently and shear the walls.
+            guard let fitted = BodyWorkoutRouteHeroFit.fittedPoints(
+                projected.top + projected.base,
+                in: size,
+                targetCenterY: targetCenterY,
+                topInset: topInset
+            ) else {
+                return
+            }
+            let count = projected.top.count
+            let top = Array(fitted.prefix(count))
+            let base = Array(fitted.suffix(count))
+
+            var groundPath = Path()
+            groundPath.addLines(base)
+            context.stroke(groundPath, with: .color(tint.opacity(Self.groundOpacity)), style: StrokeStyle(lineWidth: 2))
+
+            // Painter's algorithm: draw the segments back to front by their ground
+            // depth, so on a route that crosses itself the nearer wall covers the
+            // farther line instead of the draw order deciding at random.
+            let order = (0..<(count - 1)).sorted { base[$0].y + base[$0 + 1].y < base[$1].y + base[$1 + 1].y }
+            for index in order {
+                var wall = Path()
+                wall.addLines([top[index], top[index + 1], base[index + 1], base[index]])
+                wall.closeSubpath()
+                // Gradient endpoints at the segment's own top and ground midpoints, so
+                // every wall shades over its full drop whatever its height.
+                let topMid = CGPoint(x: (top[index].x + top[index + 1].x) / 2, y: (top[index].y + top[index + 1].y) / 2)
+                let baseMid = CGPoint(x: (base[index].x + base[index + 1].x) / 2, y: (base[index].y + base[index + 1].y) / 2)
+                context.fill(
+                    wall,
+                    with: .linearGradient(
+                        Gradient(colors: [tint.opacity(Self.wallTopOpacity), tint.opacity(Self.wallBottomOpacity)]),
+                        startPoint: topMid,
+                        endPoint: baseMid
+                    )
+                )
+
+                var segment = Path()
+                segment.addLines([top[index], top[index + 1]])
+                context.stroke(
+                    segment,
+                    with: .color(tint),
+                    style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
+                )
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 

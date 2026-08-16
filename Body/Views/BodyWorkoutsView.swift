@@ -948,6 +948,9 @@ struct BodyWorkoutDetailSheet: View {
     /// re-fills the editor — unless the user touched it first (any −/+ tap clears this).
     @State private var editorAwaitingPrediction = false
     @State private var route: WorkoutRoute?
+    /// True once `loadWorkoutRoute` has returned — route or nil — so the Share
+    /// button never appears mid-load.
+    @State private var routeLoadSettled = false
     @State private var splitData: WorkoutSplitData = .empty
     /// Live scroll offset, held in an `@Observable` so writing it on every scroll frame
     /// only invalidates the map-dim overlay that reads it — not the whole sheet, whose
@@ -1048,6 +1051,21 @@ struct BodyWorkoutDetailSheet: View {
                         .frame(maxHeight: .infinity, alignment: .top)
                         .ignoresSafeArea(edges: .top)
                         .allowsHitTesting(false)
+                case .threeD:
+                    // Same page as Plain — the ribbon strokes over the workout-tint
+                    // backdrop, and falls back to the plain trace on its own when the
+                    // route carries no altitude.
+                    sheetBackdrop
+
+                    BodyWorkoutRoute3DHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset)
+                        .frame(height: mapHeight)
+                        .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
+                        .overlay {
+                            BodyWorkoutMapDimOverlay(scrollState: scrollState, mapHeight: mapHeight)
+                        }
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .ignoresSafeArea(edges: .top)
+                        .allowsHitTesting(false)
                 }
             } else {
                 sheetBackdrop
@@ -1075,10 +1093,11 @@ struct BodyWorkoutDetailSheet: View {
             // The ZStack keeps its safe-area insets, so the button clears the
             // status bar / Dynamic Island even though the map extends under them
             // (same trick as the full-screen map's close button). The animation
-            // is scoped to this subtree so the route loading never animates the
+            // is scoped to this subtree so the button fades in once the route fetch
+            // settles, for routed and routeless workouts alike, without animating the
             // sheet's own layout swap.
             ZStack {
-                if route != nil {
+                if routeLoadSettled {
                     Button {
                         showsShareSheet = true
                     } label: {
@@ -1108,12 +1127,10 @@ struct BodyWorkoutDetailSheet: View {
                     .transition(.opacity)
                 }
             }
-            .animation(.easeInOut(duration: 0.25), value: route == nil)
+            .animation(.easeInOut(duration: 0.25), value: routeLoadSettled)
         }
         .fullScreenCover(isPresented: $showsShareSheet) {
-            if let route {
-                BodyWorkoutShareSheet(workout: workout, route: route, presentation: presentation)
-            }
+            BodyWorkoutShareSheet(workout: workout, route: route, presentation: presentation)
         }
         .fullScreenCover(isPresented: $showsFullScreenRouteMap) {
             if let route {
@@ -1122,11 +1139,17 @@ struct BodyWorkoutDetailSheet: View {
             }
         }
         .task {
+            routeLoadSettled = false
             // Load the route and distance samples concurrently so the splits
             // section isn't blocked behind the route fetch + reverse geocoding.
             async let loadedRoute = workoutStore.loadWorkoutRoute(for: workout)
             async let loadedSplitData = workoutStore.loadWorkoutSplitData(for: workout)
-            route = await loadedRoute
+            let resolvedRoute = await loadedRoute
+            // The loader returns nil on cancel, so a cancelled reload must not flip a
+            // routed page to routeless.
+            guard !Task.isCancelled else { return }
+            route = resolvedRoute
+            routeLoadSettled = true
             splitData = await loadedSplitData
         }
         .task(id: "\(workout.id.uuidString)-\(workoutStore.permissionSelection.rawValue)") {
@@ -1217,7 +1240,10 @@ struct BodyWorkoutDetailSheet: View {
                 sourceFooter(presentation: presentation)
             }
             .padding(.horizontal, 20)
-            .padding(.top, route == nil ? 18 : 24)
+            // The routeless layout has no map gap above the content, so it reserves
+            // room for the Share capsule (44 pt + its 12 pt bottom slop) that overlays
+            // the top-trailing corner.
+            .padding(.top, route == nil ? 60 : 24)
             .padding(.bottom, 22)
             .readableContentColumn()
         }
@@ -2224,7 +2250,7 @@ private struct BodyWorkoutHeartRateChartCard: View {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text("\(metrics.dataMinimumLabel)-\(metrics.dataMaximumLabel)")
                         .font(.system(size: 22, weight: .bold, design: .rounded))
-                    Text("BPM")
+                    Text("bpm")
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                 }
                 .foregroundColor(.secondary)

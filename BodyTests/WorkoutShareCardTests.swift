@@ -32,12 +32,14 @@ final class WorkoutShareCardTests: XCTestCase {
 
     private func presentation(
         for workout: WorkoutSummary,
-        comparisonWorkouts: [WorkoutSummary]? = nil
+        comparisonWorkouts: [WorkoutSummary]? = nil,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories
     ) -> WorkoutDetailPresentation {
         WorkoutDetailPresentation(
             workout: workout,
             locale: enUS,
             unitPreference: .metric,
+            energyUnitPreference: energyUnitPreference,
             comparisonWorkouts: comparisonWorkouts
         )
     }
@@ -351,6 +353,114 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertEqual(metrics[0].value, distanceTile.value)
     }
 
+    // MARK: - Metrics: routeless
+
+    func testRoutelessStrengthTrainingIsTimeEnergyHeartRate() throws {
+        let lift = workout(type: .strengthTraining, duration: 2700, activeEnergy: 200, avgHR: 122)
+        let presentation = presentation(for: lift)
+
+        let energyTile = try XCTUnwrap(tile(.activeEnergy, in: presentation))
+        let heartRateTile = try XCTUnwrap(tile(.avgHeartRate, in: presentation))
+
+        let metrics = WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: .strengthTraining)
+
+        XCTAssertEqual(
+            metrics.map(\.title),
+            [String(localized: "Time"), energyTile.title, heartRateTile.title]
+        )
+        XCTAssertEqual(
+            metrics.map(\.value),
+            [presentation.durationClockText, energyTile.value, heartRateTile.value]
+        )
+    }
+
+    func testRoutelessRunningIsDistancePaceTimeEnergyAndDropsHeartRate() throws {
+        let run = workout(type: .running, distance: 5000, activeEnergy: 320, avgHR: 145)
+        let presentation = presentation(for: run)
+
+        let heroValue = try XCTUnwrap(presentation.heroDistanceValue)
+        let heroUnit = try XCTUnwrap(presentation.heroDistanceUnit)
+        let paceTile = try XCTUnwrap(tile(.pace, in: presentation))
+        let energyTile = try XCTUnwrap(tile(.activeEnergy, in: presentation))
+        let heartRateText = try XCTUnwrap(presentation.averageHeartRateText)
+
+        let metrics = WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: .running)
+
+        XCTAssertEqual(metrics.count, 4)
+        XCTAssertEqual(
+            metrics.map(\.title),
+            [String(localized: "Distance"), String(localized: "Pace"), String(localized: "Time"), energyTile.title]
+        )
+        XCTAssertEqual(
+            metrics.map(\.value),
+            ["\(heroValue) \(heroUnit)", paceTile.value, presentation.durationClockText, energyTile.value]
+        )
+        XCTAssertFalse(metrics.contains { $0.value == heartRateText })
+    }
+
+    func testRoutelessWithNilEnergyOmitsEnergyMetricAndNeverShowsNoData() {
+        let lift = workout(type: .strengthTraining, duration: 2700, avgHR: 122)
+        let presentation = presentation(for: lift)
+        XCTAssertNil(presentation.activeEnergyText)
+
+        let metrics = WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: .strengthTraining)
+
+        XCTAssertFalse(metrics.contains { $0.title == "Active kcal" })
+        XCTAssertFalse(metrics.contains { $0.value.contains("No Data") })
+    }
+
+    func testRoutelessCapsAtFourMetricsAndDropsHeartRate() throws {
+        // Downhill skiing with everything recorded: distance (hero), no pace/speed
+        // candidate, time, energy, and elevation all qualify ahead of avg HR, so the
+        // cap has to drop heart rate even though it's a real candidate.
+        let ski = workout(type: .downhillSkiing, distance: 8000, activeEnergy: 400, avgHR: 130, elevation: 650)
+        let presentation = presentation(for: ski)
+
+        let heroValue = try XCTUnwrap(presentation.heroDistanceValue)
+        let heroUnit = try XCTUnwrap(presentation.heroDistanceUnit)
+        let energyTile = try XCTUnwrap(tile(.activeEnergy, in: presentation))
+        let elevationTile = try XCTUnwrap(tile(.elevation, in: presentation))
+        let heartRateText = try XCTUnwrap(presentation.averageHeartRateText)
+        XCTAssertNotNil(tile(.avgHeartRate, in: presentation))
+
+        let metrics = WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: .downhillSkiing)
+
+        XCTAssertEqual(metrics.count, 4)
+        XCTAssertEqual(
+            metrics.map(\.title),
+            [String(localized: "Distance"), String(localized: "Time"), energyTile.title, elevationTile.title]
+        )
+        XCTAssertEqual(metrics[0].value, "\(heroValue) \(heroUnit)")
+        XCTAssertEqual(metrics[2].value, energyTile.value)
+        XCTAssertEqual(metrics[3].value, elevationTile.value)
+        XCTAssertFalse(metrics.contains { $0.value == heartRateText })
+    }
+
+    func testRoutelessEnergyTitleMatchesTheActiveEnergyTile() throws {
+        let lift = workout(type: .strengthTraining, duration: 2700, activeEnergy: 200)
+        let presentation = presentation(for: lift)
+
+        let energyTile = try XCTUnwrap(tile(.activeEnergy, in: presentation))
+        let metrics = WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: .strengthTraining)
+
+        XCTAssertTrue(metrics.contains { $0.title == energyTile.title })
+    }
+
+    func testRoutelessEnergyUsesKilojoulesTitleAndValueWhenPreferred() throws {
+        let lift = workout(type: .strengthTraining, duration: 2700, activeEnergy: 200)
+        let presentation = presentation(for: lift, energyUnitPreference: .kilojoules)
+
+        let energyTile = try XCTUnwrap(tile(.activeEnergy, in: presentation))
+        XCTAssertEqual(energyTile.title, "Active kJ")
+
+        let metrics = WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: .strengthTraining)
+        let energyMetric = try XCTUnwrap(metrics.first { $0.title == energyTile.title })
+
+        XCTAssertEqual(energyMetric.title, "Active kJ")
+        XCTAssertEqual(energyMetric.value, energyTile.value)
+        XCTAssertTrue(energyMetric.value.contains("kJ"))
+    }
+
     // MARK: - Projection
 
     func testAntimeridianRouteUnwrapsWithoutInvertingOrder() throws {
@@ -509,24 +619,39 @@ final class WorkoutShareCardTests: XCTestCase {
     func testStoredRoundTripsEveryBackgroundChoice() {
         for preset in BodyWorkoutSharePreset.allCases {
             let choice = BodyWorkoutShareBackgroundChoice.preset(preset)
-            XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: choice.rawValue), choice)
+            XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: choice.rawValue, hasRoute: true), choice)
         }
 
         // The map is a choice of its own, not a preset — it has to survive the same
         // round trip through @AppStorage that the gradients do.
         XCTAssertEqual(BodyWorkoutShareBackgroundChoice.map.rawValue, "map")
-        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "map"), .map)
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "map", hasRoute: true), .map)
     }
 
     func testStoredFallsBackToMidnightForNilOrGarbage() {
-        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: nil), .preset(.midnight))
-        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: ""), .preset(.midnight))
-        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "not-a-real-preset"), .preset(.midnight))
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: nil, hasRoute: true), .preset(.midnight))
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "", hasRoute: true), .preset(.midnight))
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "not-a-real-preset", hasRoute: true), .preset(.midnight))
         // "ocean" is a retired preset: a stored value from an old build is now unknown
         // and must resolve to the Midnight default rather than crashing or mapping.
-        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "ocean"), .preset(.midnight))
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "ocean", hasRoute: true), .preset(.midnight))
         // The map only ever comes back from an explicit pick, never as a fallback.
-        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "map"), .map)
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "map", hasRoute: true), .map)
+    }
+
+    func testStoredMapWithoutARouteFallsBackToMidnightForTheSession() {
+        // A route-less workout can never see the map background: a stored "map" from an
+        // earlier routed share resolves to Midnight for this session without rewriting
+        // the key, so the next routed share still opens on the map.
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "map", hasRoute: false), .preset(.midnight))
+    }
+
+    func testStoredPresetsAreUnaffectedByHasRoute() {
+        for preset in BodyWorkoutSharePreset.allCases {
+            let choice = BodyWorkoutShareBackgroundChoice.preset(preset)
+            XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: choice.rawValue, hasRoute: true), choice)
+            XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: choice.rawValue, hasRoute: false), choice)
+        }
     }
 
     func testResolvedPhotoReturnsNilForNonProEvenWithAPhoto() {

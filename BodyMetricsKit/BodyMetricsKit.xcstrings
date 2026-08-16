@@ -188,6 +188,23 @@
         }
       }
     },
+    "3D" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3D"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3D"
+          }
+        }
+      }
+    },
     "6 Months" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2021,6 +2038,23 @@
         }
       }
     },
+    "Elevation Ribbon" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elevation Ribbon"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "海拔立体路线"
+          }
+        }
+      }
+    },
     "Elliptical" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2883,13 +2917,13 @@
         }
       }
     },
-    "KM" : {
+    "km" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "KM"
+            "value" : "km"
           }
         },
         "zh-Hans" : {
@@ -3153,13 +3187,13 @@
         }
       }
     },
-    "MI" : {
+    "mi" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "MI"
+            "value" : "mi"
           }
         },
         "zh-Hans" : {

@@ -20,8 +20,10 @@ struct WorkoutShareMetric: Equatable {
 /// `WorkoutDetailPresentation` the detail page already built — so values, units,
 /// and locale never drift from what the user just saw. Only title/value are
 /// copied; `WorkoutDetailMetric.comparison` (the "vs 30-day avg" badge) never
-/// appears on a shared image. Two selections, one per card layout: `metrics` for
-/// the classic card's bottom row, `centeredMetrics` for the centered card's stack.
+/// appears on a shared image. Three selections, one per card layout: `metrics` for
+/// the classic card's bottom row, `centeredMetrics` for the centered card's stack,
+/// and `routelessMetrics` for the route-less card, which has no trace to carry the
+/// workout's story and so takes a longer list including active energy.
 enum WorkoutShareMetricsBuilder {
     static func metrics(for presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> [WorkoutShareMetric] {
         // The bottom-left row. Distance and duration live in the card's header (the
@@ -41,21 +43,40 @@ enum WorkoutShareMetricsBuilder {
     /// a header. Distance, rate, and time lead; elevation/avg HR only fill slots the
     /// workout couldn't (a distance-less or rate-less type), never push those out.
     static func centeredMetrics(for presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> [WorkoutShareMetric] {
-        let distance: WorkoutShareMetric?
-        if let heroValue = presentation.heroDistanceValue, let heroUnit = presentation.heroDistanceUnit {
-            distance = WorkoutShareMetric(title: String(localized: "Distance"), value: heroValue + " " + heroUnit)
-        } else {
-            distance = distanceTileMetric(presentation: presentation)
-        }
-
         let candidates: [WorkoutShareMetric?] = [
-            distance,
+            blockDistanceMetric(presentation: presentation),
             shortRateMetric(presentation: presentation, type: type),
             WorkoutShareMetric(title: String(localized: "Time"), value: presentation.durationClockText),
             elevationMetric(presentation: presentation, type: type),
             averageHeartRateMetric(presentation: presentation)
         ]
         return Array(candidates.compactMap { $0 }.prefix(3))
+    }
+
+    /// Up to 4 metrics for the route-less card. Same block-style selection as
+    /// `centeredMetrics`, one slot longer and with active energy joining the list: with
+    /// no trace and no header, the stack is all the card says about the workout, and an
+    /// indoor workout (strength, yoga, HIIT) often has no distance or rate to fill it.
+    static func routelessMetrics(for presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> [WorkoutShareMetric] {
+        let candidates: [WorkoutShareMetric?] = [
+            blockDistanceMetric(presentation: presentation),
+            shortRateMetric(presentation: presentation, type: type),
+            WorkoutShareMetric(title: String(localized: "Time"), value: presentation.durationClockText),
+            activeEnergyMetric(presentation: presentation),
+            elevationMetric(presentation: presentation, type: type),
+            averageHeartRateMetric(presentation: presentation)
+        ]
+        return Array(candidates.compactMap { $0 }.prefix(4))
+    }
+
+    /// Distance as a label-over-value block: the hero value + unit when the type
+    /// promotes distance, otherwise the Details `.distance` tile. Shared by the two
+    /// block layouts, which read distance out of the stack rather than a header.
+    private static func blockDistanceMetric(presentation: WorkoutDetailPresentation) -> WorkoutShareMetric? {
+        if let heroValue = presentation.heroDistanceValue, let heroUnit = presentation.heroDistanceUnit {
+            return WorkoutShareMetric(title: String(localized: "Distance"), value: heroValue + " " + heroUnit)
+        }
+        return distanceTileMetric(presentation: presentation)
     }
 
     /// The Details `.distance` tile, for workouts that don't promote distance to the
@@ -118,6 +139,18 @@ enum WorkoutShareMetricsBuilder {
         default:
             return false
         }
+    }
+
+    /// Active energy, titled from the `.activeEnergy` tile so kJ users and every
+    /// locale get the tile's own wording ("Active kcal"/"Active kJ") with no second
+    /// string to keep in sync. The value comes from the presentation, not the tile:
+    /// the tile is always present and reads "No Data" when the workout recorded no
+    /// energy, which must never land on a shared image.
+    private static func activeEnergyMetric(presentation: WorkoutDetailPresentation) -> WorkoutShareMetric? {
+        guard let value = presentation.activeEnergyText, let energyTile = tile(.activeEnergy, in: presentation) else {
+            return nil
+        }
+        return WorkoutShareMetric(title: energyTile.title, value: value)
     }
 
     private static func averageHeartRateMetric(presentation: WorkoutDetailPresentation) -> WorkoutShareMetric? {
@@ -264,10 +297,13 @@ enum BodyWorkoutShareBackgroundChoice: Equatable {
     }
 
     /// Midnight when nothing (or something invalid, including a retired preset) is
-    /// stored; the map only ever comes back from an explicit "map" pick.
-    static func stored(rawValue: String?) -> BodyWorkoutShareBackgroundChoice {
+    /// stored; the map only ever comes back from an explicit "map" pick — and only
+    /// when there's a route to map. A route-less workout resolves a stored "map" to
+    /// Midnight for the session without rewriting the key, so the next routed share
+    /// still opens on the map (the same session-only fallback a failed snapshot takes).
+    static func stored(rawValue: String?, hasRoute: Bool) -> BodyWorkoutShareBackgroundChoice {
         guard let rawValue else { return .preset(.midnight) }
-        if rawValue == mapRawValue { return .map }
+        if rawValue == mapRawValue { return hasRoute ? .map : .preset(.midnight) }
         guard let preset = BodyWorkoutSharePreset(rawValue: rawValue) else { return .preset(.midnight) }
         return .preset(preset)
     }

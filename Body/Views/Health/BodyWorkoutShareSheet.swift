@@ -2,13 +2,15 @@
 //  BodyWorkoutShareSheet.swift
 //  Body
 //
-//  Preview-and-share flow for a workout's route image. Presents the 360×640 card
+//  Preview-and-share flow for a workout's image. Presents the 360×640 card
 //  scaled to fit, a background strip (free gradient presets + a free route-map
 //  tile + a Pro-gated photo tile), and Save/Share actions that rasterize the card
 //  via `ImageRenderer` and hand the 1080×1920 image to the photo library or the
 //  system share sheet. On a photo background the preview also drives the card's info
 //  block: drag to move it, pinch to resize, double-tap to reset — session-only, and
-//  the same transform feeds the export so the image matches the preview.
+//  the same transform feeds the export so the image matches the preview. The route is
+//  optional: a workout without one (indoor, strength, yoga…) shares the same flow with
+//  the map tile dropped and the card's route-less layout in place of the trace.
 //
 
 import SwiftUI
@@ -20,7 +22,7 @@ import UIKit
 
 struct BodyWorkoutShareSheet: View {
     let workout: WorkoutSummary
-    let route: WorkoutRoute
+    let route: WorkoutRoute?
     let presentation: WorkoutDetailPresentation
 
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
@@ -61,20 +63,27 @@ struct BodyWorkoutShareSheet: View {
     private let centeredMetrics: [WorkoutShareMetric]
     private let routePoints: [CGPoint]?
 
-    init(workout: WorkoutSummary, route: WorkoutRoute, presentation: WorkoutDetailPresentation) {
+    init(workout: WorkoutSummary, route: WorkoutRoute?, presentation: WorkoutDetailPresentation) {
         self.workout = workout
         self.route = route
         self.presentation = presentation
-        self.metrics = WorkoutShareMetricsBuilder.metrics(for: presentation, type: workout.type)
-        self.centeredMetrics = WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type)
-        self.routePoints = WorkoutShareRouteProjection.normalizedPoints(for: route.coordinates)
+        // A route-less workout only ever draws the block layout, and draws it from its
+        // own, longer selection — the classic row is unreachable, so it stays empty.
+        self.metrics = route == nil ? [] : WorkoutShareMetricsBuilder.metrics(for: presentation, type: workout.type)
+        self.centeredMetrics = route == nil
+            ? WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: workout.type)
+            : WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type)
+        self.routePoints = route.flatMap { WorkoutShareRouteProjection.normalizedPoints(for: $0.coordinates) }
     }
 
     private var isProUnlocked: Bool { proStore?.isPro == true }
 
-    /// What the sheet restores on open — the map unless a preset was last picked.
+    private var hasRoute: Bool { route != nil }
+
+    /// What the sheet restores on open — the map unless a preset was last picked, and
+    /// never the map without a route to draw.
     private var selectedChoice: BodyWorkoutShareBackgroundChoice {
-        BodyWorkoutShareBackgroundChoice.stored(rawValue: storedBackground)
+        BodyWorkoutShareBackgroundChoice.stored(rawValue: storedBackground, hasRoute: hasRoute)
     }
 
     /// The persisted choice is not the same thing as what's on screen: a session-only
@@ -87,6 +96,9 @@ struct BodyWorkoutShareSheet: View {
         case preset(BodyWorkoutSharePreset)
     }
 
+    /// `.map` is unreachable without a route: `selectedChoice` already resolves a
+    /// stored map to Midnight there, so the layout, the busy state, and the opening
+    /// map load all fall out of this one property with no route-less branching.
     private var activeSelection: ActiveSelection {
         if renderablePhoto != nil { return .photo }
         if case .preset(let preset) = selectedChoice { return .preset(preset) }
@@ -127,8 +139,10 @@ struct BodyWorkoutShareSheet: View {
     /// `activeBackground`: while a map snapshot loads, the background reports Midnight,
     /// and deriving from it would flash the centered layout before the map lands. A
     /// *failed* map load is the other way around — the selection itself becomes the
-    /// Midnight preset, which is centered on purpose.
+    /// Midnight preset, which is centered on purpose. Without a route no background
+    /// changes the answer: the route-less layout is the only one that fits.
     private var cardLayout: WorkoutShareCardLayout {
+        guard hasRoute else { return .routeless }
         switch activeSelection {
         case .preset, .photo: return .centered
         case .map: return .classic
@@ -163,7 +177,7 @@ struct BodyWorkoutShareSheet: View {
             metrics: metrics,
             centeredMetrics: centeredMetrics,
             routePoints: routePoints,
-            locality: route.locality,
+            locality: route?.locality,
             type: workout.type,
             background: activeBackground,
             layout: cardLayout,
@@ -416,7 +430,10 @@ struct BodyWorkoutShareSheet: View {
                     ForEach(BodyWorkoutSharePreset.allCases) { preset in
                         presetSwatch(preset)
                     }
-                    mapTile
+                    // Nothing to snapshot without a route, so the tile isn't offered.
+                    if hasRoute {
+                        mapTile
+                    }
                     photoTile
                 }
                 .padding(.vertical, 2)
@@ -687,6 +704,10 @@ struct BodyWorkoutShareSheet: View {
 
     @MainActor
     private func loadMapSnapshot(isUserInitiated: Bool) async {
+        // Before the flag, not after: a route-less sheet has no map to load, and
+        // flipping `isLoadingMap` for a call that can't finish one would be enough
+        // to leave Save/Share disabled.
+        guard let route else { return }
         isLoadingMap = true
         defer { isLoadingMap = false }
 

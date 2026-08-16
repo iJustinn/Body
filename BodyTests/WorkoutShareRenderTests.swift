@@ -3,7 +3,7 @@
 //  BodyTests
 //
 //  Smoke test for the share card's rasterization: proves `ImageRenderer` produces a
-//  non-nil, exactly-1080×1920-px image for both layouts and that the route Canvas
+//  non-nil, exactly-1080×1920-px image for all three layouts and that the route Canvas
 //  actually draws (route-blue pixels appear over a dark preset). Not a snapshot test.
 //
 
@@ -41,15 +41,19 @@ final class WorkoutShareRenderTests: XCTestCase {
 
     private func makeRenderer(
         layout: WorkoutShareCardLayout = .centered,
-        infoTransform: WorkoutShareInfoTransform = .identity
+        infoTransform: WorkoutShareInfoTransform = .identity,
+        withRoute: Bool = true
     ) -> ImageRenderer<some View> {
         let workout = fixtureWorkout()
         let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
+        let isRouteless = layout == .routeless
         let card = BodyWorkoutShareCardView(
             presentation: presentation,
-            metrics: WorkoutShareMetricsBuilder.metrics(for: presentation, type: workout.type),
-            centeredMetrics: WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type),
-            routePoints: WorkoutShareRouteProjection.normalizedPoints(for: fixtureCoordinates()),
+            metrics: isRouteless ? [] : WorkoutShareMetricsBuilder.metrics(for: presentation, type: workout.type),
+            centeredMetrics: isRouteless
+                ? WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: workout.type)
+                : WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type),
+            routePoints: withRoute ? WorkoutShareRouteProjection.normalizedPoints(for: fixtureCoordinates()) : nil,
             locality: "Cupertino",
             type: workout.type,
             background: .preset(.midnight),
@@ -86,6 +90,47 @@ final class WorkoutShareRenderTests: XCTestCase {
 
         XCTAssertEqual(cgImage.width, 1_080)
         XCTAssertEqual(cgImage.height, 1_920)
+    }
+
+    /// The route-less layout is a third view tree (glyph + metric stack, no header, no
+    /// trace) — same reasoning as the classic layout's own size test above.
+    func testRoutelessLayoutRendersToExactPixelSize() throws {
+        let renderer = makeRenderer(layout: .routeless, withRoute: false)
+        let image = try XCTUnwrap(renderer.uiImage, "ImageRenderer produced no image")
+        let cgImage = try XCTUnwrap(image.cgImage, "Rendered image had no backing CGImage")
+
+        XCTAssertEqual(cgImage.width, 1_080)
+        XCTAssertEqual(cgImage.height, 1_920)
+    }
+
+    /// The route-less card's only identity is the workout-type SF Symbol drawn above the
+    /// metric stack. The fixture (running, with energy recorded) produces 4 metrics, so
+    /// the glyph+stack block is centered at card y 320 the same way the plan's geometry
+    /// describes. Rather than pin the glyph's exact frame (a layout tweak would silently
+    /// break that), this samples a generous band above the stack's vertical center and
+    /// just requires it isn't empty — the flat black Midnight background otherwise makes
+    /// any non-black pixel proof the glyph rasterized.
+    func testRoutelessGlyphAreaRasterizesOverDarkPreset() throws {
+        let renderer = makeRenderer(layout: .routeless, withRoute: false)
+        let image = try XCTUnwrap(renderer.uiImage)
+        let cgImage = try XCTUnwrap(image.cgImage)
+
+        let scale: CGFloat = 3
+        // Card points: x 150–210 is centered on the 360 pt card; y 100–260 covers the
+        // upper-center band above the metric stack's y 320 anchor, generous enough to
+        // catch the glyph regardless of the exact block height for 4 metrics.
+        let region = CGRect(x: 150, y: 100, width: 60, height: 160)
+        let pixelRegion = CGRect(
+            x: region.minX * scale,
+            y: region.minY * scale,
+            width: region.width * scale,
+            height: region.height * scale
+        ).intersection(CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
+
+        XCTAssertTrue(
+            Self.containsNonBlackPixel(in: cgImage, region: pixelRegion),
+            "Glyph area over Midnight had no non-black pixels — the type symbol did not rasterize"
+        )
     }
 
     func testRouteAreaRasterizesOverDarkPreset() throws {
@@ -167,6 +212,39 @@ final class WorkoutShareRenderTests: XCTestCase {
             for x in Int(region.minX)..<Int(region.maxX) {
                 let offset = y * bytesPerRow + x * 4
                 if pixels[offset + 2] > 180, pixels[offset] < 90, pixels[offset + 1] < 120 {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /// Draws the CGImage into an RGBA8 buffer and scans `region` for any pixel that
+    /// isn't Midnight's flat black background — a loose check for "something drew here"
+    /// rather than a match on any particular color.
+    private static func containsNonBlackPixel(in cgImage: CGImage, region: CGRect) -> Bool {
+        let width = cgImage.width
+        let height = cgImage.height
+        let bytesPerRow = width * 4
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return false
+        }
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        for y in Int(region.minY)..<Int(region.maxY) {
+            for x in Int(region.minX)..<Int(region.maxX) {
+                let offset = y * bytesPerRow + x * 4
+                if pixels[offset] > 10 || pixels[offset + 1] > 10 || pixels[offset + 2] > 10 {
                     return true
                 }
             }

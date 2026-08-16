@@ -73,8 +73,18 @@ extension HealthKitFetchEngine {
         }
 
         func coordinate(at index: Int) -> RouteCoordinate {
-            let point = locations[index].coordinate
-            return RouteCoordinate(latitude: point.latitude, longitude: point.longitude, speed: speed(at: index))
+            let location = locations[index]
+            let point = location.coordinate
+            // CoreLocation flags a fix with no usable vertical solution by making
+            // `verticalAccuracy` negative — its `altitude` is then meaningless, so
+            // it reads as "missing" rather than as sea level.
+            let altitude = (location.verticalAccuracy >= 0 && location.altitude.isFinite) ? location.altitude : nil
+            return RouteCoordinate(
+                latitude: point.latitude,
+                longitude: point.longitude,
+                speed: speed(at: index),
+                altitude: altitude
+            )
         }
 
         guard locations.count > maxRoutePoints else {

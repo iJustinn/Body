@@ -5,10 +5,12 @@
 //  The 360×640 pt share card, exported at `ImageRenderer.scale = 3` → 1080×1920 px.
 //  Purely value-driven and environment-independent: every color, size, and weight
 //  is explicit so the rendered image looks identical no matter what environment
-//  `ImageRenderer` runs it under. Two layouts: `.classic` (map background only)
+//  `ImageRenderer` runs it under. Three layouts: `.classic` (map background only)
 //  mirrors the detail page — identity left, big distance + duration right, route
 //  trace centered, metrics row along the bottom; `.centered` (gradient presets and
-//  photos) drops the header for a column of label-over-value blocks under the trace.
+//  photos) drops the header for a column of label-over-value blocks under the trace;
+//  `.routeless` (a workout with no GPS route) has no trace to show, so the workout
+//  type's symbol stands in as the card's only identity above that same column.
 //  On photo backgrounds the centered layout's info block (trace + stack, never the
 //  pinned branding) is repositionable and resizable: the placement arrives as an
 //  `infoTransform` the sheet's gestures drive, and is `.identity` everywhere else.
@@ -30,6 +32,10 @@ enum WorkoutShareCardBackground {
 enum WorkoutShareCardLayout {
     case classic
     case centered
+    /// Explicit rather than "`.centered` with no route points": a route that projects
+    /// to nothing (GPS jitter on a treadmill) still gets the plain centered stack, and
+    /// only a workout with no route at all earns the type symbol above it.
+    case routeless
 }
 
 struct BodyWorkoutShareCardView: View {
@@ -65,9 +71,12 @@ struct BodyWorkoutShareCardView: View {
     /// its pace coloring and the marker rings stay white.
     private static let routeColor = Color(red: 1 / 255, green: 40 / 255, blue: 244 / 255)
 
+    /// `.routeless` never traces, whatever it's handed: making that a property of the
+    /// layout (rather than of the caller passing `routePoints: nil`) also fixes
+    /// `blockAnchor` at `.center`, which is the placement the glyph + stack want.
     private var showsTrace: Bool {
         if case .map = background { return false }
-        return routePoints != nil
+        return layout != .routeless && routePoints != nil
     }
 
     var body: some View {
@@ -87,7 +96,7 @@ struct BodyWorkoutShareCardView: View {
                         .position(x: Self.cardSize.width / 2, y: 375)
                 }
                 content
-            case .centered:
+            case .centered, .routeless:
                 centeredContent
             }
         }
@@ -310,21 +319,33 @@ struct BodyWorkoutShareCardView: View {
             // Trace and stack move and resize together as one block; the branding
             // stays pinned to the card's bottom whatever the transform is.
             ZStack {
-                if showsTrace {
-                    routeHero
-                        .frame(width: Self.centeredRouteSize, height: Self.centeredRouteSize)
-                        .position(Self.centeredRouteCenter)
-                        .accessibilityHidden(true)
-                }
-
-                centeredMetricsStack
+                if layout == .routeless {
+                    // Glyph and stack are one flowing block, not two absolute slots:
+                    // the metric count varies from one to four here, and the pair
+                    // stays visually centered together at any of them.
+                    VStack(spacing: 28) {
+                        typeGlyph
+                        centeredMetricsStack
+                    }
                     .frame(width: Self.cardSize.width - 48)
-                    // Traceless cards have nothing above the stack, so it centers in the
-                    // whole card — the same fallback the classic layout's metrics take.
-                    .position(
-                        x: Self.cardSize.width / 2,
-                        y: showsTrace ? Self.centeredMetricsCenterY : Self.cardSize.height / 2
-                    )
+                    .position(x: Self.cardSize.width / 2, y: Self.cardSize.height / 2)
+                } else {
+                    if showsTrace {
+                        routeHero
+                            .frame(width: Self.centeredRouteSize, height: Self.centeredRouteSize)
+                            .position(Self.centeredRouteCenter)
+                            .accessibilityHidden(true)
+                    }
+
+                    centeredMetricsStack
+                        .frame(width: Self.cardSize.width - 48)
+                        // Traceless cards have nothing above the stack, so it centers in the
+                        // whole card — the same fallback the classic layout's metrics take.
+                        .position(
+                            x: Self.cardSize.width / 2,
+                            y: showsTrace ? Self.centeredMetricsCenterY : Self.cardSize.height / 2
+                        )
+                }
             }
             // Explicitly card-sized so the `.position` calls above keep resolving
             // against the full card once the block is scaled and offset.
@@ -345,6 +366,18 @@ struct BodyWorkoutShareCardView: View {
         guard showsTrace else { return .center }
         let blockCenterY = (Self.centeredRouteCenter.y + Self.centeredMetricsCenterY) / 2
         return UnitPoint(x: 0.5, y: blockCenterY / Self.cardSize.height)
+    }
+
+    /// The route-less card's only identity — no chip, no title, no date — so it keeps
+    /// its accessibility label rather than being decorative like the classic layout's
+    /// chip (which sits beside the workout's title anyway).
+    private var typeGlyph: some View {
+        Image(systemName: type.symbolName)
+            .font(.system(size: 56, weight: .semibold))
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+            .accessibilityLabel(Text(type.displayName))
     }
 
     private var centeredMetricsStack: some View {
@@ -392,10 +425,15 @@ private func previewCard(
             speed: 3
         )
     }
+    let isRouteless = layout == .routeless
     return BodyWorkoutShareCardView(
         presentation: presentation,
-        metrics: WorkoutShareMetricsBuilder.metrics(for: presentation, type: workout.type),
-        centeredMetrics: WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type),
+        // The route-less card never draws the classic row, and takes its own,
+        // longer selection for the block stack — the sheet feeds it the same way.
+        metrics: isRouteless ? [] : WorkoutShareMetricsBuilder.metrics(for: presentation, type: workout.type),
+        centeredMetrics: isRouteless
+            ? WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: workout.type)
+            : WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type),
         routePoints: withRoute ? WorkoutShareRouteProjection.normalizedPoints(for: coordinates) : nil,
         locality: "Cupertino",
         type: .running,
@@ -421,6 +459,10 @@ private func previewCard(
 
 #Preview("Centered - no route") {
     previewCard(layout: .centered, withRoute: false)
+}
+
+#Preview("Routeless") {
+    previewCard(layout: .routeless, withRoute: false)
 }
 
 #Preview("Classic") {

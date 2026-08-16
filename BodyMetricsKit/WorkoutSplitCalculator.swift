@@ -284,7 +284,7 @@ struct WorkoutSplitsPresentation: Equatable {
         let accessibilityLabel: String
     }
 
-    let unitHeaderText: String         // "KM" / "MI" (localized), the segment column
+    let unitHeaderText: String         // "km" / "mi" (localized), the segment column
     let valueHeaderText: String        // "Pace" / "Speed" (localized)
     let heartRateHeaderText: String    // "Avg HR" (localized)
     let cadenceHeaderText: String      // "Step Cadence" (localized)
@@ -321,8 +321,8 @@ struct WorkoutSplitsPresentation: Equatable {
         let unitMeters = useMiles ? 1_609.344 : 1_000.0
 
         unitHeaderText = useMiles
-            ? String(localized: "MI", table: "BodyMetricsKit")
-            : String(localized: "KM", table: "BodyMetricsKit")
+            ? String(localized: "mi", table: "BodyMetricsKit")
+            : String(localized: "km", table: "BodyMetricsKit")
         valueHeaderText = paceStyle == .speed
             ? String(localized: "Speed", table: "BodyMetricsKit")
             : String(localized: "Pace", table: "BodyMetricsKit")
