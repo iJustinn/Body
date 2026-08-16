@@ -323,6 +323,12 @@ final class ProjectConfigurationTests: XCTestCase {
         let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
         XCTAssertTrue(workoutsSource.contains("case .threeD:"))
         XCTAssertTrue(workoutsSource.contains("BodyWorkoutRoute3DHero("))
+        // The 3D hero rotates with a horizontal swipe on the tap gap, driven through an
+        // observable so a drag frame redraws the hero rather than the whole sheet.
+        XCTAssertTrue(workoutsSource.contains("routeYawRadiansPerPoint"))
+        XCTAssertTrue(workoutsSource.contains("BodyWorkoutRouteYawState"))
+        // A rotation swipe's release must not double as a tap that opens the map.
+        XCTAssertTrue(workoutsSource.contains("guard !routeYawState.isSwiping else { return }"))
 
         let routeHeroSource = try text(at: "Body/Views/Health/BodyWorkoutRouteMapHero.swift")
         XCTAssertTrue(routeHeroSource.contains("sizeFactor: CGFloat = 0.9"))
@@ -640,7 +646,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(source.contains("Activity Heart Rate"))
     }
 
-    func testLowHeartRateWarningIsWiredIntoHomeCardAndDetail() throws {
+    func testMetricWarningsAreWiredIntoHomeCardsAndDetail() throws {
         let homeSource = try text(at: "Body/Views/BodyHomeView.swift")
         let heartRateCardStart = try XCTUnwrap(homeSource.range(of: "kind: .heartRate,")?.lowerBound)
         let heartRateCardEnd = try XCTUnwrap(
@@ -648,6 +654,13 @@ final class ProjectConfigurationTests: XCTestCase {
         )
         let heartRateCardBlock = String(homeSource[heartRateCardStart..<heartRateCardEnd])
         XCTAssertTrue(heartRateCardBlock.contains("warningSymbolName:"))
+
+        let oxygenCardStart = try XCTUnwrap(homeSource.range(of: "kind: .oxygenSaturation,")?.lowerBound)
+        let oxygenCardEnd = try XCTUnwrap(
+            homeSource.range(of: "kind: .", range: homeSource.index(after: oxygenCardStart)..<homeSource.endIndex)?.lowerBound
+        )
+        let oxygenCardBlock = String(homeSource[oxygenCardStart..<oxygenCardEnd])
+        XCTAssertTrue(oxygenCardBlock.contains("warningSymbolName:"))
 
         let cardSource = try text(at: "Body/Views/Health/BodyHealthMetricCard.swift")
         XCTAssertTrue(cardSource.contains("warningSymbolName"))
@@ -660,12 +673,20 @@ final class ProjectConfigurationTests: XCTestCase {
         let detailBodyBlock = String(detailSource[cardsStart..<cardsEnd])
         let activityAveragesStart = try XCTUnwrap(detailBodyBlock.range(of: "metricActivityAveragesCard")?.lowerBound)
         XCTAssertNotNil(
-            detailBodyBlock.range(of: "lowHeartRateWarningCard", range: activityAveragesStart..<detailBodyBlock.endIndex),
-            "lowHeartRateWarningCard should appear after metricActivityAveragesCard in metricDetailCards"
+            detailBodyBlock.range(of: "metricWarningCards", range: activityAveragesStart..<detailBodyBlock.endIndex),
+            "metricWarningCards should appear after metricActivityAveragesCard in metricDetailCards"
         )
 
-        let kitSource = try text(at: "BodyMetricsKit/LowHeartRateWarning.swift")
-        XCTAssertTrue(kitSource.contains("thresholdBPM: Double = 40"))
+        let kitSource = try text(at: "BodyMetricsKit/MetricThresholdWarning.swift")
+        XCTAssertTrue(kitSource.contains("case .lowHeartRate:\n            return 40"))
+        XCTAssertTrue(kitSource.contains("case .highHeartRate:\n            return 120"))
+        XCTAssertTrue(kitSource.contains("case .lowBloodOxygen:\n            return 90"))
+
+        let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
+        XCTAssertTrue(settingsSource.contains("case metricWarnings"))
+        let warningsRowRange = try XCTUnwrap(settingsSource.range(of: "title: \"Warnings\""))
+        let starMetricRowRange = try XCTUnwrap(settingsSource.range(of: "title: \"Star Metric\""))
+        XCTAssertLessThan(warningsRowRange.lowerBound, starMetricRowRange.lowerBound)
     }
 
     func testReadinessDayViewKindStaysInSyncAcrossLists() throws {
@@ -2031,12 +2052,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.12;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 7;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 8;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.12;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 7;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 8;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2071,10 +2092,14 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.12 (build 7)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.12 (build 8)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
-        XCTAssertTrue(readme.contains("Low Heart Rate warning"))
+        XCTAssertTrue(readme.contains("**Metric warnings**"))
+        XCTAssertTrue(readme.contains("Low Heart Rate"))
+        XCTAssertTrue(readme.contains("High Heart Rate"))
+        XCTAssertTrue(readme.contains("Low Blood Oxygen"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 2)**"))
@@ -2154,6 +2179,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 8)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.12 build 8."))
         XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 7)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.12 build 7."))
         XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 6)"))
@@ -2420,7 +2447,9 @@ final class ProjectConfigurationTests: XCTestCase {
 
         // Workout details open as a full-bleed navigation push (so the tab bar stays
         // visible), the map bleeds under the status bar, and the nav bar is hidden. There
-        // is no close button — the zoom transition's drag-to-dismiss returns to the card.
+        // is no close (✕) button — a top-left glass chevron Back button stands in for the
+        // hidden nav bar's back button instead, alongside the zoom transition's
+        // drag-to-dismiss.
         XCTAssertTrue(workoutsSource.contains(".navigationDestination(item: $selectedWorkoutForDetails) { workout in"))
         XCTAssertTrue(workoutsSource.contains(".navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))"))
         XCTAssertTrue(workoutsSource.contains("async let loadedRoute = workoutStore.loadWorkoutRoute(for: workout)"))
@@ -2433,11 +2462,15 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(workoutsSource.contains(".toolbar(.hidden, for: .navigationBar)"))
         XCTAssertFalse(sheetBlock.contains(#"Image(systemName: "xmark")"#))
         XCTAssertFalse(sheetBlock.contains("private var closeButton"))
-        XCTAssertFalse(sheetBlock.contains("@Environment(\\.dismiss) private var dismiss"))
+        // The detail now has a glass Back button top-left (chevron, not an ✕ close
+        // button), so `dismiss` drives it instead of being absent.
+        XCTAssertTrue(sheetBlock.contains("@Environment(\\.dismiss) private var dismiss"))
         XCTAssertFalse(sheetBlock.contains("distanceMeters ?? 0"))
         XCTAssertFalse(workoutsSource.contains(".fullScreenCover(item: $selectedWorkoutForDetails)"))
         XCTAssertFalse(workoutsSource.contains("selectedDetent"))
         XCTAssertFalse(sheetBlock.contains(".presentationDetents"))
+        XCTAssertTrue(workoutsSource.contains(#"Image(systemName: "chevron.backward")"#))
+        XCTAssertTrue(workoutsSource.contains(".modifier(BodyWorkoutBackButtonBackground())"))
     }
 
     func testActivityAverageRowsRollTheirNumbersOnADaySwitch() throws {
@@ -2448,16 +2481,22 @@ final class ProjectConfigurationTests: XCTestCase {
         )
         let rowBlock = String(source[rowStart..<rowEnd])
 
-        // Rows are keyed by activity + ordinal, never by date: a date-keyed row would be
-        // replaced on a day switch and the numbers could only pop in.
-        XCTAssertTrue(source.contains("private func dayStableActivityAverageRows("))
-        XCTAssertTrue(source.contains(#"return (id: "\(row.activity.id)-\(occurrence)", row: row)"#))
-        XCTAssertTrue(source.contains("ForEach(Array(identifiedRows.enumerated()), id: \\.element.id)"))
+        // Rows are keyed by position, never by activity or date: either of those is
+        // replaced the moment the day's activities differ, and then the icon, the name,
+        // and the numbers could only pop in.
+        XCTAssertFalse(source.contains("private func dayStableActivityAverageRows("))
+        XCTAssertTrue(source.contains("ForEach(Array(rows.enumerated()), id: \\.offset)"))
 
         XCTAssertTrue(rowBlock.contains(".bodyLegendNumberFlip(value: valueText)"))
         XCTAssertTrue(rowBlock.contains(".bodyLegendNumberFlip(value: timeRangeText)"))
-        // The source name is a word, so it crossfades instead.
+        // A symbol `Image` ignores `contentTransition`, so the icon crossfades by
+        // overlaying the outgoing and incoming glyphs in the tile instead.
+        XCTAssertTrue(rowBlock.contains(".transition(.opacity)"))
+        XCTAssertTrue(rowBlock.contains(".id(row.symbolName)"))
+        XCTAssertTrue(rowBlock.contains("value: row.activity.id"))
+        // The activity name and the source name are words, so they crossfade instead.
         XCTAssertTrue(rowBlock.contains(".contentTransition(reduceMotion ? .identity : .opacity)"))
+        XCTAssertTrue(rowBlock.contains("value: row.title"))
         XCTAssertTrue(rowBlock.contains("value: source)"))
     }
 
@@ -2542,7 +2581,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.12 build 7)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.12 build 8)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.12 build 7)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 6)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 3)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 2)"))
@@ -2580,6 +2620,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(testPlan.contains("sync status badge"))
         XCTAssertTrue(testPlan.contains("Energy by Activity"))
         XCTAssertTrue(testPlan.contains("Low Heart Rate"))
+        XCTAssertTrue(testPlan.contains("High Heart Rate"))
+        XCTAssertTrue(testPlan.contains("Low Blood Oxygen"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.9`"))
         XCTAssertFalse(testPlan.contains("app version 0.9.9 build 13)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.9 build 12)"))
@@ -3275,7 +3317,7 @@ final class ProjectConfigurationTests: XCTestCase {
             "Body/Views/BodyHomeView.swift",
             "Body/Views/Health/BodyHealthMetricCard.swift",
             "Body/Views/Health/BodyHealthMetricDetailView.swift",
-            "Body/Views/Health/BodyLowHeartRateWarningCard.swift",
+            "Body/Views/Health/BodyMetricWarningCard.swift",
             "Body/Views/Health/BodyHealthDataSourcePickerSheet.swift",
             "Body/Views/Health/BodyHomeTrendCard.swift",
             "Body/Views/Health/BodyHealthNoticeBanner.swift",
