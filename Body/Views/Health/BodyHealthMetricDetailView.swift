@@ -408,6 +408,7 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = true
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
     @State private var selectedTrendRangeSelection: BodyHealthTrendRange
     @State private var showBodyProPaywall = false
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
@@ -505,11 +506,13 @@ struct BodyHealthMetricDetailView: View {
             await workoutStore.loadIntradayMetricSamplesIfNeeded(model.kind)
         }
         .task(id: selectedMetricDay) {
-            // The readiness day view derives its line from workouts, which live in
-            // month snapshots grouped by start-date month — an older picker day (or a
-            // midnight-spanning workout from the day before) can sit in an unloaded
-            // month. `loadMonthIfNeeded` is a cached no-op once the month is in.
-            guard model.kind == .readiness else { return }
+            // The readiness day view derives its line from workouts, and the heart
+            // rate day view excludes workout samples from the high heart rate
+            // warning. Workouts live in month snapshots grouped by start-date month —
+            // an older picker day (or a midnight-spanning workout from the day
+            // before) can sit in an unloaded month. `loadMonthIfNeeded` is a cached
+            // no-op once the month is in.
+            guard model.kind == .readiness || model.kind == .heartRate else { return }
             let calendar = Calendar.bodyGregorian
             let dayStart = calendar.startOfDay(for: selectedMetricDay)
             let previousDay = calendar.date(byAdding: .day, value: -1, to: dayStart) ?? dayStart
@@ -860,12 +863,35 @@ struct BodyHealthMetricDetailView: View {
         return daySeriesCache.daySeries(from: liveSecondaryDaySeries, on: selectedMetricDay, slot: .secondary)
     }
 
-    private var selectedLowHeartRateEvent: LowHeartRateEvent? {
-        guard model.kind == .heartRate else {
-            return nil
+    private var selectedMetricWarnings: [MetricWarningEvent] {
+        let selection = BodyMetricWarningSelection.storedValue(from: metricWarningSelectionRawValue)
+        // Kinds that exclude in-workout readings need workout coverage; with the
+        // Workouts permission off the cached workouts are cleared, so an empty
+        // exclusion list would misreport workout heart rate as an inactive high.
+        let hasWorkoutCoverage = workoutStore.permissionSelection.includes(.workouts)
+        let kinds = MetricThresholdWarning.kinds(for: model.kind).filter {
+            selection.includes($0) && (!$0.excludesWorkouts || hasWorkoutCoverage)
+        }
+        guard !kinds.isEmpty else {
+            return []
         }
 
-        return LowHeartRateWarning.detect(in: selectedMetricDaySeries, on: selectedMetricDay)
+        // Apple's high heart rate notification only counts inactive readings, so
+        // the day's workouts are dropped from the samples for those kinds.
+        let workoutIntervals: [DateInterval] = kinds.contains(where: \.excludesWorkouts)
+            ? workouts(on: selectedMetricDayInterval).map { workout in
+                DateInterval(start: workout.startDate, end: max(workout.startDate, workout.effectiveEndDate))
+            }
+            : []
+
+        return kinds.compactMap { kind in
+            MetricThresholdWarning.detect(
+                kind,
+                in: selectedMetricDaySeries,
+                on: selectedMetricDay,
+                excluding: kind.excludesWorkouts ? workoutIntervals : []
+            )
+        }
     }
 
     private var selectedMetricActivityAverages: [BodyMetricActivityAverage] {
@@ -1429,11 +1455,11 @@ struct BodyHealthMetricDetailView: View {
                 metricDatePicker
                 metricDayChartCard
                 metricActivityAveragesCard
-                lowHeartRateWarningCard
+                metricWarningCards
                 detailTrendComparisonCard
             } else {
                 detailTrendComparisonCard
-                lowHeartRateWarningCard
+                metricWarningCards
             }
             if isBasicsDetail {
                 bodyMassIndexTrendCard
@@ -1936,11 +1962,11 @@ struct BodyHealthMetricDetailView: View {
     }
 
     @ViewBuilder
-    private var lowHeartRateWarningCard: some View {
-        if let event = selectedLowHeartRateEvent {
-            let window = LowHeartRateWarning.chartWindow(for: event, clampedTo: selectedMetricDayInterval)
+    private var metricWarningCards: some View {
+        ForEach(selectedMetricWarnings, id: \.kind) { event in
+            let window = MetricThresholdWarning.chartWindow(for: event, clampedTo: selectedMetricDayInterval)
 
-            BodyLowHeartRateWarningCard(
+            BodyMetricWarningCard(
                 event: event,
                 samples: selectedMetricDaySeries.points.filter { window.contains($0.date) },
                 window: window,
@@ -1966,22 +1992,27 @@ struct BodyHealthMetricDetailView: View {
                         .foregroundColor(.secondary)
                         .frame(maxWidth: .infinity, minHeight: 88, alignment: .center)
                 } else {
-                    // Identity is the activity and its ordinal among same-activity rows,
-                    // never the row's dates: the Sleep row on one day has to *become* the
-                    // Sleep row on the next so its numbers roll over in place, where a
-                    // date-keyed row would be torn down and replaced.
-                    let identifiedRows = dayStableActivityAverageRows(rows)
-
+                    // Identity is the row's position, never its activity or dates: the
+                    // first row on one day has to *become* the first row on the next so
+                    // its icon crossfades and its numbers roll over in place, where an
+                    // activity- or date-keyed row would be torn down and replaced the
+                    // moment the day's activities differ.
                     VStack(spacing: 0) {
-                        ForEach(Array(identifiedRows.enumerated()), id: \.element.id) { index, entry in
-                            metricActivityAverageRow(entry.row)
+                        ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                            metricActivityAverageRow(row)
 
-                            if index < identifiedRows.count - 1 {
+                            if index < rows.count - 1 {
                                 Divider()
                                     .padding(.leading, 50)
                             }
                         }
                     }
+                    // Only rows added or dropped at the end change the count; the ones
+                    // that stay morph through their own animations above.
+                    .animation(
+                        reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0),
+                        value: rows.count
+                    )
                 }
             }
             .padding(18)
@@ -2016,45 +2047,37 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
-    /// The rows paired with day-stable ids: the same activity in the same position keeps
-    /// its id across a day switch, while the ordinal keeps two workouts of one type on the
-    /// same day distinct.
-    private func dayStableActivityAverageRows(
-        _ rows: [BodyMetricActivityAverage]
-    ) -> [(id: String, row: BodyMetricActivityAverage)] {
-        var occurrences: [String: Int] = [:]
-        return rows.map { row in
-            let occurrence = occurrences[row.activity.id, default: 0]
-            occurrences[row.activity.id] = occurrence + 1
-            return (id: "\(row.activity.id)-\(occurrence)", row: row)
-        }
-    }
-
     private func metricActivityAverageRow(_ row: BodyMetricActivityAverage) -> some View {
         let timeRangeText = activityAverageTimeRangeText(for: row)
         let valueText = model.valueFormatter(row.averageValue)
 
         return HStack(spacing: 12) {
-            Image(systemName: row.symbolName)
-                .font(.system(size: 17, weight: .bold, design: .rounded))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(row.color)
-                .frame(width: 38, height: 38)
-                // Same continuous-corner tile as the Workouts page's workout-card
-                // icons (18 pt radius at 58 pt, scaled to this 38 pt slot).
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(row.color.opacity(0.14))
-                )
-                // A row keeps its identity across a day switch (see
-                // `dayStableActivityAverageRows`), so the glyph and tint of the
-                // activity that replaces it dissolve in rather than cutting.
-                .contentTransition(reduceMotion ? .identity : .opacity)
-                .animation(
-                    reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0),
-                    value: row.activity.id
-                )
-                .accessibilityHidden(true)
+            // The glyph is stacked rather than swapped in place: a symbol `Image`
+            // ignores `contentTransition`, so the outgoing and incoming icons are
+            // two views overlaid in the tile, dissolving into each other without
+            // the row's height twitching.
+            ZStack {
+                Image(systemName: row.symbolName)
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(row.color)
+                    .transition(.opacity)
+                    .id(row.symbolName)
+            }
+            .frame(width: 38, height: 38)
+            // Same continuous-corner tile as the Workouts page's workout-card
+            // icons (18 pt radius at 58 pt, scaled to this 38 pt slot).
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(row.color.opacity(0.14))
+            )
+            // Keyed on the activity, not the glyph, so the tint and its tile also
+            // cross over when two activities happen to share a symbol.
+            .animation(
+                reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0),
+                value: row.activity.id
+            )
+            .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(String(localized: String.LocalizationValue(row.title)))
@@ -2062,6 +2085,13 @@ struct BodyHealthMetricDetailView: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
+                    // A name, like the source below: it crossfades on the same curve
+                    // the icon beside it and the numbers opposite it settle on.
+                    .contentTransition(reduceMotion ? .identity : .opacity)
+                    .animation(
+                        reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0),
+                        value: row.title
+                    )
 
                 Text(timeRangeText)
                     .font(.system(.subheadline, design: .rounded))

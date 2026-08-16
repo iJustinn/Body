@@ -1,27 +1,31 @@
 //
-//  BodyLowHeartRateWarningCard.swift
+//  BodyMetricWarningCard.swift
 //  Body
 //
 
 import Charts
 import SwiftUI
 
-/// Mirrors Apple's "Low Heart Rate" notification on the Heart Rate detail page:
-/// the sentence names the episode's first sub-threshold reading, and the chart
-/// shows the readings around it against the threshold rule.
-struct BodyLowHeartRateWarningCard: View {
-    let event: LowHeartRateEvent
+/// Mirrors Apple's threshold notifications (Low/High Heart Rate, Low Blood
+/// Oxygen) on the metric detail page: the sentence names the episode's first
+/// past-threshold reading, and the chart shows the readings around it against
+/// the threshold rule.
+struct BodyMetricWarningCard: View {
+    let event: MetricWarningEvent
     let samples: [HealthTrendDataPoint]
     let window: DateInterval
     let tint: Color
-    var threshold: Double = LowHeartRateWarning.thresholdBPM
+
+    private var threshold: Double {
+        event.kind.threshold
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 20, weight: .bold))
-                Text("Low Heart Rate")
+                title
                     .font(.system(size: 22, weight: .bold, design: .rounded))
             }
             .foregroundStyle(.yellow)
@@ -41,36 +45,82 @@ struct BodyLowHeartRateWarningCard: View {
         .bodyCardBackground(translucent: true)
     }
 
+    @ViewBuilder
+    private var title: some View {
+        switch event.kind {
+        case .lowHeartRate:
+            Text("Low Heart Rate")
+        case .highHeartRate:
+            Text("High Heart Rate")
+        case .lowBloodOxygen:
+            Text("Low Blood Oxygen")
+        }
+    }
+
     private var sentence: String {
-        String(localized: "Your heart rate fell below \(Int(threshold)) BPM starting at \(timeText(for: event.startDate)).")
+        let time = timeText(for: event.startDate)
+        switch event.kind {
+        case .lowHeartRate:
+            return String(localized: "Your heart rate fell below \(Int(threshold)) BPM starting at \(time).")
+        case .highHeartRate:
+            return String(localized: "Your heart rate rose above \(Int(threshold)) BPM starting at \(time).")
+        case .lowBloodOxygen:
+            return String(localized: "Your blood oxygen fell below \(Int(threshold))% starting at \(time).")
+        }
+    }
+
+    private var ruleLabel: String {
+        switch event.kind {
+        case .lowHeartRate, .highHeartRate:
+            return String(localized: "\(Int(threshold)) BPM")
+        case .lowBloodOxygen:
+            return String(localized: "\(Int(threshold))%")
+        }
+    }
+
+    private var valueLabel: LocalizedStringKey {
+        switch event.kind {
+        case .lowHeartRate, .highHeartRate:
+            return "Heart Rate"
+        case .lowBloodOxygen:
+            return "Blood Oxygen"
+        }
+    }
+
+    private func isPastThreshold(_ value: Double) -> Bool {
+        event.kind.isAbove ? value > threshold : value < threshold
     }
 
     private var chart: some View {
-        Chart {
-            ForEach(samples, id: \.date) { sample in
+        // Sources can stamp two readings at the same instant, so the marks are
+        // keyed by position rather than by date.
+        let indexedSamples = Array(samples.enumerated())
+
+        return Chart {
+            ForEach(indexedSamples, id: \.offset) { _, sample in
                 LineMark(
                     x: .value("Time", sample.date),
-                    y: .value("Heart Rate", sample.value)
+                    y: .value(valueLabel, sample.value)
                 )
                 .interpolationMethod(.linear)
                 .foregroundStyle(tint)
                 .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
             }
 
-            ForEach(samples, id: \.date) { sample in
+            ForEach(indexedSamples, id: \.offset) { _, sample in
                 PointMark(
                     x: .value("Time", sample.date),
-                    y: .value("Heart Rate", sample.value)
+                    y: .value(valueLabel, sample.value)
                 )
                 .symbolSize(28)
-                .foregroundStyle(sample.value < threshold ? Color.yellow : tint)
+                .foregroundStyle(isPastThreshold(sample.value) ? Color.yellow : tint)
             }
 
             RuleMark(y: .value("Threshold", threshold))
                 .foregroundStyle(.yellow)
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                .annotation(position: .top, alignment: .trailing) {
-                    Text(String(localized: "\(Int(threshold)) BPM"))
+                .annotation(position: .top, alignment: .leading) {
+                    Text(ruleLabel)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.yellow)
                 }
@@ -101,8 +151,8 @@ struct BodyLowHeartRateWarningCard: View {
                 AxisTick()
                     .foregroundStyle(Color.secondary.opacity(0.28))
                 AxisValueLabel {
-                    if let bpm = value.as(Double.self) {
-                        Text(bpm.formatted(.number.precision(.fractionLength(0))))
+                    if let metricValue = value.as(Double.self) {
+                        Text(metricValue.formatted(.number.precision(.fractionLength(0))))
                             .font(.system(.caption2, design: .rounded))
                             .foregroundStyle(Color.secondary)
                     }
@@ -114,7 +164,7 @@ struct BodyLowHeartRateWarningCard: View {
 
     private var yDomain: ClosedRange<Double> {
         let values = samples.map(\.value).filter(\.isFinite)
-        let lower = min(30, (values.min() ?? threshold).rounded(.down) - 5)
+        let lower = (min(values.min() ?? threshold, threshold)).rounded(.down) - 5
         let upper = max(values.max() ?? threshold, threshold) + 5
         return lower...max(upper, lower + 1)
     }

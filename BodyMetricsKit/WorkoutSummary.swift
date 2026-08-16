@@ -121,6 +121,16 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     let swimmingStrokeCount: Double?
     let cardioFitnessVO2Max: Double?
     let sourceName: String
+    /// HealthKit's authoritative end. `duration` excludes paused time, so
+    /// `startDate + duration` can land before the workout really ended; optional
+    /// so snapshots persisted before it was recorded decode `nil`.
+    let endDate: Date?
+
+    /// The workout's end for interval maths: HealthKit's `endDate` when recorded,
+    /// otherwise the pre-existing `startDate + duration` approximation.
+    var effectiveEndDate: Date {
+        endDate ?? startDate.addingTimeInterval(max(0, duration))
+    }
 
     init(
         id: UUID = UUID(),
@@ -141,7 +151,8 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         averageCyclingCadenceRPM: Double? = nil,
         swimmingStrokeCount: Double? = nil,
         cardioFitnessVO2Max: Double? = nil,
-        sourceName: String = "Apple Health"
+        sourceName: String = "Apple Health",
+        endDate: Date? = nil
     ) {
         self.id = id
         self.type = type
@@ -162,6 +173,7 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         self.swimmingStrokeCount = swimmingStrokeCount
         self.cardioFitnessVO2Max = cardioFitnessVO2Max
         self.sourceName = sourceName
+        self.endDate = endDate
     }
 
     /// A copy with the Workout Metrics detail fields cleared — used when the user
@@ -189,7 +201,8 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
             averageCyclingCadenceRPM: nil,
             swimmingStrokeCount: nil,
             cardioFitnessVO2Max: nil,
-            sourceName: sourceName
+            sourceName: sourceName,
+            endDate: endDate
         )
     }
 }

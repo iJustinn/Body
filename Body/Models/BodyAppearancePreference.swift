@@ -593,6 +593,72 @@ struct BodyMetricDayViewSelection: Equatable {
     }
 }
 
+/// Which metric threshold warnings surface in the UI. Display only: the
+/// warnings are still detected, so turning one back on needs no refetch.
+struct BodyMetricWarningSelection: Equatable {
+    static let defaultValue = BodyMetricWarningSelection(enabledKinds: Set(MetricWarningKind.allCases))
+    static var defaultRawValue: String {
+        defaultValue.rawValue
+    }
+
+    var enabledKinds: Set<MetricWarningKind>
+
+    var rawValue: String {
+        guard !enabledKinds.isEmpty else {
+            return "none"
+        }
+
+        return MetricWarningKind.allCases
+            .filter { enabledKinds.contains($0) }
+            .map(\.rawValue)
+            .joined(separator: ",")
+    }
+
+    var enabledCount: Int {
+        enabledKinds.count
+    }
+
+    var totalCount: Int {
+        MetricWarningKind.allCases.count
+    }
+
+    func includes(_ kind: MetricWarningKind) -> Bool {
+        enabledKinds.contains(kind)
+    }
+
+    func setting(_ kind: MetricWarningKind, isEnabled: Bool) -> BodyMetricWarningSelection {
+        var nextKinds = enabledKinds
+        if isEnabled {
+            nextKinds.insert(kind)
+        } else {
+            nextKinds.remove(kind)
+        }
+
+        return BodyMetricWarningSelection(enabledKinds: nextKinds)
+    }
+
+    static func storedValue(from rawValue: String) -> BodyMetricWarningSelection {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty else {
+            return defaultValue
+        }
+
+        guard trimmedValue != "none" else {
+            return BodyMetricWarningSelection(enabledKinds: [])
+        }
+
+        let kinds = Set(trimmedValue.split(separator: ",").compactMap {
+            MetricWarningKind(rawValue: String($0))
+        })
+
+        guard !kinds.isEmpty else {
+            return defaultValue
+        }
+
+        return BodyMetricWarningSelection(enabledKinds: kinds)
+    }
+}
+
 struct BodyDashboardFetchSelection: Equatable {
     private static let basicsMetricKinds: Set<HealthMetricKind> = [
         .bodyMass,

@@ -1358,32 +1358,65 @@ actor HealthKitFetchEngine {
         }
     }
 
-    /// Today's earliest sub-threshold heart rate episode, backing the Home
-    /// card's low heart rate badge. A dedicated cheap query — HealthKit filters
-    /// on the threshold itself — so Home never waits for the lazily loaded
-    /// intraday samples. Sample dates match the intraday series (`endDate`).
-    private func fetchTodayLowHeartRateEvent(calendar: Calendar) async -> QueryOutcome<LowHeartRateEvent> {
-        guard let quantityType = HKObjectType.quantityType(forIdentifier: .heartRate) else {
+    /// Today's earliest past-threshold episode for one warning kind, backing the
+    /// Home card's warning badge. A dedicated cheap query — for heart rate
+    /// HealthKit filters on the threshold itself — so Home never waits for the
+    /// lazily loaded intraday samples. Sample dates match the intraday series
+    /// (`endDate`). `intervals` are dropped from detection (today's workouts for
+    /// the high heart rate kind).
+    private func fetchTodayMetricWarning(
+        _ kind: MetricWarningKind,
+        calendar: Calendar,
+        excluding intervals: [DateInterval] = []
+    ) async -> QueryOutcome<MetricWarningEvent> {
+        let identifier: HKQuantityTypeIdentifier
+        let unit: HKUnit
+        let valueTransform: @Sendable (Double) -> Double
+        switch kind.metric {
+        case .heartRate:
+            identifier = .heartRate
+            unit = HKUnit.count().unitDivided(by: .minute())
+            valueTransform = { $0 }
+        case .oxygenSaturation:
+            identifier = .oxygenSaturation
+            unit = .percent()
+            valueTransform = { Self.normalizedPercentDisplayValue($0) }
+        default:
             return .success(nil)
         }
-        if sourceSelectionUnresolved(for: .heartRate) {
+        guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
+            return .success(nil)
+        }
+        if sourceSelectionUnresolved(for: kind.metric) {
             return .failure
         }
 
-        let unit = HKUnit.count().unitDivided(by: .minute())
         let now = anchorDate ?? Date()
-        let thresholdPredicate = HKQuery.predicateForQuantitySamples(
-            with: .lessThan,
-            quantity: HKQuantity(unit: unit, doubleValue: LowHeartRateWarning.thresholdBPM)
-        )
         let windowPredicate = combinedPredicate(
             startDate: calendar.startOfDay(for: now),
             endDate: now,
-            sourceKind: .heartRate
+            sourceKind: kind.metric
         )
-        let predicate = windowPredicate.map {
-            NSCompoundPredicate(andPredicateWithSubpredicates: [$0, thresholdPredicate]) as NSPredicate
-        } ?? thresholdPredicate
+        // Heart rate is dense (thousands of samples a day), so HealthKit does the
+        // threshold filtering. Blood oxygen is sparse AND stored either as a 0–1
+        // fraction or as 0–100 depending on the source, so a native-unit
+        // threshold predicate would silently miss whole sources: fetch the day
+        // and normalise (`valueTransform`) before comparing.
+        let thresholdPredicate: NSPredicate? = kind.metric == .heartRate
+            ? HKQuery.predicateForQuantitySamples(
+                with: kind.isAbove ? .greaterThan : .lessThan,
+                quantity: HKQuantity(unit: unit, doubleValue: kind.threshold)
+            )
+            : nil
+        let predicate: NSPredicate?
+        switch (windowPredicate, thresholdPredicate) {
+        case (let window?, let threshold?):
+            predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [window, threshold])
+        case (let window?, nil):
+            predicate = window
+        case (nil, let threshold):
+            predicate = threshold
+        }
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
 
         // Cancellation resumes with `.failure`, like a query failure, so the
@@ -1397,7 +1430,7 @@ actor HealthKitFetchEngine {
                 sortDescriptors: [sort]
             ) { _, samples, error in
                 guard let samples else {
-                    Self.logTrendQueryFailure(HKQuantityTypeIdentifier.heartRate.rawValue, error: error)
+                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
                     resume(.failure)
                     return
                 }
@@ -1405,7 +1438,7 @@ actor HealthKitFetchEngine {
                     guard let quantitySample = sample as? HKQuantitySample else {
                         return nil
                     }
-                    let value = quantitySample.quantity.doubleValue(for: unit)
+                    let value = valueTransform(quantitySample.quantity.doubleValue(for: unit))
                     guard value.isFinite else {
                         return nil
                     }
@@ -1413,9 +1446,71 @@ actor HealthKitFetchEngine {
                     return HealthTrendDataPoint(date: quantitySample.endDate, value: value)
                 }
 
-                // No sub-threshold samples → `.success(nil)`, which clears a
+                // Nothing past the threshold → `.success(nil)`, which clears a
                 // stale cached event rather than keeping yesterday's badge.
-                resume(.success(LowHeartRateWarning.detect(inSamples: points)))
+                resume(.success(MetricThresholdWarning.detect(kind, inSamples: points, excluding: intervals)))
+            }
+        }
+    }
+
+    /// High heart rate only counts readings taken while inactive, so it needs an
+    /// authoritative list of today's workouts: an unreadable workout list fails
+    /// the warning (keeping the cached one) rather than detecting as if the user
+    /// had been at rest all day.
+    private func fetchTodayHighHeartRateWarning(calendar: Calendar) async -> QueryOutcome<MetricWarningEvent> {
+        // Workouts are never source-selectable (see `BodyWorkoutFetch`), so the
+        // permission is the only gate. With it off there is no workout coverage
+        // to exclude against, so the warning is skipped — and cleared — rather
+        // than failing the whole refresh over an intentionally disabled input.
+        guard permissionSelection.includes(.workouts) else {
+            return .success(nil)
+        }
+
+        switch await fetchTodayWorkoutIntervals(calendar: calendar) {
+        case .failure:
+            return .failure
+        case .success(let intervals):
+            return await fetchTodayMetricWarning(.highHeartRate, calendar: calendar, excluding: intervals ?? [])
+        }
+    }
+
+    /// Today's workout intervals, for excluding in-workout readings from a
+    /// warning. `workoutPredicate` is strict-start, so the query reaches back a
+    /// day and keeps whatever overlaps today — an overnight session that began
+    /// yesterday still masks this morning's readings.
+    private func fetchTodayWorkoutIntervals(calendar: Calendar) async -> QueryOutcome<[DateInterval]> {
+        let now = anchorDate ?? Date()
+        let startOfToday = calendar.startOfDay(for: now)
+        let predicate = BodyWorkoutFetch.workoutPredicate(
+            start: startOfToday.addingTimeInterval(-86_400),
+            end: now
+        )
+        let sort = BodyWorkoutFetch.startDateAscendingSort
+
+        // Cancellation resumes with `.failure` so the warning that depends on
+        // this list is failed too. See `runCancellableQuery`.
+        return await runCancellableQuery(cancelledValue: .failure) { resume in
+            HKSampleQuery(
+                sampleType: HKObjectType.workoutType(),
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sort]
+            ) { _, samples, error in
+                guard let workouts = samples as? [HKWorkout] else {
+                    Self.logTrendQueryFailure(HKObjectType.workoutType().identifier, error: error)
+                    resume(.failure)
+                    return
+                }
+                let intervals = workouts.compactMap { workout -> DateInterval? in
+                    guard workout.startDate < now,
+                          workout.endDate > startOfToday,
+                          workout.startDate <= workout.endDate else {
+                        return nil
+                    }
+                    return DateInterval(start: workout.startDate, end: workout.endDate)
+                }
+
+                resume(.success(intervals))
             }
         }
     }
@@ -2271,8 +2366,11 @@ actor HealthKitFetchEngine {
                 sourceKind: .heartRate
             )
         }
-        async let lowHeartRateEvent: QueryOutcome<LowHeartRateEvent> = fetchDashboardMetricIfNeeded(.heartRate, selection: selection, default: .success(nil)) {
-            await fetchTodayLowHeartRateEvent(calendar: calendar)
+        async let lowHeartRateWarning: QueryOutcome<MetricWarningEvent> = fetchDashboardMetricIfNeeded(.heartRate, selection: selection, default: .success(nil)) {
+            await fetchTodayMetricWarning(.lowHeartRate, calendar: calendar)
+        }
+        async let highHeartRateWarning: QueryOutcome<MetricWarningEvent> = fetchDashboardMetricIfNeeded(.heartRate, selection: selection, default: .success(nil)) {
+            await fetchTodayHighHeartRateWarning(calendar: calendar)
         }
         async let restingHeartRate: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.restingHeartRate, selection: selection, default: .success(nil)) {
             await latestQuantity(
@@ -2313,6 +2411,9 @@ actor HealthKitFetchEngine {
                 sourceKind: .oxygenSaturation,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
+        }
+        async let lowBloodOxygenWarning: QueryOutcome<MetricWarningEvent> = fetchDashboardMetricIfNeeded(.oxygenSaturation, selection: selection, default: .success(nil)) {
+            await fetchTodayMetricWarning(.lowBloodOxygen, calendar: calendar)
         }
         async let bodyMassIndex: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.bodyMassIndex, selection: selection, default: .success(nil)) {
             await latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
@@ -2398,7 +2499,9 @@ actor HealthKitFetchEngine {
         let resolvedActivityRings = resolve(await activityRings, cachedSummary?.activityRings)
         let resolvedSleep = resolve(await sleep, cachedSummary?.sleep)
         let resolvedHeartRate = resolve(await heartRate, cachedSummary?.heartRate)
-        let resolvedLowHeartRateEvent = resolve(await lowHeartRateEvent, cachedSummary?.lowHeartRateEvent)
+        let resolvedHeartRateLowWarning = resolve(await lowHeartRateWarning, cachedSummary?.warning(.lowHeartRate))
+        let resolvedHeartRateHighWarning = resolve(await highHeartRateWarning, cachedSummary?.warning(.highHeartRate))
+        let resolvedBloodOxygenLowWarning = resolve(await lowBloodOxygenWarning, cachedSummary?.warning(.lowBloodOxygen))
         let resolvedRestingHeartRate = resolve(await restingHeartRate, cachedSummary?.restingHeartRate)
         let resolvedBodyMass = resolve(await bodyMass, cachedSummary?.bodyMass)
         let resolvedBodyFatPercentage = resolve(await bodyFatPercentage, cachedSummary?.bodyFatPercentage)
@@ -2436,7 +2539,11 @@ actor HealthKitFetchEngine {
             steps: resolvedSteps ?? HealthSummarySnapshot.empty.steps,
             cardioFitness: resolvedCardioFitness ?? HealthSummarySnapshot.empty.cardioFitness,
             cardioFitnessProfile: resolvedCardioFitnessProfile,
-            lowHeartRateEvent: resolvedLowHeartRateEvent
+            metricWarnings: [
+                resolvedHeartRateLowWarning,
+                resolvedHeartRateHighWarning,
+                resolvedBloodOxygenLowWarning
+            ].compactMap { $0 }
         )
         return HealthSummaryFetchResult(summary: snapshot, hadQueryFailure: anyLeafFailed)
     }
@@ -2994,7 +3101,8 @@ actor HealthKitFetchEngine {
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 sourceKind: .heartRate
             )
-            async let lowHeartRateEvent = fetchTodayLowHeartRateEvent(calendar: calendar)
+            async let lowHeartRateWarning = fetchTodayMetricWarning(.lowHeartRate, calendar: calendar)
+            async let highHeartRateWarning = fetchTodayHighHeartRateWarning(calendar: calendar)
             async let heartRatePair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDailyQuantityAverageAndRangeSeries(
                 for: .heartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
@@ -3014,7 +3122,13 @@ actor HealthKitFetchEngine {
             )
 
             summary.heartRate = resolvedDashboardSummary(fetched: await heartRate, cached: existing.summary.heartRate) ?? HealthSummarySnapshot.empty.heartRate
-            summary.lowHeartRateEvent = resolvedDashboardSummary(fetched: await lowHeartRateEvent, cached: existing.summary.lowHeartRateEvent)
+            summary = summary.replacingWarnings(
+                for: .heartRate,
+                with: [
+                    resolvedDashboardSummary(fetched: await lowHeartRateWarning, cached: existing.summary.warning(.lowHeartRate)),
+                    resolvedDashboardSummary(fetched: await highHeartRateWarning, cached: existing.summary.warning(.highHeartRate))
+                ].compactMap { $0 }
+            )
             let fetchedHeartRatePair = await heartRatePair
             trends.heartRate = resolvedTrend(fetchedHeartRatePair?.0, cached: existing.trends.heartRate)
             trends.heartRateRanges = resolvedTrend(fetchedHeartRatePair?.1, cached: existing.trends.heartRateRanges)
@@ -3139,6 +3253,7 @@ actor HealthKitFetchEngine {
                 sourceKind: .oxygenSaturation,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
+            async let lowBloodOxygenWarning = fetchTodayMetricWarning(.lowBloodOxygen, calendar: calendar)
             async let oxygenSaturationPair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDailyQuantityAverageAndRangeSeries(
                 for: .oxygenSaturation,
                 unit: .percent(),
@@ -3162,6 +3277,12 @@ actor HealthKitFetchEngine {
             )
 
             summary.oxygenSaturation = resolvedDashboardSummary(fetched: await oxygenSaturation, cached: existing.summary.oxygenSaturation) ?? HealthSummarySnapshot.empty.oxygenSaturation
+            summary = summary.replacingWarnings(
+                for: .oxygenSaturation,
+                with: [
+                    resolvedDashboardSummary(fetched: await lowBloodOxygenWarning, cached: existing.summary.warning(.lowBloodOxygen))
+                ].compactMap { $0 }
+            )
             let fetchedOxygenSaturationPair = await oxygenSaturationPair
             trends.oxygenSaturation = resolvedTrend(fetchedOxygenSaturationPair?.0, cached: existing.trends.oxygenSaturation)
             trends.oxygenSaturationRanges = resolvedTrend(fetchedOxygenSaturationPair?.1, cached: existing.trends.oxygenSaturationRanges)

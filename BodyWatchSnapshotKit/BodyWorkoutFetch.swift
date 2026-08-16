@@ -98,7 +98,8 @@ enum BodyWorkoutFetch {
             averageCyclingCadenceRPM: includesWorkoutMetrics ? averageCyclingCadenceRPM(for: workout, type: type) : nil,
             swimmingStrokeCount: includesWorkoutMetrics ? swimmingStrokeCount(for: workout, type: type) : nil,
             cardioFitnessVO2Max: includesWorkoutMetrics ? cardioFitnessVO2Max : nil,
-            sourceName: workout.sourceRevision.source.name
+            sourceName: workout.sourceRevision.source.name,
+            endDate: workout.endDate
         )
     }
 
@@ -140,7 +141,8 @@ enum BodyWorkoutFetch {
             averageCyclingCadenceRPM: includesWorkoutMetrics ? averageCyclingCadenceRPM(for: workout, type: type) : nil,
             swimmingStrokeCount: includesWorkoutMetrics ? swimmingStrokeCount(for: workout, type: type) : nil,
             cardioFitnessVO2Max: includesWorkoutMetrics ? cardioFitnessVO2Max : nil,
-            sourceName: workout.sourceRevision.source.name
+            sourceName: workout.sourceRevision.source.name,
+            endDate: workout.endDate
         )
     }
 

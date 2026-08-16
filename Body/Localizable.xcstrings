@@ -794,7 +794,6 @@
       }
     },
     "%lld%%" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1105,6 +1104,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "时长"
+          }
+        }
+      }
+    },
+    "Any reading above 120 bpm today, outside workouts" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Any reading above 120 bpm today, outside workouts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天任一读数高于 120 次/分钟（体能训练期间除外）"
+          }
+        }
+      }
+    },
+    "Any reading below 40 bpm today" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Any reading below 40 bpm today"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天任一读数低于 40 次/分钟"
+          }
+        }
+      }
+    },
+    "Any reading below 90% today" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Any reading below 90% today"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天任一读数低于 90%"
           }
         }
       }
@@ -4070,6 +4117,22 @@
         }
       }
     },
+    "High Heart Rate" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Heart Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率过高"
+          }
+        }
+      }
+    },
     "Hour-by-hour chart for a chosen day" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4704,6 +4767,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最低%@"
+          }
+        }
+      }
+    },
+    "Low Blood Oxygen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Blood Oxygen"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "血氧过低"
           }
         }
       }
@@ -6925,6 +7004,38 @@
         }
       }
     },
+    "Rotate Left" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rotate Left"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向左旋转"
+          }
+        }
+      }
+    },
+    "Rotate Right" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rotate Right"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向右旋转"
+          }
+        }
+      }
+    },
     "Route map" : {
       "localizations" : {
         "en" : {
@@ -7563,6 +7674,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示全屏交互地图"
+          }
+        }
+      }
+    },
+    "Shows a full screen interactive map. Swipe left or right to rotate the 3D route." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows a full screen interactive map. Swipe left or right to rotate the 3D route."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示全屏交互地图。左右滑动可旋转 3D 路线。"
           }
         }
       }
@@ -9016,6 +9143,38 @@
         }
       }
     },
+    "Warnings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warnings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "警告"
+          }
+        }
+      }
+    },
+    "Warnings appear on the Home card and the metric's detail page." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warnings appear on the Home card and the metric's detail page."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "警告会显示在主页卡片和该指标的详情页上。"
+          }
+        }
+      }
+    },
     "was higher" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -9435,6 +9594,22 @@
         }
       }
     },
+    "Your blood oxygen fell below %lld%% starting at %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your blood oxygen fell below %lld%% starting at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的血氧降至 %1$lld%% 以下。"
+          }
+        }
+      }
+    },
     "your body fat" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -9515,6 +9690,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "从 %2$@ 开始，您的心率降至 %1$lld 次/分钟以下。"
+          }
+        }
+      }
+    },
+    "Your heart rate rose above %lld BPM starting at %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your heart rate rose above %lld BPM starting at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的心率升至 %1$lld 次/分钟以上。"
           }
         }
       }

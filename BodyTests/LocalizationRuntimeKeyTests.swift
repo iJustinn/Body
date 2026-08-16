@@ -163,18 +163,30 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
-    func testLowHeartRateWarningKeysResolveInLocalizableCatalog() throws {
+    func testMetricWarningKeysResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
         let keys = [
-            // Home card warning badge accessibility label and detail-page warning card.
+            // Home card warning badge accessibility label and detail-page warning card titles.
             "Low Heart Rate",
+            "High Heart Rate",
+            "Low Blood Oxygen",
             "Your heart rate fell below %lld BPM starting at %@.",
+            "Your heart rate rose above %lld BPM starting at %@.",
+            "Your blood oxygen fell below %lld%% starting at %@.",
             // Chart rule-mark annotation and axis labels.
             "%lld BPM",
+            "%lld%%",
             "Threshold",
             "Time",
-            "Heart Rate"
+            "Heart Rate",
+            "Blood Oxygen",
+            // Settings → Metrics → Warnings row and sheet.
+            "Warnings",
+            "Any reading below 40 bpm today",
+            "Any reading above 120 bpm today, outside workouts",
+            "Any reading below 90% today",
+            "Warnings appear on the Home card and the metric's detail page."
         ]
 
         try assertKeysTranslated(keys, in: catalog)

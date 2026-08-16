@@ -211,10 +211,26 @@ struct HealthSummarySnapshot: Codable, Equatable {
     /// when the characteristics are unreadable or the permission is off, which
     /// every band UI renders as unclassified.
     var cardioFitnessProfile: CardioFitnessProfile?
-    /// Today's earliest sub-threshold heart rate episode, fetched with the summary
-    /// so the home card can flag it without the intraday samples. `nil` when no
-    /// reading fell below the threshold.
-    var lowHeartRateEvent: LowHeartRateEvent?
+    /// Today's earliest past-threshold episode per warning kind, fetched with the
+    /// summary so the home card can flag it without the intraday samples. Kinds
+    /// with nothing past their threshold today are simply absent.
+    var metricWarnings: [MetricWarningEvent]
+
+    /// Today's episode for one warning kind, if any.
+    func warning(_ kind: MetricWarningKind) -> MetricWarningEvent? {
+        metricWarnings.first { $0.kind == kind }
+    }
+
+    /// Swaps in a freshly detected set of warnings for one metric, leaving the
+    /// other metrics' warnings untouched.
+    func replacingWarnings(
+        for metric: HealthMetricKind,
+        with warnings: [MetricWarningEvent]
+    ) -> HealthSummarySnapshot {
+        var next = self
+        next.metricWarnings = metricWarnings.filter { $0.kind.metric != metric } + warnings
+        return next
+    }
 
     init(
         activityRings: ActivityRingSummary,
@@ -237,7 +253,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         steps: HealthMetricSummary = HealthMetricSummary(value: nil),
         cardioFitness: HealthMetricSummary = HealthMetricSummary(value: nil),
         cardioFitnessProfile: CardioFitnessProfile? = nil,
-        lowHeartRateEvent: LowHeartRateEvent? = nil
+        metricWarnings: [MetricWarningEvent] = []
     ) {
         self.activityRings = activityRings
         self.readiness = readiness
@@ -259,7 +275,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         self.steps = steps
         self.cardioFitness = cardioFitness
         self.cardioFitnessProfile = cardioFitnessProfile
-        self.lowHeartRateEvent = lowHeartRateEvent
+        self.metricWarnings = metricWarnings
     }
 
     var isEmpty: Bool {
@@ -400,7 +416,20 @@ struct HealthSummarySnapshot: Codable, Equatable {
         case steps
         case cardioFitness
         case cardioFitnessProfile
+        case metricWarnings
+    }
+
+    /// Snapshots written before `metricWarnings` carried the low heart rate
+    /// episode under its own key. Read-only: new saves write `metricWarnings`.
+    private enum LegacyCodingKeys: String, CodingKey {
         case lowHeartRateEvent
+    }
+
+    private struct LegacyLowHeartRateEvent: Decodable {
+        var startDate: Date
+        var endDate: Date
+        var minimumBPM: Double
+        var sampleCount: Int
     }
 
     init(from decoder: Decoder) throws {
@@ -425,7 +454,21 @@ struct HealthSummarySnapshot: Codable, Equatable {
         steps = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .steps) ?? HealthMetricSummary(value: nil)
         cardioFitness = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .cardioFitness) ?? HealthMetricSummary(value: nil)
         cardioFitnessProfile = try container.decodeIfPresent(CardioFitnessProfile.self, forKey: .cardioFitnessProfile)
-        lowHeartRateEvent = try container.decodeIfPresent(LowHeartRateEvent.self, forKey: .lowHeartRateEvent)
+        if let warnings = try container.decodeIfPresent([MetricWarningEvent].self, forKey: .metricWarnings) {
+            metricWarnings = warnings
+        } else {
+            let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
+            let legacy = try legacyContainer.decodeIfPresent(LegacyLowHeartRateEvent.self, forKey: .lowHeartRateEvent)
+            metricWarnings = legacy.map {
+                [MetricWarningEvent(
+                    kind: .lowHeartRate,
+                    startDate: $0.startDate,
+                    endDate: $0.endDate,
+                    extremeValue: $0.minimumBPM,
+                    sampleCount: $0.sampleCount
+                )]
+            } ?? []
+        }
     }
 
     func filtered(by selection: BodyHealthPermissionSelection) -> HealthSummarySnapshot {
@@ -443,7 +486,12 @@ struct HealthSummarySnapshot: Codable, Equatable {
             filtered.heartRateVariability = HealthSummarySnapshot.empty.heartRateVariability
             filtered.sleep.vitals.heartRate = nil
             filtered.sleep.vitals.heartRateVariability = nil
-            filtered.lowHeartRateEvent = nil
+            filtered.metricWarnings.removeAll { $0.kind.metric == .heartRate }
+        }
+        if !selection.includes(.workouts) {
+            // Warnings that exclude in-workout readings need workout coverage;
+            // without it a cached one would keep the Home glyph up unrefreshed.
+            filtered.metricWarnings.removeAll(where: \.kind.excludesWorkouts)
         }
         if !selection.includes(.basics) {
             filtered.bodyMass = HealthSummarySnapshot.empty.bodyMass
@@ -453,6 +501,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         if !selection.includes(.bloodOxygen) {
             filtered.oxygenSaturation = HealthSummarySnapshot.empty.oxygenSaturation
             filtered.sleep.vitals.oxygenSaturation = nil
+            filtered.metricWarnings.removeAll { $0.kind.metric == .oxygenSaturation }
         }
         if !selection.includes(.respiratory) {
             filtered.respiratoryRate = HealthSummarySnapshot.empty.respiratoryRate
@@ -503,7 +552,10 @@ struct HealthSummarySnapshot: Codable, Equatable {
             next.bodyMassIndex = refreshed.bodyMassIndex
         case .heartRate:
             next.heartRate = refreshed.heartRate
-            next.lowHeartRateEvent = refreshed.lowHeartRateEvent
+            next = next.replacingWarnings(
+                for: .heartRate,
+                with: refreshed.metricWarnings.filter { $0.kind.metric == .heartRate }
+            )
         case .restingHeartRate:
             next.restingHeartRate = refreshed.restingHeartRate
         case .bodyMass:
@@ -516,6 +568,10 @@ struct HealthSummarySnapshot: Codable, Equatable {
             next.respiratoryRate = refreshed.respiratoryRate
         case .oxygenSaturation:
             next.oxygenSaturation = refreshed.oxygenSaturation
+            next = next.replacingWarnings(
+                for: .oxygenSaturation,
+                with: refreshed.metricWarnings.filter { $0.kind.metric == .oxygenSaturation }
+            )
         case .bodyMassIndex:
             next.bodyMassIndex = refreshed.bodyMassIndex
         case .activeEnergy:

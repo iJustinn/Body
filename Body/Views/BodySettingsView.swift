@@ -28,6 +28,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var homeBackgroundEnabled = true
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
@@ -367,6 +368,21 @@ struct BodySettingsView: View {
             settingsDivider
 
             Button {
+                activeSheet = .metricWarnings
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Warnings",
+                    value: metricWarningsSummaryText,
+                    iconName: "exclamationmark.triangle.fill",
+                    tintColor: .yellow,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
                 activeSheet = .starMetric
             } label: {
                 BodySettingsRowLabel(
@@ -486,6 +502,10 @@ struct BodySettingsView: View {
         "\(currentMetricDayViewSelection.enabledCount)/\(HealthMetricKind.dayViewKinds.count)"
     }
 
+    private var metricWarningsSummaryText: String {
+        "\(currentMetricWarningSelection.enabledCount)/\(currentMetricWarningSelection.totalCount)"
+    }
+
     private func dataValue(for tab: BodySettingsDataTab) -> String {
         switch tab {
         case .source:
@@ -556,6 +576,10 @@ struct BodySettingsView: View {
 
     private var currentMetricDayViewSelection: BodyMetricDayViewSelection {
         BodyMetricDayViewSelection.storedValue(from: metricDayViewSelectionRawValue)
+    }
+
+    private var currentMetricWarningSelection: BodyMetricWarningSelection {
+        BodyMetricWarningSelection.storedValue(from: metricWarningSelectionRawValue)
     }
 
     private var followsSystemUnitsBinding: Binding<Bool> {
@@ -630,6 +654,14 @@ struct BodySettingsView: View {
         }
     }
 
+    private var metricWarningSelection: Binding<BodyMetricWarningSelection> {
+        Binding {
+            currentMetricWarningSelection
+        } set: { selection in
+            metricWarningSelectionRawValue = selection.rawValue
+        }
+    }
+
     private var workoutRouteStyle: Binding<BodyWorkoutRouteStyle> {
         Binding {
             BodyWorkoutRouteStyle.storedValue(from: workoutRouteStyleRawValue)
@@ -656,6 +688,8 @@ struct BodySettingsView: View {
             BodyStarMetricPickerSheet(selection: starredMetric)
         case .dayView:
             BodyMetricDayViewSettingsSheet(selection: metricDayViewSelection)
+        case .metricWarnings:
+            BodyMetricWarningsSettingsSheet(selection: metricWarningSelection)
         case .effortSuggestions:
             BodyEffortSuggestionsSettingsSheet(
                 isEnabled: $showWorkoutEffortSuggestions,
@@ -732,6 +766,7 @@ enum BodySettingsSheet: String, Identifiable {
     case homeTrendCards
     case starMetric
     case dayView
+    case metricWarnings
     case effortSuggestions
     case workoutRouteStyle
     case aiReadiness
@@ -1086,9 +1121,9 @@ private extension BodyWorkoutRouteStyle {
         case .map:
             "map.fill"
         case .plain:
-            "scribble.variable"
+            "graph.2d"
         case .threeD:
-            "view.3d"
+            "move.3d"
         }
     }
 }
@@ -2392,6 +2427,102 @@ private struct BodyMetricDayViewToggleRow: View {
             Spacer(minLength: 12)
 
             Toggle(card.title, isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct BodyMetricWarningsSettingsSheet: View {
+    @Binding var selection: BodyMetricWarningSelection
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Warnings") {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(spacing: 0) {
+                    ForEach(MetricWarningKind.allCases) { kind in
+                        BodyMetricWarningToggleRow(
+                            kind: kind,
+                            isEnabled: Binding {
+                                selection.includes(kind)
+                            } set: { isEnabled in
+                                selection = selection.setting(kind, isEnabled: isEnabled)
+                            }
+                        )
+
+                        if kind.id != MetricWarningKind.allCases.last?.id {
+                            Divider()
+                                .padding(.leading, 76)
+                        }
+                    }
+                }
+                .bodyCardBackground(translucent: true)
+
+                Text("Warnings appear on the Home card and the metric's detail page.")
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+}
+
+private struct BodyMetricWarningToggleRow: View {
+    let kind: MetricWarningKind
+    @Binding var isEnabled: Bool
+
+    private var title: LocalizedStringKey {
+        switch kind {
+        case .lowHeartRate:
+            return "Low Heart Rate"
+        case .highHeartRate:
+            return "High Heart Rate"
+        case .lowBloodOxygen:
+            return "Low Blood Oxygen"
+        }
+    }
+
+    private var subtitle: LocalizedStringKey {
+        switch kind {
+        case .lowHeartRate:
+            return "Any reading below 40 bpm today"
+        case .highHeartRate:
+            return "Any reading above 120 bpm today, outside workouts"
+        case .lowBloodOxygen:
+            return "Any reading below 90% today"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: "exclamationmark.triangle.fill", color: .yellow)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text(subtitle)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle(title, isOn: $isEnabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                 .accessibilityValue(isEnabled ? "On" : "Off")

@@ -330,6 +330,7 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
+    @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.summaryReselectCount) private var summaryReselectCount
     @Environment(\.scenePhase) private var scenePhase
@@ -449,7 +450,10 @@ struct BodyHomeView: View {
         }
         // Apple Intelligence readiness comment: generated (or read from cache) when the
         // score changes, when the setting flips, and on foreground so a comment written
-        // yesterday refreshes after a day rollover.
+        // yesterday refreshes after a day rollover. Never while a Health refresh is in
+        // flight or before today's first clean refresh has landed — the summary is a
+        // stale snapshot or mid-update then, so any comment would describe a
+        // half-loaded score; the refresh's completion runs it instead.
         .task {
             refreshReadinessComment()
         }
@@ -464,6 +468,14 @@ struct BodyHomeView: View {
                 refreshReadinessComment()
             }
         }
+        .onChange(of: workoutStore.isRefreshing) { _, isRefreshing in
+            if !isRefreshing {
+                refreshReadinessComment()
+            }
+        }
+        .onChange(of: workoutStore.lastSuccessfulRefreshDate) { _, _ in
+            refreshReadinessComment()
+        }
     }
 
     private var heroAIComment: BodyReadinessAIComment {
@@ -472,7 +484,18 @@ struct BodyHomeView: View {
         return readinessComment.isGenerating ? .generating : .authored
     }
 
+    /// True once today's Health data has finished loading: not mid-refresh, and a
+    /// clean full refresh has completed today (`lastSuccessfulRefreshDate` is
+    /// restored from disk at launch, so a stale date means the on-screen summary
+    /// is still yesterday's snapshot).
+    private var readinessDataIsLoaded: Bool {
+        guard !workoutStore.isRefreshing,
+              let refreshed = workoutStore.lastSuccessfulRefreshDate else { return false }
+        return Calendar.bodyGregorian.isDateInToday(refreshed)
+    }
+
     private func refreshReadinessComment() {
+        guard readinessDataIsLoaded else { return }
         readinessComment.refresh(
             for: workoutStore.healthSummary.readiness,
             enabled: showReadinessAIComment
@@ -684,7 +707,9 @@ struct BodyHomeView: View {
 
     private var metricCardsByKind: [HealthMetricKind: BodyHealthMetricCard.Model] {
         let inputs = metricCardsInputs
-        return trendComputationCache.metricCards(inputs: inputs) { self.buildMetricCards(today: inputs.dayStart) }
+        return trendComputationCache.metricCards(inputs: inputs) {
+            self.buildMetricCards(today: inputs.dayStart, metricWarningSelectionRawValue: inputs.metricWarningSelectionRawValue)
+        }
     }
 
     /// Snapshot of every input `buildMetricCards()` reads, used as the memoization key.
@@ -703,13 +728,15 @@ struct BodyHomeView: View {
             dayStart: Calendar.bodyGregorian.startOfDay(for: Date()),
             previewDayCount: BodyHomeMetricCardPreview.dayCount(forScreenWidth: UIScreen.main.bounds.width),
             localeIdentifier: Locale.current.identifier,
-            timeZoneIdentifier: TimeZone.current.identifier
+            timeZoneIdentifier: TimeZone.current.identifier,
+            metricWarningSelectionRawValue: metricWarningSelectionRawValue
         )
     }
 
-    private func buildMetricCards(today: Date) -> [BodyHealthMetricCard.Model] {
+    private func buildMetricCards(today: Date, metricWarningSelectionRawValue: String) -> [BodyHealthMetricCard.Model] {
         let summary = workoutStore.healthSummary
         let trends = workoutStore.healthTrends
+        let warningSelection = BodyMetricWarningSelection.storedValue(from: metricWarningSelectionRawValue)
 
         return [
             readinessMetric(
@@ -781,8 +808,7 @@ struct BodyHomeView: View {
                 symbolName: "heart.fill",
                 symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
                 chartPreview: trends.series(for: .heartRate),
-                warningSymbolName: (summary.lowHeartRateEvent.map { Calendar.bodyGregorian.isDateInToday($0.startDate) } ?? false)
-                    ? "exclamationmark.triangle.fill" : nil
+                warningSymbolName: warningSymbolName(for: .heartRate, summary: summary, selection: warningSelection)
             ),
             metric(
                 kind: .restingHeartRate,
@@ -814,7 +840,8 @@ struct BodyHomeView: View {
                 symbolName: "drop.fill",
                 symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
                 chartPreviewStyle: .range,
-                chartRangePreview: trends.rangeSeries(for: .oxygenSaturation)
+                chartRangePreview: trends.rangeSeries(for: .oxygenSaturation),
+                warningSymbolName: warningSymbolName(for: .oxygenSaturation, summary: summary, selection: warningSelection)
             ),
             metric(
                 kind: .respiratoryRate,
@@ -900,6 +927,20 @@ struct BodyHomeView: View {
         }
 
         return BodyValueFormat.TemperatureUnitPreference.storedValue(from: selectedTemperatureUnitRawValue)
+    }
+
+    private func warningSymbolName(
+        for metric: HealthMetricKind,
+        summary: HealthSummarySnapshot,
+        selection: BodyMetricWarningSelection
+    ) -> String? {
+        let hasActiveWarning = summary.metricWarnings.contains { event in
+            event.kind.metric == metric
+                && selection.includes(event.kind)
+                && Calendar.bodyGregorian.isDateInToday(event.startDate)
+        }
+
+        return hasActiveWarning ? "exclamationmark.triangle.fill" : nil
     }
 
     private func metric(
@@ -2446,6 +2487,7 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         let previewDayCount: Int
         let localeIdentifier: String
         let timeZoneIdentifier: String
+        let metricWarningSelectionRawValue: String
     }
 
     /// Fingerprint of the sleep history the Vitals snapshot is derived from.

@@ -64,44 +64,45 @@ final class HealthKitFetchEngineFailureSemanticsTests: XCTestCase {
         XCTAssertEqual(Samples.success([1, 2]).valueOr([]), [1, 2])
     }
 
-    // MARK: - Low heart rate event resolver
+    // MARK: - Metric warning resolver
 
-    func testResolvedLowHeartRateEventClearsOnConfirmedAbsent() {
+    private static let cachedWarning = MetricWarningEvent(
+        kind: .lowHeartRate,
+        startDate: Date(timeIntervalSince1970: 1_700_000_000),
+        endDate: Date(timeIntervalSince1970: 1_700_000_300),
+        extremeValue: 38,
+        sampleCount: 3
+    )
+
+    func testResolvedMetricWarningClearsOnConfirmedAbsent() {
         // The threshold-filtered query came back empty today → the badge must
         // clear rather than keep yesterday's episode.
-        typealias LowOutcome = HealthKitFetchEngine.QueryOutcome<LowHeartRateEvent>
-        let cached = LowHeartRateEvent(
-            startDate: Date(timeIntervalSince1970: 1_700_000_000),
-            endDate: Date(timeIntervalSince1970: 1_700_000_300),
-            minimumBPM: 38,
-            sampleCount: 3
-        )
+        typealias WarningOutcome = HealthKitFetchEngine.QueryOutcome<MetricWarningEvent>
         XCTAssertNil(
-            HealthKitFetchEngine.resolvedSummaryValue(fetched: LowOutcome.success(nil), cached: cached)
+            HealthKitFetchEngine.resolvedSummaryValue(
+                fetched: WarningOutcome.success(nil),
+                cached: Self.cachedWarning
+            )
         )
     }
 
-    func testResolvedLowHeartRateEventKeepsCacheOnFailureAndReplacesOnSuccess() {
-        typealias LowOutcome = HealthKitFetchEngine.QueryOutcome<LowHeartRateEvent>
-        let cached = LowHeartRateEvent(
-            startDate: Date(timeIntervalSince1970: 1_700_000_000),
-            endDate: Date(timeIntervalSince1970: 1_700_000_300),
-            minimumBPM: 38,
-            sampleCount: 3
-        )
-        let fresh = LowHeartRateEvent(
+    func testResolvedMetricWarningKeepsCacheOnFailureAndReplacesOnSuccess() {
+        typealias WarningOutcome = HealthKitFetchEngine.QueryOutcome<MetricWarningEvent>
+        let cached = Self.cachedWarning
+        let fresh = MetricWarningEvent(
+            kind: .lowHeartRate,
             startDate: Date(timeIntervalSince1970: 1_700_086_400),
             endDate: Date(timeIntervalSince1970: 1_700_086_700),
-            minimumBPM: 35,
+            extremeValue: 35,
             sampleCount: 2
         )
         // Failure (including cancellation, which resumes `.failure`) retains.
         XCTAssertEqual(
-            HealthKitFetchEngine.resolvedSummaryValue(fetched: LowOutcome.failure, cached: cached),
+            HealthKitFetchEngine.resolvedSummaryValue(fetched: WarningOutcome.failure, cached: cached),
             cached
         )
         XCTAssertEqual(
-            HealthKitFetchEngine.resolvedSummaryValue(fetched: LowOutcome.success(fresh), cached: cached),
+            HealthKitFetchEngine.resolvedSummaryValue(fetched: WarningOutcome.success(fresh), cached: cached),
             fresh
         )
     }
