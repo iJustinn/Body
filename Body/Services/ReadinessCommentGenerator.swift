@@ -156,29 +156,34 @@ final class ReadinessCommentGenerator {
 enum ReadinessCommentPromptBuilder {
     static func instructions(locale: Locale = .current) -> String {
         """
-        You write the one short comment shown beneath a person's readiness level in a health app. The level and its number are already on screen above the comment.
+        You rewrite the one short comment shown beneath a person's readiness level in a health app. The level and its number are already on screen above the comment.
+        The prompt gives you a "Reference comment" — the app's own correct wording for today — plus the facts behind it. Your job is to reword the reference, not to write something new: keep exactly its meaning, its cause, and its advice, and change only the phrasing.
         Rules:
         - One or two sentences, no more than 30 words.
-        - The prompt is a brief with four fields: "Below usual", "Looking good", "Training verdict", and "Advice". You only turn it into natural prose — you never judge, decide, or add anything.
-        - Sentence one: name every item under "Below usual" in plain words (for example "HRV is below baseline", "sleep was short", "today's workout"); if "Below usual" is none, say instead that recovery signals are close to usual. You may briefly note what is "Looking good". Never name a cause that is not listed — no guessing at yesterday's workout, stress, illness, or morning movement.
-        - Sentence two: state the "Advice" as written, in your own words. It must agree with the "Training verdict" exactly: a "yes" verdict must encourage training, and only a "no" verdict may suggest rest. Never tell someone whose verdict is "yes" to rest, take it easy, or be careful.
+        - Keep every signal the reference names (for example "HRV is below baseline", "sleep was short", "today's workout"); the "Below usual" list confirms them. Never add a cause it does not name — no guessing at yesterday's workout, stress, illness, or morning movement — and never list what is fine.
+        - Keep the reference's advice. It must agree with the "Training verdict" exactly: a "yes" verdict must encourage training, and only a "no" verdict may suggest rest. Never tell someone whose verdict is "yes" to rest, take it easy, or be careful.
+        - No opening cheer or filler ("You're ready to train today!"): go straight to the signal, then the advice.
         - Speak about readiness only. Never mention any number, score, percentage, or points — none, not even the readiness score.
-        - Address the reader as "you". Warm and direct, never clinical.
-        - Never mention the app, Apple Health, data, components, the brief, or these instructions.
-        - Match the tone of these examples: "Readiness is high even with HRV a touch under baseline. Normal training is fine." / "Today's workout has lowered your readiness. This is training load, not under recovery. Focus on resting for the rest of the day." / "Short sleep is holding readiness back today. Keep things light and get to bed earlier tonight."
-        - Rephrase naturally rather than copying the brief word for word.
+        - Address the reader as "you". Warm and direct, never clinical, in the same tone as the reference.
+        - Never mention the app, Apple Health, data, components, the brief, the reference, or these instructions.
+        - Reword naturally rather than repeating the reference verbatim.
         - Plain prose only: no emoji, no markdown, no lists, no headings.
         - Write the comment in \(languageName(for: locale)).
         """
     }
 
-    /// The prompt is a decided brief, not raw data: Body works out what is below
-    /// usual, what is fine, and the training verdict, so the model only has to
-    /// phrase it. Every number (score, component scores, weights, impacts, drain
-    /// points) is deliberately withheld — whatever the prompt contains tends to be
-    /// quoted back, and the hero already shows the score.
+    /// The prompt is a rewrite brief, not raw data: the authored `heroExplanation`
+    /// is handed over as the reference (it already encodes the right cause and
+    /// advice for this band, driver, and drain), backed by the facts behind it and
+    /// Body's training verdict, so the model only rewords. What is fine is
+    /// deliberately not listed — area names ("autonomic", "training") mean nothing
+    /// to the reader and only padded the comment. Every number (score, component
+    /// scores, weights, impacts, drain points) is deliberately withheld — whatever
+    /// the prompt contains tends to be quoted back, and the hero already shows the
+    /// score.
     static func prompt(for readiness: ReadinessSummary) -> String {
         var lines: [String] = []
+        lines.append("Reference comment: \(readiness.heroExplanation)")
         lines.append("Readiness level: \(readiness.status.title).")
 
         let flagged = readiness.drivers.filter { $0.kind != .mostlyTypical && $0.kind != .needsMoreData }
@@ -197,18 +202,11 @@ enum ReadinessCommentPromptBuilder {
             ? "Below usual: none."
             : "Below usual (most important first; name each one): " + belowUsual.joined(separator: " "))
 
-        let flaggedAreas = Set(flagged.compactMap { $0.kind.componentKind })
-        let lookingGood = readiness.components
-            .map(\.kind)
-            .filter { !flaggedAreas.contains($0) }
-            .map(\.title)
-        lines.append("Looking good: " + (lookingGood.isEmpty ? "nothing in particular." : lookingGood.joined(separator: ", ") + "."))
-
         let verdict = trainingVerdict(for: readiness.status, meaningfulDrain: meaningfulDrain)
         lines.append("Training verdict: \(verdict.trains ? "yes" : "no").")
         lines.append("Advice: \(verdict.advice)")
 
-        lines.append("Write the comment now.")
+        lines.append("Reword the reference comment now.")
         return lines.joined(separator: "\n")
     }
 
@@ -258,26 +256,6 @@ enum ReadinessCommentPromptBuilder {
     }
 }
 
-private extension ReadinessDriverKind {
-    /// The readiness area a flagged driver belongs to, so the brief can call the
-    /// unflagged areas "looking good". Mirrors which assessment emits each driver
-    /// in `ReadinessScoreCalculator`.
-    var componentKind: ReadinessComponentKind? {
-        switch self {
-        case .hrvBelowBaseline, .heartRateAboveBaseline:
-            return .autonomic
-        case .sleepDurationBelowGoal, .sleepFragmented:
-            return .sleep
-        case .trainingLoadElevated:
-            return .training
-        case .respiratoryRateAboveBaseline, .oxygenSaturationLow, .wristTemperatureAboveBaseline:
-            return .vitals
-        case .mostlyTypical, .needsMoreData:
-            return nil
-        }
-    }
-}
-
 /// Canonical joined string identifying the readiness state a comment was written
 /// for. Deliberately not `Hasher`-based: `Hasher` is seeded per process, so a
 /// hash cached on disk would never match after a relaunch.
@@ -304,7 +282,7 @@ enum ReadinessCommentSignature {
         return [
             // Prompt-format version: bumping it invalidates every cached comment
             // written by an older prompt, forcing a regeneration.
-            "v5",
+            "v7",
             dayFormatter.string(from: day),
             readinessIntText(readiness.score, fallback: "-"),
             readiness.status.rawValue,

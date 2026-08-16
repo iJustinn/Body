@@ -54,6 +54,15 @@ final class ReadinessCommentGeneratorTests: XCTestCase {
         let prompt = ReadinessCommentPromptBuilder.prompt(for: summary)
 
         XCTAssertTrue(prompt.contains(summary.status.title))
+        // The authored line is the reference the model rewords — its meaning, cause
+        // and advice are already right for this band/driver/drain, so the model is
+        // never left guessing.
+        XCTAssertTrue(prompt.contains("Reference comment: \(summary.heroExplanation)"))
+        XCTAssertTrue(prompt.contains("Reword the reference comment now."))
+        XCTAssertTrue(
+            ReadinessCommentPromptBuilder.instructions(locale: englishLocale)
+                .contains("reword the reference, not to write something new")
+        )
         // The prompt is a decided brief. Drivers are the "Below usual" list the
         // instructions require the model to name — a device once skipped HRV and
         // blamed "morning movement" instead.
@@ -61,8 +70,6 @@ final class ReadinessCommentGeneratorTests: XCTestCase {
         for driver in summary.drivers {
             XCTAssertTrue(prompt.contains(driver.message), driver.message)
         }
-        // Fixture flags autonomic + sleep, so nothing assessed is left unflagged.
-        XCTAssertTrue(prompt.contains("Looking good: nothing in particular."))
         XCTAssertTrue(prompt.contains("Training verdict: yes."))
         XCTAssertTrue(prompt.contains("Advice: Train as planned"))
         XCTAssertTrue(
@@ -92,13 +99,13 @@ final class ReadinessCommentGeneratorTests: XCTestCase {
 
         XCTAssertTrue(prompt.contains("Below usual: none."))
         XCTAssertFalse(prompt.contains("name each one"))
-        // Both assessed areas are unflagged, so both read as looking good.
-        XCTAssertTrue(prompt.contains("Looking good: Autonomic, Sleep."))
     }
 
-    func testPromptListsUnflaggedAreasAsLookingGood() {
-        // Only vitals flagged: the other assessed areas are fine. This is the exact
-        // High-readiness case a device once answered with "Take it easy today".
+    func testPromptNeverNamesInternalAreas() {
+        // Only vitals flagged on a High day — the exact case a device once answered
+        // with "Take it easy today", then padded with "your sleep, autonomic, and
+        // training are all good". Area names mean nothing to the reader, so the
+        // brief carries only the flagged signal and the verdict.
         let summary = readiness(
             componentScores: [.autonomic: 80, .sleep: 84, .vitals: 60],
             drivers: [ReadinessDriver(kind: .respiratoryRateAboveBaseline, message: "Respiratory rate is above baseline.", impact: -0.2)]
@@ -106,8 +113,10 @@ final class ReadinessCommentGeneratorTests: XCTestCase {
         let prompt = ReadinessCommentPromptBuilder.prompt(for: summary)
 
         XCTAssertTrue(prompt.contains("Below usual (most important first; name each one): Respiratory rate is above baseline."))
-        XCTAssertTrue(prompt.contains("Looking good: Autonomic, Sleep."))
         XCTAssertTrue(prompt.contains("Training verdict: yes."))
+        XCTAssertFalse(prompt.contains("Looking good"))
+        XCTAssertFalse(prompt.lowercased().contains("autonomic"))
+        XCTAssertFalse(prompt.lowercased().contains("training are"))
     }
 
     func testTrainingVerdictFollowsTheBandAndWorkoutDrain() {
