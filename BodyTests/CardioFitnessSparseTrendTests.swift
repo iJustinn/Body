@@ -209,4 +209,94 @@ final class CardioFitnessSparseTrendTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - Trend card comparison window
+
+    /// A reading a week is an active user, and it is still far too sparse for the
+    /// day-count rule: every window asks for more days-with-data per side than a
+    /// weekly cadence can supply, so the trend card would never appear at all.
+    func testWeeklyReadingCadenceProducesATrendCardOnlyForSparseMetrics() throws {
+        let today = try today()
+        let series = sparseSeries(readingCount: 52, strideDays: 7, today: today) { index in
+            40.0 - Double(index) * 0.1
+        }
+
+        let sparse = BodyHomeTrendCardPresentation.bestWindowResult(
+            from: series,
+            kind: .cardioFitness,
+            includesStable: true,
+            calendar: calendar,
+            date: today
+        )
+        XCTAssertNotNil(sparse)
+
+        // The identical series under a daily metric still finds nothing: the
+        // relaxed floor is per-kind, not a blanket loosening of the rule.
+        XCTAssertNil(
+            BodyHomeTrendCardPresentation.bestWindowResult(
+                from: series,
+                kind: .restingHeartRate,
+                includesStable: true,
+                calendar: calendar,
+                date: today
+            )
+        )
+
+        let result = try XCTUnwrap(sparse)
+        XCTAssertGreaterThanOrEqual(
+            result.recentAverage,
+            result.baselineAverage,
+            "readings rise toward today, so the recent side must average higher"
+        )
+    }
+
+    /// Both sides still have to hold real readings. The floor is relaxed, not removed:
+    /// averaging one or two lone measurements against a year is worse than no card.
+    func testTooFewReadingsProduceNoTrendCard() throws {
+        let today = try today()
+        // Five readings in total, so no split can put three on both sides.
+        let series = sparseSeries(readingCount: 5, strideDays: 30, today: today) { index in
+            40.0 - Double(index) * 0.2
+        }
+
+        XCTAssertNil(
+            BodyHomeTrendCardPresentation.bestWindowResult(
+                from: series,
+                kind: .cardioFitness,
+                includesStable: true,
+                calendar: calendar,
+                date: today
+            )
+        )
+    }
+
+    @MainActor
+    func testTrendCardFactoryBuildsTheCardioFitnessCard() throws {
+        // Anchored on the real current day: the factory reads the clock itself, so a
+        // fixed date would drift out of the comparison window as time passes.
+        let today = calendar.startOfDay(for: Date())
+        let series = sparseSeries(readingCount: 52, strideDays: 7, today: today) { index in
+            40.0 - Double(index) * 0.1
+        }
+        var trends = HealthTrendSnapshot.empty
+        trends.cardioFitness = series
+
+        let cards = BodyHomeTrendCardFactory.cards(
+            trends: trends,
+            selection: BodyHomeTrendCardSelection(selectedCards: [.cardioFitness]),
+            temperatureUnitPreference: .defaultValue,
+            energyUnitPreference: .defaultValue,
+            weightUnitPreference: .defaultValue,
+            includesStable: true,
+            cache: BodyHomeTrendComputationCache()
+        )
+
+        let card = try XCTUnwrap(cards.first)
+        XCTAssertEqual(card.presentation.kind, .cardioFitness)
+        XCTAssertEqual(card.presentation.title, "Cardio Fitness")
+        XCTAssertEqual(card.symbolName, "arrow.up.heart.fill")
+        XCTAssertEqual(card.presentation.chartStyle, .line)
+        XCTAssertTrue(card.presentation.recentAverageText.hasSuffix(" VO₂ max"))
+        XCTAssertTrue(card.presentation.messageText.contains("your cardio fitness"))
+    }
 }

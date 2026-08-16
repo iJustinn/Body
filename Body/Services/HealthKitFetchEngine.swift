@@ -1358,6 +1358,68 @@ actor HealthKitFetchEngine {
         }
     }
 
+    /// Today's earliest sub-threshold heart rate episode, backing the Home
+    /// card's low heart rate badge. A dedicated cheap query — HealthKit filters
+    /// on the threshold itself — so Home never waits for the lazily loaded
+    /// intraday samples. Sample dates match the intraday series (`endDate`).
+    private func fetchTodayLowHeartRateEvent(calendar: Calendar) async -> QueryOutcome<LowHeartRateEvent> {
+        guard let quantityType = HKObjectType.quantityType(forIdentifier: .heartRate) else {
+            return .success(nil)
+        }
+        if sourceSelectionUnresolved(for: .heartRate) {
+            return .failure
+        }
+
+        let unit = HKUnit.count().unitDivided(by: .minute())
+        let now = anchorDate ?? Date()
+        let thresholdPredicate = HKQuery.predicateForQuantitySamples(
+            with: .lessThan,
+            quantity: HKQuantity(unit: unit, doubleValue: LowHeartRateWarning.thresholdBPM)
+        )
+        let windowPredicate = combinedPredicate(
+            startDate: calendar.startOfDay(for: now),
+            endDate: now,
+            sourceKind: .heartRate
+        )
+        let predicate = windowPredicate.map {
+            NSCompoundPredicate(andPredicateWithSubpredicates: [$0, thresholdPredicate]) as NSPredicate
+        } ?? thresholdPredicate
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
+
+        // Cancellation resumes with `.failure`, like a query failure, so the
+        // resolver keeps the cached event instead of clearing the badge from a
+        // partial result. See `runCancellableQuery`.
+        return await runCancellableQuery(cancelledValue: .failure) { resume in
+            HKSampleQuery(
+                sampleType: quantityType,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sort]
+            ) { _, samples, error in
+                guard let samples else {
+                    Self.logTrendQueryFailure(HKQuantityTypeIdentifier.heartRate.rawValue, error: error)
+                    resume(.failure)
+                    return
+                }
+                let points = samples.compactMap { sample -> HealthTrendDataPoint? in
+                    guard let quantitySample = sample as? HKQuantitySample else {
+                        return nil
+                    }
+                    let value = quantitySample.quantity.doubleValue(for: unit)
+                    guard value.isFinite else {
+                        return nil
+                    }
+
+                    return HealthTrendDataPoint(date: quantitySample.endDate, value: value)
+                }
+
+                // No sub-threshold samples → `.success(nil)`, which clears a
+                // stale cached event rather than keeping yesterday's badge.
+                resume(.success(LowHeartRateWarning.detect(inSamples: points)))
+            }
+        }
+    }
+
     // MARK: - Cancellable queries
 
     /// Runs an `HKQuery` built by `makeQuery` under Task cancellation. `makeQuery`
@@ -2209,6 +2271,9 @@ actor HealthKitFetchEngine {
                 sourceKind: .heartRate
             )
         }
+        async let lowHeartRateEvent: QueryOutcome<LowHeartRateEvent> = fetchDashboardMetricIfNeeded(.heartRate, selection: selection, default: .success(nil)) {
+            await fetchTodayLowHeartRateEvent(calendar: calendar)
+        }
         async let restingHeartRate: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.restingHeartRate, selection: selection, default: .success(nil)) {
             await latestQuantity(
                 for: .restingHeartRate,
@@ -2333,6 +2398,7 @@ actor HealthKitFetchEngine {
         let resolvedActivityRings = resolve(await activityRings, cachedSummary?.activityRings)
         let resolvedSleep = resolve(await sleep, cachedSummary?.sleep)
         let resolvedHeartRate = resolve(await heartRate, cachedSummary?.heartRate)
+        let resolvedLowHeartRateEvent = resolve(await lowHeartRateEvent, cachedSummary?.lowHeartRateEvent)
         let resolvedRestingHeartRate = resolve(await restingHeartRate, cachedSummary?.restingHeartRate)
         let resolvedBodyMass = resolve(await bodyMass, cachedSummary?.bodyMass)
         let resolvedBodyFatPercentage = resolve(await bodyFatPercentage, cachedSummary?.bodyFatPercentage)
@@ -2369,7 +2435,8 @@ actor HealthKitFetchEngine {
             timeInDaylight: resolvedTimeInDaylight ?? HealthSummarySnapshot.empty.timeInDaylight,
             steps: resolvedSteps ?? HealthSummarySnapshot.empty.steps,
             cardioFitness: resolvedCardioFitness ?? HealthSummarySnapshot.empty.cardioFitness,
-            cardioFitnessProfile: resolvedCardioFitnessProfile
+            cardioFitnessProfile: resolvedCardioFitnessProfile,
+            lowHeartRateEvent: resolvedLowHeartRateEvent
         )
         return HealthSummaryFetchResult(summary: snapshot, hadQueryFailure: anyLeafFailed)
     }
@@ -2927,6 +2994,7 @@ actor HealthKitFetchEngine {
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 sourceKind: .heartRate
             )
+            async let lowHeartRateEvent = fetchTodayLowHeartRateEvent(calendar: calendar)
             async let heartRatePair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDailyQuantityAverageAndRangeSeries(
                 for: .heartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
@@ -2946,6 +3014,7 @@ actor HealthKitFetchEngine {
             )
 
             summary.heartRate = resolvedDashboardSummary(fetched: await heartRate, cached: existing.summary.heartRate) ?? HealthSummarySnapshot.empty.heartRate
+            summary.lowHeartRateEvent = resolvedDashboardSummary(fetched: await lowHeartRateEvent, cached: existing.summary.lowHeartRateEvent)
             let fetchedHeartRatePair = await heartRatePair
             trends.heartRate = resolvedTrend(fetchedHeartRatePair?.0, cached: existing.trends.heartRate)
             trends.heartRateRanges = resolvedTrend(fetchedHeartRatePair?.1, cached: existing.trends.heartRateRanges)

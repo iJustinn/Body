@@ -10,6 +10,10 @@ struct BodyApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var workoutStore = HealthKitWorkoutStore()
     @State private var proStore: BodyProStore
+    /// Owns the on-device Apple Intelligence readiness comment. Lives at the root so
+    /// Home (which drives generation) and Settings (which reads `isSupported`) share
+    /// one instance.
+    @State private var readinessComment = ReadinessCommentGenerator()
     @AppStorage(BodyAppearancePreference.selectedThemeKey) private var selectedThemeRawValue = BodyAppTheme.defaultValue.rawValue
 
     init() {
@@ -29,6 +33,7 @@ struct BodyApp: App {
                 .bodyBaseInterfaceLevel()
                 .environmentObject(workoutStore)
                 .environment(proStore)
+                .environment(readinessComment)
                 .tint(.primary)
                 .accentColor(.primary)
                 .preferredColorScheme(selectedTheme.colorScheme)

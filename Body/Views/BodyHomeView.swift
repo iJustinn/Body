@@ -329,9 +329,12 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var homeBackgroundSeparatorsRawValue = ""
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.summaryReselectCount) private var summaryReselectCount
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
+    @Environment(ReadinessCommentGenerator.self) private var readinessComment
     @State private var draggedHomeCard: BodyHomeCardKind?
     @State private var showsAllHomeTrends = false
     // Scroll offset lives in an @Observable so per-frame scroll updates only re-render the
@@ -390,6 +393,11 @@ struct BodyHomeView: View {
                     .padding(.top, 10)
                     .padding(.bottom, 110)
                     .readableContentColumn(maxWidth: AppLayout.homeContentWidth)
+                    // Pin the content to the viewport width: a vertical ScrollView becomes
+                    // horizontally pannable as soon as its content reports even a fraction
+                    // of a point wider than the viewport, which let the whole page drift
+                    // sideways under a diagonal drag.
+                    .containerRelativeFrame(.horizontal)
                 }
                 .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
                     Task { await workoutStore.requestAuthorizationAndRefresh() }
@@ -439,6 +447,36 @@ struct BodyHomeView: View {
                 dismissReadinessDetail()
             }
         }
+        // Apple Intelligence readiness comment: generated (or read from cache) when the
+        // score changes, when the setting flips, and on foreground so a comment written
+        // yesterday refreshes after a day rollover.
+        .task {
+            refreshReadinessComment()
+        }
+        .onChange(of: workoutStore.healthSummary.readiness) { _, _ in
+            refreshReadinessComment()
+        }
+        .onChange(of: showReadinessAIComment) { _, _ in
+            refreshReadinessComment()
+        }
+        .onChange(of: scenePhase) {
+            if scenePhase == .active {
+                refreshReadinessComment()
+            }
+        }
+    }
+
+    private var heroAIComment: BodyReadinessAIComment {
+        guard showReadinessAIComment else { return .authored }
+        if let comment = readinessComment.comment { return .comment(comment) }
+        return readinessComment.isGenerating ? .generating : .authored
+    }
+
+    private func refreshReadinessComment() {
+        readinessComment.refresh(
+            for: workoutStore.healthSummary.readiness,
+            enabled: showReadinessAIComment
+        )
     }
 
     private var homeCardOrder: [BodyHomeCardKind] {
@@ -486,7 +524,8 @@ struct BodyHomeView: View {
                 } label: {
                     BodyReadinessHeroLabel(
                         readiness: workoutStore.healthSummary.readiness,
-                        morningScore: todaysMorningReadiness
+                        morningScore: todaysMorningReadiness,
+                        aiComment: heroAIComment
                     )
                 }
                 .buttonStyle(.plain)
@@ -741,7 +780,9 @@ struct BodyHomeView: View {
                 decimals: 0,
                 symbolName: "heart.fill",
                 symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                chartPreview: trends.series(for: .heartRate)
+                chartPreview: trends.series(for: .heartRate),
+                warningSymbolName: (summary.lowHeartRateEvent.map { Calendar.bodyGregorian.isDateInToday($0.startDate) } ?? false)
+                    ? "exclamationmark.triangle.fill" : nil
             ),
             metric(
                 kind: .restingHeartRate,
@@ -872,7 +913,8 @@ struct BodyHomeView: View {
         chartStyle: BodyHealthMetricChartStyle = .line,
         chartPreviewStyle: BodyHomeMetricCardPreview.Style? = nil,
         chartPreview: HealthTrendSeries? = nil,
-        chartRangePreview: HealthTrendRangeSeries? = nil
+        chartRangePreview: HealthTrendRangeSeries? = nil,
+        warningSymbolName: String? = nil
     ) -> BodyHealthMetricCard.Model {
         BodyHealthMetricCard.Model(
             kind: kind,
@@ -883,7 +925,8 @@ struct BodyHomeView: View {
             symbolColor: symbolColor,
             chartPreviewStyle: chartPreviewStyle ?? BodyHomeMetricCardPreview.Style.matching(chartStyle: chartStyle),
             chartPreview: chartPreview,
-            chartRangePreview: chartRangePreview
+            chartRangePreview: chartRangePreview,
+            warningSymbolName: warningSymbolName
         )
     }
 
@@ -989,7 +1032,7 @@ struct BodyHomeView: View {
                     on: $0.stageSnapshot.date
                 )
             }.map {
-                BodyMetricDisplayValue(title: "Score", value: "\($0.total)", unit: "PTS")
+                BodyMetricDisplayValue(title: "Score", value: "\($0.total)", unit: "pts")
             } ?? BodyMetricDisplayValue(title: "Score", value: "--", unit: "")
 
             prominentMetrics = [
@@ -1119,7 +1162,7 @@ struct BodyHomeView: View {
                 kilograms: 0,
                 weightUnitPreference: selectedWeightUnitPreference
             ).unit,
-            symbolName: "person",
+            symbolName: "figure.arms.open",
             symbolColor: Color(red: 0.50, green: 0.34, blue: 1.00),
             prominentMetrics: [
                 bodyFatDisplay,
@@ -1471,7 +1514,7 @@ struct BodyHomeView: View {
                 title: "Basics",
                 value: display?.value ?? "--",
                 unit: display?.unit ?? massUnit,
-                symbolName: "person",
+                symbolName: "figure.arms.open",
                 symbolColor: Color(red: 0.50, green: 0.34, blue: 1.00),
                 series: .empty,
                 daySeries: .empty,
@@ -1923,6 +1966,17 @@ struct BodyHomeTrendCardPresentation: Identifiable {
     static let averageLineStrokeWidth: CGFloat = 4
     static let maximumDisplayPointCount = 60
 
+    /// How many readings a sparse metric needs on each side of a comparison.
+    ///
+    /// `WindowSpec.minimumSegmentDayCount` doubles as both the shortest a segment may
+    /// be and how many days in it must carry data. That holds for metrics recorded
+    /// daily, but Cardio Fitness records one estimate per qualifying outdoor workout,
+    /// so a 60-day segment might hold eight readings and could never reach the 30 the
+    /// year window asks for. Left alone, even a weekly runner would never see the card
+    /// at any window size. Sparse metrics keep the segment *length* rules and use this
+    /// reading count instead — the same floor the 28-day window already applies.
+    static let sparseMinimumSegmentReadingCount = 3
+
     struct WindowSpec: Equatable {
         let totalDayCount: Int
         let minimumSegmentDayCount: Int
@@ -1996,6 +2050,7 @@ struct BodyHomeTrendCardPresentation: Identifiable {
     ) -> BodyHomeTrendCardPresentation? {
         guard let result = bestWindowResult(
             from: series,
+            kind: kind,
             includesStable: includesStable,
             calendar: calendar,
             date: date
@@ -2048,6 +2103,7 @@ struct BodyHomeTrendCardPresentation: Identifiable {
 
     static func bestWindowResult(
         from series: HealthTrendSeries,
+        kind: HealthMetricKind,
         includesStable: Bool,
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
@@ -2065,6 +2121,9 @@ struct BodyHomeTrendCardPresentation: Identifiable {
             guard let candidate = bestComparisonWindow(
                 in: windowPoints,
                 spec: spec,
+                minimumSegmentReadingCount: kind.usesSparseTrendReadings
+                    ? min(spec.minimumSegmentDayCount, sparseMinimumSegmentReadingCount)
+                    : spec.minimumSegmentDayCount,
                 includesStable: includesStable
             ) else { continue }
             if let current = bestCandidate {
@@ -2145,6 +2204,7 @@ struct BodyHomeTrendCardPresentation: Identifiable {
     private static func bestComparisonWindow(
         in calendarPoints: [HealthTrendCalendarPoint],
         spec: WindowSpec,
+        minimumSegmentReadingCount: Int,
         includesStable: Bool
     ) -> ComparisonWindow? {
         let totalDayCount = spec.totalDayCount
@@ -2159,8 +2219,8 @@ struct BodyHomeTrendCardPresentation: Identifiable {
             let baselineValues = finiteValues(from: baselinePoints)
             let recentValues = finiteValues(from: recentPoints)
 
-            guard baselineValues.count >= minimumSegmentDayCount,
-                  recentValues.count >= minimumSegmentDayCount else {
+            guard baselineValues.count >= minimumSegmentReadingCount,
+                  recentValues.count >= minimumSegmentReadingCount else {
                 return nil
             }
 
@@ -2419,6 +2479,7 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         }
         let result = BodyHomeTrendCardPresentation.bestWindowResult(
             from: series,
+            kind: kind,
             includesStable: includesStable,
             calendar: calendar,
             date: date

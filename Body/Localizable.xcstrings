@@ -20,23 +20,6 @@
         }
       }
     },
-    "%@ VO₂ max" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ VO₂ max"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 最大摄氧量"
-          }
-        }
-      }
-    },
     "--/100" : {
       "localizations" : {
         "en" : {
@@ -379,6 +362,23 @@
         }
       }
     },
+    "%@ VO₂ max" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ VO₂ max"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 最大摄氧量"
+          }
+        }
+      }
+    },
     "%@ vs %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -525,6 +525,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已缓存%1$lld%2$@的活动圆环数据。"
+          }
+        }
+      }
+    },
+    "%lld BPM" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld BPM"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 次/分钟"
           }
         }
       }
@@ -1042,6 +1058,23 @@
         }
       }
     },
+    "AI comment on today's score" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI comment on today's score"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI 点评今日分数"
+          }
+        }
+      }
+    },
     "All Apple Health data permissions are turned off in Settings." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1174,6 +1207,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此设备不支持健康 App。"
+          }
+        }
+      }
+    },
+    "Apple Intelligence" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Intelligence"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple 智能"
+          }
+        }
+      }
+    },
+    "Apple Intelligence comment: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Intelligence comment: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple 智能点评：%@"
+          }
+        }
+      }
+    },
+    "Apple Intelligence readiness comments need a supported device with Apple Intelligence turned on in Settings. Body's built-in explanation is shown instead." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Intelligence readiness comments need a supported device with Apple Intelligence turned on in Settings. Body's built-in explanation is shown instead."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple 智能恢复状态点评需要支持该功能的设备，并在设置中开启 Apple 智能。否则将显示 Body 自带的说明。"
           }
         }
       }
@@ -2023,22 +2107,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "bpm"
-          }
-        }
-      }
-    },
-    "BPM" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "BPM"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "BPM"
           }
         }
       }
@@ -3751,6 +3819,23 @@
         }
       }
     },
+    "Generating comment…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Generating comment…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在生成点评…"
+          }
+        }
+      }
+    },
     "Go to Month" : {
       "localizations" : {
         "en" : {
@@ -4053,13 +4138,13 @@
         }
       }
     },
-    "HRS" : {
+    "hrs" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "HRS"
+            "value" : "hrs"
           }
         },
         "zh-Hans" : {
@@ -4237,13 +4322,13 @@
         }
       }
     },
-    "KCAL" : {
+    "kcal" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "KCAL"
+            "value" : "kcal"
           }
         },
         "zh-Hans" : {
@@ -4639,6 +4724,22 @@
         }
       }
     },
+    "Low Heart Rate" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Heart Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率过低"
+          }
+        }
+      }
+    },
     "Manage Purchases" : {
       "localizations" : {
         "en" : {
@@ -4740,13 +4841,13 @@
         }
       }
     },
-    "MIN" : {
+    "min" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "MIN"
+            "value" : "min"
           }
         },
         "zh-Hans" : {
@@ -6304,6 +6405,23 @@
         }
       }
     },
+    "Readiness Comment" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Readiness Comment"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态点评"
+          }
+        }
+      }
+    },
     "Readiness from sleep, strain, and vitals" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7214,6 +7332,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "设置"
+          }
+        }
+      }
+    },
+    "settings.section.ai" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI"
           }
         }
       }
@@ -8234,6 +8369,22 @@
         }
       }
     },
+    "Threshold" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Threshold"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "阈值"
+          }
+        }
+      }
+    },
     "Time" : {
       "localizations" : {
         "en" : {
@@ -8832,6 +8983,23 @@
         }
       }
     },
+    "VO₂ max trend" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VO₂ max trend"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最大摄氧量趋势"
+          }
+        }
+      }
+    },
     "vs 30-day avg" : {
       "localizations" : {
         "en" : {
@@ -8929,6 +9097,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "体重、体脂率和体重指数"
+          }
+        }
+      }
+    },
+    "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score — your heart rate, HRV, sleep, and training signals. Everything runs on your device; your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score — your heart rate, HRV, sleep, and training signals. Everything runs on your device; your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启后，Apple 智能会写下一句简短点评，说明是什么在影响今天的恢复状态分数——你的心率、心率变异性、睡眠和训练信号。全部处理都在你的设备上完成，健康数据不会离开设备。关闭或不可用时，Body 会改为显示自带的说明。"
           }
         }
       }
@@ -9050,6 +9235,7 @@
       }
     },
     "Workout Route" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9266,6 +9452,23 @@
         }
       }
     },
+    "your cardio fitness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "your cardio fitness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的有氧适能"
+          }
+        }
+      }
+    },
     "Your exercise minutes" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -9296,6 +9499,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的心率"
+          }
+        }
+      }
+    },
+    "Your heart rate fell below %lld BPM starting at %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your heart rate fell below %lld BPM starting at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的心率降至 %1$lld 次/分钟以下。"
           }
         }
       }

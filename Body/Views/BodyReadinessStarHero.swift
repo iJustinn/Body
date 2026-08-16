@@ -59,6 +59,11 @@ struct BodyReadinessHeroLabel: View {
     /// starting value stays visible once the live score drains below it.
     let morningScore: Int?
 
+    /// What sits in the explanation slot: the authored `heroExplanation` (feature off,
+    /// unsupported, or generation failed), a placeholder while Apple Intelligence writes,
+    /// or the generated comment itself.
+    var aiComment: BodyReadinessAIComment = .authored
+
     /// Animated score for the big number — counts up from 0 on launch and rolls to each
     /// new value, kept roughly in sync with the backdrop fill's rise.
     @State private var displayedScore = 0
@@ -88,6 +93,26 @@ struct BodyReadinessHeroLabel: View {
 
     private var statusTextTransition: AnyTransition {
         .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.28))
+    }
+
+    /// Crossfades every change of the explanation slot — authored → placeholder →
+    /// generated, or a regenerated comment replacing the last — skipped under Reduce
+    /// Motion like the score roll.
+    private var aiCommentAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.28)
+    }
+
+    /// The text of the explanation slot, whichever state it's in. Drives the crossfade
+    /// identity: any change of wording is a change of view.
+    private var explanationString: String {
+        switch aiComment {
+        case .authored:
+            return readiness.heroExplanation
+        case .generating:
+            return String(localized: "Generating comment…")
+        case .comment(let text):
+            return text
+        }
     }
 
     var body: some View {
@@ -152,10 +177,12 @@ struct BodyReadinessHeroLabel: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
 
-            Text(readiness.heroExplanation)
-                .font(.system(size: 15, weight: .medium, design: .rounded))
-                .opacity(0.92)
-                .fixedSize(horizontal: false, vertical: true)
+            ZStack(alignment: .topLeading) {
+                explanationText
+                    .id(explanationString)
+                    .transition(statusTextTransition)
+            }
+            .animation(aiCommentAnimation, value: explanationString)
 
             if let startedTodayText {
                 Text(startedTodayText)
@@ -163,6 +190,30 @@ struct BodyReadinessHeroLabel: View {
                     .opacity(0.8)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// The explanation slot: the Apple Intelligence glyph leads both the placeholder and
+    /// the generated comment; the authored one-liner has no glyph. Same type, size and
+    /// opacity either way, the placeholder a touch dimmer.
+    @ViewBuilder
+    private var explanationText: some View {
+        switch aiComment {
+        case .authored:
+            Text(explanationString)
+                .font(.system(size: 15, weight: .medium, design: .rounded))
+                .opacity(0.92)
+                .fixedSize(horizontal: false, vertical: true)
+        case .generating, .comment:
+            // The glyph is interpolated into the text run rather than laid out in an
+            // HStack, so wrapped lines flow full-width instead of indenting past it.
+            (Text(Image(systemName: BodyAppleIntelligenceGlyph.symbolName))
+                .font(.system(size: 13, weight: .semibold))
+                + Text(verbatim: " ")
+                + Text(explanationString))
+                .font(.system(size: 15, weight: .medium, design: .rounded))
+                .opacity(aiComment == .generating ? 0.7 : 0.92)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -174,8 +225,24 @@ struct BodyReadinessHeroLabel: View {
         if let morning = morningScore, morning > score {
             label += String(localized: ", started today at \(morning) percent")
         }
+        // The label suppresses child elements, so the generated comment is only spoken
+        // if it's folded in here.
+        if case .comment(let text) = aiComment {
+            label += ". " + String(localized: "Apple Intelligence comment: \(text)")
+        }
         return label
     }
+}
+
+/// State of the hero's explanation slot when the Apple Intelligence readiness comment
+/// is involved.
+enum BodyReadinessAIComment: Equatable {
+    /// Body's own authored explanation (feature off, unsupported, or generation failed).
+    case authored
+    /// Apple Intelligence is writing; a placeholder shows so the authored line never
+    /// flashes up only to be replaced a moment later.
+    case generating
+    case comment(String)
 }
 
 /// The animated fill: solid `tint` from the left edge out to `fraction` of the width,

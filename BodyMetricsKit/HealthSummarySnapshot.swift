@@ -211,6 +211,10 @@ struct HealthSummarySnapshot: Codable, Equatable {
     /// when the characteristics are unreadable or the permission is off, which
     /// every band UI renders as unclassified.
     var cardioFitnessProfile: CardioFitnessProfile?
+    /// Today's earliest sub-threshold heart rate episode, fetched with the summary
+    /// so the home card can flag it without the intraday samples. `nil` when no
+    /// reading fell below the threshold.
+    var lowHeartRateEvent: LowHeartRateEvent?
 
     init(
         activityRings: ActivityRingSummary,
@@ -232,7 +236,8 @@ struct HealthSummarySnapshot: Codable, Equatable {
         timeInDaylight: HealthMetricSummary = HealthMetricSummary(value: nil),
         steps: HealthMetricSummary = HealthMetricSummary(value: nil),
         cardioFitness: HealthMetricSummary = HealthMetricSummary(value: nil),
-        cardioFitnessProfile: CardioFitnessProfile? = nil
+        cardioFitnessProfile: CardioFitnessProfile? = nil,
+        lowHeartRateEvent: LowHeartRateEvent? = nil
     ) {
         self.activityRings = activityRings
         self.readiness = readiness
@@ -254,6 +259,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         self.steps = steps
         self.cardioFitness = cardioFitness
         self.cardioFitnessProfile = cardioFitnessProfile
+        self.lowHeartRateEvent = lowHeartRateEvent
     }
 
     var isEmpty: Bool {
@@ -394,6 +400,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         case steps
         case cardioFitness
         case cardioFitnessProfile
+        case lowHeartRateEvent
     }
 
     init(from decoder: Decoder) throws {
@@ -418,6 +425,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         steps = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .steps) ?? HealthMetricSummary(value: nil)
         cardioFitness = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .cardioFitness) ?? HealthMetricSummary(value: nil)
         cardioFitnessProfile = try container.decodeIfPresent(CardioFitnessProfile.self, forKey: .cardioFitnessProfile)
+        lowHeartRateEvent = try container.decodeIfPresent(LowHeartRateEvent.self, forKey: .lowHeartRateEvent)
     }
 
     func filtered(by selection: BodyHealthPermissionSelection) -> HealthSummarySnapshot {
@@ -435,6 +443,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
             filtered.heartRateVariability = HealthSummarySnapshot.empty.heartRateVariability
             filtered.sleep.vitals.heartRate = nil
             filtered.sleep.vitals.heartRateVariability = nil
+            filtered.lowHeartRateEvent = nil
         }
         if !selection.includes(.basics) {
             filtered.bodyMass = HealthSummarySnapshot.empty.bodyMass
@@ -494,6 +503,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
             next.bodyMassIndex = refreshed.bodyMassIndex
         case .heartRate:
             next.heartRate = refreshed.heartRate
+            next.lowHeartRateEvent = refreshed.lowHeartRateEvent
         case .restingHeartRate:
             next.restingHeartRate = refreshed.restingHeartRate
         case .bodyMass:

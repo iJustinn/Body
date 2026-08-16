@@ -11,6 +11,7 @@ import UIKit
 struct BodySettingsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
+    @Environment(ReadinessCommentGenerator.self) private var readinessComment
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
@@ -29,6 +30,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
+    @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @State private var activeSheet: BodySettingsSheet?
@@ -54,6 +56,7 @@ struct BodySettingsView: View {
                         appearanceSection
                         metricsSection
                         workoutsSection
+                        aiSection
                         dataSection
                         aboutSection
                         bodyProEntryCard
@@ -410,6 +413,23 @@ struct BodySettingsView: View {
         }
     }
 
+    private var aiSection: some View {
+        BodySettingsCardSection("settings.section.ai") {
+            Button {
+                activeSheet = .aiReadiness
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Readiness",
+                    value: readinessAISummaryText,
+                    iconName: BodyAppleIntelligenceGlyph.symbolName,
+                    tintColor: .indigo,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     private var starredMetric: Binding<BodyHomeCardKind?> {
         Binding {
             BodyHomeCardKind.starredMetric(from: starredMetricRawValue)
@@ -428,6 +448,11 @@ struct BodySettingsView: View {
 
     private var workoutEffortSuggestionsSummaryText: String {
         showWorkoutEffortSuggestions ? String(localized: "On") : String(localized: "Off")
+    }
+
+    private var readinessAISummaryText: String {
+        guard readinessComment.isSupported else { return String(localized: "Unavailable") }
+        return showReadinessAIComment ? String(localized: "On") : String(localized: "Off")
     }
 
     private var workoutRouteStyleSummaryText: String {
@@ -639,6 +664,11 @@ struct BodySettingsView: View {
             )
         case .workoutRouteStyle:
             BodyWorkoutRouteStyleSettingsSheet(selection: workoutRouteStyle)
+        case .aiReadiness:
+            BodyReadinessAISettingsSheet(
+                isEnabled: $showReadinessAIComment,
+                isSupported: readinessComment.isSupported
+            )
         case .sleepDurationGoal:
             BodySleepSettingsSheet(
                 goalMinutes: sleepDurationGoal,
@@ -704,6 +734,7 @@ enum BodySettingsSheet: String, Identifiable {
     case dayView
     case effortSuggestions
     case workoutRouteStyle
+    case aiReadiness
     case units
     case source
     case permissions
@@ -842,16 +873,6 @@ extension BodyValueFormat.WeightUnitPreference: BodyUnitPreferenceOption { }
 extension BodyValueFormat.DistanceUnitPreference: BodyUnitPreferenceOption { }
 extension BodyValueFormat.EnergyUnitPreference: BodyUnitPreferenceOption { }
 extension BodyValueFormat.TemperatureUnitPreference: BodyUnitPreferenceOption { }
-
-extension BodyWorkoutRouteStyle: BodyUnitPreferenceOption {
-    var unitLabel: String {
-        title
-    }
-
-    var displayName: String {
-        subtitle
-    }
-}
 
 private struct BodySleepSettingsSheet: View {
     @Binding var goalMinutes: Int
@@ -1035,28 +1056,39 @@ private struct BodyWorkoutRouteStyleSettingsSheet: View {
     @Binding var selection: BodyWorkoutRouteStyle
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 18) {
-                        BodySettingsCardSection("Route Style") {
-                            BodyUnitPreferenceControlRow(
-                                title: "Workout Route",
-                                iconName: "map.fill",
-                                tintColor: .blue,
-                                options: BodyWorkoutRouteStyle.allCases,
-                                selection: $selection,
-                                isEnabled: true
-                            )
-                        }
+        BodySettingsAboutSheetScaffold(title: "Route Style") {
+            VStack(spacing: 0) {
+                ForEach(Array(BodyWorkoutRouteStyle.allCases.enumerated()), id: \.element) { index, style in
+                    if index > 0 {
+                        Divider()
+                            .padding(.leading, 76)
                     }
-                    .padding()
-                    .padding(.bottom, 24)
+
+                    BodyStarMetricOptionRow(
+                        title: style.title,
+                        subtitle: style.subtitle,
+                        iconName: style.settingsIconName,
+                        tintColor: .blue,
+                        isSelected: selection == style
+                    ) {
+                        selection = style
+                    }
                 }
             }
-            .bodySheetBackground()
-            .navigationTitle("Route Style")
-            .navigationBarTitleDisplayMode(.inline)
+            .bodyCardBackground(translucent: true)
+        }
+    }
+}
+
+private extension BodyWorkoutRouteStyle {
+    var settingsIconName: String {
+        switch self {
+        case .map:
+            "map.fill"
+        case .plain:
+            "scribble.variable"
+        case .threeD:
+            "view.3d"
         }
     }
 }
@@ -2063,6 +2095,80 @@ private struct BodyEffortSuggestionToggleRow: View {
             Spacer(minLength: 12)
 
             Toggle("Effort Suggestions", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct BodyReadinessAISettingsSheet: View {
+    @Binding var isEnabled: Bool
+    let isSupported: Bool
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Readiness") {
+            VStack(alignment: .leading, spacing: 12) {
+                BodySettingsCardSection("Apple Intelligence") {
+                    BodyReadinessAIToggleRow(isEnabled: $isEnabled)
+                        // Nothing to generate without an available on-device model.
+                        .disabled(!isSupported)
+                        .opacity(isSupported ? 1 : 0.4)
+                }
+
+                explanation
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var explanation: some View {
+        if isSupported {
+            Text("When on, Apple Intelligence writes a short comment about what's shaping today's readiness score — your heart rate, HRV, sleep, and training signals. Everything runs on your device; your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead.")
+        } else {
+            Text("Apple Intelligence readiness comments need a supported device with Apple Intelligence turned on in Settings. Body's built-in explanation is shown instead.")
+        }
+    }
+}
+
+private struct BodyReadinessAIToggleRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(
+                iconName: BodyAppleIntelligenceGlyph.symbolName,
+                color: .indigo
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Readiness Comment")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("AI comment on today's score")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Readiness Comment", isOn: $isEnabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                 .accessibilityValue(isEnabled ? "On" : "Off")
@@ -3400,4 +3506,5 @@ private struct BodySettingsInfoCard: View {
 #Preview {
     BodySettingsView()
         .environmentObject(HealthKitWorkoutStore())
+        .environment(ReadinessCommentGenerator())
 }

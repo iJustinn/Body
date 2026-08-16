@@ -860,6 +860,14 @@ struct BodyHealthMetricDetailView: View {
         return daySeriesCache.daySeries(from: liveSecondaryDaySeries, on: selectedMetricDay, slot: .secondary)
     }
 
+    private var selectedLowHeartRateEvent: LowHeartRateEvent? {
+        guard model.kind == .heartRate else {
+            return nil
+        }
+
+        return LowHeartRateWarning.detect(in: selectedMetricDaySeries, on: selectedMetricDay)
+    }
+
     private var selectedMetricActivityAverages: [BodyMetricActivityAverage] {
         switch model.kind {
         case .heartRate:
@@ -1421,9 +1429,11 @@ struct BodyHealthMetricDetailView: View {
                 metricDatePicker
                 metricDayChartCard
                 metricActivityAveragesCard
+                lowHeartRateWarningCard
                 detailTrendComparisonCard
             } else {
                 detailTrendComparisonCard
+                lowHeartRateWarningCard
             }
             if isBasicsDetail {
                 bodyMassIndexTrendCard
@@ -1926,6 +1936,20 @@ struct BodyHealthMetricDetailView: View {
     }
 
     @ViewBuilder
+    private var lowHeartRateWarningCard: some View {
+        if let event = selectedLowHeartRateEvent {
+            let window = LowHeartRateWarning.chartWindow(for: event, clampedTo: selectedMetricDayInterval)
+
+            BodyLowHeartRateWarningCard(
+                event: event,
+                samples: selectedMetricDaySeries.points.filter { window.contains($0.date) },
+                window: window,
+                tint: model.symbolColor
+            )
+        }
+    }
+
+    @ViewBuilder
     private var metricActivityAveragesCard: some View {
         if model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy || model.kind == .readiness {
             let rows = selectedMetricActivityAverages
@@ -1942,11 +1966,17 @@ struct BodyHealthMetricDetailView: View {
                         .foregroundColor(.secondary)
                         .frame(maxWidth: .infinity, minHeight: 88, alignment: .center)
                 } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                            metricActivityAverageRow(row)
+                    // Identity is the activity and its ordinal among same-activity rows,
+                    // never the row's dates: the Sleep row on one day has to *become* the
+                    // Sleep row on the next so its numbers roll over in place, where a
+                    // date-keyed row would be torn down and replaced.
+                    let identifiedRows = dayStableActivityAverageRows(rows)
 
-                            if index < rows.count - 1 {
+                    VStack(spacing: 0) {
+                        ForEach(Array(identifiedRows.enumerated()), id: \.element.id) { index, entry in
+                            metricActivityAverageRow(entry.row)
+
+                            if index < identifiedRows.count - 1 {
                                 Divider()
                                     .padding(.leading, 50)
                             }
@@ -1986,8 +2016,25 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
+    /// The rows paired with day-stable ids: the same activity in the same position keeps
+    /// its id across a day switch, while the ordinal keeps two workouts of one type on the
+    /// same day distinct.
+    private func dayStableActivityAverageRows(
+        _ rows: [BodyMetricActivityAverage]
+    ) -> [(id: String, row: BodyMetricActivityAverage)] {
+        var occurrences: [String: Int] = [:]
+        return rows.map { row in
+            let occurrence = occurrences[row.activity.id, default: 0]
+            occurrences[row.activity.id] = occurrence + 1
+            return (id: "\(row.activity.id)-\(occurrence)", row: row)
+        }
+    }
+
     private func metricActivityAverageRow(_ row: BodyMetricActivityAverage) -> some View {
-        HStack(spacing: 12) {
+        let timeRangeText = activityAverageTimeRangeText(for: row)
+        let valueText = model.valueFormatter(row.averageValue)
+
+        return HStack(spacing: 12) {
             Image(systemName: row.symbolName)
                 .font(.system(size: 17, weight: .bold, design: .rounded))
                 .symbolRenderingMode(.hierarchical)
@@ -1999,6 +2046,14 @@ struct BodyHealthMetricDetailView: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(row.color.opacity(0.14))
                 )
+                // A row keeps its identity across a day switch (see
+                // `dayStableActivityAverageRows`), so the glyph and tint of the
+                // activity that replaces it dissolve in rather than cutting.
+                .contentTransition(reduceMotion ? .identity : .opacity)
+                .animation(
+                    reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0),
+                    value: row.activity.id
+                )
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -2008,22 +2063,24 @@ struct BodyHealthMetricDetailView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
 
-                Text(activityAverageTimeRangeText(for: row))
+                Text(timeRangeText)
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
+                    .bodyLegendNumberFlip(value: timeRangeText)
             }
 
             Spacer(minLength: 12)
 
             VStack(alignment: .trailing, spacing: 3) {
-                Text(model.valueFormatter(row.averageValue))
+                Text(valueText)
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                     .foregroundColor(row.color)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
+                    .bodyLegendNumberFlip(value: valueText)
 
                 if let source = row.source, !source.isEmpty {
                     Text(source)
@@ -2032,6 +2089,10 @@ struct BodyHealthMetricDetailView: View {
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
+                        // A name, not a number: it dissolves while the reading beside it
+                        // rolls, on the same curve.
+                        .contentTransition(reduceMotion ? .identity : .opacity)
+                        .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: source)
                 }
             }
         }
@@ -2786,7 +2847,7 @@ struct BodyHealthMetricDetailView: View {
             switch measurement.kind {
             case .sleepingHeartRate:
                 value = BodyValueFormat.numberText(measurement.value.rounded(), decimals: 0)
-                unit = "BPM"
+                unit = "bpm"
             case .respiratoryRate:
                 value = BodyValueFormat.numberText(measurement.value.rounded(), decimals: 0)
                 unit = "br/min"

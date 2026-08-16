@@ -2772,6 +2772,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         cachedExpectedSourceIDsByKind = [:]
         authorizationState = .unknown
         healthDataNotice = String(localized: "Local cache cleared. Refresh to load Apple Health data again.")
+        // Drop the generated readiness comment too — it describes the summary
+        // this clear just wiped, and would otherwise reappear on relaunch.
+        ReadinessCommentCache.clear()
 
         // Await the engine cache clears (previously fire-and-forget) so a refresh
         // started right after this can't race a half-cleared source/effort cache.

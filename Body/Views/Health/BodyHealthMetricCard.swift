@@ -39,6 +39,7 @@ struct BodyHealthMetricCard: View {
         let previewRangeCalendarPoints: [HealthTrendRangeCalendarPoint]
         let previewDotEntries: [DotEntry]
         let levelPreviewEntry: LevelEntry?
+        let warningSymbolName: String?
 
         init(
             kind: HealthMetricKind,
@@ -53,6 +54,7 @@ struct BodyHealthMetricCard: View {
             chartRangePreview: HealthTrendRangeSeries? = nil,
             previewDotEntries: [DotEntry] = [],
             levelPreviewEntry: LevelEntry? = nil,
+            warningSymbolName: String? = nil,
             previewDayCount: Int = BodyHomeMetricCardPreview.dayCount(forScreenWidth: UIScreen.main.bounds.width)
         ) {
             self.kind = kind
@@ -65,6 +67,7 @@ struct BodyHealthMetricCard: View {
             self.chartPreviewStyle = chartPreviewStyle
             self.previewDotEntries = previewDotEntries
             self.levelPreviewEntry = levelPreviewEntry
+            self.warningSymbolName = warningSymbolName
             // Preview points are derived once per model — the preview view
             // used to regroup the full trend series in chained computed
             // properties on every render of every card.
@@ -122,6 +125,10 @@ struct BodyHealthMetricCard: View {
 
                 Spacer(minLength: 0)
 
+                warningBadge
+
+                Spacer(minLength: 0)
+
                 valueRow
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -138,6 +145,10 @@ struct BodyHealthMetricCard: View {
 
                 Spacer(minLength: 0)
 
+                warningBadge
+
+                Spacer(minLength: 0)
+
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(metric.prominentMetrics) { display in
                         displayValueRow(display, valueFontSize: 26)
@@ -148,6 +159,18 @@ struct BodyHealthMetricCard: View {
             .layoutPriority(1)
 
             visualStack
+        }
+    }
+
+    @ViewBuilder
+    private var warningBadge: some View {
+        if let warningSymbolName = metric.warningSymbolName {
+            // Sits between two spacers so it centres in the gap between the
+            // title and the value instead of hugging the title.
+            Image(systemName: warningSymbolName)
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(.yellow)
+                .accessibilityLabel(Text("Low Heart Rate"))
         }
     }
 

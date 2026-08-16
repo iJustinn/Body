@@ -64,6 +64,48 @@ final class HealthKitFetchEngineFailureSemanticsTests: XCTestCase {
         XCTAssertEqual(Samples.success([1, 2]).valueOr([]), [1, 2])
     }
 
+    // MARK: - Low heart rate event resolver
+
+    func testResolvedLowHeartRateEventClearsOnConfirmedAbsent() {
+        // The threshold-filtered query came back empty today → the badge must
+        // clear rather than keep yesterday's episode.
+        typealias LowOutcome = HealthKitFetchEngine.QueryOutcome<LowHeartRateEvent>
+        let cached = LowHeartRateEvent(
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_300),
+            minimumBPM: 38,
+            sampleCount: 3
+        )
+        XCTAssertNil(
+            HealthKitFetchEngine.resolvedSummaryValue(fetched: LowOutcome.success(nil), cached: cached)
+        )
+    }
+
+    func testResolvedLowHeartRateEventKeepsCacheOnFailureAndReplacesOnSuccess() {
+        typealias LowOutcome = HealthKitFetchEngine.QueryOutcome<LowHeartRateEvent>
+        let cached = LowHeartRateEvent(
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_300),
+            minimumBPM: 38,
+            sampleCount: 3
+        )
+        let fresh = LowHeartRateEvent(
+            startDate: Date(timeIntervalSince1970: 1_700_086_400),
+            endDate: Date(timeIntervalSince1970: 1_700_086_700),
+            minimumBPM: 35,
+            sampleCount: 2
+        )
+        // Failure (including cancellation, which resumes `.failure`) retains.
+        XCTAssertEqual(
+            HealthKitFetchEngine.resolvedSummaryValue(fetched: LowOutcome.failure, cached: cached),
+            cached
+        )
+        XCTAssertEqual(
+            HealthKitFetchEngine.resolvedSummaryValue(fetched: LowOutcome.success(fresh), cached: cached),
+            fresh
+        )
+    }
+
     // MARK: - Effort failure fallback (H12)
 
     func testEffortFallbackUsesFetchedWhenPresent() {
