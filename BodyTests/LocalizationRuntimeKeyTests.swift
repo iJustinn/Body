@@ -183,10 +183,15 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Blood Oxygen",
             // Settings → Metrics → Warnings row and sheet.
             "Warnings",
-            "Any reading below 40 bpm today",
-            "Any reading above 120 bpm today, outside workouts",
-            "Any reading below 90% today",
-            "Warnings appear on the Home card and the metric's detail page."
+            "Any reading below %lld bpm today",
+            "Any reading above %lld bpm today, outside workouts",
+            "Any reading below %lld%% today",
+            "Warnings appear on the Home card and the metric's detail page.",
+            // Threshold picker popover.
+            "Use Default",
+            "If you were working out, this warning will disappear once the workout is logged.",
+            "Default: %@",
+            "%lld bpm"
         ]
 
         try assertKeysTranslated(keys, in: catalog)

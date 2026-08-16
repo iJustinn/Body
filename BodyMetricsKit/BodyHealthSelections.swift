@@ -38,6 +38,7 @@ enum BodyAppearancePreference {
     static let homeTrendCardSelectionKey = "homeTrendCardSelection"
     static let metricDayViewSelectionKey = "metricDayViewSelection"
     static let metricWarningsKey = "metricWarnings"
+    static let metricWarningThresholdsKey = "metricWarningThresholds"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
     static let healthPermissionExpandedMigratedKey = "healthPermissionExpandedMigrated"
     static let healthCardioFitnessMigratedKey = "healthCardioFitnessMigrated"

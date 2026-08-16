@@ -659,6 +659,107 @@ struct BodyMetricWarningSelection: Equatable {
     }
 }
 
+/// The user's custom limits for the metric threshold warnings. Only overrides
+/// are stored, so a kind the user never touched keeps following its default —
+/// which for high heart rate tracks their max HR rather than a fixed number.
+struct BodyMetricWarningThresholds: Equatable {
+    static let defaultValue = BodyMetricWarningThresholds(overrides: [:])
+    static var defaultRawValue: String {
+        defaultValue.rawValue
+    }
+
+    var overrides: [MetricWarningKind: Int]
+
+    var rawValue: String {
+        guard !overrides.isEmpty else {
+            return ""
+        }
+
+        let object = Dictionary(uniqueKeysWithValues: overrides.map { ($0.key.rawValue, $0.value) })
+        guard let data = try? JSONEncoder.sortedKeys.encode(object),
+              let string = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+
+        return string
+    }
+
+    func override(for kind: MetricWarningKind) -> Int? {
+        overrides[kind]
+    }
+
+    /// `nil` clears the override so the kind falls back to its default.
+    func setting(_ kind: MetricWarningKind, to value: Int?) -> BodyMetricWarningThresholds {
+        var nextOverrides = overrides
+        if let value {
+            nextOverrides[kind] = Self.clamped(value, to: kind)
+        } else {
+            nextOverrides.removeValue(forKey: kind)
+        }
+
+        return BodyMetricWarningThresholds(overrides: nextOverrides)
+    }
+
+    /// The limit to detect against: the user's override, else the default —
+    /// zone 3's lower bound for high heart rate, the fixed value otherwise.
+    func threshold(for kind: MetricWarningKind, maxHeartRate: Double? = nil) -> Double {
+        if let override = overrides[kind] {
+            return Double(override)
+        }
+
+        guard kind == .highHeartRate,
+              let zoneThree = Self.zoneThreeLowerBound(maxHeartRate: maxHeartRate) else {
+            return kind.defaultThreshold
+        }
+
+        return zoneThree
+    }
+
+    /// Lower bound of heart rate zone 3 (70 % of max HR), rounded to a whole
+    /// beat and clamped into the picker's range. `nil` without a usable max HR,
+    /// so callers fall back to the fixed default.
+    static func zoneThreeLowerBound(maxHeartRate: Double?) -> Double? {
+        guard let maxHeartRate, maxHeartRate.isFinite, maxHeartRate > 0 else {
+            return nil
+        }
+
+        let fraction = WorkoutHeartRateZones.lowerBoundFractions[2]
+        return Double(clamped(Int((maxHeartRate * fraction).rounded()), to: .highHeartRate))
+    }
+
+    static func storedValue(from rawValue: String) -> BodyMetricWarningThresholds {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty,
+              let data = trimmedValue.data(using: .utf8),
+              let object = try? JSONDecoder().decode([String: Int].self, from: data) else {
+            return defaultValue
+        }
+
+        var overrides: [MetricWarningKind: Int] = [:]
+        for (key, value) in object {
+            guard let kind = MetricWarningKind(rawValue: key) else {
+                continue
+            }
+            overrides[kind] = clamped(value, to: kind)
+        }
+
+        return BodyMetricWarningThresholds(overrides: overrides)
+    }
+
+    private static func clamped(_ value: Int, to kind: MetricWarningKind) -> Int {
+        min(max(value, kind.thresholdRange.lowerBound), kind.thresholdRange.upperBound)
+    }
+}
+
+private extension JSONEncoder {
+    /// Stable key order so the stored string only changes when a value does.
+    static var sortedKeys: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return encoder
+    }
+}
+
 struct BodyDashboardFetchSelection: Equatable {
     private static let basicsMetricKinds: Set<HealthMetricKind> = [
         .bodyMass,

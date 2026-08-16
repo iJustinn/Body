@@ -35,19 +35,108 @@ final class MetricThresholdWarningTests: XCTestCase {
     }
 
     func testKindThresholds() {
-        XCTAssertEqual(MetricWarningKind.lowHeartRate.threshold, 40)
-        XCTAssertEqual(MetricWarningKind.highHeartRate.threshold, 120)
-        XCTAssertEqual(MetricWarningKind.lowBloodOxygen.threshold, 90)
+        XCTAssertEqual(MetricWarningKind.lowHeartRate.defaultThreshold, 40)
+        XCTAssertEqual(MetricWarningKind.highHeartRate.defaultThreshold, 120)
+        XCTAssertEqual(MetricWarningKind.lowBloodOxygen.defaultThreshold, 90)
         XCTAssertFalse(MetricWarningKind.lowHeartRate.isAbove)
         XCTAssertTrue(MetricWarningKind.highHeartRate.isAbove)
         XCTAssertTrue(MetricWarningKind.highHeartRate.excludesWorkouts)
         XCTAssertFalse(MetricWarningKind.lowBloodOxygen.excludesWorkouts)
     }
 
+    func testKindThresholdRangesContainTheirDefaults() {
+        for kind in MetricWarningKind.allCases {
+            XCTAssertTrue(
+                kind.thresholdRange.contains(Int(kind.defaultThreshold)),
+                "\(kind.rawValue) default sits outside its picker range"
+            )
+            XCTAssertEqual(kind.thresholdStep, 1)
+        }
+
+        XCTAssertEqual(MetricWarningKind.lowHeartRate.thresholdRange, 30...60)
+        XCTAssertEqual(MetricWarningKind.highHeartRate.thresholdRange, 100...200)
+        XCTAssertEqual(MetricWarningKind.lowBloodOxygen.thresholdRange, 80...95)
+        XCTAssertEqual(MetricWarningKind.highHeartRate.unitLabelKey, "bpm")
+        XCTAssertEqual(MetricWarningKind.lowBloodOxygen.unitLabelKey, "%")
+    }
+
+    // MARK: - Custom thresholds
+
+    func testCustomThresholdDecidesWhichReadingsWarn() throws {
+        let input = series([
+            (time(8, 0), 118),
+            (time(8, 10), 125)
+        ])
+
+        XCTAssertNil(
+            MetricThresholdWarning.detect(
+                .highHeartRate,
+                in: input,
+                on: day(),
+                calendar: calendar,
+                threshold: 130
+            )
+        )
+
+        let event = try XCTUnwrap(
+            MetricThresholdWarning.detect(
+                .highHeartRate,
+                in: input,
+                on: day(),
+                calendar: calendar,
+                threshold: 110
+            )
+        )
+        XCTAssertEqual(event.sampleCount, 2)
+        XCTAssertEqual(event.extremeValue, 125)
+        XCTAssertEqual(event.threshold, 110)
+    }
+
+    func testEventWithoutAnExplicitThresholdUsesTheKindDefault() {
+        let warning = event(.lowBloodOxygen, start: time(10, 0), end: time(10, 0), extremeValue: 86, sampleCount: 1)
+        XCTAssertEqual(warning.threshold, MetricWarningKind.lowBloodOxygen.defaultThreshold)
+    }
+
+    func testEventDecodesTheKindDefaultWhenTheStoredThresholdIsMissing() throws {
+        let legacy = try XCTUnwrap(
+            """
+            {
+                "kind": "highHeartRate",
+                "startDate": 0,
+                "endDate": 60,
+                "extremeValue": 150,
+                "sampleCount": 2
+            }
+            """.data(using: .utf8)
+        )
+
+        let decoded = try JSONDecoder().decode(MetricWarningEvent.self, from: legacy)
+        XCTAssertEqual(decoded.threshold, MetricWarningKind.highHeartRate.defaultThreshold)
+        XCTAssertEqual(decoded.extremeValue, 150)
+    }
+
+    func testEventRoundTripsACustomThreshold() throws {
+        let warning = MetricWarningEvent(
+            kind: .highHeartRate,
+            startDate: time(8, 0),
+            endDate: time(8, 10),
+            extremeValue: 150,
+            sampleCount: 2,
+            threshold: 133
+        )
+
+        let decoded = try JSONDecoder().decode(
+            MetricWarningEvent.self,
+            from: JSONEncoder().encode(warning)
+        )
+        XCTAssertEqual(decoded, warning)
+        XCTAssertEqual(decoded.threshold, 133)
+    }
+
     // MARK: - Low heart rate detector
 
     func testEmptySeriesHasNoEvent() {
-        XCTAssertNil(MetricThresholdWarning.detect(.lowHeartRate, in: .empty, on: day(), calendar: calendar))
+        XCTAssertNil(MetricThresholdWarning.detect(.lowHeartRate, in: .empty, on: day(), calendar: calendar, threshold: MetricWarningKind.lowHeartRate.defaultThreshold))
     }
 
     func testReadingsAtOrAboveThresholdHaveNoEvent() {
@@ -57,7 +146,7 @@ final class MetricThresholdWarningTests: XCTestCase {
             (time(6, 10), 40.0)
         ])
 
-        XCTAssertNil(MetricThresholdWarning.detect(.lowHeartRate, in: input, on: day(), calendar: calendar))
+        XCTAssertNil(MetricThresholdWarning.detect(.lowHeartRate, in: input, on: day(), calendar: calendar, threshold: MetricWarningKind.lowHeartRate.defaultThreshold))
     }
 
     func testSingleLowSampleIsItsOwnEpisode() throws {
@@ -68,7 +157,7 @@ final class MetricThresholdWarningTests: XCTestCase {
         ])
 
         let event = try XCTUnwrap(
-            MetricThresholdWarning.detect(.lowHeartRate, in: input, on: day(), calendar: calendar)
+            MetricThresholdWarning.detect(.lowHeartRate, in: input, on: day(), calendar: calendar, threshold: MetricWarningKind.lowHeartRate.defaultThreshold)
         )
         XCTAssertEqual(event.kind, .lowHeartRate)
         XCTAssertEqual(event.startDate, time(6, 25))
@@ -86,7 +175,7 @@ final class MetricThresholdWarningTests: XCTestCase {
         ])
 
         let event = try XCTUnwrap(
-            MetricThresholdWarning.detect(.lowHeartRate, in: input, on: day(), calendar: calendar)
+            MetricThresholdWarning.detect(.lowHeartRate, in: input, on: day(), calendar: calendar, threshold: MetricWarningKind.lowHeartRate.defaultThreshold)
         )
         XCTAssertEqual(event.startDate, time(6, 25))
         XCTAssertEqual(event.endDate, time(7, 30))
@@ -103,7 +192,7 @@ final class MetricThresholdWarningTests: XCTestCase {
         ])
 
         let event = try XCTUnwrap(
-            MetricThresholdWarning.detect(.lowHeartRate, in: input, on: day(), calendar: calendar)
+            MetricThresholdWarning.detect(.lowHeartRate, in: input, on: day(), calendar: calendar, threshold: MetricWarningKind.lowHeartRate.defaultThreshold)
         )
         XCTAssertEqual(event.startDate, time(6, 25))
         XCTAssertEqual(event.endDate, time(6, 35))
@@ -120,7 +209,7 @@ final class MetricThresholdWarningTests: XCTestCase {
         ])
 
         let event = try XCTUnwrap(
-            MetricThresholdWarning.detect(.lowHeartRate, in: input, on: day(), calendar: calendar)
+            MetricThresholdWarning.detect(.lowHeartRate, in: input, on: day(), calendar: calendar, threshold: MetricWarningKind.lowHeartRate.defaultThreshold)
         )
         XCTAssertEqual(event.startDate, time(9, 0))
         XCTAssertEqual(event.sampleCount, 1)
@@ -133,7 +222,7 @@ final class MetricThresholdWarningTests: XCTestCase {
         ])
 
         let event = try XCTUnwrap(
-            MetricThresholdWarning.detect(.lowHeartRate, in: input, on: day(), calendar: calendar)
+            MetricThresholdWarning.detect(.lowHeartRate, in: input, on: day(), calendar: calendar, threshold: MetricWarningKind.lowHeartRate.defaultThreshold)
         )
         XCTAssertEqual(event.startDate, time(6, 25))
         XCTAssertEqual(event.endDate, time(6, 40))
@@ -148,7 +237,7 @@ final class MetricThresholdWarningTests: XCTestCase {
         ])
 
         let event = try XCTUnwrap(
-            MetricThresholdWarning.detect(.lowHeartRate, in: input, on: day(), calendar: calendar)
+            MetricThresholdWarning.detect(.lowHeartRate, in: input, on: day(), calendar: calendar, threshold: MetricWarningKind.lowHeartRate.defaultThreshold)
         )
         XCTAssertEqual(event.sampleCount, 2)
         XCTAssertEqual(event.startDate, time(6, 25))
@@ -163,7 +252,7 @@ final class MetricThresholdWarningTests: XCTestCase {
             (time(8, 5), 120.0)
         ])
 
-        XCTAssertNil(MetricThresholdWarning.detect(.highHeartRate, in: input, on: day(), calendar: calendar))
+        XCTAssertNil(MetricThresholdWarning.detect(.highHeartRate, in: input, on: day(), calendar: calendar, threshold: MetricWarningKind.highHeartRate.defaultThreshold))
     }
 
     func testHighHeartRateReportsTheMaximumOfTheEpisode() throws {
@@ -174,7 +263,7 @@ final class MetricThresholdWarningTests: XCTestCase {
         ])
 
         let event = try XCTUnwrap(
-            MetricThresholdWarning.detect(.highHeartRate, in: input, on: day(), calendar: calendar)
+            MetricThresholdWarning.detect(.highHeartRate, in: input, on: day(), calendar: calendar, threshold: MetricWarningKind.highHeartRate.defaultThreshold)
         )
         XCTAssertEqual(event.kind, .highHeartRate)
         XCTAssertEqual(event.startDate, time(8, 0))
@@ -193,6 +282,7 @@ final class MetricThresholdWarningTests: XCTestCase {
                 in: insideOnly,
                 on: day(),
                 calendar: calendar,
+                threshold: MetricWarningKind.highHeartRate.defaultThreshold,
                 excluding: [workout]
             )
         )
@@ -207,6 +297,7 @@ final class MetricThresholdWarningTests: XCTestCase {
                 in: mixed,
                 on: day(),
                 calendar: calendar,
+                threshold: MetricWarningKind.highHeartRate.defaultThreshold,
                 excluding: [workout]
             )
         )
@@ -227,6 +318,7 @@ final class MetricThresholdWarningTests: XCTestCase {
                 in: input,
                 on: day(),
                 calendar: calendar,
+                threshold: MetricWarningKind.highHeartRate.defaultThreshold,
                 excluding: [workout]
             )
         )
@@ -240,7 +332,7 @@ final class MetricThresholdWarningTests: XCTestCase {
             (time(10, 30), 90.0)
         ])
 
-        XCTAssertNil(MetricThresholdWarning.detect(.lowBloodOxygen, in: input, on: day(), calendar: calendar))
+        XCTAssertNil(MetricThresholdWarning.detect(.lowBloodOxygen, in: input, on: day(), calendar: calendar, threshold: MetricWarningKind.lowBloodOxygen.defaultThreshold))
     }
 
     func testBloodOxygenReportsTheMinimumOfTheEpisode() throws {
@@ -250,7 +342,7 @@ final class MetricThresholdWarningTests: XCTestCase {
         ])
 
         let event = try XCTUnwrap(
-            MetricThresholdWarning.detect(.lowBloodOxygen, in: input, on: day(), calendar: calendar)
+            MetricThresholdWarning.detect(.lowBloodOxygen, in: input, on: day(), calendar: calendar, threshold: MetricWarningKind.lowBloodOxygen.defaultThreshold)
         )
         XCTAssertEqual(event.kind, .lowBloodOxygen)
         XCTAssertEqual(event.extremeValue, 86)
@@ -424,6 +516,32 @@ final class MetricThresholdWarningTests: XCTestCase {
         XCTAssertEqual(
             snapshot.filtered(by: withoutWorkouts).metricWarnings,
             [lowHeartRateWarning, lowBloodOxygenWarning]
+        )
+    }
+
+    func testWorkoutExclusionIntervalAddsRecoveryGrace() {
+        let start = time(15, 0)
+        let end = time(16, 0)
+        let interval = MetricThresholdWarning.workoutExclusionInterval(start: start, end: end)
+
+        XCTAssertEqual(interval.start, start)
+        XCTAssertEqual(interval.end, end.addingTimeInterval(MetricThresholdWarning.workoutRecoveryGrace))
+        // Cool-down readings right after the workout are still masked.
+        XCTAssertNil(
+            MetricThresholdWarning.detect(
+                .highHeartRate,
+                inSamples: [HealthTrendDataPoint(date: time(16, 20), value: 140)],
+                threshold: 120,
+                excluding: [interval]
+            )
+        )
+        XCTAssertNotNil(
+            MetricThresholdWarning.detect(
+                .highHeartRate,
+                inSamples: [HealthTrendDataPoint(date: time(16, 45), value: 140)],
+                threshold: 120,
+                excluding: [interval]
+            )
         )
     }
 

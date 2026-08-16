@@ -11,13 +11,22 @@ import SwiftUI
 /// past-threshold reading, and the chart shows the readings around it against
 /// the threshold rule.
 struct BodyMetricWarningCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let event: MetricWarningEvent
     let samples: [HealthTrendDataPoint]
     let window: DateInterval
     let tint: Color
 
+    /// The limit this episode was detected against — the user's custom threshold
+    /// when they set one, so the sentence and the rule match what fired.
     private var threshold: Double {
-        event.kind.threshold
+        event.threshold
+    }
+
+    /// Matches the detail page's Day View chart transition.
+    private var chartTransition: AnyTransition {
+        .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
     }
 
     var body: some View {
@@ -36,8 +45,25 @@ struct BodyMetricWarningCard: View {
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if event.kind.excludesWorkouts {
+                Text("If you were working out, this warning will disappear once the workout is logged.")
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             if !samples.isEmpty {
                 chart
+                    // Scoped like the Day View chart: only sample changes animate,
+                    // so the marks glide instead of snapping when the day (or the
+                    // threshold) moves, and the outer transaction keeps inherited
+                    // scroll/date-picker animations out.
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: samples)
+                    .transition(chartTransition)
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
             }
         }
         .padding(18)
@@ -119,7 +145,9 @@ struct BodyMetricWarningCard: View {
             RuleMark(y: .value("Threshold", threshold))
                 .foregroundStyle(.yellow)
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                .annotation(position: .top, alignment: .leading) {
+                // Label on the right: above the rule for "below" kinds (the low
+                // readings sit under it), below the rule for "above" kinds.
+                .annotation(position: event.kind.isAbove ? .bottom : .top, alignment: .trailing) {
                     Text(ruleLabel)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.yellow)

@@ -1364,6 +1364,20 @@ actor HealthKitFetchEngine {
     /// lazily loaded intraday samples. Sample dates match the intraday series
     /// (`endDate`). `intervals` are dropped from detection (today's workouts for
     /// the high heart rate kind).
+    /// The limit today's detection runs against: the user's Settings override,
+    /// else the default (zone 3's lower bound for high heart rate). Read straight
+    /// from `UserDefaults.standard` — the suite the app's `@AppStorage` uses — so
+    /// the engine doesn't need the value pushed in on every change.
+    private func warningThreshold(for kind: MetricWarningKind) -> Double {
+        let rawValue = UserDefaults.standard
+            .string(forKey: BodyAppearancePreference.metricWarningThresholdsKey) ?? ""
+        return BodyMetricWarningThresholds.storedValue(from: rawValue)
+            .threshold(
+                for: kind,
+                maxHeartRate: kind == .highHeartRate ? userMaxHeartRate() : nil
+            )
+    }
+
     private func fetchTodayMetricWarning(
         _ kind: MetricWarningKind,
         calendar: Calendar,
@@ -1391,6 +1405,7 @@ actor HealthKitFetchEngine {
             return .failure
         }
 
+        let thresholdValue = warningThreshold(for: kind)
         let now = anchorDate ?? Date()
         let windowPredicate = combinedPredicate(
             startDate: calendar.startOfDay(for: now),
@@ -1405,7 +1420,7 @@ actor HealthKitFetchEngine {
         let thresholdPredicate: NSPredicate? = kind.metric == .heartRate
             ? HKQuery.predicateForQuantitySamples(
                 with: kind.isAbove ? .greaterThan : .lessThan,
-                quantity: HKQuantity(unit: unit, doubleValue: kind.threshold)
+                quantity: HKQuantity(unit: unit, doubleValue: thresholdValue)
             )
             : nil
         let predicate: NSPredicate?
@@ -1448,7 +1463,12 @@ actor HealthKitFetchEngine {
 
                 // Nothing past the threshold → `.success(nil)`, which clears a
                 // stale cached event rather than keeping yesterday's badge.
-                resume(.success(MetricThresholdWarning.detect(kind, inSamples: points, excluding: intervals)))
+                resume(.success(MetricThresholdWarning.detect(
+                    kind,
+                    inSamples: points,
+                    threshold: thresholdValue,
+                    excluding: intervals
+                )))
             }
         }
     }
@@ -1507,7 +1527,7 @@ actor HealthKitFetchEngine {
                           workout.startDate <= workout.endDate else {
                         return nil
                     }
-                    return DateInterval(start: workout.startDate, end: workout.endDate)
+                    return MetricThresholdWarning.workoutExclusionInterval(start: workout.startDate, end: workout.endDate)
                 }
 
                 resume(.success(intervals))

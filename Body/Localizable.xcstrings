@@ -545,6 +545,22 @@
         }
       }
     },
+    "%lld bpm" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld bpm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 次/分钟"
+          }
+        }
+      }
+    },
     "%lld completed days" : {
       "localizations" : {
         "en" : {
@@ -1108,50 +1124,50 @@
         }
       }
     },
-    "Any reading above 120 bpm today, outside workouts" : {
+    "Any reading above %lld bpm today, outside workouts" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Any reading above 120 bpm today, outside workouts"
+            "value" : "Any reading above %lld bpm today, outside workouts"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "今天任一读数高于 120 次/分钟（体能训练期间除外）"
+            "value" : "今天任一读数高于 %lld 次/分钟（体能训练期间除外）"
           }
         }
       }
     },
-    "Any reading below 40 bpm today" : {
+    "Any reading below %lld bpm today" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Any reading below 40 bpm today"
+            "value" : "Any reading below %lld bpm today"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "今天任一读数低于 40 次/分钟"
+            "value" : "今天任一读数低于 %lld 次/分钟"
           }
         }
       }
     },
-    "Any reading below 90% today" : {
+    "Any reading below %lld%% today" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Any reading below 90% today"
+            "value" : "Any reading below %lld%% today"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "今天任一读数低于 90%"
+            "value" : "今天任一读数低于 %lld%%"
           }
         }
       }
@@ -2138,6 +2154,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body 预测：%lld 分（满分 10 分）"
+          }
+        }
+      }
+    },
+    "Body's prediction: Calculating…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body's prediction: Calculating…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 预测：正在计算…"
           }
         }
       }
@@ -3151,6 +3183,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "有所下降"
+          }
+        }
+      }
+    },
+    "Default: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认：%@"
           }
         }
       }
@@ -4248,6 +4296,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "图标"
+          }
+        }
+      }
+    },
+    "If you were working out, this warning will disappear once the workout is logged." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If you were working out, this warning will disappear once the workout is logged."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "如果您当时正在体能训练，该警告会在训练记录同步后消失。"
           }
         }
       }
@@ -8905,6 +8969,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用 Body 小组件，在主屏幕上随时了解运动和指标动态。"
+          }
+        }
+      }
+    },
+    "Use Default" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Default"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用默认值"
           }
         }
       }

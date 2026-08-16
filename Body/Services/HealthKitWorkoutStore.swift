@@ -1615,6 +1615,22 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
+    /// A custom warning threshold changes what counts as an episode, so today's
+    /// cached warning for that metric is stale as soon as Settings writes the new
+    /// value. The engine reads the stored thresholds itself, so refetching the
+    /// metric is all that's needed. Fire-and-forget so the picker stays responsive.
+    func metricWarningThresholdsDidChange(for metric: HealthMetricKind) {
+        Task { [weak self] in
+            // `refreshHealthMetric` drops the call while a refresh is in flight;
+            // wait it out like the source/permission mutators do.
+            await self?.awaitNextRefreshCompletion()
+            guard !Task.isCancelled else {
+                return
+            }
+            await self?.refreshHealthMetric(metric)
+        }
+    }
+
     func healthDataSourceOptions(for kind: HealthMetricKind) -> [BodyHealthDataSourceOption] {
         guard kind.supportsHealthDataSourceSelection else {
             return []

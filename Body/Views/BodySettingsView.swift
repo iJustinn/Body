@@ -29,6 +29,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.metricWarningThresholdsKey) private var metricWarningThresholdsRawValue = BodyMetricWarningThresholds.defaultRawValue
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
@@ -662,6 +663,14 @@ struct BodySettingsView: View {
         }
     }
 
+    private var metricWarningThresholds: Binding<BodyMetricWarningThresholds> {
+        Binding {
+            BodyMetricWarningThresholds.storedValue(from: metricWarningThresholdsRawValue)
+        } set: { thresholds in
+            metricWarningThresholdsRawValue = thresholds.rawValue
+        }
+    }
+
     private var workoutRouteStyle: Binding<BodyWorkoutRouteStyle> {
         Binding {
             BodyWorkoutRouteStyle.storedValue(from: workoutRouteStyleRawValue)
@@ -689,7 +698,11 @@ struct BodySettingsView: View {
         case .dayView:
             BodyMetricDayViewSettingsSheet(selection: metricDayViewSelection)
         case .metricWarnings:
-            BodyMetricWarningsSettingsSheet(selection: metricWarningSelection)
+            BodyMetricWarningsSettingsSheet(
+                selection: metricWarningSelection,
+                thresholds: metricWarningThresholds,
+                workoutStore: workoutStore
+            )
         case .effortSuggestions:
             BodyEffortSuggestionsSettingsSheet(
                 isEnabled: $showWorkoutEffortSuggestions,
@@ -2440,14 +2453,20 @@ private struct BodyMetricDayViewToggleRow: View {
 
 private struct BodyMetricWarningsSettingsSheet: View {
     @Binding var selection: BodyMetricWarningSelection
+    @Binding var thresholds: BodyMetricWarningThresholds
+    @ObservedObject var workoutStore: HealthKitWorkoutStore
+
+    /// Needed for the high heart rate default, which tracks zone 3's lower bound.
+    @State private var resolvedMaxHeartRate: Double?
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Warnings") {
             VStack(alignment: .leading, spacing: 12) {
-                VStack(spacing: 0) {
-                    ForEach(MetricWarningKind.allCases) { kind in
+                ForEach(MetricWarningKind.allCases) { kind in
+                    VStack(spacing: 0) {
                         BodyMetricWarningToggleRow(
                             kind: kind,
+                            threshold: threshold(for: kind),
                             isEnabled: Binding {
                                 selection.includes(kind)
                             } set: { isEnabled in
@@ -2455,13 +2474,23 @@ private struct BodyMetricWarningsSettingsSheet: View {
                             }
                         )
 
-                        if kind.id != MetricWarningKind.allCases.last?.id {
-                            Divider()
-                                .padding(.leading, 76)
-                        }
+                        Divider()
+                            .padding(.leading, 18)
+
+                        BodyMetricWarningThresholdRow(
+                            kind: kind,
+                            threshold: threshold(for: kind),
+                            isDefault: thresholds.override(for: kind) == nil,
+                            defaultValue: defaultThreshold(for: kind),
+                            isEnabled: selection.includes(kind),
+                            onChange: { value in
+                                thresholds = thresholds.setting(kind, to: value)
+                                workoutStore.metricWarningThresholdsDidChange(for: kind.metric)
+                            }
+                        )
                     }
+                    .bodyCardBackground(translucent: true)
                 }
-                .bodyCardBackground(translucent: true)
 
                 Text("Warnings appear on the Home card and the metric's detail page.")
                     .font(.system(.footnote, design: .rounded))
@@ -2471,11 +2500,26 @@ private struct BodyMetricWarningsSettingsSheet: View {
                     .padding(.horizontal, 4)
             }
         }
+        .task {
+            resolvedMaxHeartRate = await workoutStore.userMaxHeartRate()
+        }
+    }
+
+    /// The limit currently in effect: the user's override, else the default.
+    private func threshold(for kind: MetricWarningKind) -> Int {
+        Int(thresholds.threshold(for: kind, maxHeartRate: resolvedMaxHeartRate).rounded())
+    }
+
+    private func defaultThreshold(for kind: MetricWarningKind) -> Int {
+        Int(BodyMetricWarningThresholds.defaultValue
+            .threshold(for: kind, maxHeartRate: resolvedMaxHeartRate)
+            .rounded())
     }
 }
 
 private struct BodyMetricWarningToggleRow: View {
     let kind: MetricWarningKind
+    let threshold: Int
     @Binding var isEnabled: Bool
 
     private var title: LocalizedStringKey {
@@ -2489,14 +2533,14 @@ private struct BodyMetricWarningToggleRow: View {
         }
     }
 
-    private var subtitle: LocalizedStringKey {
+    private var subtitle: String {
         switch kind {
         case .lowHeartRate:
-            return "Any reading below 40 bpm today"
+            return String(localized: "Any reading below \(threshold) bpm today")
         case .highHeartRate:
-            return "Any reading above 120 bpm today, outside workouts"
+            return String(localized: "Any reading above \(threshold) bpm today, outside workouts")
         case .lowBloodOxygen:
-            return "Any reading below 90% today"
+            return String(localized: "Any reading below \(threshold)% today")
         }
     }
 
@@ -2531,6 +2575,105 @@ private struct BodyMetricWarningToggleRow: View {
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
         .contentShape(Rectangle())
+    }
+}
+
+/// The custom-limit row under each warning toggle: a value pill that opens a
+/// wheel picker, plus a way back to the default.
+private struct BodyMetricWarningThresholdRow: View {
+    let kind: MetricWarningKind
+    let threshold: Int
+    let isDefault: Bool
+    let defaultValue: Int
+    let isEnabled: Bool
+    let onChange: (Int?) -> Void
+
+    @State private var showingPicker = false
+    @State private var pickedValue = 0
+
+    private var thresholdValues: [Int] {
+        Array(stride(
+            from: kind.thresholdRange.lowerBound,
+            through: kind.thresholdRange.upperBound,
+            by: kind.thresholdStep
+        ))
+    }
+
+    private func valueText(_ value: Int) -> String {
+        switch kind {
+        case .lowHeartRate, .highHeartRate:
+            return String(localized: "\(value) bpm")
+        case .lowBloodOxygen:
+            return String(localized: "\(value)%")
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Text("Threshold")
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+
+            Spacer(minLength: 12)
+
+            Button {
+                pickedValue = threshold
+                showingPicker = true
+            } label: {
+                Text(valueText(threshold))
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color.primary.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $showingPicker) {
+                picker
+                    .presentationCompactAdaptation(.popover)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .opacity(isEnabled ? 1 : 0.5)
+        .disabled(!isEnabled)
+    }
+
+    private var picker: some View {
+        VStack(spacing: 8) {
+            Picker("Threshold", selection: $pickedValue) {
+                ForEach(thresholdValues, id: \.self) { value in
+                    Text(valueText(value))
+                        .tag(value)
+                }
+            }
+            .pickerStyle(.wheel)
+            .labelsHidden()
+            .frame(width: 210, height: 172)
+            .onChange(of: pickedValue) { _, newValue in
+                onChange(newValue)
+            }
+
+            Button {
+                onChange(nil)
+                showingPicker = false
+            } label: {
+                VStack(spacing: 2) {
+                    Text("Use Default")
+
+                    Text(String(localized: "Default: \(valueText(defaultValue))"))
+                        .font(.system(.caption, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .buttonStyle(.borderless)
+            .disabled(isDefault)
+            .padding(.bottom, 14)
+        }
+        .frame(width: 210)
     }
 }
 

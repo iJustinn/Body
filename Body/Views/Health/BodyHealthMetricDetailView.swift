@@ -409,6 +409,7 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = true
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.metricWarningThresholdsKey) private var metricWarningThresholdsRawValue = BodyMetricWarningThresholds.defaultRawValue
     @State private var selectedTrendRangeSelection: BodyHealthTrendRange
     @State private var showBodyProPaywall = false
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
@@ -420,6 +421,8 @@ struct BodyHealthMetricDetailView: View {
     @State private var activeReadinessTrendValue: Double?
     @State private var activeTrainingLoadTrendValue: Double?
     @State private var activeCardioFitnessTrendValue: Double?
+    /// 220 − age, for the high heart rate warning's zone-3 default threshold.
+    @State private var resolvedMaxHeartRate: Double?
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     @StateObject private var daySeriesCache = BodyMetricDaySeriesCache()
     @StateObject private var sleepConsistencyCache = BodySleepConsistencyChartCache()
@@ -504,6 +507,14 @@ struct BodyHealthMetricDetailView: View {
         // which is what clears the line in place.
         .task(id: isBodyProUnlocked) {
             await workoutStore.loadIntradayMetricSamplesIfNeeded(model.kind)
+        }
+        // Re-keyed on the permission selection so the anchor re-resolves when Date of
+        // Birth toggles: out of scope, `userMaxHeartRate()` returns nil and the high
+        // heart rate warning falls back to its fixed default.
+        .task(id: workoutStore.permissionSelection.rawValue) {
+            // Only the high heart rate warning's default tracks max HR.
+            guard model.kind == .heartRate else { return }
+            resolvedMaxHeartRate = await workoutStore.userMaxHeartRate()
         }
         .task(id: selectedMetricDay) {
             // The readiness day view derives its line from workouts, and the heart
@@ -880,15 +891,18 @@ struct BodyHealthMetricDetailView: View {
         // the day's workouts are dropped from the samples for those kinds.
         let workoutIntervals: [DateInterval] = kinds.contains(where: \.excludesWorkouts)
             ? workouts(on: selectedMetricDayInterval).map { workout in
-                DateInterval(start: workout.startDate, end: max(workout.startDate, workout.effectiveEndDate))
+                MetricThresholdWarning.workoutExclusionInterval(start: workout.startDate, end: workout.effectiveEndDate)
             }
             : []
+
+        let thresholds = BodyMetricWarningThresholds.storedValue(from: metricWarningThresholdsRawValue)
 
         return kinds.compactMap { kind in
             MetricThresholdWarning.detect(
                 kind,
                 in: selectedMetricDaySeries,
                 on: selectedMetricDay,
+                threshold: thresholds.threshold(for: kind, maxHeartRate: resolvedMaxHeartRate),
                 excluding: kind.excludesWorkouts ? workoutIntervals : []
             )
         }
@@ -1972,7 +1986,11 @@ struct BodyHealthMetricDetailView: View {
                 window: window,
                 tint: model.symbolColor
             )
+            .transition(dayChartTransition)
         }
+        // Warnings appear and disappear as the day picker moves, so the cards fade
+        // with the day chart instead of popping the page layout.
+        .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: selectedMetricWarnings)
     }
 
     @ViewBuilder

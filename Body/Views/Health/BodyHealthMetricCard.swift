@@ -98,6 +98,8 @@ struct BodyHealthMetricCard: View {
         }
     }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let metric: Model
 
     var body: some View {
@@ -164,14 +166,21 @@ struct BodyHealthMetricCard: View {
 
     @ViewBuilder
     private var warningBadge: some View {
-        if let warningSymbolName = metric.warningSymbolName {
-            // Sits between two spacers so it centres in the gap between the
-            // title and the value instead of hugging the title.
-            Image(systemName: warningSymbolName)
-                .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(.yellow)
-                .accessibilityLabel(Text("Low Heart Rate"))
+        // Sits between two spacers so it centres in the gap between the title
+        // and the value instead of hugging the title. Wrapped in a ZStack so the
+        // glyph's insertion/removal is a real transition (fade in AND out) rather
+        // than an instant swap; keyed on the symbol name so only that change
+        // animates, not the card's frequent re-renders.
+        ZStack {
+            if let warningSymbolName = metric.warningSymbolName {
+                Image(systemName: warningSymbolName)
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(.yellow)
+                    .accessibilityLabel(Text("Low Heart Rate"))
+                    .transition(.opacity)
+            }
         }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: metric.warningSymbolName)
     }
 
     private var titleLabel: some View {

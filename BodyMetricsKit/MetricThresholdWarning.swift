@@ -5,9 +5,9 @@
 
 import Foundation
 
-/// The Apple-style threshold warnings Body detects: a reading past a fixed
-/// limit today. The threshold lives here so the HealthKit predicate, the chart
-/// rule and the copy all read the same number.
+/// The Apple-style threshold warnings Body detects: a reading past a limit
+/// today. The default limit and its editable range live here so the HealthKit
+/// predicate, the chart rule and the copy all read the same numbers.
 enum MetricWarningKind: String, Codable, CaseIterable, Sendable, Identifiable {
     case lowHeartRate
     case highHeartRate
@@ -26,8 +26,9 @@ enum MetricWarningKind: String, Codable, CaseIterable, Sendable, Identifiable {
         }
     }
 
-    /// Compared strictly: a reading exactly at the threshold never warns.
-    var threshold: Double {
+    /// The value used when the user hasn't picked their own. Compared strictly:
+    /// a reading exactly at the threshold never warns.
+    var defaultThreshold: Double {
         switch self {
         case .lowHeartRate:
             return 40
@@ -35,6 +36,33 @@ enum MetricWarningKind: String, Codable, CaseIterable, Sendable, Identifiable {
             return 120
         case .lowBloodOxygen:
             return 90
+        }
+    }
+
+    /// Bounds of the Settings wheel picker for a custom threshold.
+    var thresholdRange: ClosedRange<Int> {
+        switch self {
+        case .lowHeartRate:
+            return 30...60
+        case .highHeartRate:
+            return 100...200
+        case .lowBloodOxygen:
+            return 80...95
+        }
+    }
+
+    var thresholdStep: Int {
+        1
+    }
+
+    /// Unit shown next to a threshold value. `"bpm"` is a localization key in the
+    /// app catalog; `"%"` is symbol-only and needs no translation.
+    var unitLabelKey: String {
+        switch self {
+        case .lowHeartRate, .highHeartRate:
+            return "bpm"
+        case .lowBloodOxygen:
+            return "%"
         }
     }
 
@@ -58,6 +86,40 @@ struct MetricWarningEvent: Codable, Equatable, Hashable, Sendable {
     var endDate: Date
     var extremeValue: Double
     var sampleCount: Int
+    /// The threshold this episode was detected against, so the card and detail
+    /// copy read the user's number even after they change it.
+    var threshold: Double
+
+    init(
+        kind: MetricWarningKind,
+        startDate: Date,
+        endDate: Date,
+        extremeValue: Double,
+        sampleCount: Int,
+        /// `nil` falls back to the kind's default (legacy snapshots, tests).
+        threshold: Double? = nil
+    ) {
+        self.kind = kind
+        self.startDate = startDate
+        self.endDate = endDate
+        self.extremeValue = extremeValue
+        self.sampleCount = sampleCount
+        self.threshold = threshold ?? kind.defaultThreshold
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(MetricWarningKind.self, forKey: .kind)
+        self.init(
+            kind: kind,
+            startDate: try container.decode(Date.self, forKey: .startDate),
+            endDate: try container.decode(Date.self, forKey: .endDate),
+            extremeValue: try container.decode(Double.self, forKey: .extremeValue),
+            sampleCount: try container.decode(Int.self, forKey: .sampleCount),
+            // Snapshots written before custom thresholds carry no value.
+            threshold: try container.decodeIfPresent(Double.self, forKey: .threshold)
+        )
+    }
 }
 
 /// Shared detection rules for the metric threshold warnings.
@@ -71,6 +133,17 @@ enum MetricThresholdWarning {
     /// sample still renders as a readable window.
     static let chartWindowPadding: TimeInterval = 10 * 60
 
+    /// Recovery grace after a logged workout: heart rate stays elevated while
+    /// cooling down, so readings this soon after the workout's end are still
+    /// treated as in-workout by kinds that exclude workouts.
+    static let workoutRecoveryGrace: TimeInterval = 30 * 60
+
+    /// The interval a workout masks for workout-excluding kinds — the workout
+    /// itself plus the recovery grace after it.
+    static func workoutExclusionInterval(start: Date, end: Date) -> DateInterval {
+        DateInterval(start: start, end: max(start, end).addingTimeInterval(workoutRecoveryGrace))
+    }
+
     /// The warnings that apply to a metric, in display order.
     static func kinds(for metric: HealthMetricKind) -> [MetricWarningKind] {
         MetricWarningKind.allCases.filter { $0.metric == metric }
@@ -82,11 +155,13 @@ enum MetricThresholdWarning {
         in series: HealthTrendSeries,
         on day: Date,
         calendar: Calendar = .bodyGregorian,
+        threshold: Double,
         excluding intervals: [DateInterval] = []
     ) -> MetricWarningEvent? {
         detect(
             kind,
             inSamples: series.points(on: day, calendar: calendar).points,
+            threshold: threshold,
             excluding: intervals
         )
     }
@@ -96,9 +171,9 @@ enum MetricThresholdWarning {
     static func detect(
         _ kind: MetricWarningKind,
         inSamples points: [HealthTrendDataPoint],
+        threshold: Double,
         excluding intervals: [DateInterval] = []
     ) -> MetricWarningEvent? {
-        let threshold = kind.threshold
         // Sources can write the same reading twice (phone + watch), which would
         // otherwise inflate `sampleCount`.
         var seen = Set<Pair>()
@@ -136,7 +211,8 @@ enum MetricThresholdWarning {
             startDate: episode[0].date,
             endDate: episode[episode.count - 1].date,
             extremeValue: (kind.isAbove ? values.max() : values.min()) ?? first.value,
-            sampleCount: episode.count
+            sampleCount: episode.count,
+            threshold: threshold
         )
     }
 
