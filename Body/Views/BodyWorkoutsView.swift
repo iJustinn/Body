@@ -935,6 +935,7 @@ struct BodyWorkoutDetailSheet: View {
     /// list sheet alike — the nav bar is hidden, so the custom Back button below drives
     /// this instead of the system back chevron.
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
@@ -1522,6 +1523,15 @@ struct BodyWorkoutDetailSheet: View {
         isEditingEffort ? Double(editingScore) : effortLevel
     }
 
+    /// The prediction line stays up while the estimator's inputs load — as
+    /// "Calculating…", the same stand-in the Details legend shows — so the settled
+    /// number crossfades into place instead of the line appearing from nothing. It's
+    /// dropped only once the inputs have settled without an estimate (a workout with
+    /// no usable signal), or when suggestions are off.
+    private var showsEffortPredictionLine: Bool {
+        showWorkoutEffortSuggestions && (prediction != nil || !predictionInputsSettled)
+    }
+
     /// Tapping the card expands it in place to reveal the editing controls — no
     /// separate sheet. Cancel/Save sit on the left, the −/+ steppers on the right.
     private var effortCard: some View {
@@ -1582,15 +1592,19 @@ struct BodyWorkoutDetailSheet: View {
                         .minimumScaleFactor(0.72)
                 }
 
-                if showWorkoutEffortSuggestions, let prediction {
-                    Text("Body's prediction: \(prediction.score)")
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel("Body's prediction: \(prediction.score) out of 10")
+                if showsEffortPredictionLine {
+                    BodyWorkoutEffortPredictionLine(score: prediction?.score)
+                        .transition(.opacity)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Scoped to the line's own appearance: a workout whose inputs settle
+            // without an estimate fades the placeholder out instead of cutting it.
+            // Keyed on that alone, so editing the effort beside it is untouched.
+            .animation(
+                reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0),
+                value: showsEffortPredictionLine
+            )
 
             BodyWorkoutEffortChart(
                 score: presentation?.normalizedScore,
@@ -1909,6 +1923,38 @@ private struct BodyWorkoutComparisonLegend: View {
             // Same curve as `bodyLegendNumberFlip`, so the wording and the numbers
             // settle together.
             .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: text)
+    }
+}
+
+/// The persistent "Body's prediction: N" line under the effort value. One `Text` whose
+/// string changes rather than a placeholder view swapped for a value view, so the
+/// stand-in crossfades into the settled number the way the Details legend's does.
+private struct BodyWorkoutEffortPredictionLine: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Nil while the estimator's inputs (30-day history, max HR) are still loading.
+    let score: Int?
+
+    private var text: String {
+        guard let score else { return String(localized: "Body's prediction: Calculating…") }
+        return String(localized: "Body's prediction: \(score)")
+    }
+
+    private var accessibilityText: String {
+        guard let score else { return String(localized: "Body's prediction: Calculating…") }
+        return String(localized: "Body's prediction: \(score) out of 10")
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .contentTransition(reduceMotion ? .identity : .opacity)
+            // Same curve as `BodyWorkoutComparisonLegend`, so a page whose Details
+            // legend and prediction settle together settles as one motion.
+            .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: text)
+            .accessibilityLabel(accessibilityText)
     }
 }
 
