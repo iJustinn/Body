@@ -1797,8 +1797,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
         let detailViewStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthMetricDetailView")?.lowerBound)
         // Window covers the struct's stored properties + `init` + `body` opening, where the
-        // custom pull-to-refresh trigger lives; widened as the property list grew (e.g. `zoomNamespace`).
-        let detailViewBlock = String(homeSource[detailViewStart...].prefix(6_000))
+        // custom pull-to-refresh trigger lives; widened as the property list grew (e.g. `zoomNamespace`,
+        // metric warning threshold state).
+        let detailViewBlock = String(homeSource[detailViewStart...].prefix(8_000))
         let refreshStart = try XCTUnwrap(storeSource.range(of: "func refreshHealthMetric(_ kind: HealthMetricKind")?.lowerBound)
         let refreshBlock = String(storeSource[refreshStart...].prefix(8_000))
 
@@ -2052,12 +2053,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.12;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 8;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 9;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.12;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 8;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 9;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2092,13 +2093,14 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.12 (build 8)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.12 (build 9)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
         XCTAssertTrue(readme.contains("**Metric warnings**"))
         XCTAssertTrue(readme.contains("Low Heart Rate"))
         XCTAssertTrue(readme.contains("High Heart Rate"))
         XCTAssertTrue(readme.contains("Low Blood Oxygen"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 8)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 3)**"))
@@ -2179,6 +2181,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 9)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.12 build 9."))
         XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 8)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.12 build 8."))
         XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 7)"))
@@ -2581,7 +2585,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.12 build 8)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.12 build 9)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.12 build 8)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 7)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 6)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 3)"))
