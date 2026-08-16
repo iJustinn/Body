@@ -41,8 +41,8 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
 
         let keys = [
-            "KM",
-            "MI",
+            "km",
+            "mi",
             "Kilometer %@, %@",
             "Mile %@, %@",
             "Fastest split",
@@ -56,11 +56,41 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    func testActivityRingLabelsResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // The rings detail passes bare title/unit literals down to its rows and
+        // hold-to-peek callout, which resolve them via
+        // String(localized: String.LocalizationValue(...)) — so a rename on the
+        // Swift side that misses the catalog ships English into zh-Hans.
+        let keys = [
+            "Move",
+            "Exercise",
+            "Stand",
+            "kcal",
+            "min",
+            "hrs"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
     func testReadinessAwaitingSleepHeroResolvesInBodyMetricsKitCatalog() throws {
         let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
 
         try assertKeysTranslated(
             ["Today's sleep data isn't in yet. Get some rest and check back later for a more accurate result."],
+            in: catalog
+        )
+    }
+
+    func testRouteStyleKeysResolveInBodyMetricsKitCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+
+        // `BodyWorkoutRouteStyle`'s title/subtitle strings for the three Route Style
+        // rows (Settings › Workouts), including the new 3D style.
+        try assertKeysTranslated(
+            ["Map", "Apple Maps", "Plain", "Route Only", "3D", "Elevation Ribbon"],
             in: catalog
         )
     }
@@ -92,8 +122,9 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Map",
             "Save",
             "Save to Photos",
-            // Centered preset-card metric titles: built via String(localized:) in
-            // WorkoutShareMetricsBuilder.centeredMetrics, so they resolve at runtime.
+            // Centered/route-less preset-card metric titles: built via String(localized:)
+            // in WorkoutShareMetricsBuilder.centeredMetrics/routelessMetrics, so they
+            // resolve at runtime.
             "Distance",
             "Pace",
             "Speed",
@@ -103,6 +134,47 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Couldn't Create Image",
             "Couldn't Save Image",
             "Body needs permission to add photos. Allow it in Settings › Body › Photos, then try again."
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testReadinessAIKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            // Hero accessibility label: folded into the parent label via
+            // String(localized:) in BodyReadinessStarHero, so it resolves at runtime.
+            "Apple Intelligence comment: %@",
+            // Hero placeholder while Apple Intelligence writes.
+            "Generating comment…",
+            // Settings > AI section title and sheet copy. The section title is a
+            // dotted key so a bare "AI" can't collide with another feature's string;
+            // the catalog test can't tell a wholly missing key from an absent one,
+            // so every AI string is listed here explicitly.
+            "settings.section.ai",
+            "Apple Intelligence",
+            "Readiness Comment",
+            "AI comment on today's score",
+            "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score — your heart rate, HRV, sleep, and training signals. Everything runs on your device; your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead.",
+            "Apple Intelligence readiness comments need a supported device with Apple Intelligence turned on in Settings. Body's built-in explanation is shown instead."
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testLowHeartRateWarningKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            // Home card warning badge accessibility label and detail-page warning card.
+            "Low Heart Rate",
+            "Your heart rate fell below %lld BPM starting at %@.",
+            // Chart rule-mark annotation and axis labels.
+            "%lld BPM",
+            "Threshold",
+            "Time",
+            "Heart Rate"
         ]
 
         try assertKeysTranslated(keys, in: catalog)

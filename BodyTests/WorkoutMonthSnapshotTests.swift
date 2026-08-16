@@ -336,7 +336,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(presentation.effortPresentation?.segmentFills, [1, 1, 1, 0.5, 0])
         XCTAssertEqual(presentation.heartRateSamples.map(\.beatsPerMinute), [102, 122, 146])
         XCTAssertEqual(presentation.sourceText, "Motra")
-        XCTAssertEqual(presentation.detailMetrics.map(\.title), ["Distance", "Active Kcal", "Total Kcal", "Avg Heart Rate"])
+        XCTAssertEqual(presentation.detailMetrics.map(\.title), ["Distance", "Active kcal", "Total kcal", "Avg Heart Rate"])
         XCTAssertNil(presentation.heroDistanceValue)
     }
 
@@ -571,7 +571,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             unitPreference: .metric
         )
 
-        XCTAssertEqual(presentation.detailMetrics.map(\.title), ["Active Kcal", "Total Kcal", "Avg Heart Rate"])
+        XCTAssertEqual(presentation.detailMetrics.map(\.title), ["Active kcal", "Total kcal", "Avg Heart Rate"])
         XCTAssertNil(presentation.distanceText)
     }
 
@@ -657,7 +657,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         XCTAssertEqual(presentation.detailMetrics.map(\.title), [
             "Avg Pace", "Elevation Gain",
-            "Active Kcal", "Total Kcal", "Avg Heart Rate", "Max Heart Rate",
+            "Active kcal", "Total kcal", "Avg Heart Rate", "Max Heart Rate",
             "Cadence", "Avg Power", "Cardio Fitness"
         ])
         XCTAssertEqual(presentation.heroDistanceValue, "5.00")
@@ -667,7 +667,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(byTitle["Avg Pace"], "6:00 /km")
         XCTAssertEqual(byTitle["Elevation Gain"], "80 m")
         XCTAssertEqual(byTitle["Max Heart Rate"], "172 BPM")
-        XCTAssertEqual(byTitle["Cadence"], "168 SPM")
+        XCTAssertEqual(byTitle["Cadence"], "168 spm")
         XCTAssertEqual(byTitle["Avg Power"], "310 W")
         XCTAssertEqual(byTitle["Cardio Fitness"], "48.5 ml/kg·min")
         XCTAssertEqual(presentation.detailMetrics.first { $0.title == "Cadence" }?.kind, .stepCadence)
@@ -698,7 +698,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         let byTitle = Dictionary(uniqueKeysWithValues: presentation.detailMetrics.map { ($0.title, $0.value) })
         XCTAssertEqual(byTitle["Avg Speed"], "30.0 km/h")
-        XCTAssertEqual(byTitle["Cadence"], "85 RPM")
+        XCTAssertEqual(byTitle["Cadence"], "85 rpm")
         XCTAssertEqual(byTitle["Avg Power"], "220 W")
         XCTAssertEqual(presentation.detailMetrics.first { $0.title == "Cadence" }?.kind, .cyclingCadence)
         XCTAssertTrue(presentation.detailMetrics.map(\.kind).contains(.speed))
@@ -774,7 +774,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             "80 m"
         )
         XCTAssertEqual(BodyValueFormat.powerText(watts: 310, locale: locale), "310 W")
-        XCTAssertEqual(BodyValueFormat.cadenceText(168, unit: "SPM", locale: locale), "168 SPM")
+        XCTAssertEqual(BodyValueFormat.cadenceText(168, unit: "spm", locale: locale), "168 spm")
         XCTAssertEqual(BodyValueFormat.vo2MaxText(48.5, locale: locale), "48.5 ml/kg·min")
         XCTAssertEqual(BodyValueFormat.strokeCountText(600, locale: locale), "600")
     }
@@ -2664,6 +2664,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 .heartRate,
                 .restingHeartRate,
                 .heartRateVariability,
+                .cardioFitness,
                 .respiratoryRate,
                 .oxygenSaturation,
                 .sleep,
@@ -2817,7 +2818,10 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
     func testVitalsHomeCardKindConfiguration() {
         XCTAssertEqual(BodyHomeCardKind.vitals.healthMetricKind, .vitals)
-        XCTAssertTrue(BodyHomeCardKind.vitals.isBeta)
+        // Readiness is the only card still carrying the "v1" chip.
+        XCTAssertFalse(BodyHomeCardKind.vitals.isBeta)
+        XCTAssertFalse(BodyHomeCardKind.cardioFitness.isBeta)
+        XCTAssertTrue(BodyHomeCardKind.readiness.isBeta)
         XCTAssertFalse(BodyHomeCardKind.starEligible.contains(.vitals))
     }
 
@@ -4901,7 +4905,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
         let sleepTrend = try XCTUnwrap(snapshot.metricTrends.first { $0.metric == .sleep })
         let scoreValue = try XCTUnwrap(sleepTrend.displayValues.first)
-        XCTAssertEqual(scoreValue.unit, "PTS")
+        XCTAssertEqual(scoreValue.unit, "pts")
         XCTAssertNotNil(Int(scoreValue.value))
 
         summary.sleep = SleepSummary(duration: nil)

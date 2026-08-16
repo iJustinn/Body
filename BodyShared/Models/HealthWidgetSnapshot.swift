@@ -179,7 +179,7 @@ struct HealthWidgetTrendSeries: Codable, Equatable {
 }
 
 /// A single value + unit shown on a metric preview card, e.g. "62"/"bpm" or
-/// "85"/"PTS". Most metrics have one; Sleep and Skin Temp have two (matching
+/// "85"/"pts". Most metrics have one; Sleep and Skin Temp have two (matching
 /// the app's prominent cards).
 struct HealthWidgetDisplayValue: Codable, Equatable {
     var value: String
