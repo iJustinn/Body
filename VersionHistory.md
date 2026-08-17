@@ -1,5 +1,14 @@
 # Version History
 
+## 0.9.12 (build 17)
+
+- **Workout routes now open as the 3D elevation ribbon by default.** Settings > Workouts > Route Style starts on **3D** instead of **Map** on a fresh install, with **Draw Route** on as before — so a new install sees the ribbon stroke itself in rather than a map snapshot. An existing pick is untouched.
+- Renamed the badge beside the workout share page's **Share** title from "Beta v2" to **v1**, matching the version badges in Settings.
+- Brought **README.md** back in sync with the code: the project layout now lists every module and target (BodyMetricsKit, the watch app, its complications, and the watch tests), the Widgets entry describes all five Home Screen widgets and their sizes rather than two, the Summary and Trend card lists name Resting Heart Rate and split Active/Resting Energy, the Settings entry says the app is Dark-only (the Theme row is gone, not disabled), the effort prediction reads **v1** rather than Beta, and Privacy states what the RevenueCat SDK does and does not receive.
+- **Today's Readiness Day View chart now matches the live tile exactly.** It previously drained the frozen morning record over the calendar day's workouts, which could drift from the hero/tile's live score over the day; today now drains the live score over the current wake-cycle workout window instead — including a workout that started before midnight (carried over from a late wake), which now drains from the chart's first sample rather than being dropped. Past days are unchanged (frozen morning record, calendar-day workouts).
+- **The workout share page's Ratio tray swaps Portrait 4:5 and Landscape 5:4 for Portrait 3:4 and Landscape 4:3** (Body Pro, like the other non-9:16 shapes), exporting at 1080×1440 and 1440×1080; a stored 4:5/5:4 pick falls back to Portrait 9:16. The Body Pro page's **Share Card Sizes** entry lists the new shapes.
+- Updated the app, widget, watch, and test bundle version to 0.9.12 build 17.
+
 ## 0.9.12 (build 16)
 
 - Updated the app, widget, watch, and test bundle version to 0.9.12 build 16.

@@ -296,6 +296,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let shareSheetSource = try text(at: "Body/Views/Health/BodyWorkoutShareSheet.swift")
         XCTAssertTrue(shareSheetSource.contains("placement: .topBarLeading"))
         XCTAssertTrue(shareSheetSource.contains("\"xmark\""))
+        // The badge beside the "Share" title reads "v1", matching the settings badges.
+        XCTAssertTrue(shareSheetSource.contains(#"Text("v1")"#))
+        XCTAssertFalse(shareSheetSource.contains(#"Text("Beta v2")"#))
         XCTAssertTrue(shareSheetSource.contains("\"square.and.arrow.up\""))
         XCTAssertTrue(shareSheetSource.contains("\"square.and.arrow.down\""))
         XCTAssertFalse(shareSheetSource.contains("shareBar"))
@@ -420,12 +423,17 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(routeModelSource.contains("var reservesHero: Bool"))
 
         let routeStyleSource = try text(at: "BodyMetricsKit/BodyHealthSelections.swift")
+        // A fresh install opens routes as the 3D elevation ribbon with the draw on —
+        // Map can't draw, so the two defaults have to move together.
+        XCTAssertTrue(routeStyleSource.contains("static let defaultValue: BodyWorkoutRouteStyle = .threeD"))
+        XCTAssertTrue(BodyWorkoutRouteStyle.defaultValue.supportsRouteDraw)
 
         let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
         XCTAssertTrue(workoutsSource.contains("@State private var routePresence: BodyWorkoutRoutePresence = .unknown"))
         XCTAssertTrue(workoutsSource.contains("effectiveRoutePresence.reservesHero"))
         XCTAssertTrue(workoutsSource.contains("private var reservedGapHeight: CGFloat"))
         XCTAssertTrue(workoutsSource.contains("BodyAppearancePreference.drawsWorkoutRouteOnLoadKey"))
+        XCTAssertTrue(workoutsSource.contains("private var drawsRouteOnLoad = true"))
         // The probe must not sit on the critical path: `fetchWorkout` wraps a raw
         // HKSampleQuery with no cancellation, so awaiting it inline would let a stalled
         // read hide the route, the splits, and the Share button.
@@ -2298,12 +2306,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.12;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 16;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 17;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.12;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 16;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 17;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2338,13 +2346,14 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.12 (build 16)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.12 (build 17)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
         XCTAssertTrue(readme.contains("**Metric warnings**"))
         XCTAssertTrue(readme.contains("Low Heart Rate"))
         XCTAssertTrue(readme.contains("High Heart Rate"))
         XCTAssertTrue(readme.contains("Low Blood Oxygen"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 16)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 15)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 13)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 12)**"))
@@ -2432,6 +2441,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 17)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.12 build 17."))
         XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 16)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.12 build 16."))
         XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 15)"))
@@ -2848,7 +2859,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.12 build 16)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.12 build 17)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.12 build 16)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 15)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 13)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 12)"))
