@@ -2,17 +2,18 @@
 //  BodyWorkoutShareSheet.swift
 //  Body
 //
-//  Preview-and-share flow for a workout's image. Presents the 360×640 card
-//  scaled to fit, an options block (a free Font row, a free Route-colour row, and
-//  the background strip: free gradient presets + a free route-map tile + a Pro-gated
-//  photo tile, split into a 2D row and a Pro-gated 3D row), and Save/Share actions
-//  that rasterize the card via `ImageRenderer` and hand the 1080×1920 image to the
-//  photo library or the system share sheet. On a photo background the preview drives
-//  two adjust steps: Photo pans/zooms the backdrop, Layout moves and resizes the card's
-//  info block — both session-only, and both fed to the export so the image matches the
-//  preview. The route is optional: a workout without one (indoor, strength, yoga…)
-//  shares the same flow with the map tile and the 2D/3D rows dropped and the card's
-//  route-less layout in place of the trace.
+//  Preview-and-share flow for a workout's image. Built like a story composer: the
+//  card fills the page scaled to fit whatever shape the chosen aspect ratio gives it,
+//  a vertical icon rail sits on the leading edge, and tapping a rail icon slides that
+//  option's tiles out beside it (Font, Ratio, Arrange, Route Color, Background, 3D —
+//  one tray open at a time). Save/Share rasterize the card via `ImageRenderer` at 3×
+//  and hand the image (1080 px on its short side) to the photo library or the system
+//  share sheet. On a photo background the preview drives two adjust steps: Photo
+//  pans/zooms the backdrop, Layout moves and resizes the card's info block — both
+//  session-only, and both fed to the export so the image matches the preview. The
+//  route is optional: a workout without one (indoor, strength, yoga…) shares the same
+//  flow with the map tile and the Route Color / Arrange / 3D rail icons dropped and
+//  the card's route-less layout in place of the trace.
 //
 
 import SwiftUI
@@ -38,21 +39,29 @@ struct BodyWorkoutShareSheet: View {
         WorkoutShareFontChoice.rounded.rawValue
     @AppStorage(WorkoutShareRouteColorChoice.storageKey) private var storedRouteColor: String =
         WorkoutShareRouteColorChoice.bodyBlue.rawValue
+    @AppStorage(WorkoutShareAspectRatio.storageKey) private var storedAspectRatio: String =
+        WorkoutShareAspectRatio.portrait9x16.rawValue
+    @AppStorage(WorkoutShareLandscapeArrangement.storageKey) private var storedArrangement: String =
+        WorkoutShareLandscapeArrangement.stacked.rawValue
 
     @State private var selectedPhoto: UIImage?
     @State private var photoItem: PhotosPickerItem?
     @State private var isPickerPresented = false
     @State private var isLoadingPhoto = false
-    /// One snapshot per dimension: 2D composites the flat route onto the roads, 3D the
-    /// lifted ribbon, and the two are framed by different regions — so switching rows
-    /// can't reuse the other's image, and neither is thrown away when the user switches
-    /// back. Session-only, like the failure sets below.
-    @State private var mapSnapshots: [WorkoutShareRouteDimension: UIImage] = [:]
-    @State private var loadingMapDimensions: Set<WorkoutShareRouteDimension> = []
+    /// Which rail tray is open, if any — one at a time, so the trays never stack up
+    /// over the card.
+    @State private var expandedOption: RailOption?
+    /// One snapshot per dimension *and* ratio: 2D composites the flat route onto the
+    /// roads, 3D the lifted ribbon, each ratio frames a differently shaped region, and
+    /// the snapshot is baked at the card's own pixel size — so no other key's image can
+    /// stand in, and none is thrown away when the user switches back. Session-only,
+    /// like the failure set below.
+    @State private var mapSnapshots: [MapSnapshotKey: UIImage] = [:]
+    @State private var loadingMapKeys: Set<MapSnapshotKey> = []
     /// A snapshot failure is session-only: the stored choice stays `.map`, so a
     /// transient failure (offline, say) doesn't discard the user's background — the
     /// next open retries it — while this sheet shows Midnight in the meantime.
-    @State private var failedMapDimensions: Set<WorkoutShareRouteDimension> = []
+    @State private var failedMapKeys: Set<MapSnapshotKey> = []
     @State private var showBodyProPaywall = false
     @State private var showPhotoLoadError = false
     @State private var showMapLoadError = false
@@ -89,6 +98,24 @@ struct BodyWorkoutShareSheet: View {
         case layout
     }
 
+    /// One rail icon each, top to bottom. `CaseIterable` isn't what draws the rail (the
+    /// rows have their own visibility rules), it's what keeps the set enumerable.
+    private enum RailOption: Hashable, CaseIterable {
+        case font
+        case ratio
+        case arrange
+        case routeColor
+        case background
+        case dimension
+    }
+
+    /// A cached map snapshot's identity: the dimension decides what is composited and
+    /// how the region is framed, the ratio decides the snapshot's shape and pixel size.
+    private struct MapSnapshotKey: Hashable {
+        let dimension: WorkoutShareRouteDimension
+        let aspectRatio: WorkoutShareAspectRatio
+    }
+
     init(workout: WorkoutSummary, route: WorkoutRoute?, presentation: WorkoutDetailPresentation) {
         self.workout = workout
         self.route = route
@@ -121,6 +148,26 @@ struct BodyWorkoutShareSheet: View {
         )
     }
 
+    /// The shape the card actually renders at — the stored one only when it's free or
+    /// the user is Pro. Session-only fallback: the key is never rewritten, so a lapsed
+    /// subscriber shares at 9:16 and gets their ratio back on resubscribe.
+    private var activeAspectRatio: WorkoutShareAspectRatio {
+        WorkoutShareBackgroundPolicy.resolvedAspectRatio(
+            WorkoutShareAspectRatio.stored(rawValue: storedAspectRatio),
+            isProUnlocked: isProUnlocked
+        )
+    }
+
+    /// Free, and only consulted by a landscape centered layout — the card ignores it
+    /// everywhere else, so there's nothing to resolve here.
+    private var activeArrangement: WorkoutShareLandscapeArrangement {
+        WorkoutShareLandscapeArrangement.stored(rawValue: storedArrangement)
+    }
+
+    /// The card's point size: preview box, export frame, gesture divisor, and every
+    /// transform clamp read this one value so they can't disagree about the shape.
+    private var cardSize: CGSize { activeAspectRatio.cardSize }
+
     private var storedFontChoice: WorkoutShareFontChoice {
         WorkoutShareFontChoice.stored(rawValue: storedFont)
     }
@@ -129,9 +176,13 @@ struct BodyWorkoutShareSheet: View {
         WorkoutShareRouteColorChoice.stored(rawValue: storedRouteColor)
     }
 
-    /// The snapshot for the dimension on screen; the other row's cached image never
-    /// stands in for it.
-    private var activeMapSnapshot: UIImage? { mapSnapshots[activeDimension] }
+    /// The snapshot the card would draw right now — dimension *and* ratio; no other
+    /// key's cached image ever stands in for it.
+    private var activeMapKey: MapSnapshotKey {
+        MapSnapshotKey(dimension: activeDimension, aspectRatio: activeAspectRatio)
+    }
+
+    private var activeMapSnapshot: UIImage? { mapSnapshots[activeMapKey] }
 
     /// What the sheet restores on open — the map unless a preset was last picked, and
     /// never the map without a route to draw.
@@ -155,9 +206,10 @@ struct BodyWorkoutShareSheet: View {
     private var activeSelection: ActiveSelection {
         if renderablePhoto != nil { return .photo }
         if case .preset(let preset) = selectedChoice { return .preset(preset) }
-        // Stored choice is the map, but this session couldn't snapshot the dimension
-        // on screen. The other dimension's failure doesn't count — it has its own row.
-        if failedMapDimensions.contains(activeDimension) { return .preset(.midnight) }
+        // Stored choice is the map, but this session couldn't snapshot the combination
+        // on screen. Another dimension's or ratio's failure doesn't count — each has
+        // its own snapshot to fail.
+        if failedMapKeys.contains(activeMapKey) { return .preset(.midnight) }
         return .map
     }
 
@@ -211,7 +263,7 @@ struct BodyWorkoutShareSheet: View {
         guard activeSelection == .photo else { return .identity }
         // The in-flight value belongs to whichever step is wired to the gesture.
         let live = photoStep == .layout ? inFlightGesture : .idle
-        return Self.merged(committedInfoTransform, with: live).clamped()
+        return Self.merged(committedInfoTransform, with: live).clamped(cardSize: cardSize)
     }
 
     /// How the photo backdrop is framed, for the preview and the export alike. Only a
@@ -221,7 +273,7 @@ struct BodyWorkoutShareSheet: View {
     private var activePhotoTransform: WorkoutSharePhotoTransform {
         guard activeSelection == .photo, let photo = renderablePhoto else { return .identity }
         let live = photoStep == .photo ? inFlightGesture : .idle
-        return Self.merged(photoTransform, with: live).clamped(imageSize: photo.size)
+        return Self.merged(photoTransform, with: live).clamped(imageSize: photo.size, cardSize: cardSize)
     }
 
     private static func merged(
@@ -262,6 +314,8 @@ struct BodyWorkoutShareSheet: View {
             type: workout.type,
             background: activeBackground,
             layout: cardLayout,
+            aspectRatio: activeAspectRatio,
+            arrangement: activeArrangement,
             infoTransform: activeInfoTransform,
             photoTransform: activePhotoTransform,
             fontDesign: storedFontChoice.design,
@@ -286,9 +340,10 @@ struct BodyWorkoutShareSheet: View {
                 switch photoStep {
                 case .photo:
                     photoTransform = Self.merged(photoTransform, with: gesture)
-                        .clamped(imageSize: selectedPhoto?.size ?? .zero)
+                        .clamped(imageSize: selectedPhoto?.size ?? .zero, cardSize: cardSize)
                 case .layout:
-                    committedInfoTransform = Self.merged(committedInfoTransform, with: gesture).clamped()
+                    committedInfoTransform = Self.merged(committedInfoTransform, with: gesture)
+                        .clamped(cardSize: cardSize)
                 }
             }
     }
@@ -320,18 +375,27 @@ struct BodyWorkoutShareSheet: View {
             ZStack {
                 backdrop
 
-                // No ScrollView: the preview has to fit the cover's height, and a
-                // scroll view's unbounded height would let the 9:16 box size off the
-                // width alone and run off the bottom.
-                VStack(spacing: 28) {
-                    VStack(spacing: 10) {
-                        cardPreview
-                        photoAdjustControls
-                    }
-                    .frame(maxHeight: .infinity)
-                    backgroundSection
+                // Story-composer layering: the card fills the page, the rail floats over
+                // its leading edge, and the photo controls float over its bottom. No
+                // ScrollView — the preview has to fit the cover's height, and a scroll
+                // view's unbounded height would let the card size off the width alone
+                // and run off the bottom.
+                cardPreview
+                    .padding(20)
+
+                // The reader is only here for the tray's width budget; it draws nothing
+                // itself, so the empty area around the rail stays untouchable.
+                GeometryReader { proxy in
+                    optionRail(availableWidth: proxy.size.width)
+                        .frame(maxHeight: .infinity, alignment: .center)
                 }
-                .padding(20)
+
+                photoAdjustControls
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+            }
+            .photosPicker(isPresented: $isPickerPresented, selection: $photoItem, matching: .images)
+            .sheet(isPresented: $showBodyProPaywall) {
+                NavigationStack { BodyProView() }
             }
             // The title stays set for accessibility/back-button inheritance; the
             // principal item is what actually draws, so the beta badge can sit beside it.
@@ -435,17 +499,28 @@ struct BodyWorkoutShareSheet: View {
             .onChange(of: selectedPhoto) { _, _ in
                 resetPhotoAdjustments()
             }
+            // A clamp is only valid for the card it was computed on: an offset that
+            // parks the block near 16:9's edge would throw it off a 1:1 card entirely,
+            // and the photo's overhang changes shape with the card too.
+            .onChange(of: activeAspectRatio) { _, _ in
+                resetPhotoAdjustments()
+            }
             .task(id: photoItem) { await loadSelectedPhoto() }
             // Opens on the map without waiting for a tap, and re-fires whenever the
-            // dimension on screen changes — so a Pro lapse (3D → 2D) or a restore
-            // (2D → 3D) loads the newly active row's snapshot on its own.
-            .task(id: MapLoadKey(isMapActive: activeSelection == .map, dimension: activeDimension)) {
-                let dimension = activeDimension
+            // snapshot on screen changes identity — so a Pro lapse (3D → 2D, or a
+            // landscape ratio → 9:16), a restore, or a new ratio pick loads the newly
+            // active snapshot on its own.
+            .task(id: MapLoadKey(
+                isMapActive: activeSelection == .map,
+                dimension: activeDimension,
+                aspectRatio: activeAspectRatio
+            )) {
+                let key = activeMapKey
                 guard activeSelection == .map,
-                      mapSnapshots[dimension] == nil,
-                      !loadingMapDimensions.contains(dimension),
-                      !failedMapDimensions.contains(dimension) else { return }
-                await loadMapSnapshot(dimension: dimension, isUserInitiated: false)
+                      mapSnapshots[key] == nil,
+                      !loadingMapKeys.contains(key),
+                      !failedMapKeys.contains(key) else { return }
+                await loadMapSnapshot(key: key, isUserInitiated: false)
             }
         }
     }
@@ -466,20 +541,23 @@ struct BodyWorkoutShareSheet: View {
     }
 
     private var cardPreview: some View {
-        // A clear box with the card's 9:16 aspect ratio establishes the layout size;
-        // the overlay scales the fixed 360-wide card to whatever width is available.
+        // A clear box with the card's own aspect ratio establishes the layout size, and
+        // `.fit` inside a max-size container means it fits *both* dimensions — so a
+        // landscape card letterboxes in the middle instead of running off the bottom,
+        // and the width- and height-derived scales coincide. That's what makes the one
+        // `previewScale` below exact on every ratio.
         Color.clear
-            .aspectRatio(360.0 / 640.0, contentMode: .fit)
+            .aspectRatio(cardSize.width / cardSize.height, contentMode: .fit)
             .overlay {
                 GeometryReader { proxy in
-                    let previewScale = proxy.size.width / 360
+                    let previewScale = proxy.size.width / cardSize.width
                     // Top-leading, not centered: in photo mode the gesture layer grows
                     // this stack to the proxy size, and centering would inset the fixed
-                    // 360×640 card before the top-leading scale — on an iPad-width
-                    // preview that shows as blank space plus a clipped right/bottom edge.
+                    // card before the top-leading scale — on an iPad-width preview that
+                    // shows as blank space plus a clipped right/bottom edge.
                     ZStack(alignment: .topLeading) {
                         cardView()
-                            .frame(width: 360, height: 640)
+                            .frame(width: cardSize.width, height: cardSize.height)
                             .scaleEffect(previewScale, anchor: .topLeading)
 
                         if activeSelection == .photo {
@@ -495,6 +573,13 @@ struct BodyWorkoutShareSheet: View {
                                     TapGesture(count: 2).onEnded {
                                         withAnimation { resetActiveTransform() }
                                     }
+                                )
+                                // Tapping the card also dismisses an open tray. It has
+                                // to ride along simultaneously here: the drag and
+                                // double-tap above own this layer, and the outer
+                                // `onTapGesture` never sees a touch in photo mode.
+                                .simultaneousGesture(
+                                    TapGesture().onEnded { closeTray() }
                                 )
                                 // VoiceOver's double tap is its own activation gesture,
                                 // so the reset needs a named action of its own — named
@@ -513,11 +598,20 @@ struct BodyWorkoutShareSheet: View {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Outside photo mode nothing else wants a tap on the card, so this only
+            // ever means "put the open tray away".
+            .onTapGesture { closeTray() }
     }
 
-    /// Under the preview, always laid out and only shown in photo mode: appearing/
-    /// disappearing would resize the preview — and so the gesture's scale divisor — the
-    /// instant the user enters photo mode.
+    private func closeTray() {
+        guard expandedOption != nil else { return }
+        withAnimation(.snappy) { expandedOption = nil }
+    }
+
+    /// Over the card's bottom edge, always laid out and only shown in photo mode:
+    /// appearing/disappearing would resize the preview — and so the gesture's scale
+    /// divisor — the instant the user enters photo mode.
     private var photoAdjustControls: some View {
         let isPhotoMode = activeSelection == .photo
         return VStack(spacing: 8) {
@@ -555,64 +649,176 @@ struct BodyWorkoutShareSheet: View {
                 .accessibilityHidden(photoStep != .photo)
             }
         }
+        .padding(.horizontal, 20)
+        .padding(.top, 24)
+        .padding(.bottom, 12)
+        // Only enough shade to lift the controls off whatever photo is under them.
+        .background(
+            LinearGradient(
+                colors: [Color.black.opacity(0), Color.black.opacity(0.55)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
         .opacity(isPhotoMode ? 1 : 0)
         .disabled(!isPhotoMode)
+        // The scrim is a real, hittable view: without this it would swallow taps meant
+        // for the card in every other mode.
+        .allowsHitTesting(isPhotoMode)
         .accessibilityHidden(!isPhotoMode)
     }
 
-    /// Font, route colour, and the background rows. Everything here is free except the
-    /// 3D background row, which carries the Pro gate.
-    private var backgroundSection: some View {
-        VStack(alignment: .leading, spacing: Self.optionRowSpacing) {
-            fontRow
-            // The card draws no trace of its own without a route, so there is nothing
-            // for a colour to apply to.
-            if hasRoute {
-                routeColorRow
-            }
-
-            Text("Background")
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundColor(.white.opacity(0.75))
-
-            if hasRoute {
-                backgroundRow(for: .twoD)
-                backgroundRow(for: .threeD)
-                if !isThreeDAvailable {
-                    Text("3D needs a route with elevation data.")
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundColor(.white.opacity(0.6))
-                }
-            } else {
-                // One unlabelled row: without a route there is no second dimension to
-                // tell it apart from.
-                backgroundTiles(dimension: .twoD)
-            }
-        }
-        .photosPicker(isPresented: $isPickerPresented, selection: $photoItem, matching: .images)
-        .sheet(isPresented: $showBodyProPaywall) {
-            NavigationStack { BodyProView() }
-        }
-    }
-
-    /// Tile diameter and row spacing are small on purpose: five rows have to fit under
-    /// the preview on a 375×667 phone without pushing the card off the bottom.
     private static let optionTileSize: CGFloat = 40
     private static let optionRowSpacing: CGFloat = 8
-    private static let optionRowLabelWidth: CGFloat = 44
+    /// Round rail buttons, big enough to be a comfortable target over the card.
+    private static let railIconSize: CGFloat = 44
+    private static let railPadding: CGFloat = 16
+    /// Between a rail icon and its open tray.
+    private static let railTrayGap: CGFloat = 12
 
-    private func optionRow<Content: View>(_ label: Text, @ViewBuilder content: () -> Content) -> some View {
-        HStack(spacing: Self.optionRowSpacing) {
-            label
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundColor(.white.opacity(0.75))
-                .frame(width: Self.optionRowLabelWidth, alignment: .leading)
-            content()
+    /// The leading icon rail. Rows that don't apply to this workout are absent rather
+    /// than disabled — a route-less card has no trace to colour, arrange, or lift.
+    /// Everything here is free except the 3D tile and the non-9:16 ratios.
+    private func optionRail(availableWidth: CGFloat) -> some View {
+        // What's left of the page beside the rail, so an open tray can never run under
+        // the trailing edge (it scrolls instead).
+        let trayWidth = max(
+            Self.optionTileSize,
+            availableWidth - Self.railPadding * 2 - Self.railIconSize - Self.railTrayGap
+        )
+        // The map composites its own pace-coloured route into the snapshot, so neither
+        // the trace colour nor the centered layout's arrangement changes anything there.
+        let appliesToCardDrawnRoute = activeSelection != .map
+
+        return VStack(alignment: .leading, spacing: 22) {
+            railRow(.font, symbol: "textformat", label: Text("Font"), trayWidth: trayWidth) {
+                optionTiles {
+                    ForEach(WorkoutShareFontChoice.allCases) { choice in
+                        fontTile(choice)
+                    }
+                }
+            }
+
+            railRow(.ratio, symbol: "aspectratio", label: Text("Ratio"), trayWidth: trayWidth) {
+                optionTiles {
+                    ForEach(WorkoutShareAspectRatio.allCases) { ratio in
+                        ratioTile(ratio)
+                    }
+                }
+            }
+
+            // Only a landscape card with a trace has two halves to split.
+            if activeAspectRatio.isLandscape, hasRoute {
+                railRow(
+                    .arrange,
+                    symbol: "rectangle.split.2x1",
+                    label: Text("Arrange"),
+                    trayWidth: trayWidth
+                ) {
+                    optionTiles {
+                        ForEach(WorkoutShareLandscapeArrangement.allCases) { arrangement in
+                            arrangementTile(arrangement)
+                        }
+                    }
+                }
+                .opacity(appliesToCardDrawnRoute ? 1 : 0.4)
+                .disabled(!appliesToCardDrawnRoute)
+                .accessibilityHint(
+                    appliesToCardDrawnRoute
+                    ? Text(verbatim: "")
+                    : Text("Layout doesn't apply to the Map background.")
+                )
+            }
+
+            if hasRoute {
+                railRow(
+                    .routeColor,
+                    symbol: "scribble.variable",
+                    label: Text("Route Color"),
+                    trayWidth: trayWidth
+                ) {
+                    optionTiles {
+                        ForEach(WorkoutShareRouteColorChoice.allCases) { choice in
+                            routeColorTile(choice)
+                        }
+                    }
+                }
+                .opacity(appliesToCardDrawnRoute ? 1 : 0.4)
+                .disabled(!appliesToCardDrawnRoute)
+                .accessibilityHint(
+                    appliesToCardDrawnRoute
+                    ? Text(verbatim: "")
+                    : Text("Route color doesn't apply to the Map background.")
+                )
+            }
+
+            railRow(
+                .background,
+                symbol: "photo.on.rectangle",
+                label: Text("Background"),
+                trayWidth: trayWidth
+            ) {
+                optionTiles {
+                    ForEach(BodyWorkoutSharePreset.allCases) { preset in
+                        presetSwatch(preset)
+                    }
+                    // Nothing to snapshot without a route, so the tile isn't offered.
+                    if hasRoute {
+                        mapTile()
+                    }
+                    photoTile()
+                }
+            }
+
+            if hasRoute {
+                railRow(.dimension, symbol: "move.3d", label: Text("3D"), trayWidth: trayWidth) {
+                    dimensionTray
+                }
+            }
+        }
+        .padding(.leading, Self.railPadding)
+    }
+
+    /// One rail icon plus, when it's the open one, its tray sliding out beside it.
+    private func railRow<Content: View>(
+        _ option: RailOption,
+        symbol: String,
+        label: Text,
+        trayWidth: CGFloat,
+        @ViewBuilder tray: () -> Content
+    ) -> some View {
+        let isOpen = expandedOption == option
+        return HStack(spacing: Self.railTrayGap) {
+            Button {
+                withAnimation(.snappy) { expandedOption = isOpen ? nil : option }
+            } label: {
+                Image(systemName: symbol)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: Self.railIconSize, height: Self.railIconSize)
+                    .background(Color.black.opacity(0.35), in: Circle())
+                    // Ringed while open, so the tray beside it reads as its content.
+                    .overlay {
+                        Circle().strokeBorder(
+                            Color.white.opacity(isOpen ? 0.9 : 0.25),
+                            lineWidth: isOpen ? 2 : 1
+                        )
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(.isButton)
+
+            if isOpen {
+                tray()
+                    .frame(maxWidth: trayWidth, alignment: .leading)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
         }
     }
 
-    /// Horizontal scroller shared by every tile row — seven route colours don't fit on a
-    /// small phone, and a clipped row would hide options entirely.
+    /// Horizontal scroller shared by every tray — seven route colours don't fit beside
+    /// the rail on a small phone, and a clipped row would hide options entirely.
     private func optionTiles<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Self.optionRowSpacing) {
@@ -622,21 +828,12 @@ struct BodyWorkoutShareSheet: View {
         }
     }
 
-    private var fontRow: some View {
-        optionRow(Text("Font")) {
-            optionTiles {
-                ForEach(WorkoutShareFontChoice.allCases) { choice in
-                    fontTile(choice)
-                }
-            }
-        }
-    }
-
     /// Ring-only selection, no checkmark: the point of the tile is the "Aa" specimen,
     /// and a glyph on top of it would hide the very thing being picked.
     private func fontTile(_ choice: WorkoutShareFontChoice) -> some View {
         let isSelected = storedFontChoice == choice
         return Button {
+            closeTray()
             storedFont = choice.rawValue
         } label: {
             Text(verbatim: "Aa")
@@ -651,29 +848,126 @@ struct BodyWorkoutShareSheet: View {
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
-    /// Colour of the trace the card draws itself. The map background composites its own
-    /// pace-coloured route, so the row is disabled while Map is the active background.
-    private var routeColorRow: some View {
-        let appliesToBackground = activeSelection != .map
-        return optionRow(Text("Route")) {
+    /// The card's shape. The outline inside the circle is the ratio itself, drawn at a
+    /// fixed 20 pt long side so the five tiles read as one family of shapes.
+    private func ratioTile(_ ratio: WorkoutShareAspectRatio) -> some View {
+        let isSelected = activeAspectRatio == ratio
+        let size = ratio.cardSize
+        let longSide: CGFloat = 20
+        let outlineWidth = size.width >= size.height ? longSide : longSide * size.width / size.height
+        let outlineHeight = size.height >= size.width ? longSide : longSide * size.height / size.width
+        let isLocked = ratio.isProGated && !isProUnlocked
+        return Button {
+            closeTray()
+            guard !isLocked else {
+                showBodyProPaywall = true
+                return
+            }
+            storedAspectRatio = ratio.rawValue
+        } label: {
+            RoundedRectangle(cornerRadius: 3)
+                .strokeBorder(.white, lineWidth: 1.5)
+                .frame(width: outlineWidth, height: outlineHeight)
+                .frame(width: Self.optionTileSize, height: Self.optionTileSize)
+                .background(Color.white.opacity(0.1), in: Circle())
+                .overlay { selectionRing(isSelected: isSelected) }
+                .overlay(alignment: .bottomTrailing) {
+                    if isLocked {
+                        lockBadge
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        // The tile's own "16:9" is numerals; VoiceOver gets the spelled-out shape.
+        .accessibilityLabel(ratio.localizedName)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    /// How a landscape card splits route from metrics. Free — the ratio that reveals
+    /// this row is what carries the Pro gate.
+    private func arrangementTile(_ arrangement: WorkoutShareLandscapeArrangement) -> some View {
+        let isSelected = activeArrangement == arrangement
+        return Button {
+            closeTray()
+            storedArrangement = arrangement.rawValue
+        } label: {
+            Image(systemName: arrangement.symbolName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: Self.optionTileSize, height: Self.optionTileSize)
+                .background(Color.white.opacity(0.1), in: Circle())
+                .overlay { selectionRing(isSelected: isSelected) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(arrangement.localizedName)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    /// Flat trace or elevation ribbon, plus the reason the ribbon can be unavailable.
+    /// Only the 3D tile is dimmed for a route without altitude — 2D stays tappable, so
+    /// a user who wandered in here can still get back out.
+    private var dimensionTray: some View {
+        VStack(alignment: .leading, spacing: 6) {
             optionTiles {
-                ForEach(WorkoutShareRouteColorChoice.allCases) { choice in
-                    routeColorTile(choice)
+                dimensionTile(.twoD)
+                dimensionTile(.threeD)
+            }
+
+            if !isThreeDAvailable {
+                Text("3D needs a route with elevation data.")
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundColor(.white.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func dimensionTile(_ dimension: WorkoutShareRouteDimension) -> some View {
+        // Keyed off the *resolved* dimension: a stored 3D that can't render (non-Pro, or
+        // a flat route) shows 2D selected, because 2D is what the card is drawing.
+        let isSelected = activeDimension == dimension
+        let isAvailable = dimension == .twoD || isThreeDAvailable
+        let isLocked = dimension == .threeD && !isProUnlocked
+        return Button {
+            closeTray()
+            guard !isLocked else {
+                showBodyProPaywall = true
+                return
+            }
+            storedDimension = dimension.rawValue
+        } label: {
+            Group {
+                if dimension == .twoD {
+                    Text("2D")
+                } else {
+                    Text("3D")
+                }
+            }
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white)
+            .frame(width: Self.optionTileSize, height: Self.optionTileSize)
+            .background(Color.white.opacity(0.1), in: Circle())
+            .overlay { selectionRing(isSelected: isSelected) }
+            .overlay(alignment: .bottomTrailing) {
+                if isLocked {
+                    lockBadge
                 }
             }
         }
-        .opacity(appliesToBackground ? 1 : 0.4)
-        .disabled(!appliesToBackground)
+        .buttonStyle(.plain)
+        .opacity(isAvailable ? 1 : 0.4)
+        .disabled(!isAvailable)
+        .accessibilityLabel(dimension == .twoD ? Text("2D") : Text("3D"))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .accessibilityHint(
-            appliesToBackground
-            ? Text(verbatim: "")
-            : Text("Route color doesn't apply to the Map background.")
+            isAvailable ? Text(verbatim: "") : Text("3D needs a route with elevation data.")
         )
     }
 
     private func routeColorTile(_ choice: WorkoutShareRouteColorChoice) -> some View {
         let isSelected = storedRouteColorChoice == choice
         return Button {
+            closeTray()
             storedRouteColor = choice.rawValue
         } label: {
             Circle()
@@ -687,45 +981,6 @@ struct BodyWorkoutShareSheet: View {
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
-    /// One labelled background row per dimension. The 3D row is Pro-gated (lock badges
-    /// on every tile, taps open the paywall) and greyed out entirely when the route has
-    /// no usable altitude.
-    private func backgroundRow(for dimension: WorkoutShareRouteDimension) -> some View {
-        let isAvailable = dimension == .twoD || isThreeDAvailable
-        return optionRow(dimension == .twoD ? Text("2D") : Text("3D")) {
-            backgroundTiles(dimension: dimension)
-        }
-        .opacity(isAvailable ? 1 : 0.4)
-        .disabled(!isAvailable)
-        .accessibilityHint(
-            isAvailable ? Text(verbatim: "") : Text("3D needs a route with elevation data.")
-        )
-    }
-
-    private func backgroundTiles(dimension: WorkoutShareRouteDimension) -> some View {
-        optionTiles {
-            ForEach(BodyWorkoutSharePreset.allCases) { preset in
-                presetSwatch(preset, dimension: dimension)
-            }
-            // Nothing to snapshot without a route, so the tile isn't offered.
-            if hasRoute {
-                mapTile(dimension: dimension)
-            }
-            photoTile(dimension: dimension)
-        }
-    }
-
-    /// The 3D rows are Pro-only. Returns `false` when the tap was spent on the paywall,
-    /// so the caller leaves every other piece of state alone.
-    private func claimDimension(_ dimension: WorkoutShareRouteDimension) -> Bool {
-        if dimension == .threeD, !isProUnlocked {
-            showBodyProPaywall = true
-            return false
-        }
-        storedDimension = dimension.rawValue
-        return true
-    }
-
     private func selectionRing(isSelected: Bool) -> some View {
         Circle()
             .strokeBorder(
@@ -734,7 +989,8 @@ struct BodyWorkoutShareSheet: View {
             )
     }
 
-    /// The Pro badge the 3D tiles carry for a non-Pro user, and the photo tile always has.
+    /// The Pro badge the 3D and non-9:16 tiles carry for a non-Pro user, and the photo
+    /// tile always has.
     private var lockBadge: some View {
         Image(systemName: "lock.fill")
             .font(.system(size: 9, weight: .bold))
@@ -743,18 +999,10 @@ struct BodyWorkoutShareSheet: View {
             .background(Color.black.opacity(0.55), in: Circle())
     }
 
-    @ViewBuilder
-    private func dimensionLockBadge(_ dimension: WorkoutShareRouteDimension) -> some View {
-        if dimension == .threeD, !isProUnlocked {
-            lockBadge
-        }
-    }
-
-    private func presetSwatch(_ preset: BodyWorkoutSharePreset, dimension: WorkoutShareRouteDimension) -> some View {
-        // A tile only reads as selected on the row whose dimension is actually drawing.
-        let isSelected = activeSelection == .preset(preset) && dimension == activeDimension
+    private func presetSwatch(_ preset: BodyWorkoutSharePreset) -> some View {
+        let isSelected = activeSelection == .preset(preset)
         return Button {
-            guard claimDimension(dimension) else { return }
+            closeTray()
             storedBackground = BodyWorkoutShareBackgroundChoice.preset(preset).rawValue
             selectedPhoto = nil
             // Also reset the picker item so re-picking the same photo later re-fires
@@ -772,7 +1020,6 @@ struct BodyWorkoutShareSheet: View {
                     }
                 }
                 .overlay { selectionRing(isSelected: isSelected) }
-                .overlay(alignment: .bottomTrailing) { dimensionLockBadge(dimension) }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(preset.localizedName)
@@ -780,19 +1027,20 @@ struct BodyWorkoutShareSheet: View {
     }
 
     /// Free route-map background: a dark map snapshot with the pace-colored route
-    /// composited in, generated once per dimension on first selection.
-    private func mapTile(dimension: WorkoutShareRouteDimension) -> some View {
-        let isSelected = activeSelection == .map && dimension == activeDimension
-        let snapshot = mapSnapshots[dimension]
+    /// composited in, generated once per dimension+ratio on first selection.
+    private func mapTile() -> some View {
+        let key = activeMapKey
+        let isSelected = activeSelection == .map
+        let snapshot = mapSnapshots[key]
         return Button {
-            guard claimDimension(dimension) else { return }
+            closeTray()
             selectedPhoto = nil
             photoItem = nil
             storedBackground = BodyWorkoutShareBackgroundChoice.map.rawValue
-            // Tapping Map is also how the user retries this dimension after a failure.
-            failedMapDimensions.remove(dimension)
-            if mapSnapshots[dimension] == nil, !loadingMapDimensions.contains(dimension) {
-                Task { await loadMapSnapshot(dimension: dimension, isUserInitiated: true) }
+            // Tapping Map is also how the user retries this snapshot after a failure.
+            failedMapKeys.remove(key)
+            if mapSnapshots[key] == nil, !loadingMapKeys.contains(key) {
+                Task { await loadMapSnapshot(key: key, isUserInitiated: true) }
             }
         } label: {
             ZStack {
@@ -806,7 +1054,7 @@ struct BodyWorkoutShareSheet: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.8))
                 }
-                if loadingMapDimensions.contains(dimension) {
+                if loadingMapKeys.contains(key) {
                     Circle().fill(Color.black.opacity(0.35))
                     ProgressView()
                         .tint(.white)
@@ -815,21 +1063,20 @@ struct BodyWorkoutShareSheet: View {
             .frame(width: Self.optionTileSize, height: Self.optionTileSize)
             .clipShape(Circle())
             .overlay { selectionRing(isSelected: isSelected) }
-            .overlay(alignment: .bottomTrailing) { dimensionLockBadge(dimension) }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text("Map"))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
-    private func photoTile(dimension: WorkoutShareRouteDimension) -> some View {
-        let isSelected = isPhotoActive && dimension == activeDimension
+    private func photoTile() -> some View {
+        let isSelected = isPhotoActive
         return Button {
+            closeTray()
             guard isProUnlocked else {
                 showBodyProPaywall = true
                 return
             }
-            guard claimDimension(dimension) else { return }
             isPickerPresented = true
         } label: {
             ZStack {
@@ -934,14 +1181,14 @@ struct BodyWorkoutShareSheet: View {
         }
     }
 
-    /// The one rasterization path Save and Share share: the 360×640 card at 3×
-    /// (1080×1920), forced dark and at `.large` dynamic type so the exported image
-    /// never picks up the device's appearance or text-size settings.
+    /// The one rasterization path Save and Share share: the card at its chosen point
+    /// size, 3× (1080 px on the short side), forced dark and at `.large` dynamic type so
+    /// the exported image never picks up the device's appearance or text-size settings.
     @MainActor
     private func renderCardImage() -> UIImage? {
         let renderer = ImageRenderer(
             content: cardView()
-                .frame(width: 360, height: 640)
+                .frame(width: cardSize.width, height: cardSize.height)
                 .environment(\.colorScheme, .dark)
                 .dynamicTypeSize(.large)
         )
@@ -1003,27 +1250,38 @@ struct BodyWorkoutShareSheet: View {
     }
 
     @MainActor
-    private func loadMapSnapshot(dimension: WorkoutShareRouteDimension, isUserInitiated: Bool) async {
+    private func loadMapSnapshot(key: MapSnapshotKey, isUserInitiated: Bool) async {
         // Before the flag, not after: a route-less sheet has no map to load, and
         // flipping the loading flag for a call that can't finish one would be enough
         // to leave Save/Share disabled.
         guard let route else { return }
-        loadingMapDimensions.insert(dimension)
-        defer { loadingMapDimensions.remove(dimension) }
+        loadingMapKeys.insert(key)
+        defer { loadingMapKeys.remove(key) }
 
-        if let image = await Self.mapBackground(for: route, tint: UIColor(workout.type.color), dimension: dimension) {
-            // Cache even if the user switched away meanwhile — re-selecting this row
-            // then shows the snapshot instantly.
-            mapSnapshots[dimension] = image
+        let image = await Self.mapBackground(
+            for: route,
+            tint: UIColor(workout.type.color),
+            dimension: key.dimension,
+            aspectRatio: key.aspectRatio
+        )
+        if let image {
+            // Cache even if the user switched away meanwhile — re-selecting this
+            // dimension/ratio then shows the snapshot instantly.
+            mapSnapshots[key] = image
+        } else if Task.isCancelled {
+            // Not a failure: flipping the ratio A→B→A cancels A's in-flight load, and
+            // recording that as a failure would leave A stuck on Midnight until the
+            // user tapped Map again. The `.task(id:)` for the key now on screen is
+            // already running and will fill it in.
         } else {
             // Read the selection before recording the failure: recording it is what
             // makes `activeSelection` fall back to Midnight.
-            let isStillRequested = activeSelection == .map && activeDimension == dimension
+            let isStillRequested = activeSelection == .map && activeMapKey == key
             // Recorded whatever the user is looking at now, so the opening task won't
-            // retry a dimension that just failed — the Map tile clears it to retry.
-            failedMapDimensions.insert(dimension)
-            // Only alert while this dimension is still what's on screen and the user
-            // asked for it: a stale error over a row they already left is noise, and
+            // retry a snapshot that just failed — the Map tile clears it to retry.
+            failedMapKeys.insert(key)
+            // Only alert while this snapshot is still what's on screen and the user
+            // asked for it: a stale error over a tile they already left is noise, and
             // the sheet's own opening load must not alert on every unsnapshottable route.
             if isStillRequested, isUserInitiated {
                 showMapLoadError = true
@@ -1031,17 +1289,20 @@ struct BodyWorkoutShareSheet: View {
         }
     }
 
-    /// Full-card (360×640 pt at 3×) dark map snapshot with the pace-colored route
-    /// composited in via the route hero's drawing. Internal so the sample renderer
+    /// Full-card (the ratio's point size at 3×) dark map snapshot with the pace-colored
+    /// route composited in via the route hero's drawing. Internal so the sample renderer
     /// and tests can produce the exact export background.
     ///
     /// - Parameter dimension: `.threeD` raises the route off the roads as a 2.5D ribbon
     ///   and frames the region with headroom above it for the lifted line.
+    /// - Parameter aspectRatio: The card the snapshot has to fill — it decides both the
+    ///   snapshot's size and the band the route is framed into.
     @MainActor
     static func mapBackground(
         for route: WorkoutRoute,
         tint: UIColor,
-        dimension: WorkoutShareRouteDimension
+        dimension: WorkoutShareRouteDimension,
+        aspectRatio: WorkoutShareAspectRatio
     ) async -> UIImage? {
         // Drop non-finite/out-of-range fixes before any bounds math (matching
         // WorkoutShareRouteProjection) — one NaN latitude would otherwise poison
@@ -1060,9 +1321,22 @@ struct BodyWorkoutShareSheet: View {
         // nil and simply draws flat — the 3D row is unavailable for it anyway.
         let lift = dimension == .threeD ? WorkoutRoute3DProjection.liftUnits(for: validCoordinates) : nil
 
+        // The classic layout is the only one a map background ever draws, and it ignores
+        // the landscape arrangement — so `.stacked` here is a constant, not a choice.
+        let geometry = WorkoutShareCardGeometry(
+            aspectRatio: aspectRatio,
+            layout: .classic,
+            arrangement: .stacked
+        )
+
         let options = MKMapSnapshotter.Options()
-        options.region = mapRegion(for: coordinates, liftFraction: lift?.max() ?? 0)
-        options.size = CGSize(width: 360, height: 640)
+        options.region = mapRegion(
+            for: coordinates,
+            liftFraction: lift?.max() ?? 0,
+            size: geometry.size,
+            band: geometry.mapBand
+        )
+        options.size = geometry.size
         options.scale = 3
         options.pointOfInterestFilter = .excludingAll
         options.traitCollection = UITraitCollection(userInterfaceStyle: .dark)
@@ -1080,20 +1354,25 @@ struct BodyWorkoutShareSheet: View {
     }
 
     /// Region placing the route inside the card's no-fading band — the clear area
-    /// between the top (280 pt) and bottom (210 pt) map scrims of the 640 pt card.
-    /// The route's northmost/southmost points bound onto that band's edges and its
-    /// center sits at the band's center, so the trace never runs under the shaded
-    /// header or metrics areas.
+    /// between the map scrims (`WorkoutShareCardGeometry.mapBand`). The route's
+    /// northmost/southmost points bound onto that band's edges and its center sits at
+    /// the band's center, so the trace never runs under the shaded header or metrics
+    /// areas, on any ratio.
     ///
     /// - Parameter liftFraction: The 3D ribbon's tallest lift, in ground spans (0 for a
     ///   flat route). The ribbon stands straight up on screen, so the region grows by
     ///   that much on the north side and the lifted line clears the header scrim.
+    /// - Parameters size, band: The card's point size and its clear band — passed in
+    ///   from the geometry rather than hard-coded, so the region can't be framed for a
+    ///   different shape than the snapshot is taken at.
     private static func mapRegion(
         for coordinates: [CLLocationCoordinate2D],
-        liftFraction: Double
+        liftFraction: Double,
+        size: CGSize,
+        band: (top: CGFloat, bottom: CGFloat)
     ) -> MKCoordinateRegion {
-        let cardWidth = 360.0, cardHeight = 640.0
-        let bandTop = 280.0, bandBottom = cardHeight - 210.0
+        let cardWidth = Double(size.width), cardHeight = Double(size.height)
+        let bandTop = Double(band.top), bandBottom = Double(band.bottom)
         let bandHeight = bandBottom - bandTop
         let bandCenterY = (bandTop + bandBottom) / 2
 
@@ -1131,9 +1410,12 @@ struct BodyWorkoutShareSheet: View {
         // Visible latitude span: the route renders ~2× the band height (centered
         // near the band, extending into the scrims' faded edges — full-band-only
         // read as too small), while its longitude extent stays within ~92% of the
-        // width so wide routes never clip horizontally.
+        // width so wide routes never clip horizontally. The rendered extent is exactly
+        // that divisor, so it's capped at 75% of the card height — 9:16's band gives
+        // 300 of 640 and is unaffected, and no ratio whose scrims leave a tall band can
+        // push the trace (plus its 3D lift) past the card's edges.
         let visibleLatSpan = max(
-            paddedLatSpan * cardHeight / (bandHeight * 2.0),
+            paddedLatSpan * cardHeight / min(bandHeight * 2.0, 0.75 * cardHeight),
             routeLonSpanAdjusted / 0.92 * cardHeight / cardWidth
         )
 
@@ -1202,11 +1484,12 @@ private struct ShareToolbarIconChrome: ViewModifier {
 }
 
 /// What the map-loading task keys on: the snapshot it should be holding. Any change —
-/// switching to or from Map, or the dimension on screen flipping under a Pro lapse or
-/// restore — restarts the task against the newly needed image.
+/// switching to or from Map, the dimension on screen flipping under a Pro lapse or
+/// restore, or a new aspect ratio — restarts the task against the newly needed image.
 private struct MapLoadKey: Equatable {
     let isMapActive: Bool
     let dimension: WorkoutShareRouteDimension
+    let aspectRatio: WorkoutShareAspectRatio
 }
 
 /// The in-flight half of an adjust gesture: the composite gesture's drag and

@@ -3,8 +3,9 @@
 //  BodyTests
 //
 //  Smoke test for the share card's rasterization: proves `ImageRenderer` produces a
-//  non-nil, exactly-1080×1920-px image for all three layouts and that the route Canvas
-//  actually draws (route-blue pixels appear over a dark preset). Not a snapshot test.
+//  non-nil image at the exact pixel size for every layout and aspect ratio, and that
+//  the route Canvas actually draws (route-blue pixels appear over a dark preset). Not
+//  a snapshot test.
 //
 
 import XCTest
@@ -76,7 +77,9 @@ final class WorkoutShareRenderTests: XCTestCase {
         background: WorkoutShareCardBackground = .preset(.midnight),
         photoTransform: WorkoutSharePhotoTransform = .identity,
         fontDesign: Font.Design = .rounded,
-        routeColor: Color = BodyWorkoutShareCardView.defaultRouteColor
+        routeColor: Color = BodyWorkoutShareCardView.defaultRouteColor,
+        aspectRatio: WorkoutShareAspectRatio = .portrait9x16,
+        arrangement: WorkoutShareLandscapeArrangement = .stacked
     ) -> ImageRenderer<some View> {
         let workout = fixtureWorkout()
         let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
@@ -95,6 +98,8 @@ final class WorkoutShareRenderTests: XCTestCase {
             type: workout.type,
             background: background,
             layout: layout,
+            aspectRatio: aspectRatio,
+            arrangement: arrangement,
             infoTransform: infoTransform,
             photoTransform: photoTransform,
             fontDesign: fontDesign,
@@ -102,7 +107,7 @@ final class WorkoutShareRenderTests: XCTestCase {
         )
         let renderer = ImageRenderer(
             content: card
-                .frame(width: 360, height: 640)
+                .frame(width: aspectRatio.cardSize.width, height: aspectRatio.cardSize.height)
                 .environment(\.colorScheme, .dark)
                 .dynamicTypeSize(.large)
         )
@@ -115,13 +120,14 @@ final class WorkoutShareRenderTests: XCTestCase {
         let image = try XCTUnwrap(renderer.uiImage, "ImageRenderer produced no image")
         let cgImage = try XCTUnwrap(image.cgImage, "Rendered image had no backing CGImage")
 
-        // Assert the true pixel dimensions (points × scale), not the point size.
+        // Assert the true pixel dimensions (points × scale), not the point size. 9:16 is
+        // the default ratio, so this stays pinned to the original 1080×1920 literal.
         XCTAssertEqual(cgImage.width, 1_080)
         XCTAssertEqual(cgImage.height, 1_920)
     }
 
     /// The classic layout is a different view tree (header + bottom row), so it gets its
-    /// own size assertion — a layout that overflowed 360×640 would still be clipped, but
+    /// own size assertion — a layout that overflowed its frame would still be clipped, but
     /// a broken tree that fails to render wouldn't be caught by the centered test.
     func testClassicLayoutRendersToExactPixelSize() throws {
         let renderer = makeRenderer(layout: .classic)
@@ -178,7 +184,7 @@ final class WorkoutShareRenderTests: XCTestCase {
         let image = try XCTUnwrap(renderer.uiImage)
         let cgImage = try XCTUnwrap(image.cgImage)
 
-        // The centered layout's route region, taken from the card's own constants and
+        // The centered layout's route region, taken from the card's own geometry and
         // scaled to pixels, so moving the region can't silently leave this test sampling
         // empty background. The diagonal fixture route spans the region corner to corner.
         let sample = Self.centeredRouteRegionInPixels(of: cgImage)
@@ -221,16 +227,16 @@ final class WorkoutShareRenderTests: XCTestCase {
         let cgImage = try XCTUnwrap(image.cgImage)
 
         XCTAssertTrue(
-            Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 60, y: 282, width: 240, height: 6)),
+            Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 60, y: 282, width: 240, height: 6, in: cgImage)),
             "Flat route did not draw just above the drawing rect's bottom edge"
         )
         XCTAssertFalse(
             // Stops short of the pinned branding, whose app-icon artwork is blue.
-            Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 0, y: 300, width: 360, height: 280)),
+            Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 0, y: 300, width: 360, height: 280, in: cgImage)),
             "Route drew below the drawing rect's bottom edge"
         )
         XCTAssertFalse(
-            Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 0, y: 60, width: 360, height: 200)),
+            Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 0, y: 60, width: 360, height: 200, in: cgImage)),
             "Route still drew in its unanchored, vertically centered position"
         )
     }
@@ -242,9 +248,8 @@ final class WorkoutShareRenderTests: XCTestCase {
     /// near card y 241. The 2D fallback draws only at y 288, which is what makes this
     /// test fail rather than silently pass if the card ever ignores `.threeD`.
     func testThreeDRibbonDrawsALiftedLineTheFlatTraceNeverReaches() throws {
-        let liftedBand = Self.pixelRect(x: 150, y: 235, width: 100, height: 12)
-
         let threeD = try XCTUnwrap(makeRenderer(coordinates: flatFixtureCoordinates(), dimension: .threeD).uiImage?.cgImage)
+        let liftedBand = Self.pixelRect(x: 150, y: 235, width: 100, height: 12, in: threeD)
         XCTAssertTrue(
             Self.containsRouteBluePixel(in: threeD, region: liftedBand),
             "3D ribbon drew no lifted line above the ground trace"
@@ -315,7 +320,6 @@ final class WorkoutShareRenderTests: XCTestCase {
     /// 160 pt moves that boundary to y 480, so a row at y 400 flips from green to red.
     /// Sampled at the card's left edge, clear of the metric stack's white text.
     func testPhotoTransformOffsetMovesTheBackdrop() throws {
-        let sample = Self.pixelRect(x: 4, y: 390, width: 14, height: 20)
         let photo = twoToneImage()
 
         let centered = try XCTUnwrap(
@@ -324,6 +328,7 @@ final class WorkoutShareRenderTests: XCTestCase {
                 photoTransform: WorkoutSharePhotoTransform(offset: .zero, scale: 2)
             ).uiImage?.cgImage
         )
+        let sample = Self.pixelRect(x: 4, y: 390, width: 14, height: 20, in: centered)
         let centeredColor = Self.averageColor(in: centered, region: sample)
         XCTAssertGreaterThan(centeredColor.green, centeredColor.red, "Untranslated photo should show its lower (green) half at y 400")
 
@@ -351,37 +356,164 @@ final class WorkoutShareRenderTests: XCTestCase {
             context.fill(CGRect(x: size.width / 2, y: 0, width: size.width / 2, height: size.height))
         }
         let transform = WorkoutSharePhotoTransform(offset: CGSize(width: 400, height: 0), scale: 1)
-            .clamped(imageSize: size)
+            .clamped(imageSize: size, cardSize: WorkoutShareAspectRatio.portrait9x16.cardSize)
         XCTAssertEqual(transform.offset.width, 400, accuracy: 0.001, "fixture pan must be inside the clamp")
 
         let image = try XCTUnwrap(
             makeRenderer(background: .photo(photo), photoTransform: transform).uiImage?.cgImage
         )
         // Left edge, mid-height: under the scrims' clear band and clear of the trace.
-        let color = Self.averageColor(in: image, region: Self.pixelRect(x: 2, y: 310, width: 10, height: 20))
+        let color = Self.averageColor(in: image, region: Self.pixelRect(x: 2, y: 310, width: 10, height: 20, in: image))
         XCTAssertGreaterThan(color.green, 0.5, "Panned photo left a bare strip at the card's edge")
         XCTAssertGreaterThan(color.green, color.red)
     }
 
-    /// Card points × the renderer's scale 3, clamped to the 1080×1920 image.
-    private static func pixelRect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) -> CGRect {
-        let scale: CGFloat = 3
-        return CGRect(x: x * scale, y: y * scale, width: width * scale, height: height * scale)
-            .intersection(CGRect(x: 0, y: 0, width: 1_080, height: 1_920))
+    // MARK: - Aspect ratios
+
+    /// Every ratio is 1080 px on its short side at scale 3 (`WorkoutShareAspectRatio`'s
+    /// own doc comment); 9:16 is covered above, so this checks the other four.
+    func testNewAspectRatiosRenderToExactPixelSize() throws {
+        let expectations: [(ratio: WorkoutShareAspectRatio, width: Int, height: Int)] = [
+            (.landscape16x9, 1_920, 1_080),
+            (.portrait4x5, 1_080, 1_350),
+            (.landscape5x4, 1_350, 1_080),
+            (.square, 1_080, 1_080)
+        ]
+        for expectation in expectations {
+            let cgImage = try XCTUnwrap(
+                makeRenderer(aspectRatio: expectation.ratio).uiImage?.cgImage,
+                "no image for \(expectation.ratio.rawValue)"
+            )
+            XCTAssertEqual(cgImage.width, expectation.width, "\(expectation.ratio.rawValue) width")
+            XCTAssertEqual(cgImage.height, expectation.height, "\(expectation.ratio.rawValue) height")
+        }
     }
 
-    /// `BodyWorkoutShareCardView.centeredRoute*` (card points, optionally shifted by an
-    /// info transform's offset) × the renderer's scale 3, clamped to the image so a
-    /// future geometry change can't index out of bounds.
-    private static func centeredRouteRegionInPixels(of cgImage: CGImage, offsetBy offset: CGSize = .zero) -> CGRect {
+    /// The classic layout is its own view tree (see `testClassicLayoutRendersToExactPixelSize`);
+    /// this proves it also survives a landscape frame rather than only ever being exercised at 9:16.
+    func testLandscapeClassicLayoutRendersToExactPixelSize() throws {
+        let cgImage = try XCTUnwrap(makeRenderer(layout: .classic, aspectRatio: .landscape16x9).uiImage?.cgImage)
+        XCTAssertEqual(cgImage.width, 1_920)
+        XCTAssertEqual(cgImage.height, 1_080)
+    }
+
+    /// Same reasoning for the route-less layout.
+    func testLandscapeRoutelessLayoutRendersToExactPixelSize() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(layout: .routeless, withRoute: false, aspectRatio: .landscape16x9).uiImage?.cgImage
+        )
+        XCTAssertEqual(cgImage.width, 1_920)
+        XCTAssertEqual(cgImage.height, 1_080)
+    }
+
+    /// Every ratio, route-less, in one sweep — the route-less card is the shortest view
+    /// tree (glyph + stack, no header, no trace), so this is cheap insurance that none of
+    /// the five shapes silently fails to render.
+    func testAllRatiosRenderRoutelessToExactPixelSize() throws {
+        for ratio in WorkoutShareAspectRatio.allCases {
+            let cgImage = try XCTUnwrap(
+                makeRenderer(layout: .routeless, withRoute: false, aspectRatio: ratio).uiImage?.cgImage,
+                "no image for \(ratio.rawValue)"
+            )
+            XCTAssertEqual(cgImage.width, Int(ratio.cardSize.width * 3), "\(ratio.rawValue) width")
+            XCTAssertEqual(cgImage.height, Int(ratio.cardSize.height * 3), "\(ratio.rawValue) height")
+        }
+    }
+
+    /// `.sideBySide` is only meaningful on a landscape card with a trace: the route
+    /// square sits in the left half and the metric column in the right half, and the two
+    /// must never bleed into each other.
+    func testSideBySideDrawsTheRouteInTheLeftHalfOnly() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(aspectRatio: .landscape16x9, arrangement: .sideBySide).uiImage?.cgImage
+        )
+        let leftHalf = Self.pixelRect(x: 0, y: 0, width: 320, height: 360, in: cgImage)
+        let rightHalf = Self.pixelRect(x: 320, y: 0, width: 320, height: 360, in: cgImage)
+
+        XCTAssertTrue(
+            Self.containsRouteBluePixel(in: cgImage, region: leftHalf),
+            "Side-by-side route did not draw in the left half"
+        )
+        XCTAssertFalse(
+            Self.containsRouteBluePixel(in: cgImage, region: rightHalf),
+            "Side-by-side route leaked into the metrics half"
+        )
+    }
+
+    /// `.routeOverRow` (a short, non-9:16, non-side-by-side card) stacks a route square
+    /// above a metric row: the route must stay inside its own region, never touching the
+    /// metrics below it. (The pinned branding zone isn't sampled here — its app-icon
+    /// artwork is itself blue, the same confound `testFlatRouteIsBottomAnchoredToTheDrawingRect`
+    /// works around; `WorkoutShareCardTests.testRouteOverRowMetricsSitAboveTheBrandingZone`
+    /// covers that clearance at the geometry level instead.)
+    func testRouteOverRowKeepsTheRouteAboveTheMetricsRow() throws {
+        let cgImage = try XCTUnwrap(makeRenderer(aspectRatio: .square).uiImage?.cgImage)
+        let geometry = WorkoutShareCardGeometry(aspectRatio: .square, layout: .centered, arrangement: .stacked)
+        let routeRect = geometry.centeredRouteRect
+        let metricsRect = geometry.metricsFrame
+
+        let routePixels = Self.pixelRect(x: routeRect.minX, y: routeRect.minY, width: routeRect.width, height: routeRect.height, in: cgImage)
+        let metricsPixels = Self.pixelRect(x: metricsRect.minX, y: metricsRect.minY, width: metricsRect.width, height: metricsRect.height, in: cgImage)
+
+        XCTAssertTrue(
+            Self.containsRouteBluePixel(in: cgImage, region: routePixels),
+            "Route-over-row layout drew no route inside its own region"
+        )
+        XCTAssertFalse(
+            Self.containsRouteBluePixel(in: cgImage, region: metricsPixels),
+            "Route bled into the metrics row"
+        )
+    }
+
+    /// `WorkoutSharePhotoTransform.clamped(imageSize:cardSize:)` must clamp against the
+    /// card it's actually being drawn on, not a fixed 9:16 assumption: a 360×640 photo on
+    /// a 640×360 landscape card fills the width and overhangs on height, so a vertical pan
+    /// should clamp to exactly that overhang.
+    func testLandscapePhotoTransformClampsAgainstTheLandscapeCard() throws {
+        let cardSize = WorkoutShareAspectRatio.landscape16x9.cardSize
+        let photo = twoToneImage()
+
+        let aspect = photo.size.width / photo.size.height
+        let fillHeight = max(cardSize.height, cardSize.width / aspect)
+        let expectedOverhang = max(0, (fillHeight - cardSize.height) / 2)
+
+        let transform = WorkoutSharePhotoTransform(offset: CGSize(width: 0, height: expectedOverhang * 2), scale: 1)
+            .clamped(imageSize: photo.size, cardSize: cardSize)
+        XCTAssertEqual(transform.offset.height, expectedOverhang, accuracy: 0.001, "vertical pan should clamp to the fill's overhang")
+
+        let cgImage = try XCTUnwrap(
+            makeRenderer(background: .photo(photo), photoTransform: transform, aspectRatio: .landscape16x9).uiImage?.cgImage
+        )
+        XCTAssertEqual(cgImage.width, 1_920)
+        XCTAssertEqual(cgImage.height, 1_080)
+    }
+
+    /// Card points × the renderer's scale 3, clamped to the rendered image's actual pixel
+    /// bounds — not a fixed 1080×1920 literal, since the card can now render at any of the
+    /// five aspect ratios.
+    private static func pixelRect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, in cgImage: CGImage) -> CGRect {
         let scale: CGFloat = 3
-        let size = BodyWorkoutShareCardView.centeredRouteSize
-        let center = BodyWorkoutShareCardView.centeredRouteCenter
+        return CGRect(x: x * scale, y: y * scale, width: width * scale, height: height * scale)
+            .intersection(CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
+    }
+
+    /// `WorkoutShareCardGeometry(...).centeredRouteRect` (card points, optionally shifted
+    /// by an info transform's offset) × the renderer's scale 3, clamped to the image so a
+    /// future geometry change can't index out of bounds. Defaults to 9:16/stacked, which
+    /// reproduces the original 260×260 region centered at (180, 170).
+    private static func centeredRouteRegionInPixels(
+        of cgImage: CGImage,
+        aspectRatio: WorkoutShareAspectRatio = .portrait9x16,
+        arrangement: WorkoutShareLandscapeArrangement = .stacked,
+        offsetBy offset: CGSize = .zero
+    ) -> CGRect {
+        let scale: CGFloat = 3
+        let rect = WorkoutShareCardGeometry(aspectRatio: aspectRatio, layout: .centered, arrangement: arrangement).centeredRouteRect
         let region = CGRect(
-            x: (center.x + offset.width - size / 2) * scale,
-            y: (center.y + offset.height - size / 2) * scale,
-            width: size * scale,
-            height: size * scale
+            x: (rect.minX + offset.width) * scale,
+            y: (rect.minY + offset.height) * scale,
+            width: rect.width * scale,
+            height: rect.height * scale
         )
         return region.intersection(CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
     }

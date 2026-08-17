@@ -315,20 +315,22 @@ final class ProjectConfigurationTests: XCTestCase {
     func testWorkoutShareOptionRowsAndPhotoAdjustSteps() throws {
         let shareSheetSource = try text(at: "Body/Views/Health/BodyWorkoutShareSheet.swift")
 
-        // The background strip is two labelled rows for a routed workout, and the
-        // dimension is remembered across sessions behind the policy seam.
-        XCTAssertTrue(shareSheetSource.contains("WorkoutShareRouteDimension.storageKey"))
-        XCTAssertTrue(shareSheetSource.contains("WorkoutShareBackgroundPolicy.resolvedDimension("))
+        // The option strip was replaced by a leading icon rail with expanding trays,
+        // one open at a time.
+        XCTAssertTrue(shareSheetSource.contains("RailOption"))
+        XCTAssertTrue(shareSheetSource.contains("expandedOption"))
+
+        // Aspect ratio and landscape arrangement are remembered across sessions behind
+        // the policy seam, same pattern as the 2D/3D dimension.
+        XCTAssertTrue(shareSheetSource.contains("WorkoutShareAspectRatio.storageKey"))
+        XCTAssertTrue(shareSheetSource.contains("WorkoutShareLandscapeArrangement.storageKey"))
+        XCTAssertTrue(shareSheetSource.contains("resolvedAspectRatio"))
         XCTAssertTrue(shareSheetSource.contains(#"Text("2D")"#))
         XCTAssertTrue(shareSheetSource.contains(#"Text("3D")"#))
         // A route without usable altitude greys the 3D row out and says why.
         XCTAssertTrue(shareSheetSource.contains(#"Text("3D needs a route with elevation data.")"#))
-        // One snapshot cache per dimension, loaded reactively — a Pro lapse or restore
-        // makes the other dimension active and must fetch its own image.
-        XCTAssertTrue(shareSheetSource.contains("mapSnapshots: [WorkoutShareRouteDimension: UIImage]"))
-        XCTAssertTrue(shareSheetSource.contains("failedMapDimensions"))
-        XCTAssertTrue(shareSheetSource.contains("MapLoadKey("))
-        XCTAssertFalse(shareSheetSource.contains("mapSnapshotFailed"))
+        // Map snapshots are cached per ratio as well as per dimension.
+        XCTAssertTrue(shareSheetSource.contains("MapSnapshotKey"))
 
         // Photo mode is two steps, switched by a segmented control.
         XCTAssertTrue(shareSheetSource.contains("PhotoAdjustStep"))
@@ -339,16 +341,18 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(shareSheetSource.contains(#""Drag to move. Pinch to resize. Double-tap to reset.""#))
         XCTAssertTrue(shareSheetSource.contains("clamped(imageSize:"))
 
-        // Free font and route-colour rows, both persisted.
+        // Free font row, plus the new ratio/arrangement/route-colour trays.
         XCTAssertTrue(shareSheetSource.contains("WorkoutShareFontChoice"))
         XCTAssertTrue(shareSheetSource.contains("WorkoutShareRouteColorChoice"))
-        XCTAssertTrue(shareSheetSource.contains(#"Text("Font")"#))
-        XCTAssertTrue(shareSheetSource.contains(#"Text("Route")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Ratio")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Arrange")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Route Color")"#))
         XCTAssertTrue(shareSheetSource.contains(#"Text("Route color doesn't apply to the Map background.")"#))
 
-        // The card takes both new looks as inputs and re-anchors the centered layout.
+        // The card computes its geometry from the aspect ratio, replacing the fixed
+        // 9:16 layout constants.
         let cardSource = try text(at: "Body/Views/Health/BodyWorkoutShareCardView.swift")
-        XCTAssertTrue(cardSource.contains("centeredMetricsTopY"))
+        XCTAssertTrue(cardSource.contains("WorkoutShareCardGeometry"))
         XCTAssertTrue(cardSource.contains("fontDesign: Font.Design"))
         XCTAssertTrue(cardSource.contains("routeColor: Color"))
         // The route-less type glyph shrank from 56 pt to 30 pt.
@@ -358,6 +362,11 @@ final class ProjectConfigurationTests: XCTestCase {
         // Hero and card paint the ribbon through the same extracted painter.
         let routeHeroSource = try text(at: "Body/Views/Health/BodyWorkoutRouteMapHero.swift")
         XCTAssertTrue(routeHeroSource.contains("drawRibbon("))
+
+        // The model exposes the new geometry type and aspect-ratio storage key.
+        let cardModelSource = try text(at: "Body/Models/WorkoutShareCard.swift")
+        XCTAssertTrue(cardModelSource.contains("struct WorkoutShareCardGeometry"))
+        XCTAssertTrue(cardModelSource.contains("\"workoutShareAspectRatio\""))
     }
 
     func testRouteStylePickerAndThreeDHero() throws {
@@ -1883,6 +1892,35 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(methodBlock.contains("fetchActivityRingHistory(calendar: calendar)"))
     }
 
+    func testWorkoutListAnimatesArrivalsKeyedOnWorkoutIdentity() throws {
+        let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
+
+        // Membership, not the snapshot: every refresh republishes the month with
+        // a fresh `generatedAt`, so a snapshot-derived key would animate the list
+        // on every sync. A Set rather than an array, so a pure re-sort does not
+        // fire the insertion animation and `selectedSortOption` keeps its own.
+        XCTAssertTrue(workoutsSource.contains("let visibleWorkoutIDs = Set(visibleWorkouts.map(\\.id))"))
+        XCTAssertTrue(workoutsSource.contains(".animation(workoutRowChangeAnimation, value: visibleWorkoutIDs)"))
+        XCTAssertFalse(workoutsSource.contains("value: visibleWorkouts.map(\\.id)"))
+        XCTAssertFalse(workoutsSource.contains("value: baseSnapshot"))
+
+        // The keyed animation has to sit on the Group that spans both the list
+        // and the empty state, and inside the month `.id` — see the comments at
+        // the call site. Order in the source is the assertion.
+        let listBlockStart = try XCTUnwrap(
+            workoutsSource.range(of: ".animation(workoutRowChangeAnimation, value: visibleWorkoutIDs)")?.lowerBound
+        )
+        let listBlock = String(workoutsSource[listBlockStart...].prefix(300))
+        XCTAssertTrue(listBlock.contains(".id(\"list-\\(monthIdentity)\")"))
+        XCTAssertTrue(listBlock.contains(".transition(monthSwitchTransition)"))
+
+        // Row fade lives on the button, outside the label holding the zoom source.
+        XCTAssertTrue(workoutsSource.contains(".transition(workoutRowTransition)"))
+        XCTAssertTrue(workoutsSource.contains("private var workoutRowTransition: AnyTransition"))
+        XCTAssertTrue(workoutsSource.contains("private var workoutRowChangeAnimation: Animation?"))
+        XCTAssertTrue(workoutsSource.contains("reduceMotion ? nil : .smooth(duration: 0.32, extraBounce: 0)"))
+    }
+
     func testPullToRefreshUsesCustomTriggerWithNoSystemRefreshControl() throws {
         // No refreshable surface installs the system refresh control (and its
         // spinner); every scroll view uses the custom `.bodyPullToRefresh`
@@ -2476,7 +2514,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testHealthKitUsageDescriptionListsRequestedHealthCategories() throws {
         let project = try text(at: "body.xcodeproj/project.pbxproj")
-        let usageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, swim strokes, distance, date of birth, and biological sex from Apple Health to power your dashboard, charts, and widgets."
+        let usageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, running form, swim strokes, distance, date of birth, and biological sex from Apple Health to power your dashboard, charts, and widgets."
 
         XCTAssertEqual(project.occurrenceCount(of: usageDescription), 2)
         XCTAssertFalse(project.contains("Body reads workout, sleep, heart, and body measurement data"))
@@ -3161,7 +3199,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(bodyProSource.contains("HStack(alignment: .top, spacing: 14)"))
         XCTAssertFalse(bodyProSource.contains(".padding(.top, 2)"))
         XCTAssertFalse(bodyProSource.contains(".padding(.top, 8)"))
-        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 8)
+        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 9)
         XCTAssertTrue(bodyProSource.contains("Longer-Range Charts"))
         XCTAssertTrue(bodyProSource.contains("Full Day History"))
         XCTAssertTrue(bodyProSource.contains("Custom Backgrounds"))
@@ -3169,6 +3207,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(bodyProSource.contains("Custom Data Sources"))
         XCTAssertTrue(bodyProSource.contains("Photo Activity Share"))
         XCTAssertTrue(bodyProSource.contains("3D Route Share"))
+        XCTAssertTrue(bodyProSource.contains("Share Card Sizes"))
         XCTAssertFalse(bodyProSource.contains("Six-Month and Year Charts"))
         XCTAssertTrue(bodyProSource.contains("Body Widgets"))
         // StoreKit purchase wiring replaced the placeholder stubs.

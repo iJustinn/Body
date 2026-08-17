@@ -2,16 +2,22 @@
 //  BodyWorkoutShareCardView.swift
 //  Body
 //
-//  The 360×640 pt share card, exported at `ImageRenderer.scale = 3` → 1080×1920 px.
+//  The share card, exported at `ImageRenderer.scale = 3` (1080 px on its short
+//  side). Its shape is the user's `WorkoutShareAspectRatio` — 9:16, 16:9, 4:5,
+//  5:4, or 1:1 — and on a landscape card the `WorkoutShareLandscapeArrangement`
+//  decides whether route and metrics stack or sit side by side. No layout number
+//  is written here: `WorkoutShareCardGeometry` derives every frame, scrim, and
+//  anchor from those two inputs, so the card, the sheet's map region, the
+//  transforms, and the render tests can't drift apart.
 //  Purely value-driven and environment-independent: every color, size, and weight
 //  is explicit so the rendered image looks identical no matter what environment
 //  `ImageRenderer` runs it under. Three layouts: `.classic` (map background only)
 //  mirrors the detail page — identity left, big distance + duration right, route
 //  trace centered, metrics row along the bottom; `.centered` (gradient presets and
-//  photos) drops the header for a column of label-over-value blocks under the trace;
+//  photos) drops the header for label-over-value blocks under (or beside) the trace;
 //  `.routeless` (a workout with no GPS route) has no trace to show, so the workout
-//  type's symbol stands in as the card's only identity above that same column.
-//  On photo backgrounds the centered layout's info block (trace + stack, never the
+//  type's symbol stands in as the card's only identity above those same blocks.
+//  On photo backgrounds the centered layout's info block (trace + metrics, never the
 //  pinned branding) is repositionable and resizable: the placement arrives as an
 //  `infoTransform` the sheet's gestures drive, and is `.identity` everywhere else.
 //
@@ -58,6 +64,12 @@ struct BodyWorkoutShareCardView: View {
     let type: BodyWorkoutType
     let background: WorkoutShareCardBackground
     let layout: WorkoutShareCardLayout
+    /// The card's shape. Already resolved through
+    /// `WorkoutShareBackgroundPolicy.resolvedAspectRatio` — the card never re-checks
+    /// the Pro entitlement.
+    let aspectRatio: WorkoutShareAspectRatio
+    /// Only read on a landscape card that draws a trace; every other shape ignores it.
+    let arrangement: WorkoutShareLandscapeArrangement
     /// Where the centered layout's info block sits; `.identity` is its default slot.
     /// The classic layout ignores it.
     let infoTransform: WorkoutShareInfoTransform
@@ -69,29 +81,14 @@ struct BodyWorkoutShareCardView: View {
     /// composited route ignores it and keeps its pace colouring.
     let routeColor: Color
 
-    /// Internal so `WorkoutSharePhotoTransform` clamps against the same card the photo
-    /// has to cover.
-    static let cardSize = CGSize(width: 360, height: 640)
-
-    /// The centered layout's route region, in card points. Internal so the render test
-    /// derives its pixel sample area from the same numbers the card draws with.
-    static let centeredRouteSize: CGFloat = 260
-    static let centeredRouteCenter = CGPoint(x: 180, y: 170)
-    /// Inset of the drawing rect inside the route region, so the stroke never clips.
-    static let centeredRouteInset: CGFloat = 12
-
-    /// Top edge of the centered metric stack when a trace is shown. The route is
-    /// bottom-anchored on the drawing rect's bottom edge (y 288), so whatever shape the
-    /// route has, the gap between its lowest point and the stack is always 42 pt.
-    static let centeredMetricsTopY: CGFloat = 330
-
-    /// The block's pinch anchor: the midpoint of the route region's top edge and a
-    /// three-metric stack's bottom — the block's visual centre, so a pinch doesn't push
-    /// the trace off the top the way anchoring on the card's centre would.
-    private static let blockAnchorY: CGFloat = 305
-
     /// #0128F4 — `WorkoutShareRouteColorChoice.bodyBlue`, the default trace colour.
     static let defaultRouteColor = Color(red: 1 / 255, green: 40 / 255, blue: 244 / 255)
+
+    /// Every frame the card draws with. A value type derived from the three inputs
+    /// above, so recomputing it per access is cheaper than caching it.
+    private var geometry: WorkoutShareCardGeometry {
+        WorkoutShareCardGeometry(aspectRatio: aspectRatio, layout: layout, arrangement: arrangement)
+    }
 
     /// `.routeless` never traces, whatever it's handed: making that a property of the
     /// layout (rather than of the caller passing `routePoints: nil`) also fixes
@@ -109,32 +106,34 @@ struct BodyWorkoutShareCardView: View {
     }
 
     var body: some View {
+        let size = geometry.size
         ZStack {
             backgroundLayer
             scrims
             switch layout {
             case .classic:
                 if showsTrace {
-                    // Pinned to the same geometry as the map background's route: a
-                    // 300×300 pt drawing rect (2× the scrims' clear band) centered at
-                    // y 375, so the trace sits identically on every background. The
-                    // square rect keeps the projection's aspect ratio undistorted;
-                    // the 324 pt frame leaves the 12 pt inset for the stroke.
+                    // Pinned to the same geometry as the map background's route —
+                    // `classicRouteRect` is sized off the scrims' clear band — so the
+                    // trace sits identically on every background. The square rect keeps
+                    // the projection's aspect ratio undistorted; the route inset inside
+                    // it leaves room for the stroke.
                     routeHero(bottomAnchored: false)
-                        .frame(width: 324, height: 324)
-                        .position(x: Self.cardSize.width / 2, y: 375)
+                        .frame(width: geometry.classicRouteRect.width, height: geometry.classicRouteRect.height)
+                        .position(x: geometry.classicRouteRect.midX, y: geometry.classicRouteRect.midY)
                 }
                 content
             case .centered, .routeless:
                 centeredContent
             }
         }
-        .frame(width: Self.cardSize.width, height: Self.cardSize.height)
+        .frame(width: size.width, height: size.height)
         .clipped()
     }
 
     @ViewBuilder
     private var backgroundLayer: some View {
+        let size = geometry.size
         switch background {
         case .preset(let preset):
             preset.gradient(tint: type.color)
@@ -145,23 +144,24 @@ struct BodyWorkoutShareCardView: View {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFill()
-                .frame(width: Self.cardSize.width, height: Self.cardSize.height)
+                .frame(width: size.width, height: size.height)
                 .scaleEffect(photoTransform.scale, anchor: .center)
                 .offset(photoTransform.offset)
-                .frame(width: Self.cardSize.width, height: Self.cardSize.height)
+                .frame(width: size.width, height: size.height)
                 .clipped()
         case .map(let image):
             Image(uiImage: image)
                 .resizable()
                 .scaledToFill()
-                .frame(width: Self.cardSize.width, height: Self.cardSize.height)
+                .frame(width: size.width, height: size.height)
                 .clipped()
         }
     }
 
     /// Unconditional top + bottom scrims so white text stays legible over any photo
     /// or map tiles, including a near-white tint. Map tiles carry bright labels and
-    /// roads right behind the text, so they get taller, darker shades.
+    /// roads right behind the text, so they get taller, darker shades. The heights are
+    /// fractions of the card's height, so a short landscape card isn't swallowed.
     private var scrims: some View {
         let isMap: Bool
         if case .map = background { isMap = true } else { isMap = false }
@@ -172,7 +172,7 @@ struct BodyWorkoutShareCardView: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: isMap ? 280 : 170)
+            .frame(height: geometry.topScrimHeight(isMap: isMap))
 
             Spacer(minLength: 0)
 
@@ -181,7 +181,7 @@ struct BodyWorkoutShareCardView: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: isMap ? 210 : 160)
+            .frame(height: geometry.bottomScrimHeight(isMap: isMap))
         }
     }
 
@@ -193,7 +193,7 @@ struct BodyWorkoutShareCardView: View {
         }
         .padding(.horizontal, 24)
         .padding(.top, 28)
-        .padding(.bottom, 26)
+        .padding(.bottom, WorkoutShareCardGeometry.brandingBottomPadding)
     }
 
     // MARK: - Header (mirrors the detail page's top arrangement)
@@ -219,9 +219,13 @@ struct BodyWorkoutShareCardView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
 
             VStack(alignment: .leading, spacing: 4) {
+                // Bounded rather than free-growing: a long title on a landscape card
+                // would otherwise push the header past its (shorter) scrim.
                 Text(presentation.title)
                     .font(.system(size: 24, weight: .bold, design: fontDesign))
                     .foregroundColor(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
 
                 if let locality {
                     HStack(spacing: 4) {
@@ -229,6 +233,7 @@ struct BodyWorkoutShareCardView: View {
                             .font(.system(size: 11, weight: .semibold))
                         Text(locality)
                             .font(.system(size: 14, weight: .medium, design: fontDesign))
+                            .lineLimit(1)
                     }
                     .foregroundColor(.white.opacity(0.7))
                 }
@@ -236,6 +241,7 @@ struct BodyWorkoutShareCardView: View {
                 Text("\(presentation.dateTitle) - \(presentation.timeRangeText)")
                     .font(.system(size: 14, weight: .medium, design: fontDesign))
                     .foregroundColor(.white.opacity(0.7))
+                    .lineLimit(1)
             }
         }
     }
@@ -282,11 +288,12 @@ struct BodyWorkoutShareCardView: View {
     ///
     /// - Parameter bottomAnchored: Translates the finished drawing so its lowest point
     ///   lands on the rect's bottom edge. The centered layout draws that way so the gap
-    ///   to the metric stack below is the same for a tall route and a wide one; the
-    ///   classic layout keeps the trace centered on the map's own geometry.
+    ///   to the metrics below is the same for a tall route and a wide one (and so the
+    ///   3D ribbon's lifted line rises into free space); the classic layout keeps the
+    ///   trace centered on the map's own geometry.
     private func routeHero(bottomAnchored: Bool) -> some View {
         Canvas { context, size in
-            let inset = Self.centeredRouteInset
+            let inset = WorkoutShareCardGeometry.routeInset
             let rect = CGRect(
                 x: inset,
                 y: inset,
@@ -383,74 +390,138 @@ struct BodyWorkoutShareCardView: View {
         }
     }
 
-    // MARK: - Centered layout (gradient presets)
+    // MARK: - Centered layout (gradient presets and photos)
 
-    /// Fixed regions rather than a flowing stack: the card is exactly 640 pt, so the
-    /// route, the metric stack, and the branding each own an absolute slot and no
-    /// metric count can push the wordmark off the bottom.
+    /// Fixed regions rather than a flowing stack: the card's height is known, so the
+    /// route, the metrics, and the branding each own an absolute slot from
+    /// `WorkoutShareCardGeometry` and no metric count can push the wordmark off the
+    /// bottom.
     private var centeredContent: some View {
-        ZStack(alignment: .bottom) {
-            // Trace and stack move and resize together as one block; the branding
+        let size = geometry.size
+        return ZStack(alignment: .bottom) {
+            // Trace and metrics move and resize together as one block; the branding
             // stays pinned to the card's bottom whatever the transform is.
-            ZStack {
-                if layout == .routeless {
-                    // Glyph and stack are one flowing block, not two absolute slots:
-                    // the metric count varies from one to four here, and the pair
-                    // stays visually centered together at any of them.
-                    VStack(spacing: 20) {
-                        typeGlyph
-                        centeredMetricsStack
-                    }
-                    .frame(width: Self.cardSize.width - 48)
-                    .position(x: Self.cardSize.width / 2, y: Self.cardSize.height / 2)
-                } else if showsTrace {
-                    routeHero(bottomAnchored: true)
-                        .frame(width: Self.centeredRouteSize, height: Self.centeredRouteSize)
-                        .position(Self.centeredRouteCenter)
-                        .accessibilityHidden(true)
-
-                    // Top-anchored rather than centered: the route above ends on a fixed
-                    // edge, so pinning the stack's top edge is what keeps the gap between
-                    // them constant no matter how many metrics the stack carries.
-                    VStack(spacing: 0) {
-                        centeredMetricsStack
-                        Spacer(minLength: 0)
-                    }
-                    .frame(
-                        width: Self.cardSize.width - 48,
-                        height: Self.cardSize.height - Self.centeredMetricsTopY
-                    )
-                    .position(
-                        x: Self.cardSize.width / 2,
-                        y: Self.centeredMetricsTopY + (Self.cardSize.height - Self.centeredMetricsTopY) / 2
-                    )
-                } else {
-                    // Traceless cards have nothing above the stack, so it centers in the
-                    // whole card — the same fallback the classic layout's metrics take.
-                    centeredMetricsStack
-                        .frame(width: Self.cardSize.width - 48)
-                        .position(x: Self.cardSize.width / 2, y: Self.cardSize.height / 2)
-                }
-            }
-            // Explicitly card-sized so the `.position` calls above keep resolving
-            // against the full card once the block is scaled and offset.
-            .frame(width: Self.cardSize.width, height: Self.cardSize.height)
-            // Offset after scale, so a drag stays 1:1 with card points at any zoom.
-            .scaleEffect(infoTransform.scale, anchor: blockAnchor)
-            .offset(infoTransform.offset)
+            infoBlock
+                // Explicitly card-sized so the `.position` calls inside keep resolving
+                // against the full card once the block is scaled and offset.
+                .frame(width: size.width, height: size.height)
+                // Offset after scale, so a drag stays 1:1 with card points at any zoom.
+                .scaleEffect(infoTransform.scale, anchor: geometry.blockAnchor(showsTrace: showsTrace))
+                .offset(infoTransform.offset)
 
             branding
-                .padding(.bottom, 26)
+                .padding(.bottom, WorkoutShareCardGeometry.brandingBottomPadding)
         }
     }
 
-    /// The block's own visual center — midway between the route region and the metric
-    /// stack — rather than the card's. Pinching around the card center would push the
-    /// trace off the top, since the block sits above the midline when a trace is shown.
-    private var blockAnchor: UnitPoint {
-        guard showsTrace else { return .center }
-        return UnitPoint(x: 0.5, y: Self.blockAnchorY / Self.cardSize.height)
+    @ViewBuilder
+    private var infoBlock: some View {
+        ZStack {
+            if layout == .routeless {
+                routelessBlock
+            } else if showsTrace {
+                tracedBlock
+            } else {
+                // Traceless cards have nothing above the metrics, so the stack centers
+                // in the space the branding leaves — the same fallback the classic
+                // layout's metrics take.
+                centeredMetricsStack
+                    .frame(width: geometry.size.width - 48)
+                    .position(x: geometry.size.width / 2, y: metricsOnlyCenterY)
+            }
+        }
     }
+
+    /// Route + metrics, laid out the way this card's shape (and, on landscape, the
+    /// user's arrangement) asks for.
+    @ViewBuilder
+    private var tracedBlock: some View {
+        let metricsRect = geometry.metricsFrame
+        switch geometry.centeredMode {
+        case .column:
+            routeRegion
+            // Top-anchored rather than centered: the route above ends on a fixed
+            // edge, so pinning the stack's top edge is what keeps the gap between
+            // them constant no matter how many metrics the stack carries.
+            VStack(spacing: 0) {
+                centeredMetricsStack
+                Spacer(minLength: 0)
+            }
+            .frame(width: metricsRect.width, height: metricsRect.height)
+            .position(x: metricsRect.midX, y: metricsRect.midY)
+        case .routeOverRow:
+            routeRegion
+            // A short card can't afford a column under the trace, so the blocks go
+            // wide in a single row sized to sit clear of the branding.
+            centeredMetricsRow
+                .frame(width: metricsRect.width, height: metricsRect.height)
+                .position(x: metricsRect.midX, y: metricsRect.midY)
+        case .sideBySide:
+            routeRegion
+            centeredMetricsStack
+                .frame(width: metricsRect.width, height: metricsRect.height)
+                .position(x: metricsRect.midX, y: metricsRect.midY)
+        }
+    }
+
+    /// The centered layout's trace, bottom-anchored inside its geometry rect.
+    private var routeRegion: some View {
+        let rect = geometry.centeredRouteRect
+        return routeHero(bottomAnchored: true)
+            .frame(width: rect.width, height: rect.height)
+            .position(x: rect.midX, y: rect.midY)
+            .accessibilityHidden(true)
+    }
+
+    /// Glyph and metrics are one flowing block, not two absolute slots: the metric
+    /// count varies from one to four here, and the pair stays visually centered
+    /// together at any of them.
+    private var routelessBlock: some View {
+        VStack(spacing: 20) {
+            typeGlyph
+            routelessMetrics
+        }
+        .frame(width: geometry.size.width - 48)
+        .position(x: geometry.size.width / 2, y: routelessCenterY)
+    }
+
+    @ViewBuilder
+    private var routelessMetrics: some View {
+        if geometry.routelessMetricsAxis == .vertical {
+            centeredMetricsStack
+        } else if geometry.routelessWrapsMetricRows {
+            // Four blocks won't read on one line of a 360 pt card, so they wrap into
+            // rows of two.
+            VStack(spacing: 20) {
+                ForEach(Array(stride(from: 0, to: centeredMetrics.count, by: 2)), id: \.self) { start in
+                    metricsRow(Array(centeredMetrics[start..<min(start + 2, centeredMetrics.count)]))
+                }
+            }
+            .multilineTextAlignment(.center)
+            .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+        } else {
+            centeredMetricsRow
+        }
+    }
+
+    /// Where a block with no trace above it centers. The original column keeps the
+    /// card's own centre; every other shape centers in the space above the branding,
+    /// which is a real constraint on a 360 pt-tall card.
+    private var routelessCenterY: CGFloat {
+        geometry.routelessMetricsAxis == .vertical
+            ? geometry.size.height / 2
+            : (geometry.size.height - Self.brandingZoneHeight) / 2
+    }
+
+    private var metricsOnlyCenterY: CGFloat {
+        geometry.centeredMode == .column
+            ? geometry.size.height / 2
+            : (geometry.size.height - Self.brandingZoneHeight) / 2
+    }
+
+    /// Branding baseline + wordmark height + breathing room — the strip at the bottom
+    /// of the card nothing else may enter.
+    private static let brandingZoneHeight: CGFloat = WorkoutShareCardGeometry.brandingBottomPadding + 18 + 12
 
     /// The route-less card's only identity — no chip, no title, no date — so it keeps
     /// its accessibility label rather than being decorative like the classic layout's
@@ -467,22 +538,45 @@ struct BodyWorkoutShareCardView: View {
     private var centeredMetricsStack: some View {
         VStack(spacing: 20) {
             ForEach(Array(centeredMetrics.enumerated()), id: \.offset) { _, metric in
-                VStack(spacing: 2) {
-                    Text(metric.title)
-                        .font(.system(size: 15, weight: .semibold, design: fontDesign))
-                        .foregroundColor(.white.opacity(0.7))
-                    Text(metric.value)
-                        .font(.system(size: 40, weight: .bold, design: fontDesign))
-                        .foregroundColor(.white)
-                }
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                metricBlock(metric)
             }
         }
         .multilineTextAlignment(.center)
-        // The route trace's shadow, so the stack stays legible when the block is
+        // The route trace's shadow, so the metrics stay legible when the block is
         // dragged into a bright photo area the scrims don't reach.
         .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+    }
+
+    /// The same blocks the stack draws, laid out along the card's width — what a card
+    /// too short for a column uses instead.
+    private var centeredMetricsRow: some View {
+        metricsRow(centeredMetrics)
+            .multilineTextAlignment(.center)
+            .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+    }
+
+    private func metricsRow(_ items: [WorkoutShareMetric]) -> some View {
+        HStack(spacing: 24) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, metric in
+                // A row splits the card's width between up to four 40 pt values, so a
+                // long one (a pace, "412 kcal") needs to shrink further than the
+                // stack's floor allows before it would rather truncate.
+                metricBlock(metric, minimumScale: 0.45)
+            }
+        }
+    }
+
+    private func metricBlock(_ metric: WorkoutShareMetric, minimumScale: CGFloat = 0.6) -> some View {
+        VStack(spacing: 2) {
+            Text(metric.title)
+                .font(.system(size: 15, weight: .semibold, design: fontDesign))
+                .foregroundColor(.white.opacity(0.7))
+            Text(metric.value)
+                .font(.system(size: 40, weight: .bold, design: fontDesign))
+                .foregroundColor(.white)
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(minimumScale)
     }
 }
 
@@ -491,7 +585,9 @@ private func previewCard(
     layout: WorkoutShareCardLayout,
     withRoute: Bool,
     infoTransform: WorkoutShareInfoTransform = .identity,
-    dimension: WorkoutShareRouteDimension = .twoD
+    dimension: WorkoutShareRouteDimension = .twoD,
+    aspectRatio: WorkoutShareAspectRatio = .portrait9x16,
+    arrangement: WorkoutShareLandscapeArrangement = .stacked
 ) -> some View {
     let workout = WorkoutSummary(
         type: .running,
@@ -527,12 +623,14 @@ private func previewCard(
         type: .running,
         background: .preset(.midnight),
         layout: layout,
+        aspectRatio: aspectRatio,
+        arrangement: arrangement,
         infoTransform: infoTransform,
         photoTransform: .identity,
         fontDesign: .rounded,
         routeColor: BodyWorkoutShareCardView.defaultRouteColor
     )
-    .frame(width: 360, height: 640)
+    .frame(width: aspectRatio.cardSize.width, height: aspectRatio.cardSize.height)
     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
 }
 
@@ -562,4 +660,24 @@ private func previewCard(
 
 #Preview("Classic") {
     previewCard(layout: .classic, withRoute: true)
+}
+
+#Preview("16:9 stacked") {
+    previewCard(layout: .centered, withRoute: true, aspectRatio: .landscape16x9, arrangement: .stacked)
+}
+
+#Preview("16:9 side by side") {
+    previewCard(layout: .centered, withRoute: true, aspectRatio: .landscape16x9, arrangement: .sideBySide)
+}
+
+#Preview("1:1") {
+    previewCard(layout: .centered, withRoute: true, aspectRatio: .square)
+}
+
+#Preview("4:5") {
+    previewCard(layout: .centered, withRoute: true, aspectRatio: .portrait4x5)
+}
+
+#Preview("16:9 routeless") {
+    previewCard(layout: .routeless, withRoute: false, aspectRatio: .landscape16x9)
 }

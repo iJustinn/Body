@@ -529,12 +529,12 @@
         }
       }
     },
-    "%lld BPM" : {
+    "%lld bpm" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld BPM"
+            "value" : "%lld bpm"
           }
         },
         "zh-Hans" : {
@@ -545,12 +545,12 @@
         }
       }
     },
-    "%lld bpm" : {
+    "%lld BPM" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld bpm"
+            "value" : "%lld BPM"
           }
         },
         "zh-Hans" : {
@@ -1418,6 +1418,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "应用"
+          }
+        }
+      }
+    },
+    "Arrange" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrange"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "排布"
+          }
+        }
+      }
+    },
+    "Ascent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ascent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "爬升"
           }
         }
       }
@@ -3629,6 +3662,40 @@
         }
       }
     },
+    "Elevation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elevation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "海拔"
+          }
+        }
+      }
+    },
+    "Elevation, ascent %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elevation, ascent %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "海拔，爬升 %@ %@，最高 %@ %@"
+          }
+        }
+      }
+    },
     "Empty" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3758,6 +3825,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "运动时长"
+          }
+        }
+      }
+    },
+    "Export workout share cards as 16:9, 4:5, 5:4, or square, portrait or landscape." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export workout share cards as 16:9, 4:5, 5:4, or square, portrait or landscape."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将运动分享卡片导出为 16:9、4:5、5:4 或方形，横版或竖版。"
           }
         }
       }
@@ -4662,6 +4745,38 @@
         }
       }
     },
+    "Landscape 5:4" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Landscape 5:4"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "横版 5:4"
+          }
+        }
+      }
+    },
+    "Landscape 16:9" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Landscape 16:9"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "横版 16:9"
+          }
+        }
+      }
+    },
     "Last Night" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4708,6 +4823,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "布局"
+          }
+        }
+      }
+    },
+    "Layout doesn't apply to the Map background." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Layout doesn't apply to the Map background."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "排布不适用于地图背景。"
           }
         }
       }
@@ -5056,6 +5187,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "地图"
+          }
+        }
+      }
+    },
+    "Max Elevation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Elevation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最高海拔"
           }
         }
       }
@@ -6453,6 +6601,38 @@
         }
       }
     },
+    "Portrait 4:5" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portrait 4:5"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "竖版 4:5"
+          }
+        }
+      }
+    },
+    "Portrait 9:16" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portrait 9:16"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "竖版 9:16"
+          }
+        }
+      }
+    },
     "Pounds" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6669,6 +6849,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "范围"
+          }
+        }
+      }
+    },
+    "Ratio" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ratio"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "比例"
           }
         }
       }
@@ -7341,6 +7537,7 @@
       }
     },
     "Route" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7352,6 +7549,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "路线"
+          }
+        }
+      }
+    },
+    "Route Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Route Color"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "路线颜色"
           }
         }
       }
@@ -7833,6 +8046,22 @@
         }
       }
     },
+    "Share Card Sizes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share Card Sizes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享卡片尺寸"
+          }
+        }
+      }
+    },
     "Share Workout" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8090,6 +8319,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示运动详情"
+          }
+        }
+      }
+    },
+    "Side by Side" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Side by Side"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左右排列"
           }
         }
       }
@@ -8459,6 +8704,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "分段"
+          }
+        }
+      }
+    },
+    "Square" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Square"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "方形"
+          }
+        }
+      }
+    },
+    "Stacked" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stacked"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上下排列"
           }
         }
       }

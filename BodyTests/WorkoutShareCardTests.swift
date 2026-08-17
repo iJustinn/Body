@@ -12,6 +12,19 @@ import UIKit
 final class WorkoutShareCardTests: XCTestCase {
     private let enUS = Locale(identifier: "en_US")
 
+    /// The default share card, and the widest landscape one — the two shapes the
+    /// transform clamps have to behave differently on.
+    private let portraitCard = CGSize(width: 360, height: 640)
+    private let landscapeCard = CGSize(width: 640, height: 360)
+
+    private func geometry(
+        _ ratio: WorkoutShareAspectRatio,
+        layout: WorkoutShareCardLayout = .centered,
+        arrangement: WorkoutShareLandscapeArrangement = .stacked
+    ) -> WorkoutShareCardGeometry {
+        WorkoutShareCardGeometry(aspectRatio: ratio, layout: layout, arrangement: arrangement)
+    }
+
     private func workout(
         type: BodyWorkoutType,
         duration: TimeInterval = 1800,
@@ -746,14 +759,14 @@ final class WorkoutShareCardTests: XCTestCase {
         // A photo with the card's own aspect ratio has no overhang at scale 1, so there
         // is nowhere for the offset to travel.
         XCTAssertEqual(
-            WorkoutSharePhotoTransform.identity.clamped(imageSize: CGSize(width: 360, height: 640)),
+            WorkoutSharePhotoTransform.identity.clamped(imageSize: CGSize(width: 360, height: 640), cardSize: portraitCard),
             .identity
         )
     }
 
     func testCardAspectPhotoAtScaleOneCannotMove() {
         let clamped = WorkoutSharePhotoTransform(offset: CGSize(width: 50, height: 50), scale: 1)
-            .clamped(imageSize: CGSize(width: 720, height: 1_280))
+            .clamped(imageSize: CGSize(width: 720, height: 1_280), cardSize: portraitCard)
 
         XCTAssertEqual(clamped.offset, .zero)
         XCTAssertEqual(clamped.scale, 1)
@@ -763,7 +776,7 @@ final class WorkoutShareCardTests: XCTestCase {
         // A 2:1 photo filling the 360×640 card is 1280 pt wide, so it overhangs by
         // (1280 − 360)/2 = 460 pt on each side — and only on that axis.
         let clamped = WorkoutSharePhotoTransform(offset: CGSize(width: 900, height: 900), scale: 1)
-            .clamped(imageSize: CGSize(width: 1_000, height: 500))
+            .clamped(imageSize: CGSize(width: 1_000, height: 500), cardSize: portraitCard)
 
         XCTAssertEqual(clamped.offset.width, 460, accuracy: 1e-6)
         XCTAssertEqual(clamped.offset.height, 0)
@@ -772,13 +785,13 @@ final class WorkoutShareCardTests: XCTestCase {
     func testPortraitPhotoAtScaleTwoBoundsBothAxes() {
         // Card-aspect photo at scale 2: 720×1280 over a 360×640 card → 180/320 of slack.
         let far = WorkoutSharePhotoTransform(offset: CGSize(width: 900, height: 900), scale: 2)
-            .clamped(imageSize: CGSize(width: 360, height: 640))
+            .clamped(imageSize: CGSize(width: 360, height: 640), cardSize: portraitCard)
 
         XCTAssertEqual(far.offset.width, 180, accuracy: 1e-6)
         XCTAssertEqual(far.offset.height, 320, accuracy: 1e-6)
 
         let near = WorkoutSharePhotoTransform(offset: CGSize(width: -900, height: -900), scale: 2)
-            .clamped(imageSize: CGSize(width: 360, height: 640))
+            .clamped(imageSize: CGSize(width: 360, height: 640), cardSize: portraitCard)
 
         XCTAssertEqual(near.offset.width, -180, accuracy: 1e-6)
         XCTAssertEqual(near.offset.height, -320, accuracy: 1e-6)
@@ -787,20 +800,20 @@ final class WorkoutShareCardTests: XCTestCase {
     func testPhotoScaleClampsToItsRange() {
         let size = CGSize(width: 360, height: 640)
 
-        XCTAssertEqual(WorkoutSharePhotoTransform(offset: .zero, scale: 9).clamped(imageSize: size).scale, 4)
+        XCTAssertEqual(WorkoutSharePhotoTransform(offset: .zero, scale: 9).clamped(imageSize: size, cardSize: portraitCard).scale, 4)
         // Never below 1: the photo has to keep covering the card.
-        XCTAssertEqual(WorkoutSharePhotoTransform(offset: .zero, scale: 0.2).clamped(imageSize: size).scale, 1)
+        XCTAssertEqual(WorkoutSharePhotoTransform(offset: .zero, scale: 0.2).clamped(imageSize: size, cardSize: portraitCard).scale, 1)
     }
 
     func testNonFinitePhotoComponentsClampToTheIdentityComponent() {
         let size = CGSize(width: 360, height: 640)
-        let badWidth = WorkoutSharePhotoTransform(offset: CGSize(width: CGFloat.nan, height: 100), scale: 2).clamped(imageSize: size)
+        let badWidth = WorkoutSharePhotoTransform(offset: CGSize(width: CGFloat.nan, height: 100), scale: 2).clamped(imageSize: size, cardSize: portraitCard)
 
         XCTAssertEqual(badWidth.offset.width, 0)
         XCTAssertEqual(badWidth.offset.height, 100)
         XCTAssertEqual(badWidth.scale, 2)
 
-        let badScale = WorkoutSharePhotoTransform(offset: CGSize(width: 20, height: CGFloat.infinity), scale: CGFloat.nan).clamped(imageSize: size)
+        let badScale = WorkoutSharePhotoTransform(offset: CGSize(width: 20, height: CGFloat.infinity), scale: CGFloat.nan).clamped(imageSize: size, cardSize: portraitCard)
 
         XCTAssertEqual(badScale.offset.width, 0, "A scale that reset to 1 leaves a card-aspect photo no slack")
         XCTAssertEqual(badScale.offset.height, 0)
@@ -809,7 +822,7 @@ final class WorkoutShareCardTests: XCTestCase {
 
     func testDegenerateImageSizeZeroesTheOffsetAndOnlyClampsTheScale() {
         for size in [CGSize(width: 0, height: 640), CGSize(width: 360, height: -1), CGSize(width: CGFloat.nan, height: 640)] {
-            let clamped = WorkoutSharePhotoTransform(offset: CGSize(width: 100, height: 100), scale: 9).clamped(imageSize: size)
+            let clamped = WorkoutSharePhotoTransform(offset: CGSize(width: 100, height: 100), scale: 9).clamped(imageSize: size, cardSize: portraitCard)
             XCTAssertEqual(clamped.offset, CGSize.zero, "Degenerate image size \(size) should leave no offset")
             XCTAssertEqual(clamped.scale, 4)
         }
@@ -818,33 +831,33 @@ final class WorkoutShareCardTests: XCTestCase {
     // MARK: - Info block transform
 
     func testIdentityTransformClampsToItself() {
-        XCTAssertEqual(WorkoutShareInfoTransform.identity.clamped(), .identity)
+        XCTAssertEqual(WorkoutShareInfoTransform.identity.clamped(cardSize: portraitCard), .identity)
     }
 
     func testInRangeTransformPassesThroughUnchanged() {
         let transform = WorkoutShareInfoTransform(offset: CGSize(width: 40, height: -120), scale: 1.2)
 
-        XCTAssertEqual(transform.clamped(), transform)
+        XCTAssertEqual(transform.clamped(cardSize: portraitCard), transform)
     }
 
     func testOutOfRangeOffsetAndScaleClampToTheBoundsOnBothSides() {
-        let far = WorkoutShareInfoTransform(offset: CGSize(width: 900, height: 900), scale: 8).clamped()
+        let far = WorkoutShareInfoTransform(offset: CGSize(width: 900, height: 900), scale: 8).clamped(cardSize: portraitCard)
 
-        XCTAssertEqual(far.offset.width, WorkoutShareInfoTransform.maximumOffsetWidth)
-        XCTAssertEqual(far.offset.height, WorkoutShareInfoTransform.maximumOffsetHeight)
+        XCTAssertEqual(far.offset.width, 180)
+        XCTAssertEqual(far.offset.height, 320)
         XCTAssertEqual(far.scale, WorkoutShareInfoTransform.scaleRange.upperBound)
 
-        let near = WorkoutShareInfoTransform(offset: CGSize(width: -900, height: -900), scale: 0.01).clamped()
+        let near = WorkoutShareInfoTransform(offset: CGSize(width: -900, height: -900), scale: 0.01).clamped(cardSize: portraitCard)
 
-        XCTAssertEqual(near.offset.width, -WorkoutShareInfoTransform.maximumOffsetWidth)
-        XCTAssertEqual(near.offset.height, -WorkoutShareInfoTransform.maximumOffsetHeight)
+        XCTAssertEqual(near.offset.width, -180)
+        XCTAssertEqual(near.offset.height, -320)
         XCTAssertEqual(near.scale, WorkoutShareInfoTransform.scaleRange.lowerBound)
     }
 
     func testNonFiniteComponentsClampToTheIdentityComponent() {
         // A NaN/infinite gesture value has no meaningful side to pin to, so each bad
         // component resets on its own while the good ones survive.
-        let badWidth = WorkoutShareInfoTransform(offset: CGSize(width: CGFloat.nan, height: 60), scale: 1.1).clamped()
+        let badWidth = WorkoutShareInfoTransform(offset: CGSize(width: CGFloat.nan, height: 60), scale: 1.1).clamped(cardSize: portraitCard)
 
         XCTAssertEqual(badWidth.offset.width, 0)
         XCTAssertEqual(badWidth.offset.height, 60)
@@ -853,10 +866,263 @@ final class WorkoutShareCardTests: XCTestCase {
         let badHeightAndScale = WorkoutShareInfoTransform(
             offset: CGSize(width: 20, height: CGFloat.infinity),
             scale: .nan
-        ).clamped()
+        ).clamped(cardSize: portraitCard)
 
         XCTAssertEqual(badHeightAndScale.offset.width, 20)
         XCTAssertEqual(badHeightAndScale.offset.height, 0)
         XCTAssertEqual(badHeightAndScale.scale, 1)
+    }
+
+    // MARK: - Aspect ratio
+
+    func testStoredAspectRatioRoundTripsEveryCaseAndFallsBackTo9x16() {
+        for ratio in WorkoutShareAspectRatio.allCases {
+            XCTAssertEqual(WorkoutShareAspectRatio.stored(rawValue: ratio.rawValue), ratio)
+        }
+        XCTAssertEqual(WorkoutShareAspectRatio.stored(rawValue: nil), .portrait9x16)
+        XCTAssertEqual(WorkoutShareAspectRatio.stored(rawValue: ""), .portrait9x16)
+        XCTAssertEqual(WorkoutShareAspectRatio.stored(rawValue: "21:9"), .portrait9x16)
+    }
+
+    func testAspectRatioSizesAreTenEightyOnTheShortSideAtThreeX() {
+        XCTAssertEqual(WorkoutShareAspectRatio.portrait9x16.cardSize, CGSize(width: 360, height: 640))
+        XCTAssertEqual(WorkoutShareAspectRatio.landscape16x9.cardSize, CGSize(width: 640, height: 360))
+        XCTAssertEqual(WorkoutShareAspectRatio.portrait4x5.cardSize, CGSize(width: 360, height: 450))
+        XCTAssertEqual(WorkoutShareAspectRatio.landscape5x4.cardSize, CGSize(width: 450, height: 360))
+        XCTAssertEqual(WorkoutShareAspectRatio.square.cardSize, CGSize(width: 360, height: 360))
+
+        for ratio in WorkoutShareAspectRatio.allCases {
+            XCTAssertEqual(min(ratio.cardSize.width, ratio.cardSize.height) * 3, 1_080, "\(ratio.rawValue) exports off-size")
+        }
+    }
+
+    func testAspectRatioLandscapeProGatingAndLabels() {
+        XCTAssertEqual(WorkoutShareAspectRatio.allCases.filter(\.isLandscape), [.landscape16x9, .landscape5x4])
+        // Only the original vertical card is free.
+        XCTAssertEqual(WorkoutShareAspectRatio.allCases.filter { !$0.isProGated }, [.portrait9x16])
+
+        for ratio in WorkoutShareAspectRatio.allCases {
+            XCTAssertEqual(ratio.ratioLabel, ratio.rawValue)
+            XCTAssertFalse(ratio.localizedName.isEmpty)
+        }
+        XCTAssertEqual(WorkoutShareAspectRatio.square.ratioLabel, "1:1")
+    }
+
+    func testResolvedAspectRatioGatesEverythingButNineBySixteen() {
+        for ratio in WorkoutShareAspectRatio.allCases {
+            XCTAssertEqual(
+                WorkoutShareBackgroundPolicy.resolvedAspectRatio(ratio, isProUnlocked: true),
+                ratio,
+                "Pro should keep \(ratio.rawValue)"
+            )
+            XCTAssertEqual(
+                WorkoutShareBackgroundPolicy.resolvedAspectRatio(ratio, isProUnlocked: false),
+                ratio.isProGated ? .portrait9x16 : ratio,
+                "Non-Pro resolved \(ratio.rawValue) wrongly"
+            )
+        }
+    }
+
+    func testProLapseFallsBackForTheSessionWithoutRewritingTheStoredRatio() {
+        // The stored raw string is the user's pick; only the *active* ratio falls back,
+        // so resubscribing restores 16:9 without the user re-picking it.
+        let stored = "16:9"
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.resolvedAspectRatio(.stored(rawValue: stored), isProUnlocked: false),
+            .portrait9x16
+        )
+        XCTAssertEqual(WorkoutShareAspectRatio.stored(rawValue: stored), .landscape16x9)
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.resolvedAspectRatio(.stored(rawValue: stored), isProUnlocked: true),
+            .landscape16x9
+        )
+        XCTAssertEqual(stored, "16:9")
+    }
+
+    // MARK: - Landscape arrangement
+
+    func testStoredArrangementRoundTripsEveryCaseAndFallsBackToStacked() {
+        for arrangement in WorkoutShareLandscapeArrangement.allCases {
+            XCTAssertEqual(WorkoutShareLandscapeArrangement.stored(rawValue: arrangement.rawValue), arrangement)
+        }
+        XCTAssertEqual(WorkoutShareLandscapeArrangement.stored(rawValue: nil), .stacked)
+        XCTAssertEqual(WorkoutShareLandscapeArrangement.stored(rawValue: ""), .stacked)
+        XCTAssertEqual(WorkoutShareLandscapeArrangement.stored(rawValue: "diagonal"), .stacked)
+    }
+
+    func testArrangementSymbolsMatchTheirSplit() {
+        XCTAssertEqual(WorkoutShareLandscapeArrangement.stacked.symbolName, "rectangle.split.1x2")
+        XCTAssertEqual(WorkoutShareLandscapeArrangement.sideBySide.symbolName, "rectangle.split.2x1")
+        for arrangement in WorkoutShareLandscapeArrangement.allCases {
+            XCTAssertFalse(arrangement.localizedName.isEmpty)
+        }
+    }
+
+    // MARK: - Card geometry
+
+    func testNineBySixteenGeometryReproducesTheOriginalCardConstants() {
+        let geo = geometry(.portrait9x16)
+
+        XCTAssertEqual(geo.size, portraitCard)
+        XCTAssertEqual(geo.centeredMode, .column)
+        XCTAssertEqual(geo.centeredRouteRect.width, 260)
+        XCTAssertEqual(geo.centeredRouteRect.height, 260)
+        XCTAssertEqual(CGPoint(x: geo.centeredRouteRect.midX, y: geo.centeredRouteRect.midY), CGPoint(x: 180, y: 170))
+        XCTAssertEqual(geo.centeredMetricsTopY, 330)
+        XCTAssertEqual(geo.metricsFrame, CGRect(x: 24, y: 330, width: 312, height: 310))
+        XCTAssertEqual(geo.metricsAxis, .vertical)
+        XCTAssertEqual(geo.blockAnchor.x, 0.5, accuracy: 1e-9)
+        XCTAssertEqual(geo.blockAnchor.y, 305 / 640, accuracy: 1e-9)
+        XCTAssertEqual(WorkoutShareCardGeometry.routeInset, 12)
+        XCTAssertEqual(WorkoutShareCardGeometry.brandingBottomPadding, 26)
+
+        // The classic layout's 324 square centred at (180, 375).
+        XCTAssertEqual(geo.classicRouteRect.width, 324, accuracy: 1e-9)
+        XCTAssertEqual(geo.classicRouteRect.height, 324, accuracy: 1e-9)
+        XCTAssertEqual(geo.classicRouteRect.midX, 180, accuracy: 1e-9)
+        XCTAssertEqual(geo.classicRouteRect.midY, 375, accuracy: 1e-9)
+
+        XCTAssertEqual(geo.topScrimHeight(isMap: true), 280, accuracy: 1e-9)
+        XCTAssertEqual(geo.bottomScrimHeight(isMap: true), 210, accuracy: 1e-9)
+        XCTAssertEqual(geo.topScrimHeight(isMap: false), 170, accuracy: 1e-9)
+        XCTAssertEqual(geo.bottomScrimHeight(isMap: false), 160, accuracy: 1e-9)
+        XCTAssertEqual(geo.mapBand.top, 280, accuracy: 1e-9)
+        XCTAssertEqual(geo.mapBand.bottom, 430, accuracy: 1e-9)
+
+        XCTAssertEqual(geo.maximumInfoOffset, CGSize(width: 180, height: 320))
+    }
+
+    func testBlockAnchorIsCenteredWithoutATrace() {
+        // The route-less card is glyph + stack, which want to pinch about the middle.
+        for ratio in WorkoutShareAspectRatio.allCases {
+            XCTAssertEqual(geometry(ratio).blockAnchor(showsTrace: false), .center)
+        }
+    }
+
+    func testCenteredModeDependsOnRatioAndOnlyThenOnArrangement() {
+        for arrangement in WorkoutShareLandscapeArrangement.allCases {
+            // Portrait/square never split side by side, whatever is stored.
+            XCTAssertEqual(geometry(.portrait9x16, arrangement: arrangement).centeredMode, .column)
+            XCTAssertEqual(geometry(.portrait4x5, arrangement: arrangement).centeredMode, .routeOverRow)
+            XCTAssertEqual(geometry(.square, arrangement: arrangement).centeredMode, .routeOverRow)
+        }
+        XCTAssertEqual(geometry(.landscape16x9, arrangement: .stacked).centeredMode, .routeOverRow)
+        XCTAssertEqual(geometry(.landscape5x4, arrangement: .stacked).centeredMode, .routeOverRow)
+        XCTAssertEqual(geometry(.landscape16x9, arrangement: .sideBySide).centeredMode, .sideBySide)
+        XCTAssertEqual(geometry(.landscape5x4, arrangement: .sideBySide).centeredMode, .sideBySide)
+    }
+
+    func testCenteredRouteSidePerRatio() {
+        // 4:5 is tall enough for the full 260; the 360-tall cards shrink to fit the
+        // metric row and the branding under the square.
+        XCTAssertEqual(geometry(.portrait4x5).centeredRouteRect.width, 260, accuracy: 1e-9)
+        XCTAssertEqual(geometry(.square).centeredRouteRect.width, 182, accuracy: 1e-9)
+        XCTAssertEqual(geometry(.landscape16x9, arrangement: .stacked).centeredRouteRect.width, 182, accuracy: 1e-9)
+        XCTAssertEqual(geometry(.landscape5x4, arrangement: .stacked).centeredRouteRect.width, 182, accuracy: 1e-9)
+
+        // Side by side trades height for the free half-width — but 5:4's half is
+        // narrower than its height, so the midline is what limits it.
+        XCTAssertEqual(geometry(.landscape16x9, arrangement: .sideBySide).centeredRouteRect.width, 280, accuracy: 1e-9)
+        XCTAssertEqual(geometry(.landscape5x4, arrangement: .sideBySide).centeredRouteRect.width, 201, accuracy: 1e-9)
+    }
+
+    func testSideBySideRouteNeverCrossesTheMidline() {
+        for ratio in [WorkoutShareAspectRatio.landscape16x9, .landscape5x4] {
+            let geo = geometry(ratio, arrangement: .sideBySide)
+            XCTAssertLessThanOrEqual(geo.centeredRouteRect.maxX, geo.size.width / 2)
+            // ...and the metrics stay in the other half.
+            XCTAssertGreaterThanOrEqual(geo.metricsFrame.minX, geo.size.width / 2)
+            XCTAssertEqual(geo.metricsAxis, .vertical)
+        }
+    }
+
+    func testRouteOverRowMetricsSitAboveTheBrandingZone() {
+        for ratio in [WorkoutShareAspectRatio.portrait4x5, .square, .landscape16x9, .landscape5x4] {
+            let geo = geometry(ratio, arrangement: .stacked)
+            XCTAssertEqual(geo.centeredMode, .routeOverRow)
+            XCTAssertEqual(geo.metricsAxis, .horizontal)
+            XCTAssertEqual(geo.metricsFrame.height, 68, accuracy: 1e-9)
+            XCTAssertLessThanOrEqual(
+                geo.metricsFrame.maxY,
+                geo.size.height - 56,
+                "\(ratio.rawValue)'s metric row runs into the branding"
+            )
+            // The row starts below the route's ink, not on top of it.
+            XCTAssertGreaterThan(geo.metricsFrame.minY, geo.centeredRouteRect.maxY - WorkoutShareCardGeometry.routeInset)
+        }
+    }
+
+    func testEveryRatioKeepsItsCenteredBlockInsideTheCard() {
+        for ratio in WorkoutShareAspectRatio.allCases {
+            for arrangement in WorkoutShareLandscapeArrangement.allCases {
+                let geo = geometry(ratio, arrangement: arrangement)
+                let card = CGRect(origin: .zero, size: geo.size)
+                XCTAssertTrue(
+                    card.contains(geo.centeredRouteRect),
+                    "\(ratio.rawValue)/\(arrangement.rawValue) route \(geo.centeredRouteRect) escapes \(geo.size)"
+                )
+                XCTAssertTrue(
+                    card.union(geo.metricsFrame) == card,
+                    "\(ratio.rawValue)/\(arrangement.rawValue) metrics \(geo.metricsFrame) escape \(geo.size)"
+                )
+                XCTAssertTrue(card.contains(geo.classicRouteRect), "\(ratio.rawValue) classic route escapes the card")
+                XCTAssertGreaterThan(geo.centeredRouteRect.width, 0)
+
+                let anchor = geo.blockAnchor
+                XCTAssertTrue((0...1).contains(anchor.x) && (0...1).contains(anchor.y))
+            }
+        }
+    }
+
+    func testMapBandFractionsScaleWithTheCardHeight() {
+        for ratio in WorkoutShareAspectRatio.allCases {
+            let geo = geometry(ratio)
+            XCTAssertEqual(geo.topScrimHeight(isMap: true), geo.size.height * 280 / 640, accuracy: 1e-9)
+            XCTAssertEqual(geo.mapBand.top, geo.topScrimHeight(isMap: true), accuracy: 1e-9)
+            XCTAssertEqual(geo.mapBand.bottom, geo.size.height - geo.bottomScrimHeight(isMap: true), accuracy: 1e-9)
+            XCTAssertGreaterThan(geo.mapBand.bottom, geo.mapBand.top, "\(ratio.rawValue) has no clear map band")
+            // The preset scrims are always the shallower pair.
+            XCTAssertLessThan(geo.topScrimHeight(isMap: false), geo.topScrimHeight(isMap: true))
+            XCTAssertEqual(geo.maximumInfoOffset, CGSize(width: geo.size.width / 2, height: geo.size.height / 2))
+        }
+    }
+
+    func testRoutelessRowsWrapOnlyOnTheNarrowCards() {
+        for ratio in WorkoutShareAspectRatio.allCases {
+            let geo = geometry(ratio, layout: .routeless)
+            // Four metric blocks need ~140 pt each; only 450/640-wide cards fit a line.
+            XCTAssertEqual(geo.routelessWrapsMetricRows, geo.size.width < 400, "\(ratio.rawValue) wrapped wrongly")
+            XCTAssertEqual(geo.routelessMetricsAxis, ratio == .portrait9x16 ? .vertical : .horizontal)
+        }
+        XCTAssertTrue(geometry(.square, layout: .routeless).routelessWrapsMetricRows)
+        XCTAssertFalse(geometry(.landscape5x4, layout: .routeless).routelessWrapsMetricRows)
+    }
+
+    // MARK: - Transforms on a landscape card
+
+    func testInfoOffsetBoundsFollowTheLandscapeCard() {
+        let far = WorkoutShareInfoTransform(offset: CGSize(width: 900, height: 900), scale: 1)
+            .clamped(cardSize: landscapeCard)
+
+        XCTAssertEqual(far.offset.width, 320)
+        XCTAssertEqual(far.offset.height, 180)
+    }
+
+    func testCardAspectPhotoCannotMoveOnTheLandscapeCard() {
+        let clamped = WorkoutSharePhotoTransform(offset: CGSize(width: 90, height: 90), scale: 1)
+            .clamped(imageSize: CGSize(width: 1_280, height: 720), cardSize: landscapeCard)
+
+        XCTAssertEqual(clamped.offset, .zero)
+    }
+
+    func testPortraitPhotoSlidesVerticallyOnTheLandscapeCard() {
+        // A 9:16 photo filling the 640×360 card is 640 / 0.5625 = 1137.78 pt tall, so
+        // it overhangs by (1137.78 − 360)/2 on each side — and only on that axis.
+        let clamped = WorkoutSharePhotoTransform(offset: CGSize(width: 900, height: 900), scale: 1)
+            .clamped(imageSize: CGSize(width: 360, height: 640), cardSize: landscapeCard)
+
+        XCTAssertEqual(clamped.offset.width, 0)
+        XCTAssertEqual(clamped.offset.height, (640 / (360.0 / 640) - 360) / 2, accuracy: 1e-6)
+        XCTAssertEqual(clamped.offset.height, 388.888_9, accuracy: 1e-3)
     }
 }

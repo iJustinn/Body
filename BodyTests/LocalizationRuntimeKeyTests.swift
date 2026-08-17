@@ -56,6 +56,82 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    func testWorkoutDetailContextTileKeysResolveInBodyMetricsKitCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+
+        // Weather/METs/recovery tile titles. Temperature uses a dotted key because
+        // the bare "Temperature" entry is the sleep card's body temperature (体温).
+        let keys = [
+            "workoutDetail.temperature",
+            "Humidity",
+            "Avg METs",
+            "HR Recovery"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testStrideLengthKeysResolveInBodyMetricsKitCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+
+        // Every user-visible string of the Stride Length card comes from
+        // WorkoutMetricSeriesCharts.strideLength, resolved against this table.
+        let keys = [
+            "Stride Length",
+            "Avg Stride Length",
+            "Max Stride Length",
+            "m/step",
+            "ft/step",
+            "Stride length, average %@ %@, maximum %@ %@"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testBucketedSeriesKeysResolveInBodyMetricsKitCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+
+        // Titles, captions, units and accessibility sentences of every chart
+        // WorkoutMetricSeriesCharts builds, resolved against this table.
+        let keys = [
+            "Pace",
+            "Avg Pace",
+            "Best Pace",
+            "min/km",
+            "min/mi",
+            "Pace, average %@ %@, best %@ %@",
+            "Speed",
+            "Avg Speed",
+            "Max Speed",
+            "km/h",
+            "mph",
+            "Speed, average %@ %@, maximum %@ %@",
+            "Step Cadence",
+            "Avg Step Cadence",
+            "Max Step Cadence",
+            "spm",
+            "Cadence, average %@ %@, maximum %@ %@",
+            "Cycling Cadence",
+            "Avg Cycling Cadence",
+            "Max Cycling Cadence",
+            "rpm",
+            "Cycling cadence, average %@ %@, maximum %@ %@",
+            "Ground Contact Time",
+            "Avg Ground Contact",
+            "Max Ground Contact",
+            "ms",
+            "Ground contact time, average %@ %@, maximum %@ %@",
+            "Vertical Oscillation",
+            "Avg Vertical Osc.",
+            "Max Vertical Osc.",
+            "cm",
+            "in",
+            "Vertical oscillation, average %@ %@, maximum %@ %@"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
     func testActivityRingLabelsResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
@@ -158,13 +234,30 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             // Route colour row label, hint, and the option names from
             // WorkoutShareRouteColorChoice.localizedName.
             "Route",
+            "Route Color",
             "Route color doesn't apply to the Map background.",
             "Body Blue",
             "White",
             "Black",
             "Orange",
             "Green",
-            "Pink"
+            "Pink",
+            // Aspect ratio rail icon, tray tile names, and the Pro feature entry
+            // from WorkoutShareAspectRatio.localizedName / BodyProView.
+            "Ratio",
+            "Portrait 9:16",
+            "Landscape 16:9",
+            "Portrait 4:5",
+            "Landscape 5:4",
+            "Square",
+            "Share Card Sizes",
+            "Export workout share cards as 16:9, 4:5, 5:4, or square, portrait or landscape.",
+            // Landscape arrangement rail icon, tray tile names, and the Map-dimming
+            // hint from WorkoutShareLandscapeArrangement.localizedName.
+            "Arrange",
+            "Stacked",
+            "Side by Side",
+            "Layout doesn't apply to the Map background."
         ]
 
         try assertKeysTranslated(keys, in: catalog)
@@ -189,6 +282,23 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "AI comment on today's score",
             "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score — your heart rate, HRV, sleep, and training signals. Everything runs on your device; your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead.",
             "Apple Intelligence readiness comments need a supported device with Apple Intelligence turned on in Settings. Body's built-in explanation is shown instead."
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testElevationProfileKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // Every user-visible string of the Elevation card comes from
+        // WorkoutElevationProfilePresentation, resolved against the app's default
+        // table. (The "m"/"ft" units stay unlocalized, matching
+        // `BodyValueFormat.elevationText`.)
+        let keys = [
+            "Elevation",
+            "Ascent",
+            "Max Elevation",
+            "Elevation, ascent %@ %@, maximum %@ %@"
         ]
 
         try assertKeysTranslated(keys, in: catalog)

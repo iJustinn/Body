@@ -4,8 +4,11 @@
 //
 //  Pure logic backing the workout share image: which metrics appear on the
 //  card, how a GPS route projects into the card's route trace, the built-in
-//  background presets, and the Pro gate on user photos. No rendering here —
-//  see the share card/sheet views for the UI that consumes these.
+//  background presets, the Pro gates on user photos / 3D / non-9:16 sizes, and
+//  `WorkoutShareCardGeometry` — every layout number the card, the sheet's map
+//  region, the transforms, and the render tests read, derived from the chosen
+//  aspect ratio so none of them can drift apart. No rendering here — see the
+//  share card/sheet views for the UI that consumes these.
 //
 
 import SwiftUI
@@ -293,6 +296,91 @@ enum WorkoutShareRouteDimension: String, CaseIterable {
     }
 }
 
+/// The shape of the exported card. Every ratio is 1080 px on its short side at
+/// `ImageRenderer.scale = 3`, so the point sizes below are those pixels / 3. Only
+/// 9:16 is free — the rest are Pro, gated through `WorkoutShareBackgroundPolicy`
+/// so a lapse falls back for the session without rewriting the stored key.
+enum WorkoutShareAspectRatio: String, CaseIterable, Identifiable {
+    case portrait9x16 = "9:16"
+    case landscape16x9 = "16:9"
+    case portrait4x5 = "4:5"
+    case landscape5x4 = "5:4"
+    case square = "1:1"
+
+    var id: String { rawValue }
+
+    static let storageKey = "workoutShareAspectRatio"
+
+    /// Anything unknown (or nothing stored) is the original vertical card.
+    static func stored(rawValue: String?) -> WorkoutShareAspectRatio {
+        guard let rawValue, let ratio = WorkoutShareAspectRatio(rawValue: rawValue) else {
+            return .portrait9x16
+        }
+        return ratio
+    }
+
+    var cardSize: CGSize {
+        switch self {
+        case .portrait9x16: return CGSize(width: 360, height: 640)
+        case .landscape16x9: return CGSize(width: 640, height: 360)
+        case .portrait4x5: return CGSize(width: 360, height: 450)
+        case .landscape5x4: return CGSize(width: 450, height: 360)
+        case .square: return CGSize(width: 360, height: 360)
+        }
+    }
+
+    var isLandscape: Bool { cardSize.width > cardSize.height }
+
+    var isProGated: Bool { self != .portrait9x16 }
+
+    /// The tile's own label: numerals, deliberately not localized — "16:9" is the
+    /// same string in every locale and translating it would only invite drift.
+    var ratioLabel: String { rawValue }
+
+    var localizedName: String {
+        switch self {
+        case .portrait9x16: return String(localized: "Portrait 9:16")
+        case .landscape16x9: return String(localized: "Landscape 16:9")
+        case .portrait4x5: return String(localized: "Portrait 4:5")
+        case .landscape5x4: return String(localized: "Landscape 5:4")
+        case .square: return String(localized: "Square")
+        }
+    }
+}
+
+/// How a landscape card splits the centered layout's route and metrics. Only
+/// meaningful when the card is wider than tall and actually draws a trace; the
+/// classic (Map) layout bakes its route into the snapshot and ignores this.
+enum WorkoutShareLandscapeArrangement: String, CaseIterable, Identifiable {
+    case stacked
+    case sideBySide
+
+    var id: String { rawValue }
+
+    static let storageKey = "workoutShareLandscapeArrangement"
+
+    static func stored(rawValue: String?) -> WorkoutShareLandscapeArrangement {
+        guard let rawValue, let arrangement = WorkoutShareLandscapeArrangement(rawValue: rawValue) else {
+            return .stacked
+        }
+        return arrangement
+    }
+
+    var localizedName: String {
+        switch self {
+        case .stacked: return String(localized: "Stacked")
+        case .sideBySide: return String(localized: "Side by Side")
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .stacked: return "rectangle.split.1x2"
+        case .sideBySide: return "rectangle.split.2x1"
+        }
+    }
+}
+
 /// The card's type design, picked by the user and applied to every string the card
 /// draws except the brand wordmark. Free — no Pro gate.
 enum WorkoutShareFontChoice: String, CaseIterable, Identifiable {
@@ -414,6 +502,191 @@ enum BodyWorkoutShareBackgroundChoice: Equatable {
     }
 }
 
+/// Every layout number the share card draws with, derived from the chosen ratio.
+/// The card, the sheet (preview box, export frame, map region), the transforms'
+/// clamps, and the render tests all read this one value, so a size can't be
+/// changed in one place and missed in another. Point space, 3× at export.
+///
+/// The 9:16 numbers are the card's original literals, reproduced exactly: the
+/// default share must stay pixel-identical to the build that had no ratio picker.
+struct WorkoutShareCardGeometry: Equatable {
+    /// How the centered layout (presets and photos) splits route from metrics.
+    enum CenteredBlockMode {
+        /// 9:16 only — the original column: route, then a vertical metric stack.
+        case column
+        /// Route square above a horizontal row of metrics. Short cards can't afford
+        /// a column, so the metrics go wide instead of the route going tiny.
+        case routeOverRow
+        /// Landscape, user-picked: route in the left half, metric column in the right.
+        case sideBySide
+    }
+
+    let aspectRatio: WorkoutShareAspectRatio
+    let layout: WorkoutShareCardLayout
+    let arrangement: WorkoutShareLandscapeArrangement
+
+    init(
+        aspectRatio: WorkoutShareAspectRatio,
+        layout: WorkoutShareCardLayout,
+        arrangement: WorkoutShareLandscapeArrangement
+    ) {
+        self.aspectRatio = aspectRatio
+        self.layout = layout
+        self.arrangement = arrangement
+    }
+
+    var size: CGSize { aspectRatio.cardSize }
+
+    /// Inset of the drawing rect inside a route region, so the stroke never clips.
+    static let routeInset: CGFloat = 12
+    /// Baseline of the pinned brand wordmark.
+    static let brandingBottomPadding: CGFloat = 26
+
+    /// Top margin of the centered block on every non-column layout.
+    private static let topMargin: CGFloat = 24
+    /// Gap between the route square's bottom edge and the metric row.
+    private static let routeGap: CGFloat = 30
+    /// A 15 pt label line (≈18) over a 40 pt value line (≈48), plus the 2 pt gap.
+    private static let metricRowHeight: CGFloat = 68
+    /// Branding baseline + wordmark height + breathing room — nothing may enter it.
+    private static let brandingZone: CGFloat = brandingBottomPadding + 18 + 12
+    /// The largest a centered route square ever gets, on any ratio.
+    private static let maximumCenteredRouteSide: CGFloat = 260
+
+    // MARK: - Scrims
+
+    /// Today's 280/170 over 640, as a fraction of the card's height: a landscape
+    /// card is 360 tall, and a fixed 280 pt scrim would swallow most of it.
+    func topScrimHeight(isMap: Bool) -> CGFloat {
+        size.height * (isMap ? 280 / 640 : 170 / 640)
+    }
+
+    func bottomScrimHeight(isMap: Bool) -> CGFloat {
+        size.height * (isMap ? 210 / 640 : 160 / 640)
+    }
+
+    /// The clear band between the map background's scrims — where the composited
+    /// route has to land, so the sheet's `mapRegion` frames to it.
+    var mapBand: (top: CGFloat, bottom: CGFloat) {
+        (topScrimHeight(isMap: true), size.height - bottomScrimHeight(isMap: true))
+    }
+
+    // MARK: - Classic layout (map background)
+
+    /// The classic layout's route square: sized to the map band plus a margin, so
+    /// the card-drawn trace sits on the same geometry the map snapshot's route does.
+    /// 9:16 lands on the original 324×324 at (180, 375).
+    var classicRouteRect: CGRect {
+        let band = mapBand
+        let side = min(size.width * 0.9, (band.bottom - band.top) + 0.3 * size.height, size.width, size.height)
+        // 20 pt below the band's centre: the header sits above the band and the
+        // metrics row below it, and the trace reads better nudged off the middle.
+        let centerY = (band.top + band.bottom) / 2 + 20
+        let x = min(max(size.width / 2, side / 2), size.width - side / 2)
+        let y = min(max(centerY, side / 2), size.height - side / 2)
+        return CGRect(x: x - side / 2, y: y - side / 2, width: side, height: side)
+    }
+
+    // MARK: - Centered layout (presets and photos)
+
+    var centeredMode: CenteredBlockMode {
+        if aspectRatio == .portrait9x16 { return .column }
+        if aspectRatio.isLandscape && arrangement == .sideBySide { return .sideBySide }
+        return .routeOverRow
+    }
+
+    /// The region the route Canvas is framed to (`routeInset` is applied inside it).
+    var centeredRouteRect: CGRect {
+        switch centeredMode {
+        case .column:
+            // The original: 260 square centred at (180, 170).
+            let side = Self.maximumCenteredRouteSide
+            return CGRect(x: size.width / 2 - side / 2, y: 170 - side / 2, width: side, height: side)
+        case .routeOverRow:
+            let side = routeOverRowSide
+            return CGRect(x: size.width / 2 - side / 2, y: Self.topMargin, width: side, height: side)
+        case .sideBySide:
+            let side = sideBySideRouteSide
+            let centerY = Self.topMargin + (size.height - Self.topMargin - Self.brandingZone) / 2
+            return CGRect(x: size.width / 4 - side / 2, y: centerY - side / 2, width: side, height: side)
+        }
+    }
+
+    /// Shrinks until the row and the branding both fit under it: 4:5 keeps the full
+    /// 260, the 360-tall cards drop to 182.
+    private var routeOverRowSide: CGFloat {
+        min(
+            Self.maximumCenteredRouteSide,
+            size.height - Self.topMargin - Self.routeGap - Self.metricRowHeight - Self.brandingZone
+        )
+    }
+
+    /// Never crosses the midline (`width / 2 − 24`), never enters the branding zone.
+    private var sideBySideRouteSide: CGFloat {
+        min(size.height - Self.topMargin - Self.brandingZone, size.width / 2 - Self.topMargin)
+    }
+
+    /// Where the metric stack/row is positioned. Top-anchored in `.column` (the
+    /// original frame runs to the card's bottom edge; the stack sits at its top).
+    var metricsFrame: CGRect {
+        switch centeredMode {
+        case .column:
+            let top: CGFloat = 330
+            return CGRect(x: 24, y: top, width: size.width - 48, height: size.height - top)
+        case .routeOverRow:
+            // The route is bottom-anchored on its inset drawing rect, so the row
+            // follows the ink (side − inset), not the region's edge.
+            let top = Self.topMargin + routeOverRowSide - Self.routeInset + Self.routeGap
+            return CGRect(x: 24, y: top, width: size.width - 48, height: Self.metricRowHeight)
+        case .sideBySide:
+            return CGRect(
+                x: size.width / 2 + 12,
+                y: Self.topMargin,
+                width: size.width / 2 - 24,
+                height: size.height - Self.topMargin - Self.brandingZone
+            )
+        }
+    }
+
+    var metricsAxis: Axis {
+        centeredMode == .routeOverRow ? .horizontal : .vertical
+    }
+
+    /// The route-less card has no trace to carry the workout, so it keeps the
+    /// original column on 9:16 and goes wide on every shorter card.
+    var routelessMetricsAxis: Axis {
+        aspectRatio == .portrait9x16 ? .vertical : .horizontal
+    }
+
+    /// A 360-wide card can't fit four metric blocks on one line at a readable size,
+    /// so they wrap to a 2×2 grid; 450/640-wide cards keep a single row.
+    var routelessWrapsMetricRows: Bool { size.width < 400 }
+
+    /// The pinch anchor for the draggable info block: its visual centre, so a pinch
+    /// doesn't push the trace off the top the way anchoring on the card would.
+    func blockAnchor(showsTrace: Bool) -> UnitPoint {
+        guard showsTrace else { return .center }
+        if centeredMode == .column {
+            // The original: midpoint of the route region's top edge and a
+            // three-metric stack's bottom.
+            return UnitPoint(x: 0.5, y: 305 / size.height)
+        }
+        let union = centeredRouteRect.union(metricsFrame)
+        return UnitPoint(x: union.midX / size.width, y: union.midY / size.height)
+    }
+
+    var blockAnchor: UnitPoint { blockAnchor(showsTrace: true) }
+
+    /// Half the card on each axis — far enough to park the block off any edge, not
+    /// far enough to lose it entirely.
+    var maximumInfoOffset: CGSize {
+        CGSize(width: size.width / 2, height: size.height / 2)
+    }
+
+    /// Top edge of the centered metrics — the render tests sample against it.
+    var centeredMetricsTopY: CGFloat { metricsFrame.minY }
+}
+
 /// Where the centered card's info block (route trace + metric stack) sits, relative to
 /// its default placement — the user drags and pinches it over a photo background, and
 /// both the preview and the export read the same value so what's shared is what was
@@ -422,24 +695,25 @@ enum BodyWorkoutShareBackgroundChoice: Equatable {
 /// scale + offset pair can still clip it to a sliver — double-tapping to reset is the
 /// recovery for that.
 struct WorkoutShareInfoTransform: Equatable {
-    /// In card points (the 360×640 space), not preview points.
+    /// In card points (whatever `cardSize` the chosen ratio has), not preview points.
     var offset: CGSize
     var scale: CGFloat
 
     static let identity = WorkoutShareInfoTransform(offset: .zero, scale: 1)
 
     static let scaleRange: ClosedRange<CGFloat> = 0.5...1.5
-    /// Half the card on each axis.
-    static let maximumOffsetWidth: CGFloat = 180
-    static let maximumOffsetHeight: CGFloat = 320
 
+    /// - Parameter cardSize: The card the block lives on; the offset may travel half
+    ///   of it on each axis (`WorkoutShareCardGeometry.maximumInfoOffset`). Passed in
+    ///   rather than fixed, so a clamp can't outlive the ratio it was written for.
+    ///
     /// A degenerate gesture value (NaN/infinite) clamps to the identity component
     /// rather than to a bound — a non-finite number has no meaningful side.
-    func clamped() -> WorkoutShareInfoTransform {
+    func clamped(cardSize: CGSize) -> WorkoutShareInfoTransform {
         WorkoutShareInfoTransform(
             offset: CGSize(
-                width: Self.clamp(offset.width, limit: Self.maximumOffsetWidth, identity: 0),
-                height: Self.clamp(offset.height, limit: Self.maximumOffsetHeight, identity: 0)
+                width: Self.clamp(offset.width, limit: cardSize.width / 2, identity: 0),
+                height: Self.clamp(offset.height, limit: cardSize.height / 2, identity: 0)
             ),
             scale: scale.isFinite ? min(max(scale, Self.scaleRange.lowerBound), Self.scaleRange.upperBound) : 1
         )
@@ -452,7 +726,7 @@ struct WorkoutShareInfoTransform: Equatable {
 }
 
 /// How the user has panned and zoomed the photo behind the card, in the card's own
-/// 360×640 space. Separate from `WorkoutShareInfoTransform` (which moves the info
+/// point space. Separate from `WorkoutShareInfoTransform` (which moves the info
 /// block): the photo step adjusts the backdrop, the layout step adjusts the block, and
 /// the export bakes both. Session-only, like the photo itself.
 struct WorkoutSharePhotoTransform: Equatable {
@@ -467,21 +741,22 @@ struct WorkoutSharePhotoTransform: Equatable {
     static let scaleRange: ClosedRange<CGFloat> = 1...4
 
     /// Keeps the photo covering the whole card: given the size `scaledToFill` gives it
-    /// in the 360×640 frame, the offset can only travel as far as the overhang the
+    /// in the `cardSize` frame, the offset can only travel as far as the overhang the
     /// scaled image has on each axis. A mismatched aspect ratio has overhang even at
-    /// scale 1 — the photo may slide along its long axis, which is the point.
+    /// scale 1 — the photo may slide along its long axis, which is the point. The card
+    /// is a parameter because the same photo covers a different shape on every ratio.
     ///
     /// A degenerate gesture value (NaN/infinite) resets that component to identity
     /// rather than pinning to a bound, the same rule `WorkoutShareInfoTransform` uses;
     /// an image with a non-positive side has no meaningful overhang, so the offset
     /// zeroes out and only the scale is clamped.
-    func clamped(imageSize: CGSize) -> WorkoutSharePhotoTransform {
+    func clamped(imageSize: CGSize, cardSize: CGSize) -> WorkoutSharePhotoTransform {
         let clampedScale = scale.isFinite
             ? min(max(scale, Self.scaleRange.lowerBound), Self.scaleRange.upperBound)
             : 1
 
-        let cardWidth = BodyWorkoutShareCardView.cardSize.width
-        let cardHeight = BodyWorkoutShareCardView.cardSize.height
+        let cardWidth = cardSize.width
+        let cardHeight = cardSize.height
         guard imageSize.width > 0, imageSize.height > 0,
               imageSize.width.isFinite, imageSize.height.isFinite else {
             return WorkoutSharePhotoTransform(offset: .zero, scale: clampedScale)
@@ -527,5 +802,16 @@ enum WorkoutShareBackgroundPolicy {
     ) -> WorkoutShareRouteDimension {
         guard dimension == .threeD, isProUnlocked, isThreeDAvailable else { return .twoD }
         return .threeD
+    }
+
+    /// The ratio the card may actually render at: everything but 9:16 is Pro. Never
+    /// rewrites the stored key, exactly like `resolvedDimension` — a lapsed Pro user
+    /// shares at 9:16 for the session and gets their 16:9 back when they resubscribe.
+    static func resolvedAspectRatio(
+        _ ratio: WorkoutShareAspectRatio,
+        isProUnlocked: Bool
+    ) -> WorkoutShareAspectRatio {
+        guard ratio.isProGated, !isProUnlocked else { return ratio }
+        return .portrait9x16
     }
 }
