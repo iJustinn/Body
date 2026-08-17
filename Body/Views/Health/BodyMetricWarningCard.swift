@@ -138,8 +138,18 @@ struct BodyMetricWarningCard: View {
                     x: .value("Time", sample.date),
                     y: .value(valueLabel, sample.value)
                 )
-                .symbolSize(28)
-                .foregroundStyle(isPastThreshold(sample.value) ? Color.yellow : tint)
+                .symbol {
+                    // The same ring the Day View and range trend charts draw, so
+                    // a warning's readings read as that same series. Filled — the
+                    // form those charts reserve for their latest reading — marks
+                    // the past-threshold readings this card is about.
+                    BodyLineChartPreviewPointSymbol(
+                        tintColor: isPastThreshold(sample.value) ? .yellow : tint,
+                        isCurrent: isPastThreshold(sample.value),
+                        pointDiameter: BodyHealthMetricDayChart.pointDiameter,
+                        currentPointDiameter: BodyHealthMetricDayChart.currentPointDiameter
+                    )
+                }
             }
 
             RuleMark(y: .value("Threshold", threshold))
