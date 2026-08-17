@@ -474,7 +474,7 @@ struct BodyWorkoutShareCardView: View {
     }
 
     /// Glyph and metrics are one flowing block, not two absolute slots: the metric
-    /// count varies from one to four here, and the pair stays visually centered
+    /// count varies from one to three here, and the pair stays visually centered
     /// together at any of them.
     private var routelessBlock: some View {
         VStack(spacing: 20) {
@@ -490,8 +490,8 @@ struct BodyWorkoutShareCardView: View {
         if geometry.routelessMetricsAxis == .vertical {
             centeredMetricsStack
         } else if geometry.routelessWrapsMetricRows {
-            // Four blocks won't read on one line of a 360 pt card, so they wrap into
-            // rows of two.
+            // Three blocks won't read on one line of a 360 pt card, so they wrap into
+            // rows of two — which centers the odd one under the pair.
             VStack(spacing: 20) {
                 ForEach(Array(stride(from: 0, to: centeredMetrics.count, by: 2)), id: \.self) { start in
                     metricsRow(Array(centeredMetrics[start..<min(start + 2, centeredMetrics.count)]))
@@ -558,7 +558,7 @@ struct BodyWorkoutShareCardView: View {
     private func metricsRow(_ items: [WorkoutShareMetric]) -> some View {
         HStack(spacing: 24) {
             ForEach(Array(items.enumerated()), id: \.offset) { _, metric in
-                // A row splits the card's width between up to four 40 pt values, so a
+                // A row splits the card's width between up to three 40 pt values, so a
                 // long one (a pace, "412 kcal") needs to shrink further than the
                 // stack's floor allows before it would rather truncate.
                 metricBlock(metric, minimumScale: 0.45)

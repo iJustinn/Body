@@ -388,7 +388,7 @@ final class WorkoutShareCardTests: XCTestCase {
         )
     }
 
-    func testRoutelessRunningIsDistancePaceTimeEnergyAndDropsHeartRate() throws {
+    func testRoutelessRunningIsDistancePaceTimeAndDropsEnergyAndHeartRate() throws {
         let run = workout(type: .running, distance: 5000, activeEnergy: 320, avgHR: 145)
         let presentation = presentation(for: run)
 
@@ -400,15 +400,18 @@ final class WorkoutShareCardTests: XCTestCase {
 
         let metrics = WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: .running)
 
-        XCTAssertEqual(metrics.count, 4)
+        // Three slots, same as the centered card: the leaders fill them all, so the
+        // energy this layout also offers never reaches the stack here.
+        XCTAssertEqual(metrics.count, 3)
         XCTAssertEqual(
             metrics.map(\.title),
-            [String(localized: "Distance"), String(localized: "Pace"), String(localized: "Time"), energyTile.title]
+            [String(localized: "Distance"), String(localized: "Pace"), String(localized: "Time")]
         )
         XCTAssertEqual(
             metrics.map(\.value),
-            ["\(heroValue) \(heroUnit)", paceTile.value, presentation.durationClockText, energyTile.value]
+            ["\(heroValue) \(heroUnit)", paceTile.value, presentation.durationClockText]
         )
+        XCTAssertFalse(metrics.contains { $0.title == energyTile.title })
         XCTAssertFalse(metrics.contains { $0.value == heartRateText })
     }
 
@@ -423,10 +426,10 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertFalse(metrics.contains { $0.value.contains("No Data") })
     }
 
-    func testRoutelessCapsAtFourMetricsAndDropsHeartRate() throws {
+    func testRoutelessCapsAtThreeMetricsAndDropsElevationAndHeartRate() throws {
         // Downhill skiing with everything recorded: distance (hero), no pace/speed
-        // candidate, time, energy, and elevation all qualify ahead of avg HR, so the
-        // cap has to drop heart rate even though it's a real candidate.
+        // candidate, time, energy, elevation, and avg HR all qualify — so the cap has
+        // to drop the last two even though they're real candidates.
         let ski = workout(type: .downhillSkiing, distance: 8000, activeEnergy: 400, avgHR: 130, elevation: 650)
         let presentation = presentation(for: ski)
 
@@ -439,14 +442,14 @@ final class WorkoutShareCardTests: XCTestCase {
 
         let metrics = WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: .downhillSkiing)
 
-        XCTAssertEqual(metrics.count, 4)
+        XCTAssertEqual(metrics.count, 3)
         XCTAssertEqual(
             metrics.map(\.title),
-            [String(localized: "Distance"), String(localized: "Time"), energyTile.title, elevationTile.title]
+            [String(localized: "Distance"), String(localized: "Time"), energyTile.title]
         )
         XCTAssertEqual(metrics[0].value, "\(heroValue) \(heroUnit)")
         XCTAssertEqual(metrics[2].value, energyTile.value)
-        XCTAssertEqual(metrics[3].value, elevationTile.value)
+        XCTAssertFalse(metrics.contains { $0.title == elevationTile.title })
         XCTAssertFalse(metrics.contains { $0.value == heartRateText })
     }
 
@@ -473,6 +476,335 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertEqual(energyMetric.title, "Active kJ")
         XCTAssertEqual(energyMetric.value, energyTile.value)
         XCTAssertTrue(energyMetric.value.contains("kJ"))
+    }
+
+    // MARK: - Metrics: pickable pool
+
+    /// Every `WorkoutDetailMetric.Kind`, spelled out: `Kind` isn't `CaseIterable`, so a
+    /// new case has to be added here (and to `key(for:)`) by hand.
+    private let allMetricKinds: [WorkoutDetailMetric.Kind] = [
+        .activeEnergy, .totalEnergy, .avgHeartRate, .maxHeartRate, .distance,
+        .pace, .speed, .swimPace, .elevation, .stepCadence, .cyclingCadence,
+        .power, .cardioFitness, .strokeCount, .humidity, .averageMETs, .heartRateRecovery
+    ]
+
+    func testMetricKeysAreUniqueAcrossEveryKind() {
+        let keys = allMetricKinds.map { WorkoutShareMetricOption.key(for: $0) }
+
+        XCTAssertEqual(Set(keys).count, allMetricKinds.count, "Two Kinds share a stored id: \(keys)")
+        XCTAssertFalse(keys.contains { $0.isEmpty })
+        // The two synthetic ids must not collide with a tile's id either.
+        XCTAssertFalse(keys.contains(WorkoutShareMetricOption.timeID))
+        XCTAssertEqual(WorkoutShareMetricOption.key(for: .distance), WorkoutShareMetricOption.distanceID)
+    }
+
+    func testAvailableMetricsLeadWithDistanceRateThenTime() throws {
+        let run = workout(type: .running, distance: 5000, activeEnergy: 320, avgHR: 145)
+        let presentation = presentation(for: run)
+
+        let options = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: .running)
+
+        // Distance, the type's rate, and time lead; the remaining Details tiles follow
+        // in Details order. Total energy is a "No Data" tile for this fixture and drops.
+        XCTAssertEqual(options.map(\.id), ["distance", "pace", "time", "activeEnergy", "avgHeartRate"])
+
+        let heroValue = try XCTUnwrap(presentation.heroDistanceValue)
+        let heroUnit = try XCTUnwrap(presentation.heroDistanceUnit)
+        let paceTile = try XCTUnwrap(tile(.pace, in: presentation))
+        XCTAssertEqual(options[0].value, "\(heroValue) \(heroUnit)")
+        XCTAssertEqual(options[0].tileTitle, String(localized: "Distance"))
+        XCTAssertEqual(options[1].tileTitle, paceTile.title)
+        XCTAssertEqual(options[2].value, presentation.durationClockText)
+        XCTAssertNil(options[2].kind)
+    }
+
+    func testAvailableMetricsNeverDuplicateDistanceOrTheRateTile() {
+        let row = workout(type: .rowing, distance: 3000, activeEnergy: 250)
+        let promoted = presentation(for: workout(type: .running, distance: 5000, activeEnergy: 320))
+        let tileBased = presentation(for: row)
+
+        for (presentation, type) in [(promoted, BodyWorkoutType.running), (tileBased, .rowing)] {
+            let options = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: type)
+            XCTAssertEqual(options.filter { $0.id == "distance" }.count, 1)
+            XCTAssertEqual(options.map(\.id).count, Set(options.map(\.id)).count)
+        }
+
+        // The rate tile is placed up front, so the Details pass must skip it.
+        let ride = presentation(for: workout(type: .cycling, distance: 20_000, activeEnergy: 500))
+        let rideOptions = WorkoutShareMetricsBuilder.availableMetrics(for: ride, type: .cycling)
+        XCTAssertEqual(rideOptions.filter { $0.id == "speed" }.count, 1)
+        XCTAssertEqual(rideOptions.map(\.id), ["distance", "speed", "time", "activeEnergy"])
+    }
+
+    func testAvailableMetricsDropTheNoDataTiles() {
+        let lift = workout(type: .strengthTraining, duration: 2700)
+        let presentation = presentation(for: lift)
+
+        // Details still renders these three, reading "No Data" — the card never may.
+        XCTAssertNotNil(tile(.activeEnergy, in: presentation))
+        XCTAssertNotNil(tile(.totalEnergy, in: presentation))
+        XCTAssertNotNil(tile(.avgHeartRate, in: presentation))
+
+        let options = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: .strengthTraining)
+
+        XCTAssertEqual(options.map(\.id), ["time"])
+        XCTAssertFalse(options.contains { $0.value.contains("No Data") })
+    }
+
+    func testAvailableMetricsKeepElevationForTypesThatDontClimb() throws {
+        // The pool is what Details shows; elevation eligibility only decides defaults.
+        let run = workout(type: .running, distance: 5000, elevation: 300)
+        let presentation = presentation(for: run)
+        let elevationTile = try XCTUnwrap(tile(.elevation, in: presentation))
+
+        let options = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: .running)
+        let elevation = try XCTUnwrap(options.first { $0.id == "elevation" })
+
+        XCTAssertEqual(elevation.tileTitle, elevationTile.title)
+        XCTAssertFalse(
+            WorkoutShareMetricsBuilder.defaultMetricIDs(for: presentation, type: .running, hasRoute: true)
+                .contains("elevation")
+        )
+    }
+
+    func testMetricOptionProjectionsRelabelOnlyTheRate() throws {
+        let ride = presentation(for: workout(type: .cycling, distance: 20_000, activeEnergy: 500))
+        let options = WorkoutShareMetricsBuilder.availableMetrics(for: ride, type: .cycling)
+        let speed = try XCTUnwrap(options.first { $0.id == "speed" })
+        let energy = try XCTUnwrap(options.first { $0.id == "activeEnergy" })
+        let speedTile = try XCTUnwrap(tile(.speed, in: ride))
+
+        XCTAssertEqual(speed.classicMetric, WorkoutShareMetric(title: speedTile.title, value: speedTile.value))
+        XCTAssertEqual(speed.centeredMetric, WorkoutShareMetric(title: String(localized: "Speed"), value: speedTile.value))
+        XCTAssertEqual(energy.classicMetric, energy.centeredMetric)
+
+        let swim = presentation(for: workout(type: .swimming, duration: 2400, distance: 1500))
+        let swimOptions = WorkoutShareMetricsBuilder.availableMetrics(for: swim, type: .swimming)
+        let swimPace = try XCTUnwrap(swimOptions.first { $0.id == "swimPace" })
+        XCTAssertEqual(swimPace.centeredMetric.title, String(localized: "Pace"))
+    }
+
+    // MARK: - Metrics: defaults
+
+    func testDefaultMetricIDsReproduceTheAutomaticSelections() {
+        let run = presentation(for: workout(type: .running, distance: 5000, activeEnergy: 320, avgHR: 145))
+        let walk = presentation(for: workout(type: .walking, duration: 3600, distance: 5000, activeEnergy: 200, avgHR: 110))
+        let ride = presentation(for: workout(type: .cycling, distance: 20_000, activeEnergy: 500))
+        let ski = presentation(for: workout(type: .downhillSkiing, distance: 8000, activeEnergy: 400, avgHR: 130, elevation: 650))
+        let lift = presentation(for: workout(type: .strengthTraining, duration: 2700, activeEnergy: 200, avgHR: 122))
+
+        func routed(_ presentation: WorkoutDetailPresentation, _ type: BodyWorkoutType) -> [String] {
+            WorkoutShareMetricsBuilder.defaultMetricIDs(for: presentation, type: type, hasRoute: true)
+        }
+        func routeless(_ presentation: WorkoutDetailPresentation, _ type: BodyWorkoutType) -> [String] {
+            WorkoutShareMetricsBuilder.defaultMetricIDs(for: presentation, type: type, hasRoute: false)
+        }
+
+        XCTAssertEqual(routed(run, .running), ["distance", "pace", "time"])
+        XCTAssertEqual(routed(walk, .walking), ["distance", "pace", "time"])
+        XCTAssertEqual(routed(ride, .cycling), ["distance", "speed", "time"])
+        // No rate tile for downhill skiing, so elevation takes the freed slot.
+        XCTAssertEqual(routed(ski, .downhillSkiing), ["distance", "time", "elevation"])
+        XCTAssertEqual(routed(lift, .strengthTraining), ["time", "avgHeartRate"])
+
+        // The route-less card offers active energy, but is capped at three like the rest.
+        XCTAssertEqual(routeless(run, .running), ["distance", "pace", "time"])
+        XCTAssertEqual(routeless(ski, .downhillSkiing), ["distance", "time", "activeEnergy"])
+        XCTAssertEqual(routeless(lift, .strengthTraining), ["time", "activeEnergy", "avgHeartRate"])
+    }
+
+    func testDefaultMetricIDsDriveTheAutomaticStacks() {
+        let hike = presentation(for: workout(type: .hiking, duration: 5400, distance: 9000, activeEnergy: 600, avgHR: 128, elevation: 540))
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: hike, type: .hiking)
+        let defaults = WorkoutShareMetricsBuilder.defaultMetricIDs(for: hike, type: .hiking, hasRoute: true)
+
+        XCTAssertEqual(
+            WorkoutShareMetricsBuilder.centeredMetrics(for: hike, type: .hiking),
+            defaults.compactMap { id in available.first { $0.id == id }?.centeredMetric }
+        )
+    }
+
+    // MARK: - Metrics: stored selection
+
+    func testStoredSelectionRoundTripsPerWorkoutType() {
+        let runOnly = WorkoutShareMetricSelection.storing(["pace", "time"], for: .running, into: nil)
+
+        XCTAssertEqual(WorkoutShareMetricSelection.stored(json: runOnly, type: .running), ["pace", "time"])
+        XCTAssertNil(WorkoutShareMetricSelection.stored(json: runOnly, type: .cycling))
+
+        let both = WorkoutShareMetricSelection.storing(["speed"], for: .cycling, into: runOnly)
+        XCTAssertEqual(WorkoutShareMetricSelection.stored(json: both, type: .running), ["pace", "time"])
+        XCTAssertEqual(WorkoutShareMetricSelection.stored(json: both, type: .cycling), ["speed"])
+
+        let replaced = WorkoutShareMetricSelection.storing(["distance"], for: .running, into: both)
+        XCTAssertEqual(WorkoutShareMetricSelection.stored(json: replaced, type: .running), ["distance"])
+        XCTAssertEqual(WorkoutShareMetricSelection.stored(json: replaced, type: .cycling), ["speed"])
+    }
+
+    func testStoredSelectionTreatsMissingOrMalformedBlobsAsNoPreference() {
+        XCTAssertNil(WorkoutShareMetricSelection.stored(json: nil, type: .running))
+        XCTAssertNil(WorkoutShareMetricSelection.stored(json: "", type: .running))
+        XCTAssertNil(WorkoutShareMetricSelection.stored(json: "{not json", type: .running))
+        XCTAssertNil(WorkoutShareMetricSelection.stored(json: "{\"running\": \"pace\"}", type: .running))
+        XCTAssertNil(WorkoutShareMetricSelection.stored(json: "{\"running\": []}", type: .running))
+
+        // Writing over an unreadable blob starts fresh instead of failing the write.
+        let recovered = WorkoutShareMetricSelection.storing(["pace"], for: .running, into: "{not json")
+        XCTAssertEqual(WorkoutShareMetricSelection.stored(json: recovered, type: .running), ["pace"])
+    }
+
+    func testResolvedSelectionIntersectsWithWhatTheWorkoutHas() {
+        let run = presentation(for: workout(type: .running, distance: 5000, activeEnergy: 320, avgHR: 145))
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: run, type: .running)
+        let defaults = WorkoutShareMetricsBuilder.defaultMetricIDs(for: run, type: .running, hasRoute: true)
+
+        // Stored in tap order, and half of it isn't in this workout: the survivors come
+        // back in pool order, deduped and capped.
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.resolved(
+                stored: ["avgHeartRate", "elevation", "pace", "avgHeartRate"],
+                available: available,
+                defaults: defaults
+            ),
+            ["pace", "avgHeartRate"]
+        )
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.resolved(
+                stored: ["avgHeartRate", "activeEnergy", "time", "distance", "pace"],
+                available: available,
+                defaults: defaults
+            ),
+            ["distance", "pace", "time"]
+        )
+        // Nothing stored, or nothing that survives, falls back to the automatic pick.
+        XCTAssertEqual(WorkoutShareMetricSelection.resolved(stored: nil, available: available, defaults: defaults), defaults)
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.resolved(stored: ["elevation", "power"], available: available, defaults: defaults),
+            defaults
+        )
+    }
+
+    func testTogglingRespectsTheOneToThreeBoundsAndPoolOrder() {
+        let run = presentation(for: workout(type: .running, distance: 5000, activeEnergy: 320, avgHR: 145))
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: run, type: .running)
+        let defaults = WorkoutShareMetricsBuilder.defaultMetricIDs(for: run, type: .running, hasRoute: true)
+
+        // First edit starts from the resolved defaults: unticking one leaves the rest.
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.toggling("time", in: defaults, available: available),
+            ["distance", "pace"]
+        )
+        // Adding comes back in pool order, not tap order.
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.toggling("distance", in: ["avgHeartRate"], available: available),
+            ["distance", "avgHeartRate"]
+        )
+        // Already three picked: another tap is a no-op.
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.toggling("avgHeartRate", in: defaults, available: available),
+            defaults
+        )
+        // The last one standing can't be removed.
+        XCTAssertEqual(WorkoutShareMetricSelection.toggling("pace", in: ["pace"], available: available), ["pace"])
+        // An id this workout doesn't have can't be added.
+        XCTAssertEqual(WorkoutShareMetricSelection.toggling("elevation", in: ["pace"], available: available), ["pace"])
+    }
+
+    func testResolvedMetricIDsFallBackToDefaultsWithoutPro() {
+        let picked = ["pace", "avgHeartRate"]
+        let defaults = ["distance", "pace", "time"]
+
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.resolvedMetricIDs(picked, defaults: defaults, isProUnlocked: true),
+            picked
+        )
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.resolvedMetricIDs(picked, defaults: defaults, isProUnlocked: false),
+            defaults
+        )
+    }
+
+    // MARK: - Metrics: classic row from a selection
+
+    func testClassicRowMetricsFromDefaultsMatchTheAutomaticRow() {
+        let fixtures: [(WorkoutSummary, BodyWorkoutType)] = [
+            (workout(type: .running, distance: 5000, activeEnergy: 320, avgHR: 145), .running),
+            (workout(type: .cycling, distance: 20_000, activeEnergy: 500), .cycling),
+            (workout(type: .downhillSkiing, distance: 8000, activeEnergy: 400, elevation: 650), .downhillSkiing),
+            (workout(type: .hiking, duration: 5400, distance: 9000, activeEnergy: 600, avgHR: 128, elevation: 540), .hiking),
+            (workout(type: .rowing, distance: 3000, activeEnergy: 250), .rowing),
+            (workout(type: .strengthTraining, duration: 2700, distance: 0, activeEnergy: 200), .strengthTraining)
+        ]
+
+        for (summary, type) in fixtures {
+            let presentation = presentation(for: summary)
+            let row = WorkoutShareMetricsBuilder.classicRowMetrics(
+                selectedIDs: WorkoutShareMetricsBuilder.defaultMetricIDs(for: presentation, type: type, hasRoute: true),
+                available: WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: type),
+                presentation: presentation,
+                type: type
+            )
+            XCTAssertEqual(row, WorkoutShareMetricsBuilder.metrics(for: presentation, type: type), "\(type)")
+            XCTAssertLessThanOrEqual(row.count, 2, "\(type)")
+        }
+    }
+
+    func testClassicRowMetricsDropTheHeaderMetricsAndCapAtTwo() throws {
+        let ski = workout(type: .downhillSkiing, distance: 8000, activeEnergy: 400, avgHR: 130, elevation: 650)
+        let presentation = presentation(for: ski)
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: .downhillSkiing)
+        let elevationTile = try XCTUnwrap(tile(.elevation, in: presentation))
+        let heartRateTile = try XCTUnwrap(tile(.avgHeartRate, in: presentation))
+        XCTAssertNotNil(presentation.heroDistanceValue)
+
+        // "pace" isn't available on this workout and drops; distance and time are the
+        // header's, so the row is the two remaining picks.
+        let row = WorkoutShareMetricsBuilder.classicRowMetrics(
+            selectedIDs: ["distance", "time", "pace", "elevation", "avgHeartRate"],
+            available: available,
+            presentation: presentation,
+            type: .downhillSkiing
+        )
+
+        XCTAssertEqual(row.map(\.title), [elevationTile.title, heartRateTile.title])
+        XCTAssertEqual(row.map(\.value), [elevationTile.value, heartRateTile.value])
+    }
+
+    func testClassicRowMetricsKeepDistanceWhenTheHeaderHasNone() throws {
+        let row = workout(type: .rowing, distance: 3000, activeEnergy: 250, avgHR: 130)
+        let presentation = presentation(for: row)
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: .rowing)
+        let distanceTile = try XCTUnwrap(tile(.distance, in: presentation))
+        XCTAssertNil(presentation.heroDistanceValue)
+
+        let metrics = WorkoutShareMetricsBuilder.classicRowMetrics(
+            selectedIDs: ["distance", "time"],
+            available: available,
+            presentation: presentation,
+            type: .rowing
+        )
+
+        // Distance survives (no hero corner to carry it), time never does, and the
+        // freed slot is backfilled with the row's classic extra.
+        XCTAssertEqual(metrics.map(\.title), [distanceTile.title, String(localized: "Avg Heart Rate")])
+    }
+
+    func testClassicRowMetricsBackfillOnlyUpToTwo() throws {
+        let hike = workout(type: .hiking, duration: 5400, distance: 9000, activeEnergy: 600, avgHR: 128, elevation: 540)
+        let presentation = presentation(for: hike)
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: .hiking)
+        let energyTile = try XCTUnwrap(tile(.activeEnergy, in: presentation))
+        let paceTile = try XCTUnwrap(tile(.pace, in: presentation))
+
+        // One explicit pick survives the header rule, so exactly one backfill joins it.
+        let metrics = WorkoutShareMetricsBuilder.classicRowMetrics(
+            selectedIDs: ["distance", "activeEnergy"],
+            available: available,
+            presentation: presentation,
+            type: .hiking
+        )
+
+        XCTAssertEqual(metrics.map(\.title), [energyTile.title, paceTile.title])
     }
 
     // MARK: - Projection

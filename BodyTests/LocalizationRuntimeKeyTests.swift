@@ -59,10 +59,9 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
     func testWorkoutDetailContextTileKeysResolveInBodyMetricsKitCatalog() throws {
         let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
 
-        // Weather/METs/recovery tile titles. Temperature uses a dotted key because
-        // the bare "Temperature" entry is the sleep card's body temperature (体温).
+        // Weather/METs/recovery tile titles. (Temperature is no longer a tile — it
+        // moved to the hero line, where it renders as a bare number + unit.)
         let keys = [
-            "workoutDetail.temperature",
             "Humidity",
             "Avg METs",
             "HR Recovery"
@@ -169,6 +168,13 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             ["Map", "Apple Maps", "Plain", "Route Only", "3D", "Elevation Ribbon"],
             in: catalog
         )
+
+        // The Route Style row's value is composed at runtime as "Draw · <style>", so the
+        // lead word is resolved out of the app catalog rather than this one.
+        try assertKeysTranslated(
+            ["routeStyle.drawSummary"],
+            in: try loadCatalog(at: "Body/Localizable.xcstrings")
+        )
     }
 
     func testAboutVitalsBodyResolvesInBodyMetricsKitCatalog() throws {
@@ -257,7 +263,15 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Arrange",
             "Stacked",
             "Side by Side",
-            "Layout doesn't apply to the Map background."
+            "Layout doesn't apply to the Map background.",
+            // Metrics rail icon, its Pro lock hint, the tray's caption and min-1 hint,
+            // and the Pro feature entry from BodyProView.
+            "Metrics",
+            "Requires Body Pro",
+            "Pick 1 to 3 metrics.",
+            "At least one metric stays on the card.",
+            "Share Card Metrics",
+            "Choose which metrics your workout share card shows."
         ]
 
         try assertKeysTranslated(keys, in: catalog)

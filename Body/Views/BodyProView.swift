@@ -603,6 +603,12 @@ private struct BodyProFeature: Identifiable {
             title: String(localized: "Share Card Sizes"),
             detail: String(localized: "Export workout share cards as 16:9, 4:5, 5:4, or square, portrait or landscape."),
             iconName: "aspectratio"
+        ),
+        BodyProFeature(
+            id: "share-metrics",
+            title: String(localized: "Share Card Metrics"),
+            detail: String(localized: "Choose which metrics your workout share card shows."),
+            iconName: "list.bullet.rectangle.portrait"
         )
     ]
 }

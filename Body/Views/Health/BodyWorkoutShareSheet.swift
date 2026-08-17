@@ -4,9 +4,11 @@
 //
 //  Preview-and-share flow for a workout's image. Built like a story composer: the
 //  card fills the page scaled to fit whatever shape the chosen aspect ratio gives it,
-//  a vertical icon rail sits on the leading edge, and tapping a rail icon slides that
-//  option's tiles out beside it (Font, Ratio, Arrange, Route Color, Background, 3D —
-//  one tray open at a time). Save/Share rasterize the card via `ImageRenderer` at 3×
+//  a vertical icon rail sits on the trailing edge, and tapping a rail icon slides that
+//  option's tiles out to its left (Font, Ratio, Arrange, Route Color, Background,
+//  3D — one tray open at a time); the last icon, Metrics, opens a chip strip under
+//  the card instead. Save/Share rasterize the card via
+//  `ImageRenderer` at 3×
 //  and hand the image (1080 px on its short side) to the photo library or the system
 //  share sheet. On a photo background the preview drives two adjust steps: Photo
 //  pans/zooms the backdrop, Layout moves and resizes the card's info block — both
@@ -43,6 +45,10 @@ struct BodyWorkoutShareSheet: View {
         WorkoutShareAspectRatio.portrait9x16.rawValue
     @AppStorage(WorkoutShareLandscapeArrangement.storageKey) private var storedArrangement: String =
         WorkoutShareLandscapeArrangement.stacked.rawValue
+    /// Every workout type's remembered metric pick in one JSON blob — see
+    /// `WorkoutShareMetricSelection`. Empty means nobody has picked yet, which is the
+    /// same thing a non-Pro user gets: the automatic defaults.
+    @AppStorage(WorkoutShareMetricSelection.storageKey) private var storedMetricSelections: String = ""
 
     @State private var selectedPhoto: UIImage?
     @State private var photoItem: PhotosPickerItem?
@@ -86,8 +92,11 @@ struct BodyWorkoutShareSheet: View {
 
     /// Computed once from the shared presentation so the card's values never drift
     /// from the detail page and the projection isn't redone on every body pass.
-    private let metrics: [WorkoutShareMetric]
-    private let centeredMetrics: [WorkoutShareMetric]
+    /// The pool the Metrics tray offers and the card resolves against, plus what the
+    /// card shows when nobody picked. Both depend only on the presentation and the
+    /// route's presence, so they're built once here rather than per body pass.
+    private let availableMetricOptions: [WorkoutShareMetricOption]
+    private let defaultMetricIDs: [String]
     private let routePoints: [CGPoint]?
     /// The elevation ribbon at rest (yaw 0) — `nil` when the route can't carry one, which
     /// is also what makes the 3D row unavailable.
@@ -102,6 +111,7 @@ struct BodyWorkoutShareSheet: View {
     /// rows have their own visibility rules), it's what keeps the set enumerable.
     private enum RailOption: Hashable, CaseIterable {
         case font
+        case metrics
         case ratio
         case arrange
         case routeColor
@@ -120,17 +130,32 @@ struct BodyWorkoutShareSheet: View {
         self.workout = workout
         self.route = route
         self.presentation = presentation
-        // A route-less workout only ever draws the block layout, and draws it from its
-        // own, longer selection — the classic row is unreachable, so it stays empty.
-        self.metrics = route == nil ? [] : WorkoutShareMetricsBuilder.metrics(for: presentation, type: workout.type)
-        self.centeredMetrics = route == nil
-            ? WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: workout.type)
-            : WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type)
+        self.availableMetricOptions = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: workout.type)
+        self.defaultMetricIDs = WorkoutShareMetricsBuilder.defaultMetricIDs(
+            for: presentation,
+            type: workout.type,
+            hasRoute: route != nil
+        )
         self.routePoints = route.flatMap { WorkoutShareRouteProjection.normalizedPoints(for: $0.coordinates) }
         self.route3D = route.flatMap { WorkoutRoute3DProjection.projected(for: $0.coordinates) }
     }
 
     private var isProUnlocked: Bool { proStore?.isPro == true }
+
+    /// What the card is actually showing right now: the remembered pick narrowed to
+    /// this workout's tiles, or the automatic defaults when nothing survives — and
+    /// always the defaults without Pro, without touching what's stored.
+    private var activeMetricIDs: [String] {
+        WorkoutShareBackgroundPolicy.resolvedMetricIDs(
+            WorkoutShareMetricSelection.resolved(
+                stored: WorkoutShareMetricSelection.stored(json: storedMetricSelections, type: workout.type),
+                available: availableMetricOptions,
+                defaults: defaultMetricIDs
+            ),
+            defaults: defaultMetricIDs,
+            isProUnlocked: isProUnlocked
+        )
+    }
 
     private var hasRoute: Bool { route != nil }
 
@@ -303,10 +328,22 @@ struct BodyWorkoutShareSheet: View {
     }
 
     private func cardView() -> BodyWorkoutShareCardView {
-        BodyWorkoutShareCardView(
+        // Resolved once per card, not once per array: this runs on every gesture frame,
+        // and each read of `activeMetricIDs` decodes the stored JSON.
+        let ids = activeMetricIDs
+        return BodyWorkoutShareCardView(
             presentation: presentation,
-            metrics: metrics,
-            centeredMetrics: centeredMetrics,
+            // A route-less workout only ever draws the block layout — the classic row is
+            // unreachable, so it stays empty.
+            metrics: route == nil ? [] : WorkoutShareMetricsBuilder.classicRowMetrics(
+                selectedIDs: ids,
+                available: availableMetricOptions,
+                presentation: presentation,
+                type: workout.type
+            ),
+            centeredMetrics: ids.compactMap { id in
+                availableMetricOptions.first { $0.id == id }?.centeredMetric
+            },
             routePoints: routePoints,
             route3D: route3D,
             dimension: activeDimension,
@@ -376,18 +413,27 @@ struct BodyWorkoutShareSheet: View {
                 backdrop
 
                 // Story-composer layering: the card fills the page, the rail floats over
-                // its leading edge, and the photo controls float over its bottom. No
+                // its trailing edge, and the photo controls float over its bottom. No
                 // ScrollView — the preview has to fit the cover's height, and a scroll
                 // view's unbounded height would let the card size off the width alone
                 // and run off the bottom.
-                cardPreview
-                    .padding(20)
+                // The metrics strip sits under the card, not beside its icon, and takes
+                // its room from the preview: a VStack lets the card shrink to fit above
+                // it rather than the strip covering the card's own bottom edge.
+                VStack(spacing: 12) {
+                    cardPreview
+                    if expandedOption == .metrics {
+                        metricsTray
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .padding(20)
 
                 // The reader is only here for the tray's width budget; it draws nothing
                 // itself, so the empty area around the rail stays untouchable.
                 GeometryReader { proxy in
                     optionRail(availableWidth: proxy.size.width)
-                        .frame(maxHeight: .infinity, alignment: .center)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                 }
 
                 photoAdjustControls
@@ -676,7 +722,7 @@ struct BodyWorkoutShareSheet: View {
     /// Between a rail icon and its open tray.
     private static let railTrayGap: CGFloat = 12
 
-    /// The leading icon rail. Rows that don't apply to this workout are absent rather
+    /// The trailing icon rail (thumb side). Rows that don't apply to this workout are absent rather
     /// than disabled — a route-less card has no trace to colour, arrange, or lift.
     /// Everything here is free except the 3D tile and the non-9:16 ratios.
     private func optionRail(availableWidth: CGFloat) -> some View {
@@ -690,7 +736,7 @@ struct BodyWorkoutShareSheet: View {
         // the trace colour nor the centered layout's arrangement changes anything there.
         let appliesToCardDrawnRoute = activeSelection != .map
 
-        return VStack(alignment: .leading, spacing: 22) {
+        return VStack(alignment: .trailing, spacing: 22) {
             railRow(.font, symbol: "textformat", label: Text("Font"), trayWidth: trayWidth) {
                 optionTiles {
                     ForEach(WorkoutShareFontChoice.allCases) { choice in
@@ -775,21 +821,60 @@ struct BodyWorkoutShareSheet: View {
                     dimensionTray
                 }
             }
+
+            // Last, and Pro-only — locked rather than hidden, so a free user still
+            // discovers the card can show something other than the automatic pick. Its
+            // chips don't slide out beside the icon like the other trays: a rich workout
+            // offers a dozen names, which would run straight under the card's own
+            // metrics, so they take the strip below the preview instead.
+            railRow(
+                .metrics,
+                symbol: "list.bullet.rectangle.portrait",
+                label: Text("Metrics"),
+                trayWidth: trayWidth,
+                isLocked: !isProUnlocked,
+                inlineTray: false
+            ) {
+                EmptyView()
+            }
         }
-        .padding(.leading, Self.railPadding)
+        .padding(.trailing, Self.railPadding)
+        // A Pro lapse while the tray is open would leave the chips on screen editing a
+        // pick the card no longer honours, so put the tray away with the entitlement.
+        .onChange(of: isProUnlocked) {
+            if !isProUnlocked, expandedOption == .metrics { closeTray() }
+        }
     }
 
-    /// One rail icon plus, when it's the open one, its tray sliding out beside it.
+    /// One rail icon plus, when it's the open one, its tray sliding out to its left —
+    /// the tray leads and the icon trails, so the icon column stays pinned to the edge.
+    ///
+    /// A locked row never opens its tray: the icon carries the Pro badge and its tap is
+    /// the paywall, so a free user sees the option exists without reaching controls that
+    /// wouldn't change the card.
     private func railRow<Content: View>(
         _ option: RailOption,
         symbol: String,
         label: Text,
         trayWidth: CGFloat,
+        isLocked: Bool = false,
+        inlineTray: Bool = true,
         @ViewBuilder tray: () -> Content
     ) -> some View {
         let isOpen = expandedOption == option
         return HStack(spacing: Self.railTrayGap) {
+            if isOpen, inlineTray {
+                tray()
+                    .frame(maxWidth: trayWidth, alignment: .trailing)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+
             Button {
+                guard !isLocked else {
+                    closeTray()
+                    showBodyProPaywall = true
+                    return
+                }
                 withAnimation(.snappy) { expandedOption = isOpen ? nil : option }
             } label: {
                 Image(systemName: symbol)
@@ -804,28 +889,109 @@ struct BodyWorkoutShareSheet: View {
                             lineWidth: isOpen ? 2 : 1
                         )
                     }
+                    .overlay(alignment: .bottomTrailing) {
+                        if isLocked {
+                            lockBadge
+                        }
+                    }
             }
             .buttonStyle(.plain)
             .accessibilityLabel(label)
             .accessibilityAddTraits(.isButton)
-
-            if isOpen {
-                tray()
-                    .frame(maxWidth: trayWidth, alignment: .leading)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-            }
+            .accessibilityHint(isLocked ? Text("Requires Body Pro") : Text(verbatim: ""))
         }
     }
 
     /// Horizontal scroller shared by every tray — seven route colours don't fit beside
-    /// the rail on a small phone, and a clipped row would hide options entirely.
-    private func optionTiles<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    /// the rail on a small phone, and a clipped row would hide options entirely. The
+    /// trailing anchor keeps a short row of tiles hugging its icon (a scroll view
+    /// otherwise pins content to the leading edge, leaving a gap beside the rail) and
+    /// opens a long row on its last tiles, next to the icon that opened it. The Metrics
+    /// tray overrides the anchor to `.leading`: its chips are the pool in card order, so
+    /// a long row has to open on the first metric rather than the last.
+    private func optionTiles<Content: View>(
+        anchor: UnitPoint = .trailing,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Self.optionRowSpacing) {
                 content()
             }
             .padding(.vertical, 2)
         }
+        .defaultScrollAnchor(anchor)
+    }
+
+    /// Which metrics the card shows. Chips rather than round tiles: the thing being
+    /// picked is a name, not a specimen or a swatch, and the pool can run past a dozen
+    /// entries on a rich workout.
+    private var metricsTray: some View {
+        VStack(alignment: .center, spacing: 6) {
+            optionTiles(anchor: .leading) {
+                ForEach(availableMetricOptions) { option in
+                    metricChip(option)
+                }
+            }
+
+            Text("Pick 1 to 3 metrics.")
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundColor(.white.opacity(0.6))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        // Full-width strip under the card, so the scroller isn't sized by the rail's
+        // tray budget and a tap between chips still reaches nothing behind it.
+        .frame(maxWidth: .infinity)
+    }
+
+    /// One pickable metric. Unlike every other tray, a tap here doesn't close the tray:
+    /// picking three metrics is three taps, and re-opening between each would make the
+    /// bounds impossible to feel.
+    private func metricChip(_ option: WorkoutShareMetricOption) -> some View {
+        let ids = activeMetricIDs
+        let isSelected = ids.contains(option.id)
+        let isAtMaximum = ids.count >= WorkoutShareMetricSelection.maximumCount
+        let isLastSelected = isSelected && ids.count == 1
+        return Button {
+            let next = WorkoutShareMetricSelection.toggling(
+                option.id,
+                in: ids,
+                available: availableMetricOptions
+            )
+            guard next != ids else { return }
+            storedMetricSelections = WorkoutShareMetricSelection.storing(
+                next,
+                for: workout.type,
+                into: storedMetricSelections
+            )
+        } label: {
+            HStack(spacing: 4) {
+                if isSelected {
+                    // The `.isSelected` trait below already says this to VoiceOver.
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .accessibilityHidden(true)
+                }
+
+                Text(option.centeredMetric.title)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.white.opacity(isSelected ? 0.28 : 0.1), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        // Dimmed rather than hidden at the cap, so the user can see what they'd have to
+        // give up to add one more.
+        .opacity(!isSelected && isAtMaximum ? 0.4 : 1)
+        .disabled(!isSelected && isAtMaximum)
+        // The tile's own wording plus what it currently reads, so VoiceOver users pick
+        // by value the way sighted users do.
+        .accessibilityLabel(Text(verbatim: "\(option.tileTitle), \(option.value)"))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityHint(
+            isLastSelected ? Text("At least one metric stays on the card.") : Text(verbatim: "")
+        )
     }
 
     /// Ring-only selection, no checkmark: the point of the tile is the "Aa" specimen,
@@ -907,7 +1073,7 @@ struct BodyWorkoutShareSheet: View {
     /// Only the 3D tile is dimmed for a route without altitude — 2D stays tappable, so
     /// a user who wandered in here can still get back out.
     private var dimensionTray: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .trailing, spacing: 6) {
             optionTiles {
                 dimensionTile(.twoD)
                 dimensionTile(.threeD)

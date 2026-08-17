@@ -150,7 +150,7 @@ final class WorkoutShareRenderTests: XCTestCase {
     }
 
     /// The route-less card's only identity is the workout-type SF Symbol drawn above the
-    /// metric stack. The fixture (running, with energy recorded) produces 4 metrics, so
+    /// metric stack. The fixture (running, with energy recorded) produces 3 metrics, so
     /// the glyph+stack block is centered at card y 320 the same way the plan's geometry
     /// describes. Rather than pin the glyph's exact frame (a layout tweak would silently
     /// break that), this samples a generous band above the stack's vertical center and
@@ -164,7 +164,7 @@ final class WorkoutShareRenderTests: XCTestCase {
         let scale: CGFloat = 3
         // Card points: x 150–210 is centered on the 360 pt card; y 100–260 covers the
         // upper-center band above the metric stack's y 320 anchor, generous enough to
-        // catch the glyph regardless of the exact block height for 4 metrics.
+        // catch the glyph regardless of the exact block height for 3 metrics.
         let region = CGRect(x: 150, y: 100, width: 60, height: 160)
         let pixelRegion = CGRect(
             x: region.minX * scale,

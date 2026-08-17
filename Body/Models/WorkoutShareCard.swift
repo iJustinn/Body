@@ -26,19 +26,23 @@ struct WorkoutShareMetric: Equatable {
 /// appears on a shared image. Three selections, one per card layout: `metrics` for
 /// the classic card's bottom row, `centeredMetrics` for the centered card's stack,
 /// and `routelessMetrics` for the route-less card, which has no trace to carry the
-/// workout's story and so takes a longer list including active energy.
+/// workout's story and so also offers active energy.
+///
+/// All three are the *automatic* selection: they run the same pool
+/// (`availableMetrics`) and defaults (`defaultMetricIDs`) that a Body Pro user's
+/// manual pick resolves against, so there is one source of truth for what the card
+/// can show and for what it shows when nobody picked.
 enum WorkoutShareMetricsBuilder {
     static func metrics(for presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> [WorkoutShareMetric] {
         // The bottom-left row. Distance and duration live in the card's header (the
         // hero corner reads heroDistanceValue/Unit and durationClockText directly),
         // so the row carries the per-type extras: pace/speed, elevation, avg HR.
-        let candidates: [WorkoutShareMetric?] = [
-            presentation.heroDistanceValue == nil ? distanceTileMetric(presentation: presentation) : nil,
-            rateMetric(presentation: presentation, type: type),
-            elevationMetric(presentation: presentation, type: type),
-            averageHeartRateMetric(presentation: presentation)
-        ]
-        return Array(candidates.compactMap { $0 }.prefix(2))
+        classicRowMetrics(
+            selectedIDs: defaultMetricIDs(for: presentation, type: type, hasRoute: true),
+            available: availableMetrics(for: presentation, type: type),
+            presentation: presentation,
+            type: type
+        )
     }
 
     /// Up to 3 metrics for the centered card, where every metric is a label-over-value
@@ -46,47 +50,28 @@ enum WorkoutShareMetricsBuilder {
     /// a header. Distance, rate, and time lead; elevation/avg HR only fill slots the
     /// workout couldn't (a distance-less or rate-less type), never push those out.
     static func centeredMetrics(for presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> [WorkoutShareMetric] {
-        let candidates: [WorkoutShareMetric?] = [
-            blockDistanceMetric(presentation: presentation),
-            shortRateMetric(presentation: presentation, type: type),
-            WorkoutShareMetric(title: String(localized: "Time"), value: presentation.durationClockText),
-            elevationMetric(presentation: presentation, type: type),
-            averageHeartRateMetric(presentation: presentation)
-        ]
-        return Array(candidates.compactMap { $0 }.prefix(3))
+        blockMetrics(for: presentation, type: type, hasRoute: true)
     }
 
-    /// Up to 4 metrics for the route-less card. Same block-style selection as
-    /// `centeredMetrics`, one slot longer and with active energy joining the list: with
-    /// no trace and no header, the stack is all the card says about the workout, and an
-    /// indoor workout (strength, yoga, HIIT) often has no distance or rate to fill it.
+    /// Up to 3 metrics for the route-less card. Same block-style selection as
+    /// `centeredMetrics`, with active energy joining the list: with no trace and no
+    /// header, the stack is all the card says about the workout, and an indoor workout
+    /// (strength, yoga, HIIT) often has no distance or rate to fill it.
     static func routelessMetrics(for presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> [WorkoutShareMetric] {
-        let candidates: [WorkoutShareMetric?] = [
-            blockDistanceMetric(presentation: presentation),
-            shortRateMetric(presentation: presentation, type: type),
-            WorkoutShareMetric(title: String(localized: "Time"), value: presentation.durationClockText),
-            activeEnergyMetric(presentation: presentation),
-            elevationMetric(presentation: presentation, type: type),
-            averageHeartRateMetric(presentation: presentation)
-        ]
-        return Array(candidates.compactMap { $0 }.prefix(4))
+        blockMetrics(for: presentation, type: type, hasRoute: false)
     }
 
-    /// Distance as a label-over-value block: the hero value + unit when the type
-    /// promotes distance, otherwise the Details `.distance` tile. Shared by the two
-    /// block layouts, which read distance out of the stack rather than a header.
-    private static func blockDistanceMetric(presentation: WorkoutDetailPresentation) -> WorkoutShareMetric? {
-        if let heroValue = presentation.heroDistanceValue, let heroUnit = presentation.heroDistanceUnit {
-            return WorkoutShareMetric(title: String(localized: "Distance"), value: heroValue + " " + heroUnit)
+    /// The block layouts' automatic stack: the default ids for this workout, rendered
+    /// with the centered card's short labels.
+    private static func blockMetrics(
+        for presentation: WorkoutDetailPresentation,
+        type: BodyWorkoutType,
+        hasRoute: Bool
+    ) -> [WorkoutShareMetric] {
+        let available = availableMetrics(for: presentation, type: type)
+        return defaultMetricIDs(for: presentation, type: type, hasRoute: hasRoute).compactMap { id in
+            available.first { $0.id == id }?.centeredMetric
         }
-        return distanceTileMetric(presentation: presentation)
-    }
-
-    /// The Details `.distance` tile, for workouts that don't promote distance to the
-    /// hero corner (e.g. a strength workout with a recorded distance). Not present
-    /// (e.g. a distance-less strength workout) → no candidate.
-    private static func distanceTileMetric(presentation: WorkoutDetailPresentation) -> WorkoutShareMetric? {
-        tile(.distance, in: presentation).map { WorkoutShareMetric(title: $0.title, value: $0.value) }
     }
 
     /// Pace/speed/swim-pace, matched by `Kind` — never by localized title, so it can't
@@ -108,32 +93,10 @@ enum WorkoutShareMetricsBuilder {
         return (tile: tile, style: type.paceStyle)
     }
 
-    private static func rateMetric(presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> WorkoutShareMetric? {
-        rateTile(presentation: presentation, type: type).map { WorkoutShareMetric(title: $0.tile.title, value: $0.tile.value) }
-    }
-
-    /// Same value, but titled "Pace"/"Speed" instead of the tile's "Avg Pace"/"Avg Speed":
-    /// the centered layout's labels are short by design, and its blocks are already read
-    /// as workout averages.
-    private static func shortRateMetric(presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> WorkoutShareMetric? {
-        guard let rate = rateTile(presentation: presentation, type: type) else { return nil }
-        let title: String
-        switch rate.style {
-        case .distancePace, .swimPace: title = String(localized: "Pace")
-        case .speed: title = String(localized: "Speed")
-        case .none: return nil
-        }
-        return WorkoutShareMetric(title: title, value: rate.tile.value)
-    }
-
     /// Elevation only makes sense for activities that actually climb — hiking/climbing-
     /// style and snow-sports types (mirrors `BodyWorkoutType.colorHex`'s groupings for
-    /// those activities) — and only when the workout recorded any gain.
-    private static func elevationMetric(presentation: WorkoutDetailPresentation, type: BodyWorkoutType) -> WorkoutShareMetric? {
-        guard isElevationEligible(type) else { return nil }
-        return tile(.elevation, in: presentation).map { WorkoutShareMetric(title: $0.title, value: $0.value) }
-    }
-
+    /// those activities). Other types keep the tile in the pool (a Pro user may pick it)
+    /// but never get it by default.
     private static func isElevationEligible(_ type: BodyWorkoutType) -> Bool {
         switch type {
         case .hiking, .climbing, .stairClimbing, .stairs, .stepTraining,
@@ -144,27 +107,295 @@ enum WorkoutShareMetricsBuilder {
         }
     }
 
-    /// Active energy, titled from the `.activeEnergy` tile so kJ users and every
-    /// locale get the tile's own wording ("Active kcal"/"Active kJ") with no second
-    /// string to keep in sync. The value comes from the presentation, not the tile:
-    /// the tile is always present and reads "No Data" when the workout recorded no
-    /// energy, which must never land on a shared image.
-    private static func activeEnergyMetric(presentation: WorkoutDetailPresentation) -> WorkoutShareMetric? {
-        guard let value = presentation.activeEnergyText, let energyTile = tile(.activeEnergy, in: presentation) else {
-            return nil
-        }
-        return WorkoutShareMetric(title: energyTile.title, value: value)
-    }
-
-    private static func averageHeartRateMetric(presentation: WorkoutDetailPresentation) -> WorkoutShareMetric? {
-        guard let value = presentation.averageHeartRateText, let heartRateTile = tile(.avgHeartRate, in: presentation) else {
-            return nil
-        }
-        return WorkoutShareMetric(title: heartRateTile.title, value: value)
-    }
-
     private static func tile(_ kind: WorkoutDetailMetric.Kind, in presentation: WorkoutDetailPresentation) -> WorkoutDetailMetric? {
         presentation.detailMetrics.first { $0.kind == kind }
+    }
+}
+
+/// One pickable metric for the share card: a Details tile with real data, plus the
+/// two synthetic entries the card can show that Details doesn't have as tiles —
+/// the header `Distance` (hero value + unit) and `Time`.
+///
+/// `id` is stable across workouts and locales (a `Kind` case name, or "distance"/
+/// "time"), because it is what gets remembered per workout type; titles and values
+/// are the localized strings the detail page already built.
+struct WorkoutShareMetricOption: Identifiable, Equatable {
+    static let distanceID = "distance"
+    static let timeID = "time"
+
+    let id: String
+    /// The Details tile's own label ("Avg Pace", "Active kcal"), or "Distance"/"Time".
+    let tileTitle: String
+    let value: String
+    /// The Details tile behind this option; nil for `Time`, which has no tile.
+    let kind: WorkoutDetailMetric.Kind?
+
+    /// The classic card's bottom row keeps the tile's own wording, matching Details.
+    var classicMetric: WorkoutShareMetric {
+        WorkoutShareMetric(title: tileTitle, value: value)
+    }
+
+    /// The block layouts label rates "Pace"/"Speed" instead of the tile's "Avg Pace"/
+    /// "Avg Speed": those labels are short by design, and the blocks are already read
+    /// as workout averages.
+    var centeredMetric: WorkoutShareMetric {
+        switch kind {
+        case .pace, .swimPace: return WorkoutShareMetric(title: String(localized: "Pace"), value: value)
+        case .speed: return WorkoutShareMetric(title: String(localized: "Speed"), value: value)
+        default: return WorkoutShareMetric(title: tileTitle, value: value)
+        }
+    }
+
+    /// Stable id per Details tile kind. Exhaustive on purpose: a new `Kind` must be
+    /// given a key here rather than silently colliding with another metric's stored
+    /// preference.
+    static func key(for kind: WorkoutDetailMetric.Kind) -> String {
+        switch kind {
+        case .activeEnergy: return "activeEnergy"
+        case .totalEnergy: return "totalEnergy"
+        case .avgHeartRate: return "avgHeartRate"
+        case .maxHeartRate: return "maxHeartRate"
+        case .distance: return distanceID
+        case .pace: return "pace"
+        case .speed: return "speed"
+        case .swimPace: return "swimPace"
+        case .elevation: return "elevation"
+        case .stepCadence: return "stepCadence"
+        case .cyclingCadence: return "cyclingCadence"
+        case .power: return "power"
+        case .cardioFitness: return "cardioFitness"
+        case .strokeCount: return "strokeCount"
+        case .humidity: return "humidity"
+        case .averageMETs: return "averageMETs"
+        case .heartRateRecovery: return "heartRateRecovery"
+        }
+    }
+}
+
+extension WorkoutShareMetricsBuilder {
+    /// Everything this workout could put on the card, in the card's own display order:
+    /// distance, the type's rate, time, then the remaining Details tiles in Details
+    /// order. Excluded: the "No Data" placeholder tiles (active/total energy and avg HR
+    /// read "No Data" rather than being omitted, and that must never land on a shared
+    /// image) and the duplicates of the entries already placed up front.
+    ///
+    /// HR Recovery is appended to Details asynchronously by the detail view, not by
+    /// `WorkoutDetailPresentation`, so it only appears here when the workout's own
+    /// statistics carried it.
+    static func availableMetrics(
+        for presentation: WorkoutDetailPresentation,
+        type: BodyWorkoutType
+    ) -> [WorkoutShareMetricOption] {
+        var options: [WorkoutShareMetricOption] = []
+
+        if let heroValue = presentation.heroDistanceValue, let heroUnit = presentation.heroDistanceUnit {
+            options.append(WorkoutShareMetricOption(
+                id: WorkoutShareMetricOption.distanceID,
+                tileTitle: String(localized: "Distance"),
+                value: heroValue + " " + heroUnit,
+                kind: .distance
+            ))
+        } else if let distanceTile = tile(.distance, in: presentation) {
+            options.append(WorkoutShareMetricOption(
+                id: WorkoutShareMetricOption.distanceID,
+                tileTitle: distanceTile.title,
+                value: distanceTile.value,
+                kind: .distance
+            ))
+        }
+
+        let rate = rateTile(presentation: presentation, type: type)?.tile
+        if let rate {
+            options.append(option(for: rate))
+        }
+
+        options.append(WorkoutShareMetricOption(
+            id: WorkoutShareMetricOption.timeID,
+            tileTitle: String(localized: "Time"),
+            value: presentation.durationClockText,
+            kind: nil
+        ))
+
+        for tile in presentation.detailMetrics {
+            if tile.kind == .distance || tile.kind == rate?.kind { continue }
+            if isNoDataPlaceholder(tile, in: presentation) { continue }
+            options.append(option(for: tile))
+        }
+
+        return options
+    }
+
+    /// What the card shows when nobody picked (and what a non-Pro user always gets):
+    /// the story the layout tells best, filtered to what this workout actually has and
+    /// capped at `WorkoutShareMetricSelection.maximumCount`. The route-less card adds
+    /// active energy, because with no trace the stack is all the card says.
+    static func defaultMetricIDs(
+        for presentation: WorkoutDetailPresentation,
+        type: BodyWorkoutType,
+        hasRoute: Bool
+    ) -> [String] {
+        let available = availableMetrics(for: presentation, type: type)
+        let rateID = rateTile(presentation: presentation, type: type).map { WorkoutShareMetricOption.key(for: $0.tile.kind) }
+        let elevationID = isElevationEligible(type) ? WorkoutShareMetricOption.key(for: .elevation) : nil
+        let preferred: [String?]
+        if hasRoute {
+            preferred = [
+                WorkoutShareMetricOption.distanceID,
+                rateID,
+                WorkoutShareMetricOption.timeID,
+                elevationID,
+                WorkoutShareMetricOption.key(for: .avgHeartRate)
+            ]
+        } else {
+            preferred = [
+                WorkoutShareMetricOption.distanceID,
+                rateID,
+                WorkoutShareMetricOption.timeID,
+                WorkoutShareMetricOption.key(for: .activeEnergy),
+                elevationID,
+                WorkoutShareMetricOption.key(for: .avgHeartRate)
+            ]
+        }
+        let availableIDs = Set(available.map(\.id))
+        return Array(preferred.compactMap { $0 }.filter { availableIDs.contains($0) }.prefix(WorkoutShareMetricSelection.maximumCount))
+    }
+
+    /// The classic card's bottom row: the picked metrics minus the ones its header
+    /// already carries (time always, distance when it's promoted to the hero corner),
+    /// then — only if that left fewer than two — backfilled with the row's classic
+    /// extras. Capped at two: a third block doesn't fit beside the branding on a
+    /// 360-wide card.
+    static func classicRowMetrics(
+        selectedIDs: [String],
+        available: [WorkoutShareMetricOption],
+        presentation: WorkoutDetailPresentation,
+        type: BodyWorkoutType
+    ) -> [WorkoutShareMetric] {
+        var rowIDs: [String] = []
+        for id in selectedIDs {
+            guard id != WorkoutShareMetricOption.timeID else { continue }
+            guard id != WorkoutShareMetricOption.distanceID || presentation.heroDistanceValue == nil else { continue }
+            guard available.contains(where: { $0.id == id }), !rowIDs.contains(id) else { continue }
+            rowIDs.append(id)
+        }
+
+        let backfill: [String?] = [
+            rateTile(presentation: presentation, type: type).map { WorkoutShareMetricOption.key(for: $0.tile.kind) },
+            isElevationEligible(type) ? WorkoutShareMetricOption.key(for: .elevation) : nil,
+            WorkoutShareMetricOption.key(for: .avgHeartRate)
+        ]
+        for id in backfill.compactMap({ $0 }) where rowIDs.count < 2 {
+            guard available.contains(where: { $0.id == id }), !rowIDs.contains(id) else { continue }
+            rowIDs.append(id)
+        }
+
+        return rowIDs.prefix(2).compactMap { id in
+            available.first { $0.id == id }?.classicMetric
+        }
+    }
+
+    private static func option(for tile: WorkoutDetailMetric) -> WorkoutShareMetricOption {
+        WorkoutShareMetricOption(
+            id: WorkoutShareMetricOption.key(for: tile.kind),
+            tileTitle: tile.title,
+            value: tile.value,
+            kind: tile.kind
+        )
+    }
+
+    /// The three tiles Details always emits, reading "No Data" when the workout has
+    /// none — the only placeholder values in `detailMetrics`.
+    private static func isNoDataPlaceholder(
+        _ tile: WorkoutDetailMetric,
+        in presentation: WorkoutDetailPresentation
+    ) -> Bool {
+        switch tile.kind {
+        case .activeEnergy: return presentation.activeEnergyText == nil
+        case .totalEnergy: return presentation.totalEnergyText == nil
+        case .avgHeartRate: return presentation.averageHeartRateText == nil
+        default: return false
+        }
+    }
+}
+
+/// The user's per-workout-type pick of which metrics the card shows, stored as one
+/// JSON blob (`{workoutTypeRawValue: [metricID]}`) under a single `@AppStorage` key.
+///
+/// Stored ids are *preferences*, not a guarantee: a later workout of the same type
+/// may not have every tile, so `resolved(stored:available:defaults:)` intersects the
+/// pick with what's actually available and falls back to the automatic defaults when
+/// nothing survives. Nothing here ever rewrites the stored blob — a Pro lapse or a
+/// leaner workout must not silently erase the user's choice.
+enum WorkoutShareMetricSelection {
+    static let storageKey = "workoutShareMetricSelections"
+    static let maximumCount = 3
+
+    /// The remembered pick for this type, or nil when nothing is stored for it (or the
+    /// blob is unreadable — an unparseable value is treated as no preference, never as
+    /// an error the user has to clear).
+    static func stored(json: String?, type: BodyWorkoutType) -> [String]? {
+        guard let ids = decode(json)[type.rawValue], !ids.isEmpty else { return nil }
+        return ids
+    }
+
+    /// The blob with this type's pick replaced, every other type's kept. A malformed
+    /// input starts fresh rather than failing the write.
+    static func storing(_ ids: [String], for type: BodyWorkoutType, into json: String?) -> String {
+        var selections = decode(json)
+        selections[type.rawValue] = ids
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard let data = try? encoder.encode(selections), let encoded = String(data: data, encoding: .utf8) else {
+            return json ?? ""
+        }
+        return encoded
+    }
+
+    /// What the card actually shows for a Pro user: the stored pick narrowed to the
+    /// metrics this workout has, deduped, in pool order (so the card's order never
+    /// depends on the order the chips were tapped), capped at `maximumCount`. Nothing
+    /// left → the automatic defaults.
+    static func resolved(
+        stored: [String]?,
+        available: [WorkoutShareMetricOption],
+        defaults: [String]
+    ) -> [String] {
+        guard let stored else { return Array(defaults.prefix(maximumCount)) }
+        let picked = Set(stored)
+        let intersection = available.map(\.id).filter { picked.contains($0) }
+        guard !intersection.isEmpty else { return Array(defaults.prefix(maximumCount)) }
+        return Array(intersection.prefix(maximumCount))
+    }
+
+    /// One chip tap: add when there's room, remove unless it's the last one standing.
+    /// Both bounds are no-ops rather than errors, and the result comes back in pool
+    /// order so it can be stored as-is.
+    static func toggling(
+        _ id: String,
+        in current: [String],
+        available: [WorkoutShareMetricOption]
+    ) -> [String] {
+        let order = available.map(\.id)
+        var updated: Set<String>
+        if current.contains(id) {
+            guard current.count > 1 else { return current }
+            updated = Set(current)
+            updated.remove(id)
+        } else {
+            guard order.contains(id), current.count < maximumCount else { return current }
+            updated = Set(current)
+            updated.insert(id)
+        }
+        let ordered = order.filter { updated.contains($0) }
+        return ordered.isEmpty ? current : ordered
+    }
+
+    private static func decode(_ json: String?) -> [String: [String]] {
+        guard let json, !json.isEmpty, let data = json.data(using: .utf8),
+              let selections = try? JSONDecoder().decode([String: [String]].self, from: data) else {
+            return [:]
+        }
+        return selections
     }
 }
 
@@ -658,8 +889,8 @@ struct WorkoutShareCardGeometry: Equatable {
         aspectRatio == .portrait9x16 ? .vertical : .horizontal
     }
 
-    /// A 360-wide card can't fit four metric blocks on one line at a readable size,
-    /// so they wrap to a 2×2 grid; 450/640-wide cards keep a single row.
+    /// A 360-wide card can't fit three metric blocks on one line at a readable size,
+    /// so they wrap (2 + a centred remainder); 450/640-wide cards keep a single row.
     var routelessWrapsMetricRows: Bool { size.width < 400 }
 
     /// The pinch anchor for the draggable info block: its visual centre, so a pinch
@@ -813,5 +1044,16 @@ enum WorkoutShareBackgroundPolicy {
     ) -> WorkoutShareAspectRatio {
         guard ratio.isProGated, !isProUnlocked else { return ratio }
         return .portrait9x16
+    }
+
+    /// The metrics the card may actually show: picking them is Pro, so everyone else
+    /// gets the automatic defaults. Same session-only fallback as the rest — a lapse
+    /// never rewrites the stored pick, so resubscribing brings it straight back.
+    static func resolvedMetricIDs(
+        _ resolved: [String],
+        defaults: [String],
+        isProUnlocked: Bool
+    ) -> [String] {
+        isProUnlocked ? resolved : defaults
     }
 }
