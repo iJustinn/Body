@@ -382,7 +382,7 @@ enum BodyWorkoutRouteStyle: String, CaseIterable, Identifiable {
     /// Oblique, elevation-extruded ribbon when the route carries altitude; falls back to Plain otherwise.
     case threeD = "3d"
 
-    static let defaultValue: BodyWorkoutRouteStyle = .map
+    static let defaultValue: BodyWorkoutRouteStyle = .threeD
 
     var id: String {
         rawValue
