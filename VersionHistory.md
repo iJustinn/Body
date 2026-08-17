@@ -1,5 +1,21 @@
 # Version History
 
+## 0.9.12 (build 11)
+
+- **The metric warning card's chart now draws in the same hand as the Day View and range trend charts.** Its readings are the shared ringed dot — hollow, tint-stroked, at the Day View's own diameters — instead of small flat discs, and the past-threshold readings take the filled form those charts reserve for their latest point, so they still stand out in yellow.
+- **The Readiness Week chart's current-readiness dot now morphs instead of blinking.** Hiding it — a scrub callout going up, or a switch to Month/6 Months/Year — sends it climbing into today's plotted morning point directly above it as it fades, and releasing the scrub drops it back out of that point. Reduce Motion keeps the instant appearance/disappearance.
+- Updated the app, widget, watch, and test bundle version to 0.9.12 build 11.
+
+## 0.9.12 (build 10)
+
+- **Workout share cards gain a 3D route ribbon (Body Pro).** The Background section for a route workout now shows two labelled rows, **2D** (today's flat trace) and **3D**, on all four backgrounds. 3D draws the route as an elevation ribbon — oblique on the gradient presets and photo background, and rising straight up off the actual roads (with the pace-colored line and start/end markers riding the lifted line) on Map. 3D is gated behind Body Pro — its tiles carry a lock badge and open the paywall on tap — and a stored 3D pick silently falls back to 2D for the session, without overwriting the stored choice, if Pro lapses or the route lacks usable elevation data. A route with no altitude data greys the 3D row out entirely with the line "3D needs a route with elevation data." The Body Pro page's feature list adds a new **3D Route Share** entry.
+- **A new Font row** on the share strip lets you pick Rounded (default), Standard, Serif, or Monospaced for the card's text — the Body wordmark always stays Rounded — remembered across shares, on both route and route-less workouts.
+- **A new Route color row** (route workouts only) recolors the card-drawn 2D trace and 3D ribbon — Body Blue (default), Workout Color, White, Black, Orange, Green, or Pink — remembered across shares; it's greyed out while Map is the active background, since the map keeps its own pace-colored line.
+- **Photo backgrounds get a two-step adjust.** Picking a photo now opens a **Photo** step first — drag to move the photo, pinch to zoom (centered anchor), double-tap to reset — clamped so the photo always keeps the card fully covered, then a **Next** button (or the Photo \| Layout toggle) advances to the **Layout** step for today's route/metrics block placement. Both adjustments are baked into the export together and reset on a new photo pick or on leaving photo mode.
+- The route-less share card's type glyph is now smaller (30 pt, down from 56 pt).
+- On the centered (preset/photo) share card, the route's lowest point is now bottom-anchored and the metrics stack top-anchored, so the gap between them stays a fixed 42 pt regardless of the route's shape.
+- Updated the app, widget, watch, and test bundle version to 0.9.12 build 10.
+
 ## 0.9.12 (build 9)
 
 - **Metric warnings gain per-warning custom thresholds.** Settings > Metrics > Warnings now shows one card per warning (Low Heart Rate, High Heart Rate, Low Blood Oxygen), each with its toggle plus a new **Threshold** row: tapping its value pill opens a wheel-picker popover to set a custom threshold, with a **Use Default** button to clear the override. Changing a threshold immediately refreshes that warning's glyph and card without waiting for a fresh Apple Health fetch, and every subtitle (in the sheet, and the badge/card copy) reflects the effective threshold.
