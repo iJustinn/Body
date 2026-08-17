@@ -247,6 +247,62 @@ final class WorkoutRoute3DProjectionTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(WorkoutRoute3DProjection.projected(for: coordinates, yaw: .infinity)), unturned)
     }
 
+    // MARK: - Lift units (the map compositor's entry point)
+
+    /// The ribbon's lift is exactly what the projection puts between `base` and `top`,
+    /// so the map's 2.5D route and the oblique hero rise by the same amount.
+    func testLiftUnitsMatchTheProjectedRibbonsOwnLift() throws {
+        let coordinates = route([0, 0, 50, 100, 150, 200, 200, 200, 200, 200])
+        let lift = try XCTUnwrap(WorkoutRoute3DProjection.liftUnits(for: coordinates))
+        let projected = try XCTUnwrap(WorkoutRoute3DProjection.projected(for: coordinates))
+
+        XCTAssertEqual(lift.count, coordinates.count)
+        for index in coordinates.indices {
+            XCTAssertEqual(lift[index], self.lift(projected, index), accuracy: 1e-9)
+        }
+    }
+
+    /// The deck is part of the lift, not something the drawing adds: a dead-flat route
+    /// still stands one deck off the ground.
+    func testLiftUnitsIncludeTheDeckOnAFlatRoute() throws {
+        let lift = try XCTUnwrap(WorkoutRoute3DProjection.liftUnits(for: route([100, 100, 100, 100, 100])))
+
+        for value in lift {
+            XCTAssertEqual(value, deckUnits, accuracy: 1e-9)
+        }
+    }
+
+    func testLiftUnitsSpanDeckToDeckPlusFullRelief() throws {
+        let lift = try XCTUnwrap(WorkoutRoute3DProjection.liftUnits(for: reliefRoute(low: 0, high: fullReliefMetres)))
+
+        XCTAssertEqual(lift.min() ?? 0, deckUnits, accuracy: 1e-9)
+        XCTAssertEqual(lift.max() ?? 0, deckUnits + maximumReliefUnits, accuracy: 1e-9)
+    }
+
+    func testLiftUnitsAreNilUnderTheSameRulesAsTheProjection() {
+        // Too few altitudes, below the coverage floor, and a degenerate (treadmill
+        // jitter) ground trace — every case that makes `projected` nil.
+        XCTAssertNil(WorkoutRoute3DProjection.liftUnits(for: route([100, nil, nil])))
+        XCTAssertNil(WorkoutRoute3DProjection.liftUnits(for: route([10, nil, 20, nil, nil])))
+
+        let jitter = (0..<10).map { index in
+            RouteCoordinate(latitude: 10 + Double(index) * 1e-6, longitude: 20, speed: 0, altitude: 100)
+        }
+        XCTAssertNil(WorkoutShareRouteProjection.normalizedPoints(for: jitter))
+        XCTAssertNil(WorkoutRoute3DProjection.liftUnits(for: jitter))
+    }
+
+    func testLiftUnitsDropInvalidFixesLikeTheProjection() throws {
+        var mixed: [RouteCoordinate] = []
+        for (offset, altitude) in [0.0, 50, 100, 150, 200].enumerated() {
+            mixed.append(gridFix(offset, altitude: altitude))
+            mixed.append(RouteCoordinate(latitude: 200, longitude: 20, speed: 0, altitude: 999))
+        }
+
+        let lift = try XCTUnwrap(WorkoutRoute3DProjection.liftUnits(for: mixed))
+        XCTAssertEqual(lift.count, 5)
+    }
+
     // MARK: - Count / order preservation
 
     func testCountAndOrderArePreserved() throws {

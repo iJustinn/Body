@@ -39,26 +39,66 @@ final class WorkoutShareRenderTests: XCTestCase {
         }
     }
 
+    /// A due-east route at constant latitude, so every projected point sits at y 0.5 —
+    /// the ground trace is a horizontal line whose bottom-anchored position is exactly
+    /// the drawing rect's bottom edge. Its altitudes are two fixes at 0 m and eight at
+    /// 100 m, which pins the trimmed percentile range to [0, 100] and so the ribbon's
+    /// high points to a lift of 0.05 + 0.30 × 0.5 = 0.20 ground spans.
+    private func flatFixtureCoordinates() -> [RouteCoordinate] {
+        (0..<10).map { index in
+            RouteCoordinate(
+                latitude: 37.3000,
+                longitude: -122.1000 + 0.004 * Double(index),
+                speed: 3,
+                altitude: index < 2 ? 0 : 100
+            )
+        }
+    }
+
+    /// A 360×640 image, red above the midline and green below it — so a photo transform
+    /// that actually moved the backdrop shows a different half at a given card row.
+    private func twoToneImage() -> UIImage {
+        let size = CGSize(width: 360, height: 640)
+        return UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: size.width, height: size.height / 2))
+            UIColor.green.setFill()
+            context.fill(CGRect(x: 0, y: size.height / 2, width: size.width, height: size.height / 2))
+        }
+    }
+
     private func makeRenderer(
         layout: WorkoutShareCardLayout = .centered,
         infoTransform: WorkoutShareInfoTransform = .identity,
-        withRoute: Bool = true
+        withRoute: Bool = true,
+        coordinates: [RouteCoordinate]? = nil,
+        dimension: WorkoutShareRouteDimension = .twoD,
+        background: WorkoutShareCardBackground = .preset(.midnight),
+        photoTransform: WorkoutSharePhotoTransform = .identity,
+        fontDesign: Font.Design = .rounded,
+        routeColor: Color = BodyWorkoutShareCardView.defaultRouteColor
     ) -> ImageRenderer<some View> {
         let workout = fixtureWorkout()
         let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
         let isRouteless = layout == .routeless
+        let routeCoordinates = coordinates ?? fixtureCoordinates()
         let card = BodyWorkoutShareCardView(
             presentation: presentation,
             metrics: isRouteless ? [] : WorkoutShareMetricsBuilder.metrics(for: presentation, type: workout.type),
             centeredMetrics: isRouteless
                 ? WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: workout.type)
                 : WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type),
-            routePoints: withRoute ? WorkoutShareRouteProjection.normalizedPoints(for: fixtureCoordinates()) : nil,
+            routePoints: withRoute ? WorkoutShareRouteProjection.normalizedPoints(for: routeCoordinates) : nil,
+            route3D: withRoute ? WorkoutRoute3DProjection.projected(for: routeCoordinates) : nil,
+            dimension: dimension,
             locality: "Cupertino",
             type: workout.type,
-            background: .preset(.midnight),
+            background: background,
             layout: layout,
-            infoTransform: infoTransform
+            infoTransform: infoTransform,
+            photoTransform: photoTransform,
+            fontDesign: fontDesign,
+            routeColor: routeColor
         )
         let renderer = ImageRenderer(
             content: card
@@ -169,6 +209,167 @@ final class WorkoutShareRenderTests: XCTestCase {
         )
     }
 
+    // MARK: - Bottom-anchored route
+
+    /// The centered layout pins the route's lowest drawn point to the drawing rect's
+    /// bottom edge (y 288), so the gap to the metric stack is the same for a tall route
+    /// and a flat one. The flat fixture projects to a horizontal line at y 0.5, which
+    /// unanchored would draw at card y ≈ 117 — a third of the card higher.
+    func testFlatRouteIsBottomAnchoredToTheDrawingRect() throws {
+        let renderer = makeRenderer(coordinates: flatFixtureCoordinates())
+        let image = try XCTUnwrap(renderer.uiImage)
+        let cgImage = try XCTUnwrap(image.cgImage)
+
+        XCTAssertTrue(
+            Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 60, y: 282, width: 240, height: 6)),
+            "Flat route did not draw just above the drawing rect's bottom edge"
+        )
+        XCTAssertFalse(
+            // Stops short of the pinned branding, whose app-icon artwork is blue.
+            Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 0, y: 300, width: 360, height: 280)),
+            "Route drew below the drawing rect's bottom edge"
+        )
+        XCTAssertFalse(
+            Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 0, y: 60, width: 360, height: 200)),
+            "Route still drew in its unanchored, vertically centered position"
+        )
+    }
+
+    // MARK: - 3D ribbon
+
+    /// The ribbon lifts the flat fixture's high points 0.20 ground spans — 0.20 × 236 ≈
+    /// 47 pt — above the bottom-anchored ground line at y 288, so its lit top edge lands
+    /// near card y 241. The 2D fallback draws only at y 288, which is what makes this
+    /// test fail rather than silently pass if the card ever ignores `.threeD`.
+    func testThreeDRibbonDrawsALiftedLineTheFlatTraceNeverReaches() throws {
+        let liftedBand = Self.pixelRect(x: 150, y: 235, width: 100, height: 12)
+
+        let threeD = try XCTUnwrap(makeRenderer(coordinates: flatFixtureCoordinates(), dimension: .threeD).uiImage?.cgImage)
+        XCTAssertTrue(
+            Self.containsRouteBluePixel(in: threeD, region: liftedBand),
+            "3D ribbon drew no lifted line above the ground trace"
+        )
+
+        let twoD = try XCTUnwrap(makeRenderer(coordinates: flatFixtureCoordinates(), dimension: .twoD).uiImage?.cgImage)
+        XCTAssertFalse(
+            Self.containsRouteBluePixel(in: twoD, region: liftedBand),
+            "The 2D trace drew where only the lifted ribbon should reach"
+        )
+    }
+
+    func testThreeDCardRendersToExactPixelSize() throws {
+        let renderer = makeRenderer(coordinates: flatFixtureCoordinates(), dimension: .threeD)
+        let cgImage = try XCTUnwrap(renderer.uiImage?.cgImage)
+
+        XCTAssertEqual(cgImage.width, 1_080)
+        XCTAssertEqual(cgImage.height, 1_920)
+    }
+
+    /// A route with no altitude can't project a ribbon, so `.threeD` falls back to the
+    /// flat trace rather than drawing nothing.
+    func testThreeDWithoutAltitudeStillDrawsTheFlatTrace() throws {
+        let renderer = makeRenderer(dimension: .threeD)
+        let cgImage = try XCTUnwrap(renderer.uiImage?.cgImage)
+
+        XCTAssertTrue(
+            Self.containsRouteBluePixel(in: cgImage, region: Self.centeredRouteRegionInPixels(of: cgImage)),
+            "A 3D card with no usable altitude drew no route at all"
+        )
+    }
+
+    // MARK: - Font and route colour
+
+    /// Serif and monospaced digits are wider than the rounded default; the metric values
+    /// shrink to fit rather than pushing the card past its fixed 360×640.
+    func testSerifCardRendersToExactPixelSize() throws {
+        let renderer = makeRenderer(fontDesign: .serif)
+        let cgImage = try XCTUnwrap(renderer.uiImage?.cgImage)
+
+        XCTAssertEqual(cgImage.width, 1_080)
+        XCTAssertEqual(cgImage.height, 1_920)
+    }
+
+    /// The route colour reaches the Canvas, not just the initializer: a white route over
+    /// Midnight leaves near-white pixels where the default blue never would.
+    func testWhiteRouteColorDrawsWhitePixelsInTheRouteRegion() throws {
+        let renderer = makeRenderer(routeColor: .white)
+        let cgImage = try XCTUnwrap(renderer.uiImage?.cgImage)
+        let region = Self.centeredRouteRegionInPixels(of: cgImage)
+
+        XCTAssertTrue(
+            Self.containsPixel(in: cgImage, region: region) { red, green, blue in
+                red > 200 && green > 200 && blue > 200
+            },
+            "White route colour produced no near-white pixels in the route region"
+        )
+        XCTAssertFalse(
+            Self.containsRouteBluePixel(in: cgImage, region: region),
+            "Route still drew in the default blue despite a white route colour"
+        )
+    }
+
+    // MARK: - Photo transform
+
+    /// The photo transform has to move the backdrop's pixels, not just be accepted by the
+    /// card. At scale 2 the two-tone image's midline sits at card y 320; sliding it down
+    /// 160 pt moves that boundary to y 480, so a row at y 400 flips from green to red.
+    /// Sampled at the card's left edge, clear of the metric stack's white text.
+    func testPhotoTransformOffsetMovesTheBackdrop() throws {
+        let sample = Self.pixelRect(x: 4, y: 390, width: 14, height: 20)
+        let photo = twoToneImage()
+
+        let centered = try XCTUnwrap(
+            makeRenderer(
+                background: .photo(photo),
+                photoTransform: WorkoutSharePhotoTransform(offset: .zero, scale: 2)
+            ).uiImage?.cgImage
+        )
+        let centeredColor = Self.averageColor(in: centered, region: sample)
+        XCTAssertGreaterThan(centeredColor.green, centeredColor.red, "Untranslated photo should show its lower (green) half at y 400")
+
+        let shifted = try XCTUnwrap(
+            makeRenderer(
+                background: .photo(photo),
+                photoTransform: WorkoutSharePhotoTransform(offset: CGSize(width: 0, height: 160), scale: 2)
+            ).uiImage?.cgImage
+        )
+        let shiftedColor = Self.averageColor(in: shifted, region: sample)
+        XCTAssertGreaterThan(shiftedColor.red, shiftedColor.green, "Photo transform's offset did not move the backdrop")
+    }
+
+    /// A landscape photo's `scaledToFill` overhang must survive until after the pan: the
+    /// clamp lets a 1280×640 photo (fill width 1280 → 460 pt of overhang each side) slide
+    /// by that much at scale 1, and clipping the fill to the card first would drag a bare
+    /// strip in from the edge. Left half green, right half red: panned 400 pt right, the
+    /// card's left edge must show the photo's green half, not the black card behind it.
+    func testLandscapePhotoPannedByItsOverhangStillCoversTheCard() throws {
+        let size = CGSize(width: 1_280, height: 640)
+        let photo = UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.green.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: size.width / 2, height: size.height))
+            UIColor.red.setFill()
+            context.fill(CGRect(x: size.width / 2, y: 0, width: size.width / 2, height: size.height))
+        }
+        let transform = WorkoutSharePhotoTransform(offset: CGSize(width: 400, height: 0), scale: 1)
+            .clamped(imageSize: size)
+        XCTAssertEqual(transform.offset.width, 400, accuracy: 0.001, "fixture pan must be inside the clamp")
+
+        let image = try XCTUnwrap(
+            makeRenderer(background: .photo(photo), photoTransform: transform).uiImage?.cgImage
+        )
+        // Left edge, mid-height: under the scrims' clear band and clear of the trace.
+        let color = Self.averageColor(in: image, region: Self.pixelRect(x: 2, y: 310, width: 10, height: 20))
+        XCTAssertGreaterThan(color.green, 0.5, "Panned photo left a bare strip at the card's edge")
+        XCTAssertGreaterThan(color.green, color.red)
+    }
+
+    /// Card points × the renderer's scale 3, clamped to the 1080×1920 image.
+    private static func pixelRect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) -> CGRect {
+        let scale: CGFloat = 3
+        return CGRect(x: x * scale, y: y * scale, width: width * scale, height: height * scale)
+            .intersection(CGRect(x: 0, y: 0, width: 1_080, height: 1_920))
+    }
+
     /// `BodyWorkoutShareCardView.centeredRoute*` (card points, optionally shifted by an
     /// info transform's offset) × the renderer's scale 3, clamped to the image so a
     /// future geometry change can't index out of bounds.
@@ -217,6 +418,65 @@ final class WorkoutShareRenderTests: XCTestCase {
             }
         }
         return false
+    }
+
+    /// Draws the CGImage into an RGBA8 buffer and scans `region` for any pixel matching
+    /// `matches` — the general form of the colour probes above.
+    private static func containsPixel(
+        in cgImage: CGImage,
+        region: CGRect,
+        matches: (UInt8, UInt8, UInt8) -> Bool
+    ) -> Bool {
+        guard let pixels = rgbaPixels(of: cgImage) else { return false }
+        let bytesPerRow = cgImage.width * 4
+        for y in Int(region.minY)..<Int(region.maxY) {
+            for x in Int(region.minX)..<Int(region.maxX) {
+                let offset = y * bytesPerRow + x * 4
+                if matches(pixels[offset], pixels[offset + 1], pixels[offset + 2]) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /// Mean channel values over `region`, for probes that care about which of two flat
+    /// colours fills an area rather than whether a thin stroke touched it.
+    private static func averageColor(in cgImage: CGImage, region: CGRect) -> (red: Double, green: Double, blue: Double) {
+        guard let pixels = rgbaPixels(of: cgImage) else { return (0, 0, 0) }
+        let bytesPerRow = cgImage.width * 4
+        var totals = (red: 0.0, green: 0.0, blue: 0.0)
+        var count = 0.0
+        for y in Int(region.minY)..<Int(region.maxY) {
+            for x in Int(region.minX)..<Int(region.maxX) {
+                let offset = y * bytesPerRow + x * 4
+                totals.red += Double(pixels[offset])
+                totals.green += Double(pixels[offset + 1])
+                totals.blue += Double(pixels[offset + 2])
+                count += 1
+            }
+        }
+        guard count > 0 else { return (0, 0, 0) }
+        return (totals.red / count, totals.green / count, totals.blue / count)
+    }
+
+    private static func rgbaPixels(of cgImage: CGImage) -> [UInt8]? {
+        let width = cgImage.width
+        let height = cgImage.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return pixels
     }
 
     /// Draws the CGImage into an RGBA8 buffer and scans `region` for any pixel that

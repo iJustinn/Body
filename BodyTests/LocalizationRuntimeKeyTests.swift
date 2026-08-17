@@ -133,7 +133,38 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Couldn't Load Map",
             "Couldn't Create Image",
             "Couldn't Save Image",
-            "Body needs permission to add photos. Allow it in Settings › Body › Photos, then try again."
+            "Body needs permission to add photos. Allow it in Settings › Body › Photos, then try again.",
+            // Background dimension rows and the explainer under a route that can't
+            // carry a ribbon.
+            "2D",
+            "3D",
+            "3D needs a route with elevation data.",
+            // Photo adjust steps: the two captions, the segmented picker, Next, and the
+            // VoiceOver reset actions.
+            "Drag to move the photo. Pinch to zoom. Double-tap to reset.",
+            "Drag to move. Pinch to resize. Double-tap to reset.",
+            "Photo",
+            "Layout",
+            "Next",
+            "Reset Photo",
+            "Reset Layout",
+            // Font row label and the option names, built via String(localized:) in
+            // WorkoutShareFontChoice.localizedName.
+            "Font",
+            "Rounded",
+            "Standard",
+            "Serif",
+            "Monospaced",
+            // Route colour row label, hint, and the option names from
+            // WorkoutShareRouteColorChoice.localizedName.
+            "Route",
+            "Route color doesn't apply to the Map background.",
+            "Body Blue",
+            "White",
+            "Black",
+            "Orange",
+            "Green",
+            "Pink"
         ]
 
         try assertKeysTranslated(keys, in: catalog)

@@ -48,6 +48,12 @@ struct BodyWorkoutShareCardView: View {
     /// Already normalized to the unit square by `WorkoutShareRouteProjection`. `nil`
     /// collapses the trace into a metrics-only card.
     let routePoints: [CGPoint]?
+    /// The route's elevation ribbon at rest (yaw 0), computed once by the sheet. Drawn
+    /// instead of the flat trace when `dimension` is `.threeD`; `nil` falls back to it.
+    let route3D: WorkoutRoute3DProjection.Projected3D?
+    /// Already resolved through `WorkoutShareBackgroundPolicy.resolvedDimension` — the
+    /// card never re-checks the Pro entitlement.
+    let dimension: WorkoutShareRouteDimension
     let locality: String?
     let type: BodyWorkoutType
     let background: WorkoutShareCardBackground
@@ -55,21 +61,37 @@ struct BodyWorkoutShareCardView: View {
     /// Where the centered layout's info block sits; `.identity` is its default slot.
     /// The classic layout ignores it.
     let infoTransform: WorkoutShareInfoTransform
+    /// How the photo background is panned and zoomed. Only `.photo` reads it.
+    let photoTransform: WorkoutSharePhotoTransform
+    /// Type design for everything but the brand wordmark.
+    let fontDesign: Font.Design
+    /// The card-drawn trace's colour (2D polyline and 3D ribbon). The map background's
+    /// composited route ignores it and keeps its pace colouring.
+    let routeColor: Color
 
-    private static let cardSize = CGSize(width: 360, height: 640)
+    /// Internal so `WorkoutSharePhotoTransform` clamps against the same card the photo
+    /// has to cover.
+    static let cardSize = CGSize(width: 360, height: 640)
 
     /// The centered layout's route region, in card points. Internal so the render test
     /// derives its pixel sample area from the same numbers the card draws with.
     static let centeredRouteSize: CGFloat = 260
     static let centeredRouteCenter = CGPoint(x: 180, y: 170)
+    /// Inset of the drawing rect inside the route region, so the stroke never clips.
+    static let centeredRouteInset: CGFloat = 12
 
-    /// Where the centered metric stack's midline sits when a trace is shown: below the
-    /// route region (which ends at y 300) and clear of the pinned branding.
-    private static let centeredMetricsCenterY: CGFloat = 440
+    /// Top edge of the centered metric stack when a trace is shown. The route is
+    /// bottom-anchored on the drawing rect's bottom edge (y 288), so whatever shape the
+    /// route has, the gap between its lowest point and the stack is always 42 pt.
+    static let centeredMetricsTopY: CGFloat = 330
 
-    /// #0128F4 — the card's own route trace only; the map background's polyline keeps
-    /// its pace coloring and the marker rings stay white.
-    private static let routeColor = Color(red: 1 / 255, green: 40 / 255, blue: 244 / 255)
+    /// The block's pinch anchor: the midpoint of the route region's top edge and a
+    /// three-metric stack's bottom — the block's visual centre, so a pinch doesn't push
+    /// the trace off the top the way anchoring on the card's centre would.
+    private static let blockAnchorY: CGFloat = 305
+
+    /// #0128F4 — `WorkoutShareRouteColorChoice.bodyBlue`, the default trace colour.
+    static let defaultRouteColor = Color(red: 1 / 255, green: 40 / 255, blue: 244 / 255)
 
     /// `.routeless` never traces, whatever it's handed: making that a property of the
     /// layout (rather than of the caller passing `routePoints: nil`) also fixes
@@ -77,6 +99,13 @@ struct BodyWorkoutShareCardView: View {
     private var showsTrace: Bool {
         if case .map = background { return false }
         return layout != .routeless && routePoints != nil
+    }
+
+    /// The ribbon to draw instead of the flat trace, or `nil` when this card traces
+    /// flat — 2D was picked, or the route carries no usable altitude.
+    private var ribbon: WorkoutRoute3DProjection.Projected3D? {
+        guard showsTrace, dimension == .threeD else { return nil }
+        return route3D
     }
 
     var body: some View {
@@ -91,7 +120,7 @@ struct BodyWorkoutShareCardView: View {
                     // y 375, so the trace sits identically on every background. The
                     // square rect keeps the projection's aspect ratio undistorted;
                     // the 324 pt frame leaves the 12 pt inset for the stroke.
-                    routeHero
+                    routeHero(bottomAnchored: false)
                         .frame(width: 324, height: 324)
                         .position(x: Self.cardSize.width / 2, y: 375)
                 }
@@ -109,7 +138,19 @@ struct BodyWorkoutShareCardView: View {
         switch background {
         case .preset(let preset):
             preset.gradient(tint: type.color)
-        case .photo(let image), .map(let image):
+        case .photo(let image):
+            // Scale then offset, then clip: the fill's overhang beyond the card must
+            // survive until after the transform, because the clamp lets the photo pan
+            // exactly by that overhang — clipping it first would leave a bare strip.
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: Self.cardSize.width, height: Self.cardSize.height)
+                .scaleEffect(photoTransform.scale, anchor: .center)
+                .offset(photoTransform.offset)
+                .frame(width: Self.cardSize.width, height: Self.cardSize.height)
+                .clipped()
+        case .map(let image):
             Image(uiImage: image)
                 .resizable()
                 .scaledToFill()
@@ -179,7 +220,7 @@ struct BodyWorkoutShareCardView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(presentation.title)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .font(.system(size: 24, weight: .bold, design: fontDesign))
                     .foregroundColor(.white)
 
                 if let locality {
@@ -187,13 +228,13 @@ struct BodyWorkoutShareCardView: View {
                         Image(systemName: "location.fill")
                             .font(.system(size: 11, weight: .semibold))
                         Text(locality)
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .font(.system(size: 14, weight: .medium, design: fontDesign))
                     }
                     .foregroundColor(.white.opacity(0.7))
                 }
 
                 Text("\(presentation.dateTitle) - \(presentation.timeRangeText)")
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .font(.system(size: 14, weight: .medium, design: fontDesign))
                     .foregroundColor(.white.opacity(0.7))
             }
         }
@@ -205,28 +246,28 @@ struct BodyWorkoutShareCardView: View {
                 VStack(alignment: .trailing, spacing: 1) {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text(heroValue)
-                            .font(.system(size: 40, weight: .bold, design: .rounded))
+                            .font(.system(size: 40, weight: .bold, design: fontDesign))
                             .foregroundColor(.white)
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
                         Text(heroUnit)
-                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .font(.system(size: 17, weight: .semibold, design: fontDesign))
                             .foregroundColor(.white.opacity(0.85))
                     }
                     Text("Distance")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .font(.system(size: 12, weight: .semibold, design: fontDesign))
                         .foregroundColor(.white.opacity(0.6))
                 }
             }
 
             VStack(alignment: .trailing, spacing: 1) {
                 Text(presentation.durationClockText)
-                    .font(.system(size: 40, weight: .bold, design: .rounded))
+                    .font(.system(size: 40, weight: .bold, design: fontDesign))
                     .foregroundColor(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                 Text("Duration")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .font(.system(size: 12, weight: .semibold, design: fontDesign))
                     .foregroundColor(.white.opacity(0.6))
             }
         }
@@ -234,38 +275,71 @@ struct BodyWorkoutShareCardView: View {
 
     // MARK: - Route trace
 
-    /// SwiftUI `Canvas` polyline of the route in `routeColor`, through the centered,
-    /// inset rect so the ~5 pt stroke never clips. No start/end markers — only the
-    /// map background's composited route carries those.
-    private var routeHero: some View {
+    /// SwiftUI `Canvas` drawing of the route in `routeColor` — the flat polyline, or the
+    /// oblique elevation ribbon in 3D — through the centered, inset rect so the stroke
+    /// never clips. No start/end markers: only the map background's composited route
+    /// carries those.
+    ///
+    /// - Parameter bottomAnchored: Translates the finished drawing so its lowest point
+    ///   lands on the rect's bottom edge. The centered layout draws that way so the gap
+    ///   to the metric stack below is the same for a tall route and a wide one; the
+    ///   classic layout keeps the trace centered on the map's own geometry.
+    private func routeHero(bottomAnchored: Bool) -> some View {
         Canvas { context, size in
-            guard let routePoints, routePoints.count >= 2 else { return }
-
-            let inset: CGFloat = 12
+            let inset = Self.centeredRouteInset
             let rect = CGRect(
                 x: inset,
                 y: inset,
                 width: size.width - inset * 2,
                 height: size.height - inset * 2
             )
-            let mapped = routePoints.map { point in
-                CGPoint(x: rect.minX + point.x * rect.width, y: rect.minY + point.y * rect.height)
+
+            if let ribbon {
+                let top = Self.mapped(ribbon.top, in: rect)
+                let base = Self.mapped(ribbon.base, in: rect)
+                // The ground trace is the ribbon's lowest line by construction, so it
+                // alone decides the anchor.
+                let shift = bottomAnchored ? Self.bottomAnchorShift(for: base, in: rect) : 0
+                BodyWorkoutRoute3DHero.drawRibbon(
+                    top: Self.shifted(top, by: shift),
+                    base: Self.shifted(base, by: shift),
+                    tint: routeColor,
+                    in: &context
+                )
+                return
             }
 
+            guard let routePoints, routePoints.count >= 2 else { return }
+            let mapped = Self.mapped(routePoints, in: rect)
+            let shift = bottomAnchored ? Self.bottomAnchorShift(for: mapped, in: rect) : 0
+
             var path = Path()
-            path.move(to: mapped[0])
-            for point in mapped.dropFirst() {
-                path.addLine(to: point)
-            }
+            path.addLines(Self.shifted(mapped, by: shift))
 
             var strokeContext = context
             strokeContext.addFilter(.shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5))
             strokeContext.stroke(
                 path,
-                with: .color(Self.routeColor),
+                with: .color(routeColor),
                 style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
             )
         }
+    }
+
+    /// Projection space (unit square for the flat trace, the ribbon's own camera space
+    /// for 3D) into the drawing rect. The rect is square, so one scale serves both axes
+    /// and neither drawing is distorted.
+    private static func mapped(_ points: [CGPoint], in rect: CGRect) -> [CGPoint] {
+        points.map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) }
+    }
+
+    private static func shifted(_ points: [CGPoint], by shift: CGFloat) -> [CGPoint] {
+        shift == 0 ? points : points.map { CGPoint(x: $0.x, y: $0.y + shift) }
+    }
+
+    private static func bottomAnchorShift(for points: [CGPoint], in rect: CGRect) -> CGFloat {
+        guard let lowest = points.map(\.y).max() else { return 0 }
+        return rect.maxY - lowest
     }
 
     // MARK: - Bottom bar (metrics leading, branding trailing)
@@ -275,10 +349,10 @@ struct BodyWorkoutShareCardView: View {
             ForEach(Array(metrics.enumerated()), id: \.offset) { _, metric in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(metric.value)
-                        .font(.system(size: 21, weight: .bold, design: .rounded))
+                        .font(.system(size: 21, weight: .bold, design: fontDesign))
                         .foregroundColor(.white)
                     Text(metric.title)
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .font(.system(size: 10, weight: .semibold, design: fontDesign))
                         .foregroundColor(.white.opacity(0.7))
                 }
                 .lineLimit(1)
@@ -323,28 +397,39 @@ struct BodyWorkoutShareCardView: View {
                     // Glyph and stack are one flowing block, not two absolute slots:
                     // the metric count varies from one to four here, and the pair
                     // stays visually centered together at any of them.
-                    VStack(spacing: 28) {
+                    VStack(spacing: 20) {
                         typeGlyph
                         centeredMetricsStack
                     }
                     .frame(width: Self.cardSize.width - 48)
                     .position(x: Self.cardSize.width / 2, y: Self.cardSize.height / 2)
-                } else {
-                    if showsTrace {
-                        routeHero
-                            .frame(width: Self.centeredRouteSize, height: Self.centeredRouteSize)
-                            .position(Self.centeredRouteCenter)
-                            .accessibilityHidden(true)
-                    }
+                } else if showsTrace {
+                    routeHero(bottomAnchored: true)
+                        .frame(width: Self.centeredRouteSize, height: Self.centeredRouteSize)
+                        .position(Self.centeredRouteCenter)
+                        .accessibilityHidden(true)
 
+                    // Top-anchored rather than centered: the route above ends on a fixed
+                    // edge, so pinning the stack's top edge is what keeps the gap between
+                    // them constant no matter how many metrics the stack carries.
+                    VStack(spacing: 0) {
+                        centeredMetricsStack
+                        Spacer(minLength: 0)
+                    }
+                    .frame(
+                        width: Self.cardSize.width - 48,
+                        height: Self.cardSize.height - Self.centeredMetricsTopY
+                    )
+                    .position(
+                        x: Self.cardSize.width / 2,
+                        y: Self.centeredMetricsTopY + (Self.cardSize.height - Self.centeredMetricsTopY) / 2
+                    )
+                } else {
+                    // Traceless cards have nothing above the stack, so it centers in the
+                    // whole card — the same fallback the classic layout's metrics take.
                     centeredMetricsStack
                         .frame(width: Self.cardSize.width - 48)
-                        // Traceless cards have nothing above the stack, so it centers in the
-                        // whole card — the same fallback the classic layout's metrics take.
-                        .position(
-                            x: Self.cardSize.width / 2,
-                            y: showsTrace ? Self.centeredMetricsCenterY : Self.cardSize.height / 2
-                        )
+                        .position(x: Self.cardSize.width / 2, y: Self.cardSize.height / 2)
                 }
             }
             // Explicitly card-sized so the `.position` calls above keep resolving
@@ -364,8 +449,7 @@ struct BodyWorkoutShareCardView: View {
     /// trace off the top, since the block sits above the midline when a trace is shown.
     private var blockAnchor: UnitPoint {
         guard showsTrace else { return .center }
-        let blockCenterY = (Self.centeredRouteCenter.y + Self.centeredMetricsCenterY) / 2
-        return UnitPoint(x: 0.5, y: blockCenterY / Self.cardSize.height)
+        return UnitPoint(x: 0.5, y: Self.blockAnchorY / Self.cardSize.height)
     }
 
     /// The route-less card's only identity — no chip, no title, no date — so it keeps
@@ -373,7 +457,7 @@ struct BodyWorkoutShareCardView: View {
     /// chip (which sits beside the workout's title anyway).
     private var typeGlyph: some View {
         Image(systemName: type.symbolName)
-            .font(.system(size: 56, weight: .semibold))
+            .font(.system(size: 30, weight: .semibold))
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(.white)
             .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
@@ -385,10 +469,10 @@ struct BodyWorkoutShareCardView: View {
             ForEach(Array(centeredMetrics.enumerated()), id: \.offset) { _, metric in
                 VStack(spacing: 2) {
                     Text(metric.title)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .font(.system(size: 15, weight: .semibold, design: fontDesign))
                         .foregroundColor(.white.opacity(0.7))
                     Text(metric.value)
-                        .font(.system(size: 40, weight: .bold, design: .rounded))
+                        .font(.system(size: 40, weight: .bold, design: fontDesign))
                         .foregroundColor(.white)
                 }
                 .lineLimit(1)
@@ -406,7 +490,8 @@ struct BodyWorkoutShareCardView: View {
 private func previewCard(
     layout: WorkoutShareCardLayout,
     withRoute: Bool,
-    infoTransform: WorkoutShareInfoTransform = .identity
+    infoTransform: WorkoutShareInfoTransform = .identity,
+    dimension: WorkoutShareRouteDimension = .twoD
 ) -> some View {
     let workout = WorkoutSummary(
         type: .running,
@@ -422,7 +507,8 @@ private func previewCard(
         return RouteCoordinate(
             latitude: 37.3230 + 0.010 * sin(t * .pi * 2),
             longitude: -122.0322 + 0.012 * t,
-            speed: 3
+            speed: 3,
+            altitude: 40 + 160 * t
         )
     }
     let isRouteless = layout == .routeless
@@ -435,11 +521,16 @@ private func previewCard(
             ? WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: workout.type)
             : WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type),
         routePoints: withRoute ? WorkoutShareRouteProjection.normalizedPoints(for: coordinates) : nil,
+        route3D: withRoute ? WorkoutRoute3DProjection.projected(for: coordinates) : nil,
+        dimension: dimension,
         locality: "Cupertino",
         type: .running,
         background: .preset(.midnight),
         layout: layout,
-        infoTransform: infoTransform
+        infoTransform: infoTransform,
+        photoTransform: .identity,
+        fontDesign: .rounded,
+        routeColor: BodyWorkoutShareCardView.defaultRouteColor
     )
     .frame(width: 360, height: 640)
     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -447,6 +538,10 @@ private func previewCard(
 
 #Preview("Centered - route") {
     previewCard(layout: .centered, withRoute: true)
+}
+
+#Preview("Centered - 3D") {
+    previewCard(layout: .centered, withRoute: true, dimension: .threeD)
 }
 
 #Preview("Centered - moved") {

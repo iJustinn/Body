@@ -5,6 +5,7 @@
 
 import XCTest
 import CoreGraphics
+import SwiftUI
 import UIKit
 @testable import Body
 
@@ -667,6 +668,151 @@ final class WorkoutShareCardTests: XCTestCase {
     func testResolvedPhotoWithNilPhotoReturnsNilRegardlessOfEntitlement() {
         XCTAssertNil(WorkoutShareBackgroundPolicy.resolvedPhoto(nil, isProUnlocked: true))
         XCTAssertNil(WorkoutShareBackgroundPolicy.resolvedPhoto(nil, isProUnlocked: false))
+    }
+
+    // MARK: - Route dimension
+
+    func testStoredDimensionRoundTripsEveryCase() {
+        for dimension in WorkoutShareRouteDimension.allCases {
+            XCTAssertEqual(WorkoutShareRouteDimension.stored(rawValue: dimension.rawValue), dimension)
+        }
+        XCTAssertEqual(WorkoutShareRouteDimension.twoD.rawValue, "2d")
+        XCTAssertEqual(WorkoutShareRouteDimension.threeD.rawValue, "3d")
+    }
+
+    func testStoredDimensionFallsBackToTwoDForNilOrGarbage() {
+        XCTAssertEqual(WorkoutShareRouteDimension.stored(rawValue: nil), .twoD)
+        XCTAssertEqual(WorkoutShareRouteDimension.stored(rawValue: ""), .twoD)
+        XCTAssertEqual(WorkoutShareRouteDimension.stored(rawValue: "4d"), .twoD)
+    }
+
+    func testResolvedDimensionNeedsBothProAndAltitude() {
+        // The full truth table: 3D survives only the top-right corner of it.
+        for isPro in [true, false] {
+            for isAvailable in [true, false] {
+                XCTAssertEqual(
+                    WorkoutShareBackgroundPolicy.resolvedDimension(.threeD, isProUnlocked: isPro, isThreeDAvailable: isAvailable),
+                    isPro && isAvailable ? .threeD : .twoD,
+                    "3D resolved wrongly for pro=\(isPro) available=\(isAvailable)"
+                )
+                // 2D never becomes 3D, whatever the entitlement or the route.
+                XCTAssertEqual(
+                    WorkoutShareBackgroundPolicy.resolvedDimension(.twoD, isProUnlocked: isPro, isThreeDAvailable: isAvailable),
+                    .twoD
+                )
+            }
+        }
+    }
+
+    // MARK: - Font choice
+
+    func testStoredFontRoundTripsEveryCaseAndFallsBackToRounded() {
+        for choice in WorkoutShareFontChoice.allCases {
+            XCTAssertEqual(WorkoutShareFontChoice.stored(rawValue: choice.rawValue), choice)
+        }
+        XCTAssertEqual(WorkoutShareFontChoice.stored(rawValue: nil), .rounded)
+        XCTAssertEqual(WorkoutShareFontChoice.stored(rawValue: "comic"), .rounded)
+    }
+
+    func testFontChoiceDesigns() {
+        XCTAssertEqual(WorkoutShareFontChoice.rounded.design, .rounded)
+        XCTAssertEqual(WorkoutShareFontChoice.standard.design, .default)
+        XCTAssertEqual(WorkoutShareFontChoice.serif.design, .serif)
+        XCTAssertEqual(WorkoutShareFontChoice.monospaced.design, .monospaced)
+    }
+
+    // MARK: - Route colour choice
+
+    func testStoredRouteColorRoundTripsEveryCaseAndFallsBackToBodyBlue() {
+        for choice in WorkoutShareRouteColorChoice.allCases {
+            XCTAssertEqual(WorkoutShareRouteColorChoice.stored(rawValue: choice.rawValue), choice)
+        }
+        XCTAssertEqual(WorkoutShareRouteColorChoice.stored(rawValue: nil), .bodyBlue)
+        XCTAssertEqual(WorkoutShareRouteColorChoice.stored(rawValue: "chartreuse"), .bodyBlue)
+    }
+
+    func testBodyBlueIsTheCardsDefaultTraceColor() {
+        let tint = Color.red
+        XCTAssertEqual(WorkoutShareRouteColorChoice.bodyBlue.color(tint: tint), Color(red: 1 / 255, green: 40 / 255, blue: 244 / 255))
+        XCTAssertEqual(WorkoutShareRouteColorChoice.bodyBlue.color(tint: tint), BodyWorkoutShareCardView.defaultRouteColor)
+        // The one option that isn't a fixed colour follows the workout's own tint.
+        XCTAssertEqual(WorkoutShareRouteColorChoice.workoutTint.color(tint: tint), tint)
+        XCTAssertEqual(WorkoutShareRouteColorChoice.black.color(tint: tint), .black)
+    }
+
+    // MARK: - Photo transform
+
+    func testPhotoIdentityTransformClampsToItself() {
+        // A photo with the card's own aspect ratio has no overhang at scale 1, so there
+        // is nowhere for the offset to travel.
+        XCTAssertEqual(
+            WorkoutSharePhotoTransform.identity.clamped(imageSize: CGSize(width: 360, height: 640)),
+            .identity
+        )
+    }
+
+    func testCardAspectPhotoAtScaleOneCannotMove() {
+        let clamped = WorkoutSharePhotoTransform(offset: CGSize(width: 50, height: 50), scale: 1)
+            .clamped(imageSize: CGSize(width: 720, height: 1_280))
+
+        XCTAssertEqual(clamped.offset, .zero)
+        XCTAssertEqual(clamped.scale, 1)
+    }
+
+    func testLandscapePhotoSlidesHorizontallyAtScaleOne() {
+        // A 2:1 photo filling the 360×640 card is 1280 pt wide, so it overhangs by
+        // (1280 − 360)/2 = 460 pt on each side — and only on that axis.
+        let clamped = WorkoutSharePhotoTransform(offset: CGSize(width: 900, height: 900), scale: 1)
+            .clamped(imageSize: CGSize(width: 1_000, height: 500))
+
+        XCTAssertEqual(clamped.offset.width, 460, accuracy: 1e-6)
+        XCTAssertEqual(clamped.offset.height, 0)
+    }
+
+    func testPortraitPhotoAtScaleTwoBoundsBothAxes() {
+        // Card-aspect photo at scale 2: 720×1280 over a 360×640 card → 180/320 of slack.
+        let far = WorkoutSharePhotoTransform(offset: CGSize(width: 900, height: 900), scale: 2)
+            .clamped(imageSize: CGSize(width: 360, height: 640))
+
+        XCTAssertEqual(far.offset.width, 180, accuracy: 1e-6)
+        XCTAssertEqual(far.offset.height, 320, accuracy: 1e-6)
+
+        let near = WorkoutSharePhotoTransform(offset: CGSize(width: -900, height: -900), scale: 2)
+            .clamped(imageSize: CGSize(width: 360, height: 640))
+
+        XCTAssertEqual(near.offset.width, -180, accuracy: 1e-6)
+        XCTAssertEqual(near.offset.height, -320, accuracy: 1e-6)
+    }
+
+    func testPhotoScaleClampsToItsRange() {
+        let size = CGSize(width: 360, height: 640)
+
+        XCTAssertEqual(WorkoutSharePhotoTransform(offset: .zero, scale: 9).clamped(imageSize: size).scale, 4)
+        // Never below 1: the photo has to keep covering the card.
+        XCTAssertEqual(WorkoutSharePhotoTransform(offset: .zero, scale: 0.2).clamped(imageSize: size).scale, 1)
+    }
+
+    func testNonFinitePhotoComponentsClampToTheIdentityComponent() {
+        let size = CGSize(width: 360, height: 640)
+        let badWidth = WorkoutSharePhotoTransform(offset: CGSize(width: CGFloat.nan, height: 100), scale: 2).clamped(imageSize: size)
+
+        XCTAssertEqual(badWidth.offset.width, 0)
+        XCTAssertEqual(badWidth.offset.height, 100)
+        XCTAssertEqual(badWidth.scale, 2)
+
+        let badScale = WorkoutSharePhotoTransform(offset: CGSize(width: 20, height: CGFloat.infinity), scale: CGFloat.nan).clamped(imageSize: size)
+
+        XCTAssertEqual(badScale.offset.width, 0, "A scale that reset to 1 leaves a card-aspect photo no slack")
+        XCTAssertEqual(badScale.offset.height, 0)
+        XCTAssertEqual(badScale.scale, 1)
+    }
+
+    func testDegenerateImageSizeZeroesTheOffsetAndOnlyClampsTheScale() {
+        for size in [CGSize(width: 0, height: 640), CGSize(width: 360, height: -1), CGSize(width: CGFloat.nan, height: 640)] {
+            let clamped = WorkoutSharePhotoTransform(offset: CGSize(width: 100, height: 100), scale: 9).clamped(imageSize: size)
+            XCTAssertEqual(clamped.offset, CGSize.zero, "Degenerate image size \(size) should leave no offset")
+            XCTAssertEqual(clamped.scale, 4)
+        }
     }
 
     // MARK: - Info block transform

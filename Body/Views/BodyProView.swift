@@ -591,6 +591,12 @@ private struct BodyProFeature: Identifiable {
             title: String(localized: "Photo Activity Share"),
             detail: String(localized: "Use your own photos as the background of workout share cards."),
             iconName: "photo.fill"
+        ),
+        BodyProFeature(
+            id: "three-d-route-share",
+            title: String(localized: "3D Route Share"),
+            detail: String(localized: "Share workout cards with the route drawn as a 3D elevation ribbon on any background."),
+            iconName: "move.3d"
         )
     ]
 }

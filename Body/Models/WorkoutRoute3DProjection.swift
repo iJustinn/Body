@@ -59,19 +59,57 @@ enum WorkoutRoute3DProjection {
     ///   radians — positive turns the route clockwise as seen from above. Non-finite
     ///   values are treated as 0.
     static func projected(for coordinates: [RouteCoordinate], yaw: Double = 0) -> Projected3D? {
-        // Filter once with the same predicate `normalizedPoints` uses, so the
-        // altitudes read off `filtered` stay index-aligned with the points it
-        // returns (it re-filters the already-filtered input harmlessly).
-        let filtered = coordinates.filter {
-            $0.latitude.isFinite && $0.longitude.isFinite &&
-            abs($0.latitude) <= 90 && abs($0.longitude) <= 180
+        let filtered = filteredCoordinates(coordinates)
+        guard let ground = WorkoutShareRouteProjection.normalizedPoints(for: filtered),
+              ground.count == filtered.count,
+              let lift = lift(for: filtered) else {
+            return nil
         }
+
+        let angle = yaw.isFinite ? yaw : 0
+        let rest = lifted(ground: ground, lift: lift)
+        // Yaw 0 reuses the rest pose outright: no rotation arithmetic runs, so the
+        // unturned ribbon is bit-identical to the pre-rotation projection.
+        let turned = angle == 0 ? rest : lifted(ground: rotated(ground: ground, angle: angle), lift: lift)
+        let fitReference = rest.top + rest.base
+
+        guard turned.top.allSatisfy({ $0.x.isFinite && $0.y.isFinite }),
+              turned.base.allSatisfy({ $0.x.isFinite && $0.y.isFinite }),
+              fitReference.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else {
+            return nil
+        }
+        return Projected3D(top: turned.top, base: turned.base, fitReference: fitReference)
+    }
+
+    /// How far above the ground each fix stands, in unit ground spans (deck + relief),
+    /// or `nil` when the route can't be drawn in 3D — the same degeneracy and altitude-
+    /// coverage rules `projected(for:yaw:)` applies. Exposed on its own so the share
+    /// card's map background can raise the route over real map geometry, without the
+    /// oblique camera the ribbon hero frames through.
+    static func liftUnits(for coordinates: [RouteCoordinate]) -> [Double]? {
+        let filtered = filteredCoordinates(coordinates)
         guard let ground = WorkoutShareRouteProjection.normalizedPoints(for: filtered),
               ground.count == filtered.count else {
             return nil
         }
+        return lift(for: filtered)
+    }
 
-        let rawAltitudes: [Double?] = filtered.map { coordinate in
+    /// The same predicate `normalizedPoints` uses, applied once up front so the
+    /// altitudes read off the result stay index-aligned with the points it returns
+    /// (it re-filters the already-filtered input harmlessly).
+    private static func filteredCoordinates(_ coordinates: [RouteCoordinate]) -> [RouteCoordinate] {
+        coordinates.filter {
+            $0.latitude.isFinite && $0.longitude.isFinite &&
+            abs($0.latitude) <= 90 && abs($0.longitude) <= 180
+        }
+    }
+
+    /// Deck + relief per fix, or `nil` when too few fixes carry a usable altitude. A
+    /// property of the altitudes alone, so it survives the yaw and is computed once for
+    /// both poses.
+    private static func lift(for coordinates: [RouteCoordinate]) -> [Double]? {
+        let rawAltitudes: [Double?] = coordinates.map { coordinate in
             guard let altitude = coordinate.altitude, altitude.isFinite else {
                 return nil
             }
@@ -88,41 +126,25 @@ enum WorkoutRoute3DProjection {
         let range = hi - lo
         let reliefUnits = maximumReliefUnits * min(1, range / fullReliefMetres)
 
-        // The lift is a property of the altitude alone, so it survives the yaw and is
-        // computed once for both poses below.
-        let heights = altitudes.map { altitude -> Double in
+        return altitudes.map { altitude -> Double in
             // A flat (or unusable) range lifts every point onto the same deck.
             guard range > 0, range.isFinite else {
-                return 0
+                return deckUnits
             }
-            return min(max((altitude - lo) / range, 0), 1) * reliefUnits
+            return deckUnits + min(max((altitude - lo) / range, 0), 1) * reliefUnits
         }
-
-        let angle = yaw.isFinite ? yaw : 0
-        let rest = lifted(ground: ground, heights: heights)
-        // Yaw 0 reuses the rest pose outright: no rotation arithmetic runs, so the
-        // unturned ribbon is bit-identical to the pre-rotation projection.
-        let turned = angle == 0 ? rest : lifted(ground: rotated(ground: ground, angle: angle), heights: heights)
-        let fitReference = rest.top + rest.base
-
-        guard turned.top.allSatisfy({ $0.x.isFinite && $0.y.isFinite }),
-              turned.base.allSatisfy({ $0.x.isFinite && $0.y.isFinite }),
-              fitReference.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else {
-            return nil
-        }
-        return Projected3D(top: turned.top, base: turned.base, fitReference: fitReference)
     }
 
     /// Raises a ground trace into the ribbon: the ground plane squashed by the oblique
     /// camera, and the deck + relief lift standing above each of its points.
-    private static func lifted(ground: [CGPoint], heights: [Double]) -> (top: [CGPoint], base: [CGPoint]) {
+    private static func lifted(ground: [CGPoint], lift: [Double]) -> (top: [CGPoint], base: [CGPoint]) {
         var top: [CGPoint] = []
         var base: [CGPoint] = []
         top.reserveCapacity(ground.count)
         base.reserveCapacity(ground.count)
         for (index, point) in ground.enumerated() {
             let groundY = point.y * groundSquash
-            top.append(CGPoint(x: point.x, y: groundY - deckUnits - heights[index]))
+            top.append(CGPoint(x: point.x, y: groundY - lift[index]))
             base.append(CGPoint(x: point.x, y: groundY))
         }
         return (top, base)

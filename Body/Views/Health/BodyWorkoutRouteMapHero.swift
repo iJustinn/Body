@@ -174,10 +174,16 @@ struct BodyWorkoutRouteMapHero: View {
     /// fast) when the fixes carry enough speed spread, otherwise a single tint —
     /// plus start (green) / end (red) markers. Returns the composited image.
     /// Internal so the share card's map background reuses the same compositing.
+    ///
+    /// - Parameter lift: Unit lift per fix (`WorkoutRoute3DProjection.liftUnits`), which
+    ///   raises the route off the roads as a 2.5D ribbon: the ground trace stays on the
+    ///   map, the coloured line stands straight up above it. `nil` — or a count that
+    ///   doesn't match the route — draws the flat route.
     static func draw(
         route: [RouteCoordinate],
         on snapshot: MKMapSnapshotter.Snapshot,
-        fallbackTint: UIColor
+        fallbackTint: UIColor,
+        lift: [Double]? = nil
     ) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = snapshot.image.scale
@@ -197,6 +203,11 @@ struct BodyWorkoutRouteMapHero: View {
             cgContext.setLineWidth(4)
             cgContext.setLineJoin(.round)
             cgContext.setLineCap(.round)
+
+            if let lift, lift.count == points.count {
+                drawRibbon(base: points, lift: lift, route: route, fallbackTint: fallbackTint, in: cgContext)
+                return
+            }
 
             if let bounds = WorkoutRoutePaceColoring.speedColorBounds(for: route) {
                 // One short stroke per segment so the line shades smoothly by pace.
@@ -220,6 +231,89 @@ struct BodyWorkoutRouteMapHero: View {
             drawMarker(at: last, color: .systemRed, in: cgContext)
         }
     }
+
+    /// The 2.5D ribbon over the map: the route's own snapshot points are the ground,
+    /// and each one's lifted twin stands `lift × span` points straight above it.
+    ///
+    /// `span` is the ground trace's own bounding box in snapshot points, matching the
+    /// unit the projection's lift is expressed in (fractions of the route's ground
+    /// span). Mercator's north-south stretch is treated as negligible at the scale a
+    /// single workout's route covers, the same approximation the route projection makes.
+    private static func drawRibbon(
+        base: [CGPoint],
+        lift: [Double],
+        route: [RouteCoordinate],
+        fallbackTint: UIColor,
+        in context: CGContext
+    ) {
+        let xs = base.map(\.x)
+        let ys = base.map(\.y)
+        guard let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max() else {
+            return
+        }
+        let span = max(maxX - minX, maxY - minY)
+        let top = base.enumerated().map { index, point in
+            CGPoint(x: point.x, y: point.y - CGFloat(lift[index]) * span)
+        }
+
+        context.setLineWidth(2)
+        context.setStrokeColor(fallbackTint.withAlphaComponent(wallGroundOpacity).cgColor)
+        context.move(to: base[0])
+        for point in base.dropFirst() {
+            context.addLine(to: point)
+        }
+        context.strokePath()
+
+        let wallGradient = CGGradient(
+            colorsSpace: CGColorSpaceCreateDeviceRGB(),
+            colors: [
+                fallbackTint.withAlphaComponent(wallTopOpacity).cgColor,
+                fallbackTint.withAlphaComponent(wallBottomOpacity).cgColor
+            ] as CFArray,
+            locations: [0, 1]
+        )
+        let speedBounds = WorkoutRoutePaceColoring.speedColorBounds(for: route)
+        context.setLineWidth(4)
+
+        // Painter's algorithm, as the 3D hero does it: back to front by ground depth,
+        // each wall immediately followed by its own top-line segment.
+        let order = (0..<(base.count - 1)).sorted { base[$0].y + base[$0 + 1].y < base[$1].y + base[$1 + 1].y }
+        for index in order {
+            if let wallGradient {
+                context.saveGState()
+                context.beginPath()
+                context.addLines(between: [top[index], top[index + 1], base[index + 1], base[index], top[index]])
+                context.closePath()
+                context.clip()
+                context.drawLinearGradient(
+                    wallGradient,
+                    start: CGPoint(x: (top[index].x + top[index + 1].x) / 2, y: (top[index].y + top[index + 1].y) / 2),
+                    end: CGPoint(x: (base[index].x + base[index + 1].x) / 2, y: (base[index].y + base[index + 1].y) / 2),
+                    options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+                )
+                context.restoreGState()
+            }
+
+            if let speedBounds {
+                let segmentSpeed = (route[index].speed + route[index + 1].speed) / 2
+                context.setStrokeColor(WorkoutRoutePaceColoring.color(forSpeed: segmentSpeed, bounds: speedBounds).cgColor)
+            } else {
+                context.setStrokeColor(fallbackTint.cgColor)
+            }
+            context.move(to: top[index])
+            context.addLine(to: top[index + 1])
+            context.strokePath()
+        }
+
+        // The markers belong to the lifted line, which is the route the eye follows.
+        drawMarker(at: top[0], color: .systemGreen, in: context)
+        drawMarker(at: top[top.count - 1], color: .systemRed, in: context)
+    }
+
+    /// The ribbon's shading, matching `BodyWorkoutRoute3DHero`'s.
+    private static let wallGroundOpacity: CGFloat = 0.35
+    private static let wallTopOpacity: CGFloat = 0.34
+    private static let wallBottomOpacity: CGFloat = 0.04
 
     private static func drawMarker(at point: CGPoint, color: UIColor, in context: CGContext) {
         let radius: CGFloat = 6
@@ -406,45 +500,56 @@ struct BodyWorkoutRoute3DHero: View {
             let place = { (point: CGPoint) in
                 CGPoint(x: fit.offset.x + point.x * fit.scale, y: fit.offset.y + point.y * fit.scale)
             }
-            let count = projected.top.count
-            let top = projected.top.map(place)
-            let base = projected.base.map(place)
-
-            var groundPath = Path()
-            groundPath.addLines(base)
-            context.stroke(groundPath, with: .color(tint.opacity(Self.groundOpacity)), style: StrokeStyle(lineWidth: 2))
-
-            // Painter's algorithm: draw the segments back to front by their ground
-            // depth, so on a route that crosses itself the nearer wall covers the
-            // farther line instead of the draw order deciding at random.
-            let order = (0..<(count - 1)).sorted { base[$0].y + base[$0 + 1].y < base[$1].y + base[$1 + 1].y }
-            for index in order {
-                var wall = Path()
-                wall.addLines([top[index], top[index + 1], base[index + 1], base[index]])
-                wall.closeSubpath()
-                // Gradient endpoints at the segment's own top and ground midpoints, so
-                // every wall shades over its full drop whatever its height.
-                let topMid = CGPoint(x: (top[index].x + top[index + 1].x) / 2, y: (top[index].y + top[index + 1].y) / 2)
-                let baseMid = CGPoint(x: (base[index].x + base[index + 1].x) / 2, y: (base[index].y + base[index + 1].y) / 2)
-                context.fill(
-                    wall,
-                    with: .linearGradient(
-                        Gradient(colors: [tint.opacity(Self.wallTopOpacity), tint.opacity(Self.wallBottomOpacity)]),
-                        startPoint: topMid,
-                        endPoint: baseMid
-                    )
-                )
-
-                var segment = Path()
-                segment.addLines([top[index], top[index + 1]])
-                context.stroke(
-                    segment,
-                    with: .color(tint),
-                    style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
-                )
-            }
+            Self.drawRibbon(
+                top: projected.top.map(place),
+                base: projected.base.map(place),
+                tint: tint,
+                in: &context
+            )
         }
         .accessibilityHidden(true)
+    }
+
+    /// Paints one ribbon — faint ground trace, then the walls and lifted line
+    /// interleaved back to front — into an already-fitted pair of polylines. Internal
+    /// so the share card draws its centered 3D route with exactly this painter.
+    static func drawRibbon(top: [CGPoint], base: [CGPoint], tint: Color, in context: inout GraphicsContext) {
+        let count = min(top.count, base.count)
+        guard count >= 2 else { return }
+
+        var groundPath = Path()
+        groundPath.addLines(base)
+        context.stroke(groundPath, with: .color(tint.opacity(groundOpacity)), style: StrokeStyle(lineWidth: 2))
+
+        // Painter's algorithm: draw the segments back to front by their ground
+        // depth, so on a route that crosses itself the nearer wall covers the
+        // farther line instead of the draw order deciding at random.
+        let order = (0..<(count - 1)).sorted { base[$0].y + base[$0 + 1].y < base[$1].y + base[$1 + 1].y }
+        for index in order {
+            var wall = Path()
+            wall.addLines([top[index], top[index + 1], base[index + 1], base[index]])
+            wall.closeSubpath()
+            // Gradient endpoints at the segment's own top and ground midpoints, so
+            // every wall shades over its full drop whatever its height.
+            let topMid = CGPoint(x: (top[index].x + top[index + 1].x) / 2, y: (top[index].y + top[index + 1].y) / 2)
+            let baseMid = CGPoint(x: (base[index].x + base[index + 1].x) / 2, y: (base[index].y + base[index + 1].y) / 2)
+            context.fill(
+                wall,
+                with: .linearGradient(
+                    Gradient(colors: [tint.opacity(wallTopOpacity), tint.opacity(wallBottomOpacity)]),
+                    startPoint: topMid,
+                    endPoint: baseMid
+                )
+            )
+
+            var segment = Path()
+            segment.addLines([top[index], top[index + 1]])
+            context.stroke(
+                segment,
+                with: .color(tint),
+                style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
+            )
+        }
     }
 }
 

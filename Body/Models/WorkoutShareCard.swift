@@ -275,6 +275,111 @@ enum BodyWorkoutSharePreset: String, CaseIterable, Identifiable {
     }
 }
 
+/// Whether the card draws the route flat or as the oblique elevation ribbon. Stored
+/// across sessions like the background choice; `WorkoutShareBackgroundPolicy` is the
+/// only seam that decides whether a stored `.threeD` may actually render.
+enum WorkoutShareRouteDimension: String, CaseIterable {
+    case twoD = "2d"
+    case threeD = "3d"
+
+    static let storageKey = "workoutShareRouteDimension"
+
+    /// Anything unknown (or nothing stored) is the flat trace.
+    static func stored(rawValue: String?) -> WorkoutShareRouteDimension {
+        guard let rawValue, let dimension = WorkoutShareRouteDimension(rawValue: rawValue) else {
+            return .twoD
+        }
+        return dimension
+    }
+}
+
+/// The card's type design, picked by the user and applied to every string the card
+/// draws except the brand wordmark. Free — no Pro gate.
+enum WorkoutShareFontChoice: String, CaseIterable, Identifiable {
+    case rounded
+    case standard
+    case serif
+    case monospaced
+
+    var id: String { rawValue }
+
+    static let storageKey = "workoutShareFont"
+
+    static func stored(rawValue: String?) -> WorkoutShareFontChoice {
+        guard let rawValue, let choice = WorkoutShareFontChoice(rawValue: rawValue) else {
+            return .rounded
+        }
+        return choice
+    }
+
+    var design: Font.Design {
+        switch self {
+        case .rounded: return .rounded
+        case .standard: return .default
+        case .serif: return .serif
+        case .monospaced: return .monospaced
+        }
+    }
+
+    var localizedName: String {
+        switch self {
+        case .rounded: return String(localized: "Rounded")
+        case .standard: return String(localized: "Standard")
+        case .serif: return String(localized: "Serif")
+        case .monospaced: return String(localized: "Monospaced")
+        }
+    }
+}
+
+/// Colour of the trace the card draws itself — the 2D polyline and the 3D ribbon on
+/// gradient and photo backgrounds. The map background ignores it: that route is
+/// composited into the snapshot and keeps its pace colouring.
+enum WorkoutShareRouteColorChoice: String, CaseIterable, Identifiable {
+    case bodyBlue
+    case workoutTint
+    case white
+    case black
+    case orange
+    case green
+    case pink
+
+    var id: String { rawValue }
+
+    static let storageKey = "workoutShareRouteColor"
+
+    static func stored(rawValue: String?) -> WorkoutShareRouteColorChoice {
+        guard let rawValue, let choice = WorkoutShareRouteColorChoice(rawValue: rawValue) else {
+            return .bodyBlue
+        }
+        return choice
+    }
+
+    /// - Parameter tint: The workout type's colour, for the `.workoutTint` option.
+    func color(tint: Color) -> Color {
+        switch self {
+        case .bodyBlue: return BodyWorkoutShareCardView.defaultRouteColor
+        case .workoutTint: return tint
+        case .white: return .white
+        case .black: return .black
+        case .orange: return .orange
+        case .green: return .green
+        case .pink: return .pink
+        }
+    }
+
+    var localizedName: String {
+        switch self {
+        case .bodyBlue: return String(localized: "Body Blue")
+        case .workoutTint: return String(localized: "Workout Color")
+        case .white: return String(localized: "White")
+        case .black: return String(localized: "Black")
+        case .orange: return String(localized: "Orange")
+        case .green: return String(localized: "Green")
+        case .pink: return String(localized: "Pink")
+        }
+    }
+}
+
 /// What the share sheet restores when it opens: a gradient preset (Midnight is the
 /// default) or the route map. Photos stay session-only — a Pro entitlement can lapse
 /// between sessions, and `WorkoutShareBackgroundPolicy` is the only seam that
@@ -346,11 +451,81 @@ struct WorkoutShareInfoTransform: Equatable {
     }
 }
 
+/// How the user has panned and zoomed the photo behind the card, in the card's own
+/// 360×640 space. Separate from `WorkoutShareInfoTransform` (which moves the info
+/// block): the photo step adjusts the backdrop, the layout step adjusts the block, and
+/// the export bakes both. Session-only, like the photo itself.
+struct WorkoutSharePhotoTransform: Equatable {
+    /// In card points, applied after `scale` — so a drag stays 1:1 at any zoom.
+    var offset: CGSize
+    var scale: CGFloat
+
+    static let identity = WorkoutSharePhotoTransform(offset: .zero, scale: 1)
+
+    /// Never below 1: the photo fills the card with `scaledToFill`, so zooming out
+    /// past that could only uncover the background.
+    static let scaleRange: ClosedRange<CGFloat> = 1...4
+
+    /// Keeps the photo covering the whole card: given the size `scaledToFill` gives it
+    /// in the 360×640 frame, the offset can only travel as far as the overhang the
+    /// scaled image has on each axis. A mismatched aspect ratio has overhang even at
+    /// scale 1 — the photo may slide along its long axis, which is the point.
+    ///
+    /// A degenerate gesture value (NaN/infinite) resets that component to identity
+    /// rather than pinning to a bound, the same rule `WorkoutShareInfoTransform` uses;
+    /// an image with a non-positive side has no meaningful overhang, so the offset
+    /// zeroes out and only the scale is clamped.
+    func clamped(imageSize: CGSize) -> WorkoutSharePhotoTransform {
+        let clampedScale = scale.isFinite
+            ? min(max(scale, Self.scaleRange.lowerBound), Self.scaleRange.upperBound)
+            : 1
+
+        let cardWidth = BodyWorkoutShareCardView.cardSize.width
+        let cardHeight = BodyWorkoutShareCardView.cardSize.height
+        guard imageSize.width > 0, imageSize.height > 0,
+              imageSize.width.isFinite, imageSize.height.isFinite else {
+            return WorkoutSharePhotoTransform(offset: .zero, scale: clampedScale)
+        }
+
+        let aspect = imageSize.width / imageSize.height
+        let fillWidth = max(cardWidth, cardHeight * aspect)
+        let fillHeight = max(cardHeight, cardWidth / aspect)
+        let maximumOffsetWidth = max(0, (fillWidth * clampedScale - cardWidth) / 2)
+        let maximumOffsetHeight = max(0, (fillHeight * clampedScale - cardHeight) / 2)
+
+        return WorkoutSharePhotoTransform(
+            offset: CGSize(
+                width: Self.clamp(offset.width, limit: maximumOffsetWidth),
+                height: Self.clamp(offset.height, limit: maximumOffsetHeight)
+            ),
+            scale: clampedScale
+        )
+    }
+
+    private static func clamp(_ value: CGFloat, limit: CGFloat) -> CGFloat {
+        guard value.isFinite else { return 0 }
+        return min(max(value, -limit), limit)
+    }
+}
+
 /// The single seam that keeps a user photo from ever rendering for a non-Pro user, even
 /// if UI state slips (e.g. a photo picked before the entitlement lapses). Mirrors
 /// `BodyHomeBackground.proGatedColors`.
 enum WorkoutShareBackgroundPolicy {
     static func resolvedPhoto(_ photo: UIImage?, isProUnlocked: Bool) -> UIImage? {
         isProUnlocked ? photo : nil
+    }
+
+    /// The dimension the card may actually draw: 3D is Pro-only and needs a route with
+    /// usable altitude. Never rewrites the stored key — a Pro lapse or a flat route
+    /// falls back to 2D for the session only, so the next eligible share opens in 3D
+    /// again (the same session-only fallback a stored map takes on a routeless share).
+    static func resolvedDimension(
+        _ dimension: WorkoutShareRouteDimension,
+        isProUnlocked: Bool,
+        isThreeDAvailable: Bool
+    ) -> WorkoutShareRouteDimension {
+        guard dimension == .threeD, isProUnlocked, isThreeDAvailable else { return .twoD }
+        return .threeD
     }
 }
