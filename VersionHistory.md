@@ -1,5 +1,9 @@
 # Version History
 
+## 1.0.0 (build 6)
+
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 6.
+
 ## 0.9.12 (build 17)
 
 - **Workout routes now open as the 3D elevation ribbon by default.** Settings > Workouts > Route Style starts on **3D** instead of **Map** on a fresh install, with **Draw Route** on as before — so a new install sees the ribbon stroke itself in rather than a map snapshot. An existing pick is untouched.
