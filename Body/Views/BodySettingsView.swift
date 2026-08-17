@@ -34,6 +34,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsWorkoutRouteOnLoad = true
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @State private var activeSheet: BodySettingsSheet?
     @State private var showBodyProPaywall = false
@@ -473,7 +474,11 @@ struct BodySettingsView: View {
     }
 
     private var workoutRouteStyleSummaryText: String {
-        BodyWorkoutRouteStyle.storedValue(from: workoutRouteStyleRawValue).title
+        let style = BodyWorkoutRouteStyle.storedValue(from: workoutRouteStyleRawValue).title
+        // Draw is the row's first control now, so the summary leads with it when it's on
+        // — "Draw · 3D". Off is the quieter state and reads as just the style.
+        guard drawsWorkoutRouteOnLoad else { return style }
+        return "\(String(localized: "routeStyle.drawSummary")) · \(style)"
     }
 
     private var settingsDivider: some View {
@@ -710,7 +715,7 @@ struct BodySettingsView: View {
                 workoutStore: workoutStore
             )
         case .workoutRouteStyle:
-            BodyWorkoutRouteStyleSettingsSheet(selection: workoutRouteStyle)
+            BodyWorkoutRouteStyleSettingsSheet(selection: workoutRouteStyle, drawsRoute: $drawsWorkoutRouteOnLoad)
         case .aiReadiness:
             BodyReadinessAISettingsSheet(
                 isEnabled: $showReadinessAIComment,
@@ -1102,9 +1107,45 @@ private struct BodyUnitPreferencePickerSheet: View {
 
 private struct BodyWorkoutRouteStyleSettingsSheet: View {
     @Binding var selection: BodyWorkoutRouteStyle
+    @Binding var drawsRoute: Bool
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Route Style") {
+            // Draw leads the sheet: it applies to whichever style is picked below, so it
+            // reads as the setting for all of them rather than a footnote to the last one.
+            // A bare card rather than a titled `BodySettingsCardSection` — the style card
+            // carries no section title either, and mixing the two reads as a mistake.
+            HStack(spacing: 14) {
+                BodySettingsIconTile(iconName: "scribble.variable", color: .blue)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Draw Route")
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+
+                    Text("routeStyle.drawSubtitle")
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                Toggle("Draw Route", isOn: $drawsRoute)
+                    .labelsHidden()
+                    .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                    .accessibilityValue(drawsRoute ? "On" : "Off")
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+            .bodyCardBackground(translucent: true)
+
             VStack(spacing: 0) {
                 ForEach(Array(BodyWorkoutRouteStyle.allCases.enumerated()), id: \.element) { index, style in
                     if index > 0 {

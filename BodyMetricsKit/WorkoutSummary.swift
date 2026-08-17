@@ -135,6 +135,12 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     /// `HKMetadataKeyAverageMETs` in kcal/(kg·hr) — the workout's average metabolic
     /// equivalent.
     let averageMETs: Double?
+    /// The workout's 1-minute heart-rate recovery in BPM, read from the statistics
+    /// already attached to the `HKWorkout` (no extra query). Optional so snapshots
+    /// persisted before it existed decode `nil`, and so a workout whose recovery
+    /// sample hasn't synced yet falls back to the detail sheet's lazy read. Rides
+    /// the Heart permission like the other heart fields.
+    let heartRateRecoveryBPM: Double?
 
     /// The workout's end for interval maths: HealthKit's `endDate` when recorded,
     /// otherwise the pre-existing `startDate + duration` approximation.
@@ -165,7 +171,8 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         endDate: Date? = nil,
         weatherTemperatureCelsius: Double? = nil,
         weatherHumidityPercent: Double? = nil,
-        averageMETs: Double? = nil
+        averageMETs: Double? = nil,
+        heartRateRecoveryBPM: Double? = nil
     ) {
         self.id = id
         self.type = type
@@ -190,6 +197,7 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         self.weatherTemperatureCelsius = weatherTemperatureCelsius
         self.weatherHumidityPercent = weatherHumidityPercent
         self.averageMETs = averageMETs
+        self.heartRateRecoveryBPM = heartRateRecoveryBPM
     }
 
     /// A copy with the Workout Metrics detail fields cleared — used when the user
@@ -223,7 +231,41 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
             // they ride the Workouts permission and survive the opt-out.
             weatherTemperatureCelsius: weatherTemperatureCelsius,
             weatherHumidityPercent: weatherHumidityPercent,
-            averageMETs: averageMETs
+            averageMETs: averageMETs,
+            // Heart-rate recovery rides the Heart permission, not Workout Metrics.
+            heartRateRecoveryBPM: heartRateRecoveryBPM
+        )
+    }
+
+    /// A copy with heart-rate recovery cleared — used when the user disables the
+    /// `.heart` permission so an already-cached summary stops surfacing the tile
+    /// (and its comparison) before the next refetch. Everything else is preserved.
+    func removingHeartRateRecovery() -> WorkoutSummary {
+        WorkoutSummary(
+            id: id,
+            type: type,
+            startDate: startDate,
+            duration: duration,
+            activeEnergyKilocalories: activeEnergyKilocalories,
+            totalEnergyKilocalories: totalEnergyKilocalories,
+            distanceMeters: distanceMeters,
+            averageHeartRateBeatsPerMinute: averageHeartRateBeatsPerMinute,
+            maximumHeartRateBeatsPerMinute: maximumHeartRateBeatsPerMinute,
+            effortLevel: effortLevel,
+            effortUnresolved: effortUnresolved,
+            heartRateSamples: heartRateSamples ?? [],
+            elevationAscendedMeters: elevationAscendedMeters,
+            averagePowerWatts: averagePowerWatts,
+            averageStepCadenceSPM: averageStepCadenceSPM,
+            averageCyclingCadenceRPM: averageCyclingCadenceRPM,
+            swimmingStrokeCount: swimmingStrokeCount,
+            cardioFitnessVO2Max: cardioFitnessVO2Max,
+            sourceName: sourceName,
+            endDate: endDate,
+            weatherTemperatureCelsius: weatherTemperatureCelsius,
+            weatherHumidityPercent: weatherHumidityPercent,
+            averageMETs: averageMETs,
+            heartRateRecoveryBPM: nil
         )
     }
 }
@@ -244,7 +286,6 @@ struct WorkoutDetailMetric: Equatable {
         case power
         case cardioFitness
         case strokeCount
-        case temperature
         case humidity
         case averageMETs
         case heartRateRecovery
@@ -425,10 +466,12 @@ enum WorkoutMetricComparisonBuilder {
         case .power: return positive(workout.averagePowerWatts)
         case .cardioFitness: return positive(workout.cardioFitnessVO2Max)
         case .strokeCount: return positive(workout.swimmingStrokeCount)
-        // Environment/context tiles: a 30-day average of the weather or of a
-        // one-off recovery reading isn't a performance baseline, so they never
-        // carry a comparison badge (and never make the legend appear alone).
-        case .temperature, .humidity, .averageMETs, .heartRateRecovery: return nil
+        // Humidity is a 0…100 percentage where zero is a real reading, so it uses
+        // the bounded helper rather than the positive-only one; METs and recovery
+        // are positive-only like the performance metrics above.
+        case .humidity: return bounded(workout.weatherHumidityPercent, to: 0...100)
+        case .averageMETs: return positive(workout.averageMETs)
+        case .heartRateRecovery: return positive(workout.heartRateRecoveryBPM)
         case .pace, .swimPace, .speed:
             guard let distance = workout.distanceMeters,
                   distance >= distanceFloor(for: kind),
@@ -497,6 +540,13 @@ enum WorkoutMetricComparisonBuilder {
 
     private static func positive(_ value: Double?) -> Double? {
         guard let value, value.isFinite, value > 0 else { return nil }
+        return value
+    }
+
+    /// A finite value inside `range`, zero included — for metrics whose zero is a
+    /// measurement rather than an absence (humidity).
+    private static func bounded(_ value: Double?, to range: ClosedRange<Double>) -> Double? {
+        guard let value, value.isFinite, range.contains(value) else { return nil }
         return value
     }
 
@@ -621,7 +671,6 @@ struct WorkoutDetailPresentation: Equatable {
         unitPreference: BodyValueFormat.UnitPreference = .system,
         distanceUnitPreference: BodyValueFormat.DistanceUnitPreference? = nil,
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories,
-        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference = .celsius,
         comparisonWorkouts: [WorkoutSummary]? = nil,
         comparisonDataComplete: Bool = true,
         comparisonLoadSettled: Bool = true
@@ -838,20 +887,6 @@ struct WorkoutDetailPresentation: Equatable {
         // Session context the watch recorded alongside the workout. Weather and METs
         // come from workout metadata, so they show whenever the recording source
         // saved them — no Workout Metrics opt-in involved.
-        if let celsius = workout.weatherTemperatureCelsius, celsius.isFinite {
-            let display = BodyValueFormat.temperatureValue(
-                celsius: celsius,
-                locale: locale,
-                temperatureUnitPreference: temperatureUnitPreference
-            )
-            metrics.append(WorkoutDetailMetric(
-                kind: .temperature,
-                // Dotted key: the bare "Temperature" entry is the sleep card's body
-                // temperature (体温), which is the wrong word for the weather.
-                title: String(localized: "workoutDetail.temperature", defaultValue: "Temperature", table: "BodyMetricsKit"),
-                value: BodyValueFormat.numberText(display.value.rounded(), decimals: 0, locale: locale) + " °" + display.unit
-            ))
-        }
         if let humidity = workout.weatherHumidityPercent, humidity.isFinite {
             metrics.append(WorkoutDetailMetric(
                 kind: .humidity,
@@ -865,6 +900,13 @@ struct WorkoutDetailPresentation: Equatable {
                 title: String(localized: "Avg METs", table: "BodyMetricsKit"),
                 value: BodyValueFormat.numberText(averageMETs, decimals: 1, locale: locale) + " METs"
             ))
+        }
+
+        // Recovery straight from the workout's attached statistics. When it's absent
+        // here (not synced yet, or no attached statistics) the detail sheet appends
+        // the same tile from its lazy read instead — never both.
+        if let recovery = workout.heartRateRecoveryBPM, recovery > 0 {
+            metrics.append(Self.heartRateRecoveryMetric(bpm: recovery, locale: locale))
         }
 
         // Attach the 30-day comparison caption to each metric when comparison data was
@@ -1438,6 +1480,30 @@ enum BodyValueFormat {
         }
 
         return (celsius, "C")
+    }
+
+    /// The workout hero line's temperature, e.g. "21°C" / "70°F" — whole degrees, no
+    /// space before the degree sign (the hero row is tight). `nil` for a non-finite
+    /// reading so the row is simply omitted.
+    static func temperatureHeroText(
+        celsius: Double,
+        locale: Locale = .current,
+        temperatureUnitPreference: TemperatureUnitPreference
+    ) -> String? {
+        guard celsius.isFinite else {
+            return nil
+        }
+
+        let display = temperatureValue(
+            celsius: celsius,
+            locale: locale,
+            temperatureUnitPreference: temperatureUnitPreference
+        )
+        let rounded = display.value.rounded()
+        // `-0.4` rounds to negative zero, which formats as "-0"; a temperature at
+        // freezing reads "0°C".
+        let normalized = rounded == 0 ? 0 : rounded
+        return "\(numberText(normalized, decimals: 0, locale: locale))°\(display.unit)"
     }
 
     static func numberText(_ value: Double, decimals: Int, locale: Locale = .current) -> String {

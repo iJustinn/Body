@@ -14,6 +14,30 @@ import HealthKit
 import CoreLocation
 
 extension HealthKitFetchEngine {
+    /// Whether the workout carries at least one `HKWorkoutRoute` series sample. This is
+    /// the cheap half of `workoutRouteData` — series metadata only, with none of the
+    /// per-route location streaming — so the detail page can reserve the route hero's
+    /// band before the GPS fixes arrive instead of jumping the content down when they
+    /// land.
+    ///
+    /// Throws for the same reasons `workoutRouteData` does, so the caller can tell "no
+    /// route" from "didn't finish reading" and never caches a false negative. (Note the
+    /// `fetchWorkout` half wraps a raw `HKSampleQuery` in a continuation and does NOT
+    /// honor `Task` cancellation; only the descriptor read below does. A denied read is
+    /// opaque in HealthKit and surfaces as `false`, i.e. today's no-hero behavior.)
+    func workoutHasRoute(workoutID: UUID) async throws -> Bool {
+        guard let workout = try await fetchWorkout(id: workoutID) else {
+            return false
+        }
+
+        let routeQuery = HKSampleQueryDescriptor(
+            predicates: [.workoutRoute(HKQuery.predicateForObjects(from: workout))],
+            sortDescriptors: [],
+            limit: 1
+        )
+        return try await routeQuery.result(for: healthStore).isEmpty == false
+    }
+
     /// Coordinates for the workout's route, downsampled for cheap polyline
     /// drawing, plus the elevation profile reduced from the same raw fixes
     /// (before the downsampling, so the profile keeps its peaks and dips).

@@ -71,25 +71,39 @@ struct WorkoutCalendarCountMarker: Equatable {
     private static let flame = WorkoutCalendarCountMarker(symbolName: "flame.fill")
 }
 
+/// One slot in the month grid. `day` carries an index into `snapshot.days`
+/// rather than the summary itself, so the layout can be computed — and tested —
+/// from nothing but two counts.
+enum WorkoutCalendarCellKind: Equatable {
+    case blank
+    case day(index: Int)
+    case switchControl
+}
+
 struct WorkoutCalendarView: View {
     let snapshot: WorkoutMonthSnapshot
     let style: WorkoutCalendarDisplayStyle
     let fillsAvailableHeight: Bool
     let referenceDate: Date
     let onSelectDay: ((WorkoutDaySummary) -> Void)?
+    /// Nil in the widgets, which have no second chart to switch to — and which
+    /// therefore lay out exactly as they did before this control existed.
+    let onSwitchChart: (() -> Void)?
 
     init(
         snapshot: WorkoutMonthSnapshot,
         style: WorkoutCalendarDisplayStyle = .app,
         fillsAvailableHeight: Bool = true,
         referenceDate: Date = Date(),
-        onSelectDay: ((WorkoutDaySummary) -> Void)? = nil
+        onSelectDay: ((WorkoutDaySummary) -> Void)? = nil,
+        onSwitchChart: (() -> Void)? = nil
     ) {
         self.snapshot = snapshot
         self.style = style
         self.fillsAvailableHeight = fillsAvailableHeight
         self.referenceDate = referenceDate
         self.onSelectDay = onSelectDay
+        self.onSwitchChart = onSwitchChart
     }
 
     var body: some View {
@@ -133,20 +147,48 @@ struct WorkoutCalendarView: View {
         }
     }
 
-    private func calendarCell(_ day: WorkoutDaySummary?, glyphScale: CGFloat) -> some View {
-        Group {
-            if let day {
-                calendarCellContent(day, glyphScale: glyphScale)
-                    .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    .onTapGesture {
-                        if WorkoutCalendarDaySelection.isSelectable(day, hasSelectionHandler: onSelectDay != nil) {
-                            onSelectDay?(day)
-                        }
+    @ViewBuilder
+    private func calendarCell(_ kind: WorkoutCalendarCellKind, glyphScale: CGFloat) -> some View {
+        switch kind {
+        case .blank:
+            Color.clear
+        case let .day(index):
+            let day = snapshot.days[index]
+            calendarCellContent(day, glyphScale: glyphScale)
+                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .onTapGesture {
+                    if WorkoutCalendarDaySelection.isSelectable(day, hasSelectionHandler: onSelectDay != nil) {
+                        onSelectDay?(day)
                     }
-            } else {
-                Color.clear
-            }
+                }
+        case .switchControl:
+            switchControlCell(glyphScale: glyphScale)
         }
+    }
+
+    /// Reads as an empty day cell wearing a chart glyph, because it is one —
+    /// it occupies a real grid slot, so it can never overlap a date.
+    private func switchControlCell(glyphScale: CGFloat) -> some View {
+        Button {
+            onSwitchChart?()
+        } label: {
+            ZStack {
+                // The same chip an active day cell wears, but keeping the rim
+                // those pass up, so the control reads as a control rather than
+                // as one more date.
+                BodyGlassChip(color: .accentColor, cornerRadius: 9)
+
+                Image(systemName: "chart.bar.yaxis")
+                    .font(.system(size: workoutIconSize * glyphScale, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(String(localized: "Show activity breakdown", table: "BodyShared"))
+        .accessibilityHint(String(localized: "Switches between the workout calendar and the activity breakdown", table: "BodyShared"))
+        // Otherwise VoiceOver reaches it only after all 28-31 day cells.
+        .accessibilitySortPriority(1)
     }
 
     private func calendarCellContent(_ day: WorkoutDaySummary, glyphScale: CGFloat) -> some View {
@@ -186,8 +228,31 @@ struct WorkoutCalendarView: View {
         .accessibilityHint(WorkoutCalendarDaySelection.isSelectable(day, hasSelectionHandler: onSelectDay != nil) ? String(localized: "Open workouts for this day", table: "BodyShared") : "")
     }
 
-    private var calendarCells: [WorkoutDaySummary?] {
-        Array(repeating: nil, count: snapshot.leadingBlankDayCount) + snapshot.days.map { Optional($0) }
+    private var calendarCells: [WorkoutCalendarCellKind] {
+        Self.cellLayout(
+            leadingBlankDayCount: snapshot.leadingBlankDayCount,
+            dayCount: snapshot.days.count,
+            includesSwitchControl: onSwitchChart != nil
+        )
+    }
+
+    static func cellLayout(
+        leadingBlankDayCount: Int,
+        dayCount: Int,
+        includesSwitchControl: Bool
+    ) -> [WorkoutCalendarCellKind] {
+        var cells = Array(repeating: WorkoutCalendarCellKind.blank, count: leadingBlankDayCount)
+        cells.append(contentsOf: (0..<dayCount).map { .day(index: $0) })
+
+        guard includesSwitchControl else { return cells }
+
+        // With `cells.count == 7k + r`, padding by `6 - r` lands the control at
+        // `7k + 6` — the last column, for every month. When `r == 0` those six
+        // blanks are a whole new row, which is exactly the "the calendar fills
+        // its final row" case where the control has nowhere else to go.
+        cells.append(contentsOf: Array(repeating: .blank, count: 6 - (cells.count % 7)))
+        cells.append(.switchControl)
+        return cells
     }
 
     private var weekdaySymbols: [String] {

@@ -1455,6 +1455,22 @@
         }
       }
     },
+    "At least one metric stays on the card." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At least one metric stays on the card."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卡片至少保留一个指标。"
+          }
+        }
+      }
+    },
     "Auto" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2570,6 +2586,22 @@
         }
       }
     },
+    "Choose which metrics your workout share card shows." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose which metrics your workout share card shows."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择运动分享卡片显示哪些指标。"
+          }
+        }
+      }
+    },
     "Classic" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3544,6 +3576,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "完成"
+          }
+        }
+      }
+    },
+    "Draw Route" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Draw Route"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "绘制路线"
           }
         }
       }
@@ -6568,6 +6617,22 @@
         }
       }
     },
+    "Pick 1 to 3 metrics." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick 1 to 3 metrics."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择 1 到 3 个指标。"
+          }
+        }
+      }
+    },
     "Pick at least two sources to merge into this one." : {
       "localizations" : {
         "en" : {
@@ -8012,6 +8077,41 @@
         }
       }
     },
+    "routeStyle.drawSubtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Animate the route as it loads on a workout's page"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在训练页面加载时以动画绘制路线"
+          }
+        }
+      }
+    },
+    "routeStyle.drawSummary" : {
+      "comment" : "Leads the Route Style row's value when the draw animation is on, as \"Draw · 3D\".",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Draw"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "绘制"
+          }
+        }
+      }
+    },
     "settings.section.ai" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8042,6 +8142,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "分享"
+          }
+        }
+      }
+    },
+    "Share Card Metrics" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share Card Metrics"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享卡片指标"
           }
         }
       }

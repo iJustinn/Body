@@ -6716,23 +6716,6 @@
         }
       }
     },
-    "workoutDetail.temperature" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Temperature"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "温度"
-          }
-        }
-      }
-    },
     "Wrestling" : {
       "extractionState" : "manual",
       "localizations" : {

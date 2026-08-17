@@ -23,6 +23,7 @@ struct BodyWorkoutsView: View {
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
     @State private var searchCorpusCache = BodyWorkoutSearchCorpusCache()
+    @AppStorage(BodyAppearancePreference.workoutsChartShowsTypeBreakdownKey) private var workoutsChartShowsTypeBreakdown = false
     @Namespace private var workoutZoom
 
     private var monthSwitchTransition: AnyTransition {
@@ -41,6 +42,27 @@ struct BodyWorkoutsView: View {
 
     private var workoutRowChangeAnimation: Animation? {
         reduceMotion ? nil : .smooth(duration: 0.32, extraBounce: 0)
+    }
+
+    /// The two charts cross-fade into each other. Applied to both branches, so
+    /// the outgoing card fades out while the incoming one fades in rather than
+    /// one replacing the other.
+    private var chartSwitchTransition: AnyTransition {
+        .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.2))
+    }
+
+    /// Carried by `withAnimation` at the toggle rather than `.animation(value:)`
+    /// on the slot: the cards are different heights, and the workout list that
+    /// has to move is the slot's *sibling*, outside any animation scope a
+    /// modifier on the slot itself could establish.
+    private var chartSwitchAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.2)
+    }
+
+    private func switchChart() {
+        withAnimation(chartSwitchAnimation) {
+            workoutsChartShowsTypeBreakdown.toggle()
+        }
     }
 
     var body: some View {
@@ -76,9 +98,21 @@ struct BodyWorkoutsView: View {
 
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: 16) {
-                            workoutCalendarCard(snapshot: displaySnapshot)
-                                .id("calendar-\(monthIdentity)")
-                                .transition(monthSwitchTransition)
+                            // One slot, one chart. The month `.id` still gives
+                            // the block a fresh identity per month, so a month
+                            // switch cross-fades the whole card exactly as it
+                            // did when these were two separate cards.
+                            Group {
+                                if workoutsChartShowsTypeBreakdown {
+                                    workoutTypeSummaryCard(snapshot: displaySnapshot, workouts: matchingWorkouts)
+                                        .transition(chartSwitchTransition)
+                                } else {
+                                    workoutCalendarCard(snapshot: displaySnapshot)
+                                        .transition(chartSwitchTransition)
+                                }
+                            }
+                            .id("chart-\(monthIdentity)")
+                            .transition(monthSwitchTransition)
 
                             Group {
                                 if visibleWorkouts.isEmpty {
@@ -121,10 +155,6 @@ struct BodyWorkoutsView: View {
                             .animation(workoutRowChangeAnimation, value: visibleWorkoutIDs)
                             .id("list-\(monthIdentity)")
                             .transition(monthSwitchTransition)
-
-                            workoutTypeSummaryCard(snapshot: displaySnapshot, workouts: matchingWorkouts)
-                                .id("summary-\(monthIdentity)")
-                                .transition(monthSwitchTransition)
                         }
                         .padding(.horizontal)
                         .padding(.top, 32)
@@ -373,7 +403,8 @@ struct BodyWorkoutsView: View {
             fillsAvailableHeight: false,
             onSelectDay: { day in
                 selectedWorkoutListSelection = .day(day)
-            }
+            },
+            onSwitchChart: switchChart
         )
         .padding(14)
         .bodyCardBackground(translucent: true)
@@ -402,7 +433,8 @@ struct BodyWorkoutsView: View {
                         type,
                         workouts: workoutsForType(type, in: workouts)
                     )
-                }
+                },
+                onSwitchChart: switchChart
             )
         }
         .padding(18)
@@ -970,6 +1002,7 @@ struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsRouteOnLoad = true
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @State private var isEditingEffort = false
     @State private var editingScore = 5
@@ -1001,6 +1034,14 @@ struct BodyWorkoutDetailSheet: View {
     /// True once `loadWorkoutRoute` has returned — route or nil — so the Share
     /// button never appears mid-load.
     @State private var routeLoadSettled = false
+    /// What the cheap `HKWorkoutRoute` probe knows before the fixes land. `.present`
+    /// reserves the hero band up front, so the content never drops ~324 pt part-way
+    /// through the load.
+    @State private var routePresence: BodyWorkoutRoutePresence = .unknown
+    /// Pinned on the first `.task` pass: a route already in the store's session cache is
+    /// on screen from the first frame, so that visit must not replay the draw — the
+    /// animation is for a wait, and there wasn't one.
+    @State private var routeWasCachedOnOpen: Bool?
     @State private var splitData: WorkoutSplitData = .empty
     @State private var metricSeries: WorkoutMetricSeriesData = .empty
     @State private var heartRateRecoveryBPM: Double?
@@ -1059,6 +1100,55 @@ struct BodyWorkoutDetailSheet: View {
         BodyWorkoutRouteStyle(rawValue: workoutRouteStyleRawValue) ?? .defaultValue
     }
 
+    /// The route to draw: the loaded one, or the store's session cache on a reopen so an
+    /// already-resolved route is on screen from the first body pass rather than after the
+    /// `.task` round trip.
+    private var displayedRoute: WorkoutRoute? {
+        route ?? workoutStore.cachedWorkoutRoute(for: workout)
+    }
+
+    /// What the page currently believes about the route, folding the settled load in over
+    /// the probe: a resolved route is present whatever the probe said, and once the load
+    /// has settled with nothing, the band collapses.
+    private var effectiveRoutePresence: BodyWorkoutRoutePresence {
+        if displayedRoute != nil { return .present }
+        if routeLoadSettled { return .absent }
+        return routePresence
+    }
+
+    /// Height of the gap the content leaves for the hero. Animated as a height rather
+    /// than switched by inserting the gap: SwiftUI lays a newly inserted fixed-height
+    /// view out at full size on its first frame, so an insertion would snap the content
+    /// down — exactly the jump this reserves the band to avoid.
+    private var reservedGapHeight: CGFloat {
+        effectiveRoutePresence.reservesHero ? mapHeight - contentTopOverlap : 0
+    }
+
+    /// The routeless layout has no hero gap above the content, so it reserves room for
+    /// the Share capsule (44 pt + its 12 pt bottom slop) that overlays the top-trailing
+    /// corner. Interpolated alongside the gap so the two move as one.
+    private var contentTopPadding: CGFloat {
+        effectiveRoutePresence.reservesHero ? 24 : 60
+    }
+
+    /// Whether this visit should draw the route in. A route already cached when the page
+    /// opened was never waited for, so it just appears; Reduce Motion and the Draw Route
+    /// setting opt out entirely.
+    private var drawsRouteReveal: Bool {
+        guard drawsRouteOnLoad, !reduceMotion else { return false }
+        return !(routeWasCachedOnOpen ?? (workoutStore.cachedWorkoutRoute(for: workout) != nil))
+    }
+
+    private var routeReservationAnimation: Animation? {
+        reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0)
+    }
+
+    /// Carries the hero's arrival. Needed because the placeholder and the real hero are
+    /// different views: without it the shimmer would snap to the route.
+    private var routeRevealAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.35)
+    }
+
     /// Both heroes center the route's vertical extent midway between the top safe
     /// area (below the status bar / Dynamic Island — anchoring at the physical screen
     /// top read too high on island phones) and the top of the metrics column. Until
@@ -1072,7 +1162,7 @@ struct BodyWorkoutDetailSheet: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            if let route {
+            if let route = displayedRoute {
                 switch routeStyle {
                 case .map:
                     // The map is the page background: pure black with the route map
@@ -1080,7 +1170,7 @@ struct BodyWorkoutDetailSheet: View {
                     // it with no backing of its own (like the home and detail pages).
                     Color.black.ignoresSafeArea()
 
-                    BodyWorkoutRouteMapHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset)
+                    BodyWorkoutRouteMapHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset, drawsReveal: drawsRouteReveal)
                         .frame(height: mapHeight)
                         .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
                         .overlay {
@@ -1097,7 +1187,7 @@ struct BodyWorkoutDetailSheet: View {
                     // workout-tint backdrop and the route strokes over it.
                     sheetBackdrop
 
-                    BodyWorkoutRoutePlainHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset)
+                    BodyWorkoutRoutePlainHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset, drawsReveal: drawsRouteReveal)
                         .frame(height: mapHeight)
                         .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
                         .overlay {
@@ -1112,7 +1202,7 @@ struct BodyWorkoutDetailSheet: View {
                     // route carries no altitude.
                     sheetBackdrop
 
-                    BodyWorkoutRoute3DHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset, yawState: routeYawState)
+                    BodyWorkoutRoute3DHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset, yawState: routeYawState, drawsReveal: drawsRouteReveal)
                         .frame(height: mapHeight)
                         .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
                         .overlay {
@@ -1121,6 +1211,29 @@ struct BodyWorkoutDetailSheet: View {
                         .frame(maxHeight: .infinity, alignment: .top)
                         .ignoresSafeArea(edges: .top)
                         .allowsHitTesting(false)
+                }
+            } else if effectiveRoutePresence.reservesHero {
+                // The probe confirmed a route but the fixes haven't landed. Hold the
+                // band open on the style's own backdrop so the page doesn't have to
+                // change background a second time when the hero arrives, and — when the
+                // draw is switched off — shimmer rather than sit empty.
+                if routeStyle == .map {
+                    Color.black.ignoresSafeArea()
+                } else {
+                    sheetBackdrop
+                }
+
+                if !drawsRouteOnLoad {
+                    BodyWorkoutRouteHeroShimmer(
+                        tint: workout.type.color,
+                        targetCenterY: routeTargetCenterY,
+                        topInset: topSafeAreaInset
+                    )
+                    .frame(height: mapHeight)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .ignoresSafeArea(edges: .top)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
                 }
             } else {
                 sheetBackdrop
@@ -1204,25 +1317,57 @@ struct BodyWorkoutDetailSheet: View {
             .animation(.easeInOut(duration: 0.25), value: routeLoadSettled)
         }
         .fullScreenCover(isPresented: $showsShareSheet) {
-            BodyWorkoutShareSheet(workout: workout, route: route, presentation: presentation)
+            BodyWorkoutShareSheet(workout: workout, route: displayedRoute, presentation: presentation)
         }
         .fullScreenCover(isPresented: $showsFullScreenRouteMap) {
-            if let route {
+            if let route = displayedRoute {
                 BodyWorkoutRouteMapFullScreen(route: route, tint: workout.type.color)
                     .navigationTransition(.zoom(sourceID: "routeMap", in: routeMapZoom))
             }
         }
         .task {
             routeLoadSettled = false
+            routePresence = .unknown
+            if routeWasCachedOnOpen == nil {
+                routeWasCachedOnOpen = workoutStore.cachedWorkoutRoute(for: workout) != nil
+            }
+
+            // The probe reserves the hero band early; it must never gate the fetch. It
+            // runs in its own child task because `fetchWorkout` wraps a raw HKSampleQuery
+            // with neither cancellation nor a timeout — awaiting it here would put a
+            // genuine stall surface ahead of the route, the splits, and Share.
+            let probeTask = Task { @MainActor in
+                let presence = await workoutStore.workoutRoutePresence(for: workout)
+                guard !Task.isCancelled, route == nil else { return }
+                withAnimation(routeReservationAnimation) { routePresence = presence }
+            }
+            defer { probeTask.cancel() }
+
+            // Fixes first, with `locality` still nil: the reverse geocode is a network
+            // round trip and the route's draw-in shouldn't queue behind it.
+            async let loadedCoordinates = workoutStore.loadWorkoutRouteCoordinates(for: workout)
             // Load the route and distance samples concurrently so the splits
             // section isn't blocked behind the route fetch + reverse geocoding.
-            async let loadedRoute = workoutStore.loadWorkoutRoute(for: workout)
             async let loadedSplitData = workoutStore.loadWorkoutSplitData(for: workout)
+
+            let coordinatesRoute = await loadedCoordinates
+            guard !Task.isCancelled else { return }
+            withAnimation(routeRevealAnimation) { route = coordinatesRoute }
+
+            // Served from the cache the stage above just filled, so this is only the
+            // reverse geocode folding the city label in.
+            async let loadedRoute = workoutStore.loadWorkoutRoute(for: workout)
             let resolvedRoute = await loadedRoute
             // The loader returns nil on cancel, so a cancelled reload must not flip a
             // routed page to routeless.
             guard !Task.isCancelled else { return }
             route = resolvedRoute
+            withAnimation(routeReservationAnimation) {
+                routePresence = resolvedRoute == nil ? .absent : .present
+            }
+            // Settle — and so reveal Share — before awaiting the splits. Share is gated
+            // on this flag alone, so awaiting the distance read first would let a slow
+            // splits query hide Share long after the route finished.
             routeLoadSettled = true
             splitData = await loadedSplitData
         }
@@ -1260,13 +1405,13 @@ struct BodyWorkoutDetailSheet: View {
             heartRateRecoveryBPM = resolvedHeartRateRecovery
         }
         .onChange(of: showWorkoutEffortSuggestions) { refreshPrediction() }
-        .onChange(of: route == nil) {
-            // The tap gap above the content exists only in the routed layout, so a
-            // routed measurement doesn't apply once the route is gone. The arrival
+        .onChange(of: effectiveRoutePresence.reservesHero) { _, reservesHero in
+            // The gap above the content is open only while the hero band is reserved, so
+            // a reserved measurement doesn't apply once it collapses. The arrival
             // direction needs no reset — `updateHeroContentTop` never stores routeless
             // measurements, and clearing here could race the geometry callback that
-            // just measured the routed layout and lose its value for good.
-            if route == nil {
+            // just measured the reserved layout and lose its value for good.
+            if !reservesHero {
                 heroContentTop = nil
             }
         }
@@ -1298,6 +1443,22 @@ struct BodyWorkoutDetailSheet: View {
     /// had before rotation existed.
     @ViewBuilder
     private var routeTapGap: some View {
+        // While the band is merely reserved there is no route to open or rotate, so the
+        // gap is inert space until the fixes land. The height is always driven by
+        // `reservedGapHeight`, which animates between 0 and the hero's band rather than
+        // the gap being inserted — SwiftUI lays an inserted fixed-height view out at full
+        // size immediately, which is the snap this whole feature removes.
+        if displayedRoute == nil {
+            Color.clear
+                .frame(height: reservedGapHeight)
+                .accessibilityHidden(true)
+        } else {
+            interactiveRouteTapGap
+        }
+    }
+
+    @ViewBuilder
+    private var interactiveRouteTapGap: some View {
         let gap = Button {
             // The release that ends a rotation swipe lands here too; only a real
             // tap opens the map.
@@ -1305,7 +1466,7 @@ struct BodyWorkoutDetailSheet: View {
             showsFullScreenRouteMap = true
         } label: {
             Color.clear
-                .frame(height: mapHeight - contentTopOverlap)
+                .frame(height: reservedGapHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1398,9 +1559,8 @@ struct BodyWorkoutDetailSheet: View {
         // wasted that work on every store publish.
         let presentation = presentation
         return VStack(spacing: 0) {
-            if route != nil {
-                routeTapGap
-            }
+            // Always present, sized by `reservedGapHeight` — see `routeTapGap`.
+            routeTapGap
 
             VStack(spacing: 18) {
                 topEntryPanel(presentation: presentation)
@@ -1409,42 +1569,24 @@ struct BodyWorkoutDetailSheet: View {
                 if let splitsPresentation {
                     BodyWorkoutSplitsCard(presentation: splitsPresentation)
                 }
-                if let elevationPresentation {
-                    BodyWorkoutElevationCard(
-                        presentation: elevationPresentation,
-                        tint: workout.type.color
-                    )
-                }
                 heartRateSection(presentation: presentation)
+                if let elevationPresentation {
+                    BodyWorkoutElevationCard(presentation: elevationPresentation)
+                }
                 if let paceOrSpeedPresentation {
-                    BodyWorkoutBucketedSeriesCard(
-                        presentation: paceOrSpeedPresentation,
-                        tint: workout.type.color
-                    )
+                    BodyWorkoutBucketedSeriesCard(presentation: paceOrSpeedPresentation)
                 }
                 if let cadencePresentation {
-                    BodyWorkoutBucketedSeriesCard(
-                        presentation: cadencePresentation,
-                        tint: workout.type.color
-                    )
+                    BodyWorkoutBucketedSeriesCard(presentation: cadencePresentation)
                 }
                 if let strideLengthPresentation {
-                    BodyWorkoutBucketedSeriesCard(
-                        presentation: strideLengthPresentation,
-                        tint: workout.type.color
-                    )
+                    BodyWorkoutBucketedSeriesCard(presentation: strideLengthPresentation)
                 }
                 if let groundContactPresentation {
-                    BodyWorkoutBucketedSeriesCard(
-                        presentation: groundContactPresentation,
-                        tint: workout.type.color
-                    )
+                    BodyWorkoutBucketedSeriesCard(presentation: groundContactPresentation)
                 }
                 if let verticalOscillationPresentation {
-                    BodyWorkoutBucketedSeriesCard(
-                        presentation: verticalOscillationPresentation,
-                        tint: workout.type.color
-                    )
+                    BodyWorkoutBucketedSeriesCard(presentation: verticalOscillationPresentation)
                 }
                 sourceFooter(presentation: presentation)
             }
@@ -1452,7 +1594,7 @@ struct BodyWorkoutDetailSheet: View {
             // The routeless layout has no map gap above the content, so it reserves
             // room for the Share capsule (44 pt + its 12 pt bottom slop) that overlays
             // the top-trailing corner.
-            .padding(.top, route == nil ? 60 : 24)
+            .padding(.top, contentTopPadding)
             .padding(.bottom, 22)
             .readableContentColumn()
         }
@@ -1460,10 +1602,14 @@ struct BodyWorkoutDetailSheet: View {
     }
 
     /// Stores the metrics column's resting screen y, the anchor the route centers
-    /// against. Ignored while there is no route: the routeless layout has no tap gap
-    /// above the content, so its measurement would place the route far too high.
+    /// against. Ignored while the hero band isn't reserved: the routeless layout has no
+    /// gap above the content, so its measurement would place the route far too high.
+    ///
+    /// Keyed on the reservation rather than on the loaded route so the anchor settles
+    /// while the band is still empty — the draw then runs in its final framing instead of
+    /// re-centering part-way through.
     private func updateHeroContentTop(contentMinY: CGFloat) {
-        guard route != nil else {
+        guard effectiveRoutePresence.reservesHero else {
             return
         }
 
@@ -1491,18 +1637,7 @@ struct BodyWorkoutDetailSheet: View {
                         .lineLimit(2)
                         .minimumScaleFactor(0.7)
 
-                    if let locality = route?.locality {
-                        HStack(spacing: 5) {
-                            Image(systemName: "location.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(workout.type.color)
-                            Text(locality)
-                                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.72)
-                        }
-                    }
+                    heroContextRow
 
                     Text("\(presentation.dateTitle) - \(presentation.startTimeText)")
                         .font(.system(size: 17, weight: .semibold, design: .rounded))
@@ -1560,11 +1695,86 @@ struct BodyWorkoutDetailSheet: View {
         }
     }
 
+    /// Locality and weather temperature, side by side when they fit and stacked when
+    /// they don't. Either half is dropped when its value is missing.
+    ///
+    /// The locality half is held open for the whole routed layout, invisible until the
+    /// reverse geocode lands. The row sits in the hero's leading column while the metrics
+    /// column opposite is what `heroContentTop` measures, so letting it appear late would
+    /// nudge that anchor, re-frame every hero, and re-fire the map snapshotter part-way
+    /// through the route's draw.
+    @ViewBuilder
+    private var heroContextRow: some View {
+        let locality = displayedRoute?.locality
+        let localityText = locality ?? (effectiveRoutePresence.reservesHero ? " " : nil)
+        let temperatureText = workout.weatherTemperatureCelsius.flatMap {
+            BodyValueFormat.temperatureHeroText(
+                celsius: $0,
+                temperatureUnitPreference: selectedTemperatureUnitPreference
+            )
+        }
+
+        if localityText != nil || temperatureText != nil {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    heroContextPairs(
+                        localityText: localityText,
+                        localityVisible: locality != nil,
+                        temperatureText: temperatureText
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    heroContextPairs(
+                        localityText: localityText,
+                        localityVisible: locality != nil,
+                        temperatureText: temperatureText
+                    )
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func heroContextPairs(
+        localityText: String?,
+        localityVisible: Bool,
+        temperatureText: String?
+    ) -> some View {
+        if let localityText {
+            heroContextPair(systemImage: "location.fill", text: localityText)
+                .opacity(localityVisible ? 1 : 0)
+                .animation(
+                    reduceMotion ? nil : .easeInOut(duration: 0.28),
+                    value: displayedRoute?.locality
+                )
+                .layoutPriority(1)
+        }
+
+        if let temperatureText {
+            heroContextPair(systemImage: "thermometer.medium", text: temperatureText)
+        }
+    }
+
+    private func heroContextPair(systemImage: String, text: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(workout.type.color)
+            Text(text)
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+    }
+
     private func workoutDetailsCard(presentation: WorkoutDetailPresentation) -> some View {
-        // Heart-rate recovery loads separately from the summary, so it joins the grid
-        // as a trailing tile once it lands.
+        // Heart-rate recovery loads separately when the summary carries none, so it
+        // joins the grid as a trailing tile once it lands — skipped when the summary
+        // already emitted the tile, so the two paths never both show it.
         var metrics = presentation.detailMetrics
-        if let heartRateRecoveryBPM {
+        if let heartRateRecoveryBPM, !metrics.contains(where: { $0.kind == .heartRateRecovery }) {
             metrics.append(WorkoutDetailPresentation.heartRateRecoveryMetric(bpm: heartRateRecoveryBPM))
         }
         return VStack(alignment: .leading, spacing: 18) {
@@ -1907,7 +2117,6 @@ struct BodyWorkoutDetailSheet: View {
             workout: workout,
             distanceUnitPreference: selectedDistanceUnitPreference,
             energyUnitPreference: selectedEnergyUnitPreference,
-            temperatureUnitPreference: selectedTemperatureUnitPreference,
             comparisonWorkouts: comparison.priorWorkouts,
             comparisonDataComplete: comparison.isComplete,
             comparisonLoadSettled: comparisonMonthsSettled
@@ -1963,7 +2172,7 @@ struct BodyWorkoutDetailSheet: View {
     /// workout has no route, too few altitude samples, or a flat course — which
     /// hides the card.
     private var elevationPresentation: WorkoutElevationProfilePresentation? {
-        guard let profile = route?.elevationProfile else { return nil }
+        guard let profile = displayedRoute?.elevationProfile else { return nil }
         return WorkoutElevationProfilePresentation(
             profile: profile,
             workoutDuration: workout.effectiveEndDate.timeIntervalSince(workout.startDate),
@@ -2553,9 +2762,37 @@ private struct BodyWorkoutSplitsCard: View {
     }
 }
 
+/// Resolves a detail chart's y-axis label, stepping the font down when the text would
+/// overflow the 44 pt gutter it is centred in — `1,400 ft`, `7:30` and zh-Hans digits
+/// all run wider than the plain numbers the 14 pt size is sized for.
+private func bodyWorkoutChartAxisLabel(
+    _ label: String,
+    in context: GraphicsContext
+) -> GraphicsContext.ResolvedText {
+    func resolve(_ size: CGFloat) -> GraphicsContext.ResolvedText {
+        context.resolve(
+            Text(label)
+                .font(.system(size: size, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+        )
+    }
+    func fits(_ resolved: GraphicsContext.ResolvedText) -> Bool {
+        resolved.measure(in: CGSize(width: 200, height: 40)).width <= 40
+    }
+
+    let base = resolve(14)
+    if fits(base) {
+        return base
+    }
+    let medium = resolve(12)
+    if fits(medium) {
+        return medium
+    }
+    return resolve(11)
+}
+
 private struct BodyWorkoutElevationCard: View {
     let presentation: WorkoutElevationProfilePresentation
-    let tint: Color
 
     /// Matches `BodyWorkoutHeartRateChart` so every detail chart's plot lines up.
     private static let yAxisLabelInset: CGFloat = 44
@@ -2632,13 +2869,8 @@ private struct BodyWorkoutElevationCard: View {
 
         for (index, label) in presentation.yAxisLabels.enumerated() where index < presentation.yAxisFractions.count {
             context.draw(
-                context.resolve(
-                    Text(label)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundColor(.secondary)
-                ),
-                at: CGPoint(x: plotRect.maxX + 22, y: y(for: presentation.yAxisFractions[index], in: plotRect)),
-                anchor: .leading
+                bodyWorkoutChartAxisLabel(label, in: context),
+                at: CGPoint(x: plotRect.maxX + 22, y: y(for: presentation.yAxisFractions[index], in: plotRect))
             )
         }
     }
@@ -2662,17 +2894,23 @@ private struct BodyWorkoutElevationCard: View {
         area.addLine(to: CGPoint(x: first.x, y: plotRect.maxY))
         area.closeSubpath()
 
+        // Same bottom-to-top heart-rate ramp the HR chart's smoothed line uses, so the
+        // profile's height reads in the shared low-to-high colour language.
+        let startPoint = CGPoint(x: plotRect.midX, y: plotRect.maxY)
+        let endPoint = CGPoint(x: plotRect.midX, y: plotRect.minY)
+        let stops = BodyWorkoutHeartRateChartMetrics.gradientStops
+
         context.fill(
             area,
             with: .linearGradient(
-                Gradient(colors: [tint.opacity(0.35), tint.opacity(0.04)]),
-                startPoint: CGPoint(x: plotRect.midX, y: plotRect.minY),
-                endPoint: CGPoint(x: plotRect.midX, y: plotRect.maxY)
+                Gradient(stops: stops.map { Gradient.Stop(color: $0.color.opacity(0.22), location: $0.location) }),
+                startPoint: startPoint,
+                endPoint: endPoint
             )
         )
         context.stroke(
             line,
-            with: .color(tint),
+            with: .linearGradient(Gradient(stops: stops), startPoint: startPoint, endPoint: endPoint),
             style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
         )
     }
@@ -2703,7 +2941,6 @@ private struct BodyWorkoutElevationCard: View {
 /// axis and bars, so all five share this drawing and the detail charts' shared style.
 private struct BodyWorkoutBucketedSeriesCard: View {
     let presentation: WorkoutBucketedSeriesPresentation
-    let tint: Color
 
     /// Matches `BodyWorkoutHeartRateChart` so every detail chart's plot lines up.
     private static let yAxisLabelInset: CGFloat = 44
@@ -2780,13 +3017,8 @@ private struct BodyWorkoutBucketedSeriesCard: View {
 
         for (index, label) in presentation.yAxisLabels.enumerated() where index < presentation.yAxisFractions.count {
             context.draw(
-                context.resolve(
-                    Text(label)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundColor(.secondary)
-                ),
-                at: CGPoint(x: plotRect.maxX + 22, y: y(for: presentation.yAxisFractions[index], in: plotRect)),
-                anchor: .leading
+                bodyWorkoutChartAxisLabel(label, in: context),
+                at: CGPoint(x: plotRect.maxX + 22, y: y(for: presentation.yAxisFractions[index], in: plotRect))
             )
         }
     }
@@ -2797,13 +3029,16 @@ private struct BodyWorkoutBucketedSeriesCard: View {
             let trailing = plotRect.minX + plotRect.width * CGFloat(bar.xEnd) - 1
             let width = max(2, trailing - leading)
             let lowY = y(for: bar.lowFraction, in: plotRect)
+            // The bucket's own place in the axis range picks its colour off the shared
+            // heart-rate ramp, so a card's highs and lows read the same way everywhere.
+            let color = BodyWorkoutHeartRateChartMetrics.color(forFraction: bar.valueFraction)
 
             context.fill(
                 Path(
                     roundedRect: CGRect(x: leading, y: lowY, width: width, height: plotRect.maxY - lowY),
                     cornerRadius: min(2, width / 2)
                 ),
-                with: .color(tint.opacity(0.18))
+                with: .color(color.opacity(0.18))
             )
 
             // Ranges thinner than the capsule's minimum height are centred on the
@@ -2816,7 +3051,7 @@ private struct BodyWorkoutBucketedSeriesCard: View {
             }
             context.fill(
                 Path(roundedRect: capsule, cornerRadius: width / 2),
-                with: .color(tint)
+                with: .color(color)
             )
         }
     }

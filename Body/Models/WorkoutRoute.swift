@@ -37,6 +37,20 @@ struct WorkoutElevationSample: Sendable, Equatable {
     let meters: Double
 }
 
+/// What the workout detail page knows about a workout's GPS route while it loads.
+/// `.unknown` until the cheap `HKWorkoutRoute` presence probe answers — and after a
+/// probe that failed or was denied, since HealthKit read authorization is opaque and a
+/// reservation made on a false positive would have to collapse again. Only `.present`
+/// reserves the hero band, so the page never moves on a guess.
+enum BodyWorkoutRoutePresence: Sendable, Equatable {
+    case unknown
+    case present
+    case absent
+
+    /// True when the page lays out with the route hero's band above the content.
+    var reservesHero: Bool { self == .present }
+}
+
 struct WorkoutRoute: Sendable, Equatable {
     let coordinates: [RouteCoordinate]
     let locality: String?

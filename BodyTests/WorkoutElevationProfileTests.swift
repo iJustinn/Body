@@ -134,15 +134,30 @@ final class WorkoutElevationProfileTests: XCTestCase {
         XCTAssertEqual(presentation.ascentText, "10")
     }
 
-    func testAxisBoundsSnapToStepsAndAMinimumSpan() throws {
+    func testAxisBracketsTheClimbOnRoundTicks() throws {
         let presentation = try XCTUnwrap(presentation(profile: jitterThenStepProfile))
 
-        // 100…110 m snaps to 100…110, then widens to the 20 m minimum span.
-        XCTAssertEqual(presentation.yAxisFractions.count, 4)
-        XCTAssertEqual(presentation.yAxisLabels.first, "100")
-        XCTAssertEqual(presentation.yAxisLabels.last, "120")
-        XCTAssertEqual(presentation.points.first?.yFraction, 0)
-        XCTAssertEqual(try XCTUnwrap(presentation.points.last?.yFraction), 0.5, accuracy: 0.0001)
+        // 100…110 m padded by max(0.25, 1) = 1 → 99…111, snapped outward on the
+        // 5 m grid to 95…115 (finer rungs would need more than six intervals).
+        XCTAssertEqual(presentation.axisRange.lowerBound, 95, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 115, accuracy: 0.0001)
+        XCTAssertEqual(presentation.yAxisLabels, ["95", "100", "105", "110", "115"])
+        XCTAssertEqual(presentation.yAxisFractions.first, 0)
+        XCTAssertEqual(presentation.yAxisFractions.last, 1)
+        // The route now uses three quarters of the plot instead of half of it.
+        XCTAssertEqual(try XCTUnwrap(presentation.points.first?.yFraction), 0.25, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(presentation.points.last?.yFraction), 0.75, accuracy: 0.0001)
+    }
+
+    func testBelowSeaLevelIsNotClampedToZero() throws {
+        let dip = (0..<10).map { WorkoutElevationSample(offset: Double($0) * 10, meters: -12) }
+            + (10..<20).map { WorkoutElevationSample(offset: Double($0) * 10, meters: -4) }
+        let presentation = try XCTUnwrap(presentation(profile: dip))
+
+        // −12…−4 m padded by max(0.25, 0.8) = 0.8 → −12.8…−3.2, which 2 m ticks
+        // (the finest rung fitting in six intervals) snap outward to −14…−2.
+        XCTAssertEqual(presentation.axisRange.lowerBound, -14, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, -2, accuracy: 0.0001)
     }
 
     func testImperialPreferenceConvertsToFeet() throws {
@@ -151,9 +166,12 @@ final class WorkoutElevationProfileTests: XCTestCase {
         XCTAssertEqual(presentation.unitText, "ft")
         XCTAssertEqual(presentation.ascentText, "33")
         XCTAssertEqual(presentation.maxElevationText, "361")
-        // 328…361 ft snaps to the 50 ft grid.
-        XCTAssertEqual(presentation.yAxisLabels.first, "300")
-        XCTAssertEqual(presentation.yAxisLabels.last, "400")
+        // 328…361 ft padded by max(1, 3.3) = 3.3 → 324.8…364.2, which 8 ft ticks
+        // (the finest rung fitting in six intervals) snap outward to 320…368.
+        XCTAssertEqual(presentation.axisRange.lowerBound, 320, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 368, accuracy: 0.0001)
+        XCTAssertEqual(presentation.yAxisLabels.first, "320")
+        XCTAssertEqual(presentation.yAxisLabels.last, "368")
     }
 
     func testPointsAreClampedFractionsOfTheWorkoutTimeline() throws {

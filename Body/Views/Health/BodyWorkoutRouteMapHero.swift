@@ -20,6 +20,45 @@ import SwiftUI
 import MapKit
 import UIKit
 
+/// Wall-clock progressive reveal of a route hero: how much of the trace is drawn, 0 → 1.
+/// Measured from an `epoch` each hero captures for itself rather than from a shared
+/// reference date, so a hero always starts at the start of the line however late it
+/// appears — the same reason `BodyPixelGridLoader` is driven this way. The map-free
+/// heroes time from insertion, since they are inserted the moment the fixes resolve; the
+/// map hero times from its snapshot instead, which is what its draw waits on.
+enum BodyWorkoutRouteReveal {
+    /// Long enough to read as drawing, short enough not to hold the page back.
+    static let duration: TimeInterval = 1.1
+    /// Beat before the line starts, keeping the draw clear of the workouts list's zoom
+    /// navigation transition. Measured from the hero's own epoch, so it does not by
+    /// itself clear the band's reservation slide.
+    static let startDelay: TimeInterval = 0.2
+    /// Slack past the end before a hero tears its `TimelineView` down. The teardown is
+    /// driven by an independent sleep, which can otherwise fire before the timeline has
+    /// rendered exactly 1 and leave a visible jump to the static drawing.
+    static let settleMargin: TimeInterval = 0.05
+
+    /// Total wall-clock life of the animation, including both cushions.
+    static var totalDuration: TimeInterval { startDelay + duration + settleMargin }
+
+    /// Cubic ease-out — the head leaves the start quickly and settles onto the finish, so
+    /// a long route doesn't crawl through its last third. `CGFloat` rather than `Double`
+    /// because it feeds `Path.trimmedPath(from:to:)` directly.
+    static func fraction(at elapsed: TimeInterval) -> CGFloat {
+        let active = elapsed - startDelay
+        guard active > 0 else { return 0 }
+        guard active < duration else { return 1 }
+        let linear = active / duration
+        let remaining = 1 - linear
+        return CGFloat(1 - remaining * remaining * remaining)
+    }
+
+    /// `fraction` for a hero that started drawing at `epoch`, evaluated at `date`.
+    static func fraction(epoch: Date, date: Date) -> CGFloat {
+        fraction(at: date.timeIntervalSince(epoch))
+    }
+}
+
 struct BodyWorkoutRouteMapHero: View {
     let route: WorkoutRoute
     let tint: Color
@@ -29,10 +68,38 @@ struct BodyWorkoutRouteMapHero: View {
     /// Top safe-area inset: the route must stay below the status bar / Dynamic Island
     /// even though the hero itself extends under them.
     let topInset: CGFloat
+    /// Draws the route in over the map tiles when the hero appears. See
+    /// `BodyWorkoutRoutePlainHero.drawsReveal` for why this is `var`, not `let`.
+    var drawsReveal: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The finished hero: map tiles with the pace-colored route and its markers baked in.
     @State private var snapshot: UIImage?
+    /// The same render with nothing drawn on it, shown under the reveal so the line can
+    /// draw itself over real tiles instead of over black.
+    @State private var tiles: UIImage?
+    /// The route in hero space, taken from the snapshot's own `point(for:)` rather than
+    /// re-derived from the requested `mapRect`. MapKit only promises to honor that rect
+    /// "as closely as possible", so a hand-rolled projection could leave the drawn line
+    /// visibly beside the baked one during the crossfade; going through the snapshot
+    /// makes them identical by construction.
+    @State private var routePoints: [CGPoint]?
+    /// When the draw actually began. Unlike the map-free heroes — which are inserted at
+    /// the moment their route resolves and can time from insertion — this one has to wait
+    /// for the snapshotter, so timing from insertion would burn most or all of the
+    /// animation before there was anything to draw.
+    @State private var revealStartedAt: Date?
+    @State private var revealFinished = false
+
+    private var isRevealing: Bool { drawsReveal && !reduceMotion && !revealFinished }
+
+    /// Whether the finished, route-baked image is the one on screen. Both the tiles and
+    /// the composited image animate against this single value: keying the fade on
+    /// `snapshot != nil` alone would fire while the composite was still hidden behind the
+    /// reveal, and the later handover would then pop with no animation at all.
+    private var showsComposited: Bool { snapshot != nil && !isRevealing }
 
     var body: some View {
         GeometryReader { proxy in
@@ -76,18 +143,64 @@ struct BodyWorkoutRouteMapHero: View {
 
     private func mapLayer(size: CGSize) -> some View {
         // Fade the map in once the snapshot finishes rendering (its ~0.5–1s
-        // natural load time), instead of popping in instantly.
+        // natural load time), instead of popping in instantly. While the reveal runs,
+        // the bare tiles stand in and the line draws itself over them; the composited
+        // image — same tiles, pace-colored route and markers baked in — crossfades over
+        // the top at the end, landing on identical pixels.
+        ZStack {
+            image(tiles, size: size)
+                .opacity(tiles == nil ? 0 : 1)
+
+            image(snapshot, size: size)
+                .opacity(showsComposited ? 1 : 0)
+
+            if isRevealing, let routePoints, let revealStartedAt {
+                TimelineView(.animation(minimumInterval: 1 / 60)) { timeline in
+                    revealOverlay(
+                        points: routePoints,
+                        fraction: BodyWorkoutRouteReveal.fraction(epoch: revealStartedAt, date: timeline.date)
+                    )
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.5), value: tiles != nil)
+        .animation(.easeInOut(duration: 0.5), value: showsComposited)
+        .task(id: revealStartedAt) {
+            guard revealStartedAt != nil else { return }
+            try? await Task.sleep(for: .seconds(BodyWorkoutRouteReveal.totalDuration))
+            revealFinished = true
+            // The composited image covers the bare tiles from here on, and each is a
+            // full-size render — don't hold both for the life of the page.
+            tiles = nil
+        }
+    }
+
+    private func image(_ image: UIImage?, size: CGSize) -> some View {
         Group {
-            if let snapshot {
-                Image(uiImage: snapshot)
+            if let image {
+                Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
                     .frame(width: size.width, height: size.height)
                     .clipped()
             }
         }
-        .opacity(snapshot == nil ? 0 : 1)
-        .animation(.easeInOut(duration: 0.5), value: snapshot != nil)
+    }
+
+    /// The route drawn up to `fraction` of its length, in a flat tint — the pace coloring
+    /// belongs to the composited snapshot that replaces this.
+    private func revealOverlay(points: [CGPoint], fraction: CGFloat) -> some View {
+        Canvas { context, _ in
+            guard points.count >= 2 else { return }
+            var path = Path()
+            path.addLines(points)
+            context.stroke(
+                fraction >= 1 ? path : path.trimmedPath(from: 0, to: fraction),
+                with: .color(tint),
+                style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
+            )
+        }
+        .allowsHitTesting(false)
     }
 
     @MainActor
@@ -109,6 +222,16 @@ struct BodyWorkoutRouteMapHero: View {
 
         guard let result = try? await MKMapSnapshotter(options: options).start() else {
             return
+        }
+
+        // Publish the bare tiles and the snapshot's own coordinate mapping first: the
+        // reveal draws its line over real map detail, in exactly the place the baked
+        // route will occupy, without re-deriving the projection. The clock starts here
+        // rather than at insertion — the snapshotter is what the draw was waiting on.
+        if drawsReveal, !reduceMotion, revealStartedAt == nil {
+            routePoints = coordinates.map(result.point(for:))
+            tiles = result.image
+            revealStartedAt = Date()
         }
 
         let image = Self.draw(route: route.coordinates, on: result, fallbackTint: UIColor(tint))
@@ -335,12 +458,43 @@ struct BodyWorkoutRoutePlainHero: View {
     let targetCenterY: CGFloat
     /// Top safe-area inset; see `BodyWorkoutRouteMapHero`.
     let topInset: CGFloat
+    /// Draws the trace in from start to finish when the hero appears. `var` with a
+    /// default rather than `let`: a `let` with a default value is left out of the
+    /// synthesized memberwise initializer, so existing call sites could not opt in.
+    var drawsReveal: Bool = false
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Captured when this hero is inserted, so the draw always starts at the start of
+    /// the line no matter when the route resolved.
+    @State private var epoch = Date()
+    @State private var revealFinished = false
+
+    private var isRevealing: Bool { drawsReveal && !reduceMotion && !revealFinished }
 
     var body: some View {
         // Project once per layout pass rather than per `Canvas` redraw: routes carry
         // thousands of fixes.
         let points = WorkoutShareRouteProjection.normalizedPoints(for: route.coordinates)
-        return Canvas { context, size in
+        return Group {
+            if isRevealing {
+                TimelineView(.animation(minimumInterval: 1 / 60)) { timeline in
+                    canvas(points: points, fraction: BodyWorkoutRouteReveal.fraction(epoch: epoch, date: timeline.date))
+                }
+            } else {
+                canvas(points: points, fraction: 1)
+            }
+        }
+        .task {
+            guard drawsReveal, !reduceMotion else { return }
+            try? await Task.sleep(for: .seconds(BodyWorkoutRouteReveal.totalDuration))
+            revealFinished = true
+        }
+    }
+
+    /// The trace drawn up to `fraction` of its length. At 1 this is byte-for-byte the
+    /// steady-state drawing, so tearing the timeline down is invisible.
+    private func canvas(points: [CGPoint]?, fraction: CGFloat) -> some View {
+        Canvas { context, size in
             // A degenerate (treadmill-jitter) route projects to nil — then the page is
             // just the backdrop, like a routeless workout.
             guard let points, let path = Self.path(for: points, in: size, targetCenterY: targetCenterY, topInset: topInset) else {
@@ -348,7 +502,7 @@ struct BodyWorkoutRoutePlainHero: View {
             }
 
             context.stroke(
-                path,
+                fraction >= 1 ? path : path.trimmedPath(from: 0, to: fraction),
                 with: .color(tint),
                 style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
             )
@@ -458,6 +612,15 @@ struct BodyWorkoutRoute3DHero: View {
     /// detail sheet. The plain fallback below ignores it — a flat trace has no
     /// third axis to turn about.
     let yawState: BodyWorkoutRouteYawState
+    /// Draws the ribbon in from start to finish when the hero appears. See
+    /// `BodyWorkoutRoutePlainHero.drawsReveal` for why this is `var`, not `let`.
+    var drawsReveal: Bool = false
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var epoch = Date()
+    @State private var revealFinished = false
+
+    private var isRevealing: Bool { drawsReveal && !reduceMotion && !revealFinished }
 
     /// Faint trace of where the route ran on the ground, under the ribbon.
     private static let groundOpacity = 0.35
@@ -473,16 +636,35 @@ struct BodyWorkoutRoute3DHero: View {
         let projected = WorkoutRoute3DProjection.projected(for: route.coordinates, yaw: yawState.yaw + yawState.drag)
         return Group {
             if let projected {
-                ribbon(projected)
+                if isRevealing {
+                    TimelineView(.animation(minimumInterval: 1 / 60)) { timeline in
+                        ribbon(projected, revealed: BodyWorkoutRouteReveal.fraction(epoch: epoch, date: timeline.date))
+                    }
+                } else {
+                    ribbon(projected, revealed: 1)
+                }
             } else {
                 // A route with no usable altitude has no ribbon to draw — the fallback
-                // lives here so the detail sheet never branches on the route's data.
-                BodyWorkoutRoutePlainHero(route: route, tint: tint, targetCenterY: targetCenterY, topInset: topInset)
+                // lives here so the detail sheet never branches on the route's data. It
+                // carries the reveal too, or a 3D-style route without altitude would be
+                // the one page that still popped its route in fully formed.
+                BodyWorkoutRoutePlainHero(
+                    route: route,
+                    tint: tint,
+                    targetCenterY: targetCenterY,
+                    topInset: topInset,
+                    drawsReveal: drawsReveal
+                )
             }
+        }
+        .task {
+            guard drawsReveal, !reduceMotion else { return }
+            try? await Task.sleep(for: .seconds(BodyWorkoutRouteReveal.totalDuration))
+            revealFinished = true
         }
     }
 
-    private func ribbon(_ projected: WorkoutRoute3DProjection.Projected3D) -> some View {
+    private func ribbon(_ projected: WorkoutRoute3DProjection.Projected3D, revealed: CGFloat) -> some View {
         Canvas { context, size in
             // Fit the lifted line and the ground trace as one shape: two separate
             // fits would scale and center them independently and shear the walls.
@@ -504,6 +686,7 @@ struct BodyWorkoutRoute3DHero: View {
                 top: projected.top.map(place),
                 base: projected.base.map(place),
                 tint: tint,
+                revealed: revealed,
                 in: &context
             )
         }
@@ -513,7 +696,18 @@ struct BodyWorkoutRoute3DHero: View {
     /// Paints one ribbon — faint ground trace, then the walls and lifted line
     /// interleaved back to front — into an already-fitted pair of polylines. Internal
     /// so the share card draws its centered 3D route with exactly this painter.
-    static func drawRibbon(top: [CGPoint], base: [CGPoint], tint: Color, in context: inout GraphicsContext) {
+    static func drawRibbon(
+        top: [CGPoint],
+        base: [CGPoint],
+        tint: Color,
+        revealed: CGFloat = 1,
+        in context: inout GraphicsContext
+    ) {
+        // `trim` can't drive this reveal: the walls below are painted back to front by
+        // ground depth, not in route order, so trimming the composed path would grow the
+        // ribbon from whichever end happens to be farthest away. Cut the polylines in
+        // route order first, then let the depth sort run over what's left.
+        let (top, base) = Self.revealed(top: top, base: base, fraction: revealed)
         let count = min(top.count, base.count)
         guard count >= 2 else { return }
 
@@ -549,6 +743,148 @@ struct BodyWorkoutRoute3DHero: View {
                 with: .color(tint),
                 style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
             )
+        }
+    }
+
+    /// The first `fraction` of the ribbon, in route order, measured by **cumulative
+    /// length along the lifted line** rather than by point index. The fixes are
+    /// downsampled by a fixed stride over time, so equal-index segments are not equal
+    /// length: an index-based cut would race the head across a long straight and crawl it
+    /// through a dense cluster, and would visibly disagree with the Plain and Map heroes,
+    /// which get arc-length pacing free from `Path.trimmedPath`.
+    ///
+    /// `base` is cut at the same index and interpolated by the same amount, so the two
+    /// arrays stay equal-length and no wall is ever built from mismatched ends.
+    /// Internal so the pacing can be unit-tested.
+    static func revealed(top: [CGPoint], base: [CGPoint], fraction: CGFloat) -> (top: [CGPoint], base: [CGPoint]) {
+        let count = min(top.count, base.count)
+        guard count >= 2, fraction < 1 else {
+            return (Array(top.prefix(count)), Array(base.prefix(count)))
+        }
+        // Nothing drawn yet — the painter bails on fewer than two points, which is what
+        // holds the ribbon off screen through the reveal's opening beat.
+        guard fraction > 0 else {
+            return ([], [])
+        }
+
+        var lengths: [CGFloat] = []
+        lengths.reserveCapacity(count - 1)
+        var total: CGFloat = 0
+        for index in 0..<(count - 1) {
+            let dx = top[index + 1].x - top[index].x
+            let dy = top[index + 1].y - top[index].y
+            let length = (dx * dx + dy * dy).squareRoot()
+            lengths.append(length)
+            total += length
+        }
+        // A route projected end-on can collapse to zero length; fall back to showing it
+        // whole rather than dividing by zero.
+        guard total > 0 else {
+            return (Array(top.prefix(count)), Array(base.prefix(count)))
+        }
+
+        let target = total * fraction
+        var travelled: CGFloat = 0
+        for index in 0..<(count - 1) {
+            let length = lengths[index]
+            guard travelled + length >= target else {
+                travelled += length
+                continue
+            }
+            // Interpolate the head inside this segment so the ribbon grows smoothly
+            // rather than one whole segment at a time.
+            let t = length > 0 ? (target - travelled) / length : 0
+            func interpolate(_ points: [CGPoint]) -> CGPoint {
+                CGPoint(
+                    x: points[index].x + (points[index + 1].x - points[index].x) * t,
+                    y: points[index].y + (points[index + 1].y - points[index].y) * t
+                )
+            }
+            // Always keep at least two points so the ribbon has a segment to draw.
+            let kept = max(index + 1, 1)
+            return (
+                Array(top.prefix(kept)) + [interpolate(top)],
+                Array(base.prefix(kept)) + [interpolate(base)]
+            )
+        }
+        return (Array(top.prefix(count)), Array(base.prefix(count)))
+    }
+}
+
+/// Stand-in for the route hero while the fixes load, shown when Route Style ▸ Draw Route
+/// is off: the band is already reserved, so this fills it with a sweeping tinted block
+/// rather than leaving it empty until the route crossfades in.
+///
+/// Driven from wall-clock time through `TimelineView` rather than an `onAppear`-started
+/// repeating animation, for the same reason `BodyPixelGridLoader` is — this view is
+/// conditionally inserted, and an animation started on appearance is lost when it is.
+struct BodyWorkoutRouteHeroShimmer: View {
+    let tint: Color
+    /// Y the shimmer's center should land on, matching the route's own framing so the
+    /// placeholder occupies the band the trace will.
+    let targetCenterY: CGFloat
+    let topInset: CGFloat
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var epoch = Date()
+
+    /// One sweep of the highlight across the block.
+    private static let sweepDuration: TimeInterval = 1.4
+    private static let sidePadding: CGFloat = 24
+    private static let blockHeight: CGFloat = 180
+    private static let cornerRadius: CGFloat = 28
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            let width = max(size.width - Self.sidePadding * 2, 0)
+            let height = min(Self.blockHeight, max(2 * (targetCenterY - topInset - 12), 0))
+            let rect = CGRect(
+                x: Self.sidePadding,
+                y: max(targetCenterY - height / 2, topInset),
+                width: width,
+                height: height
+            )
+
+            if reduceMotion {
+                block(in: rect, phase: 0)
+            } else {
+                TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
+                    let elapsed = timeline.date.timeIntervalSince(epoch)
+                    block(in: rect, phase: elapsed.truncatingRemainder(dividingBy: Self.sweepDuration) / Self.sweepDuration)
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// The tinted block with a diagonal highlight at `phase` (0…1) of its travel.
+    private func block(in rect: CGRect, phase: Double) -> some View {
+        Canvas { context, _ in
+            guard rect.width > 0, rect.height > 0 else { return }
+            let shape = Path(roundedRect: rect, cornerRadius: Self.cornerRadius, style: .continuous)
+            context.fill(shape, with: .color(tint.opacity(0.16)))
+
+            guard !reduceMotion else { return }
+            // Travel from fully off the leading edge to fully off the trailing one, so
+            // the highlight enters and leaves rather than appearing mid-block.
+            let travel = rect.width * 2
+            let x = rect.minX - rect.width / 2 + travel * phase
+            context.drawLayer { layer in
+                layer.clip(to: shape)
+                layer.fill(
+                    Path(CGRect(x: x, y: rect.minY, width: rect.width / 2, height: rect.height)),
+                    with: .linearGradient(
+                        Gradient(colors: [
+                            tint.opacity(0),
+                            tint.opacity(0.22),
+                            tint.opacity(0)
+                        ]),
+                        startPoint: CGPoint(x: x, y: rect.midY),
+                        endPoint: CGPoint(x: x + rect.width / 2, y: rect.midY)
+                    )
+                )
+            }
         }
     }
 }

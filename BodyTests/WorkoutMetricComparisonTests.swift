@@ -18,6 +18,9 @@ final class WorkoutMetricComparisonTests: XCTestCase {
         activeEnergy: Double? = nil,
         avgHR: Double? = nil,
         elevation: Double? = nil,
+        humidity: Double? = nil,
+        averageMETs: Double? = nil,
+        heartRateRecovery: Double? = nil,
         hrSamples: [WorkoutHeartRateSample] = []
     ) -> WorkoutSummary {
         WorkoutSummary(
@@ -29,7 +32,10 @@ final class WorkoutMetricComparisonTests: XCTestCase {
             distanceMeters: distance,
             averageHeartRateBeatsPerMinute: avgHR,
             heartRateSamples: hrSamples,
-            elevationAscendedMeters: elevation
+            elevationAscendedMeters: elevation,
+            weatherHumidityPercent: humidity,
+            averageMETs: averageMETs,
+            heartRateRecoveryBPM: heartRateRecovery
         )
     }
 
@@ -78,6 +84,62 @@ final class WorkoutMetricComparisonTests: XCTestCase {
         let current = workout(activeEnergy: 200)
         let priors = [workout(activeEnergy: 200), workout(activeEnergy: 200), workout(activeEnergy: 200)]
         XCTAssertEqual(comparison(.activeEnergy, current: current, priors: priors)?.badgeText, "≈0%")
+    }
+
+    // MARK: - Session-context metrics
+
+    func testAverageMETsComparesAgainstTheThirtyDayAverage() {
+        let current = workout(averageMETs: 9)
+        let priors = [workout(averageMETs: 6), workout(averageMETs: 6), workout(averageMETs: 6)]
+        XCTAssertEqual(comparison(.averageMETs, current: current, priors: priors)?.badgeText, "↑50%")
+        // Below the 3-prior floor there is no badge, same as every other metric.
+        XCTAssertNil(comparison(.averageMETs, current: current, priors: Array(priors.prefix(2))))
+    }
+
+    func testHumidityComparesAgainstTheThirtyDayAverage() {
+        let current = workout(humidity: 90)
+        let priors = [workout(humidity: 60), workout(humidity: 60), workout(humidity: 60)]
+        XCTAssertEqual(comparison(.humidity, current: current, priors: priors)?.badgeText, "↑50%")
+        XCTAssertNil(comparison(.humidity, current: current, priors: Array(priors.prefix(2))))
+    }
+
+    /// Zero humidity is a real reading (unlike a zero distance, which means
+    /// "not recorded"), so it stays comparable.
+    func testZeroHumidityIsStillComparable() {
+        XCTAssertEqual(
+            WorkoutMetricComparisonBuilder.scalar(for: .humidity, from: workout(humidity: 0)),
+            0
+        )
+        let current = workout(humidity: 0)
+        let priors = [workout(humidity: 60), workout(humidity: 60), workout(humidity: 60)]
+        XCTAssertEqual(comparison(.humidity, current: current, priors: priors)?.badgeText, "↓100%")
+    }
+
+    func testHeartRateRecoveryComparesAgainstTheThirtyDayAverage() {
+        let current = workout(heartRateRecovery: 45)
+        let priors = [
+            workout(heartRateRecovery: 30),
+            workout(heartRateRecovery: 30),
+            workout(heartRateRecovery: 30)
+        ]
+        XCTAssertEqual(comparison(.heartRateRecovery, current: current, priors: priors)?.badgeText, "↑50%")
+        XCTAssertNil(comparison(.heartRateRecovery, current: current, priors: Array(priors.prefix(2))))
+    }
+
+    func testSessionContextMetricsGetTheCalculatingStandIn() {
+        let current = workout(humidity: 0, averageMETs: 8.4, heartRateRecovery: 32)
+        for kind in [WorkoutDetailMetric.Kind.humidity, .averageMETs, .heartRateRecovery] {
+            XCTAssertEqual(
+                WorkoutMetricComparisonBuilder.placeholder(
+                    for: kind,
+                    availability: .calculating,
+                    current: current,
+                    locale: enUS
+                )?.badgeText,
+                "0%",
+                "\(kind) must show the stand-in while the history loads"
+            )
+        }
     }
 
     // MARK: - Sparse vs loading
@@ -297,14 +359,15 @@ final class WorkoutMetricComparisonTests: XCTestCase {
 
     func testWorkoutWithNothingComparableGetsNoLegend() {
         // Every tile would read "No Data", so the card keeps its clean look: no legend
-        // and (below) no stand-ins either.
+        // and (below) no stand-ins either. The session-context kinds are comparable
+        // now, so they have to be absent here too for the card to stay legend-free.
         let current = workout(activeEnergy: nil, elevation: nil)
         let priors = [workout(activeEnergy: 200), workout(activeEnergy: 200), workout(activeEnergy: 200)]
         XCTAssertNil(
             availability(
                 current: current,
                 priors: priors,
-                kinds: [.activeEnergy, .elevation],
+                kinds: [.activeEnergy, .elevation, .humidity, .averageMETs, .heartRateRecovery],
                 isComplete: true,
                 isSettled: true
             )

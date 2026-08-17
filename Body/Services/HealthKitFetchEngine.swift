@@ -1707,6 +1707,9 @@ actor HealthKitFetchEngine {
         let (resolvedStepCadence, failedStepCadenceIDs) = await stepCadenceByWorkoutID
         let (resolvedWorkoutDistance, failedWorkoutDistanceIDs) = await workoutDistanceByWorkoutID
         let includesWorkoutMetrics = permissionSelection.includes(.workoutMetrics)
+        // Heart-rate recovery comes from the workout's attached statistics (no extra
+        // query), but it's heart data — so it rides the Heart toggle like the samples.
+        let includesHeartMetrics = permissionSelection.includes(.heart)
         // The batched HR query failed (not empty) — reuse cached payloads below.
         let heartRateBatchFailed = includesHeartRateSamples && resolvedHeartRateSamples == nil
         // The whole VO₂max query failed — reuse each workout's cached value below.
@@ -1760,7 +1763,8 @@ actor HealthKitFetchEngine {
                         cardioFitnessVO2Max: resolvedVO2,
                         averageStepCadenceSPM: resolvedCadence,
                         resolvedDistanceMeters: resolvedDistance,
-                        includesWorkoutMetrics: includesWorkoutMetrics
+                        includesWorkoutMetrics: includesWorkoutMetrics,
+                        includesHeartMetrics: includesHeartMetrics
                     )
                 )
             } else {
@@ -1773,7 +1777,8 @@ actor HealthKitFetchEngine {
                         cardioFitnessVO2Max: resolvedVO2,
                         averageStepCadenceSPM: resolvedCadence,
                         resolvedDistanceMeters: resolvedDistance,
-                        includesWorkoutMetrics: includesWorkoutMetrics
+                        includesWorkoutMetrics: includesWorkoutMetrics,
+                        includesHeartMetrics: includesHeartMetrics
                     )
                 )
             }

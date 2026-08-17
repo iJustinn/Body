@@ -229,10 +229,13 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         )))
 
         let first = try XCTUnwrap(presentation.bars.first)
-        // 0.05 m clamps to 0.2 m and 9.0 m to 3.0 m; the axis then grows to fit the bar.
-        XCTAssertEqual(presentation.axisTopValue, 3.3, accuracy: 0.0001)
-        XCTAssertEqual(first.lowFraction, 0.2 / presentation.axisTopValue, accuracy: 0.0001)
-        XCTAssertEqual(first.highFraction, 3.0 / presentation.axisTopValue, accuracy: 0.0001)
+        // 0.05 m clamps to 0.2 m and 9.0 m to 3.0 m, so the axis spans 0.2…3.0:
+        // pad = max(0.0025, 0.1 × 2.8) = 0.28 → −0.08…3.28, clamped up to 0…3.36,
+        // then 0.60 ticks (12 × the 0.05 step) → 0…3.60.
+        XCTAssertEqual(presentation.axisRange.lowerBound, 0, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 3.6, accuracy: 0.0001)
+        XCTAssertEqual(first.lowFraction, 0.2 / 3.6, accuracy: 0.0001)
+        XCTAssertEqual(first.highFraction, 3.0 / 3.6, accuracy: 0.0001)
         // A range that brackets the average the wrong way collapses onto it.
         let second = presentation.bars[1]
         XCTAssertEqual(second.lowFraction, second.valueFraction, accuracy: 0.0001)
@@ -278,30 +281,86 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
 
     // MARK: - Axis
 
-    func testAxisTopRoundsUpToFiveCentimeters() throws {
+    func testAxisBracketsTheDataInsteadOfStartingAtZero() throws {
         let presentation = try XCTUnwrap(stride(data(
             stride: series([native(0, 1.0), native(1, 1.05), native(2, 1.13)])
         )))
 
-        // 1.13 × 1.1 = 1.243 → next 0.05 step.
-        XCTAssertEqual(presentation.axisTopValue, 1.25, accuracy: 0.0001)
+        // 1.00…1.13: pad = max(0.0025, 0.1 × 0.13) = 0.013 → 0.987…1.143, widened
+        // to the 0.3 m minimum span → 0.915…1.215, snapped on the 0.10 grid.
+        XCTAssertEqual(presentation.axisRange.lowerBound, 0.9, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 1.3, accuracy: 0.0001)
     }
 
-    func testAxisTopHasAMinimumOfHalfAUnit() throws {
+    func testFlatSeriesStillSpansItsMinimum() throws {
+        let presentation = try XCTUnwrap(stride(data(
+            stride: series([native(0, 1.0), native(1, 1.0), native(2, 1.0)])
+        )))
+
+        // No span of its own: half the finest tick of padding, then out to the
+        // 0.3 m minimum span → 0.85…1.15, already on the 0.05 grid (6 intervals).
+        XCTAssertEqual(presentation.axisRange.lowerBound, 0.85, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 1.15, accuracy: 0.0001)
+        XCTAssertGreaterThanOrEqual(
+            presentation.axisRange.upperBound - presentation.axisRange.lowerBound,
+            0.3
+        )
+        XCTAssertEqual(presentation.yAxisLabels.count, 7)
+    }
+
+    func testAxisNeverDipsBelowZero() throws {
+        // 0.30…0.40 pads to 0.29…0.41 and widens to 0.20…0.50 — a low series
+        // stays above zero rather than being pushed negative.
         let presentation = try XCTUnwrap(stride(data(
             stride: series([native(0, 0.3), native(1, 0.35), native(2, 0.4)])
         )))
 
-        XCTAssertEqual(presentation.axisTopValue, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.lowerBound, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 0.5, accuracy: 0.0001)
+        XCTAssertGreaterThanOrEqual(presentation.axisRange.lowerBound, 0)
     }
 
-    func testYAxisLabelsAreFourTwoDecimalValuesBottomToTop() throws {
+    func testYAxisLabelsAreTheTicksOfTheRangeBottomToTop() throws {
         let presentation = try XCTUnwrap(stride(data(
             stride: series([native(0, 1.0), native(1, 1.05), native(2, 1.13)])
         )))
 
-        XCTAssertEqual(presentation.yAxisFractions.count, 4)
-        XCTAssertEqual(presentation.yAxisLabels, ["0.00", "0.42", "0.83", "1.25"])
+        // 0.90…1.30 on the 0.10 grid.
+        XCTAssertEqual(presentation.yAxisLabels, ["0.90", "1.00", "1.10", "1.20", "1.30"])
+        XCTAssertEqual(presentation.yAxisFractions.count, presentation.yAxisLabels.count)
+        for (index, fraction) in presentation.yAxisFractions.enumerated() {
+            XCTAssertEqual(fraction, Double(index) * 0.25, accuracy: 0.0001)
+        }
+    }
+
+    func testFractionsArePositionsWithinTheAxisRange() throws {
+        let presentation = try XCTUnwrap(stride(data(
+            stride: series([native(0, 1.0), native(1, 1.05), native(2, 1.13)])
+        )))
+
+        // The bottom label sits on the plot floor and the top one on its ceiling.
+        XCTAssertEqual(presentation.yAxisFractions.first, 0)
+        XCTAssertEqual(presentation.yAxisFractions.last, 1)
+        // (1.00 − 0.90) / 0.40 and (1.13 − 0.90) / 0.40.
+        XCTAssertEqual(presentation.bars[0].valueFraction, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(presentation.bars[2].valueFraction, 0.575, accuracy: 0.0001)
+    }
+
+    func testEveryAxisKeepsThreeToSevenLabelsAboveZero() throws {
+        for index in 0..<60 {
+            // Every value stays inside the 0.2…3.0 m plausible range.
+            let low = 0.25 + Double(index) * 0.03
+            let presentation = try XCTUnwrap(stride(data(stride: series([
+                native(0, low),
+                native(1, low + Double(index % 7) * 0.04),
+                native(2, low + Double(index % 13) * 0.06)
+            ]))))
+
+            XCTAssertGreaterThanOrEqual(presentation.yAxisLabels.count, 3)
+            XCTAssertLessThanOrEqual(presentation.yAxisLabels.count, 7)
+            XCTAssertEqual(presentation.yAxisFractions.count, presentation.yAxisLabels.count)
+            XCTAssertGreaterThanOrEqual(presentation.axisRange.lowerBound, 0)
+        }
     }
 
     func testTimeMarksLabelStartMiddleAndEnd() throws {
@@ -344,8 +403,14 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         XCTAssertEqual(presentation.unitText, "ft/step")
         XCTAssertEqual(presentation.averageText, "3.28")
         XCTAssertEqual(presentation.extremeText, "3.28")
-        // 3.2808 ft × 1.1 = 3.609 → next 0.2 step.
-        XCTAssertEqual(presentation.axisTopValue, 3.8, accuracy: 0.0001)
+        // 3.2808 ft padded by 0.1 then out to the 1 ft minimum span → 2.78…3.78,
+        // snapped on the 0.2 ft grid to 2.60…3.80 (6 intervals).
+        XCTAssertEqual(presentation.axisRange.lowerBound, 2.6, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 3.8, accuracy: 0.0001)
+        XCTAssertEqual(
+            presentation.yAxisLabels,
+            ["2.60", "2.80", "3.00", "3.20", "3.40", "3.60", "3.80"]
+        )
         XCTAssertEqual(
             presentation.accessibilitySummary,
             "Stride length, average 3.28 ft/step, maximum 3.28 ft/step"
@@ -382,12 +447,20 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
     func testPaceAxisScalesToTheSlowestBucketAndLabelsAreClockText() throws {
         let presentation = try XCTUnwrap(paceOrSpeed(paceInput, type: .running))
 
-        // Slowest bucket is 6:00 /km → 6.0 × 1.1 = 6.6 → next 0.5 step.
-        XCTAssertEqual(presentation.axisTopValue, 7.0, accuracy: 0.0001)
-        XCTAssertEqual(presentation.yAxisLabels, ["0:00", "2:20", "4:40", "7:00"])
+        // 4:00…6:00 padded by max(0.25, 0.2) = 0.25 min → 3.75…6.25, snapped
+        // outward on the 0.5 min grid to 3.5…6.5 (6 intervals).
+        XCTAssertEqual(presentation.axisRange.lowerBound, 3.5, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 6.5, accuracy: 0.0001)
+        XCTAssertEqual(
+            presentation.yAxisLabels,
+            ["3:30", "4:00", "4:30", "5:00", "5:30", "6:00", "6:30"]
+        )
+        // The best pace is the headline stat, so the axis has to contain it.
+        XCTAssertTrue(presentation.axisRange.contains(4.0))
+        XCTAssertGreaterThan(try XCTUnwrap(presentation.bars.map(\.valueFraction).min()), 0)
     }
 
-    func testPaceAxisHasAMinimumOfThreeMinutesPerKilometer() throws {
+    func testPaceAxisHasAMinimumSpanOfOneMinute() throws {
         let presentation = try XCTUnwrap(paceOrSpeed(
             data(
                 activeSeconds: [0: 60, 1: 60, 2: 60],
@@ -396,8 +469,11 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
             type: .running
         ))
 
-        // 2:30 /km × 1.1 = 2.75 → 3.0 is both the rounded step and the floor.
-        XCTAssertEqual(presentation.axisTopValue, 3.0, accuracy: 0.0001)
+        // A flat 2:30 /km pads by 0.025 min either side and then widens to the
+        // 1 min minimum span → 2.0…3.0, labelled on 0.2 min (12 s) ticks.
+        XCTAssertEqual(presentation.axisRange.lowerBound, 2.0, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 3.0, accuracy: 0.0001)
+        XCTAssertEqual(presentation.yAxisLabels, ["2:00", "2:12", "2:24", "2:36", "2:48", "3:00"])
     }
 
     func testPaceUsesEachBucketsActiveSecondsIncludingAPartialLastBucket() throws {
@@ -481,7 +557,10 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         // 900 m in 180 s = 5 m/s = 18 km/h; the quickest bucket is 24 km/h.
         XCTAssertEqual(presentation.averageText, "18.0")
         XCTAssertEqual(presentation.extremeText, "24.0")
-        XCTAssertEqual(presentation.axisTopValue, 30, accuracy: 0.0001)
+        // 12…24 km/h padded by max(0.25, 1.2) = 1.2 → 10.8…25.2, snapped on the
+        // 5 km/h grid (4 intervals; finer rungs need more than six).
+        XCTAssertEqual(presentation.axisRange.lowerBound, 10, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 30, accuracy: 0.0001)
         XCTAssertEqual(
             presentation.accessibilitySummary,
             "Speed, average 18.0 km/h, maximum 24.0 km/h"
@@ -494,21 +573,32 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         XCTAssertEqual(presentation.unitText, "mph")
         XCTAssertEqual(presentation.averageText, "11.2")
         XCTAssertEqual(presentation.extremeText, "14.9")
-        XCTAssertEqual(presentation.axisTopValue, 20, accuracy: 0.0001)
+        // 7.46…14.91 mph padded by max(0.25, 0.75) = 0.75 → 6.71…15.66, which
+        // 2 mph ticks snap outward to 6…16.
+        XCTAssertEqual(presentation.axisRange.lowerBound, 6, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 16, accuracy: 0.0001)
     }
 
-    func testSpeedAxisFloorsDifferPerUnit() throws {
+    func testASlowFlatRideStaysAboveZeroInEitherUnit() throws {
         let slow = data(
             activeSeconds: [0: 60, 1: 60, 2: 60],
             distance: [0: 60, 1: 60, 2: 60]
         )
 
-        XCTAssertEqual(try XCTUnwrap(paceOrSpeed(slow, type: .cycling)).axisTopValue, 20, accuracy: 0.0001)
-        XCTAssertEqual(
-            try XCTUnwrap(paceOrSpeed(slow, type: .cycling, unit: .miles)).axisTopValue,
-            15,
-            accuracy: 0.0001
-        )
+        // 1 m/s is 3.6 km/h (2.24 mph); a flat series barely pads itself, so each
+        // unit's minimum span does the widening — 5 km/h around 3.6 → 1.1…6.1,
+        // snapped on 1 km/h ticks to 1…7; 3 mph around 2.24 → 0.74…3.74, snapped
+        // on 1 mph ticks to 0…4. Neither unit is pushed below zero.
+        let expected: [(BodyValueFormat.DistanceUnitPreference, Double, Double)] = [
+            (.kilometers, 1.0, 7.0),
+            (.miles, 0.0, 4.0)
+        ]
+        for (unit, bottom, top) in expected {
+            let range = try XCTUnwrap(paceOrSpeed(slow, type: .cycling, unit: unit)).axisRange
+            XCTAssertGreaterThanOrEqual(range.lowerBound, 0)
+            XCTAssertEqual(range.lowerBound, bottom, accuracy: 0.0001)
+            XCTAssertEqual(range.upperBound, top, accuracy: 0.0001)
+        }
     }
 
     // MARK: - Cadence
@@ -528,7 +618,9 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         // 490 steps over 180 s → 163 spm; the busiest bucket is 180 spm.
         XCTAssertEqual(presentation.averageText, "163")
         XCTAssertEqual(presentation.extremeText, "180")
-        XCTAssertEqual(presentation.axisTopValue, 200, accuracy: 0.0001)
+        // 150…180 spm padded by 10 → 140…190 on the 10 spm grid.
+        XCTAssertEqual(presentation.axisRange.lowerBound, 140, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 190, accuracy: 0.0001)
         XCTAssertEqual(
             presentation.accessibilitySummary,
             "Cadence, average 163 spm, maximum 180 spm"
@@ -546,8 +638,10 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
 
         // Bucket 1 is too short, bucket 2 has too few steps, bucket 4 is 500 spm.
         XCTAssertEqual(presentation.bars.map(\.id), [0, 3, 5])
-        // 60 spm × 1.1 = 66 → the 100 spm floor wins.
-        XCTAssertEqual(presentation.axisTopValue, 100, accuracy: 0.0001)
+        // 50…60 spm padded by max(1, 1) = 1 → 49…61, widened to the 20 spm
+        // minimum span → 45…65, which 4 spm ticks snap outward to 44…68.
+        XCTAssertEqual(presentation.axisRange.lowerBound, 44, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 68, accuracy: 0.0001)
     }
 
     func testCyclingCadenceUsesTheNativeRevolutionsPerMinuteSeries() throws {
@@ -565,7 +659,10 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         XCTAssertEqual(presentation.unitText, "rpm")
         XCTAssertEqual(presentation.averageText, "85")
         XCTAssertEqual(presentation.extremeText, "95")
-        XCTAssertEqual(presentation.axisTopValue, 110, accuracy: 0.0001)
+        // 80…95 rpm (the session max) padded by max(1, 1.5) = 1.5 → 78.5…96.5,
+        // widened to the 20 rpm minimum span → 77.5…97.5, then 4 rpm ticks → 76…100.
+        XCTAssertEqual(presentation.axisRange.lowerBound, 76, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 100, accuracy: 0.0001)
         XCTAssertEqual(
             presentation.accessibilitySummary,
             "Cycling cadence, average 85 rpm, maximum 95 rpm"
@@ -590,7 +687,7 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         )
     }
 
-    func testGroundContactTimeIsMillisecondsWithAThreeHundredFloor() throws {
+    func testGroundContactTimeIsMillisecondsOnATwentyMillisecondGrid() throws {
         let presentation = try XCTUnwrap(groundContact(data(groundContact: series(
             [native(0, 240), native(1, 260), native(2, 250)],
             sessionAverage: 250,
@@ -603,7 +700,10 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         XCTAssertEqual(presentation.unitText, "ms")
         XCTAssertEqual(presentation.averageText, "250")
         XCTAssertEqual(presentation.extremeText, "300")
-        XCTAssertEqual(presentation.axisTopValue, 350, accuracy: 0.0001)
+        // 240…300 ms padded by max(2.5, 6) = 6 → 234…306, which 20 ms ticks (the
+        // finest rung fitting in six intervals) snap outward to 220…320.
+        XCTAssertEqual(presentation.axisRange.lowerBound, 220, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 320, accuracy: 0.0001)
         XCTAssertEqual(
             presentation.accessibilitySummary,
             "Ground contact time, average 250 ms, maximum 300 ms"
@@ -620,7 +720,10 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         ]))))
 
         XCTAssertEqual(presentation.bars.map(\.id), [0, 3, 4])
-        XCTAssertEqual(presentation.axisTopValue, 300, accuracy: 0.0001)
+        // 240…260 ms padded by max(2.5, 2) = 2.5 → 237.5…262.5, widened to the
+        // 60 ms minimum span → 220…280, already on 10 ms ticks.
+        XCTAssertEqual(presentation.axisRange.lowerBound, 220, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 280, accuracy: 0.0001)
     }
 
     func testGroundContactTimeIsNilWithoutANativeSeries() {
@@ -653,7 +756,9 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         XCTAssertEqual(presentation.unitText, "cm")
         XCTAssertEqual(presentation.averageText, "9.0")
         XCTAssertEqual(presentation.extremeText, "10.0")
-        XCTAssertEqual(presentation.axisTopValue, 11, accuracy: 0.0001)
+        // 8…10 cm padded by 1 → 7…11 on the 1 cm grid.
+        XCTAssertEqual(presentation.axisRange.lowerBound, 7, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 11, accuracy: 0.0001)
         XCTAssertEqual(
             presentation.accessibilitySummary,
             "Vertical oscillation, average 9.0 cm, maximum 10.0 cm"
@@ -670,7 +775,10 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         XCTAssertEqual(presentation.unitText, "in")
         XCTAssertEqual(presentation.averageText, "3.5")
         XCTAssertEqual(presentation.extremeText, "3.9")
-        XCTAssertEqual(presentation.axisTopValue, 4.5, accuracy: 0.0001)
+        // 3.15…3.94 in padded by max(0.025, 0.079) = 0.079 → 3.07…4.02, which
+        // 0.2 in ticks snap outward to 3.0…4.2.
+        XCTAssertEqual(presentation.axisRange.lowerBound, 3.0, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 4.2, accuracy: 0.0001)
         // Centimeters are validated before conversion, so both units show the same bars.
         XCTAssertEqual(
             presentation.bars.map(\.id),
@@ -678,7 +786,7 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         )
     }
 
-    func testVerticalOscillationDropsImplausibleBucketsAndFloorsItsAxis() throws {
+    func testVerticalOscillationDropsImplausibleBucketsAndTightensItsAxis() throws {
         let presentation = try XCTUnwrap(verticalOscillation(data(verticalOscillation: series([
             native(0, 8.0),
             native(1, 1.0),
@@ -688,8 +796,9 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         ]))))
 
         XCTAssertEqual(presentation.bars.map(\.id), [0, 3, 4])
-        // 9.0 × 1.1 = 9.9 → the 10 cm floor wins.
-        XCTAssertEqual(presentation.axisTopValue, 10, accuracy: 0.0001)
+        // 8…9 cm padded by 1 → 7…10, exactly the 3 cm minimum span.
+        XCTAssertEqual(presentation.axisRange.lowerBound, 7, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 10, accuracy: 0.0001)
     }
 
     // MARK: - Duration formatting

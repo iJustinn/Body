@@ -2350,6 +2350,47 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(sanitized.effortLevel, 6)
     }
 
+    func testRemovingHeartRateRecoveryClearsOnlyThatField() {
+        let summary = WorkoutSummary(
+            id: UUID(),
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            duration: 1_800,
+            activeEnergyKilocalories: 250,
+            totalEnergyKilocalories: 300,
+            distanceMeters: 5_000,
+            averageHeartRateBeatsPerMinute: 150,
+            maximumHeartRateBeatsPerMinute: 175,
+            effortLevel: 6,
+            averagePowerWatts: 240,
+            averageStepCadenceSPM: 170,
+            averageCyclingCadenceRPM: nil,
+            swimmingStrokeCount: nil,
+            cardioFitnessVO2Max: 48,
+            heartRateRecoveryBPM: 32
+        )
+
+        let sanitized = summary.removingHeartRateRecovery()
+
+        // Only heart-rate recovery drops (it rides the Heart toggle) …
+        XCTAssertNil(sanitized.heartRateRecoveryBPM)
+        // … the Workout Metrics fields and core data are untouched.
+        XCTAssertEqual(sanitized.averagePowerWatts, 240)
+        XCTAssertEqual(sanitized.averageStepCadenceSPM, 170)
+        XCTAssertEqual(sanitized.cardioFitnessVO2Max, 48)
+        XCTAssertEqual(sanitized.averageHeartRateBeatsPerMinute, 150)
+        XCTAssertEqual(sanitized.distanceMeters, 5_000)
+        XCTAssertEqual(sanitized.id, summary.id)
+
+        // The month-level wrapper strips every workout and keeps identity.
+        let month = WorkoutMonthSnapshot.make(month: 11, year: 2023, workouts: [summary], calendar: .bodyGregorian)
+        let strippedMonth = month.removingHeartRateRecovery()
+        XCTAssertEqual(strippedMonth.month, month.month)
+        XCTAssertEqual(strippedMonth.year, month.year)
+        XCTAssertEqual(strippedMonth.generatedAt, month.generatedAt)
+        XCTAssertTrue(strippedMonth.days.flatMap(\.workouts).allSatisfy { $0.heartRateRecoveryBPM == nil })
+    }
+
     func testRemovingWorkoutMetricsPreservesEffortUnresolvedFlag() throws {
         // `removingWorkoutMetrics()` reconstructs the summary field-by-field and is
         // rewritten to disk when Workout Metrics is disabled. If it dropped
@@ -2406,6 +2447,41 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertFalse(resolvedJSON.contains("effortUnresolved"))
         let resolvedDecoded = try JSONDecoder().decode(WorkoutSummary.self, from: resolvedEncoded)
         XCTAssertNil(resolvedDecoded.effortUnresolved)
+    }
+
+    func testWorkoutSummaryHeartRateRecoverySurvivesCodableRoundTrip() throws {
+        let withRecovery = WorkoutSummary(
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 3_000_000),
+            duration: 900,
+            heartRateRecoveryBPM: 32
+        )
+        let decoded = try JSONDecoder().decode(
+            WorkoutSummary.self,
+            from: try JSONEncoder().encode(withRecovery)
+        )
+        XCTAssertEqual(decoded.heartRateRecoveryBPM, 32)
+        XCTAssertEqual(decoded, withRecovery)
+
+        // Snapshots persisted before the field existed have no key at all — they
+        // must still decode, with the recovery left to the detail sheet's lazy read.
+        // (`encodeIfPresent` also keeps a nil out of the bytes, so the M10 byte-dedupe
+        // doesn't see a change on workouts that have no recovery.)
+        let legacyJSON = try XCTUnwrap(
+            String(data: try JSONEncoder().encode(
+                WorkoutSummary(
+                    type: .running,
+                    startDate: Date(timeIntervalSince1970: 3_000_000),
+                    duration: 900
+                )
+            ), encoding: .utf8)
+        )
+        XCTAssertFalse(legacyJSON.contains("heartRateRecoveryBPM"))
+        let legacyDecoded = try JSONDecoder().decode(
+            WorkoutSummary.self,
+            from: try XCTUnwrap(legacyJSON.data(using: .utf8))
+        )
+        XCTAssertNil(legacyDecoded.heartRateRecoveryBPM)
     }
 
     func testExpandedPermissionMigrationAddsNewTogglesForLegacySelections() throws {
@@ -5018,6 +5094,70 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertFalse(WorkoutCalendarDaySelection.isSelectable(emptyDay, hasSelectionHandler: true))
         XCTAssertFalse(WorkoutCalendarDaySelection.isSelectable(activeDay, hasSelectionHandler: false))
         XCTAssertTrue(WorkoutCalendarDaySelection.isSelectable(activeDay, hasSelectionHandler: true))
+    }
+
+    func testWorkoutCalendarSwitchControlAlwaysTakesTheLastColumn() {
+        // Every shape a Gregorian month can take: any weekday start, any length.
+        for leadingBlankDayCount in 0...6 {
+            for dayCount in 28...31 {
+                let cells = WorkoutCalendarView.cellLayout(
+                    leadingBlankDayCount: leadingBlankDayCount,
+                    dayCount: dayCount,
+                    includesSwitchControl: true
+                )
+                let context = "blanks \(leadingBlankDayCount), days \(dayCount)"
+
+                XCTAssertEqual(cells.last, .switchControl, context)
+                XCTAssertEqual(cells.filter { $0 == .switchControl }.count, 1, context)
+                // A full number of rows, so the last index is the trailing
+                // column and the control can never sit beside a date.
+                XCTAssertEqual(cells.count % 7, 0, context)
+                // Padding is blanks only — no day is dropped or duplicated.
+                XCTAssertEqual(cells.filter { $0 != .blank && $0 != .switchControl }.count, dayCount, context)
+            }
+        }
+    }
+
+    func testWorkoutCalendarSwitchControlOnlyAddsARowWhenTheMonthFillsItsLast() {
+        // Aug 2026 — Aug 1 is a Saturday, so 6 + 31 = 37 cells leave a gap in
+        // the final row and the control shares it with the 30th and 31st.
+        let sharesLastRow = WorkoutCalendarView.cellLayout(
+            leadingBlankDayCount: 6,
+            dayCount: 31,
+            includesSwitchControl: true
+        )
+        XCTAssertEqual(sharesLastRow.count, 42)
+
+        // A 28-day February starting on Sunday fills its last row exactly, so
+        // the control has nowhere to go but a row of its own.
+        let needsItsOwnRow = WorkoutCalendarView.cellLayout(
+            leadingBlankDayCount: 0,
+            dayCount: 28,
+            includesSwitchControl: true
+        )
+        XCTAssertEqual(needsItsOwnRow.count, 35)
+        XCTAssertEqual(
+            Array(needsItsOwnRow.suffix(7)),
+            Array(repeating: WorkoutCalendarCellKind.blank, count: 6) + [.switchControl]
+        )
+    }
+
+    func testWorkoutCalendarWithoutSwitchControlKeepsTheWidgetsLayout() {
+        for leadingBlankDayCount in 0...6 {
+            for dayCount in 28...31 {
+                let cells = WorkoutCalendarView.cellLayout(
+                    leadingBlankDayCount: leadingBlankDayCount,
+                    dayCount: dayCount,
+                    includesSwitchControl: false
+                )
+                let expected = Array(repeating: WorkoutCalendarCellKind.blank, count: leadingBlankDayCount)
+                    + (0..<dayCount).map { WorkoutCalendarCellKind.day(index: $0) }
+
+                // No trailing padding at all — the widgets pass no handler, so
+                // their grid must stop at the last day exactly as it always has.
+                XCTAssertEqual(cells, expected, "blanks \(leadingBlankDayCount), days \(dayCount)")
+            }
+        }
     }
 
     func testWorkoutCalendarCountMarkersMatchCountRepresentation() {

@@ -426,6 +426,40 @@
         }
       }
     },
+    "Show activity breakdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show activity breakdown"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示活动分布"
+          }
+        }
+      }
+    },
+    "Show workout calendar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show workout calendar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示锻炼日历"
+          }
+        }
+      }
+    },
     "Skin Temperature": {
       "extractionState": "manual",
       "localizations": {
@@ -490,6 +524,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "步数"
+          }
+        }
+      }
+    },
+    "Switches between the workout calendar and the activity breakdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switches between the workout calendar and the activity breakdown"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在锻炼日历与活动分布之间切换"
           }
         }
       }

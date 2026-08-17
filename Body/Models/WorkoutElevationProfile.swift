@@ -16,7 +16,7 @@ import Foundation
 /// sensor noise drawn full height.
 struct WorkoutElevationProfilePresentation: Equatable {
     /// One point of the profile line, in fractions of the plot rect (`yFraction`
-    /// measured from the axis floor upwards).
+    /// measured from the bottom of `axisRange` upwards).
     struct Point: Equatable {
         let xFraction: Double
         let yFraction: Double
@@ -31,6 +31,9 @@ struct WorkoutElevationProfilePresentation: Equatable {
 
     let points: [Point]
     let timeMarks: [TimeMark]
+    /// The y axis' bounds, in the display unit — tight around the route rather
+    /// than anchored at zero.
+    let axisRange: ClosedRange<Double>
     /// Y-axis labels for `yAxisFractions`, ordered bottom to top.
     let yAxisLabels: [String]
     /// Fractions of the plot height the y-axis labels and gridlines sit at, bottom to top.
@@ -43,7 +46,6 @@ struct WorkoutElevationProfilePresentation: Equatable {
     let maxCaption: String
     let accessibilitySummary: String
 
-    private static let axisFractions: [Double] = [0, 1.0 / 3.0, 2.0 / 3.0, 1]
     /// Fewer samples than this can't describe a profile — a straight line between
     /// two fixes says nothing about the terrain between them.
     private static let minimumSamples = 10
@@ -78,16 +80,19 @@ struct WorkoutElevationProfilePresentation: Equatable {
                 : meters
         }
 
-        // Nice round bounds in the display unit, widened to a minimum span so a
-        // gentle rise doesn't fill the plot as if it were a mountain.
-        let step: Double = useFeet ? 50 : 10
-        let minimumAxisSpan: Double = useFeet ? 50 : 20
-        let axisMinimum = (display(lowestMeters) / step).rounded(.down) * step
-        let axisMaximum = max(
-            (display(highestMeters) / step).rounded(.up) * step,
-            axisMinimum + minimumAxisSpan
+        // Nice round bounds in the display unit, padded around the climb and
+        // widened to a minimum span so a gentle rise doesn't fill the plot as if
+        // it were a mountain. Below sea level stays below sea level.
+        let axis = WorkoutChartAxis.niceRange(
+            low: display(lowestMeters),
+            high: display(highestMeters),
+            step: useFeet ? 20 : 5,
+            minimumSpan: useFeet ? 20 : 6,
+            clampToZero: false
         )
-        let axisSpan = axisMaximum - axisMinimum
+        axisRange = axis.range
+        let axisMinimum = axis.range.lowerBound
+        let axisSpan = axis.range.upperBound - axisMinimum
 
         points = zip(samples, smoothed).map { sample, meters in
             Point(
@@ -104,9 +109,9 @@ struct WorkoutElevationProfilePresentation: Equatable {
             )
         }
 
-        yAxisFractions = Self.axisFractions
-        yAxisLabels = Self.axisFractions.map {
-            BodyValueFormat.numberText(axisMinimum + axisSpan * $0, decimals: 0, locale: locale)
+        yAxisFractions = axis.ticks.map { ($0 - axisMinimum) / axisSpan }
+        yAxisLabels = axis.ticks.map {
+            BodyValueFormat.numberText($0, decimals: 0, locale: locale)
         }
 
         // The workout's own ascent metadata is the watch's barometric total; the

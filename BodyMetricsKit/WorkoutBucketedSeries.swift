@@ -32,7 +32,8 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
     }
 
     /// One bucket's bar. `xStart`/`xEnd` are fractions of the workout timeline and
-    /// the vertical fractions are of `axisTopValue`, so the view only scales them.
+    /// the vertical fractions are positions within `axisRange` (0 = axis bottom,
+    /// 1 = axis top), so the view only scales them.
     /// Bars without a recorded range have `lowFraction == highFraction == valueFraction`.
     struct Bar: Identifiable, Equatable {
         let id: Int
@@ -77,10 +78,10 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
         let validRange: ClosedRange<Double>
         /// Canonical unit → display unit.
         let convert: (Double) -> Double
-        /// Axis top rounds up to a multiple of this, in the display unit.
+        /// Axis bounds and ticks snap to multiples of this, in the display unit.
         let axisStep: Double
-        /// Smallest axis top, in the display unit.
-        let axisFloor: Double
+        /// Smallest range the axis may cover, in the display unit.
+        let minimumSpan: Double
         let decimals: Int
         /// Overrides the plain decimal formatting (pace renders `m:ss`).
         let formatValue: ((Double, Locale) -> String)?
@@ -91,11 +92,12 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
     let source: Source
     let bars: [Bar]
     let timeMarks: [TimeMark]
-    /// Top of the y axis, in the display unit.
-    let axisTopValue: Double
+    /// The y axis' bounds, in the display unit — tight around the data rather
+    /// than anchored at zero.
+    let axisRange: ClosedRange<Double>
     /// Y-axis labels for `yAxisFractions`, ordered bottom to top.
     let yAxisLabels: [String]
-    /// Fractions of `axisTopValue` the y-axis labels and gridlines sit at, bottom to top.
+    /// Fractions of the plot height the y-axis labels and gridlines sit at, bottom to top.
     let yAxisFractions: [Double]
     let unitText: String
     let averageText: String
@@ -104,8 +106,6 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
     let averageCaption: String
     let extremeCaption: String
     let accessibilitySummary: String
-
-    private static let axisFractions: [Double] = [0, 1.0 / 3.0, 2.0 / 3.0, 1]
 
     init?(
         spec: Spec,
@@ -147,24 +147,30 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
         let extreme = sessionExtreme.flatMap { Self.isValid($0, in: spec.validRange) ? $0 : nil }
             ?? (spec.extreme == .max ? (bucketValues.max() ?? 0) : (bucketValues.min() ?? 0))
 
-        // The axis must fit the tallest bar even when the headline stat is a
-        // minimum, so a pace chart still scales to its slowest bucket.
-        let highestDisplay = (entries.map { spec.convert($0.high) } + [spec.convert(extreme)])
-            .max() ?? 0
-        let axisTopValue = max(
-            spec.axisFloor,
-            (highestDisplay * 1.1 / spec.axisStep).rounded(.up) * spec.axisStep
+        // The axis must fit every bar plus the headline stat, which sits outside
+        // the buckets' own range whenever it comes from session statistics.
+        let extremeDisplay = spec.convert(extreme)
+        let lowestDisplay = (entries.map { spec.convert($0.low) }
+            + (spec.extreme == .min ? [extremeDisplay] : [])).min() ?? 0
+        let highestDisplay = (entries.map { spec.convert($0.high) }
+            + (spec.extreme == .max ? [extremeDisplay] : [])).max() ?? 0
+        let axisRange = WorkoutChartAxis.niceRange(
+            low: lowestDisplay,
+            high: highestDisplay,
+            step: spec.axisStep,
+            minimumSpan: spec.minimumSpan,
+            clampToZero: true
         )
-        self.axisTopValue = axisTopValue
+        self.axisRange = axisRange.range
 
         bars = entries.map { entry in
             Bar(
                 id: entry.index,
                 xStart: min(1, Double(entry.index) * bucketSeconds / duration),
                 xEnd: min(1, Double(entry.index + 1) * bucketSeconds / duration),
-                lowFraction: Self.fraction(spec.convert(entry.low), of: axisTopValue),
-                highFraction: Self.fraction(spec.convert(entry.high), of: axisTopValue),
-                valueFraction: Self.fraction(spec.convert(entry.value), of: axisTopValue)
+                lowFraction: Self.fraction(spec.convert(entry.low), in: axisRange.range),
+                highFraction: Self.fraction(spec.convert(entry.high), in: axisRange.range),
+                valueFraction: Self.fraction(spec.convert(entry.value), in: axisRange.range)
             )
         }
 
@@ -181,8 +187,8 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
                 ?? BodyValueFormat.numberText(value, decimals: spec.decimals, locale: locale)
         }
 
-        yAxisFractions = Self.axisFractions
-        yAxisLabels = Self.axisFractions.map { format(axisTopValue * $0) }
+        yAxisFractions = axisRange.ticks.map { Self.fraction($0, in: axisRange.range) }
+        yAxisLabels = axisRange.ticks.map(format)
         averageText = format(spec.convert(average))
         extremeText = format(spec.convert(extreme))
         accessibilitySummary = String(
@@ -204,9 +210,11 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
         return min(max(value, range.lowerBound), range.upperBound)
     }
 
-    private static func fraction(_ value: Double, of top: Double) -> Double {
-        guard top > 0 else { return 0 }
-        return min(1, max(0, value / top))
+    /// Where `value` sits within the axis, 0 at the bottom and 1 at the top.
+    private static func fraction(_ value: Double, in range: ClosedRange<Double>) -> Double {
+        let span = range.upperBound - range.lowerBound
+        guard span > 0 else { return 0 }
+        return min(1, max(0, (value - range.lowerBound) / span))
     }
 }
 
@@ -246,7 +254,7 @@ enum WorkoutMetricSeriesCharts {
                     : meters
             },
             axisStep: useFeet ? 0.2 : 0.05,
-            axisFloor: useFeet ? 1.5 : 0.5,
+            minimumSpan: useFeet ? 1 : 0.3,
             decimals: 2,
             formatValue: nil,
             accessibilityFormat: String(
@@ -320,7 +328,7 @@ enum WorkoutMetricSeriesCharts {
                 validRange: 0.12...1.8,
                 convert: { secondsPerMeter in secondsPerMeter * unitMeters / 60 },
                 axisStep: 0.5,
-                axisFloor: useMiles ? 5 : 3,
+                minimumSpan: 1,
                 decimals: 0,
                 formatValue: { minutes, _ in clockText(minutes: minutes) },
                 accessibilityFormat: String(
@@ -355,7 +363,7 @@ enum WorkoutMetricSeriesCharts {
                         .value
                 },
                 axisStep: 5,
-                axisFloor: useMiles ? 15 : 20,
+                minimumSpan: useMiles ? 3 : 5,
                 decimals: 1,
                 formatValue: nil,
                 accessibilityFormat: String(
@@ -397,7 +405,7 @@ enum WorkoutMetricSeriesCharts {
                 validRange: 40...250,
                 convert: { $0 },
                 axisStep: 10,
-                axisFloor: 100,
+                minimumSpan: 20,
                 decimals: 0,
                 formatValue: nil,
                 accessibilityFormat: String(
@@ -437,7 +445,7 @@ enum WorkoutMetricSeriesCharts {
             validRange: 20...200,
             convert: { $0 },
             axisStep: 10,
-            axisFloor: 60,
+            minimumSpan: 20,
             decimals: 0,
             formatValue: nil,
             accessibilityFormat: String(
@@ -466,7 +474,7 @@ enum WorkoutMetricSeriesCharts {
             validRange: 100...600,
             convert: { $0 },
             axisStep: 50,
-            axisFloor: 300,
+            minimumSpan: 60,
             decimals: 0,
             formatValue: nil,
             accessibilityFormat: String(
@@ -496,7 +504,7 @@ enum WorkoutMetricSeriesCharts {
             validRange: 2...20,
             convert: { centimeters in useInches ? centimeters / centimetersPerInch : centimeters },
             axisStep: useInches ? 0.5 : 1,
-            axisFloor: useInches ? 4 : 10,
+            minimumSpan: useInches ? 1 : 3,
             decimals: 1,
             formatValue: nil,
             accessibilityFormat: String(

@@ -249,6 +249,13 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// sheet is reopened. HealthKit read access is opaque, so authorization gates
     /// clear the cache before any stale positive or negative route result sticks.
     private var routeCache: [UUID: WorkoutRoute?] = [:]
+    /// Session cache of the cheap `HKWorkoutRoute` presence probe, keyed by workout
+    /// UUID. Separate from `routeCache` because the probe can answer "yes" long before
+    /// the coordinates exist, and kept consistent with it: the `< 2 coordinates` branch
+    /// of the load writes `false` here too, so a workout whose route samples exist but
+    /// yield no drawable line never reserves the detail hero's band a second time.
+    /// Cleared wherever `routeCache` is, for the same opaque-authorization reason.
+    private var routePresenceCache: [UUID: Bool] = [:]
     /// Session cache of a workout's raw distance samples keyed by UUID, feeding the
     /// detail Splits section. Empty results are cached only for workouts that ended
     /// more than 24 h ago; recent workouts may still be syncing from the watch, so
@@ -261,6 +268,12 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// cards to a partial result for the rest of the session), plus: a bundle with a
     /// failed metric
     /// read is never cached, so a transient error can't hide a card all session.
+    ///
+    /// The 24 h settle rule is stricter than the splits cache's "cache anything
+    /// non-empty" because this is a MULTI-FAMILY bundle: cadence can be synced while
+    /// stride length isn't, so a successful read can still be partial without any
+    /// query failing. A single-result read like splits has no such half-state — it's
+    /// either there or empty — so it only needs the settle rule for the empty case.
     private var metricSeriesCache: [UUID: WorkoutMetricSeriesData] = [:]
     /// Session cache of a workout's 1-minute heart-rate recovery keyed by UUID,
     /// feeding the detail tile. A confirmed absence (`nil`) is cached too, but —
@@ -392,13 +405,19 @@ final class HealthKitWorkoutStore: ObservableObject {
                 workouts: [],
                 calendar: .bodyGregorian
             )
-        } else if !initialPermissionSelection.includes(.workoutMetrics) {
-            // The persisted snapshot can still carry VO₂max/power/cadence/stroke
-            // data, so strip it here too — otherwise it reappears on launch
-            // before the next refresh rebuilds the metrics-gated summary.
-            startingSnapshot = initialSnapshot.removingWorkoutMetrics()
         } else {
-            startingSnapshot = initialSnapshot
+            // The persisted snapshot can still carry permission-gated fields
+            // (VO₂max/power/cadence/strokes under Workout Metrics, heart-rate
+            // recovery under Heart), so strip them here too — otherwise they
+            // reappear on launch before the next refresh rebuilds the summary.
+            var sanitized = initialSnapshot
+            if !initialPermissionSelection.includes(.workoutMetrics) {
+                sanitized = sanitized.removingWorkoutMetrics()
+            }
+            if !initialPermissionSelection.includes(.heart) {
+                sanitized = sanitized.removingHeartRateRecovery()
+            }
+            startingSnapshot = sanitized
         }
         snapshot = startingSnapshot
         monthSnapshots = [
@@ -1192,10 +1211,26 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// sheet is never cached, so reopening retries instead of being served a
     /// false "no route".
     func loadWorkoutRoute(for workout: WorkoutSummary) async -> WorkoutRoute? {
+        guard await loadWorkoutRouteCoordinates(for: workout) != nil else {
+            return nil
+        }
+        return await resolveWorkoutRouteLocality(for: workout)
+    }
+
+    /// The fixes-only stage of the route load: returns as soon as the coordinates
+    /// resolve, with `locality` still nil, so the detail hero can start drawing without
+    /// waiting on the reverse geocode's network round trip.
+    /// `resolveWorkoutRouteLocality` is the follow-up that folds the city label in, and
+    /// `loadWorkoutRoute` above is simply the two stages back to back.
+    ///
+    /// Caching matches `loadWorkoutRoute`'s original contract exactly: a confirmed
+    /// no-route is cached, a cancelled or failed read is not.
+    func loadWorkoutRouteCoordinates(for workout: WorkoutSummary) async -> WorkoutRoute? {
         if let cached = routeCache[workout.id] {
             return cached
         }
 
+        let epoch = cacheEpoch
         let routeData: (coordinates: [RouteCoordinate], elevationProfile: [WorkoutElevationSample])
         do {
             routeData = try await engine.workoutRouteData(workoutID: workout.id)
@@ -1207,16 +1242,24 @@ final class HealthKitWorkoutStore: ObservableObject {
         guard !Task.isCancelled else {
             return nil
         }
+        // A cache clear landed while the read was suspended — the workout this
+        // describes is gone, so don't re-seed the wiped cache (H7).
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
+            return nil
+        }
         guard routeData.coordinates.count >= 2 else {
             routeCache[workout.id] = .some(nil)
+            // Route samples existed but carry no drawable line, so the presence probe's
+            // "yes" was a false positive. Record the negative here as well or the detail
+            // page would reserve its hero band again on every reopen.
+            routePresenceCache[workout.id] = false
             return nil
         }
 
         // Cache the coordinates immediately (locality nil) so the map hero is
         // available the moment GPS resolves; the city label is a follow-up that
-        // folds back into the cache. The detail sheet can await
-        // `resolveWorkoutRouteLocality` separately to render the map without
-        // blocking on the geocode.
+        // folds back into the cache. The detail sheet awaits this stage on its own to
+        // render the route without blocking on the geocode.
         routeCache[workout.id] = .some(
             WorkoutRoute(
                 coordinates: routeData.coordinates,
@@ -1224,7 +1267,67 @@ final class HealthKitWorkoutStore: ObservableObject {
                 elevationProfile: routeData.elevationProfile
             )
         )
-        return await resolveWorkoutRouteLocality(for: workout)
+        routePresenceCache[workout.id] = true
+        return routeCache[workout.id] ?? nil
+    }
+
+    /// Whether the workout has a GPS route, answered from the cheap series-metadata
+    /// probe long before `loadWorkoutRoute` finishes streaming its fixes — the signal
+    /// the detail page reserves its hero band on.
+    ///
+    /// Resolved from the settled route cache first (so a `< 2 coordinates` workout is
+    /// never reported present a second time), then the probe cache, then HealthKit. A
+    /// failed or cancelled probe answers `.unknown` and is never cached, so the page
+    /// simply behaves as it did before the probe existed and reopening retries.
+    func workoutRoutePresence(for workout: WorkoutSummary) async -> BodyWorkoutRoutePresence {
+        let cached = cachedWorkoutRoutePresence(for: workout)
+        guard cached == .unknown else {
+            return cached
+        }
+
+        let epoch = cacheEpoch
+        let hasRoute: Bool
+        do {
+            hasRoute = try await engine.workoutHasRoute(workoutID: workout.id)
+        } catch {
+            return .unknown
+        }
+        guard !Task.isCancelled else {
+            return .unknown
+        }
+        // The full load can settle while this probe is suspended. Re-read the caches
+        // rather than trusting the pre-await answer: the load's `< 2 coordinates` branch
+        // writes a negative that a stale `true` here would overwrite.
+        let settled = cachedWorkoutRoutePresence(for: workout)
+        guard settled == .unknown else {
+            return settled
+        }
+        // Same H7 guard as the loads: a cache clear mid-probe must not leave a
+        // presence answer behind for a workout that was just wiped.
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
+            return .unknown
+        }
+        routePresenceCache[workout.id] = hasRoute
+        return hasRoute ? .present : .absent
+    }
+
+    /// The session-cached route, without starting a read, so a reopened detail page
+    /// paints its hero on the first frame instead of after a `.task` round trip.
+    func cachedWorkoutRoute(for workout: WorkoutSummary) -> WorkoutRoute? {
+        routeCache[workout.id] ?? nil
+    }
+
+    /// The presence a cached load or probe already settled, or `.unknown` when this
+    /// workout hasn't been read this session. A settled route always wins over the
+    /// probe cache, since only the load knows whether the fixes were drawable.
+    func cachedWorkoutRoutePresence(for workout: WorkoutSummary) -> BodyWorkoutRoutePresence {
+        if let cachedRoute = routeCache[workout.id] {
+            return cachedRoute == nil ? .absent : .present
+        }
+        guard let probed = routePresenceCache[workout.id] else {
+            return .unknown
+        }
+        return probed ? .present : .absent
     }
 
     /// Reverse-geocodes the cached route's "City, Region" label and folds it back
@@ -1242,8 +1345,12 @@ final class HealthKitWorkoutStore: ObservableObject {
             return route
         }
 
+        let epoch = cacheEpoch
         let locality = await BodyReverseGeocoder.locality(for: route.coordinates)
         guard let locality else {
+            return route
+        }
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
             return route
         }
         let resolved = WorkoutRoute(
@@ -1269,6 +1376,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return cached
         }
 
+        let epoch = cacheEpoch
         let data: WorkoutSplitData
         do {
             data = try await engine.workoutSplitData(workoutID: workout.id)
@@ -1278,6 +1386,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             return .empty
         }
         guard !Task.isCancelled else {
+            return data
+        }
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
             return data
         }
         if !data.distanceSamples.isEmpty {
@@ -1309,6 +1420,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return cached
         }
 
+        let epoch = cacheEpoch
         let data: WorkoutMetricSeriesData
         do {
             data = try await engine.workoutMetricSeriesData(workoutID: workout.id)
@@ -1318,6 +1430,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             return .empty
         }
         guard !Task.isCancelled else {
+            return data
+        }
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
             return data
         }
         if Date().timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60, !data.hadReadFailure {
@@ -1334,6 +1449,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return cached
         }
 
+        let epoch = cacheEpoch
         let recovery: Double?
         do {
             recovery = try await engine.workoutHeartRateRecovery(workoutID: workout.id)
@@ -1343,6 +1459,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             return nil
         }
         guard !Task.isCancelled else {
+            return recovery
+        }
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
             return recovery
         }
         if Date().timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60 {
@@ -1361,6 +1480,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     private func requestHealthKitAuthorization() async throws {
         try await engine.requestAuthorization()
         routeCache.removeAll()
+        routePresenceCache.removeAll()
         distanceSampleCache.removeAll()
         metricSeriesCache.removeAll()
         heartRateRecoveryCache.removeAll()
@@ -1668,6 +1788,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         await engine.setPermissionSelection(nextSelection)
         if permission == .workouts {
             routeCache.removeAll()
+            routePresenceCache.removeAll()
             distanceSampleCache.removeAll()
                 metricSeriesCache.removeAll()
             heartRateRecoveryCache.removeAll()
@@ -2849,6 +2970,14 @@ final class HealthKitWorkoutStore: ObservableObject {
         // (idling the passive load paths).
         snapshot = emptySnapshot
         monthSnapshots = [key: emptySnapshot]
+        // Per-workout detail caches keyed by workout UUID — the workouts they
+        // describe are being wiped, so leaving them would serve routes, splits,
+        // series and recovery for workouts the app no longer has (M73).
+        routeCache.removeAll()
+        routePresenceCache.removeAll()
+        distanceSampleCache.removeAll()
+        metricSeriesCache.removeAll()
+        heartRateRecoveryCache.removeAll()
         healthSummary = .empty
         // Drop the summary-reuse signature so a post-clear failed leaf resolves
         // to empty rather than reusing anything against the wiped summary.
@@ -4340,8 +4469,16 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         if !permissionSelection.includes(.workouts) {
             clearWorkoutSnapshots()
-        } else if !permissionSelection.includes(.workoutMetrics) {
-            sanitizeWorkoutMetricsSnapshots()
+        } else {
+            if !permissionSelection.includes(.workoutMetrics) {
+                sanitizeWorkoutSnapshots(calendar: .bodyGregorian) { $0.removingWorkoutMetrics(calendar: $1) }
+            }
+            if !permissionSelection.includes(.heart) {
+                // Heart-rate recovery is a summary field read under the Heart
+                // permission; strip it the same way so the tile (and its share
+                // option) drop immediately instead of after the next refetch.
+                sanitizeWorkoutSnapshots(calendar: .bodyGregorian) { $0.removingHeartRateRecovery(calendar: $1) }
+            }
         }
 
         if !permissionSelection.includes(.activityRings) {
@@ -4389,7 +4526,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // re-reads it on cold start — so rewrite both persisted month files
         // emptied too. This clears the workout data at rest on opt-out instead
         // of leaving it for the widget to re-render, mirroring
-        // `sanitizeWorkoutMetricsSnapshots`. Preserving each file's month
+        // `sanitizeWorkoutSnapshots`. Preserving each file's month
         // identity and `generatedAt` keeps the rewrite change-deduped, so the
         // repeated clears on refresh paths while the permission stays off don't
         // rewrite disk or reload widgets again. Route through the persist queue
@@ -4421,14 +4558,18 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
-    /// Strips the Workout Metrics detail fields (VO₂max, power, both cadences, swim
-    /// strokes) from every cached summary when the user disables `.workoutMetrics`,
-    /// so already-fetched values stop surfacing in workout detail without a refetch.
-    /// Mirrors `clearWorkoutSnapshots` (in-memory rebuild + widget reload); loaded
-    /// month keys are kept since the months stay loaded — only the metrics drop.
-    private func sanitizeWorkoutMetricsSnapshots(calendar: Calendar = .bodyGregorian) {
-        snapshot = snapshot.removingWorkoutMetrics(calendar: calendar)
-        monthSnapshots = monthSnapshots.mapValues { $0.removingWorkoutMetrics(calendar: calendar) }
+    /// Applies a permission-driven strip (`removingWorkoutMetrics` when the user
+    /// disables `.workoutMetrics`, `removingHeartRateRecovery` for `.heart`) to every
+    /// cached summary, so already-fetched values stop surfacing in workout detail
+    /// without a refetch. Mirrors `clearWorkoutSnapshots` (in-memory rebuild + widget
+    /// reload); loaded month keys are kept since the months stay loaded — only the
+    /// stripped fields drop.
+    private func sanitizeWorkoutSnapshots(
+        calendar: Calendar = .bodyGregorian,
+        _ transform: @escaping @Sendable (WorkoutMonthSnapshot, Calendar) -> WorkoutMonthSnapshot
+    ) {
+        snapshot = transform(snapshot, calendar)
+        monthSnapshots = monthSnapshots.mapValues { transform($0, calendar) }
 
         // The in-memory strip above leaves the App Group JSON untouched, but the
         // widget reads it via `loadCurrentOrPreviousIfEmpty()` and the app
@@ -4442,11 +4583,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         Self.snapshotPersistQueue.async {
             var widgetReloadNeeded = false
             if let current = WorkoutSnapshotStore.load(),
-               WorkoutSnapshotStore.save(current.removingWorkoutMetrics(calendar: calendar)) {
+               WorkoutSnapshotStore.save(transform(current, calendar)) {
                 widgetReloadNeeded = true
             }
             if let previous = WorkoutSnapshotStore.loadPrevious(),
-               WorkoutSnapshotStore.savePrevious(previous.removingWorkoutMetrics(calendar: calendar)) {
+               WorkoutSnapshotStore.savePrevious(transform(previous, calendar)) {
                 widgetReloadNeeded = true
             }
             if widgetReloadNeeded {

@@ -73,7 +73,8 @@ enum BodyWorkoutFetch {
         cardioFitnessVO2Max: Double? = nil,
         averageStepCadenceSPM: Double? = nil,
         resolvedDistanceMeters: Double? = nil,
-        includesWorkoutMetrics: Bool = true
+        includesWorkoutMetrics: Bool = true,
+        includesHeartMetrics: Bool = false
     ) -> WorkoutSummary {
         let activeEnergy = activeEnergyKilocalories(for: workout)
         let averageHeartRate = averageHeartRate(from: heartRateSamples)
@@ -102,7 +103,8 @@ enum BodyWorkoutFetch {
             endDate: workout.endDate,
             weatherTemperatureCelsius: weatherTemperatureCelsius(for: workout),
             weatherHumidityPercent: weatherHumidityPercent(for: workout),
-            averageMETs: averageMETs(for: workout)
+            averageMETs: averageMETs(for: workout),
+            heartRateRecoveryBPM: includesHeartMetrics ? heartRateRecoveryBPM(for: workout) : nil
         )
     }
 
@@ -120,7 +122,8 @@ enum BodyWorkoutFetch {
         cardioFitnessVO2Max: Double? = nil,
         averageStepCadenceSPM: Double? = nil,
         resolvedDistanceMeters: Double? = nil,
-        includesWorkoutMetrics: Bool = true
+        includesWorkoutMetrics: Bool = true,
+        includesHeartMetrics: Bool = false
     ) -> WorkoutSummary {
         let activeEnergy = activeEnergyKilocalories(for: workout)
         let type = workoutType(for: workout.workoutActivityType)
@@ -148,7 +151,8 @@ enum BodyWorkoutFetch {
             endDate: workout.endDate,
             weatherTemperatureCelsius: weatherTemperatureCelsius(for: workout),
             weatherHumidityPercent: weatherHumidityPercent(for: workout),
-            averageMETs: averageMETs(for: workout)
+            averageMETs: averageMETs(for: workout),
+            heartRateRecoveryBPM: includesHeartMetrics ? heartRateRecoveryBPM(for: workout) : nil
         )
     }
 
@@ -209,6 +213,22 @@ enum BodyWorkoutFetch {
 
         let percent = fraction * 100
         return (0...100).contains(percent) ? percent : nil
+    }
+
+    /// The 1-minute heart-rate recovery from the statistics HealthKit already
+    /// attached to the workout — no extra query, so it costs nothing on the list
+    /// fetch. Absent for sources that don't attach it (and for a just-finished
+    /// workout whose sample hasn't landed yet); the detail sheet's lazy read is
+    /// the fallback. Gated on the Heart permission by the caller.
+    private static func heartRateRecoveryBPM(for workout: HKWorkout) -> Double? {
+        guard let recoveryType = HKQuantityType.quantityType(forIdentifier: .heartRateRecoveryOneMinute),
+              let value = finite(workout.statistics(for: recoveryType)?
+                  .mostRecentQuantity()?
+                  .doubleValue(for: HKUnit.count().unitDivided(by: .minute()))) else {
+            return nil
+        }
+
+        return value > 0 ? value : nil
     }
 
     /// Average metabolic equivalent, in kcal/(kg·hr) — the unit HealthKit stores
