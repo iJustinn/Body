@@ -235,7 +235,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("AnnotationOverflowResolution("))
         XCTAssertTrue(source.contains("x: .fit(to: .chart)"))
         XCTAssertTrue(source.contains("y: .disabled"))
-        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 11)
+        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 12)
         XCTAssertFalse(source.contains(".annotation(position: .top, spacing: 8) {"))
         // The scrub-callout background uses the shared glass-chip recipe (flat
         // translucent fill + thin white rim) instead of a bespoke fill + shadow.
@@ -419,6 +419,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(routeModelSource.contains("enum BodyWorkoutRoutePresence"))
         XCTAssertTrue(routeModelSource.contains("var reservesHero: Bool"))
 
+        let routeStyleSource = try text(at: "BodyMetricsKit/BodyHealthSelections.swift")
+
         let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
         XCTAssertTrue(workoutsSource.contains("@State private var routePresence: BodyWorkoutRoutePresence = .unknown"))
         XCTAssertTrue(workoutsSource.contains("effectiveRoutePresence.reservesHero"))
@@ -448,10 +450,12 @@ final class ProjectConfigurationTests: XCTestCase {
         // the synthesized memberwise initializer, so no call site could opt in.
         XCTAssertTrue(routeHeroSource.contains("var drawsReveal: Bool = false"))
         XCTAssertFalse(routeHeroSource.contains("let drawsReveal: Bool = false"))
-        // The map overlay draws through the snapshot's own coordinate mapping rather than
-        // re-deriving the projection, so it lands on the baked route exactly.
-        XCTAssertTrue(routeHeroSource.contains("result.point(for:)"))
-        // Every hero decides for itself whether Reduce Motion cancels its draw.
+        // Only the styles that stroke their own trace draw. The map hero composites its
+        // route into the snapshot, so it takes no reveal at all.
+        XCTAssertTrue(routeStyleSource.contains("var supportsRouteDraw: Bool"))
+        XCTAssertTrue(workoutsSource.contains("routeStyle.supportsRouteDraw"))
+        XCTAssertFalse(workoutsSource.contains("BodyWorkoutRouteMapHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset, drawsReveal:"))
+        // Every hero that can draw decides for itself whether Reduce Motion cancels it.
         XCTAssertGreaterThanOrEqual(
             routeHeroSource.occurrenceCount(of: "@Environment(\\.accessibilityReduceMotion) private var reduceMotion"),
             3
@@ -464,20 +468,31 @@ final class ProjectConfigurationTests: XCTestCase {
 
         // Draw leads the sheet — it applies to every style below it, so it must sit above
         // the style card rather than trailing it.
-        let sheetStart = try XCTUnwrap(settingsSource.range(of: "private struct BodyWorkoutRouteStyleSettingsSheet")?.lowerBound)
-        let sheetBody = String(settingsSource[sheetStart...].prefix(3_000))
+        // Bounded by the struct itself rather than a fixed character budget, so adding a
+        // line to the sheet can't silently slide the style rows out of the window and
+        // turn this into a false pass.
+        let sheetStart = try XCTUnwrap(settingsSource.range(of: "private struct BodyWorkoutRouteStyleSettingsSheet")?.upperBound)
+        let sheetEnd = try XCTUnwrap(settingsSource.range(of: "\nprivate struct ", range: sheetStart..<settingsSource.endIndex)?.lowerBound)
+        let sheetBody = settingsSource[sheetStart..<sheetEnd]
         let drawRow = try XCTUnwrap(sheetBody.range(of: #"Toggle("Draw Route", isOn: $drawsRoute)"#)?.lowerBound)
         let styleRows = try XCTUnwrap(sheetBody.range(of: "BodyStarMetricOptionRow(")?.lowerBound)
         XCTAssertLessThan(drawRow, styleRows)
 
-        // With the draw on, the Workouts row reads "Draw · 3D" rather than just the style.
-        XCTAssertTrue(settingsSource.contains("guard drawsWorkoutRouteOnLoad else { return style }"))
+        // With the draw on, the Workouts row reads "Draw · 3D" rather than just the style
+        // — but never on Map, which can't draw whatever the stored switch says.
+        XCTAssertTrue(settingsSource.contains("guard style.supportsRouteDraw, drawsWorkoutRouteOnLoad else { return style.title }"))
         XCTAssertTrue(settingsSource.contains(#"String(localized: "routeStyle.drawSummary")"#))
+        // On Map the switch is dimmed and inert, and says why — the stored preference is
+        // left alone so picking Plain or 3D restores it.
+        XCTAssertTrue(settingsSource.contains("private var supportsDraw: Bool { selection.supportsRouteDraw }"))
+        XCTAssertTrue(settingsSource.contains(".disabled(!supportsDraw)"))
+        XCTAssertTrue(settingsSource.contains(#"supportsDraw ? "routeStyle.drawSubtitle" : "routeStyle.drawUnavailable""#))
 
         let catalog = try text(at: "Body/Localizable.xcstrings")
         XCTAssertTrue(catalog.contains("\"Draw Route\" : {"))
         XCTAssertTrue(catalog.contains("\"routeStyle.drawSubtitle\" : {"))
         XCTAssertTrue(catalog.contains("\"routeStyle.drawSummary\" : {"))
+        XCTAssertTrue(catalog.contains("\"routeStyle.drawUnavailable\" : {"))
     }
 
     func testMetricDetailFloatsHeroChartCalloutAboveNavigationBar() throws {
@@ -494,6 +509,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(detail.occurrenceCount(of: "floatingCallout: immersive ? floatingCallout : nil"), 8)
 
         for file in [
+            "Body/Views/Health/BodyMetricWarningCard.swift",
             "Body/Views/Health/Charts/MetricCharts.swift",
             "Body/Views/Health/Charts/BasicsCharts.swift",
             "Body/Views/Health/Charts/HeartRateRangeChart.swift",
@@ -2143,15 +2159,28 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(averageTextBlock.contains(".foregroundColor(.primary)"))
     }
 
-    func testWorkoutHeartRateXAxisLabelsStayInsidePlotEdges() throws {
+    func testWorkoutDetailChartXAxisLabelsStayInsidePlotEdges() throws {
         let source = try text(at: "Body/Views/BodyWorkoutsView.swift")
 
-        XCTAssertTrue(source.contains("private static let timeMarkLabelHorizontalInset: CGFloat = 24"))
-        XCTAssertTrue(source.contains("static let timeMarkFractions = [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0]"))
-        XCTAssertTrue(source.contains("Self.timeMarkFractions.map"))
-        XCTAssertTrue(source.contains("BodyWorkoutHeartRateChartMetrics.timeMarkFractions"))
+        // The first and last x-axis marks sit at the plot edges and would otherwise
+        // render half outside the card, so every plot clamps them by the same inset:
+        // the heart-rate line chart (clock times), the elevation profile line and the
+        // shared bucketed bar plot (HH:mm:ss).
+        XCTAssertEqual(source.occurrenceCount(of: "private static let timeMarkLabelHorizontalInset: CGFloat = 24"), 3)
+        // Heart rate positions its marks as SwiftUI text through `timeMarkLabelX`.
         XCTAssertTrue(source.contains("timeMarkLabelX(for: mark, in: plotRect)"))
-        XCTAssertTrue(source.contains("min(max(rawX, lowerBound), upperBound)"))
+        XCTAssertTrue(source.contains("return min(max(rawX, lowerBound), upperBound)"))
+        XCTAssertTrue(source.contains("static let timeMarkFractions = [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0]"))
+        XCTAssertTrue(source.contains("BodyWorkoutHeartRateChartMetrics.timeMarkFractions"))
+        // The elevation and bucketed plots draw theirs into the canvas.
+        XCTAssertTrue(source.contains("let lowerBound = plotRect.minX + Self.timeMarkLabelHorizontalInset"))
+        XCTAssertTrue(source.contains("let upperBound = max(lowerBound, plotRect.maxX - Self.timeMarkLabelHorizontalInset)"))
+        XCTAssertEqual(
+            source.occurrenceCount(
+                of: "at: CGPoint(x: min(max(rawX, lowerBound), upperBound), y: plotRect.maxY + Self.xAxisLabelOffset)"
+            ),
+            2
+        )
         XCTAssertFalse(source.contains("x: plotRect.minX + plotRect.width * mark.fraction"))
     }
 
@@ -2269,12 +2298,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 0.9.12;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 13;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 16;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 0.9.12;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 13;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 16;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2309,13 +2338,15 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **0.9.12 (build 13)**"))
+        XCTAssertTrue(readme.contains("Current app version: **0.9.12 (build 16)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
         XCTAssertTrue(readme.contains("**Metric warnings**"))
         XCTAssertTrue(readme.contains("Low Heart Rate"))
         XCTAssertTrue(readme.contains("High Heart Rate"))
         XCTAssertTrue(readme.contains("Low Blood Oxygen"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 15)**"))
+        XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 13)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 12)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 11)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 10)**"))
@@ -2401,6 +2432,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 16)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.12 build 16."))
+        XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 15)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.12 build 15."))
         XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 13)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 0.9.12 build 13."))
         XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 12)"))
@@ -2813,7 +2848,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 0.9.12 build 13)"))
+        XCTAssertTrue(testPlan.contains("app version 0.9.12 build 16)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.12 build 15)"))
+        XCTAssertFalse(testPlan.contains("app version 0.9.12 build 13)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 12)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 11)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 10)"))

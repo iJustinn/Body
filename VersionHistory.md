@@ -1,5 +1,17 @@
 # Version History
 
+## 0.9.12 (build 16)
+
+- Updated the app, widget, watch, and test bundle version to 0.9.12 build 16.
+
+## 0.9.12 (build 15)
+
+- **Draw Route is offered only for the styles that can draw.** The **Map** style composites its pace-colored route into the map snapshot rather than stroking it, so there is no line to grow: on Map the Draw Route switch in Settings > Workouts > Route Style is greyed out and inert, with the line "Not available with the Map style, which draws its route onto the map." in place of its usual subtitle, and a loading Map route shows the shimmer placeholder. Your stored preference isn't overwritten — picking Plain or 3D again brings the switch back exactly as you left it — and the Route Style row drops its `Draw · ` prefix while Map is selected.
+- **The warning card's threshold rule is bolder and no longer labelled.** The dashed yellow line doubled in thickness, and the yellow value that rode above or below its right end is gone — the sentence over the chart already names the threshold.
+- **Heart rate on a workout's detail page now reads `bpm` rather than `BPM`** — average heart rate, Max Heart Rate, and HR Recovery — matching the lowercase unit abbreviations the rest of that page's cards already use.
+- **Both chart-switch buttons wear the app's glass chip** — the workout cards' own translucent fill under a thin white rim — with a grey glyph matching the calendar's day numbers: `chart.bar.yaxis` on the calendar, `square.grid.2x2` on the breakdown.
+- Updated the app, widget, watch, and test bundle version to 0.9.12 build 15.
+
 ## 0.9.12 (build 13)
 
 - **Metric warning cards now stand exactly as tall as the trend comparison card below them.** Their chart grew from 128 to 205 points, absorbing the divider and averages row the comparison card carries and they do not, so the two cards read as a matched pair on a metric detail page instead of the warning sitting short.
@@ -8,7 +20,7 @@
 
 ## 0.9.12 (build 12)
 
-- **A workout's route now draws itself in instead of appearing all at once.** Body checks whether a workout has a GPS route before its fixes finish loading, so the detail page moves into the with-route layout up front rather than dropping the stats ~324 pt part-way through. The route then strokes itself on from start to finish over about a second in all three Route Styles — on Map, over the map tiles as they develop, before resolving into the pace-colored line. Reopening a workout whose route is already loaded still shows it instantly with no replay, and Reduce Motion skips the draw while keeping the steadier layout. Settings > Workouts > Route Style gains a **Draw Route** switch (on by default) at the top of the sheet, above the style rows, since it applies to all three; with it off the reserved area shimmers and cross-fades to the route instead. The Route Style row reads **`Draw · 3D`** while the draw is on, and just the style name when it's off. The route's city label is also fetched separately from the fixes now, so the trace no longer waits on a reverse-geocode round trip.
+- **A workout's route now draws itself in instead of appearing all at once.** Body checks whether a workout has a GPS route before its fixes finish loading, so the detail page moves into the with-route layout up front rather than dropping the stats ~324 pt part-way through. The route then strokes itself on from start to finish over about a second in the **Plain** and **3D** styles. Reopening a workout whose route is already loaded still shows it instantly with no replay, and Reduce Motion skips the draw while keeping the steadier layout. Settings > Workouts > Route Style gains a **Draw Route** switch (on by default) at the top of the sheet, above the style rows; with it off the reserved area shimmers and cross-fades to the route instead. The Route Style row reads **`Draw · 3D`** while the draw is on, and just the style name when it's off. The route's city label is also fetched separately from the fixes now, so the trace no longer waits on a reverse-geocode round trip.
 
 - **The Workouts page now shows one chart at a time.** The workout calendar and the activity-type breakdown share a single card slot at the top of the page, and the breakdown no longer sits at the bottom below the workout list. A small button in each card's bottom-right corner switches to the other chart — on the calendar it takes the last cell of the final week row, dropping onto a new row of its own when the month fills that row exactly; on the breakdown it sits at the end of the last bar's row, which gives up a little of its bar length to make room rather than crowding the activity name. The calendar shows by default, the two cards cross-fade into each other, and the pick is remembered across launches. The monthly totals stay part of the breakdown card, so they now appear alongside the bars rather than on every visit. The Home Screen widgets are unchanged.
 - **Metric warning cards are a little taller.** Their chart now stands at the home trend comparison card's height, so the two stack at the same size instead of the warning sitting slightly short.
