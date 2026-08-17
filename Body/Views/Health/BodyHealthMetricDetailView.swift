@@ -843,18 +843,19 @@ struct BodyHealthMetricDetailView: View {
     private var selectedReadinessMorningScore: Int? {
         let calendar = Calendar.bodyGregorian
         let day = selectedMetricDay
-        if let entry = workoutStore.healthTrends.recordedReadiness
-            .first(where: { calendar.isDate($0.date, inSameDayAs: day) }) {
-            return entry.score
-        }
-        if let point = workoutStore.healthTrends.readiness.points
-            .first(where: { calendar.isDate($0.date, inSameDayAs: day) && $0.value.isFinite }) {
-            return Int(point.value.rounded())
-        }
-        if calendar.isDateInToday(day), let readiness = model.readiness {
-            return readiness.activityDrainMorningScore ?? readiness.score
-        }
-        return nil
+        let recordedScore = workoutStore.healthTrends.recordedReadiness
+            .first(where: { calendar.isDate($0.date, inSameDayAs: day) })?
+            .score
+        let trendValue = workoutStore.healthTrends.readiness.points
+            .first(where: { calendar.isDate($0.date, inSameDayAs: day) && $0.value.isFinite })?
+            .value
+
+        return ReadinessDayTimeline.morningScore(
+            isToday: calendar.isDateInToday(day),
+            liveReadiness: model.readiness,
+            recordedScore: recordedScore,
+            trendValue: trendValue
+        )
     }
 
     private var selectedReadinessDayTimeline: ReadinessDayTimeline? {
@@ -862,10 +863,28 @@ struct BodyHealthMetricDetailView: View {
             return nil
         }
 
+        // Today follows the live tile's window (the wake cycle, including a
+        // carried-in pre-day workout); past days use the frozen record's
+        // calendar-day window. Workout context shading stays calendar-day based
+        // (it shows the day's workouts, which is correct for shading).
+        let dayInterval = selectedMetricDayInterval
+        let workouts: [WorkoutSummary]
+        if Calendar.bodyGregorian.isDateInToday(selectedMetricDay) {
+            let now = Date()
+            workouts = ReadinessComputeSupport.wakeCycleWorkouts(
+                from: allCachedWorkouts,
+                now: now,
+                sleepEnd: workoutStore.healthSummary.sleep.stageSnapshot.dateInterval?.end,
+                calendar: .bodyGregorian
+            )
+        } else {
+            workouts = self.workouts(on: dayInterval)
+        }
+
         return ReadinessDayTimeline.make(
             morningScore: morningScore,
-            workouts: workouts(on: selectedMetricDayInterval),
-            dayInterval: selectedMetricDayInterval
+            workouts: workouts,
+            dayInterval: dayInterval
         )
     }
 
@@ -2243,15 +2262,20 @@ struct BodyHealthMetricDetailView: View {
         return intervals.sorted { $0.startDate < $1.startDate }
     }
 
-    private func workouts(on dayInterval: DateInterval) -> [WorkoutSummary] {
+    /// De-duplicated flatten of every cached month snapshot's workouts, shared by
+    /// `workouts(on:)` and today's wake-cycle window.
+    private var allCachedWorkouts: [WorkoutSummary] {
         var workoutsByID: [UUID: WorkoutSummary] = [:]
         for snapshot in workoutStore.monthSnapshots.values {
             for workout in snapshot.days.flatMap(\.workouts) {
                 workoutsByID[workout.id] = workout
             }
         }
+        return Array(workoutsByID.values)
+    }
 
-        return workoutsByID.values.filter { workout in
+    private func workouts(on dayInterval: DateInterval) -> [WorkoutSummary] {
+        allCachedWorkouts.filter { workout in
             let workoutEndDate = workout.startDate.addingTimeInterval(workout.duration)
             return workout.startDate < dayInterval.end && workoutEndDate > dayInterval.start
         }

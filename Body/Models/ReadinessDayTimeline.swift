@@ -5,15 +5,16 @@
 
 import Foundation
 
-/// Derives the readiness detail page's intraday day-view line: the day's frozen
-/// morning score, drained by that day's workouts (`ActivityReadinessImpact`),
-/// with each workout's drain ramped linearly across its interval.
+/// Derives the readiness detail page's intraday day-view line: a base morning
+/// score, drained by the day's workouts (`ActivityReadinessImpact`), with each
+/// workout's drain ramped linearly across its interval.
 ///
-/// The window is the **calendar day** (like every other metric day view), while
-/// the live tile drains over the **wake cycle** (`ReadinessComputeSupport`), so
-/// today's endpoint typically — but not always — matches the tile: a post-midnight
-/// pre-wake workout or a cross-midnight wake cycle can differ. For identical
-/// morning score + workout inputs the endpoint matches
+/// Today: the base is the live tile's score and the window is the **wake cycle**
+/// (`ReadinessComputeSupport`), including a workout that ended before the
+/// calendar day started (carried in as a drain applied from the first sample) —
+/// matching `HealthDashboardSnapshot.draining`'s window exactly. Past days: the
+/// base is the **frozen morning record** and the window is the calendar day. For
+/// identical morning score + workout inputs the endpoint matches
 /// `HealthDashboardSnapshot.draining` exactly (same cap, one-time total rounding,
 /// sub-0.5 ignore rule, and display softening).
 struct ReadinessDayTimeline: Equatable {
@@ -37,6 +38,27 @@ struct ReadinessDayTimeline: Equatable {
     let impacts: [WorkoutImpact]
     let seriesEnd: Date
 
+    /// The base score to drain for the day view: today prefers the live tile's
+    /// undrained score (matching the hero/tile exactly); otherwise the frozen
+    /// morning record, falling back to the trend point.
+    static func morningScore(
+        isToday: Bool,
+        liveReadiness: ReadinessSummary?,
+        recordedScore: Int?,
+        trendValue: Double?
+    ) -> Int? {
+        if isToday, let score = liveReadiness?.score {
+            return liveReadiness?.activityDrainMorningScore ?? score
+        }
+        if let recordedScore {
+            return recordedScore
+        }
+        if let trendValue, trendValue.isFinite {
+            return Int(trendValue.rounded())
+        }
+        return nil
+    }
+
     static func make(
         morningScore: Int,
         workouts: [WorkoutSummary],
@@ -48,9 +70,20 @@ struct ReadinessDayTimeline: Equatable {
         // only the ramp window is clipped to the day.
         let clipped = workouts.compactMap { workout -> (interval: DateInterval, drain: Double, workout: WorkoutSummary)? in
             let workoutEndDate = workout.startDate.addingTimeInterval(workout.duration)
-            guard workoutEndDate > workout.startDate,
-                  let workoutInterval = DateInterval(start: workout.startDate, end: workoutEndDate)
-                    .clamped(to: dayInterval) else {
+            guard workoutEndDate > workout.startDate else {
+                return nil
+            }
+
+            // A wake-cycle workout that fully ended before today started (e.g. a
+            // late wake yesterday) still drains the live tile — carry it in as a
+            // zero-length impact at dayStart so the first sample already reflects it.
+            if workoutEndDate <= dayInterval.start {
+                let carryInInterval = DateInterval(start: dayInterval.start, end: dayInterval.start)
+                return (carryInInterval, ActivityReadinessImpact.perWorkoutDrain(workout), workout)
+            }
+
+            guard let workoutInterval = DateInterval(start: workout.startDate, end: workoutEndDate)
+                .clamped(to: dayInterval) else {
                 return nil
             }
 
@@ -128,11 +161,13 @@ struct ReadinessDayTimeline: Equatable {
     }
 
     private func completedFraction(of impact: WorkoutImpact, at date: Date) -> Double {
-        guard date > impact.startDate else {
-            return 0
-        }
+        // Checked before the start-date guard so a zero-length carry-in impact
+        // (startDate == endDate == dayStart) counts as complete at exactly dayStart.
         guard date < impact.endDate else {
             return 1
+        }
+        guard date > impact.startDate else {
+            return 0
         }
 
         let duration = impact.endDate.timeIntervalSince(impact.startDate)
