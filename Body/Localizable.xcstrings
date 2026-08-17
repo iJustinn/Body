@@ -545,22 +545,6 @@
         }
       }
     },
-    "%lld BPM" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld BPM"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 次/分钟"
-          }
-        }
-      }
-    },
     "%lld completed days" : {
       "localizations" : {
         "en" : {
@@ -1434,23 +1418,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "排布"
-          }
-        }
-      }
-    },
-    "Ascent" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ascent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "爬升"
           }
         }
       }
@@ -3580,23 +3547,6 @@
         }
       }
     },
-    "Draw Route" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Draw Route"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "绘制路线"
-          }
-        }
-      }
-    },
     "Drag a color around the spectrum to recolor it, or drag a divider on the preview to change how much space each color takes." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3642,6 +3592,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "拖动可移动，捏合可缩放，双击可重置。"
+          }
+        }
+      }
+    },
+    "Draw Route" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Draw Route"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "绘制路线"
           }
         }
       }
@@ -3707,40 +3674,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "强度建议"
-          }
-        }
-      }
-    },
-    "Elevation" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Elevation"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "海拔"
-          }
-        }
-      }
-    },
-    "Elevation, ascent %@ %@, maximum %@ %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Elevation, ascent %@ %@, maximum %@ %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "海拔，爬升 %@ %@，最高 %@ %@"
           }
         }
       }
@@ -5236,23 +5169,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "地图"
-          }
-        }
-      }
-    },
-    "Max Elevation" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Max Elevation"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最高海拔"
           }
         }
       }
@@ -7682,6 +7598,59 @@
         }
       }
     },
+    "routeStyle.drawSubtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Animate the route as it loads on a workout's page"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在训练页面加载时以动画绘制路线"
+          }
+        }
+      }
+    },
+    "routeStyle.drawSummary" : {
+      "comment" : "Leads the Route Style row's value when the draw animation is on, as \"Draw · 3D\".",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Draw"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "绘制"
+          }
+        }
+      }
+    },
+    "routeStyle.drawUnavailable" : {
+      "comment" : "Replaces the Draw Route subtitle while the switch is dimmed on the Map style.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not available with the Map style, which draws its route onto the map"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "地图样式不支持，其路线直接绘制在地图上"
+          }
+        }
+      }
+    },
     "Running" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8073,41 +8042,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "设置"
-          }
-        }
-      }
-    },
-    "routeStyle.drawSubtitle" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Animate the route as it loads on a workout's page"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在训练页面加载时以动画绘制路线"
-          }
-        }
-      }
-    },
-    "routeStyle.drawSummary" : {
-      "comment" : "Leads the Route Style row's value when the draw animation is on, as \"Draw · 3D\".",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Draw"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "绘制"
           }
         }
       }

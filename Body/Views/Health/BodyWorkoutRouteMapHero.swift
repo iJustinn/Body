@@ -68,38 +68,12 @@ struct BodyWorkoutRouteMapHero: View {
     /// Top safe-area inset: the route must stay below the status bar / Dynamic Island
     /// even though the hero itself extends under them.
     let topInset: CGFloat
-    /// Draws the route in over the map tiles when the hero appears. See
-    /// `BodyWorkoutRoutePlainHero.drawsReveal` for why this is `var`, not `let`.
-    var drawsReveal: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The finished hero: map tiles with the pace-colored route and its markers baked in.
+    // No progressive draw here: the Map style bakes its pace-colored route into the
+    // snapshot, so Route Style ▸ Draw Route is offered only for the map-free styles.
     @State private var snapshot: UIImage?
-    /// The same render with nothing drawn on it, shown under the reveal so the line can
-    /// draw itself over real tiles instead of over black.
-    @State private var tiles: UIImage?
-    /// The route in hero space, taken from the snapshot's own `point(for:)` rather than
-    /// re-derived from the requested `mapRect`. MapKit only promises to honor that rect
-    /// "as closely as possible", so a hand-rolled projection could leave the drawn line
-    /// visibly beside the baked one during the crossfade; going through the snapshot
-    /// makes them identical by construction.
-    @State private var routePoints: [CGPoint]?
-    /// When the draw actually began. Unlike the map-free heroes — which are inserted at
-    /// the moment their route resolves and can time from insertion — this one has to wait
-    /// for the snapshotter, so timing from insertion would burn most or all of the
-    /// animation before there was anything to draw.
-    @State private var revealStartedAt: Date?
-    @State private var revealFinished = false
-
-    private var isRevealing: Bool { drawsReveal && !reduceMotion && !revealFinished }
-
-    /// Whether the finished, route-baked image is the one on screen. Both the tiles and
-    /// the composited image animate against this single value: keying the fade on
-    /// `snapshot != nil` alone would fire while the composite was still hidden behind the
-    /// reveal, and the later handover would then pop with no animation at all.
-    private var showsComposited: Bool { snapshot != nil && !isRevealing }
 
     var body: some View {
         GeometryReader { proxy in
@@ -143,64 +117,18 @@ struct BodyWorkoutRouteMapHero: View {
 
     private func mapLayer(size: CGSize) -> some View {
         // Fade the map in once the snapshot finishes rendering (its ~0.5–1s
-        // natural load time), instead of popping in instantly. While the reveal runs,
-        // the bare tiles stand in and the line draws itself over them; the composited
-        // image — same tiles, pace-colored route and markers baked in — crossfades over
-        // the top at the end, landing on identical pixels.
-        ZStack {
-            image(tiles, size: size)
-                .opacity(tiles == nil ? 0 : 1)
-
-            image(snapshot, size: size)
-                .opacity(showsComposited ? 1 : 0)
-
-            if isRevealing, let routePoints, let revealStartedAt {
-                TimelineView(.animation(minimumInterval: 1 / 60)) { timeline in
-                    revealOverlay(
-                        points: routePoints,
-                        fraction: BodyWorkoutRouteReveal.fraction(epoch: revealStartedAt, date: timeline.date)
-                    )
-                }
-            }
-        }
-        .animation(.easeInOut(duration: 0.5), value: tiles != nil)
-        .animation(.easeInOut(duration: 0.5), value: showsComposited)
-        .task(id: revealStartedAt) {
-            guard revealStartedAt != nil else { return }
-            try? await Task.sleep(for: .seconds(BodyWorkoutRouteReveal.totalDuration))
-            revealFinished = true
-            // The composited image covers the bare tiles from here on, and each is a
-            // full-size render — don't hold both for the life of the page.
-            tiles = nil
-        }
-    }
-
-    private func image(_ image: UIImage?, size: CGSize) -> some View {
+        // natural load time), instead of popping in instantly.
         Group {
-            if let image {
-                Image(uiImage: image)
+            if let snapshot {
+                Image(uiImage: snapshot)
                     .resizable()
                     .scaledToFill()
                     .frame(width: size.width, height: size.height)
                     .clipped()
             }
         }
-    }
-
-    /// The route drawn up to `fraction` of its length, in a flat tint — the pace coloring
-    /// belongs to the composited snapshot that replaces this.
-    private func revealOverlay(points: [CGPoint], fraction: CGFloat) -> some View {
-        Canvas { context, _ in
-            guard points.count >= 2 else { return }
-            var path = Path()
-            path.addLines(points)
-            context.stroke(
-                fraction >= 1 ? path : path.trimmedPath(from: 0, to: fraction),
-                with: .color(tint),
-                style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
-            )
-        }
-        .allowsHitTesting(false)
+        .opacity(snapshot == nil ? 0 : 1)
+        .animation(.easeInOut(duration: 0.5), value: snapshot != nil)
     }
 
     @MainActor
@@ -222,16 +150,6 @@ struct BodyWorkoutRouteMapHero: View {
 
         guard let result = try? await MKMapSnapshotter(options: options).start() else {
             return
-        }
-
-        // Publish the bare tiles and the snapshot's own coordinate mapping first: the
-        // reveal draws its line over real map detail, in exactly the place the baked
-        // route will occupy, without re-deriving the projection. The clock starts here
-        // rather than at insertion — the snapshotter is what the draw was waiting on.
-        if drawsReveal, !reduceMotion, revealStartedAt == nil {
-            routePoints = coordinates.map(result.point(for:))
-            tiles = result.image
-            revealStartedAt = Date()
         }
 
         let image = Self.draw(route: route.coordinates, on: result, fallbackTint: UIColor(tint))

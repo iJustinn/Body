@@ -13,8 +13,9 @@ import Foundation
 
 /// Everything one bucketed-series card renders for one workout.
 ///
-/// `init?` returns nil whenever fewer than three buckets carry a plausible
-/// value, which also hides the card for workouts shorter than ~90 s.
+/// `init?` returns nil whenever fewer than `minimumBuckets` buckets carry a
+/// plausible value, which at the default of three also hides the card for
+/// workouts shorter than ~90 s.
 struct WorkoutBucketedSeriesPresentation: Equatable {
     /// Which kind of input the series was built from.
     enum Source: Equatable {
@@ -42,6 +43,11 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
         let lowFraction: Double
         let highFraction: Double
         let valueFraction: Double
+        /// The bucket's value, low and high in the display unit, formatted by the
+        /// metric's own formatter — what a scrub callout reads out.
+        let valueText: String
+        let lowText: String
+        let highText: String
     }
 
     /// One x-axis tick, positioned by `fraction` of the timeline.
@@ -92,6 +98,9 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
     let source: Source
     let bars: [Bar]
     let timeMarks: [TimeMark]
+    /// The workout's wall-clock length, which the bars' x fractions are measured
+    /// against — so a scrubbed bar can name its elapsed time.
+    let duration: TimeInterval
     /// The y axis' bounds, in the display unit — tight around the data rather
     /// than anchored at zero.
     let axisRange: ClosedRange<Double>
@@ -116,10 +125,12 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
         startDate: Date,
         endDate: Date,
         source: Source,
+        minimumBuckets: Int = 3,
         locale: Locale = .current
     ) {
         let duration = endDate.timeIntervalSince(startDate)
         guard bucketSeconds > 0, duration > 0 else { return nil }
+        self.duration = duration
         let bucketCount = Int((duration / bucketSeconds).rounded(.up))
 
         // Validation happens in canonical units, before conversion, so switching
@@ -133,7 +144,7 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
             if high < bucket.value { high = bucket.value }
             return Bucket(index: bucket.index, value: bucket.value, low: low, high: high)
         }
-        guard entries.count >= 3 else { return nil }
+        guard entries.count >= max(1, minimumBuckets) else { return nil }
 
         self.source = source
         title = spec.title
@@ -163,6 +174,11 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
         )
         self.axisRange = axisRange.range
 
+        let format: (Double) -> String = { value in
+            spec.formatValue?(value, locale)
+                ?? BodyValueFormat.numberText(value, decimals: spec.decimals, locale: locale)
+        }
+
         bars = entries.map { entry in
             Bar(
                 id: entry.index,
@@ -170,7 +186,10 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
                 xEnd: min(1, Double(entry.index + 1) * bucketSeconds / duration),
                 lowFraction: Self.fraction(spec.convert(entry.low), in: axisRange.range),
                 highFraction: Self.fraction(spec.convert(entry.high), in: axisRange.range),
-                valueFraction: Self.fraction(spec.convert(entry.value), in: axisRange.range)
+                valueFraction: Self.fraction(spec.convert(entry.value), in: axisRange.range),
+                valueText: format(spec.convert(entry.value)),
+                lowText: format(spec.convert(entry.low)),
+                highText: format(spec.convert(entry.high))
             )
         }
 
@@ -180,11 +199,6 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
                 fraction: fraction,
                 label: BodyValueFormat.paddedStopwatchDurationText(for: duration * fraction)
             )
-        }
-
-        let format: (Double) -> String = { value in
-            spec.formatValue?(value, locale)
-                ?? BodyValueFormat.numberText(value, decimals: spec.decimals, locale: locale)
         }
 
         yAxisFractions = axisRange.ticks.map { Self.fraction($0, in: axisRange.range) }
@@ -198,6 +212,12 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
             extremeText,
             spec.unitText
         )
+    }
+
+    /// Elapsed time at the middle of `bar`'s bucket, as `HH:mm:ss` — the timestamp
+    /// a scrub callout shows for that bar.
+    func elapsedText(for bar: Bar) -> String {
+        BodyValueFormat.paddedStopwatchDurationText(for: duration * (bar.xStart + bar.xEnd) / 2)
     }
 
     private static func isValid(_ value: Double, in range: ClosedRange<Double>) -> Bool {

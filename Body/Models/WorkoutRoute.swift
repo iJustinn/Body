@@ -30,13 +30,6 @@ struct RouteCoordinate: Sendable, Equatable {
     }
 }
 
-/// One altitude reading on the workout's timeline, feeding the elevation
-/// profile chart. `offset` is seconds from the workout's start date.
-struct WorkoutElevationSample: Sendable, Equatable {
-    let offset: TimeInterval
-    let meters: Double
-}
-
 /// What the workout detail page knows about a workout's GPS route while it loads.
 /// `.unknown` until the cheap `HKWorkoutRoute` presence probe answers — and after a
 /// probe that failed or was denied, since HealthKit read authorization is opaque and a

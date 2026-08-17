@@ -815,6 +815,23 @@
         }
       }
     },
+    "Ascent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ascent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "爬升"
+          }
+        }
+      }
+    },
     "Australian Football" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1660,6 +1677,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "有氧适能衡量的是你的最大摄氧量，也就是运动时身体能够消耗的最大氧气量。它是长期健康最有力的单项指标之一，大多数人都可以通过提高有氧运动的强度和频率来提升它。\nApple Watch 并不会持续测量这一数据。它只在户外步行、户外跑步或徒步时记录一次估算值，且需要地面相对平坦、GPS 与心率信号良好，并达到足够的运动强度。室内运动和使用健身器械的运动不计入其中；你的第一次符合条件的运动也不会生成读数，因为 Apple Watch 需要先佩戴约一天。因此读数往往每隔几天或几周才出现一次，较短的时间范围也常常没有数据。\n你的水平是将你的最大摄氧量与同龄同性别人群进行比较，所用的常模数据来自 Fitness Registry and the Importance of Exercise National Database（FRIEND）。该分级适用于 20 至 79 岁。会限制心率的药物或疾病可能导致估算值偏高。"
+          }
+        }
+      }
+    },
+    "Elevation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elevation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "海拔"
+          }
+        }
+      }
+    },
+    "Elevation, ascent %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elevation, ascent %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "海拔，爬升 %@ %@，最高 %@ %@"
+          }
+        }
+      }
+    },
+    "Max Elevation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Elevation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最高海拔"
           }
         }
       }

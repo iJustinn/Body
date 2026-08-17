@@ -13,6 +13,14 @@
 
 import Foundation
 
+/// One altitude reading on the workout's timeline, feeding the elevation chart.
+/// `offset` is seconds from the workout's start date. Produced app-side by
+/// `WorkoutRoute.elevationProfile(from:workoutStart:)` from the raw GPS fixes.
+struct WorkoutElevationSample: Sendable, Equatable {
+    let offset: TimeInterval
+    let meters: Double
+}
+
 struct WorkoutMetricSeriesData: Equatable {
     /// One bucket of discrete statistics for a natively recorded metric.
     struct NativeBucket: Equatable {

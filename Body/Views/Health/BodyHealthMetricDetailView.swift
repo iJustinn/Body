@@ -556,6 +556,11 @@ struct BodyHealthMetricDetailView: View {
             // keep the belt-and-braces reset.
             floatingCallout?.callout = nil
         }
+        .onChange(of: selectedMetricDay) { _, _ in
+            // The warning cards are not keyed by day, so a day switch mid-scrub swaps
+            // their samples without the reporter's `.onDisappear` firing.
+            floatingCallout?.callout = nil
+        }
         .tint(model.symbolColor)
         .accentColor(model.symbolColor)
         .toolbar {
@@ -1984,7 +1989,8 @@ struct BodyHealthMetricDetailView: View {
                 event: event,
                 samples: selectedMetricDaySeries.points.filter { window.contains($0.date) },
                 window: window,
-                tint: model.symbolColor
+                tint: model.symbolColor,
+                floatingCallout: floatingCallout
             )
             .transition(dayChartTransition)
         }

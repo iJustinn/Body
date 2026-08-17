@@ -801,6 +801,170 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         XCTAssertEqual(presentation.axisRange.upperBound, 10, accuracy: 0.0001)
     }
 
+    // MARK: - Bar text and elapsed time
+
+    func testElapsedTextNamesTheMiddleOfTheBucket() throws {
+        let presentation = try XCTUnwrap(paceOrSpeed(paceInput, type: .running))
+
+        XCTAssertEqual(presentation.duration, 600)
+        XCTAssertEqual(
+            presentation.bars.map { presentation.elapsedText(for: $0) },
+            ["00:00:30", "00:01:30", "00:02:30"]
+        )
+    }
+
+    func testBarTextUsesTheMetricsOwnFormatter() throws {
+        let presentation = try XCTUnwrap(paceOrSpeed(paceInput, type: .running))
+
+        // Pace bars read as m:ss clocks, like the axis labels.
+        XCTAssertEqual(presentation.bars.map(\.valueText), ["5:00", "4:00", "6:00"])
+        XCTAssertEqual(presentation.bars.map(\.lowText), presentation.bars.map(\.valueText))
+        XCTAssertEqual(presentation.bars.map(\.highText), presentation.bars.map(\.valueText))
+    }
+
+    // MARK: - Elevation
+
+    /// Ten samples of ±1 m barometric jitter around 100 m, then a real 10 m step.
+    private var jitterThenStepProfile: [WorkoutElevationSample] {
+        let noisy = (0..<10).map { index in
+            WorkoutElevationSample(offset: Double(index) * 10, meters: index.isMultiple(of: 2) ? 100 : 101)
+        }
+        let step = (10..<20).map { index in
+            WorkoutElevationSample(offset: Double(index) * 10, meters: 110)
+        }
+        return noisy + step
+    }
+
+    private func elevation(
+        _ profile: [WorkoutElevationSample],
+        duration: TimeInterval = 200,
+        ascentMeters: Double? = nil,
+        unit: BodyValueFormat.DistanceUnitPreference = .kilometers
+    ) -> WorkoutElevationLinePresentation? {
+        WorkoutElevationLinePresentation(
+            profile: profile,
+            workoutDuration: duration,
+            ascentMeters: ascentMeters,
+            distanceUnitPreference: unit,
+            locale: enUS
+        )
+    }
+
+    func testElevationSmoothsAwayJitterAndHeadlinesTheAscent() throws {
+        let presentation = try XCTUnwrap(elevation(jitterThenStepProfile))
+
+        // Only the 10 m step counts; the ±1 m jitter never clears the 3 m gate.
+        XCTAssertEqual(presentation.ascentText, "10")
+        XCTAssertEqual(presentation.maxElevationText, "110")
+        XCTAssertEqual(presentation.unitText, "m")
+        XCTAssertEqual(presentation.title, "Elevation")
+        XCTAssertEqual(presentation.ascentCaption, "Ascent")
+        XCTAssertEqual(presentation.maxCaption, "Max Elevation")
+        XCTAssertEqual(
+            presentation.accessibilitySummary,
+            "Elevation, ascent 10 m, maximum 110 m"
+        )
+    }
+
+    func testElevationSummaryAscentWinsOverTheComputedTotal() throws {
+        let presentation = try XCTUnwrap(elevation(jitterThenStepProfile, ascentMeters: 137))
+
+        // The headline is shown verbatim — it's a climb total, not a level.
+        XCTAssertEqual(presentation.ascentText, "137")
+    }
+
+    func testElevationNonFiniteSummaryAscentFallsBackToTheProfile() throws {
+        let presentation = try XCTUnwrap(elevation(jitterThenStepProfile, ascentMeters: .nan))
+
+        XCTAssertEqual(presentation.ascentText, "10")
+    }
+
+    func testElevationAxisBracketsTheClimbOnRoundTicks() throws {
+        let presentation = try XCTUnwrap(elevation(jitterThenStepProfile))
+
+        // 100…110 m padded by max(0.25, 1) = 1 → 99…111, snapped outward on the
+        // 5 m grid to 95…115 (finer rungs would need more than six intervals).
+        XCTAssertEqual(presentation.axisRange.lowerBound, 95, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 115, accuracy: 0.0001)
+        XCTAssertEqual(presentation.yAxisLabels, ["95", "100", "105", "110", "115"])
+        XCTAssertEqual(presentation.yAxisFractions.first, 0)
+        XCTAssertEqual(presentation.yAxisFractions.last, 1)
+    }
+
+    func testElevationBelowSeaLevelIsNotClampedToZero() throws {
+        let dip = (0..<10).map { WorkoutElevationSample(offset: Double($0) * 10, meters: -12) }
+            + (10..<20).map { WorkoutElevationSample(offset: Double($0) * 10, meters: -4) }
+        let presentation = try XCTUnwrap(elevation(dip))
+
+        // −12…−4 m padded by max(0.25, 0.8) = 0.8 → −12.8…−3.2, which 2 m ticks
+        // (the finest rung fitting in six intervals) snap outward to −14…−2.
+        XCTAssertEqual(presentation.axisRange.lowerBound, -14, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, -2, accuracy: 0.0001)
+    }
+
+    func testElevationImperialPreferenceConvertsToFeet() throws {
+        let presentation = try XCTUnwrap(elevation(jitterThenStepProfile, unit: .miles))
+
+        XCTAssertEqual(presentation.unitText, "ft")
+        XCTAssertEqual(presentation.ascentText, "33")
+        XCTAssertEqual(presentation.maxElevationText, "361")
+        // 328…361 ft padded by max(1, 3.3) = 3.3 → 324.8…364.2, which 8 ft ticks
+        // (the finest rung fitting in six intervals) snap outward to 320…368.
+        XCTAssertEqual(presentation.axisRange.lowerBound, 320, accuracy: 0.0001)
+        XCTAssertEqual(presentation.axisRange.upperBound, 368, accuracy: 0.0001)
+        XCTAssertEqual(presentation.yAxisLabels.first, "320")
+        XCTAssertEqual(presentation.yAxisLabels.last, "368")
+        // Meters are validated before conversion, so both units plot the same points.
+        XCTAssertEqual(
+            presentation.points.map(\.id),
+            try XCTUnwrap(elevation(jitterThenStepProfile)).points.map(\.id)
+        )
+    }
+
+    func testElevationPointsCarryEverySmoothedSampleWithItsElapsedTime() throws {
+        let presentation = try XCTUnwrap(elevation(jitterThenStepProfile))
+
+        XCTAssertEqual(presentation.points.count, 20)
+        XCTAssertEqual(presentation.points.map(\.id), Array(0..<20))
+        XCTAssertEqual(presentation.points.first?.xFraction, 0)
+        XCTAssertEqual(presentation.points.first?.elapsedText, "00:00:00")
+        // The 3rd sample sits at 20 s of a 200 s workout, at the smoothed 100 m floor.
+        XCTAssertEqual(try XCTUnwrap(presentation.points[2]).xFraction, 0.1, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(presentation.points[2]).valueText, "100")
+        XCTAssertEqual(try XCTUnwrap(presentation.points[2]).elapsedText, "00:00:20")
+        // 100 m and 110 m on a 95…115 axis.
+        XCTAssertEqual(try XCTUnwrap(presentation.points[2]).yFraction, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(presentation.points.last).yFraction, 0.75, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(presentation.points.last).valueText, "110")
+    }
+
+    func testElevationPointsAreClampedToTheWorkoutTimeline() throws {
+        // The last sample sits past the workout's end (route kept recording).
+        var profile = jitterThenStepProfile
+        profile.append(WorkoutElevationSample(offset: 260, meters: 110))
+        let presentation = try XCTUnwrap(elevation(profile, duration: 200))
+
+        XCTAssertEqual(presentation.points.count, 21)
+        XCTAssertEqual(presentation.points.last?.xFraction, 1)
+        XCTAssertEqual(presentation.points.last?.elapsedText, "00:03:20")
+        XCTAssertEqual(presentation.timeMarks.map(\.fraction), [0, 0.5, 1])
+        XCTAssertEqual(presentation.timeMarks.map(\.label), ["00:00:00", "00:01:40", "00:03:20"])
+    }
+
+    func testElevationIsHiddenWithTooFewSamples() {
+        XCTAssertNil(elevation(Array(jitterThenStepProfile.prefix(9))))
+    }
+
+    func testElevationIsHiddenWhenTheRouteIsFlat() {
+        let flat = (0..<20).map { WorkoutElevationSample(offset: Double($0) * 10, meters: 100) }
+
+        XCTAssertNil(elevation(flat))
+    }
+
+    func testElevationIsHiddenWithoutADuration() {
+        XCTAssertNil(elevation(jitterThenStepProfile, duration: 0))
+    }
+
     // MARK: - Duration formatting
 
     func testPaddedStopwatchDurationTextIsAlwaysHoursMinutesSeconds() {

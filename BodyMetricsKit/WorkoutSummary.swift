@@ -643,6 +643,9 @@ struct WorkoutDetailPresentation: Equatable {
     let dateTitle: String
     /// The start time alone — what the detail page's header shows.
     let startTimeText: String
+    /// Date, weekday and start time on one line — the detail page's hero row,
+    /// e.g. "Nov 14, Fri, 9:41 AM".
+    let heroDateLineText: String
     /// Start-end, still used by the share card.
     let timeRangeText: String
     let durationClockText: String
@@ -692,6 +695,23 @@ struct WorkoutDetailPresentation: Equatable {
             locale: locale,
             timeZone: timeZone
         )
+        heroDateLineText = [
+            Self.formattedDate(
+                workout.startDate,
+                template: "MMMd",
+                calendar: calendar,
+                locale: locale,
+                timeZone: timeZone
+            ),
+            Self.formattedDate(
+                workout.startDate,
+                template: "EEE",
+                calendar: calendar,
+                locale: locale,
+                timeZone: timeZone
+            ),
+            startTimeText
+        ].joined(separator: ", ")
         timeRangeText = [
             startTimeText,
             Self.formattedDate(
@@ -1426,7 +1446,7 @@ enum BodyValueFormat {
     }
 
     static func heartRateText(beatsPerMinute: Double, locale: Locale = .current) -> String {
-        numberText(beatsPerMinute.rounded(), decimals: 0, locale: locale) + " BPM"
+        numberText(beatsPerMinute.rounded(), decimals: 0, locale: locale) + " bpm"
     }
 
     static func respiratoryRateText(breathsPerMinute: Double, locale: Locale = .current) -> String {

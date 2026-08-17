@@ -17,6 +17,12 @@ struct BodyMetricWarningCard: View {
     let samples: [HealthTrendDataPoint]
     let window: DateInterval
     let tint: Color
+    /// Optional report-out of the scrub callout, so the detail page can float it on the
+    /// topmost layer (above the nav bar). Nil keeps the in-chart annotation.
+    var floatingCallout: BodyChartFloatingCalloutState? = nil
+
+    @State private var selectedDate: Date?
+    @GestureState private var isSelecting = false
 
     /// The limit this episode was detected against — the user's custom threshold
     /// when they set one, so the sentence and the rule match what fired.
@@ -95,15 +101,6 @@ struct BodyMetricWarningCard: View {
         }
     }
 
-    private var ruleLabel: String {
-        switch event.kind {
-        case .lowHeartRate, .highHeartRate:
-            return String(localized: "\(Int(threshold)) BPM")
-        case .lowBloodOxygen:
-            return String(localized: "\(Int(threshold))%")
-        }
-    }
-
     private var valueLabel: LocalizedStringKey {
         switch event.kind {
         case .lowHeartRate, .highHeartRate:
@@ -152,16 +149,30 @@ struct BodyMetricWarningCard: View {
                 }
             }
 
+            // Unlabelled: the sentence above the chart already names the
+            // threshold, so a value riding the rule only repeated it.
             RuleMark(y: .value("Threshold", threshold))
                 .foregroundStyle(.yellow)
-                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                // Label on the right: above the rule for "below" kinds (the low
-                // readings sit under it), below the rule for "above" kinds.
-                .annotation(position: event.kind.isAbove ? .bottom : .top, alignment: .trailing) {
-                    Text(ruleLabel)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.yellow)
-                }
+                .lineStyle(StrokeStyle(lineWidth: 2, dash: [4, 4]))
+
+            if let selectedSample {
+                // Rule only, no fattened dot: the readings are already ringed,
+                // and a scrub dot on top of one only smeared it.
+                RuleMark(x: .value("Selected Time", selectedSample.date))
+                    .foregroundStyle(Color.secondary.opacity(0.48))
+                    .lineStyle(StrokeStyle(lineWidth: 1.4))
+                    .annotation(
+                        position: .top,
+                        spacing: 8,
+                        overflowResolution: bodyChartSelectionOverflowResolution
+                    ) {
+                        // Stands down while the floating callout renders, or the
+                        // callout draws twice.
+                        if floatingCallout == nil {
+                            selectionAnnotation(for: selectedSample)
+                        }
+                    }
+            }
         }
         .chartXScale(domain: window.start...window.end)
         .chartYScale(domain: yDomain)
@@ -202,6 +213,61 @@ struct BodyMetricWarningCard: View {
         // 128, but it also carries a divider and an averages row this one has
         // no equivalent of, so the chart absorbs the 77pt difference.
         .frame(height: 205)
+        .chartXSelection(value: $selectedDate)
+        .simultaneousGesture(chartPressGesture)
+        .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedSample?.date, centersOnDayInterval: false) {
+            guard let selectedSample else {
+                return AnyView(EmptyView())
+            }
+            return AnyView(selectionAnnotation(for: selectedSample))
+        }
+    }
+
+    /// The reading under the finger, matched by time the way the trend charts do.
+    private var selectedSample: HealthTrendDataPoint? {
+        guard isSelecting, let selectedDate else {
+            return nil
+        }
+
+        return samples.min { first, second in
+            abs(first.date.timeIntervalSince(selectedDate)) < abs(second.date.timeIntervalSince(selectedDate))
+        }
+    }
+
+    private var chartPressGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .updating($isSelecting) { _, isSelecting, _ in
+                isSelecting = true
+            }
+            .onEnded { _ in
+                selectedDate = nil
+            }
+    }
+
+    private func selectionAnnotation(for sample: HealthTrendDataPoint) -> BodyChartSelectionAnnotation {
+        BodyChartSelectionAnnotation(
+            eyebrow: nil,
+            values: [
+                BodyChartSelectionValue(
+                    title: nil,
+                    value: formattedValue(sample.value),
+                    color: isPastThreshold(sample.value) ? .yellow : tint
+                )
+            ],
+            date: sample.date,
+            dateText: timeText(for: sample.date)
+        )
+    }
+
+    /// Same units the sentence above the chart names the threshold in.
+    private func formattedValue(_ value: Double) -> String {
+        let number = BodyValueFormat.numberText(value, decimals: 0)
+        switch event.kind {
+        case .lowHeartRate, .highHeartRate:
+            return number + " BPM"
+        case .lowBloodOxygen:
+            return number + "%"
+        }
     }
 
     private var yDomain: ClosedRange<Double> {

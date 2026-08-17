@@ -172,7 +172,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         // The Route Style row's value is composed at runtime as "Draw · <style>", so the
         // lead word is resolved out of the app catalog rather than this one.
         try assertKeysTranslated(
-            ["routeStyle.drawSummary"],
+            ["routeStyle.drawSummary", "routeStyle.drawSubtitle", "routeStyle.drawUnavailable"],
             in: try loadCatalog(at: "Body/Localizable.xcstrings")
         )
     }
@@ -301,18 +301,37 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
-    func testElevationProfileKeysResolveInLocalizableCatalog() throws {
+    func testChartScrubCalloutRowTitlesResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
-        // Every user-visible string of the Elevation card comes from
-        // WorkoutElevationProfilePresentation, resolved against the app's default
-        // table. (The "m"/"ft" units stay unlocalized, matching
+        // The workout detail charts' hold-to-scrub callout labels its two rows with
+        // the same dotted keys the health charts already use, so a bucket's average
+        // and range read as "Avg"/"Range" (平均/范围) rather than falling back to the key.
+        let keys = [
+            "detail.avgPrefix",
+            "chart.legendRange"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+        XCTAssertEqual(try value(of: "detail.avgPrefix", language: "zh-Hans", in: catalog), "平均")
+        XCTAssertEqual(try value(of: "chart.legendRange", language: "zh-Hans", in: catalog), "范围")
+    }
+
+    func testBucketedSeriesElevationAndHeartRateKeysResolveInBodyMetricsKitCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+
+        // The Elevation profile card is built in BodyMetricsKit, so its strings
+        // resolve against that table, as do the heart-rate captions the detail
+        // metrics reuse. (The "m"/"ft" units stay unlocalized, matching
         // `BodyValueFormat.elevationText`.)
         let keys = [
             "Elevation",
             "Ascent",
             "Max Elevation",
-            "Elevation, ascent %@ %@, maximum %@ %@"
+            "Elevation, ascent %@ %@, maximum %@ %@",
+            "Heart Rate",
+            "Avg Heart Rate",
+            "Max Heart Rate"
         ]
 
         try assertKeysTranslated(keys, in: catalog)
@@ -329,9 +348,8 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Your heart rate fell below %lld BPM starting at %@.",
             "Your heart rate rose above %lld BPM starting at %@.",
             "Your blood oxygen fell below %lld%% starting at %@.",
-            // Chart rule-mark annotation and axis labels.
-            "%lld BPM",
-            "%lld%%",
+            // Chart axis and mark labels. The threshold rule is drawn
+            // unlabelled — the sentence above the chart names the value.
             "Threshold",
             "Time",
             "Heart Rate",
@@ -362,6 +380,16 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             let value = try XCTUnwrap(unit["value"] as? String, "\(key) zh-Hans missing value")
             XCTAssertFalse(value.isEmpty, "\(key) zh-Hans value is empty")
         }
+    }
+
+    /// One language's resolved string for `key`, so a test can assert the translation
+    /// itself and not merely that the entry exists.
+    private func value(of key: String, language: String, in catalog: [String: Any]) throws -> String {
+        let entry = try XCTUnwrap(catalog[key] as? [String: Any], "missing catalog entry for \(key)")
+        let localizations = try XCTUnwrap(entry["localizations"] as? [String: Any], "\(key) missing localizations")
+        let localization = try XCTUnwrap(localizations[language] as? [String: Any], "\(key) missing \(language)")
+        let unit = try XCTUnwrap(localization["stringUnit"] as? [String: Any], "\(key) missing \(language) stringUnit")
+        return try XCTUnwrap(unit["value"] as? String, "\(key) \(language) missing value")
     }
 
     private func loadCatalog(at relativePath: String) throws -> [String: Any] {

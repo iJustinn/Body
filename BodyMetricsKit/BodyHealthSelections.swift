@@ -388,6 +388,14 @@ enum BodyWorkoutRouteStyle: String, CaseIterable, Identifiable {
         rawValue
     }
 
+    /// Whether the workout detail hero can draw this style's route in as it loads.
+    /// Map can't: its route is composited into the map snapshot by Core Graphics rather
+    /// than stroked by the hero, so there is no path to grow. Route Style offers the
+    /// Draw Route switch only for the styles that stroke their own trace.
+    var supportsRouteDraw: Bool {
+        self != .map
+    }
+
     var title: String {
         switch self {
         case .map:

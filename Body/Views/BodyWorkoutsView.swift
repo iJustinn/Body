@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct BodyWorkoutsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
@@ -1004,6 +1005,9 @@ struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsRouteOnLoad = true
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    /// Where every detail chart's hold-to-scrub callout is published; the overlay
+    /// below draws it above the page's Back/Share chrome.
+    @State private var chartCallout = BodyChartFloatingCalloutState()
     @State private var isEditingEffort = false
     @State private var editingScore = 5
     @State private var isSavingEffort = false
@@ -1134,9 +1138,22 @@ struct BodyWorkoutDetailSheet: View {
     /// Whether this visit should draw the route in. A route already cached when the page
     /// opened was never waited for, so it just appears; Reduce Motion and the Draw Route
     /// setting opt out entirely.
+    ///
+    /// The Map style never draws: its route is baked into the map snapshot rather than
+    /// stroked by the hero, so Route Style offers the switch only for the map-free
+    /// styles. The stored preference is left alone — picking Plain or 3D again restores
+    /// whatever it was set to.
     private var drawsRouteReveal: Bool {
-        guard drawsRouteOnLoad, !reduceMotion else { return false }
+        guard routeStyle.supportsRouteDraw, drawsRouteOnLoad, !reduceMotion else { return false }
         return !(routeWasCachedOnOpen ?? (workoutStore.cachedWorkoutRoute(for: workout) != nil))
+    }
+
+    /// Whether the reserved band shimmers while the fixes load. It stands in wherever no
+    /// draw is coming to fill the wait — the switch turned off, or the Map style, which
+    /// can't draw at all. (Reduce Motion is not one of these: the draw is still the plan,
+    /// it just lands finished, and the shimmer would be motion where none was wanted.)
+    private var showsRouteLoadingShimmer: Bool {
+        !(routeStyle.supportsRouteDraw && drawsRouteOnLoad)
     }
 
     private var routeReservationAnimation: Animation? {
@@ -1170,7 +1187,7 @@ struct BodyWorkoutDetailSheet: View {
                     // it with no backing of its own (like the home and detail pages).
                     Color.black.ignoresSafeArea()
 
-                    BodyWorkoutRouteMapHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset, drawsReveal: drawsRouteReveal)
+                    BodyWorkoutRouteMapHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset)
                         .frame(height: mapHeight)
                         .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
                         .overlay {
@@ -1223,7 +1240,7 @@ struct BodyWorkoutDetailSheet: View {
                     sheetBackdrop
                 }
 
-                if !drawsRouteOnLoad {
+                if showsRouteLoadingShimmer {
                     BodyWorkoutRouteHeroShimmer(
                         tint: workout.type.color,
                         targetCenterY: routeTargetCenterY,
@@ -1315,6 +1332,14 @@ struct BodyWorkoutDetailSheet: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: routeLoadSettled)
+        }
+        .overlay {
+            // Last overlay on the stack, so a chart's scrub callout draws over the
+            // Back and Share controls instead of under them.
+            BodyChartFloatingCalloutLayer(state: chartCallout)
+        }
+        .onDisappear {
+            chartCallout.callout = nil
         }
         .fullScreenCover(isPresented: $showsShareSheet) {
             BodyWorkoutShareSheet(workout: workout, route: displayedRoute, presentation: presentation)
@@ -1558,6 +1583,10 @@ struct BodyWorkoutDetailSheet: View {
         // `WorkoutDetailPresentation`, so evaluating it once per section (four of them)
         // wasted that work on every store publish.
         let presentation = presentation
+        // Both halves of the merged Pace card, read once: the card is shown when
+        // either exists, so an inline check would recompute the splits.
+        let paceOrSpeed = paceOrSpeedPresentation
+        let splits = splitsPresentation
         return VStack(spacing: 0) {
             // Always present, sized by `reservedGapHeight` — see `routeTapGap`.
             routeTapGap
@@ -1566,27 +1595,43 @@ struct BodyWorkoutDetailSheet: View {
                 topEntryPanel(presentation: presentation)
                 workoutDetailsCard(presentation: presentation)
                 effortCard
-                if let splitsPresentation {
-                    BodyWorkoutSplitsCard(presentation: splitsPresentation)
-                }
                 heartRateSection(presentation: presentation)
-                if let elevationPresentation {
-                    BodyWorkoutElevationCard(presentation: elevationPresentation)
+                if paceOrSpeed != nil || splits != nil {
+                    BodyWorkoutPaceCard(
+                        presentation: paceOrSpeed,
+                        splits: splits,
+                        floatingCallout: chartCallout
+                    )
                 }
-                if let paceOrSpeedPresentation {
-                    BodyWorkoutBucketedSeriesCard(presentation: paceOrSpeedPresentation)
+                if let elevationPresentation {
+                    BodyWorkoutElevationLineCard(
+                        presentation: elevationPresentation,
+                        floatingCallout: chartCallout
+                    )
                 }
                 if let cadencePresentation {
-                    BodyWorkoutBucketedSeriesCard(presentation: cadencePresentation)
+                    BodyWorkoutBucketedSeriesCard(
+                        presentation: cadencePresentation,
+                        floatingCallout: chartCallout
+                    )
                 }
                 if let strideLengthPresentation {
-                    BodyWorkoutBucketedSeriesCard(presentation: strideLengthPresentation)
+                    BodyWorkoutBucketedSeriesCard(
+                        presentation: strideLengthPresentation,
+                        floatingCallout: chartCallout
+                    )
                 }
                 if let groundContactPresentation {
-                    BodyWorkoutBucketedSeriesCard(presentation: groundContactPresentation)
+                    BodyWorkoutBucketedSeriesCard(
+                        presentation: groundContactPresentation,
+                        floatingCallout: chartCallout
+                    )
                 }
                 if let verticalOscillationPresentation {
-                    BodyWorkoutBucketedSeriesCard(presentation: verticalOscillationPresentation)
+                    BodyWorkoutBucketedSeriesCard(
+                        presentation: verticalOscillationPresentation,
+                        floatingCallout: chartCallout
+                    )
                 }
                 sourceFooter(presentation: presentation)
             }
@@ -1639,7 +1684,7 @@ struct BodyWorkoutDetailSheet: View {
 
                     heroContextRow
 
-                    Text("\(presentation.dateTitle) - \(presentation.startTimeText)")
+                    Text(presentation.heroDateLineText)
                         .font(.system(size: 17, weight: .semibold, design: .rounded))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
@@ -2089,7 +2134,8 @@ struct BodyWorkoutDetailSheet: View {
     private func heartRateSection(presentation: WorkoutDetailPresentation) -> some View {
         BodyWorkoutHeartRateChartCard(
             samples: presentation.heartRateSamples,
-            maxHeartRate: resolvedMaxHeartRate ?? workout.maximumHeartRateBeatsPerMinute
+            maxHeartRate: resolvedMaxHeartRate ?? workout.maximumHeartRateBeatsPerMinute,
+            floatingCallout: chartCallout
         )
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -2171,10 +2217,9 @@ struct BodyWorkoutDetailSheet: View {
     /// The route's elevation profile for the current unit preference; nil when the
     /// workout has no route, too few altitude samples, or a flat course — which
     /// hides the card.
-    private var elevationPresentation: WorkoutElevationProfilePresentation? {
-        guard let profile = displayedRoute?.elevationProfile else { return nil }
-        return WorkoutElevationProfilePresentation(
-            profile: profile,
+    private var elevationPresentation: WorkoutElevationLinePresentation? {
+        WorkoutElevationLinePresentation(
+            profile: displayedRoute?.elevationProfile ?? [],
             workoutDuration: workout.effectiveEndDate.timeIntervalSince(workout.startDate),
             ascentMeters: workout.elevationAscendedMeters,
             distanceUnitPreference: selectedDistanceUnitPreference
@@ -2634,14 +2679,72 @@ private struct BodyWorkoutHeartRateZoneChart: View {
     }
 }
 
-private struct BodyWorkoutSplitsCard: View {
+/// Pace/Speed and its per-km/mi splits in one card, the way the Heart Rate card
+/// carries the zone breakdown under its chart. Either half can be absent: a workout
+/// can have splits but too few buckets for the plot, or the reverse.
+private struct BodyWorkoutPaceCard: View {
+    let presentation: WorkoutBucketedSeriesPresentation?
+    let splits: WorkoutSplitsPresentation?
+    var floatingCallout: BodyChartFloatingCalloutState?
+
+    /// The splits' own header names the column "Pace"/"Speed", so it titles the card
+    /// when the plot is missing.
+    private var title: String {
+        presentation?.title ?? splits?.valueHeaderText ?? ""
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(title)
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundColor(.primary)
+
+            if let presentation {
+                HStack(alignment: .top, spacing: 12) {
+                    bodyWorkoutSeriesStatBlock(
+                        value: presentation.averageText,
+                        unit: presentation.unitText,
+                        caption: presentation.averageCaption
+                    )
+                    bodyWorkoutSeriesStatBlock(
+                        value: presentation.extremeText,
+                        unit: presentation.unitText,
+                        caption: presentation.extremeCaption
+                    )
+                }
+
+                BodyWorkoutBucketedSeriesPlot(
+                    presentation: presentation,
+                    calloutEyebrow: presentation.title.uppercased(),
+                    floatingCallout: floatingCallout
+                )
+                .frame(height: 210)
+            }
+
+            if let splits {
+                BodyWorkoutSplitsSection(presentation: splits)
+                    .padding(.top, 6)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 18)
+        .bodyCardBackground(cornerRadius: 30, translucent: true)
+        // A container rather than one flattened element: the summary still names the
+        // card, while the plot inside stays reachable as its own adjustable element.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(presentation?.accessibilitySummary ?? title)
+    }
+}
+
+private struct BodyWorkoutSplitsSection: View {
     let presentation: WorkoutSplitsPresentation
 
-    /// Tapping the card swaps the pace bars for a step-cadence column.
+    /// Tapping the splits swaps the pace bars for a step-cadence column.
     @State private var showsCadenceColumn = false
 
     /// Fastest-split highlight, matching the BPM readout on the Heart Rate card.
-    private static let fastestColor = BodyWorkoutHeartRateChart.referenceLineColor
+    private static let fastestColor = BodyWorkoutChartPalette.referenceLineColor
 
     /// Slowest-split highlight, matching Zone 5 on the heart-rate zone breakdown.
     private static let slowestColor = Color(red: 1.0, green: 0.27, blue: 0.31)
@@ -2654,22 +2757,12 @@ private struct BodyWorkoutSplitsCard: View {
     private let barHeight: CGFloat = 12
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Splits")
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .foregroundColor(.primary)
-
-            VStack(spacing: 11) {
-                headerRow
-                ForEach(presentation.rows) { row in
-                    splitRow(row)
-                }
+        VStack(spacing: 11) {
+            headerRow
+            ForEach(presentation.rows) { row in
+                splitRow(row)
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 16)
-        .padding(.bottom, 18)
-        .bodyCardBackground(cornerRadius: 30, translucent: true)
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.25)) {
@@ -2791,216 +2884,161 @@ private func bodyWorkoutChartAxisLabel(
     return resolve(11)
 }
 
-private struct BodyWorkoutElevationCard: View {
-    let presentation: WorkoutElevationProfilePresentation
+/// A Catmull-Rom-ish curve through `points` — the smoothing both profile lines (heart
+/// rate and elevation) draw, so neither reads as a polyline of straight segments.
+private func bodyWorkoutSmoothedPath(through points: [CGPoint]) -> Path {
+    var path = Path()
+    guard let first = points.first else {
+        return path
+    }
+    path.move(to: first)
 
-    /// Matches `BodyWorkoutHeartRateChart` so every detail chart's plot lines up.
-    private static let yAxisLabelInset: CGFloat = 44
-    private static let xAxisLabelOffset: CGFloat = 18
-    private static let timeMarkLabelHorizontalInset: CGFloat = 24
+    if points.count == 2 {
+        path.addLine(to: points[1])
+        return path
+    }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(presentation.title)
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .foregroundColor(.primary)
+    for i in 0..<(points.count - 1) {
+        let p0 = i > 0 ? points[i - 1] : points[i]
+        let p1 = points[i]
+        let p2 = points[i + 1]
+        let p3 = i < points.count - 2 ? points[i + 2] : points[i + 1]
 
-            HStack(alignment: .top, spacing: 12) {
-                statBlock(value: presentation.ascentText, caption: presentation.ascentCaption)
-                statBlock(value: presentation.maxElevationText, caption: presentation.maxCaption)
+        let control1 = CGPoint(
+            x: p1.x + (p2.x - p0.x) / 6,
+            y: p1.y + (p2.y - p0.y) / 6
+        )
+        let control2 = CGPoint(
+            x: p2.x - (p3.x - p1.x) / 6,
+            y: p2.y - (p3.y - p1.y) / 6
+        )
+        path.addCurve(to: p2, control1: control1, control2: control2)
+    }
+    return path
+}
+
+/// The colour language every workout detail chart shares: one low-to-high ramp
+/// (teal → blue → yellow → orange → red) plus the blue the Splits card highlights
+/// its fastest split with.
+private enum BodyWorkoutChartPalette {
+    static let referenceLineColor = Color(red: 0.20, green: 0.62, blue: 1.0)
+
+    private struct ColorStop {
+        let location: Double
+        let red: Double
+        let green: Double
+        let blue: Double
+    }
+
+    private static let colorStops: [ColorStop] = [
+        ColorStop(location: 0.0,  red: 0.20, green: 0.92, blue: 0.82),
+        ColorStop(location: 0.30, red: 0.25, green: 0.62, blue: 1.0),
+        ColorStop(location: 0.55, red: 0.98, green: 0.86, blue: 0.30),
+        ColorStop(location: 0.78, red: 1.0,  green: 0.55, blue: 0.20),
+        ColorStop(location: 1.0,  red: 1.0,  green: 0.30, blue: 0.30)
+    ]
+
+    static let gradientStops: [Gradient.Stop] = colorStops.map { stop in
+        Gradient.Stop(
+            color: Color(red: stop.red, green: stop.green, blue: stop.blue),
+            location: stop.location
+        )
+    }
+
+    static func color(forFraction fraction: Double) -> Color {
+        let f = max(0, min(1, fraction))
+        guard let last = colorStops.last else {
+            return Color(red: 1.0, green: 0.30, blue: 0.30)
+        }
+        for i in 1..<colorStops.count {
+            if f <= colorStops[i].location {
+                let prev = colorStops[i - 1]
+                let curr = colorStops[i]
+                let span = curr.location - prev.location
+                let t = span > 0 ? (f - prev.location) / span : 0
+                return Color(
+                    red: prev.red + (curr.red - prev.red) * t,
+                    green: prev.green + (curr.green - prev.green) * t,
+                    blue: prev.blue + (curr.blue - prev.blue) * t
+                )
             }
-
-            chart
-                .frame(height: 210)
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 16)
-        .padding(.bottom, 18)
-        .bodyCardBackground(cornerRadius: 30, translucent: true)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(presentation.accessibilitySummary)
-    }
-
-    private func statBlock(value: String, caption: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(value)
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
-                Text(presentation.unitText)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundColor(.secondary)
-            }
-            Text(caption)
-                .font(.system(size: 15))
-                .foregroundColor(.secondary)
-        }
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var chart: some View {
-        Canvas { context, size in
-            let plotRect = CGRect(
-                x: 0,
-                y: 6,
-                width: max(1, size.width - Self.yAxisLabelInset),
-                height: max(1, size.height - 34)
-            )
-            drawGrid(in: plotRect, context: &context)
-            drawProfile(in: plotRect, context: &context)
-            drawTimeMarks(in: plotRect, context: &context)
-        }
-    }
-
-    private func drawGrid(in plotRect: CGRect, context: inout GraphicsContext) {
-        var grid = Path()
-        for fraction in presentation.yAxisFractions {
-            let y = self.y(for: fraction, in: plotRect)
-            grid.move(to: CGPoint(x: plotRect.minX, y: y))
-            grid.addLine(to: CGPoint(x: plotRect.maxX, y: y))
-        }
-        context.stroke(
-            grid,
-            with: .color(Color.secondary.opacity(0.26)),
-            style: StrokeStyle(lineWidth: 1, dash: [4, 4])
-        )
-
-        for (index, label) in presentation.yAxisLabels.enumerated() where index < presentation.yAxisFractions.count {
-            context.draw(
-                bodyWorkoutChartAxisLabel(label, in: context),
-                at: CGPoint(x: plotRect.maxX + 22, y: y(for: presentation.yAxisFractions[index], in: plotRect))
-            )
-        }
-    }
-
-    private func drawProfile(in plotRect: CGRect, context: inout GraphicsContext) {
-        let points = presentation.points.map { point in
-            CGPoint(
-                x: plotRect.minX + plotRect.width * CGFloat(point.xFraction),
-                y: y(for: point.yFraction, in: plotRect)
-            )
-        }
-        guard let first = points.first, let last = points.last else { return }
-
-        var line = Path()
-        line.addLines(points)
-
-        // The same outline closed down to the baseline, so the fill reads as the
-        // ground under the line rather than a second stroke.
-        var area = line
-        area.addLine(to: CGPoint(x: last.x, y: plotRect.maxY))
-        area.addLine(to: CGPoint(x: first.x, y: plotRect.maxY))
-        area.closeSubpath()
-
-        // Same bottom-to-top heart-rate ramp the HR chart's smoothed line uses, so the
-        // profile's height reads in the shared low-to-high colour language.
-        let startPoint = CGPoint(x: plotRect.midX, y: plotRect.maxY)
-        let endPoint = CGPoint(x: plotRect.midX, y: plotRect.minY)
-        let stops = BodyWorkoutHeartRateChartMetrics.gradientStops
-
-        context.fill(
-            area,
-            with: .linearGradient(
-                Gradient(stops: stops.map { Gradient.Stop(color: $0.color.opacity(0.22), location: $0.location) }),
-                startPoint: startPoint,
-                endPoint: endPoint
-            )
-        )
-        context.stroke(
-            line,
-            with: .linearGradient(Gradient(stops: stops), startPoint: startPoint, endPoint: endPoint),
-            style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
-        )
-    }
-
-    private func drawTimeMarks(in plotRect: CGRect, context: inout GraphicsContext) {
-        let lowerBound = plotRect.minX + Self.timeMarkLabelHorizontalInset
-        let upperBound = max(lowerBound, plotRect.maxX - Self.timeMarkLabelHorizontalInset)
-        for mark in presentation.timeMarks {
-            let rawX = plotRect.minX + plotRect.width * CGFloat(mark.fraction)
-            context.draw(
-                context.resolve(
-                    Text(mark.label)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundColor(.secondary)
-                ),
-                at: CGPoint(x: min(max(rawX, lowerBound), upperBound), y: plotRect.maxY + Self.xAxisLabelOffset)
-            )
-        }
-    }
-
-    private func y(for fraction: Double, in plotRect: CGRect) -> CGFloat {
-        plotRect.maxY - plotRect.height * CGFloat(fraction)
+        return Color(red: last.red, green: last.green, blue: last.blue)
     }
 }
 
-/// One card for every bucketed workout series — pace/speed, cadence, stride length,
-/// ground contact time, vertical oscillation. The presentation carries the strings,
-/// axis and bars, so all five share this drawing and the detail charts' shared style.
-private struct BodyWorkoutBucketedSeriesCard: View {
+/// The plot every bucketed workout detail chart draws — pace/speed, cadence, stride
+/// length, ground contact time and vertical oscillation all hand it
+/// a `WorkoutBucketedSeriesPresentation` and get the same grid, ramp bars and
+/// `HH:mm:ss` marks. Holding on it scrubs: the touched bucket gets a rule line and a
+/// callout published to the sheet's floating layer.
+private struct BodyWorkoutBucketedSeriesPlot: View {
     let presentation: WorkoutBucketedSeriesPresentation
+    /// The callout's small-caps header — the card's own title, uppercased.
+    let calloutEyebrow: String
+    /// Where a scrub publishes its callout; the sheet's overlay draws it above the
+    /// page chrome. Nil in contexts with no such layer (previews, renders).
+    var floatingCallout: BodyChartFloatingCalloutState?
 
-    /// Matches `BodyWorkoutHeartRateChart` so every detail chart's plot lines up.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The scrubbed bar's centre x in plot coordinates, or nil when nothing is held.
+    @State private var scrubX: CGFloat?
+    /// Which bar that x snapped to.
+    @State private var scrubbedBarID: Int?
+    /// VoiceOver's own cursor through the bars, stepped by the adjustable action.
+    @State private var accessibilityBarIndex = 0
+
     private static let yAxisLabelInset: CGFloat = 44
     private static let xAxisLabelOffset: CGFloat = 18
     private static let timeMarkLabelHorizontalInset: CGFloat = 24
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(presentation.title)
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .foregroundColor(.primary)
+        GeometryReader { geometry in
+            let plotRect = Self.plotRect(in: geometry.size)
 
-            HStack(alignment: .top, spacing: 12) {
-                statBlock(value: presentation.averageText, caption: presentation.averageCaption)
-                statBlock(value: presentation.extremeText, caption: presentation.extremeCaption)
+            Canvas { context, _ in
+                drawGrid(in: plotRect, context: &context)
+                drawBars(in: plotRect, context: &context)
+                drawTimeMarks(in: plotRect, context: &context)
+                drawSelection(in: plotRect, context: &context)
             }
-
-            chart
-                .frame(height: 210)
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 16)
-        .padding(.bottom, 18)
-        .bodyCardBackground(cornerRadius: 30, translucent: true)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(presentation.accessibilitySummary)
-    }
-
-    private func statBlock(value: String, caption: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(value)
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
-                Text(presentation.unitText)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundColor(.secondary)
-            }
-            Text(caption)
-                .font(.system(size: 15))
-                .foregroundColor(.secondary)
-        }
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var chart: some View {
-        Canvas { context, size in
-            let plotRect = CGRect(
-                x: 0,
-                y: 6,
-                width: max(1, size.width - Self.yAxisLabelInset),
-                height: max(1, size.height - 34)
+            .contentShape(Rectangle())
+            .gesture(
+                BodyChartScrubGesture(isEnabled: !presentation.bars.isEmpty) { location in
+                    scrub(to: location, plotRect: plotRect, plotFrame: geometry.frame(in: .global))
+                }
             )
-            drawGrid(in: plotRect, context: &context)
-            drawBars(in: plotRect, context: &context)
-            drawTimeMarks(in: plotRect, context: &context)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(presentation.title)
+        .accessibilityValue(accessibilityValueText)
+        .accessibilityAdjustableAction { direction in
+            guard !presentation.bars.isEmpty else { return }
+            switch direction {
+            case .increment:
+                accessibilityBarIndex = min(accessibilityBarIndex + 1, presentation.bars.count - 1)
+            case .decrement:
+                accessibilityBarIndex = max(accessibilityBarIndex - 1, 0)
+            @unknown default:
+                break
+            }
+        }
+        .onDisappear {
+            clearScrub()
         }
     }
+
+    private static func plotRect(in size: CGSize) -> CGRect {
+        CGRect(
+            x: 0,
+            y: 6,
+            width: max(1, size.width - Self.yAxisLabelInset),
+            height: max(1, size.height - 34)
+        )
+    }
+
+    // MARK: - Drawing
 
     private func drawGrid(in plotRect: CGRect, context: inout GraphicsContext) {
         var grid = Path()
@@ -3031,14 +3069,14 @@ private struct BodyWorkoutBucketedSeriesCard: View {
             let lowY = y(for: bar.lowFraction, in: plotRect)
             // The bucket's own place in the axis range picks its colour off the shared
             // heart-rate ramp, so a card's highs and lows read the same way everywhere.
-            let color = BodyWorkoutHeartRateChartMetrics.color(forFraction: bar.valueFraction)
+            let color = BodyWorkoutChartPalette.color(forFraction: bar.valueFraction)
 
             context.fill(
                 Path(
                     roundedRect: CGRect(x: leading, y: lowY, width: width, height: plotRect.maxY - lowY),
                     cornerRadius: min(2, width / 2)
                 ),
-                with: .color(color.opacity(0.18))
+                with: .color(color.opacity(0.10))
             )
 
             // Ranges thinner than the capsule's minimum height are centred on the
@@ -3072,15 +3110,202 @@ private struct BodyWorkoutBucketedSeriesCard: View {
         }
     }
 
+    /// The held bucket's rule line — drawn last so it sits over the bars. The values
+    /// themselves ride in the floating callout, so the line is the only mark.
+    private func drawSelection(in plotRect: CGRect, context: inout GraphicsContext) {
+        guard let scrubX, scrubbedBar != nil else { return }
+
+        var rule = Path()
+        rule.move(to: CGPoint(x: scrubX, y: plotRect.minY))
+        rule.addLine(to: CGPoint(x: scrubX, y: plotRect.maxY))
+        context.stroke(rule, with: .color(Color.secondary.opacity(0.48)), lineWidth: 1.4)
+    }
+
     private func y(for fraction: Double, in plotRect: CGRect) -> CGFloat {
         plotRect.maxY - plotRect.height * CGFloat(fraction)
     }
+
+    // MARK: - Scrubbing
+
+    /// The bar the current `scrubX` snapped to. Looked up by id rather than stored
+    /// whole, so a re-published presentation can't leave a stale bar on screen.
+    private var scrubbedBar: WorkoutBucketedSeriesPresentation.Bar? {
+        guard let scrubbedBarID else { return nil }
+        return presentation.bars.first { $0.id == scrubbedBarID }
+    }
+
+    private func centerX(of bar: WorkoutBucketedSeriesPresentation.Bar, width: CGFloat) -> CGFloat {
+        width * CGFloat((bar.xStart + bar.xEnd) / 2)
+    }
+
+    private func scrub(to location: CGPoint?, plotRect: CGRect, plotFrame: CGRect) {
+        guard let location, let bar = bar(atX: location.x, in: plotRect) else {
+            clearScrub()
+            return
+        }
+
+        let centreX = plotRect.minX + centerX(of: bar, width: plotRect.width)
+        let callout = BodyChartFloatingCallout(
+            anchor: CGPoint(x: plotFrame.minX + centreX, y: plotFrame.minY + plotRect.minY),
+            content: AnyView(calloutContent(for: bar)),
+            // The topmost cards sit under the Back/Share controls, so a callout that
+            // can't fit above the plot flips below it instead of clamping over them.
+            placement: .aboveOrBelow(anchorBottom: plotFrame.minY + plotRect.maxY)
+        )
+
+        if scrubX == nil {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
+                scrubX = centreX
+                scrubbedBarID = bar.id
+                floatingCallout?.callout = callout
+            }
+        } else {
+            scrubX = centreX
+            scrubbedBarID = bar.id
+            floatingCallout?.callout = callout
+        }
+    }
+
+    private func clearScrub() {
+        guard scrubX != nil || floatingCallout?.callout != nil else { return }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
+            scrubX = nil
+            scrubbedBarID = nil
+            floatingCallout?.callout = nil
+        }
+    }
+
+    /// The bucket under the finger, or the nearest one when the touch lands in a gap
+    /// (bars are inset by a point on each side) or outside the plot entirely.
+    private func bar(atX x: CGFloat, in plotRect: CGRect) -> WorkoutBucketedSeriesPresentation.Bar? {
+        guard plotRect.width > 0, !presentation.bars.isEmpty else { return nil }
+        let fraction = Double((x - plotRect.minX) / plotRect.width)
+        if let hit = presentation.bars.first(where: { fraction >= $0.xStart && fraction <= $0.xEnd }) {
+            return hit
+        }
+        return presentation.bars.min {
+            abs(($0.xStart + $0.xEnd) / 2 - fraction) < abs(($1.xStart + $1.xEnd) / 2 - fraction)
+        }
+    }
+
+    private func calloutContent(for bar: WorkoutBucketedSeriesPresentation.Bar) -> some View {
+        let color = BodyWorkoutChartPalette.color(forFraction: bar.valueFraction)
+        let values: [BodyChartSelectionValue]
+        if bar.lowText == bar.highText {
+            values = [
+                BodyChartSelectionValue(
+                    title: nil,
+                    value: "\(bar.valueText) \(presentation.unitText)",
+                    color: color
+                )
+            ]
+        } else {
+            values = [
+                BodyChartSelectionValue(
+                    title: String(localized: "detail.avgPrefix", defaultValue: "Avg"),
+                    value: "\(bar.valueText) \(presentation.unitText)",
+                    color: color
+                ),
+                BodyChartSelectionValue(
+                    title: String(localized: "chart.legendRange", defaultValue: "Range"),
+                    value: "\(bar.lowText)–\(bar.highText)",
+                    color: color.opacity(0.55)
+                )
+            ]
+        }
+
+        return BodyChartSelectionAnnotation(
+            eyebrow: calloutEyebrow,
+            values: values,
+            date: Date(),
+            dateText: presentation.elapsedText(for: bar)
+        )
+        // Touch-only peek: the plot's own adjustable value reads the same numbers.
+        .accessibilityHidden(true)
+    }
+
+    // MARK: - Accessibility
+
+    private var accessibilityValueText: String {
+        guard presentation.bars.indices.contains(accessibilityBarIndex) else { return "" }
+        let bar = presentation.bars[accessibilityBarIndex]
+        let base = "\(presentation.elapsedText(for: bar)), \(bar.valueText) \(presentation.unitText)"
+        guard bar.lowText != bar.highText else { return base }
+        return "\(base), \(bar.lowText)–\(bar.highText)"
+    }
+}
+
+/// One card for every bucketed workout series — pace/speed, cadence, stride length,
+/// ground contact time, vertical oscillation. The presentation carries the
+/// strings, axis and bars, so all of them share `BodyWorkoutBucketedSeriesPlot`.
+private struct BodyWorkoutBucketedSeriesCard: View {
+    let presentation: WorkoutBucketedSeriesPresentation
+    var floatingCallout: BodyChartFloatingCalloutState?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(presentation.title)
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundColor(.primary)
+
+            HStack(alignment: .top, spacing: 12) {
+                bodyWorkoutSeriesStatBlock(
+                    value: presentation.averageText,
+                    unit: presentation.unitText,
+                    caption: presentation.averageCaption
+                )
+                bodyWorkoutSeriesStatBlock(
+                    value: presentation.extremeText,
+                    unit: presentation.unitText,
+                    caption: presentation.extremeCaption
+                )
+            }
+
+            BodyWorkoutBucketedSeriesPlot(
+                presentation: presentation,
+                calloutEyebrow: presentation.title.uppercased(),
+                floatingCallout: floatingCallout
+            )
+            .frame(height: 210)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 18)
+        .bodyCardBackground(cornerRadius: 30, translucent: true)
+        // A container rather than one flattened element: the summary still names the
+        // card, while the plot inside stays reachable as its own adjustable element.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(presentation.accessibilitySummary)
+    }
+}
+
+/// The Avg/extreme readout every bucketed series card puts above its plot — shared so
+/// the merged Pace card and the plain bar cards keep identical headers.
+private func bodyWorkoutSeriesStatBlock(value: String, unit: String, caption: String) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(value)
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+            Text(unit)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+        }
+        Text(caption)
+            .font(.system(size: 15))
+            .foregroundColor(.secondary)
+    }
+    .lineLimit(1)
+    .minimumScaleFactor(0.7)
+    .frame(maxWidth: .infinity, alignment: .leading)
 }
 
 private struct BodyWorkoutHeartRateChartCard: View {
     let samples: [WorkoutHeartRateSample]
     /// Anchors the zone bands (% of this value); nil hides the zone breakdown.
     var maxHeartRate: Double?
+    var floatingCallout: BodyChartFloatingCalloutState?
 
     /// Sorts and derives the chart's axis bounds from `samples` only when the sample
     /// set actually changes — not on every body pass (e.g. when `maxHeartRate` resolves
@@ -3131,7 +3356,7 @@ private struct BodyWorkoutHeartRateChartCard: View {
     @ViewBuilder
     private func chartView(metrics: BodyWorkoutHeartRateChartMetrics?) -> some View {
         if let metrics {
-            BodyWorkoutHeartRateChart(metrics: metrics)
+            BodyWorkoutHeartRateChart(metrics: metrics, floatingCallout: floatingCallout)
                 .frame(height: 210)
         } else {
             ZStack {
@@ -3165,17 +3390,35 @@ private final class HeartRateMetricsCache {
     }
 }
 
+/// The heart-rate profile: every sample as a faint scatter dot under a smoothed line
+/// coloured by the shared low-to-high ramp, bracketed by the session's average (solid)
+/// and its max/min (dashed) reference lines. Holding on it scrubs: the nearest smoothed
+/// point gets a rule line and a callout published to the sheet's floating layer.
 private struct BodyWorkoutHeartRateChart: View {
     let metrics: BodyWorkoutHeartRateChartMetrics
+    /// Where a scrub publishes its callout; the sheet's overlay draws it above the
+    /// page chrome. Nil in contexts with no such layer (previews, renders).
+    var floatingCallout: BodyChartFloatingCalloutState?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The scrubbed point's x in plot coordinates, or nil when nothing is held.
+    @State private var scrubX: CGFloat?
+    /// Which smoothed point that x snapped to.
+    @State private var scrubbedPointIndex: Int?
+    /// VoiceOver's own cursor through the smoothed points.
+    @State private var accessibilityPointIndex = 0
 
     private static let timeMarkLabelHorizontalInset: CGFloat = 24
     private static let yAxisLabelInset: CGFloat = 44
     private static let xAxisLabelOffset: CGFloat = 18
 
-    static let referenceLineColor = Color(red: 0.20, green: 0.62, blue: 1.0)
-
     var body: some View {
-        GeometryReader { geometry in
+        // Bucketing the samples is O(n); doing it once per body pass keeps the drawing
+        // and the scrub lookup reading the same points.
+        let series = metrics.smoothedSeries
+
+        return GeometryReader { geometry in
             let plotRect = CGRect(
                 x: 0,
                 y: 6,
@@ -3188,7 +3431,8 @@ private struct BodyWorkoutHeartRateChart: View {
                     drawGrid(in: plotRect, context: &context)
                     drawReferenceLine(in: plotRect, context: &context)
                     drawScatterDots(in: plotRect, context: &context)
-                    drawSmoothedLine(in: plotRect, context: &context)
+                    drawSmoothedLine(series, in: plotRect, context: &context)
+                    drawSelection(series, in: plotRect, context: &context)
                 }
 
                 yAxisLabels(in: plotRect)
@@ -3205,6 +3449,34 @@ private struct BodyWorkoutHeartRateChart: View {
                         )
                 }
             }
+            .contentShape(Rectangle())
+            .gesture(
+                BodyChartScrubGesture(isEnabled: !series.isEmpty) { location in
+                    scrub(
+                        to: location,
+                        series: series,
+                        plotRect: plotRect,
+                        plotFrame: geometry.frame(in: .global)
+                    )
+                }
+            )
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Heart Rate"))
+        .accessibilityValue(accessibilityValueText(series: series))
+        .accessibilityAdjustableAction { direction in
+            guard !series.isEmpty else { return }
+            switch direction {
+            case .increment:
+                accessibilityPointIndex = min(accessibilityPointIndex + 1, series.count - 1)
+            case .decrement:
+                accessibilityPointIndex = max(accessibilityPointIndex - 1, 0)
+            @unknown default:
+                break
+            }
+        }
+        .onDisappear {
+            clearScrub()
         }
     }
 
@@ -3252,7 +3524,7 @@ private struct BodyWorkoutHeartRateChart: View {
         line.addLine(to: CGPoint(x: plotRect.maxX, y: y))
         context.stroke(
             line,
-            with: .color(Self.referenceLineColor.opacity(0.85)),
+            with: .color(BodyWorkoutChartPalette.referenceLineColor.opacity(0.85)),
             lineWidth: 1
         )
 
@@ -3265,7 +3537,7 @@ private struct BodyWorkoutHeartRateChart: View {
         }
         context.stroke(
             extremesLines,
-            with: .color(Self.referenceLineColor.opacity(0.5)),
+            with: .color(BodyWorkoutChartPalette.referenceLineColor.opacity(0.5)),
             style: StrokeStyle(lineWidth: 1, dash: [4, 4])
         )
     }
@@ -3276,7 +3548,7 @@ private struct BodyWorkoutHeartRateChart: View {
             let x = plotRect.minX + plotRect.width * CGFloat(metrics.xFraction(for: sample))
             let yFraction = metrics.yFraction(for: sample)
             let y = plotRect.minY + plotRect.height * CGFloat(yFraction)
-            let color = BodyWorkoutHeartRateChartMetrics.color(forFraction: 1 - yFraction)
+            let color = BodyWorkoutChartPalette.color(forFraction: 1 - yFraction)
             let circleRect = CGRect(
                 x: x - dotRadius,
                 y: y - dotRadius,
@@ -3290,22 +3562,20 @@ private struct BodyWorkoutHeartRateChart: View {
         }
     }
 
-    private func drawSmoothedLine(in plotRect: CGRect, context: inout GraphicsContext) {
-        let series = metrics.smoothedSeries
+    private func drawSmoothedLine(
+        _ series: [BodyWorkoutHeartRateChartMetrics.SmoothedPoint],
+        in plotRect: CGRect,
+        context: inout GraphicsContext
+    ) {
         guard series.count >= 2 else {
             return
         }
 
-        let points = series.map { point in
-            CGPoint(
-                x: plotRect.minX + plotRect.width * CGFloat(metrics.xFraction(forDate: point.date)),
-                y: plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: point.value))
-            )
-        }
-        let path = Self.smoothedPath(through: points)
+        let points = series.map { point(for: $0, in: plotRect) }
+        let path = bodyWorkoutSmoothedPath(through: points)
 
         let shading = GraphicsContext.Shading.linearGradient(
-            Gradient(stops: BodyWorkoutHeartRateChartMetrics.gradientStops),
+            Gradient(stops: BodyWorkoutChartPalette.gradientStops),
             startPoint: CGPoint(x: plotRect.midX, y: plotRect.maxY),
             endPoint: CGPoint(x: plotRect.midX, y: plotRect.minY)
         )
@@ -3317,42 +3587,40 @@ private struct BodyWorkoutHeartRateChart: View {
         )
     }
 
-    private static func smoothedPath(through points: [CGPoint]) -> Path {
-        var path = Path()
-        guard let first = points.first else {
-            return path
-        }
-        path.move(to: first)
+    /// The held point's rule line — drawn last so it sits over the line. The value
+    /// itself rides in the floating callout, so the rule is the only mark.
+    private func drawSelection(
+        _ series: [BodyWorkoutHeartRateChartMetrics.SmoothedPoint],
+        in plotRect: CGRect,
+        context: inout GraphicsContext
+    ) {
+        guard let scrubX, let index = scrubbedPointIndex, series.indices.contains(index) else { return }
 
-        if points.count == 2 {
-            path.addLine(to: points[1])
-            return path
-        }
+        var rule = Path()
+        rule.move(to: CGPoint(x: scrubX, y: plotRect.minY))
+        rule.addLine(to: CGPoint(x: scrubX, y: plotRect.maxY))
+        context.stroke(rule, with: .color(Color.secondary.opacity(0.48)), lineWidth: 1.4)
+    }
 
-        for i in 0..<(points.count - 1) {
-            let p0 = i > 0 ? points[i - 1] : points[i]
-            let p1 = points[i]
-            let p2 = points[i + 1]
-            let p3 = i < points.count - 2 ? points[i + 2] : points[i + 1]
+    private func point(
+        for smoothed: BodyWorkoutHeartRateChartMetrics.SmoothedPoint,
+        in plotRect: CGRect
+    ) -> CGPoint {
+        CGPoint(
+            x: plotRect.minX + plotRect.width * CGFloat(metrics.xFraction(forDate: smoothed.date)),
+            y: plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: smoothed.value))
+        )
+    }
 
-            let control1 = CGPoint(
-                x: p1.x + (p2.x - p0.x) / 6,
-                y: p1.y + (p2.y - p0.y) / 6
-            )
-            let control2 = CGPoint(
-                x: p2.x - (p3.x - p1.x) / 6,
-                y: p2.y - (p3.y - p1.y) / 6
-            )
-            path.addCurve(to: p2, control1: control1, control2: control2)
-        }
-        return path
+    private func color(for smoothed: BodyWorkoutHeartRateChartMetrics.SmoothedPoint) -> Color {
+        BodyWorkoutChartPalette.color(forFraction: 1 - metrics.yFraction(forValue: smoothed.value))
     }
 
     @ViewBuilder
     private func yAxisLabels(in plotRect: CGRect) -> some View {
         Text("\(metrics.averageLabel)")
             .font(.system(size: 16, weight: .bold, design: .rounded))
-            .foregroundColor(Self.referenceLineColor)
+            .foregroundColor(BodyWorkoutChartPalette.referenceLineColor)
             .position(
                 x: plotRect.maxX + 22,
                 y: plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: metrics.averageValue))
@@ -3363,7 +3631,7 @@ private struct BodyWorkoutHeartRateChart: View {
         ForEach(metrics.extremaReferenceValues, id: \.self) { value in
             Text("\(Int(value.rounded()))")
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .foregroundColor(Self.referenceLineColor.opacity(0.55))
+                .foregroundColor(BodyWorkoutChartPalette.referenceLineColor.opacity(0.55))
                 .position(
                     x: plotRect.maxX + 22,
                     y: plotRect.minY + plotRect.height * CGFloat(metrics.yFraction(forValue: value))
@@ -3377,6 +3645,92 @@ private struct BodyWorkoutHeartRateChart: View {
         let upperBound = max(lowerBound, plotRect.maxX - Self.timeMarkLabelHorizontalInset)
 
         return min(max(rawX, lowerBound), upperBound)
+    }
+
+    // MARK: - Scrubbing
+
+    private func scrub(
+        to location: CGPoint?,
+        series: [BodyWorkoutHeartRateChartMetrics.SmoothedPoint],
+        plotRect: CGRect,
+        plotFrame: CGRect
+    ) {
+        guard let location, let index = nearestPointIndex(toX: location.x, series: series, in: plotRect) else {
+            clearScrub()
+            return
+        }
+
+        let pointX = point(for: series[index], in: plotRect).x
+        let callout = BodyChartFloatingCallout(
+            anchor: CGPoint(x: plotFrame.minX + pointX, y: plotFrame.minY + plotRect.minY),
+            content: AnyView(calloutContent(for: series[index])),
+            // The topmost cards sit under the Back/Share controls, so a callout that
+            // can't fit above the plot flips below it instead of clamping over them.
+            placement: .aboveOrBelow(anchorBottom: plotFrame.minY + plotRect.maxY)
+        )
+
+        if scrubX == nil {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
+                scrubX = pointX
+                scrubbedPointIndex = index
+                floatingCallout?.callout = callout
+            }
+        } else {
+            scrubX = pointX
+            scrubbedPointIndex = index
+            floatingCallout?.callout = callout
+        }
+    }
+
+    private func clearScrub() {
+        guard scrubX != nil || floatingCallout?.callout != nil else { return }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
+            scrubX = nil
+            scrubbedPointIndex = nil
+            floatingCallout?.callout = nil
+        }
+    }
+
+    private func nearestPointIndex(
+        toX x: CGFloat,
+        series: [BodyWorkoutHeartRateChartMetrics.SmoothedPoint],
+        in plotRect: CGRect
+    ) -> Int? {
+        guard plotRect.width > 0, !series.isEmpty else { return nil }
+        let fraction = Double((x - plotRect.minX) / plotRect.width)
+        return series.indices.min {
+            abs(metrics.xFraction(forDate: series[$0].date) - fraction)
+                < abs(metrics.xFraction(forDate: series[$1].date) - fraction)
+        }
+    }
+
+    private func calloutContent(for smoothed: BodyWorkoutHeartRateChartMetrics.SmoothedPoint) -> some View {
+        BodyChartSelectionAnnotation(
+            eyebrow: String(localized: "Heart Rate").uppercased(),
+            values: [
+                BodyChartSelectionValue(
+                    title: nil,
+                    value: "\(Int(smoothed.value.rounded())) bpm",
+                    color: color(for: smoothed)
+                )
+            ],
+            date: smoothed.date,
+            // The plot's own axis reads clock time, so the callout does too.
+            dateText: smoothed.date.formatted(.dateTime.hour().minute())
+        )
+        // Touch-only peek: the plot's own adjustable value reads the same numbers.
+        .accessibilityHidden(true)
+    }
+
+    // MARK: - Accessibility
+
+    private func accessibilityValueText(
+        series: [BodyWorkoutHeartRateChartMetrics.SmoothedPoint]
+    ) -> String {
+        guard series.indices.contains(accessibilityPointIndex) else { return "" }
+        let point = series[accessibilityPointIndex]
+        return "\(point.date.formatted(.dateTime.hour().minute())), \(Int(point.value.rounded())) bpm"
     }
 }
 
@@ -3531,49 +3885,6 @@ private struct BodyWorkoutHeartRateChartMetrics {
         }
         return points
     }
-
-    private struct ColorStop {
-        let location: Double
-        let red: Double
-        let green: Double
-        let blue: Double
-    }
-
-    private static let colorStops: [ColorStop] = [
-        ColorStop(location: 0.0,  red: 0.20, green: 0.92, blue: 0.82),
-        ColorStop(location: 0.30, red: 0.25, green: 0.62, blue: 1.0),
-        ColorStop(location: 0.55, red: 0.98, green: 0.86, blue: 0.30),
-        ColorStop(location: 0.78, red: 1.0,  green: 0.55, blue: 0.20),
-        ColorStop(location: 1.0,  red: 1.0,  green: 0.30, blue: 0.30)
-    ]
-
-    static let gradientStops: [Gradient.Stop] = colorStops.map { stop in
-        Gradient.Stop(
-            color: Color(red: stop.red, green: stop.green, blue: stop.blue),
-            location: stop.location
-        )
-    }
-
-    static func color(forFraction fraction: Double) -> Color {
-        let f = max(0, min(1, fraction))
-        guard let last = colorStops.last else {
-            return Color(red: 1.0, green: 0.30, blue: 0.30)
-        }
-        for i in 1..<colorStops.count {
-            if f <= colorStops[i].location {
-                let prev = colorStops[i - 1]
-                let curr = colorStops[i]
-                let span = curr.location - prev.location
-                let t = span > 0 ? (f - prev.location) / span : 0
-                return Color(
-                    red: prev.red + (curr.red - prev.red) * t,
-                    green: prev.green + (curr.green - prev.green) * t,
-                    blue: prev.blue + (curr.blue - prev.blue) * t
-                )
-            }
-        }
-        return Color(red: last.red, green: last.green, blue: last.blue)
-    }
 }
 
 private struct BodyWorkoutHeartRateTimeMark: Identifiable {
@@ -3582,6 +3893,303 @@ private struct BodyWorkoutHeartRateTimeMark: Identifiable {
 
     var id: Double {
         fraction
+    }
+}
+
+/// The Elevation card: the route's smoothed altitude profile drawn in the heart-rate
+/// chart's line style, but with no average/extreme reference lines — the terrain has
+/// no meaningful "average", so the right-hand gutter carries the axis' own ticks.
+private struct BodyWorkoutElevationLineCard: View {
+    let presentation: WorkoutElevationLinePresentation
+    var floatingCallout: BodyChartFloatingCalloutState?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(presentation.title)
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundColor(.primary)
+
+            HStack(alignment: .top, spacing: 12) {
+                statBlock(value: presentation.ascentText, caption: presentation.ascentCaption)
+                statBlock(value: presentation.maxElevationText, caption: presentation.maxCaption)
+            }
+
+            BodyWorkoutElevationLinePlot(
+                presentation: presentation,
+                floatingCallout: floatingCallout
+            )
+            .frame(height: 210)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 18)
+        .bodyCardBackground(cornerRadius: 30, translucent: true)
+        // A container rather than one flattened element: the summary still names the
+        // card, while the plot inside stays reachable as its own adjustable element.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(presentation.accessibilitySummary)
+    }
+
+    private func statBlock(value: String, caption: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+                Text(presentation.unitText)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+            Text(caption)
+                .font(.system(size: 15))
+                .foregroundColor(.secondary)
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The elevation profile plot — the heart-rate chart's frame, dashed gridlines and
+/// ramped smoothed line, minus its scatter dots and reference lines. Holding on it
+/// scrubs the nearest sample.
+private struct BodyWorkoutElevationLinePlot: View {
+    let presentation: WorkoutElevationLinePresentation
+    var floatingCallout: BodyChartFloatingCalloutState?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    @State private var scrubX: CGFloat?
+    @State private var scrubbedPointID: Int?
+    @State private var accessibilityPointIndex = 0
+
+    /// Matches `BodyWorkoutHeartRateChart` so every detail chart's plot lines up.
+    private static let yAxisLabelInset: CGFloat = 44
+    private static let xAxisLabelOffset: CGFloat = 18
+    private static let timeMarkLabelHorizontalInset: CGFloat = 24
+
+    var body: some View {
+        GeometryReader { geometry in
+            let plotRect = CGRect(
+                x: 0,
+                y: 6,
+                width: max(1, geometry.size.width - Self.yAxisLabelInset),
+                height: max(1, geometry.size.height - 34)
+            )
+
+            Canvas { context, _ in
+                drawGrid(in: plotRect, context: &context)
+                drawProfile(in: plotRect, context: &context)
+                drawTimeMarks(in: plotRect, context: &context)
+                drawSelection(in: plotRect, context: &context)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                BodyChartScrubGesture(isEnabled: !presentation.points.isEmpty) { location in
+                    scrub(to: location, plotRect: plotRect, plotFrame: geometry.frame(in: .global))
+                }
+            )
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(presentation.title)
+        .accessibilityValue(accessibilityValueText)
+        .accessibilityAdjustableAction { direction in
+            guard !presentation.points.isEmpty else { return }
+            switch direction {
+            case .increment:
+                accessibilityPointIndex = min(accessibilityPointIndex + 1, presentation.points.count - 1)
+            case .decrement:
+                accessibilityPointIndex = max(accessibilityPointIndex - 1, 0)
+            @unknown default:
+                break
+            }
+        }
+        .onDisappear {
+            clearScrub()
+        }
+    }
+
+    // MARK: - Drawing
+
+    private func drawGrid(in plotRect: CGRect, context: inout GraphicsContext) {
+        var frameLines = Path()
+        frameLines.move(to: CGPoint(x: plotRect.minX, y: plotRect.minY))
+        frameLines.addLine(to: CGPoint(x: plotRect.maxX, y: plotRect.minY))
+        frameLines.move(to: CGPoint(x: plotRect.minX, y: plotRect.maxY))
+        frameLines.addLine(to: CGPoint(x: plotRect.maxX, y: plotRect.maxY))
+        context.stroke(frameLines, with: .color(Color.secondary.opacity(0.28)), lineWidth: 1)
+
+        var verticalGrid = Path()
+        for fraction in BodyWorkoutHeartRateChartMetrics.timeMarkFractions {
+            let x = plotRect.minX + plotRect.width * CGFloat(fraction)
+            verticalGrid.move(to: CGPoint(x: x, y: plotRect.minY))
+            verticalGrid.addLine(to: CGPoint(x: x, y: plotRect.maxY))
+        }
+        context.stroke(
+            verticalGrid,
+            with: .color(Color.secondary.opacity(0.26)),
+            style: StrokeStyle(lineWidth: 1, dash: [5, 5])
+        )
+
+        var tickGrid = Path()
+        for fraction in presentation.yAxisFractions {
+            let y = self.y(for: fraction, in: plotRect)
+            tickGrid.move(to: CGPoint(x: plotRect.minX, y: y))
+            tickGrid.addLine(to: CGPoint(x: plotRect.maxX, y: y))
+        }
+        context.stroke(
+            tickGrid,
+            with: .color(Color.secondary.opacity(0.18)),
+            style: StrokeStyle(lineWidth: 1, dash: [3, 4])
+        )
+
+        for (index, label) in presentation.yAxisLabels.enumerated()
+        where index < presentation.yAxisFractions.count {
+            context.draw(
+                bodyWorkoutChartAxisLabel(label, in: context),
+                at: CGPoint(x: plotRect.maxX + 22, y: y(for: presentation.yAxisFractions[index], in: plotRect))
+            )
+        }
+    }
+
+    private func drawProfile(in plotRect: CGRect, context: inout GraphicsContext) {
+        guard presentation.points.count >= 2 else { return }
+
+        let points = presentation.points.map { position(of: $0, in: plotRect) }
+        context.stroke(
+            bodyWorkoutSmoothedPath(through: points),
+            with: .linearGradient(
+                Gradient(stops: BodyWorkoutChartPalette.gradientStops),
+                startPoint: CGPoint(x: plotRect.midX, y: plotRect.maxY),
+                endPoint: CGPoint(x: plotRect.midX, y: plotRect.minY)
+            ),
+            style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
+        )
+    }
+
+    private func drawTimeMarks(in plotRect: CGRect, context: inout GraphicsContext) {
+        let lowerBound = plotRect.minX + Self.timeMarkLabelHorizontalInset
+        let upperBound = max(lowerBound, plotRect.maxX - Self.timeMarkLabelHorizontalInset)
+        for mark in presentation.timeMarks {
+            let rawX = plotRect.minX + plotRect.width * CGFloat(mark.fraction)
+            context.draw(
+                context.resolve(
+                    Text(mark.label)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(.secondary)
+                ),
+                at: CGPoint(x: min(max(rawX, lowerBound), upperBound), y: plotRect.maxY + Self.xAxisLabelOffset)
+            )
+        }
+    }
+
+    /// The held point's rule line only — the value itself rides in the floating callout.
+    private func drawSelection(in plotRect: CGRect, context: inout GraphicsContext) {
+        guard let scrubX, scrubbedPoint != nil else { return }
+
+        var rule = Path()
+        rule.move(to: CGPoint(x: scrubX, y: plotRect.minY))
+        rule.addLine(to: CGPoint(x: scrubX, y: plotRect.maxY))
+        context.stroke(rule, with: .color(Color.secondary.opacity(0.48)), lineWidth: 1.4)
+    }
+
+    private func position(
+        of point: WorkoutElevationLinePresentation.Point,
+        in plotRect: CGRect
+    ) -> CGPoint {
+        CGPoint(
+            x: plotRect.minX + plotRect.width * CGFloat(point.xFraction),
+            y: y(for: point.yFraction, in: plotRect)
+        )
+    }
+
+    private func color(for point: WorkoutElevationLinePresentation.Point) -> Color {
+        BodyWorkoutChartPalette.color(forFraction: point.yFraction)
+    }
+
+    private func y(for fraction: Double, in plotRect: CGRect) -> CGFloat {
+        plotRect.maxY - plotRect.height * CGFloat(fraction)
+    }
+
+    // MARK: - Scrubbing
+
+    /// Looked up by id rather than stored whole, so a re-published presentation can't
+    /// leave a stale point on screen.
+    private var scrubbedPoint: WorkoutElevationLinePresentation.Point? {
+        guard let scrubbedPointID else { return nil }
+        return presentation.points.first { $0.id == scrubbedPointID }
+    }
+
+    private func scrub(to location: CGPoint?, plotRect: CGRect, plotFrame: CGRect) {
+        guard let location, let point = nearestPoint(toX: location.x, in: plotRect) else {
+            clearScrub()
+            return
+        }
+
+        let pointX = position(of: point, in: plotRect).x
+        let callout = BodyChartFloatingCallout(
+            anchor: CGPoint(x: plotFrame.minX + pointX, y: plotFrame.minY + plotRect.minY),
+            content: AnyView(calloutContent(for: point)),
+            placement: .aboveOrBelow(anchorBottom: plotFrame.minY + plotRect.maxY)
+        )
+
+        if scrubX == nil {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
+                scrubX = pointX
+                scrubbedPointID = point.id
+                floatingCallout?.callout = callout
+            }
+        } else {
+            scrubX = pointX
+            scrubbedPointID = point.id
+            floatingCallout?.callout = callout
+        }
+    }
+
+    private func clearScrub() {
+        guard scrubX != nil || floatingCallout?.callout != nil else { return }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
+            scrubX = nil
+            scrubbedPointID = nil
+            floatingCallout?.callout = nil
+        }
+    }
+
+    private func nearestPoint(
+        toX x: CGFloat,
+        in plotRect: CGRect
+    ) -> WorkoutElevationLinePresentation.Point? {
+        guard plotRect.width > 0, !presentation.points.isEmpty else { return nil }
+        let fraction = Double((x - plotRect.minX) / plotRect.width)
+        return presentation.points.min {
+            abs($0.xFraction - fraction) < abs($1.xFraction - fraction)
+        }
+    }
+
+    private func calloutContent(for point: WorkoutElevationLinePresentation.Point) -> some View {
+        BodyChartSelectionAnnotation(
+            eyebrow: presentation.title.uppercased(),
+            values: [
+                BodyChartSelectionValue(
+                    title: nil,
+                    value: "\(point.valueText) \(presentation.unitText)",
+                    color: color(for: point)
+                )
+            ],
+            date: Date(),
+            dateText: point.elapsedText
+        )
+        // Touch-only peek: the plot's own adjustable value reads the same numbers.
+        .accessibilityHidden(true)
+    }
+
+    // MARK: - Accessibility
+
+    private var accessibilityValueText: String {
+        guard presentation.points.indices.contains(accessibilityPointIndex) else { return "" }
+        let point = presentation.points[accessibilityPointIndex]
+        return "\(point.elapsedText), \(point.valueText) \(presentation.unitText)"
     }
 }
 

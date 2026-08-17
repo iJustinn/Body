@@ -474,11 +474,12 @@ struct BodySettingsView: View {
     }
 
     private var workoutRouteStyleSummaryText: String {
-        let style = BodyWorkoutRouteStyle.storedValue(from: workoutRouteStyleRawValue).title
-        // Draw is the row's first control now, so the summary leads with it when it's on
-        // — "Draw · 3D". Off is the quieter state and reads as just the style.
-        guard drawsWorkoutRouteOnLoad else { return style }
-        return "\(String(localized: "routeStyle.drawSummary")) · \(style)"
+        let style = BodyWorkoutRouteStyle.storedValue(from: workoutRouteStyleRawValue)
+        // Draw is the sheet's first control now, so the summary leads with it when it's
+        // on — "Draw · 3D". Off is the quieter state and reads as just the style, as does
+        // Map, which never draws however the stored switch is set.
+        guard style.supportsRouteDraw, drawsWorkoutRouteOnLoad else { return style.title }
+        return "\(String(localized: "routeStyle.drawSummary")) · \(style.title)"
     }
 
     private var settingsDivider: some View {
@@ -1109,6 +1110,10 @@ private struct BodyWorkoutRouteStyleSettingsSheet: View {
     @Binding var selection: BodyWorkoutRouteStyle
     @Binding var drawsRoute: Bool
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var supportsDraw: Bool { selection.supportsRouteDraw }
+
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Route Style") {
             // Draw leads the sheet: it applies to whichever style is picked below, so it
@@ -1126,7 +1131,9 @@ private struct BodyWorkoutRouteStyleSettingsSheet: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
 
-                    Text("routeStyle.drawSubtitle")
+                    // Says why it's unavailable rather than leaving a greyed switch
+                    // unexplained — the same treatment the share page's dimmed trays get.
+                    Text(supportsDraw ? "routeStyle.drawSubtitle" : "routeStyle.drawUnavailable")
                         .font(.system(.subheadline, design: .rounded))
                         .fontWeight(.semibold)
                         .foregroundColor(.secondary)
@@ -1144,6 +1151,12 @@ private struct BodyWorkoutRouteStyleSettingsSheet: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+            // Dimmed and inert on Map, whose route is baked into the map snapshot and has
+            // no stroke to grow. The stored preference is untouched, so picking Plain or
+            // 3D again brings back whatever it was set to.
+            .opacity(supportsDraw ? 1 : 0.4)
+            .disabled(!supportsDraw)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: supportsDraw)
             .bodyCardBackground(translucent: true)
 
             VStack(spacing: 0) {

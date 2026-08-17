@@ -332,7 +332,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(presentation.durationClockText, "1:00:39")
         XCTAssertEqual(presentation.activeEnergyText, "416 kcal")
         XCTAssertEqual(presentation.totalEnergyText, "482 kcal")
-        XCTAssertEqual(presentation.averageHeartRateText, "122 BPM")
+        XCTAssertEqual(presentation.averageHeartRateText, "122 bpm")
         XCTAssertEqual(presentation.distanceText, "1.00 km")
         XCTAssertEqual(presentation.effortText, "7 Hard")
         XCTAssertEqual(presentation.effortPresentation?.intensity, .hard)
@@ -553,6 +553,41 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(optimalEntry.fractionOfTotal, 0.4, accuracy: 0.001)
     }
 
+    func testWorkoutDetailPresentationHeroDateLineJoinsDateWeekdayAndStartTime() throws {
+        let calendar = Calendar.bodyGregorian
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let startDate = try XCTUnwrap(calendar.date(
+            from: DateComponents(timeZone: timeZone, year: 2025, month: 11, day: 14, hour: 9, minute: 41)
+        ))
+        let workout = WorkoutSummary(
+            type: .running,
+            startDate: startDate,
+            duration: 1_800,
+            sourceName: "Motra"
+        )
+
+        let presentation = WorkoutDetailPresentation(
+            workout: workout,
+            calendar: calendar,
+            locale: Locale(identifier: "en_US"),
+            timeZone: timeZone
+        )
+
+        // Foundation separates time and AM/PM with U+202F (narrow no-break space).
+        XCTAssertEqual(presentation.heroDateLineText, "Nov 14, Fri, 9:41\u{202F}AM")
+
+        let chinese = WorkoutDetailPresentation(
+            workout: workout,
+            calendar: calendar,
+            locale: Locale(identifier: "zh-Hans"),
+            timeZone: timeZone
+        )
+        let parts = chinese.heroDateLineText.components(separatedBy: ", ")
+        XCTAssertEqual(parts.count, 3)
+        XCTAssertFalse(parts.contains { $0.isEmpty })
+        XCTAssertEqual(parts.last, chinese.startTimeText)
+    }
+
     func testWorkoutDetailPresentationOmitsDistanceMetricWhenDistanceDoesNotExist() throws {
         let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
             from: DateComponents(year: 2026, month: 5, day: 11, hour: 15, minute: 57)
@@ -669,7 +704,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let byTitle = Dictionary(uniqueKeysWithValues: presentation.detailMetrics.map { ($0.title, $0.value) })
         XCTAssertEqual(byTitle["Avg Pace"], "6:00 /km")
         XCTAssertEqual(byTitle["Elevation Gain"], "80 m")
-        XCTAssertEqual(byTitle["Max Heart Rate"], "172 BPM")
+        XCTAssertEqual(byTitle["Max Heart Rate"], "172 bpm")
         XCTAssertEqual(byTitle["Cadence"], "168 spm")
         XCTAssertEqual(byTitle["Avg Power"], "310 W")
         XCTAssertEqual(byTitle["Cardio Fitness"], "48.5 ml/kg·min")
