@@ -254,6 +254,20 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// more than 24 h ago; recent workouts may still be syncing from the watch, so
     /// their empty reads are retried on the next sheet open.
     private var distanceSampleCache: [UUID: WorkoutSplitData] = [:]
+    /// Session cache of a workout's per-bucket series inputs (pace/speed, cadence,
+    /// stride length, running form) keyed by UUID, feeding the detail chart cards.
+    /// Cached only for workouts that ended more than 24 h ago (a recent workout may
+    /// still be syncing its samples from the watch, and caching now would pin the
+    /// cards to a partial result for the rest of the session), plus: a bundle with a
+    /// failed metric
+    /// read is never cached, so a transient error can't hide a card all session.
+    private var metricSeriesCache: [UUID: WorkoutMetricSeriesData] = [:]
+    /// Session cache of a workout's 1-minute heart-rate recovery keyed by UUID,
+    /// feeding the detail tile. A confirmed absence (`nil`) is cached too, but —
+    /// same settle rule as above — only for workouts that ended more than 24 h ago:
+    /// the watch writes the recovery sample a minute after the workout ends, so a
+    /// just-finished workout must be re-read on the next sheet open.
+    private var heartRateRecoveryCache: [UUID: Double?] = [:]
     private var loadedMonthKeys: Set<BodyWorkoutMonthKey> = []
     private var monthLoadOrder: [BodyWorkoutMonthKey] = []
     private var loadedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
@@ -1182,9 +1196,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             return cached
         }
 
-        let coordinates: [RouteCoordinate]
+        let routeData: (coordinates: [RouteCoordinate], elevationProfile: [WorkoutElevationSample])
         do {
-            coordinates = try await engine.workoutRouteCoordinates(workoutID: workout.id)
+            routeData = try await engine.workoutRouteData(workoutID: workout.id)
         } catch {
             // Cancelled (sheet dismissed mid-read) or a read failure — don't
             // cache a negative; reopening retries.
@@ -1193,7 +1207,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         guard !Task.isCancelled else {
             return nil
         }
-        guard coordinates.count >= 2 else {
+        guard routeData.coordinates.count >= 2 else {
             routeCache[workout.id] = .some(nil)
             return nil
         }
@@ -1203,7 +1217,13 @@ final class HealthKitWorkoutStore: ObservableObject {
         // folds back into the cache. The detail sheet can await
         // `resolveWorkoutRouteLocality` separately to render the map without
         // blocking on the geocode.
-        routeCache[workout.id] = .some(WorkoutRoute(coordinates: coordinates, locality: nil))
+        routeCache[workout.id] = .some(
+            WorkoutRoute(
+                coordinates: routeData.coordinates,
+                locality: nil,
+                elevationProfile: routeData.elevationProfile
+            )
+        )
         return await resolveWorkoutRouteLocality(for: workout)
     }
 
@@ -1226,7 +1246,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         guard let locality else {
             return route
         }
-        let resolved = WorkoutRoute(coordinates: route.coordinates, locality: locality)
+        let resolved = WorkoutRoute(
+            coordinates: route.coordinates,
+            locality: locality,
+            elevationProfile: route.elevationProfile
+        )
         routeCache[workout.id] = .some(resolved)
         return resolved
     }
@@ -1269,6 +1293,64 @@ final class HealthKitWorkoutStore: ObservableObject {
         return data
     }
 
+    /// Loads a workout's per-bucket series inputs for the detail chart cards, or
+    /// `.empty` when the activity has no distance pace/speed or the read failed.
+    /// Cached per session only once the workout has settled (ended more than 24 h
+    /// ago) and every metric read succeeded — a recent workout may still be syncing
+    /// samples from the watch, and a partially failed bundle must not be pinned for
+    /// the rest of the session.
+    func loadWorkoutMetricSeriesData(for workout: WorkoutSummary) async -> WorkoutMetricSeriesData {
+        let paceStyle = workout.type.paceStyle
+        guard paceStyle == .distancePace || paceStyle == .speed else {
+            return .empty
+        }
+
+        if let cached = metricSeriesCache[workout.id] {
+            return cached
+        }
+
+        let data: WorkoutMetricSeriesData
+        do {
+            data = try await engine.workoutMetricSeriesData(workoutID: workout.id)
+        } catch {
+            // Cancelled (sheet dismissed mid-read) or a read failure — don't
+            // cache an empty as confirmed-absent; reopening retries.
+            return .empty
+        }
+        guard !Task.isCancelled else {
+            return data
+        }
+        if Date().timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60, !data.hadReadFailure {
+            metricSeriesCache[workout.id] = data
+        }
+        return data
+    }
+
+    /// Loads a workout's 1-minute heart-rate recovery for the detail tile, or nil
+    /// when the Heart permission is off, no recovery reading exists, or the read
+    /// failed. Not gated on pace style — every activity type can have one.
+    func loadWorkoutHeartRateRecovery(for workout: WorkoutSummary) async -> Double? {
+        if let cached = heartRateRecoveryCache[workout.id] {
+            return cached
+        }
+
+        let recovery: Double?
+        do {
+            recovery = try await engine.workoutHeartRateRecovery(workoutID: workout.id)
+        } catch {
+            // Cancelled (sheet dismissed mid-read) or a read failure — don't cache
+            // a nil as confirmed-absent; reopening retries.
+            return nil
+        }
+        guard !Task.isCancelled else {
+            return recovery
+        }
+        if Date().timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60 {
+            heartRateRecoveryCache[workout.id] = recovery
+        }
+        return recovery
+    }
+
     /// Estimated max heart rate (220 − age) from Apple Health, anchoring the
     /// workout-detail heart-rate zones. `nil` when no birth date is readable, so the
     /// caller falls back to the session's peak HR.
@@ -1280,6 +1362,8 @@ final class HealthKitWorkoutStore: ObservableObject {
         try await engine.requestAuthorization()
         routeCache.removeAll()
         distanceSampleCache.removeAll()
+        metricSeriesCache.removeAll()
+        heartRateRecoveryCache.removeAll()
     }
 
     /// Loads the intraday day-sample sidecar (split out of the launch-critical
@@ -1585,11 +1669,19 @@ final class HealthKitWorkoutStore: ObservableObject {
         if permission == .workouts {
             routeCache.removeAll()
             distanceSampleCache.removeAll()
+                metricSeriesCache.removeAll()
+            heartRateRecoveryCache.removeAll()
+        } else if permission == .heart {
+            // Heart-rate recovery rides the Heart toggle; drop it rather than
+            // serving a toggle change a result read under the old selection.
+            heartRateRecoveryCache.removeAll()
         } else if permission == .workoutMetrics {
-            // Cached split data carries per-split step cadence, which rides on the
-            // Workout Metrics permission — drop it so a toggle change isn't served
-            // stale cadence from a read taken under the previous selection.
+            // Cached split data carries per-split step cadence, and stride length is
+            // gated the same way — both ride on the Workout Metrics permission, so
+            // drop them rather than serving a toggle change stale results from a
+            // read taken under the previous selection.
             distanceSampleCache.removeAll()
+                metricSeriesCache.removeAll()
         }
         await applyPermissionSelectionToCachedData()
 

@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import CoreLocation
 
 struct RouteCoordinate: Sendable, Equatable {
     let latitude: Double
@@ -29,7 +30,83 @@ struct RouteCoordinate: Sendable, Equatable {
     }
 }
 
+/// One altitude reading on the workout's timeline, feeding the elevation
+/// profile chart. `offset` is seconds from the workout's start date.
+struct WorkoutElevationSample: Sendable, Equatable {
+    let offset: TimeInterval
+    let meters: Double
+}
+
 struct WorkoutRoute: Sendable, Equatable {
     let coordinates: [RouteCoordinate]
     let locality: String?
+    /// Altitude over time, reduced from the raw fixes before the polyline
+    /// downsampling so peaks and dips survive. Empty when the route carried no
+    /// usable vertical readings.
+    var elevationProfile: [WorkoutElevationSample] = []
+}
+
+extension WorkoutRoute {
+    /// Altitude readings usable for a profile: a vertical solution the device is
+    /// confident about (`verticalAccuracy` is negative when there is none, and a
+    /// coarse one is worse than no line at all).
+    private static let usableVerticalAccuracy: ClosedRange<Double> = 0...25
+
+    /// Reduces raw fixes (often ~1/sec) to at most `maxBuckets * 2` altitude
+    /// samples by splitting the fixes' time span into equal buckets and keeping
+    /// each bucket's lowest and highest fix. Extrema-preserving: striding would
+    /// flatten a summit that falls between two kept fixes.
+    ///
+    /// Offsets are relative to `workoutStart`, so a route that starts recording
+    /// after the workout does keeps its true position on the timeline.
+    static func elevationProfile(
+        from locations: [CLLocation],
+        workoutStart: Date,
+        maxBuckets: Int = 200
+    ) -> [WorkoutElevationSample] {
+        let usable = locations.filter {
+            $0.altitude.isFinite && usableVerticalAccuracy.contains($0.verticalAccuracy)
+        }
+        guard let first = usable.first, let last = usable.last else { return [] }
+
+        func sample(_ location: CLLocation) -> WorkoutElevationSample {
+            WorkoutElevationSample(
+                offset: location.timestamp.timeIntervalSince(workoutStart),
+                meters: location.altitude
+            )
+        }
+
+        let span = last.timestamp.timeIntervalSince(first.timestamp)
+        guard span > 0, maxBuckets > 0 else {
+            return [sample(first)]
+        }
+
+        var lowest: [Int: CLLocation] = [:]
+        var highest: [Int: CLLocation] = [:]
+        for location in usable {
+            let elapsed = location.timestamp.timeIntervalSince(first.timestamp)
+            let bucket = min(maxBuckets - 1, max(0, Int(elapsed / span * Double(maxBuckets))))
+            if let current = lowest[bucket] {
+                if location.altitude < current.altitude { lowest[bucket] = location }
+            } else {
+                lowest[bucket] = location
+            }
+            if let current = highest[bucket] {
+                if location.altitude > current.altitude { highest[bucket] = location }
+            } else {
+                highest[bucket] = location
+            }
+        }
+
+        var samples: [WorkoutElevationSample] = []
+        samples.reserveCapacity(lowest.count * 2)
+        for bucket in lowest.keys.sorted() {
+            guard let low = lowest[bucket], let high = highest[bucket] else { continue }
+            let pair = low.timestamp <= high.timestamp ? [low, high] : [high, low]
+            for location in pair where samples.last != sample(location) {
+                samples.append(sample(location))
+            }
+        }
+        return samples
+    }
 }

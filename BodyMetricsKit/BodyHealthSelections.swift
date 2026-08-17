@@ -140,11 +140,11 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
         case .workouts:
             return String(localized: "Workout history, effort, and details", table: "BodyMetricsKit")
         case .workoutMetrics:
-            return String(localized: "VO₂max, power, cadence, and swim strokes", table: "BodyMetricsKit")
+            return String(localized: "VO₂max, power, cadence, running form, and swim strokes", table: "BodyMetricsKit")
         case .sleep:
             return String(localized: "Sleep duration, stages, and score", table: "BodyMetricsKit")
         case .heart:
-            return String(localized: "Heart rate and HRV", table: "BodyMetricsKit")
+            return String(localized: "Heart rate, HRV, and recovery", table: "BodyMetricsKit")
         case .dateOfBirth:
             return String(localized: "Anchors workout HR zones (max HR)", table: "BodyMetricsKit")
         case .basics:

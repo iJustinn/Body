@@ -66,6 +66,9 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         let runningPower = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .runningPower))
         let cyclingCadence = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .cyclingCadence))
         let swimStrokes = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .swimmingStrokeCount))
+        let strideLength = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .runningStrideLength))
+        let groundContact = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .runningGroundContactTime))
+        let verticalOscillation = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .runningVerticalOscillation))
         let distance = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning))
 
         // Workouts + Workout Metrics: detail metrics requested; distance (core) also present.
@@ -76,6 +79,9 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertTrue(both.contains(runningPower))
         XCTAssertTrue(both.contains(cyclingCadence))
         XCTAssertTrue(both.contains(swimStrokes))
+        XCTAssertTrue(both.contains(strideLength))
+        XCTAssertTrue(both.contains(groundContact))
+        XCTAssertTrue(both.contains(verticalOscillation))
         XCTAssertTrue(both.contains(distance))
         XCTAssertTrue(both.contains(HKObjectType.workoutType()))
 
@@ -88,6 +94,9 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertFalse(workoutsOnly.contains(vo2Max))
         XCTAssertFalse(workoutsOnly.contains(runningPower))
         XCTAssertFalse(workoutsOnly.contains(swimStrokes))
+        XCTAssertFalse(workoutsOnly.contains(strideLength))
+        XCTAssertFalse(workoutsOnly.contains(groundContact))
+        XCTAssertFalse(workoutsOnly.contains(verticalOscillation))
 
         // Workout Metrics without Workouts: nothing requested (AND-gate).
         let metricsOnly = HealthKitWorkoutStore.readObjectTypes(
@@ -95,6 +104,20 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         )
         XCTAssertFalse(metricsOnly.contains(vo2Max))
         XCTAssertFalse(metricsOnly.contains(distance))
+    }
+
+    /// Heart-rate recovery feeds a workout-detail tile but is heart data, so it
+    /// rides the Heart toggle rather than Workouts/Workout Metrics.
+    func testHeartPermissionGatesHeartRateRecoveryReadType() throws {
+        let recovery = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .heartRateRecoveryOneMinute))
+
+        XCTAssertTrue(HealthKitWorkoutStore.readObjectTypes(
+            for: BodyHealthPermissionSelection(enabledPermissions: [.heart])
+        ).contains(recovery))
+
+        XCTAssertFalse(HealthKitWorkoutStore.readObjectTypes(
+            for: BodyHealthPermissionSelection(enabledPermissions: [.workouts, .workoutMetrics])
+        ).contains(recovery))
     }
 
     func testDateOfBirthPermissionGatesCharacteristicReadType() throws {

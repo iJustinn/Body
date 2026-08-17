@@ -325,6 +325,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(presentation.title, "Strength")
         XCTAssertEqual(presentation.dateTitle, "Mon, May 11")
         // Foundation separates time and AM/PM with U+202F (narrow no-break space).
+        // The detail page header shows the start alone; the share card still
+        // uses the full range.
+        XCTAssertEqual(presentation.startTimeText, "3:57\u{202F}PM")
         XCTAssertEqual(presentation.timeRangeText, "3:57\u{202F}PM-4:58\u{202F}PM")
         XCTAssertEqual(presentation.durationClockText, "1:00:39")
         XCTAssertEqual(presentation.activeEnergyText, "416 kcal")

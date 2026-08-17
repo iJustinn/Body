@@ -15,15 +15,19 @@ import CoreLocation
 
 extension HealthKitFetchEngine {
     /// Coordinates for the workout's route, downsampled for cheap polyline
-    /// drawing. Returns `[]` only when the workout genuinely has no route. Any
+    /// drawing, plus the elevation profile reduced from the same raw fixes
+    /// (before the downsampling, so the profile keeps its peaks and dips).
+    /// Returns empty coordinates only when the workout genuinely has no route. Any
     /// read FAILURE — a cancelled read (dismissed detail sheet), a locked-device
     /// error, or an XPC drop — is propagated so the caller can tell "no route"
     /// from "didn't finish reading" and not cache a false negative for a workout
     /// that actually has a route. (HealthKit read authorization is opaque, so a
     /// denied route still surfaces as an empty result, i.e. no hero.)
-    func workoutRouteCoordinates(workoutID: UUID) async throws -> [RouteCoordinate] {
+    func workoutRouteData(
+        workoutID: UUID
+    ) async throws -> (coordinates: [RouteCoordinate], elevationProfile: [WorkoutElevationSample]) {
         guard let workout = try await fetchWorkout(id: workoutID) else {
-            return []
+            return ([], [])
         }
 
         let routeQuery = HKSampleQueryDescriptor(
@@ -39,7 +43,10 @@ extension HealthKitFetchEngine {
                 locations.append(location)
             }
         }
-        return Self.routeCoordinates(from: locations)
+        return (
+            Self.routeCoordinates(from: locations),
+            WorkoutRoute.elevationProfile(from: locations, workoutStart: workout.startDate)
+        )
     }
 
     /// Strides the raw fixes (often ~1/sec) down to at most `maxRoutePoints`,

@@ -38,7 +38,11 @@ enum BodyHealthReadTypes {
             quantityIdentifiers += [
                 .restingHeartRate,
                 .heartRate,
-                .heartRateVariabilitySDNN
+                .heartRateVariabilitySDNN,
+                // The watch's 1-minute post-workout recovery reading, shown as a
+                // workout-detail tile. Heart data, so it rides this toggle rather
+                // than Workout Metrics; the watch's compute set doesn't need it.
+                .heartRateRecoveryOneMinute
             ]
             // Birth date (a read-only characteristic) anchors the workout heart-rate
             // zones at a percentage of the age-estimated max HR (220 − age). Gated on
@@ -97,14 +101,21 @@ enum BodyHealthReadTypes {
             // Activity-aware workout-detail metrics, gated on the Workout Metrics toggle
             // (and on `.workouts`, since they're only surfaced in the workout detail).
             // Foot cadence is derived from `.stepCount` (requested here so it doesn't
-            // depend on the separate `.steps` toggle); power/cadence/strokes are best-effort.
+            // depend on the separate `.steps` toggle); power/cadence/strokes and the
+            // native running form series behind the detail chart cards are
+            // best-effort — only some sources record them, and the running form
+            // metrics (stride length, ground contact time, vertical oscillation)
+            // additionally need a recent Apple Watch on an outdoor run.
             quantityIdentifiers += [
                 .vo2Max,
                 .runningPower,
                 .cyclingPower,
                 .cyclingCadence,
                 .swimmingStrokeCount,
-                .stepCount
+                .stepCount,
+                .runningStrideLength,
+                .runningGroundContactTime,
+                .runningVerticalOscillation
             ]
         }
         if selection.includes(.cardioFitness) {

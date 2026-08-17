@@ -125,6 +125,16 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     /// `startDate + duration` can land before the workout really ended; optional
     /// so snapshots persisted before it was recorded decode `nil`.
     let endDate: Date?
+    /// Weather the watch recorded with the workout (`HKMetadataKeyWeatherTemperature`),
+    /// in °C. Workout metadata rather than a separate sample type, so it rides the
+    /// Workouts permission and isn't cleared by `removingWorkoutMetrics()`.
+    let weatherTemperatureCelsius: Double?
+    /// Recorded relative humidity as a percentage (0…100); HealthKit stores it as a
+    /// 0…1 fraction.
+    let weatherHumidityPercent: Double?
+    /// `HKMetadataKeyAverageMETs` in kcal/(kg·hr) — the workout's average metabolic
+    /// equivalent.
+    let averageMETs: Double?
 
     /// The workout's end for interval maths: HealthKit's `endDate` when recorded,
     /// otherwise the pre-existing `startDate + duration` approximation.
@@ -152,7 +162,10 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         swimmingStrokeCount: Double? = nil,
         cardioFitnessVO2Max: Double? = nil,
         sourceName: String = "Apple Health",
-        endDate: Date? = nil
+        endDate: Date? = nil,
+        weatherTemperatureCelsius: Double? = nil,
+        weatherHumidityPercent: Double? = nil,
+        averageMETs: Double? = nil
     ) {
         self.id = id
         self.type = type
@@ -174,6 +187,9 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         self.cardioFitnessVO2Max = cardioFitnessVO2Max
         self.sourceName = sourceName
         self.endDate = endDate
+        self.weatherTemperatureCelsius = weatherTemperatureCelsius
+        self.weatherHumidityPercent = weatherHumidityPercent
+        self.averageMETs = averageMETs
     }
 
     /// A copy with the Workout Metrics detail fields cleared — used when the user
@@ -202,7 +218,12 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
             swimmingStrokeCount: nil,
             cardioFitnessVO2Max: nil,
             sourceName: sourceName,
-            endDate: endDate
+            endDate: endDate,
+            // Weather and METs are workout metadata, not Workout Metrics samples —
+            // they ride the Workouts permission and survive the opt-out.
+            weatherTemperatureCelsius: weatherTemperatureCelsius,
+            weatherHumidityPercent: weatherHumidityPercent,
+            averageMETs: averageMETs
         )
     }
 }
@@ -223,6 +244,10 @@ struct WorkoutDetailMetric: Equatable {
         case power
         case cardioFitness
         case strokeCount
+        case temperature
+        case humidity
+        case averageMETs
+        case heartRateRecovery
     }
 
     let kind: Kind
@@ -400,6 +425,10 @@ enum WorkoutMetricComparisonBuilder {
         case .power: return positive(workout.averagePowerWatts)
         case .cardioFitness: return positive(workout.cardioFitnessVO2Max)
         case .strokeCount: return positive(workout.swimmingStrokeCount)
+        // Environment/context tiles: a 30-day average of the weather or of a
+        // one-off recovery reading isn't a performance baseline, so they never
+        // carry a comparison badge (and never make the legend appear alone).
+        case .temperature, .humidity, .averageMETs, .heartRateRecovery: return nil
         case .pace, .swimPace, .speed:
             guard let distance = workout.distanceMeters,
                   distance >= distanceFloor(for: kind),
@@ -562,6 +591,9 @@ struct WorkoutEffortPresentation: Equatable {
 struct WorkoutDetailPresentation: Equatable {
     let title: String
     let dateTitle: String
+    /// The start time alone — what the detail page's header shows.
+    let startTimeText: String
+    /// Start-end, still used by the share card.
     let timeRangeText: String
     let durationClockText: String
     let compactDurationText: String
@@ -589,6 +621,7 @@ struct WorkoutDetailPresentation: Equatable {
         unitPreference: BodyValueFormat.UnitPreference = .system,
         distanceUnitPreference: BodyValueFormat.DistanceUnitPreference? = nil,
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference = .celsius,
         comparisonWorkouts: [WorkoutSummary]? = nil,
         comparisonDataComplete: Bool = true,
         comparisonLoadSettled: Bool = true
@@ -603,14 +636,15 @@ struct WorkoutDetailPresentation: Equatable {
             locale: locale,
             timeZone: timeZone
         )
+        startTimeText = Self.formattedDate(
+            workout.startDate,
+            template: "jm",
+            calendar: calendar,
+            locale: locale,
+            timeZone: timeZone
+        )
         timeRangeText = [
-            Self.formattedDate(
-                workout.startDate,
-                template: "jm",
-                calendar: calendar,
-                locale: locale,
-                timeZone: timeZone
-            ),
+            startTimeText,
             Self.formattedDate(
                 endDate,
                 template: "jm",
@@ -801,6 +835,38 @@ struct WorkoutDetailPresentation: Equatable {
             ))
         }
 
+        // Session context the watch recorded alongside the workout. Weather and METs
+        // come from workout metadata, so they show whenever the recording source
+        // saved them — no Workout Metrics opt-in involved.
+        if let celsius = workout.weatherTemperatureCelsius, celsius.isFinite {
+            let display = BodyValueFormat.temperatureValue(
+                celsius: celsius,
+                locale: locale,
+                temperatureUnitPreference: temperatureUnitPreference
+            )
+            metrics.append(WorkoutDetailMetric(
+                kind: .temperature,
+                // Dotted key: the bare "Temperature" entry is the sleep card's body
+                // temperature (体温), which is the wrong word for the weather.
+                title: String(localized: "workoutDetail.temperature", defaultValue: "Temperature", table: "BodyMetricsKit"),
+                value: BodyValueFormat.numberText(display.value.rounded(), decimals: 0, locale: locale) + " °" + display.unit
+            ))
+        }
+        if let humidity = workout.weatherHumidityPercent, humidity.isFinite {
+            metrics.append(WorkoutDetailMetric(
+                kind: .humidity,
+                title: String(localized: "Humidity", table: "BodyMetricsKit"),
+                value: BodyValueFormat.numberText(humidity.rounded(), decimals: 0, locale: locale) + " %"
+            ))
+        }
+        if let averageMETs = workout.averageMETs, averageMETs > 0 {
+            metrics.append(WorkoutDetailMetric(
+                kind: .averageMETs,
+                title: String(localized: "Avg METs", table: "BodyMetricsKit"),
+                value: BodyValueFormat.numberText(averageMETs, decimals: 1, locale: locale) + " METs"
+            ))
+        }
+
         // Attach the 30-day comparison caption to each metric when comparison data was
         // provided (nil == feature off, so existing callers/previews are unchanged).
         if let comparisonWorkouts {
@@ -843,6 +909,17 @@ struct WorkoutDetailPresentation: Equatable {
         }
 
         detailMetrics = metrics
+    }
+
+    /// The 1-minute heart-rate recovery tile. Built separately from `init` because
+    /// the value is a follow-up HealthKit read (gated on the Heart permission), not
+    /// part of the workout summary — the detail sheet appends it once it lands.
+    static func heartRateRecoveryMetric(bpm: Double, locale: Locale = .current) -> WorkoutDetailMetric {
+        WorkoutDetailMetric(
+            kind: .heartRateRecovery,
+            title: String(localized: "HR Recovery", table: "BodyMetricsKit"),
+            value: BodyValueFormat.heartRateText(beatsPerMinute: bpm, locale: locale)
+        )
     }
 
     private static func formattedDate(
@@ -1079,6 +1156,18 @@ enum BodyValueFormat {
         }
 
         return "\(minutes):\(String(format: "%02d", seconds))"
+    }
+
+    /// Elapsed time as a fixed-width `HH:mm:ss` clock (`00:30:31`, `01:01:02`),
+    /// for chart axes where labels must stay the same width regardless of length.
+    static func paddedStopwatchDurationText(for duration: TimeInterval) -> String {
+        let totalSeconds = max(0, Int(duration.rounded()))
+        return String(
+            format: "%02d:%02d:%02d",
+            totalSeconds / 3_600,
+            (totalSeconds % 3_600) / 60,
+            totalSeconds % 60
+        )
     }
 
     private static func durationText(minutes: Int) -> String {

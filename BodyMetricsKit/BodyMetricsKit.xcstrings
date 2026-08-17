@@ -866,6 +866,40 @@
         }
       }
     },
+    "Avg Cycling Cadence" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avg Cadence"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均踏频"
+          }
+        }
+      }
+    },
+    "Avg Ground Contact" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avg Ground Contact"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均触地时间"
+          }
+        }
+      }
+    },
     "Avg Heart Rate" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -896,6 +930,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "平均心率"
+          }
+        }
+      }
+    },
+    "Avg METs" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avg METs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均 METs"
           }
         }
       }
@@ -947,6 +998,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "平均速度"
+          }
+        }
+      }
+    },
+    "Avg Step Cadence" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avg Cadence"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均步频"
+          }
+        }
+      }
+    },
+    "Avg Stride Length" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avg Stride Length"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均步长"
+          }
+        }
+      }
+    },
+    "Avg Vertical Osc." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avg Vertical Osc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均垂直振幅"
           }
         }
       }
@@ -1099,6 +1201,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "篮球"
+          }
+        }
+      }
+    },
+    "Best Pace" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Best Pace"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最佳配速"
           }
         }
       }
@@ -1460,6 +1579,23 @@
         }
       }
     },
+    "Cadence, average %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cadence, average %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "步频，平均 %@ %@，最高 %@ %@"
+          }
+        }
+      }
+    },
     "Calculating the 30-day comparison" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1630,6 +1766,23 @@
         }
       }
     },
+    "cm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cm"
+          }
+        }
+      }
+    },
     "Consistency" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1796,6 +1949,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "踏频"
+          }
+        }
+      }
+    },
+    "Cycling cadence, average %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cycling cadence, average %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "踏频，平均 %@ %@，最高 %@ %@"
           }
         }
       }
@@ -2309,6 +2479,23 @@
         }
       }
     },
+    "ft/step" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ft/step"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "英尺/步"
+          }
+        }
+      }
+    },
     "Functional Strength" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2339,6 +2526,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "高尔夫球"
+          }
+        }
+      }
+    },
+    "Ground Contact Time" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ground Contact Time"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "触地时间"
+          }
+        }
+      }
+    },
+    "Ground contact time, average %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ground contact time, average %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "触地时间，平均 %@ %@，最长 %@ %@"
           }
         }
       }
@@ -2445,19 +2666,19 @@
         }
       }
     },
-    "Heart rate and HRV" : {
+    "Heart rate, HRV, and recovery" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Heart rate and HRV"
+            "value" : "Heart rate, HRV, and recovery"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "心率与心率变异性"
+            "value" : "心率、心率变异性与恢复"
           }
         }
       }
@@ -2615,6 +2836,23 @@
         }
       }
     },
+    "HR Recovery" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HR Recovery"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率恢复"
+          }
+        }
+      }
+    },
     "HRV is a little under baseline, but recovery is solid. Normal training is fine." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2748,6 +2986,23 @@
         }
       }
     },
+    "Humidity" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Humidity"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "湿度"
+          }
+        }
+      }
+    },
     "Hunting" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2778,6 +3033,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "英制"
+          }
+        }
+      }
+    },
+    "in" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "in"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "in"
           }
         }
       }
@@ -2934,6 +3206,23 @@
         }
       }
     },
+    "km/h" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "km/h"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "km/h"
+          }
+        }
+      }
+    },
     "Lacrosse" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3086,6 +3375,23 @@
         }
       }
     },
+    "m/step" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "m/step"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "米/步"
+          }
+        }
+      }
+    },
     "Map" : {
       "localizations" : {
         "en" : {
@@ -3119,6 +3425,40 @@
         }
       }
     },
+    "Max Cycling Cadence" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Cadence"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最高踏频"
+          }
+        }
+      }
+    },
+    "Max Ground Contact" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Ground Contact"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最长触地时间"
+          }
+        }
+      }
+    },
     "Max Heart Rate" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3132,6 +3472,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最高心率"
+          }
+        }
+      }
+    },
+    "Max Speed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Speed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最高速度"
+          }
+        }
+      }
+    },
+    "Max Step Cadence" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Cadence"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最高步频"
+          }
+        }
+      }
+    },
+    "Max Stride Length" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Stride Length"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最大步长"
+          }
+        }
+      }
+    },
+    "Max Vertical Osc." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Vertical Osc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最大垂直振幅"
           }
         }
       }
@@ -3234,6 +3642,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "英里"
+          }
+        }
+      }
+    },
+    "min/km" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "min/km"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "min/km"
+          }
+        }
+      }
+    },
+    "min/mi" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "min/mi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "min/mi"
           }
         }
       }
@@ -3353,6 +3795,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "活动、运动与站立圆环"
+          }
+        }
+      }
+    },
+    "mph" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "mph"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "mph"
+          }
+        }
+      }
+    },
+    "ms" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms"
           }
         }
       }
@@ -3554,6 +4030,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "配速"
+          }
+        }
+      }
+    },
+    "Pace, average %@ %@, best %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pace, average %@ %@, best %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配速，平均 %@ %@，最佳 %@ %@"
           }
         }
       }
@@ -4336,6 +4829,23 @@
         }
       }
     },
+    "rpm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "rpm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "rpm"
+          }
+        }
+      }
+    },
     "Rugby" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5091,6 +5601,40 @@
         }
       }
     },
+    "Speed, average %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Speed, average %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "速度，平均 %@ %@，最高 %@ %@"
+          }
+        }
+      }
+    },
+    "spm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "spm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "spm"
+          }
+        }
+      }
+    },
     "Squash" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5240,6 +5784,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "力量训练"
+          }
+        }
+      }
+    },
+    "Stride Length" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stride Length"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "步长"
+          }
+        }
+      }
+    },
+    "Stride length, average %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stride length, average %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "步长，平均 %@ %@，最大 %@ %@"
           }
         }
       }
@@ -5764,6 +6342,40 @@
         }
       }
     },
+    "Vertical Oscillation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertical Oscillation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "垂直振幅"
+          }
+        }
+      }
+    },
+    "Vertical oscillation, average %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertical oscillation, average %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "垂直振幅，平均 %@ %@，最大 %@ %@"
+          }
+        }
+      }
+    },
     "Very little sleep last night has readiness low. Rest is the priority today." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5832,19 +6444,19 @@
         }
       }
     },
-    "VO₂max, power, cadence, and swim strokes" : {
+    "VO₂max, power, cadence, running form, and swim strokes" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "VO₂max, power, cadence, and swim strokes"
+            "value" : "VO₂max, power, cadence, running form, and swim strokes"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最大摄氧量、功率、步频与划水次数"
+            "value" : "最大摄氧量、功率、步频、跑步动态与划水次数"
           }
         }
       }
@@ -6100,6 +6712,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "运动"
+          }
+        }
+      }
+    },
+    "workoutDetail.temperature" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Temperature"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "温度"
           }
         }
       }
