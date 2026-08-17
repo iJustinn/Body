@@ -174,7 +174,7 @@ struct BodyHealthMetricCard: View {
         ZStack {
             if let warningSymbolName = metric.warningSymbolName {
                 Image(systemName: warningSymbolName)
-                    .font(.system(size: 24, weight: .bold))
+                    .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(.yellow)
                     .accessibilityLabel(Text("Low Heart Rate"))
                     .transition(.opacity)

@@ -197,7 +197,11 @@ struct BodyMetricWarningCard: View {
                 }
             }
         }
-        .frame(height: 120)
+        // Sized so the whole card matches a home trend comparison card, which
+        // it sits directly above on a metric detail page: that card's chart is
+        // 128, but it also carries a divider and an averages row this one has
+        // no equivalent of, so the chart absorbs the 77pt difference.
+        .frame(height: 205)
     }
 
     private var yDomain: ClosedRange<Double> {
