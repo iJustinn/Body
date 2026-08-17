@@ -115,13 +115,16 @@ struct WorkoutTypeBreakdownView: View {
     private func switchControlButton(_ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             ZStack {
-                // The same chip the percentage bars wear, so the control sits
-                // in the same visual family as the row it ends.
-                BodyGlassChip(color: .accentColor, cornerRadius: 12)
+                // The workout cards' own fill — `bodyCardBackground(translucent:)`
+                // is `Color.primary.opacity(0.06)` — so the control never reads
+                // as another activity type's bar.
+                BodyGlassChip(color: .primary, cornerRadius: 12, fillOpacity: 0.06)
 
                 Image(systemName: "square.grid.2x2")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(.white)
+                    // The calendar day numbers' grey, so both switch buttons
+                    // read at the same weight.
+                    .foregroundColor(.secondary)
             }
             .frame(width: switchControlSide, height: switchControlSide)
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))

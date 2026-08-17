@@ -173,14 +173,17 @@ struct WorkoutCalendarView: View {
             onSwitchChart?()
         } label: {
             ZStack {
-                // The same chip an active day cell wears, but keeping the rim
-                // those pass up, so the control reads as a control rather than
-                // as one more date.
-                BodyGlassChip(color: .accentColor, cornerRadius: 9)
+                // The workout cards' own fill — `bodyCardBackground(translucent:)`
+                // is `Color.primary.opacity(0.06)` — under the rim the day cells
+                // pass up, so the control reads as a control rather than as one
+                // more date.
+                BodyGlassChip(color: .primary, cornerRadius: 9, fillOpacity: 0.06)
 
                 Image(systemName: "chart.bar.yaxis")
                     .font(.system(size: workoutIconSize * glyphScale, weight: .bold))
-                    .foregroundColor(.white)
+                    // The day numbers' own grey, so the control sits at the
+                    // same weight as the dates it shares the grid with.
+                    .foregroundColor(.secondary)
             }
             .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
