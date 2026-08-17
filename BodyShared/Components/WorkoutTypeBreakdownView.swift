@@ -25,15 +25,20 @@ struct WorkoutTypeBreakdownView: View {
     let snapshot: WorkoutMonthSnapshot
     let style: WorkoutTypeBreakdownDisplayStyle
     let onSelectType: ((BodyWorkoutType) -> Void)?
+    /// Nil in the widgets, which have no second chart to switch to — and which
+    /// therefore lay out exactly as they did before this control existed.
+    let onSwitchChart: (() -> Void)?
 
     init(
         snapshot: WorkoutMonthSnapshot,
         style: WorkoutTypeBreakdownDisplayStyle = .app,
-        onSelectType: ((BodyWorkoutType) -> Void)? = nil
+        onSelectType: ((BodyWorkoutType) -> Void)? = nil,
+        onSwitchChart: (() -> Void)? = nil
     ) {
         self.snapshot = snapshot
         self.style = style
         self.onSelectType = onSelectType
+        self.onSwitchChart = onSwitchChart
     }
 
     private var displayedBreakdown: [WorkoutTypeBreakdown] {
@@ -86,31 +91,82 @@ struct WorkoutTypeBreakdownView: View {
         VStack(alignment: .leading, spacing: rowSpacing) {
             if displayedBreakdown.isEmpty {
                 emptyState
+
+                // No last bar row to sit on, so the control keeps a row of its
+                // own here — without it an empty month would strand the user on
+                // this chart with no way back to the calendar.
+                if let onSwitchChart {
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        switchControlButton(onSwitchChart)
+                    }
+                }
             } else {
-                ForEach(displayedBreakdown) { entry in
-                    workoutTypeDistributionRow(entry)
-                        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .onTapGesture {
-                            onSelectType?(entry.type)
-                        }
+                ForEach(Array(displayedBreakdown.enumerated()), id: \.element.id) { index, entry in
+                    workoutTypeDistributionRow(
+                        entry,
+                        switchAction: index == displayedBreakdown.count - 1 ? onSwitchChart : nil
+                    )
                 }
             }
         }
     }
 
-    private func workoutTypeDistributionRow(_ entry: WorkoutTypeBreakdown) -> some View {
+    private func switchControlButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            ZStack {
+                // The workout cards' own fill — `bodyCardBackground(translucent:)`
+                // is `Color.primary.opacity(0.06)` — so the control never reads
+                // as another activity type's bar.
+                BodyGlassChip(color: .primary, cornerRadius: 12, fillOpacity: 0.06)
+
+                Image(systemName: "square.grid.2x2")
+                    .font(.system(size: 18, weight: .bold))
+                    // The calendar day numbers' grey, so both switch buttons
+                    // read at the same weight.
+                    .foregroundColor(.secondary)
+            }
+            .frame(width: switchControlSide, height: switchControlSide)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(String(localized: "Show workout calendar", table: "BodyShared"))
+        .accessibilityHint(String(localized: "Switches between the workout calendar and the activity breakdown", table: "BodyShared"))
+    }
+
+    private func workoutTypeDistributionRow(
+        _ entry: WorkoutTypeBreakdown,
+        switchAction: (() -> Void)? = nil
+    ) -> some View {
         GeometryReader { geometry in
-            let maxBarWidth = maximumBarWidth(for: geometry.size.width)
+            // The control eats into the BAR's room, not the label's: the
+            // shrink then scales with the bar itself, so a short last bar
+            // barely moves while the full-width single-type case gives up
+            // exactly the space the control needs.
+            let reservedWidth = switchAction == nil ? 0 : switchControlSide + rowHorizontalSpacing
+            let maxBarWidth = maximumBarWidth(for: geometry.size.width, reservedTrailingWidth: reservedWidth)
             let minBarWidth = min(minimumBarWidth, maxBarWidth)
             let relativeAmount = maxDuration > 0 ? entry.duration / maxDuration : 0
             let barWidth = minBarWidth + ((maxBarWidth - minBarWidth) * CGFloat(relativeAmount))
 
             HStack(spacing: rowHorizontalSpacing) {
-                percentageBar(entry)
-                    .frame(width: barWidth, height: rowHeight)
+                HStack(spacing: rowHorizontalSpacing) {
+                    percentageBar(entry)
+                        .frame(width: barWidth, height: rowHeight)
 
-                workoutTypeDetails(entry)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    workoutTypeDetails(entry)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                // Scoped to the bar and label rather than the whole row, so the
+                // control never doubles as this row's drill-down.
+                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .onTapGesture {
+                    onSelectType?(entry.type)
+                }
+
+                if let switchAction {
+                    switchControlButton(switchAction)
+                }
             }
             .frame(width: geometry.size.width, height: rowHeight, alignment: .leading)
         }
@@ -167,15 +223,21 @@ struct WorkoutTypeBreakdownView: View {
         min(max(availableWidth * 0.42, 130), 172)
     }
 
-    private func maximumBarWidth(for availableWidth: CGFloat) -> CGFloat {
+    private func maximumBarWidth(for availableWidth: CGFloat, reservedTrailingWidth: CGFloat = 0) -> CGFloat {
         switch style {
         case .app:
-            return max(92, availableWidth - detailReserveWidth(for: availableWidth))
+            // `detailReserveWidth` still reads the FULL width, so reserving the
+            // control's slot never squeezes the activity name.
+            return max(92, availableWidth - reservedTrailingWidth - detailReserveWidth(for: availableWidth))
         case .widgetMedium:
             return min(max(availableWidth * 0.46, 94), 156)
         case .widgetLarge:
             return min(max(availableWidth * 0.55, 156), 202)
         }
+    }
+
+    private var switchControlSide: CGFloat {
+        44
     }
 
     private var minimumBarWidth: CGFloat {

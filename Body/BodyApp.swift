@@ -10,6 +10,10 @@ struct BodyApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var workoutStore = HealthKitWorkoutStore()
     @State private var proStore: BodyProStore
+    /// Owns the on-device Apple Intelligence readiness comment. Lives at the root so
+    /// Home (which drives generation) and Settings (which reads `isSupported`) share
+    /// one instance.
+    @State private var readinessComment = ReadinessCommentGenerator()
     @AppStorage(BodyAppearancePreference.selectedThemeKey) private var selectedThemeRawValue = BodyAppTheme.defaultValue.rawValue
 
     init() {
@@ -29,10 +33,24 @@ struct BodyApp: App {
                 .bodyBaseInterfaceLevel()
                 .environmentObject(workoutStore)
                 .environment(proStore)
+                .environment(readinessComment)
                 .tint(.primary)
                 .accentColor(.primary)
                 .preferredColorScheme(selectedTheme.colorScheme)
                 .task(priority: .utility) {
+                    // The intraday day-sample sidecar is the only cached series not
+                    // restored synchronously in the store's init, so the Day View
+                    // charts would otherwise stay empty until a full refresh or a
+                    // metric-detail visit hydrated it. Same task body as the sync
+                    // below, not a second `.task` — sibling `.task` modifiers run
+                    // concurrently, and the read has to win against any save the
+                    // refresh triggers. Skipped on a true first launch: the
+                    // day-sample fields count toward `needsInitialHealthDataLoad`,
+                    // so hydrating a stranded sidecar there would suppress the load
+                    // overlay and leave every passive load idled.
+                    if !workoutStore.needsInitialHealthDataLoad {
+                        await workoutStore.hydratePersistedDaySamplesIfNeeded()
+                    }
                     await workoutStore.syncWhenAppBecomesActive()
                 }
                 .onChange(of: scenePhase) { _, newPhase in

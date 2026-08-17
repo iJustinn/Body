@@ -328,6 +328,17 @@ enum BodyHomeTrendCardFactory {
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " ms" },
                 messageStyle: .average(subject: "your HRV")
             )
+        case .cardioFitness:
+            return Configuration(
+                kind: .cardioFitness,
+                title: "Cardio Fitness",
+                series: trends.series(for: .cardioFitness),
+                chartStyle: .line,
+                symbolName: "arrow.up.heart.fill",
+                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + " VO₂ max" },
+                messageStyle: .average(subject: "your cardio fitness")
+            )
         case .respiratoryRate:
             return Configuration(
                 kind: .respiratoryRate,

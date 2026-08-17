@@ -198,6 +198,7 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
     private func makeDaySampleTrends(
         heartRateDaySamples: HealthTrendSeries = .empty,
         heartRateDaySamplesSecondary: HealthTrendSeries = .empty,
+        oxygenSaturationDaySamplesSecondary: HealthTrendSeries = .empty,
         stepsDaySamples: HealthTrendSeries = .empty
     ) -> HealthTrendSnapshot {
         HealthTrendSnapshot(
@@ -213,6 +214,7 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
             restingEnergy: .empty,
             heartRateDaySamples: heartRateDaySamples,
             heartRateDaySamplesSecondary: heartRateDaySamplesSecondary,
+            oxygenSaturationDaySamplesSecondary: oxygenSaturationDaySamplesSecondary,
             stepsDaySamples: stepsDaySamples
         )
     }
@@ -260,6 +262,111 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
         XCTAssertEqual(decoded, sidecar)
     }
 
+    /// The session memoizes ONE sidecar load, so an invalidation that only touches
+    /// `healthTrends` and the file is undone the next time hydration runs. The
+    /// entitlement handler re-points that memo through this, keeping the primary
+    /// scope (so a later hydration still restores it) and dropping every comparison
+    /// series — the lapse → unlock case, where the live gate has reopened and the
+    /// unchanged signatures would otherwise accept the pre-lapse payload.
+    func testStrippingSecondaryDaySamplesClearsComparisonScopeOnly() throws {
+        let primarySamples = sampleSeries(count: 5, baseValue: 72)
+        let secondarySamples = sampleSeries(count: 5, baseValue: 58)
+        let sidecar = HealthTrendDaySampleSnapshot(
+            trends: makeDaySampleTrends(
+                heartRateDaySamples: primarySamples,
+                heartRateDaySamplesSecondary: secondarySamples,
+                oxygenSaturationDaySamplesSecondary: secondarySamples,
+                stepsDaySamples: primarySamples
+            ),
+            signatures: HealthTrendDaySampleSignatures(
+                primarySelectionSignature: "P1",
+                secondarySelectionSignature: "S1",
+                permissionSignature: BodyHealthPermissionSelection.defaultValue.rawValue,
+                combinesHealthDataSourcesByName: false
+            )
+        )
+
+        let stripped = sidecar.strippingSecondaryDaySamples()
+
+        XCTAssertEqual(stripped.heartRateDaySamplesSecondary, .empty)
+        XCTAssertEqual(stripped.restingHeartRateDaySamplesSecondary, .empty)
+        XCTAssertEqual(stripped.heartRateVariabilityDaySamplesSecondary, .empty)
+        XCTAssertEqual(stripped.oxygenSaturationDaySamplesSecondary, .empty)
+        XCTAssertEqual(stripped.activeEnergyDaySamplesSecondary, .empty)
+        XCTAssertEqual(stripped.stepsDaySamplesSecondary, .empty)
+        // Primary scope survives — losing or regaining Pro says nothing about the
+        // user's own source, and a session that hasn't hydrated yet still needs it.
+        XCTAssertEqual(stripped.heartRateDaySamples, primarySamples)
+        XCTAssertEqual(stripped.stepsDaySamples, primarySamples)
+        // Signatures are untouched, so the primary scope still matches on hydration.
+        XCTAssertEqual(stripped.primarySelectionSignature, "P1")
+        XCTAssertEqual(stripped.secondarySelectionSignature, "S1")
+    }
+
+    /// Body Pro lapsing — and a primary source changed to match the secondary —
+    /// collapse the comparison to No Comparison WITHOUT touching the stored
+    /// secondary selection, so the sidecar's own signatures still match and can't
+    /// express the change. Hydration must drop those series from the live state
+    /// instead, per-kind: otherwise the entitlement handler's
+    /// `clearingSecondarySeries()` is silently undone by the very next
+    /// `hydratePersistedDaySamplesIfNeeded()` inside its own corrective refresh
+    /// (which reuses the memoized pre-change sidecar), and the samples get
+    /// re-persisted.
+    func testScopedHydrationDropsComparisonSeriesTheCurrentSelectionResolvesAway() throws {
+        let primarySamples = sampleSeries(count: 5, baseValue: 72)
+        let secondarySamples = sampleSeries(count: 5, baseValue: 58)
+        let sidecar = HealthTrendDaySampleSnapshot(
+            trends: makeDaySampleTrends(
+                heartRateDaySamples: primarySamples,
+                heartRateDaySamplesSecondary: secondarySamples,
+                oxygenSaturationDaySamplesSecondary: secondarySamples
+            ),
+            signatures: HealthTrendDaySampleSignatures(
+                primarySelectionSignature: "P1",
+                secondarySelectionSignature: "S1",
+                permissionSignature: BodyHealthPermissionSelection.defaultValue.rawValue,
+                combinesHealthDataSourcesByName: false
+            )
+        )
+
+        // Signatures match on both scopes — only the live gate can drop these.
+        let allDisabled = sidecar.scopedForHydration(
+            currentPrimarySignature: "P1",
+            currentSecondarySignature: "S1",
+            currentCombinesByName: false,
+            permission: .defaultValue,
+            comparisonDisabledKinds: [.heartRate, .oxygenSaturation]
+        )
+        XCTAssertEqual(allDisabled.heartRateDaySamplesSecondary, .empty)
+        XCTAssertEqual(allDisabled.oxygenSaturationDaySamplesSecondary, .empty)
+        // The primary series is untouched: losing Pro doesn't invalidate the
+        // user's own source, only the comparison against a second one.
+        XCTAssertEqual(allDisabled.heartRateDaySamples, primarySamples)
+
+        // Per-kind, not all-or-nothing: changing Heart Rate's primary source to
+        // match its secondary collapses that kind alone.
+        let oneDisabled = sidecar.scopedForHydration(
+            currentPrimarySignature: "P1",
+            currentSecondarySignature: "S1",
+            currentCombinesByName: false,
+            permission: .defaultValue,
+            comparisonDisabledKinds: [.heartRate]
+        )
+        XCTAssertEqual(oneDisabled.heartRateDaySamplesSecondary, .empty)
+        XCTAssertEqual(oneDisabled.oxygenSaturationDaySamplesSecondary, secondarySamples)
+
+        // Nothing disabled → the existing signature scoping decides, unchanged.
+        let noneDisabled = sidecar.scopedForHydration(
+            currentPrimarySignature: "P1",
+            currentSecondarySignature: "S1",
+            currentCombinesByName: false,
+            permission: .defaultValue,
+            comparisonDisabledKinds: []
+        )
+        XCTAssertEqual(noneDisabled.heartRateDaySamplesSecondary, secondarySamples)
+        XCTAssertEqual(noneDisabled.oxygenSaturationDaySamplesSecondary, secondarySamples)
+    }
+
     func testScopedHydrationMismatchClearsOnlyMismatchedScope() throws {
         let primarySamples = sampleSeries(count: 5, baseValue: 72)
         let secondarySamples = sampleSeries(count: 5, baseValue: 58)
@@ -281,7 +388,8 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
             currentPrimarySignature: "P2",
             currentSecondarySignature: "S1",
             currentCombinesByName: false,
-            permission: .defaultValue
+            permission: .defaultValue,
+            comparisonDisabledKinds: []
         )
         XCTAssertEqual(primaryChanged.heartRateDaySamples, .empty)
         XCTAssertEqual(primaryChanged.heartRateDaySamplesSecondary, secondarySamples)
@@ -291,7 +399,8 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
             currentPrimarySignature: "P1",
             currentSecondarySignature: "S2",
             currentCombinesByName: false,
-            permission: .defaultValue
+            permission: .defaultValue,
+            comparisonDisabledKinds: []
         )
         XCTAssertEqual(secondaryChanged.heartRateDaySamples, primarySamples)
         XCTAssertEqual(secondaryChanged.heartRateDaySamplesSecondary, .empty)
@@ -301,7 +410,8 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
             currentPrimarySignature: "P1",
             currentSecondarySignature: "S1",
             currentCombinesByName: false,
-            permission: .defaultValue
+            permission: .defaultValue,
+            comparisonDisabledKinds: []
         )
         XCTAssertEqual(bothMatch.heartRateDaySamples, primarySamples)
         XCTAssertEqual(bothMatch.heartRateDaySamplesSecondary, secondarySamples)
@@ -325,7 +435,8 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
             currentPrimarySignature: "P1",
             currentSecondarySignature: "S1",
             currentCombinesByName: false,
-            permission: .defaultValue
+            permission: .defaultValue,
+            comparisonDisabledKinds: []
         )
         XCTAssertEqual(scopedLegacy.heartRateDaySamples, .empty)
         XCTAssertEqual(scopedLegacy.heartRateDaySamplesSecondary, .empty)
@@ -344,7 +455,8 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
             currentPrimarySignature: "P1",
             currentSecondarySignature: "S1",
             currentCombinesByName: false,
-            permission: .defaultValue
+            permission: .defaultValue,
+            comparisonDisabledKinds: []
         )
         XCTAssertEqual(scopedV1.heartRateDaySamples, .empty)
         XCTAssertEqual(scopedV1.heartRateDaySamplesSecondary, .empty)
@@ -373,7 +485,8 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
             currentPrimarySignature: "P1",
             currentSecondarySignature: "S1",
             currentCombinesByName: true,
-            permission: .defaultValue
+            permission: .defaultValue,
+            comparisonDisabledKinds: []
         )
         XCTAssertEqual(flipped.heartRateDaySamples, .empty)
         XCTAssertEqual(flipped.heartRateDaySamplesSecondary, .empty)
@@ -383,7 +496,8 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
             currentPrimarySignature: "P1",
             currentSecondarySignature: "S1",
             currentCombinesByName: false,
-            permission: .defaultValue
+            permission: .defaultValue,
+            comparisonDisabledKinds: []
         )
         XCTAssertEqual(matched.heartRateDaySamples, primarySamples)
         XCTAssertEqual(matched.heartRateDaySamplesSecondary, secondarySamples)
@@ -442,7 +556,8 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
             currentPrimarySignature: "P1",
             currentSecondarySignature: "S1",
             currentCombinesByName: false,
-            permission: BodyHealthPermissionSelection.defaultValue.setting(.heart, isEnabled: false)
+            permission: BodyHealthPermissionSelection.defaultValue.setting(.heart, isEnabled: false),
+            comparisonDisabledKinds: []
         )
         XCTAssertEqual(scoped.heartRateDaySamples, .empty)
         XCTAssertEqual(scoped.stepsDaySamples, stepsSamples)
@@ -509,7 +624,8 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
             currentPrimarySignature: "P1",
             currentSecondarySignature: "S1",
             currentCombinesByName: false,
-            permission: .defaultValue
+            permission: .defaultValue,
+            comparisonDisabledKinds: []
         )
         XCTAssertEqual(matched.heartRateDaySamples, daySamples)
 
@@ -519,7 +635,8 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
             currentPrimarySignature: "P2",
             currentSecondarySignature: "S1",
             currentCombinesByName: false,
-            permission: .defaultValue
+            permission: .defaultValue,
+            comparisonDisabledKinds: []
         )
         XCTAssertEqual(switched.heartRateDaySamples, .empty)
     }

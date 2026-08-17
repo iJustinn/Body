@@ -73,7 +73,8 @@ enum BodyWorkoutFetch {
         cardioFitnessVO2Max: Double? = nil,
         averageStepCadenceSPM: Double? = nil,
         resolvedDistanceMeters: Double? = nil,
-        includesWorkoutMetrics: Bool = true
+        includesWorkoutMetrics: Bool = true,
+        includesHeartMetrics: Bool = false
     ) -> WorkoutSummary {
         let activeEnergy = activeEnergyKilocalories(for: workout)
         let averageHeartRate = averageHeartRate(from: heartRateSamples)
@@ -98,7 +99,12 @@ enum BodyWorkoutFetch {
             averageCyclingCadenceRPM: includesWorkoutMetrics ? averageCyclingCadenceRPM(for: workout, type: type) : nil,
             swimmingStrokeCount: includesWorkoutMetrics ? swimmingStrokeCount(for: workout, type: type) : nil,
             cardioFitnessVO2Max: includesWorkoutMetrics ? cardioFitnessVO2Max : nil,
-            sourceName: workout.sourceRevision.source.name
+            sourceName: workout.sourceRevision.source.name,
+            endDate: workout.endDate,
+            weatherTemperatureCelsius: weatherTemperatureCelsius(for: workout),
+            weatherHumidityPercent: weatherHumidityPercent(for: workout),
+            averageMETs: averageMETs(for: workout),
+            heartRateRecoveryBPM: includesHeartMetrics ? heartRateRecoveryBPM(for: workout) : nil
         )
     }
 
@@ -116,7 +122,8 @@ enum BodyWorkoutFetch {
         cardioFitnessVO2Max: Double? = nil,
         averageStepCadenceSPM: Double? = nil,
         resolvedDistanceMeters: Double? = nil,
-        includesWorkoutMetrics: Bool = true
+        includesWorkoutMetrics: Bool = true,
+        includesHeartMetrics: Bool = false
     ) -> WorkoutSummary {
         let activeEnergy = activeEnergyKilocalories(for: workout)
         let type = workoutType(for: workout.workoutActivityType)
@@ -140,7 +147,12 @@ enum BodyWorkoutFetch {
             averageCyclingCadenceRPM: includesWorkoutMetrics ? averageCyclingCadenceRPM(for: workout, type: type) : nil,
             swimmingStrokeCount: includesWorkoutMetrics ? swimmingStrokeCount(for: workout, type: type) : nil,
             cardioFitnessVO2Max: includesWorkoutMetrics ? cardioFitnessVO2Max : nil,
-            sourceName: workout.sourceRevision.source.name
+            sourceName: workout.sourceRevision.source.name,
+            endDate: workout.endDate,
+            weatherTemperatureCelsius: weatherTemperatureCelsius(for: workout),
+            weatherHumidityPercent: weatherHumidityPercent(for: workout),
+            averageMETs: averageMETs(for: workout),
+            heartRateRecoveryBPM: includesHeartMetrics ? heartRateRecoveryBPM(for: workout) : nil
         )
     }
 
@@ -181,6 +193,61 @@ enum BodyWorkoutFetch {
 
     private static func elevationAscendedMeters(for workout: HKWorkout) -> Double? {
         (workout.metadata?[HKMetadataKeyElevationAscended] as? HKQuantity)?.doubleValue(for: .meter())
+    }
+
+    /// Weather temperature the watch recorded with the workout, in °C. Any sign is
+    /// valid (sub-zero outdoor sessions); only a non-finite reading is rejected.
+    private static func weatherTemperatureCelsius(for workout: HKWorkout) -> Double? {
+        finite((workout.metadata?[HKMetadataKeyWeatherTemperature] as? HKQuantity)?
+            .doubleValue(for: .degreeCelsius()))
+    }
+
+    /// Recorded relative humidity as a percentage. HealthKit stores it as a 0…1
+    /// fraction, so it's scaled here; anything outside 0…100 after scaling is a
+    /// malformed reading and dropped.
+    private static func weatherHumidityPercent(for workout: HKWorkout) -> Double? {
+        guard let fraction = finite((workout.metadata?[HKMetadataKeyWeatherHumidity] as? HKQuantity)?
+            .doubleValue(for: .percent())) else {
+            return nil
+        }
+
+        let percent = fraction * 100
+        return (0...100).contains(percent) ? percent : nil
+    }
+
+    /// The 1-minute heart-rate recovery from the statistics HealthKit already
+    /// attached to the workout — no extra query, so it costs nothing on the list
+    /// fetch. Absent for sources that don't attach it (and for a just-finished
+    /// workout whose sample hasn't landed yet); the detail sheet's lazy read is
+    /// the fallback. Gated on the Heart permission by the caller.
+    private static func heartRateRecoveryBPM(for workout: HKWorkout) -> Double? {
+        guard let recoveryType = HKQuantityType.quantityType(forIdentifier: .heartRateRecoveryOneMinute),
+              let value = finite(workout.statistics(for: recoveryType)?
+                  .mostRecentQuantity()?
+                  .doubleValue(for: HKUnit.count().unitDivided(by: .minute()))) else {
+            return nil
+        }
+
+        return value > 0 ? value : nil
+    }
+
+    /// Average metabolic equivalent, in kcal/(kg·hr) — the unit HealthKit stores
+    /// `HKMetadataKeyAverageMETs` in.
+    private static func averageMETs(for workout: HKWorkout) -> Double? {
+        guard let value = finite((workout.metadata?[HKMetadataKeyAverageMETs] as? HKQuantity)?
+            .doubleValue(for: HKUnit(from: "kcal/(kg*hr)"))) else {
+            return nil
+        }
+
+        return value > 0 ? value : nil
+    }
+
+    private static func finite(_ value: Double?) -> Double? {
+        guard let value, value.isFinite else {
+            return nil
+        }
+
+        return value
     }
 
     /// The distance `HKQuantityType` identifier for an activity, or nil when the

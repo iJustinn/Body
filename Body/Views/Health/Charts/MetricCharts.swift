@@ -31,6 +31,20 @@ struct BodyHealthMetricTrendChart: View {
     /// hidden (Watch-style, label-free) while the X day labels stay. Default
     /// `false` keeps every other caller's chart unchanged.
     let immersive: Bool
+    /// When true the line plots each reading on its own day rather than
+    /// averaging readings into the range's buckets — see
+    /// `HealthMetricKind.usesSparseTrendReadings`. Line style only; `false`
+    /// keeps every existing caller's chart unchanged.
+    let usesSparseReadings: Bool
+    /// Values the Y domain must cover regardless of what was plotted, so a
+    /// reference frame stays on screen in every range (Cardio Fitness passes its
+    /// four level boundaries, so the line's place among the levels reads the
+    /// same way whichever range is selected). Empty leaves the domain to the data.
+    let additionalDomainValues: [Double]
+    /// Drops the Y axis's number labels while keeping its grid lines. For a
+    /// metric read against named levels rather than against absolute numbers,
+    /// the axis figures are noise.
+    let hidesYAxisLabels: Bool
 
     private let visibleFinitePoints: [HealthTrendCalendarPoint]
     private let markEntries: [BodyHealthTrendMarkEntry]
@@ -38,6 +52,7 @@ struct BodyHealthMetricTrendChart: View {
     private let chartXDomain: ClosedRange<Date>
     private let chartYDomain: ClosedRange<Double>
     private let latestVisibleCalendarDate: Date?
+    private let currentValueRestingValue: Double?
     private let placeholderBarYValue: Double
 
     @State private var selectedDate: Date?
@@ -60,6 +75,9 @@ struct BodyHealthMetricTrendChart: View {
         baselineValue: Double? = nil,
         baselineDeviationFormatter: ((Double) -> String)? = nil,
         immersive: Bool = false,
+        usesSparseReadings: Bool = false,
+        additionalDomainValues: [Double] = [],
+        hidesYAxisLabels: Bool = false,
         chartIdentity: String
     ) {
         self.title = title
@@ -76,6 +94,9 @@ struct BodyHealthMetricTrendChart: View {
         self.baselineValue = baselineValue
         self.baselineDeviationFormatter = baselineDeviationFormatter
         self.immersive = immersive
+        self.usesSparseReadings = usesSparseReadings
+        self.additionalDomainValues = additionalDomainValues
+        self.hidesYAxisLabels = hidesYAxisLabels
         self.chartIdentity = chartIdentity
 
         // Every range's points, not just the selected one: dates outside the
@@ -86,16 +107,27 @@ struct BodyHealthMetricTrendChart: View {
         for range in BodyHealthTrendRange.allCases {
             switch chartStyle {
             case .line:
-                pointsByRange[range] = series.lineChartCalendarPoints(to: range)
+                // Sparse metrics keep each reading on its own day; bucketing
+                // them would shift a point days away from when it was measured.
+                // Either path still emits one entry per date, which is all the
+                // range morph needs to match marks across a range switch.
+                pointsByRange[range] = usesSparseReadings
+                    ? series.sparseLineChartCalendarPoints(to: range)
+                    : series.lineChartCalendarPoints(to: range)
             case .bar:
                 pointsByRange[range] = series.chartCalendarPoints(to: range)
             }
         }
         let calendarPoints = pointsByRange[selectedRange] ?? []
         self.visibleFinitePoints = calendarPoints.filter { $0.value?.isFinite == true }
-        self.markEntries = Self.makeTrendMarkEntries(
+        let markEntries = Self.makeTrendMarkEntries(
             selectedRange: selectedRange,
             pointsByRange: pointsByRange
+        )
+        self.markEntries = markEntries
+        self.currentValueRestingValue = Self.currentValueRestingValue(
+            for: currentValuePoint,
+            markEntries: markEntries
         )
         self.lineSegments = chartStyle == .line
             ? Self.makeTrendLineSegments(selectedRange: selectedRange, pointsByRange: pointsByRange)
@@ -115,6 +147,9 @@ struct BodyHealthMetricTrendChart: View {
             + highlightedRangeValues
             + baselineDomainValues
             + currentValueDomainValues
+            // Folded in alongside the data rather than replacing it, so a
+            // reading outside the reference frame still can't be clipped.
+            + additionalDomainValues.filter(\.isFinite)
         let yDomain = Self.computeYDomain(from: domainValues, chartStyle: chartStyle)
         self.chartYDomain = yDomain
 
@@ -154,6 +189,23 @@ struct BodyHealthMetricTrendChart: View {
     /// opacity 0 — removing the mark pops it on a range switch.
     private var showsCurrentValuePoint: Bool {
         selectedRange == .recentWeek
+    }
+
+    /// Visible on the week chart while nothing is scrubbed. Otherwise the dot
+    /// stays resident and parks on the start-of-day point — see
+    /// `currentValueDotPlotValue`.
+    private var showsCurrentValueDot: Bool {
+        showsCurrentValuePoint && selectedTrendPoint == nil
+    }
+
+    /// Where the dot plots: its own live value while it shows, the start-of-day
+    /// point it climbs back into while it does not.
+    private var currentValueDotPlotValue: Double? {
+        guard let currentValuePoint else {
+            return nil
+        }
+
+        return showsCurrentValueDot ? currentValuePoint.value : currentValueRestingValue
     }
 
     var body: some View {
@@ -276,12 +328,16 @@ struct BodyHealthMetricTrendChart: View {
 
                 // Resident on every range and hidden by opacity, never removed:
                 // dropping the mark off the week range pops it on a switch.
-                // Hidden too while a scrub callout is up — the band follows the
-                // scrubbed point then, and the dot would clutter the rule line.
-                if chartStyle == .line, let currentValuePoint {
+                // Hidden while a scrub callout is up — the band follows the
+                // scrubbed point then, and the dot would clutter the rule line —
+                // and hidden off the week range. Both hidden states park it on
+                // the start-of-day point directly above it, so it climbs back
+                // into that dot as it fades instead of blinking out where it
+                // stood; the reverse plays when it comes back.
+                if chartStyle == .line, let currentValuePoint, let plotValue = currentValueDotPlotValue {
                     PointMark(
                         x: .value("Date", currentValuePoint.date, unit: .day),
-                        y: .value(title, currentValuePoint.value)
+                        y: .value(title, plotValue)
                     )
                     .symbol {
                         Circle()
@@ -293,9 +349,9 @@ struct BodyHealthMetricTrendChart: View {
                             // Inside the symbol view, not a mark modifier —
                             // Charts does not apply mark opacity to custom
                             // `.symbol {}` content.
-                            .opacity(showsCurrentValuePoint && selectedTrendPoint == nil ? 1 : 0)
+                            .opacity(showsCurrentValueDot ? 1 : 0)
                     }
-                    .accessibilityHidden(!(showsCurrentValuePoint && selectedTrendPoint == nil))
+                    .accessibilityHidden(!showsCurrentValueDot)
                 }
 
                 if let selectedTrendPoint, let selectedTrendValue = selectedTrendPoint.value {
@@ -380,11 +436,13 @@ struct BodyHealthMetricTrendChart: View {
                             .foregroundStyle(Color.secondary.opacity(0.18))
                         AxisTick()
                             .foregroundStyle(Color.secondary.opacity(0.28))
-                        AxisValueLabel {
-                            if let yValue = value.as(Double.self) {
-                                Text(valueFormatter(yValue))
-                                    .font(.system(.caption2, design: .rounded))
-                                    .foregroundStyle(Color.secondary)
+                        if !hidesYAxisLabels {
+                            AxisValueLabel {
+                                if let yValue = value.as(Double.self) {
+                                    Text(valueFormatter(yValue))
+                                        .font(.system(.caption2, design: .rounded))
+                                        .foregroundStyle(Color.secondary)
+                                }
                             }
                         }
                     }
@@ -400,6 +458,14 @@ struct BodyHealthMetricTrendChart: View {
             // scrub-mark removal (see the lingering-dot note on the band
             // animation above).
             .animation(reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0), value: selectedRange)
+            // The current-value dot's park/unpark morph. Keyed on that flag
+            // alone — a scrub's own marks (rule, callout, fat selection dot) are
+            // inserted, and Charts pops insertions whether or not the
+            // transaction is animated. Shorter than the range morph so the dot
+            // is out of the callout's way promptly; on a range switch both keys
+            // change and the inner range animation wins, keeping the dot on the
+            // same curve as the marks it travels with.
+            .animation(reduceMotion ? nil : .smooth(duration: 0.3, extraBounce: 0), value: showsCurrentValueDot)
             .onChange(of: selectedRange) {
                 selectedDate = nil
             }
@@ -542,6 +608,24 @@ struct BodyHealthMetricTrendChart: View {
     /// selected-range day with no reading keeps its slot but borrows another
     /// range's value as `offRangeValue`, so line style still has a dot to
     /// morph — see `BodyHealthTrendMarkEntry.dotValue`.
+    /// Where the current-value dot parks while it is hidden: the dot plotted at
+    /// its own date — today's start-of-day point on the week chart, the
+    /// aggregated point that absorbed today on the longer ranges — so hiding it
+    /// plays as a climb back into that dot rather than a blink. Falls back to
+    /// the dot's own value, parking it in place, when its date carries no
+    /// plotted point at all.
+    static func currentValueRestingValue(
+        for currentValuePoint: (date: Date, value: Double)?,
+        markEntries: [BodyHealthTrendMarkEntry]
+    ) -> Double? {
+        guard let currentValuePoint else {
+            return nil
+        }
+
+        return markEntries.first { $0.date == currentValuePoint.date }?.dotValue
+            ?? currentValuePoint.value
+    }
+
     static func makeTrendMarkEntries(
         selectedRange: BodyHealthTrendRange,
         pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]]
@@ -713,8 +797,10 @@ struct BodyHealthMetricDayChart: View {
     private let latestSecondaryBucketDate: Date?
     private let dayStart: Date
 
-    private static let pointDiameter: CGFloat = 8
-    private static let currentPointDiameter: CGFloat = 10
+    /// Also drawn by `BodyMetricWarningCard`, so a warning's readings match the
+    /// Day View chart they sit under.
+    static let pointDiameter: CGFloat = 8
+    static let currentPointDiameter: CGFloat = 10
     private static let segmentGapThreshold: TimeInterval = 4 * 60 * 60
     /// Jan 1 2001 — a day with no DST transition anywhere. Every mark plots
     /// into this fixed day (see `normalizedPlotDate(for:dayStart:)`) so the x

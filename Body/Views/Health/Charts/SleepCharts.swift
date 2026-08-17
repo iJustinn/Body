@@ -609,6 +609,8 @@ struct BodySleepStageOptimalRangeChart: View {
     private var restorativeRow: some View {
         let restorativeDuration = snapshot.restorativeDuration
         let fraction = totalDuration > 0 ? restorativeDuration / totalDuration : 0
+        let percentText = percentText(for: fraction)
+        let durationText = BodyValueFormat.durationText(for: restorativeDuration)
 
         return HStack(spacing: columnSpacing) {
             Text(String(localized: "sleep.bar.restorative", defaultValue: "Restorative"))
@@ -623,18 +625,20 @@ struct BodySleepStageOptimalRangeChart: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: trackHeight)
 
-            Text("\(Int((fraction * 100).rounded()))%")
+            Text(percentText)
                 .font(.system(.callout, design: .rounded))
                 .fontWeight(.bold)
                 .foregroundColor(.primary)
+                .bodyLegendNumberFlip(value: percentText)
                 .frame(width: percentColumnWidth, alignment: .trailing)
 
-            Text(BodyValueFormat.durationText(for: restorativeDuration))
+            Text(durationText)
                 .font(.system(.callout, design: .rounded))
                 .fontWeight(.bold)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
+                .bodyLegendNumberFlip(value: durationText)
                 .frame(width: durationColumnWidth, alignment: .trailing)
         }
     }
@@ -659,6 +663,8 @@ struct BodySleepStageOptimalRangeChart: View {
     private func row(for stage: SleepStage) -> some View {
         let stageDuration = snapshot.duration(for: stage)
         let fraction = totalDuration > 0 ? stageDuration / totalDuration : 0
+        let percentText = percentText(for: fraction)
+        let durationText = BodyValueFormat.durationText(for: stageDuration)
 
         return HStack(spacing: columnSpacing) {
             Text(stage.barChartLabel)
@@ -673,20 +679,26 @@ struct BodySleepStageOptimalRangeChart: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: trackHeight)
 
-            Text("\(Int((fraction * 100).rounded()))%")
+            Text(percentText)
                 .font(.system(.callout, design: .rounded))
                 .fontWeight(.bold)
                 .foregroundColor(.primary)
+                .bodyLegendNumberFlip(value: percentText)
                 .frame(width: percentColumnWidth, alignment: .trailing)
 
-            Text(BodyValueFormat.durationText(for: stageDuration))
+            Text(durationText)
                 .font(.system(.callout, design: .rounded))
                 .fontWeight(.bold)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
+                .bodyLegendNumberFlip(value: durationText)
                 .frame(width: durationColumnWidth, alignment: .trailing)
         }
+    }
+
+    private func percentText(for fraction: Double) -> String {
+        "\(Int((fraction * 100).rounded()))%"
     }
 
     private func track(fraction: Double, color: Color, range: ClosedRange<Double>) -> some View {

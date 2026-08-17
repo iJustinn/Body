@@ -121,6 +121,32 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     let swimmingStrokeCount: Double?
     let cardioFitnessVO2Max: Double?
     let sourceName: String
+    /// HealthKit's authoritative end. `duration` excludes paused time, so
+    /// `startDate + duration` can land before the workout really ended; optional
+    /// so snapshots persisted before it was recorded decode `nil`.
+    let endDate: Date?
+    /// Weather the watch recorded with the workout (`HKMetadataKeyWeatherTemperature`),
+    /// in °C. Workout metadata rather than a separate sample type, so it rides the
+    /// Workouts permission and isn't cleared by `removingWorkoutMetrics()`.
+    let weatherTemperatureCelsius: Double?
+    /// Recorded relative humidity as a percentage (0…100); HealthKit stores it as a
+    /// 0…1 fraction.
+    let weatherHumidityPercent: Double?
+    /// `HKMetadataKeyAverageMETs` in kcal/(kg·hr) — the workout's average metabolic
+    /// equivalent.
+    let averageMETs: Double?
+    /// The workout's 1-minute heart-rate recovery in BPM, read from the statistics
+    /// already attached to the `HKWorkout` (no extra query). Optional so snapshots
+    /// persisted before it existed decode `nil`, and so a workout whose recovery
+    /// sample hasn't synced yet falls back to the detail sheet's lazy read. Rides
+    /// the Heart permission like the other heart fields.
+    let heartRateRecoveryBPM: Double?
+
+    /// The workout's end for interval maths: HealthKit's `endDate` when recorded,
+    /// otherwise the pre-existing `startDate + duration` approximation.
+    var effectiveEndDate: Date {
+        endDate ?? startDate.addingTimeInterval(max(0, duration))
+    }
 
     init(
         id: UUID = UUID(),
@@ -141,7 +167,12 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         averageCyclingCadenceRPM: Double? = nil,
         swimmingStrokeCount: Double? = nil,
         cardioFitnessVO2Max: Double? = nil,
-        sourceName: String = "Apple Health"
+        sourceName: String = "Apple Health",
+        endDate: Date? = nil,
+        weatherTemperatureCelsius: Double? = nil,
+        weatherHumidityPercent: Double? = nil,
+        averageMETs: Double? = nil,
+        heartRateRecoveryBPM: Double? = nil
     ) {
         self.id = id
         self.type = type
@@ -162,6 +193,11 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         self.swimmingStrokeCount = swimmingStrokeCount
         self.cardioFitnessVO2Max = cardioFitnessVO2Max
         self.sourceName = sourceName
+        self.endDate = endDate
+        self.weatherTemperatureCelsius = weatherTemperatureCelsius
+        self.weatherHumidityPercent = weatherHumidityPercent
+        self.averageMETs = averageMETs
+        self.heartRateRecoveryBPM = heartRateRecoveryBPM
     }
 
     /// A copy with the Workout Metrics detail fields cleared — used when the user
@@ -189,7 +225,47 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
             averageCyclingCadenceRPM: nil,
             swimmingStrokeCount: nil,
             cardioFitnessVO2Max: nil,
-            sourceName: sourceName
+            sourceName: sourceName,
+            endDate: endDate,
+            // Weather and METs are workout metadata, not Workout Metrics samples —
+            // they ride the Workouts permission and survive the opt-out.
+            weatherTemperatureCelsius: weatherTemperatureCelsius,
+            weatherHumidityPercent: weatherHumidityPercent,
+            averageMETs: averageMETs,
+            // Heart-rate recovery rides the Heart permission, not Workout Metrics.
+            heartRateRecoveryBPM: heartRateRecoveryBPM
+        )
+    }
+
+    /// A copy with heart-rate recovery cleared — used when the user disables the
+    /// `.heart` permission so an already-cached summary stops surfacing the tile
+    /// (and its comparison) before the next refetch. Everything else is preserved.
+    func removingHeartRateRecovery() -> WorkoutSummary {
+        WorkoutSummary(
+            id: id,
+            type: type,
+            startDate: startDate,
+            duration: duration,
+            activeEnergyKilocalories: activeEnergyKilocalories,
+            totalEnergyKilocalories: totalEnergyKilocalories,
+            distanceMeters: distanceMeters,
+            averageHeartRateBeatsPerMinute: averageHeartRateBeatsPerMinute,
+            maximumHeartRateBeatsPerMinute: maximumHeartRateBeatsPerMinute,
+            effortLevel: effortLevel,
+            effortUnresolved: effortUnresolved,
+            heartRateSamples: heartRateSamples ?? [],
+            elevationAscendedMeters: elevationAscendedMeters,
+            averagePowerWatts: averagePowerWatts,
+            averageStepCadenceSPM: averageStepCadenceSPM,
+            averageCyclingCadenceRPM: averageCyclingCadenceRPM,
+            swimmingStrokeCount: swimmingStrokeCount,
+            cardioFitnessVO2Max: cardioFitnessVO2Max,
+            sourceName: sourceName,
+            endDate: endDate,
+            weatherTemperatureCelsius: weatherTemperatureCelsius,
+            weatherHumidityPercent: weatherHumidityPercent,
+            averageMETs: averageMETs,
+            heartRateRecoveryBPM: nil
         )
     }
 }
@@ -210,6 +286,9 @@ struct WorkoutDetailMetric: Equatable {
         case power
         case cardioFitness
         case strokeCount
+        case humidity
+        case averageMETs
+        case heartRateRecovery
     }
 
     let kind: Kind
@@ -228,10 +307,24 @@ struct WorkoutDetailMetric: Equatable {
 /// A compact comparison badge shown above a metric's unit. `badgeText` is the visual
 /// token (e.g. "↑12%", "↓3%", "≈0%"); `accessibilityLabel` is the spoken VoiceOver form
 /// so the arrow glyph isn't read literally. The "vs 30-day avg" frame lives once in the
-/// section header, not in every badge.
+/// section header, not in every badge. `badgeText` may also be a "0%" stand-in — see
+/// `WorkoutMetricComparisonBuilder.placeholder(for:availability:current:locale:)` — whose
+/// spoken form says why there is no number yet.
 struct WorkoutMetricComparison: Equatable {
     let badgeText: String
     let accessibilityLabel: String
+}
+
+/// What the "Details" card's comparison legend says, and whether its tiles carry
+/// measured percentages or "0%" stand-ins. Held once per card rather than derived per
+/// tile, so the legend never disagrees with the badges under it.
+enum WorkoutMetricComparisonAvailability: Equatable {
+    /// At least one metric has a measured delta.
+    case ready
+    /// A spanned month is still loading, so the numbers are on their way.
+    case calculating
+    /// The window loaded (or gave up) with too little history to compare against.
+    case insufficientHistory
 }
 
 /// Builds the "↑ 12% vs 30-day avg" caption for a single detail metric against the
@@ -292,6 +385,69 @@ enum WorkoutMetricComparisonBuilder {
         return caption(current: currentScalar, baseline: baseline, locale: locale)
     }
 
+    // MARK: - Availability
+
+    /// The card-level state behind the legend beside "Details", or nil when this
+    /// workout has no comparable metric at all (a strength session whose every tile
+    /// reads "No Data" gets no legend and no stand-ins, exactly as before).
+    ///
+    /// `isSettled` is what stops "Calculating" from lasting forever: `isComplete` can
+    /// never turn true when the months simply cannot load — Workouts permission off,
+    /// Apple Health unavailable, a failed month fetch — so once the caller has awaited
+    /// the load, an incomplete window means there is nothing more coming.
+    static func availability(
+        for kinds: [WorkoutDetailMetric.Kind],
+        current: WorkoutSummary,
+        hasComparison: Bool,
+        isComplete: Bool,
+        isSettled: Bool
+    ) -> WorkoutMetricComparisonAvailability? {
+        guard kinds.contains(where: { scalar(for: $0, from: current) != nil }) else {
+            return nil
+        }
+
+        if hasComparison {
+            return .ready
+        }
+
+        return isComplete || isSettled ? .insufficientHistory : .calculating
+    }
+
+    /// The "0%" stand-in for a metric with no measured delta. It is a real badge rather
+    /// than an absence so the digits can roll over in place when the measurement lands —
+    /// a badge that appears from nothing can only pop.
+    ///
+    /// Gated on the same display scalar the baseline uses, so a tile that has no value
+    /// of its own never sprouts a 0% claiming it matched the average.
+    ///
+    /// Only while `.calculating`. The stand-in exists so digits can roll into place when
+    /// a measurement lands — once loading has settled there is no measurement coming, so
+    /// a "0%" would be a synthetic number presented as a result. That applies to both
+    /// settled states: under `.ready` the legend reads "vs 30-day avg" and the zero looks
+    /// measured, and under `.insufficientHistory` there is nothing left to roll into.
+    static func placeholder(
+        for kind: WorkoutDetailMetric.Kind,
+        availability: WorkoutMetricComparisonAvailability?,
+        current: WorkoutSummary,
+        locale: Locale
+    ) -> WorkoutMetricComparison? {
+        guard availability == .calculating, scalar(for: kind, from: current) != nil else {
+            return nil
+        }
+
+        let accessibilityLabel = String(
+            localized: "Calculating the 30-day comparison",
+            table: "BodyMetricsKit"
+        )
+
+        return WorkoutMetricComparison(
+            // Localized digits, so the stand-in matches the shape of the number that
+            // replaces it (Arabic/Hindi digits included).
+            badgeText: "\(BodyValueFormat.numberText(0, decimals: 0, locale: locale))%",
+            accessibilityLabel: accessibilityLabel
+        )
+    }
+
     // MARK: - Scalars
 
     /// The comparable scalar for a metric, or nil when the metric would read as absent
@@ -310,6 +466,12 @@ enum WorkoutMetricComparisonBuilder {
         case .power: return positive(workout.averagePowerWatts)
         case .cardioFitness: return positive(workout.cardioFitnessVO2Max)
         case .strokeCount: return positive(workout.swimmingStrokeCount)
+        // Humidity is a 0…100 percentage where zero is a real reading, so it uses
+        // the bounded helper rather than the positive-only one; METs and recovery
+        // are positive-only like the performance metrics above.
+        case .humidity: return bounded(workout.weatherHumidityPercent, to: 0...100)
+        case .averageMETs: return positive(workout.averageMETs)
+        case .heartRateRecovery: return positive(workout.heartRateRecoveryBPM)
         case .pace, .swimPace, .speed:
             guard let distance = workout.distanceMeters,
                   distance >= distanceFloor(for: kind),
@@ -378,6 +540,13 @@ enum WorkoutMetricComparisonBuilder {
 
     private static func positive(_ value: Double?) -> Double? {
         guard let value, value.isFinite, value > 0 else { return nil }
+        return value
+    }
+
+    /// A finite value inside `range`, zero included — for metrics whose zero is a
+    /// measurement rather than an absence (humidity).
+    private static func bounded(_ value: Double?, to range: ClosedRange<Double>) -> Double? {
+        guard let value, value.isFinite, range.contains(value) else { return nil }
         return value
     }
 
@@ -472,6 +641,12 @@ struct WorkoutEffortPresentation: Equatable {
 struct WorkoutDetailPresentation: Equatable {
     let title: String
     let dateTitle: String
+    /// The start time alone — what the detail page's header shows.
+    let startTimeText: String
+    /// Date, weekday and start time on one line — the detail page's hero row,
+    /// e.g. "Nov 14, Fri, 9:41 AM".
+    let heroDateLineText: String
+    /// Start-end, still used by the share card.
     let timeRangeText: String
     let durationClockText: String
     let compactDurationText: String
@@ -484,6 +659,10 @@ struct WorkoutDetailPresentation: Equatable {
     let effortText: String
     let effortPresentation: WorkoutEffortPresentation?
     let detailMetrics: [WorkoutDetailMetric]
+    /// Drives the legend beside the "Details" heading. nil when the comparison feature
+    /// is off (previews, the share card) or nothing about this workout is comparable,
+    /// so those keep showing no legend at all.
+    let comparisonAvailability: WorkoutMetricComparisonAvailability?
     let heartRateSamples: [WorkoutHeartRateSample]
     let sourceText: String
 
@@ -496,7 +675,8 @@ struct WorkoutDetailPresentation: Equatable {
         distanceUnitPreference: BodyValueFormat.DistanceUnitPreference? = nil,
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories,
         comparisonWorkouts: [WorkoutSummary]? = nil,
-        comparisonDataComplete: Bool = true
+        comparisonDataComplete: Bool = true,
+        comparisonLoadSettled: Bool = true
     ) {
         let endDate = workout.startDate.addingTimeInterval(max(0, workout.duration))
 
@@ -508,14 +688,32 @@ struct WorkoutDetailPresentation: Equatable {
             locale: locale,
             timeZone: timeZone
         )
-        timeRangeText = [
+        startTimeText = Self.formattedDate(
+            workout.startDate,
+            template: "jm",
+            calendar: calendar,
+            locale: locale,
+            timeZone: timeZone
+        )
+        heroDateLineText = [
             Self.formattedDate(
                 workout.startDate,
-                template: "jm",
+                template: "MMMd",
                 calendar: calendar,
                 locale: locale,
                 timeZone: timeZone
             ),
+            Self.formattedDate(
+                workout.startDate,
+                template: "EEE",
+                calendar: calendar,
+                locale: locale,
+                timeZone: timeZone
+            ),
+            startTimeText
+        ].joined(separator: ", ")
+        timeRangeText = [
+            startTimeText,
             Self.formattedDate(
                 endDate,
                 template: "jm",
@@ -658,8 +856,8 @@ struct WorkoutDetailPresentation: Equatable {
             ))
         }
 
-        metrics.append(WorkoutDetailMetric(kind: .activeEnergy, title: String(localized: "Active \(energyUnitPreference.detailTitleUnit)", table: "BodyMetricsKit"), value: activeEnergyText ?? String(localized: "No Data", table: "BodyMetricsKit")))
-        metrics.append(WorkoutDetailMetric(kind: .totalEnergy, title: String(localized: "Total \(energyUnitPreference.detailTitleUnit)", table: "BodyMetricsKit"), value: totalEnergyText ?? String(localized: "No Data", table: "BodyMetricsKit")))
+        metrics.append(WorkoutDetailMetric(kind: .activeEnergy, title: String(localized: "Active \(energyUnitPreference.unitLabel)", table: "BodyMetricsKit"), value: activeEnergyText ?? String(localized: "No Data", table: "BodyMetricsKit")))
+        metrics.append(WorkoutDetailMetric(kind: .totalEnergy, title: String(localized: "Total \(energyUnitPreference.unitLabel)", table: "BodyMetricsKit"), value: totalEnergyText ?? String(localized: "No Data", table: "BodyMetricsKit")))
         metrics.append(WorkoutDetailMetric(kind: .avgHeartRate, title: String(localized: "Avg Heart Rate", table: "BodyMetricsKit"), value: averageHeartRateText ?? String(localized: "No Data", table: "BodyMetricsKit")))
         if let maxHeartRate = workout.maximumHeartRateBeatsPerMinute {
             metrics.append(WorkoutDetailMetric(
@@ -674,14 +872,14 @@ struct WorkoutDetailPresentation: Equatable {
             metrics.append(WorkoutDetailMetric(
                 kind: .stepCadence,
                 title: String(localized: "Step Cadence", table: "BodyMetricsKit"),
-                value: BodyValueFormat.cadenceText(stepCadence, unit: "SPM", locale: locale)
+                value: BodyValueFormat.cadenceText(stepCadence, unit: "spm", locale: locale)
             ))
         }
         if let cyclingCadence = workout.averageCyclingCadenceRPM, cyclingCadence > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .cyclingCadence,
                 title: String(localized: "Cycling Cadence", table: "BodyMetricsKit"),
-                value: BodyValueFormat.cadenceText(cyclingCadence, unit: "RPM", locale: locale)
+                value: BodyValueFormat.cadenceText(cyclingCadence, unit: "rpm", locale: locale)
             ))
         }
         if let power = workout.averagePowerWatts, power > 0 {
@@ -706,26 +904,84 @@ struct WorkoutDetailPresentation: Equatable {
             ))
         }
 
+        // Session context the watch recorded alongside the workout. Weather and METs
+        // come from workout metadata, so they show whenever the recording source
+        // saved them — no Workout Metrics opt-in involved.
+        if let humidity = workout.weatherHumidityPercent, humidity.isFinite {
+            metrics.append(WorkoutDetailMetric(
+                kind: .humidity,
+                title: String(localized: "Humidity", table: "BodyMetricsKit"),
+                value: BodyValueFormat.numberText(humidity.rounded(), decimals: 0, locale: locale) + " %"
+            ))
+        }
+        if let averageMETs = workout.averageMETs, averageMETs > 0 {
+            metrics.append(WorkoutDetailMetric(
+                kind: .averageMETs,
+                title: String(localized: "Avg METs", table: "BodyMetricsKit"),
+                value: BodyValueFormat.numberText(averageMETs, decimals: 1, locale: locale) + " METs"
+            ))
+        }
+
+        // Recovery straight from the workout's attached statistics. When it's absent
+        // here (not synced yet, or no attached statistics) the detail sheet appends
+        // the same tile from its lazy read instead — never both.
+        if let recovery = workout.heartRateRecoveryBPM, recovery > 0 {
+            metrics.append(Self.heartRateRecoveryMetric(bpm: recovery, locale: locale))
+        }
+
         // Attach the 30-day comparison caption to each metric when comparison data was
         // provided (nil == feature off, so existing callers/previews are unchanged).
         if let comparisonWorkouts {
-            metrics = metrics.map { metric in
+            let comparisons = metrics.map { metric in
+                WorkoutMetricComparisonBuilder.comparison(
+                    for: metric.kind,
+                    current: workout,
+                    priors: comparisonWorkouts,
+                    isComplete: comparisonDataComplete,
+                    locale: locale
+                )
+            }
+            let availability = WorkoutMetricComparisonBuilder.availability(
+                for: metrics.map(\.kind),
+                current: workout,
+                hasComparison: comparisons.contains { $0 != nil },
+                isComplete: comparisonDataComplete,
+                isSettled: comparisonLoadSettled
+            )
+
+            metrics = zip(metrics, comparisons).map { metric, comparison in
                 WorkoutDetailMetric(
                     kind: metric.kind,
                     title: metric.title,
                     value: metric.value,
-                    comparison: WorkoutMetricComparisonBuilder.comparison(
+                    // Every comparable tile keeps a badge in every state — a measured
+                    // delta, or the "0%" stand-in — so the number rolls into place when
+                    // the history lands rather than popping in.
+                    comparison: comparison ?? WorkoutMetricComparisonBuilder.placeholder(
                         for: metric.kind,
+                        availability: availability,
                         current: workout,
-                        priors: comparisonWorkouts,
-                        isComplete: comparisonDataComplete,
                         locale: locale
                     )
                 )
             }
+            comparisonAvailability = availability
+        } else {
+            comparisonAvailability = nil
         }
 
         detailMetrics = metrics
+    }
+
+    /// The 1-minute heart-rate recovery tile. Built separately from `init` because
+    /// the value is a follow-up HealthKit read (gated on the Heart permission), not
+    /// part of the workout summary — the detail sheet appends it once it lands.
+    static func heartRateRecoveryMetric(bpm: Double, locale: Locale = .current) -> WorkoutDetailMetric {
+        WorkoutDetailMetric(
+            kind: .heartRateRecovery,
+            title: String(localized: "HR Recovery", table: "BodyMetricsKit"),
+            value: BodyValueFormat.heartRateText(beatsPerMinute: bpm, locale: locale)
+        )
     }
 
     private static func formattedDate(
@@ -893,15 +1149,6 @@ enum BodyValueFormat {
             }
         }
 
-        var detailTitleUnit: String {
-            switch self {
-            case .kilocalories:
-                return "Kcal"
-            case .kilojoules:
-                return "kJ"
-            }
-        }
-
         static let defaultValue: EnergyUnitPreference = .kilocalories
 
         static func storedValue(from rawValue: String) -> EnergyUnitPreference {
@@ -971,6 +1218,18 @@ enum BodyValueFormat {
         }
 
         return "\(minutes):\(String(format: "%02d", seconds))"
+    }
+
+    /// Elapsed time as a fixed-width `HH:mm:ss` clock (`00:30:31`, `01:01:02`),
+    /// for chart axes where labels must stay the same width regardless of length.
+    static func paddedStopwatchDurationText(for duration: TimeInterval) -> String {
+        let totalSeconds = max(0, Int(duration.rounded()))
+        return String(
+            format: "%02d:%02d:%02d",
+            totalSeconds / 3_600,
+            (totalSeconds % 3_600) / 60,
+            totalSeconds % 60
+        )
     }
 
     private static func durationText(minutes: Int) -> String {
@@ -1144,7 +1403,7 @@ enum BodyValueFormat {
         numberText(watts.rounded(), decimals: 0, locale: locale) + " W"
     }
 
-    /// Cadence with an activity-specific unit ("SPM" for foot, "RPM" for cycling).
+    /// Cadence with an activity-specific unit ("spm" for foot, "rpm" for cycling).
     static func cadenceText(_ cadence: Double, unit: String, locale: Locale = .current) -> String {
         numberText(cadence.rounded(), decimals: 0, locale: locale) + " " + unit
     }
@@ -1187,7 +1446,7 @@ enum BodyValueFormat {
     }
 
     static func heartRateText(beatsPerMinute: Double, locale: Locale = .current) -> String {
-        numberText(beatsPerMinute.rounded(), decimals: 0, locale: locale) + " BPM"
+        numberText(beatsPerMinute.rounded(), decimals: 0, locale: locale) + " bpm"
     }
 
     static func respiratoryRateText(breathsPerMinute: Double, locale: Locale = .current) -> String {
@@ -1241,6 +1500,30 @@ enum BodyValueFormat {
         }
 
         return (celsius, "C")
+    }
+
+    /// The workout hero line's temperature, e.g. "21°C" / "70°F" — whole degrees, no
+    /// space before the degree sign (the hero row is tight). `nil` for a non-finite
+    /// reading so the row is simply omitted.
+    static func temperatureHeroText(
+        celsius: Double,
+        locale: Locale = .current,
+        temperatureUnitPreference: TemperatureUnitPreference
+    ) -> String? {
+        guard celsius.isFinite else {
+            return nil
+        }
+
+        let display = temperatureValue(
+            celsius: celsius,
+            locale: locale,
+            temperatureUnitPreference: temperatureUnitPreference
+        )
+        let rounded = display.value.rounded()
+        // `-0.4` rounds to negative zero, which formats as "-0"; a temperature at
+        // freezing reads "0°C".
+        let normalized = rounded == 0 ? 0 : rounded
+        return "\(numberText(normalized, decimals: 0, locale: locale))°\(display.unit)"
     }
 
     static func numberText(_ value: Double, decimals: Int, locale: Locale = .current) -> String {

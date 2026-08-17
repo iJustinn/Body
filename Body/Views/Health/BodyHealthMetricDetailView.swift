@@ -28,6 +28,13 @@ struct BodyHealthMetricDetailModel {
     /// Live training-load ratio behind `value`, unformatted — the About your interval
     /// card marks the band it falls in while nothing is scrubbed.
     let trainingLoadValue: Double?
+    /// Live VO₂ max behind `value`, unformatted — the About your level card marks
+    /// the level it falls in while nothing is scrubbed.
+    let cardioFitnessValue: Double?
+    /// Age + sex the cardio fitness levels are indexed by. `nil` leaves every
+    /// level unclassified: rows render without their VO₂ spans and nothing is
+    /// marked current.
+    let cardioFitnessProfile: CardioFitnessProfile?
     let chartStyle: BodyHealthMetricChartStyle
     let highlightedRange: BodyHealthMetricTrendHighlightedRange?
     let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?
@@ -65,6 +72,8 @@ struct BodyHealthMetricDetailModel {
         secondaryValueFormatter: ((Double) -> String)?,
         readiness: ReadinessSummary? = nil,
         trainingLoadValue: Double? = nil,
+        cardioFitnessValue: Double? = nil,
+        cardioFitnessProfile: CardioFitnessProfile? = nil,
         sourceComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
         sourceRangeComparisonTrend: BodyHealthSourceRangeComparisonTrend? = nil,
         sourceLineComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
@@ -91,6 +100,8 @@ struct BodyHealthMetricDetailModel {
         self.sleepHistorySecondary = sleepHistorySecondary
         self.readiness = readiness
         self.trainingLoadValue = trainingLoadValue
+        self.cardioFitnessValue = cardioFitnessValue
+        self.cardioFitnessProfile = cardioFitnessProfile
         self.chartStyle = chartStyle
         self.highlightedRange = highlightedRange
         self.highlightedRangeResolver = highlightedRangeResolver
@@ -397,6 +408,8 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = true
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.metricWarningThresholdsKey) private var metricWarningThresholdsRawValue = BodyMetricWarningThresholds.defaultRawValue
     @State private var selectedTrendRangeSelection: BodyHealthTrendRange
     @State private var showBodyProPaywall = false
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
@@ -407,6 +420,9 @@ struct BodyHealthMetricDetailView: View {
     @State private var showsAddMeasurementSheet = false
     @State private var activeReadinessTrendValue: Double?
     @State private var activeTrainingLoadTrendValue: Double?
+    @State private var activeCardioFitnessTrendValue: Double?
+    /// 220 − age, for the high heart rate warning's zone-3 default threshold.
+    @State private var resolvedMaxHeartRate: Double?
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     @StateObject private var daySeriesCache = BodyMetricDaySeriesCache()
     @StateObject private var sleepConsistencyCache = BodySleepConsistencyChartCache()
@@ -481,15 +497,33 @@ struct BodyHealthMetricDetailView: View {
         .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
             Task { await workoutStore.refreshHealthMetric(model.kind) }
         }
-        .task {
+        // Keyed on entitlement, not bare: the Body Pro paywall is a sheet presented
+        // from this very view (`showBodyProPaywall`), so buying or restoring leaves
+        // this view mounted and a bare `.task` would never re-run. The entitlement
+        // handler deliberately empties the comparison day samples on any flip, so
+        // without this the paid comparison line stays missing until the user leaves
+        // and reopens the detail. Re-running here pulls the full window (an empty
+        // cache has no incremental anchor). The flip also re-runs this on a lapse,
+        // which is what clears the line in place.
+        .task(id: isBodyProUnlocked) {
             await workoutStore.loadIntradayMetricSamplesIfNeeded(model.kind)
         }
+        // Re-keyed on the permission selection so the anchor re-resolves when Date of
+        // Birth toggles: out of scope, `userMaxHeartRate()` returns nil and the high
+        // heart rate warning falls back to its fixed default.
+        .task(id: workoutStore.permissionSelection.rawValue) {
+            // Only the high heart rate warning's default tracks max HR.
+            guard model.kind == .heartRate else { return }
+            resolvedMaxHeartRate = await workoutStore.userMaxHeartRate()
+        }
         .task(id: selectedMetricDay) {
-            // The readiness day view derives its line from workouts, which live in
-            // month snapshots grouped by start-date month — an older picker day (or a
-            // midnight-spanning workout from the day before) can sit in an unloaded
-            // month. `loadMonthIfNeeded` is a cached no-op once the month is in.
-            guard model.kind == .readiness else { return }
+            // The readiness day view derives its line from workouts, and the heart
+            // rate day view excludes workout samples from the high heart rate
+            // warning. Workouts live in month snapshots grouped by start-date month —
+            // an older picker day (or a midnight-spanning workout from the day
+            // before) can sit in an unloaded month. `loadMonthIfNeeded` is a cached
+            // no-op once the month is in.
+            guard model.kind == .readiness || model.kind == .heartRate else { return }
             let calendar = Calendar.bodyGregorian
             let dayStart = calendar.startOfDay(for: selectedMetricDay)
             let previousDay = calendar.date(byAdding: .day, value: -1, to: dayStart) ?? dayStart
@@ -520,6 +554,11 @@ struct BodyHealthMetricDetailView: View {
             // instance before it can report the selection ending. The reporter's
             // `.onDisappear` clears too, but this exact stale-callout bug happened once —
             // keep the belt-and-braces reset.
+            floatingCallout?.callout = nil
+        }
+        .onChange(of: selectedMetricDay) { _, _ in
+            // The warning cards are not keyed by day, so a day switch mid-scrub swaps
+            // their samples without the reporter's `.onDisappear` firing.
             floatingCallout?.callout = nil
         }
         .tint(model.symbolColor)
@@ -672,6 +711,7 @@ struct BodyHealthMetricDetailView: View {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
+             .cardioFitness,
              .vitals:
             return false
         }
@@ -723,6 +763,51 @@ struct BodyHealthMetricDetailView: View {
         return TrainingLoadInterval.interval(for: model.trainingLoadValue)
     }
 
+    /// The profile only when the norm tables actually cover it. A missing profile
+    /// and an age outside 20...79 both leave every level unclassified, and the
+    /// level card treats them identically.
+    private var classifiableCardioFitnessProfile: CardioFitnessProfile? {
+        guard let profile = model.cardioFitnessProfile,
+              CardioFitnessLevel.cutoffs(for: profile) != nil else {
+            return nil
+        }
+
+        return profile
+    }
+
+    /// Every cardio fitness level boundary, so the chart's Y domain spans all
+    /// four bands in every range. Without it each range scales to whatever it
+    /// happened to contain, and the same reading sits at a different height from
+    /// one range to the next — which is exactly what a level chart shouldn't do.
+    /// Empty for every other metric, and when the profile can't be classified.
+    private var cardioFitnessLevelDomainValues: [Double] {
+        guard model.kind == .cardioFitness,
+              let profile = classifiableCardioFitnessProfile,
+              let cutoffs = CardioFitnessLevel.cutoffs(for: profile) else {
+            return []
+        }
+
+        return [cutoffs.p20, cutoffs.p50, cutoffs.p75]
+    }
+
+    private var activeCardioFitnessLevel: CardioFitnessLevel? {
+        guard model.kind == .cardioFitness else {
+            return nil
+        }
+
+        if let activeCardioFitnessTrendValue, activeCardioFitnessTrendValue.isFinite {
+            return CardioFitnessLevel.level(
+                for: activeCardioFitnessTrendValue,
+                profile: model.cardioFitnessProfile
+            )
+        }
+
+        return CardioFitnessLevel.level(
+            for: model.cardioFitnessValue,
+            profile: model.cardioFitnessProfile
+        )
+    }
+
     /// Scrub report-out channel for the metrics whose About card marks the band the
     /// touched point falls in; other metrics don't track it.
     private var activeTrendValueBinding: Binding<Double?>? {
@@ -731,6 +816,8 @@ struct BodyHealthMetricDetailView: View {
             return $activeReadinessTrendValue
         case .trainingLoad:
             return $activeTrainingLoadTrendValue
+        case .cardioFitness:
+            return $activeCardioFitnessTrendValue
         default:
             return nil
         }
@@ -756,18 +843,19 @@ struct BodyHealthMetricDetailView: View {
     private var selectedReadinessMorningScore: Int? {
         let calendar = Calendar.bodyGregorian
         let day = selectedMetricDay
-        if let entry = workoutStore.healthTrends.recordedReadiness
-            .first(where: { calendar.isDate($0.date, inSameDayAs: day) }) {
-            return entry.score
-        }
-        if let point = workoutStore.healthTrends.readiness.points
-            .first(where: { calendar.isDate($0.date, inSameDayAs: day) && $0.value.isFinite }) {
-            return Int(point.value.rounded())
-        }
-        if calendar.isDateInToday(day), let readiness = model.readiness {
-            return readiness.activityDrainMorningScore ?? readiness.score
-        }
-        return nil
+        let recordedScore = workoutStore.healthTrends.recordedReadiness
+            .first(where: { calendar.isDate($0.date, inSameDayAs: day) })?
+            .score
+        let trendValue = workoutStore.healthTrends.readiness.points
+            .first(where: { calendar.isDate($0.date, inSameDayAs: day) && $0.value.isFinite })?
+            .value
+
+        return ReadinessDayTimeline.morningScore(
+            isToday: calendar.isDateInToday(day),
+            liveReadiness: model.readiness,
+            recordedScore: recordedScore,
+            trendValue: trendValue
+        )
     }
 
     private var selectedReadinessDayTimeline: ReadinessDayTimeline? {
@@ -775,10 +863,28 @@ struct BodyHealthMetricDetailView: View {
             return nil
         }
 
+        // Today follows the live tile's window (the wake cycle, including a
+        // carried-in pre-day workout); past days use the frozen record's
+        // calendar-day window. Workout context shading stays calendar-day based
+        // (it shows the day's workouts, which is correct for shading).
+        let dayInterval = selectedMetricDayInterval
+        let workouts: [WorkoutSummary]
+        if Calendar.bodyGregorian.isDateInToday(selectedMetricDay) {
+            let now = Date()
+            workouts = ReadinessComputeSupport.wakeCycleWorkouts(
+                from: allCachedWorkouts,
+                now: now,
+                sleepEnd: workoutStore.healthSummary.sleep.stageSnapshot.dateInterval?.end,
+                calendar: .bodyGregorian
+            )
+        } else {
+            workouts = self.workouts(on: dayInterval)
+        }
+
         return ReadinessDayTimeline.make(
             morningScore: morningScore,
-            workouts: workouts(on: selectedMetricDayInterval),
-            dayInterval: selectedMetricDayInterval
+            workouts: workouts,
+            dayInterval: dayInterval
         )
     }
 
@@ -790,6 +896,40 @@ struct BodyHealthMetricDetailView: View {
         }
 
         return daySeriesCache.daySeries(from: liveSecondaryDaySeries, on: selectedMetricDay, slot: .secondary)
+    }
+
+    private var selectedMetricWarnings: [MetricWarningEvent] {
+        let selection = BodyMetricWarningSelection.storedValue(from: metricWarningSelectionRawValue)
+        // Kinds that exclude in-workout readings need workout coverage; with the
+        // Workouts permission off the cached workouts are cleared, so an empty
+        // exclusion list would misreport workout heart rate as an inactive high.
+        let hasWorkoutCoverage = workoutStore.permissionSelection.includes(.workouts)
+        let kinds = MetricThresholdWarning.kinds(for: model.kind).filter {
+            selection.includes($0) && (!$0.excludesWorkouts || hasWorkoutCoverage)
+        }
+        guard !kinds.isEmpty else {
+            return []
+        }
+
+        // Apple's high heart rate notification only counts inactive readings, so
+        // the day's workouts are dropped from the samples for those kinds.
+        let workoutIntervals: [DateInterval] = kinds.contains(where: \.excludesWorkouts)
+            ? workouts(on: selectedMetricDayInterval).map { workout in
+                MetricThresholdWarning.workoutExclusionInterval(start: workout.startDate, end: workout.effectiveEndDate)
+            }
+            : []
+
+        let thresholds = BodyMetricWarningThresholds.storedValue(from: metricWarningThresholdsRawValue)
+
+        return kinds.compactMap { kind in
+            MetricThresholdWarning.detect(
+                kind,
+                in: selectedMetricDaySeries,
+                on: selectedMetricDay,
+                threshold: thresholds.threshold(for: kind, maxHeartRate: resolvedMaxHeartRate),
+                excluding: kind.excludesWorkouts ? workoutIntervals : []
+            )
+        }
     }
 
     private var selectedMetricActivityAverages: [BodyMetricActivityAverage] {
@@ -1008,6 +1148,88 @@ struct BodyHealthMetricDetailView: View {
                 }
 
                 Text(interval.explanation)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func cardioFitnessLevelCard(activeLevel: CardioFitnessLevel?) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("About your level")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+
+            // Without a classifiable profile the rows carry no VO₂ spans, so say
+            // why here rather than leaving four unexplained bare titles.
+            if classifiableCardioFitnessProfile == nil {
+                Text("Levels compare you against people of the same age and sex. Add your date of birth and sex in the Health app to see yours. Levels are available from age 20 through 79.")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(CardioFitnessLevel.displayOrder, id: \.self) { level in
+                    cardioFitnessLevelExplanationRow(
+                        level: level,
+                        isCurrent: activeLevel == level
+                    )
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(translucent: true)
+    }
+
+    private func cardioFitnessLevelExplanationRow(level: CardioFitnessLevel, isCurrent: Bool) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(BodyCardioFitnessLevelPresentation.color(for: level))
+                .frame(width: 4)
+                .padding(.vertical, 3)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(level.title)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+
+                    // Absent whenever the profile can't be classified; the note
+                    // above the rows explains the gap.
+                    if let profile = classifiableCardioFitnessProfile,
+                       let rangeText = CardioFitnessLevel.rangeText(for: level, profile: profile) {
+                        Text(rangeText)
+                            .font(.system(.subheadline, design: .monospaced))
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BodyCardioFitnessLevelPresentation.color(for: level))
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+
+                    if isCurrent {
+                        Text("Current")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(BodyCardioFitnessLevelPresentation.color(for: level))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                BodyCardioFitnessLevelPresentation.color(for: level)
+                                    .opacity(0.14),
+                                in: Capsule()
+                            )
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+
+                Text(level.explanation)
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.medium)
                     .foregroundColor(.secondary)
@@ -1271,9 +1493,11 @@ struct BodyHealthMetricDetailView: View {
                 metricDatePicker
                 metricDayChartCard
                 metricActivityAveragesCard
+                metricWarningCards
                 detailTrendComparisonCard
             } else {
                 detailTrendComparisonCard
+                metricWarningCards
             }
             if isBasicsDetail {
                 bodyMassIndexTrendCard
@@ -1285,6 +1509,9 @@ struct BodyHealthMetricDetailView: View {
             }
             if model.kind == .trainingLoad {
                 trainingLoadIntervalCard(activeInterval: activeTrainingLoadInterval)
+            }
+            if model.kind == .cardioFitness {
+                cardioFitnessLevelCard(activeLevel: activeCardioFitnessLevel)
             }
             helpTextCard
             dataSourceFooter
@@ -1506,6 +1733,11 @@ struct BodyHealthMetricDetailView: View {
                 baselineValue: wristTemperatureTrendBaseline,
                 baselineDeviationFormatter: wristTemperatureTrendBaselineDeviationFormatter,
                 immersive: immersive,
+                usesSparseReadings: model.kind.usesSparseTrendReadings,
+                additionalDomainValues: cardioFitnessLevelDomainValues,
+                // Cardio Fitness is read against named levels, so the axis
+                // figures add nothing the band and the level card don't say.
+                hidesYAxisLabels: model.kind == .cardioFitness,
                 // Range switches must UPDATE the chart so it morphs between
                 // ranges; metric changes still reset it.
                 chartIdentity: "\(model.kind.rawValue)"
@@ -1514,9 +1746,9 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
-    // Readiness/training-load day breakdown bars, rendered below the hero value row so
-    // the big current value reads directly beneath the line chart and the
-    // day-by-status/interval bars sit under it.
+    // Readiness/training-load/cardio-fitness day breakdown bars, rendered below the
+    // hero value row so the big current value reads directly beneath the line chart
+    // and the day-by-status/interval/level bars sit under it.
     @ViewBuilder
     private var metricBreakdownChart: some View {
         if model.kind == .trainingLoad {
@@ -1531,6 +1763,15 @@ struct BodyHealthMetricDetailView: View {
             BodyReadinessStatusBreakdownChart(
                 series: model.series,
                 selectedRange: selectedTrendRange
+            )
+            .padding(.top, 4)
+        }
+
+        if model.kind == .cardioFitness {
+            BodyCardioFitnessLevelBreakdownChart(
+                series: model.series,
+                selectedRange: selectedTrendRange,
+                profile: model.cardioFitnessProfile
             )
             .padding(.top, 4)
         }
@@ -1759,6 +2000,25 @@ struct BodyHealthMetricDetailView: View {
     }
 
     @ViewBuilder
+    private var metricWarningCards: some View {
+        ForEach(selectedMetricWarnings, id: \.kind) { event in
+            let window = MetricThresholdWarning.chartWindow(for: event, clampedTo: selectedMetricDayInterval)
+
+            BodyMetricWarningCard(
+                event: event,
+                samples: selectedMetricDaySeries.points.filter { window.contains($0.date) },
+                window: window,
+                tint: model.symbolColor,
+                floatingCallout: floatingCallout
+            )
+            .transition(dayChartTransition)
+        }
+        // Warnings appear and disappear as the day picker moves, so the cards fade
+        // with the day chart instead of popping the page layout.
+        .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: selectedMetricWarnings)
+    }
+
+    @ViewBuilder
     private var metricActivityAveragesCard: some View {
         if model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .activeEnergy || model.kind == .readiness {
             let rows = selectedMetricActivityAverages
@@ -1775,8 +2035,13 @@ struct BodyHealthMetricDetailView: View {
                         .foregroundColor(.secondary)
                         .frame(maxWidth: .infinity, minHeight: 88, alignment: .center)
                 } else {
+                    // Identity is the row's position, never its activity or dates: the
+                    // first row on one day has to *become* the first row on the next so
+                    // its icon crossfades and its numbers roll over in place, where an
+                    // activity- or date-keyed row would be torn down and replaced the
+                    // moment the day's activities differ.
                     VStack(spacing: 0) {
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                             metricActivityAverageRow(row)
 
                             if index < rows.count - 1 {
@@ -1785,6 +2050,12 @@ struct BodyHealthMetricDetailView: View {
                             }
                         }
                     }
+                    // Only rows added or dropped at the end change the count; the ones
+                    // that stay morph through their own animations above.
+                    .animation(
+                        reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0),
+                        value: rows.count
+                    )
                 }
             }
             .padding(18)
@@ -1820,19 +2091,36 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private func metricActivityAverageRow(_ row: BodyMetricActivityAverage) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: row.symbolName)
-                .font(.system(size: 17, weight: .bold, design: .rounded))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(row.color)
-                .frame(width: 38, height: 38)
-                // Same continuous-corner tile as the Workouts page's workout-card
-                // icons (18 pt radius at 58 pt, scaled to this 38 pt slot).
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(row.color.opacity(0.14))
-                )
-                .accessibilityHidden(true)
+        let timeRangeText = activityAverageTimeRangeText(for: row)
+        let valueText = model.valueFormatter(row.averageValue)
+
+        return HStack(spacing: 12) {
+            // The glyph is stacked rather than swapped in place: a symbol `Image`
+            // ignores `contentTransition`, so the outgoing and incoming icons are
+            // two views overlaid in the tile, dissolving into each other without
+            // the row's height twitching.
+            ZStack {
+                Image(systemName: row.symbolName)
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(row.color)
+                    .transition(.opacity)
+                    .id(row.symbolName)
+            }
+            .frame(width: 38, height: 38)
+            // Same continuous-corner tile as the Workouts page's workout-card
+            // icons (18 pt radius at 58 pt, scaled to this 38 pt slot).
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(row.color.opacity(0.14))
+            )
+            // Keyed on the activity, not the glyph, so the tint and its tile also
+            // cross over when two activities happen to share a symbol.
+            .animation(
+                reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0),
+                value: row.activity.id
+            )
+            .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(String(localized: String.LocalizationValue(row.title)))
@@ -1840,23 +2128,32 @@ struct BodyHealthMetricDetailView: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
+                    // A name, like the source below: it crossfades on the same curve
+                    // the icon beside it and the numbers opposite it settle on.
+                    .contentTransition(reduceMotion ? .identity : .opacity)
+                    .animation(
+                        reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0),
+                        value: row.title
+                    )
 
-                Text(activityAverageTimeRangeText(for: row))
+                Text(timeRangeText)
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
+                    .bodyLegendNumberFlip(value: timeRangeText)
             }
 
             Spacer(minLength: 12)
 
             VStack(alignment: .trailing, spacing: 3) {
-                Text(model.valueFormatter(row.averageValue))
+                Text(valueText)
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                     .foregroundColor(row.color)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
+                    .bodyLegendNumberFlip(value: valueText)
 
                 if let source = row.source, !source.isEmpty {
                     Text(source)
@@ -1865,6 +2162,10 @@ struct BodyHealthMetricDetailView: View {
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
+                        // A name, not a number: it dissolves while the reading beside it
+                        // rolls, on the same curve.
+                        .contentTransition(reduceMotion ? .identity : .opacity)
+                        .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: source)
                 }
             }
         }
@@ -1961,15 +2262,20 @@ struct BodyHealthMetricDetailView: View {
         return intervals.sorted { $0.startDate < $1.startDate }
     }
 
-    private func workouts(on dayInterval: DateInterval) -> [WorkoutSummary] {
+    /// De-duplicated flatten of every cached month snapshot's workouts, shared by
+    /// `workouts(on:)` and today's wake-cycle window.
+    private var allCachedWorkouts: [WorkoutSummary] {
         var workoutsByID: [UUID: WorkoutSummary] = [:]
         for snapshot in workoutStore.monthSnapshots.values {
             for workout in snapshot.days.flatMap(\.workouts) {
                 workoutsByID[workout.id] = workout
             }
         }
+        return Array(workoutsByID.values)
+    }
 
-        return workoutsByID.values.filter { workout in
+    private func workouts(on dayInterval: DateInterval) -> [WorkoutSummary] {
+        allCachedWorkouts.filter { workout in
             let workoutEndDate = workout.startDate.addingTimeInterval(workout.duration)
             return workout.startDate < dayInterval.end && workoutEndDate > dayInterval.start
         }
@@ -2262,6 +2568,7 @@ struct BodyHealthMetricDetailView: View {
 
     private func sleepStageDurationSummary(_ snapshot: SleepStageSnapshot) -> some View {
         let restorative = snapshot.restorativeDuration
+        let restorativeText = BodyValueFormat.durationText(for: restorative)
 
         return VStack(spacing: 10) {
             HStack(spacing: 0) {
@@ -2270,18 +2577,21 @@ struct BodyHealthMetricDetailView: View {
                         Spacer(minLength: 8)
                     }
 
+                    let durationText = BodyValueFormat.durationText(for: snapshot.duration(for: stage))
+
                     VStack(alignment: .center, spacing: 7) {
                         Rectangle()
                             .fill(stage.bodyChartColor)
                             .frame(width: 28, height: 3)
 
-                        Text(BodyValueFormat.durationText(for: snapshot.duration(for: stage)))
+                        Text(durationText)
                             .font(.system(.callout, design: .rounded))
                             .fontWeight(.bold)
                             .foregroundColor(.primary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
                             .multilineTextAlignment(.center)
+                            .bodyLegendNumberFlip(value: durationText)
                             .fixedSize(horizontal: true, vertical: false)
                     }
                 }
@@ -2290,12 +2600,13 @@ struct BodyHealthMetricDetailView: View {
 
             Divider()
 
-            Text("Restorative \(BodyValueFormat.durationText(for: restorative))")
+            Text("Restorative \(restorativeText)")
                 .font(.system(.subheadline, design: .rounded))
                 .fontWeight(.semibold)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
+                .bodyLegendNumberFlip(value: restorativeText)
                 .frame(maxWidth: .infinity, alignment: .center)
         }
     }
@@ -2614,7 +2925,7 @@ struct BodyHealthMetricDetailView: View {
             switch measurement.kind {
             case .sleepingHeartRate:
                 value = BodyValueFormat.numberText(measurement.value.rounded(), decimals: 0)
-                unit = "BPM"
+                unit = "bpm"
             case .respiratoryRate:
                 value = BodyValueFormat.numberText(measurement.value.rounded(), decimals: 0)
                 unit = "br/min"

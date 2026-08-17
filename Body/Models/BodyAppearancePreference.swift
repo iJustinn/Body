@@ -81,7 +81,8 @@ extension HealthMetricKind {
              .trainingLoad,
              .wristTemperature,
              .timeInDaylight,
-             .vitals:
+             .vitals,
+             .cardioFitness:
             return []
         }
     }
@@ -285,6 +286,19 @@ struct BodyHealthSecondaryDataSourceSelection: Equatable {
     }
 }
 
+extension BodyAppearancePreference {
+    /// Set once the Cardio Fitness card has been offered to an existing layout.
+    /// Lives here rather than beside the other keys in `BodyHealthSelections.swift`
+    /// because the summary-card selection it migrates is iOS-only.
+    static let summaryCardCardioFitnessMigratedKey = "summaryCardCardioFitnessMigrated"
+
+    /// Set once the Cardio Fitness trend card has been offered to an existing
+    /// layout. Keyed separately from the summary-card flag above: the two
+    /// selections are stored independently, so a user who customized one but not
+    /// the other must still be migrated for both.
+    static let homeTrendCardCardioFitnessMigratedKey = "homeTrendCardCardioFitnessMigrated"
+}
+
 struct BodySummaryCardSelection: Equatable {
     static let defaultValue = BodySummaryCardSelection(selectedCards: Set(BodyHomeCardKind.defaultOrder))
     static var defaultRawValue: String {
@@ -342,6 +356,48 @@ struct BodySummaryCardSelection: Equatable {
         }
 
         return BodySummaryCardSelection(selectedCards: cards)
+    }
+
+    static func load(defaults: UserDefaults = .standard) -> BodySummaryCardSelection {
+        let stored = storedValue(
+            from: defaults.string(forKey: BodyAppearancePreference.summaryCardSelectionKey)
+                ?? defaultRawValue
+        )
+        return migratingCardioFitnessIfNeeded(stored, defaults: defaults)
+    }
+
+    /// One-time migration that shows the Cardio Fitness card to users whose saved
+    /// layout predates it. A stored selection only decodes the card raw values it
+    /// was written with and never adopts new defaults, so a customized layout would
+    /// otherwise never show the card — and because `BodyDashboardFetchSelection`
+    /// derives what to fetch from the selected cards, its HealthKit data would never
+    /// even be read. Only *visibility* needs this: `repairedOrder` already appends
+    /// cards missing from a stored order, so ordering fixes itself.
+    ///
+    /// Keyed independently of every other migration flag: the permission migration
+    /// early-returns on a flag anyone who has already launched the app carries, so
+    /// an extension of it could never deliver something new. Idempotent and
+    /// per-`defaults` domain; the flag also keeps a later opt-out from being undone.
+    private static func migratingCardioFitnessIfNeeded(
+        _ selection: BodySummaryCardSelection,
+        defaults: UserDefaults
+    ) -> BodySummaryCardSelection {
+        guard !defaults.bool(forKey: BodyAppearancePreference.summaryCardCardioFitnessMigratedKey) else {
+            return selection
+        }
+
+        // An empty selection is a deliberate "hide every card" choice, so adding one
+        // back would override it. The flag is still recorded, keeping this one-time.
+        var migrated = selection
+        if !selection.selectedCards.isEmpty {
+            migrated.selectedCards.insert(.cardioFitness)
+        }
+
+        if migrated != selection {
+            defaults.set(migrated.rawValue, forKey: BodyAppearancePreference.summaryCardSelectionKey)
+        }
+        defaults.set(true, forKey: BodyAppearancePreference.summaryCardCardioFitnessMigratedKey)
+        return migrated
     }
 }
 
@@ -410,6 +466,43 @@ struct BodyHomeTrendCardSelection: Equatable {
         }
 
         return BodyHomeTrendCardSelection(selectedCards: cards)
+    }
+
+    static func load(defaults: UserDefaults = .standard) -> BodyHomeTrendCardSelection {
+        let stored = storedValue(
+            from: defaults.string(forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
+                ?? defaultRawValue
+        )
+        return migratingCardioFitnessIfNeeded(stored, defaults: defaults)
+    }
+
+    /// The trend-card twin of `BodySummaryCardSelection.migratingCardioFitnessIfNeeded`.
+    /// A saved trend selection only decodes the raw values it was written with, so a
+    /// customized list would never pick up a newly added card.
+    ///
+    /// The views read this selection through `@AppStorage`, not through `load`, so the
+    /// write below is what reaches them: it lands in the same defaults key they observe,
+    /// and `BodyDashboardFetchSelection.load` runs on the launch dashboard fetch.
+    private static func migratingCardioFitnessIfNeeded(
+        _ selection: BodyHomeTrendCardSelection,
+        defaults: UserDefaults
+    ) -> BodyHomeTrendCardSelection {
+        guard !defaults.bool(forKey: BodyAppearancePreference.homeTrendCardCardioFitnessMigratedKey) else {
+            return selection
+        }
+
+        // An empty selection is a deliberate "hide every trend" choice, so adding one
+        // back would override it. The flag is still recorded, keeping this one-time.
+        var migrated = selection
+        if !selection.selectedCards.isEmpty {
+            migrated.selectedCards.insert(.cardioFitness)
+        }
+
+        if migrated != selection {
+            defaults.set(migrated.rawValue, forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
+        }
+        defaults.set(true, forKey: BodyAppearancePreference.homeTrendCardCardioFitnessMigratedKey)
+        return migrated
     }
 }
 
@@ -500,6 +593,173 @@ struct BodyMetricDayViewSelection: Equatable {
     }
 }
 
+/// Which metric threshold warnings surface in the UI. Display only: the
+/// warnings are still detected, so turning one back on needs no refetch.
+struct BodyMetricWarningSelection: Equatable {
+    static let defaultValue = BodyMetricWarningSelection(enabledKinds: Set(MetricWarningKind.allCases))
+    static var defaultRawValue: String {
+        defaultValue.rawValue
+    }
+
+    var enabledKinds: Set<MetricWarningKind>
+
+    var rawValue: String {
+        guard !enabledKinds.isEmpty else {
+            return "none"
+        }
+
+        return MetricWarningKind.allCases
+            .filter { enabledKinds.contains($0) }
+            .map(\.rawValue)
+            .joined(separator: ",")
+    }
+
+    var enabledCount: Int {
+        enabledKinds.count
+    }
+
+    var totalCount: Int {
+        MetricWarningKind.allCases.count
+    }
+
+    func includes(_ kind: MetricWarningKind) -> Bool {
+        enabledKinds.contains(kind)
+    }
+
+    func setting(_ kind: MetricWarningKind, isEnabled: Bool) -> BodyMetricWarningSelection {
+        var nextKinds = enabledKinds
+        if isEnabled {
+            nextKinds.insert(kind)
+        } else {
+            nextKinds.remove(kind)
+        }
+
+        return BodyMetricWarningSelection(enabledKinds: nextKinds)
+    }
+
+    static func storedValue(from rawValue: String) -> BodyMetricWarningSelection {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty else {
+            return defaultValue
+        }
+
+        guard trimmedValue != "none" else {
+            return BodyMetricWarningSelection(enabledKinds: [])
+        }
+
+        let kinds = Set(trimmedValue.split(separator: ",").compactMap {
+            MetricWarningKind(rawValue: String($0))
+        })
+
+        guard !kinds.isEmpty else {
+            return defaultValue
+        }
+
+        return BodyMetricWarningSelection(enabledKinds: kinds)
+    }
+}
+
+/// The user's custom limits for the metric threshold warnings. Only overrides
+/// are stored, so a kind the user never touched keeps following its default —
+/// which for high heart rate tracks their max HR rather than a fixed number.
+struct BodyMetricWarningThresholds: Equatable {
+    static let defaultValue = BodyMetricWarningThresholds(overrides: [:])
+    static var defaultRawValue: String {
+        defaultValue.rawValue
+    }
+
+    var overrides: [MetricWarningKind: Int]
+
+    var rawValue: String {
+        guard !overrides.isEmpty else {
+            return ""
+        }
+
+        let object = Dictionary(uniqueKeysWithValues: overrides.map { ($0.key.rawValue, $0.value) })
+        guard let data = try? JSONEncoder.sortedKeys.encode(object),
+              let string = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+
+        return string
+    }
+
+    func override(for kind: MetricWarningKind) -> Int? {
+        overrides[kind]
+    }
+
+    /// `nil` clears the override so the kind falls back to its default.
+    func setting(_ kind: MetricWarningKind, to value: Int?) -> BodyMetricWarningThresholds {
+        var nextOverrides = overrides
+        if let value {
+            nextOverrides[kind] = Self.clamped(value, to: kind)
+        } else {
+            nextOverrides.removeValue(forKey: kind)
+        }
+
+        return BodyMetricWarningThresholds(overrides: nextOverrides)
+    }
+
+    /// The limit to detect against: the user's override, else the default —
+    /// zone 3's lower bound for high heart rate, the fixed value otherwise.
+    func threshold(for kind: MetricWarningKind, maxHeartRate: Double? = nil) -> Double {
+        if let override = overrides[kind] {
+            return Double(override)
+        }
+
+        guard kind == .highHeartRate,
+              let zoneThree = Self.zoneThreeLowerBound(maxHeartRate: maxHeartRate) else {
+            return kind.defaultThreshold
+        }
+
+        return zoneThree
+    }
+
+    /// Lower bound of heart rate zone 3 (70 % of max HR), rounded to a whole
+    /// beat and clamped into the picker's range. `nil` without a usable max HR,
+    /// so callers fall back to the fixed default.
+    static func zoneThreeLowerBound(maxHeartRate: Double?) -> Double? {
+        guard let maxHeartRate, maxHeartRate.isFinite, maxHeartRate > 0 else {
+            return nil
+        }
+
+        let fraction = WorkoutHeartRateZones.lowerBoundFractions[2]
+        return Double(clamped(Int((maxHeartRate * fraction).rounded()), to: .highHeartRate))
+    }
+
+    static func storedValue(from rawValue: String) -> BodyMetricWarningThresholds {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty,
+              let data = trimmedValue.data(using: .utf8),
+              let object = try? JSONDecoder().decode([String: Int].self, from: data) else {
+            return defaultValue
+        }
+
+        var overrides: [MetricWarningKind: Int] = [:]
+        for (key, value) in object {
+            guard let kind = MetricWarningKind(rawValue: key) else {
+                continue
+            }
+            overrides[kind] = clamped(value, to: kind)
+        }
+
+        return BodyMetricWarningThresholds(overrides: overrides)
+    }
+
+    private static func clamped(_ value: Int, to kind: MetricWarningKind) -> Int {
+        min(max(value, kind.thresholdRange.lowerBound), kind.thresholdRange.upperBound)
+    }
+}
+
+private extension JSONEncoder {
+    /// Stable key order so the stored string only changes when a value does.
+    static var sortedKeys: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return encoder
+    }
+}
+
 struct BodyDashboardFetchSelection: Equatable {
     private static let basicsMetricKinds: Set<HealthMetricKind> = [
         .bodyMass,
@@ -565,14 +825,8 @@ struct BodyDashboardFetchSelection: Equatable {
 
     static func load(defaults: UserDefaults = .standard) -> BodyDashboardFetchSelection {
         BodyDashboardFetchSelection(
-            summaryCards: BodySummaryCardSelection.storedValue(
-                from: defaults.string(forKey: BodyAppearancePreference.summaryCardSelectionKey)
-                    ?? BodySummaryCardSelection.defaultRawValue
-            ),
-            trendCards: BodyHomeTrendCardSelection.storedValue(
-                from: defaults.string(forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
-                    ?? BodyHomeTrendCardSelection.defaultRawValue
-            ),
+            summaryCards: BodySummaryCardSelection.load(defaults: defaults),
+            trendCards: BodyHomeTrendCardSelection.load(defaults: defaults),
             starredMetric: BodyHomeCardKind.starredMetric(
                 from: defaults.string(forKey: BodyAppearancePreference.starredMetricKey)
                     ?? BodyHomeCardKind.readiness.rawValue
@@ -586,6 +840,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
     case heartRate
     case restingHeartRate
     case heartRateVariability
+    case cardioFitness
     case respiratoryRate
     case oxygenSaturation
     case sleep
@@ -604,6 +859,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
         .heartRate,
         .restingHeartRate,
         .heartRateVariability,
+        .cardioFitness,
         .respiratoryRate,
         .oxygenSaturation,
         .sleep,
@@ -640,6 +896,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Resting Heart Rate")
         case .heartRateVariability:
             return String(localized: "HRV")
+        case .cardioFitness:
+            return String(localized: "Cardio Fitness")
         case .respiratoryRate:
             return String(localized: "Respiratory Rate")
         case .oxygenSaturation:
@@ -677,6 +935,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Resting heart trend")
         case .heartRateVariability:
             return String(localized: "Readiness signal trend")
+        case .cardioFitness:
+            return String(localized: "VO₂ max trend")
         case .respiratoryRate:
             return String(localized: "Breathing rate trend")
         case .oxygenSaturation:
@@ -713,6 +973,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return "heart.fill"
         case .heartRateVariability:
             return "waveform.path.ecg"
+        case .cardioFitness:
+            return "arrow.up.heart.fill"
         case .respiratoryRate:
             return "lungs.fill"
         case .oxygenSaturation:
@@ -746,7 +1008,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
             return Color(red: 0.12, green: 0.68, blue: 0.55)
         case .heartRate,
              .restingHeartRate,
-             .heartRateVariability:
+             .heartRateVariability,
+             .cardioFitness:
             return Color(red: 1.00, green: 0.25, blue: 0.45)
         case .respiratoryRate,
              .oxygenSaturation,
@@ -789,6 +1052,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     case activeEnergy
     case restingEnergy
     case vitals
+    case cardioFitness
 
     static let defaultOrder: [BodyHomeCardKind] = [
         .sleep,
@@ -802,6 +1066,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         .restingEnergy,
         .wristTemperature,
         .restingHeartRate,
+        .cardioFitness,
         .oxygenSaturation,
         .respiratoryRate,
         .exerciseMinutes,
@@ -876,6 +1141,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return .restingEnergy
         case .vitals:
             return .vitals
+        case .cardioFitness:
+            return .cardioFitness
         }
     }
 
@@ -915,6 +1182,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Resting Energy")
         case .vitals:
             return String(localized: "Vitals")
+        case .cardioFitness:
+            return String(localized: "Cardio Fitness")
         }
     }
 
@@ -954,15 +1223,18 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Resting calories")
         case .vitals:
             return String(localized: "Overnight vitals vs your typical range")
+        case .cardioFitness:
+            return String(localized: "VO₂ max fitness level")
         }
     }
 
     var isBeta: Bool {
         switch self {
-        case .readiness,
-             .vitals:
+        case .readiness:
             return true
-        case .activityRings,
+        case .vitals,
+             .cardioFitness,
+             .activityRings,
              .exerciseMinutes,
              .trainingLoad,
              .wristTemperature,
@@ -1016,6 +1288,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return "leaf.fill"
         case .vitals:
             return "heart.badge.bolt"
+        case .cardioFitness:
+            return "arrow.up.heart.fill"
         }
     }
 
@@ -1042,7 +1316,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return Color(red: 0.50, green: 0.34, blue: 1.00)
         case .heartRate,
              .restingHeartRate,
-             .heartRateVariability:
+             .heartRateVariability,
+             .cardioFitness:
             return Color(red: 1.00, green: 0.25, blue: 0.45)
         case .restingEnergy:
             return Color(red: 0.14, green: 0.72, blue: 0.42)

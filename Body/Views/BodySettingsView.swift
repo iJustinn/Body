@@ -11,6 +11,7 @@ import UIKit
 struct BodySettingsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
+    @Environment(ReadinessCommentGenerator.self) private var readinessComment
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
@@ -27,9 +28,13 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var homeBackgroundEnabled = true
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.metricWarningThresholdsKey) private var metricWarningThresholdsRawValue = BodyMetricWarningThresholds.defaultRawValue
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
+    @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsWorkoutRouteOnLoad = true
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @State private var activeSheet: BodySettingsSheet?
     @State private var showBodyProPaywall = false
@@ -54,6 +59,7 @@ struct BodySettingsView: View {
                         appearanceSection
                         metricsSection
                         workoutsSection
+                        aiSection
                         dataSection
                         aboutSection
                         bodyProEntryCard
@@ -364,6 +370,21 @@ struct BodySettingsView: View {
             settingsDivider
 
             Button {
+                activeSheet = .metricWarnings
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Warnings",
+                    value: metricWarningsSummaryText,
+                    iconName: "exclamationmark.triangle.fill",
+                    tintColor: .yellow,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
                 activeSheet = .starMetric
             } label: {
                 BodySettingsRowLabel(
@@ -410,6 +431,23 @@ struct BodySettingsView: View {
         }
     }
 
+    private var aiSection: some View {
+        BodySettingsCardSection("settings.section.ai") {
+            Button {
+                activeSheet = .aiReadiness
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Readiness",
+                    value: readinessAISummaryText,
+                    iconName: BodyAppleIntelligenceGlyph.symbolName,
+                    tintColor: .indigo,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     private var starredMetric: Binding<BodyHomeCardKind?> {
         Binding {
             BodyHomeCardKind.starredMetric(from: starredMetricRawValue)
@@ -430,8 +468,18 @@ struct BodySettingsView: View {
         showWorkoutEffortSuggestions ? String(localized: "On") : String(localized: "Off")
     }
 
+    private var readinessAISummaryText: String {
+        guard readinessComment.isSupported else { return String(localized: "Unavailable") }
+        return showReadinessAIComment ? String(localized: "On") : String(localized: "Off")
+    }
+
     private var workoutRouteStyleSummaryText: String {
-        BodyWorkoutRouteStyle.storedValue(from: workoutRouteStyleRawValue).title
+        let style = BodyWorkoutRouteStyle.storedValue(from: workoutRouteStyleRawValue)
+        // Draw is the sheet's first control now, so the summary leads with it when it's
+        // on — "Draw · 3D". Off is the quieter state and reads as just the style, as does
+        // Map, which never draws however the stored switch is set.
+        guard style.supportsRouteDraw, drawsWorkoutRouteOnLoad else { return style.title }
+        return "\(String(localized: "routeStyle.drawSummary")) · \(style.title)"
     }
 
     private var settingsDivider: some View {
@@ -459,6 +507,10 @@ struct BodySettingsView: View {
 
     private var dayViewSummaryText: String {
         "\(currentMetricDayViewSelection.enabledCount)/\(HealthMetricKind.dayViewKinds.count)"
+    }
+
+    private var metricWarningsSummaryText: String {
+        "\(currentMetricWarningSelection.enabledCount)/\(currentMetricWarningSelection.totalCount)"
     }
 
     private func dataValue(for tab: BodySettingsDataTab) -> String {
@@ -533,6 +585,10 @@ struct BodySettingsView: View {
         BodyMetricDayViewSelection.storedValue(from: metricDayViewSelectionRawValue)
     }
 
+    private var currentMetricWarningSelection: BodyMetricWarningSelection {
+        BodyMetricWarningSelection.storedValue(from: metricWarningSelectionRawValue)
+    }
+
     private var followsSystemUnitsBinding: Binding<Bool> {
         Binding {
             followsSystemUnits
@@ -605,6 +661,22 @@ struct BodySettingsView: View {
         }
     }
 
+    private var metricWarningSelection: Binding<BodyMetricWarningSelection> {
+        Binding {
+            currentMetricWarningSelection
+        } set: { selection in
+            metricWarningSelectionRawValue = selection.rawValue
+        }
+    }
+
+    private var metricWarningThresholds: Binding<BodyMetricWarningThresholds> {
+        Binding {
+            BodyMetricWarningThresholds.storedValue(from: metricWarningThresholdsRawValue)
+        } set: { thresholds in
+            metricWarningThresholdsRawValue = thresholds.rawValue
+        }
+    }
+
     private var workoutRouteStyle: Binding<BodyWorkoutRouteStyle> {
         Binding {
             BodyWorkoutRouteStyle.storedValue(from: workoutRouteStyleRawValue)
@@ -631,6 +703,12 @@ struct BodySettingsView: View {
             BodyStarMetricPickerSheet(selection: starredMetric)
         case .dayView:
             BodyMetricDayViewSettingsSheet(selection: metricDayViewSelection)
+        case .metricWarnings:
+            BodyMetricWarningsSettingsSheet(
+                selection: metricWarningSelection,
+                thresholds: metricWarningThresholds,
+                workoutStore: workoutStore
+            )
         case .effortSuggestions:
             BodyEffortSuggestionsSettingsSheet(
                 isEnabled: $showWorkoutEffortSuggestions,
@@ -638,7 +716,12 @@ struct BodySettingsView: View {
                 workoutStore: workoutStore
             )
         case .workoutRouteStyle:
-            BodyWorkoutRouteStyleSettingsSheet(selection: workoutRouteStyle)
+            BodyWorkoutRouteStyleSettingsSheet(selection: workoutRouteStyle, drawsRoute: $drawsWorkoutRouteOnLoad)
+        case .aiReadiness:
+            BodyReadinessAISettingsSheet(
+                isEnabled: $showReadinessAIComment,
+                isSupported: readinessComment.isSupported
+            )
         case .sleepDurationGoal:
             BodySleepSettingsSheet(
                 goalMinutes: sleepDurationGoal,
@@ -702,8 +785,10 @@ enum BodySettingsSheet: String, Identifiable {
     case homeTrendCards
     case starMetric
     case dayView
+    case metricWarnings
     case effortSuggestions
     case workoutRouteStyle
+    case aiReadiness
     case units
     case source
     case permissions
@@ -842,16 +927,6 @@ extension BodyValueFormat.WeightUnitPreference: BodyUnitPreferenceOption { }
 extension BodyValueFormat.DistanceUnitPreference: BodyUnitPreferenceOption { }
 extension BodyValueFormat.EnergyUnitPreference: BodyUnitPreferenceOption { }
 extension BodyValueFormat.TemperatureUnitPreference: BodyUnitPreferenceOption { }
-
-extension BodyWorkoutRouteStyle: BodyUnitPreferenceOption {
-    var unitLabel: String {
-        title
-    }
-
-    var displayName: String {
-        subtitle
-    }
-}
 
 private struct BodySleepSettingsSheet: View {
     @Binding var goalMinutes: Int
@@ -1033,30 +1108,89 @@ private struct BodyUnitPreferencePickerSheet: View {
 
 private struct BodyWorkoutRouteStyleSettingsSheet: View {
     @Binding var selection: BodyWorkoutRouteStyle
+    @Binding var drawsRoute: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var supportsDraw: Bool { selection.supportsRouteDraw }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 18) {
-                        BodySettingsCardSection("Route Style") {
-                            BodyUnitPreferenceControlRow(
-                                title: "Workout Route",
-                                iconName: "map.fill",
-                                tintColor: .blue,
-                                options: BodyWorkoutRouteStyle.allCases,
-                                selection: $selection,
-                                isEnabled: true
-                            )
-                        }
+        BodySettingsAboutSheetScaffold(title: "Route Style") {
+            // Draw leads the sheet: it applies to whichever style is picked below, so it
+            // reads as the setting for all of them rather than a footnote to the last one.
+            // A bare card rather than a titled `BodySettingsCardSection` — the style card
+            // carries no section title either, and mixing the two reads as a mistake.
+            HStack(spacing: 14) {
+                BodySettingsIconTile(iconName: "scribble.variable", color: .blue)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Draw Route")
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+
+                    // Says why it's unavailable rather than leaving a greyed switch
+                    // unexplained — the same treatment the share page's dimmed trays get.
+                    Text(supportsDraw ? "routeStyle.drawSubtitle" : "routeStyle.drawUnavailable")
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                Toggle("Draw Route", isOn: $drawsRoute)
+                    .labelsHidden()
+                    .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                    .accessibilityValue(drawsRoute ? "On" : "Off")
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+            // Dimmed and inert on Map, whose route is baked into the map snapshot and has
+            // no stroke to grow. The stored preference is untouched, so picking Plain or
+            // 3D again brings back whatever it was set to.
+            .opacity(supportsDraw ? 1 : 0.4)
+            .disabled(!supportsDraw)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: supportsDraw)
+            .bodyCardBackground(translucent: true)
+
+            VStack(spacing: 0) {
+                ForEach(Array(BodyWorkoutRouteStyle.allCases.enumerated()), id: \.element) { index, style in
+                    if index > 0 {
+                        Divider()
+                            .padding(.leading, 76)
                     }
-                    .padding()
-                    .padding(.bottom, 24)
+
+                    BodyStarMetricOptionRow(
+                        title: style.title,
+                        subtitle: style.subtitle,
+                        iconName: style.settingsIconName,
+                        tintColor: .blue,
+                        isSelected: selection == style
+                    ) {
+                        selection = style
+                    }
                 }
             }
-            .bodySheetBackground()
-            .navigationTitle("Route Style")
-            .navigationBarTitleDisplayMode(.inline)
+            .bodyCardBackground(translucent: true)
+        }
+    }
+}
+
+private extension BodyWorkoutRouteStyle {
+    var settingsIconName: String {
+        switch self {
+        case .map:
+            "map.fill"
+        case .plain:
+            "graph.2d"
+        case .threeD:
+            "move.3d"
         }
     }
 }
@@ -2074,6 +2208,80 @@ private struct BodyEffortSuggestionToggleRow: View {
     }
 }
 
+private struct BodyReadinessAISettingsSheet: View {
+    @Binding var isEnabled: Bool
+    let isSupported: Bool
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Readiness") {
+            VStack(alignment: .leading, spacing: 12) {
+                BodySettingsCardSection("Apple Intelligence") {
+                    BodyReadinessAIToggleRow(isEnabled: $isEnabled)
+                        // Nothing to generate without an available on-device model.
+                        .disabled(!isSupported)
+                        .opacity(isSupported ? 1 : 0.4)
+                }
+
+                explanation
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var explanation: some View {
+        if isSupported {
+            Text("When on, Apple Intelligence writes a short comment about what's shaping today's readiness score — your heart rate, HRV, sleep, and training signals. Everything runs on your device; your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead.")
+        } else {
+            Text("Apple Intelligence readiness comments need a supported device with Apple Intelligence turned on in Settings. Body's built-in explanation is shown instead.")
+        }
+    }
+}
+
+private struct BodyReadinessAIToggleRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(
+                iconName: BodyAppleIntelligenceGlyph.symbolName,
+                color: .indigo
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Readiness Comment")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("AI comment on today's score")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Readiness Comment", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
 private struct BodyAutoApplyEffortToggleRow: View {
     @Binding var isEnabled: Bool
 
@@ -2294,6 +2502,232 @@ private struct BodyMetricDayViewToggleRow: View {
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
         .contentShape(Rectangle())
+    }
+}
+
+private struct BodyMetricWarningsSettingsSheet: View {
+    @Binding var selection: BodyMetricWarningSelection
+    @Binding var thresholds: BodyMetricWarningThresholds
+    @ObservedObject var workoutStore: HealthKitWorkoutStore
+
+    /// Needed for the high heart rate default, which tracks zone 3's lower bound.
+    @State private var resolvedMaxHeartRate: Double?
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Warnings") {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(MetricWarningKind.allCases) { kind in
+                    VStack(spacing: 0) {
+                        BodyMetricWarningToggleRow(
+                            kind: kind,
+                            threshold: threshold(for: kind),
+                            isEnabled: Binding {
+                                selection.includes(kind)
+                            } set: { isEnabled in
+                                selection = selection.setting(kind, isEnabled: isEnabled)
+                            }
+                        )
+
+                        Divider()
+                            .padding(.leading, 18)
+
+                        BodyMetricWarningThresholdRow(
+                            kind: kind,
+                            threshold: threshold(for: kind),
+                            isDefault: thresholds.override(for: kind) == nil,
+                            defaultValue: defaultThreshold(for: kind),
+                            isEnabled: selection.includes(kind),
+                            onChange: { value in
+                                thresholds = thresholds.setting(kind, to: value)
+                                workoutStore.metricWarningThresholdsDidChange(for: kind.metric)
+                            }
+                        )
+                    }
+                    .bodyCardBackground(translucent: true)
+                }
+
+                Text("Warnings appear on the Home card and the metric's detail page.")
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+            }
+        }
+        .task {
+            resolvedMaxHeartRate = await workoutStore.userMaxHeartRate()
+        }
+    }
+
+    /// The limit currently in effect: the user's override, else the default.
+    private func threshold(for kind: MetricWarningKind) -> Int {
+        Int(thresholds.threshold(for: kind, maxHeartRate: resolvedMaxHeartRate).rounded())
+    }
+
+    private func defaultThreshold(for kind: MetricWarningKind) -> Int {
+        Int(BodyMetricWarningThresholds.defaultValue
+            .threshold(for: kind, maxHeartRate: resolvedMaxHeartRate)
+            .rounded())
+    }
+}
+
+private struct BodyMetricWarningToggleRow: View {
+    let kind: MetricWarningKind
+    let threshold: Int
+    @Binding var isEnabled: Bool
+
+    private var title: LocalizedStringKey {
+        switch kind {
+        case .lowHeartRate:
+            return "Low Heart Rate"
+        case .highHeartRate:
+            return "High Heart Rate"
+        case .lowBloodOxygen:
+            return "Low Blood Oxygen"
+        }
+    }
+
+    private var subtitle: String {
+        switch kind {
+        case .lowHeartRate:
+            return String(localized: "Any reading below \(threshold) bpm today")
+        case .highHeartRate:
+            return String(localized: "Any reading above \(threshold) bpm today, outside workouts")
+        case .lowBloodOxygen:
+            return String(localized: "Any reading below \(threshold)% today")
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: "exclamationmark.triangle.fill", color: .yellow)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text(subtitle)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle(title, isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+/// The custom-limit row under each warning toggle: a value pill that opens a
+/// wheel picker, plus a way back to the default.
+private struct BodyMetricWarningThresholdRow: View {
+    let kind: MetricWarningKind
+    let threshold: Int
+    let isDefault: Bool
+    let defaultValue: Int
+    let isEnabled: Bool
+    let onChange: (Int?) -> Void
+
+    @State private var showingPicker = false
+    @State private var pickedValue = 0
+
+    private var thresholdValues: [Int] {
+        Array(stride(
+            from: kind.thresholdRange.lowerBound,
+            through: kind.thresholdRange.upperBound,
+            by: kind.thresholdStep
+        ))
+    }
+
+    private func valueText(_ value: Int) -> String {
+        switch kind {
+        case .lowHeartRate, .highHeartRate:
+            return String(localized: "\(value) bpm")
+        case .lowBloodOxygen:
+            return String(localized: "\(value)%")
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Text("Threshold")
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+
+            Spacer(minLength: 12)
+
+            Button {
+                pickedValue = threshold
+                showingPicker = true
+            } label: {
+                Text(valueText(threshold))
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color.primary.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $showingPicker) {
+                picker
+                    .presentationCompactAdaptation(.popover)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .opacity(isEnabled ? 1 : 0.5)
+        .disabled(!isEnabled)
+    }
+
+    private var picker: some View {
+        VStack(spacing: 8) {
+            Picker("Threshold", selection: $pickedValue) {
+                ForEach(thresholdValues, id: \.self) { value in
+                    Text(valueText(value))
+                        .tag(value)
+                }
+            }
+            .pickerStyle(.wheel)
+            .labelsHidden()
+            .frame(width: 210, height: 172)
+            .onChange(of: pickedValue) { _, newValue in
+                onChange(newValue)
+            }
+
+            Button {
+                onChange(nil)
+                showingPicker = false
+            } label: {
+                VStack(spacing: 2) {
+                    Text("Use Default")
+
+                    Text(String(localized: "Default: \(valueText(defaultValue))"))
+                        .font(.system(.caption, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .buttonStyle(.borderless)
+            .disabled(isDefault)
+            .padding(.bottom, 14)
+        }
+        .frame(width: 210)
     }
 }
 
@@ -3400,4 +3834,5 @@ private struct BodySettingsInfoCard: View {
 #Preview {
     BodySettingsView()
         .environmentObject(HealthKitWorkoutStore())
+        .environment(ReadinessCommentGenerator())
 }

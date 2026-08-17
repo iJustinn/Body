@@ -121,4 +121,23 @@ final class BodyVitalsOutlierMorphTests: XCTestCase {
         XCTAssertEqual(todayEntry.bucket.date, day(11))
         XCTAssertEqual(yearEntries.first { $0.id == day(5) }?.isPlaceholder, true)
     }
+
+    // MARK: - Hero headline transition
+
+    /// The headline under the hero flips its digits only when the count moves
+    /// under unchanged words; every other change crossfades.
+    func testHeadlineFlipsDigitsOnlyWhenTheCountMovesUnderTheSameWords() {
+        XCTAssertTrue(BodyMetricStatusValueText.changesDigitsOnly(from: "2 Outliers", to: "5 Outliers"))
+        XCTAssertTrue(BodyMetricStatusValueText.changesDigitsOnly(from: "12 Outliers", to: "3 Outliers"))
+        // Chinese renders the count the same way, so the same rule applies.
+        XCTAssertTrue(BodyMetricStatusValueText.changesDigitsOnly(from: "2 项异常", to: "5 项异常"))
+
+        // Singular/plural, worded statuses, and the placeholder all change the
+        // words, so they crossfade.
+        XCTAssertFalse(BodyMetricStatusValueText.changesDigitsOnly(from: "1 Outlier", to: "2 Outliers"))
+        XCTAssertFalse(BodyMetricStatusValueText.changesDigitsOnly(from: "Typical", to: "2 Outliers"))
+        XCTAssertFalse(BodyMetricStatusValueText.changesDigitsOnly(from: "2 Outliers", to: "Typical"))
+        XCTAssertFalse(BodyMetricStatusValueText.changesDigitsOnly(from: "--", to: "2 Outliers"))
+        XCTAssertFalse(BodyMetricStatusValueText.changesDigitsOnly(from: "2 Outliers", to: "2 Outliers"))
+    }
 }

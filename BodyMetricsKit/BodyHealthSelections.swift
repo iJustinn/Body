@@ -24,8 +24,11 @@ enum BodyAppearancePreference {
     static let showSleepScoreKey = "showSleepScore"
     static let showWorkoutEffortSuggestionsKey = "showWorkoutEffortSuggestions"
     static let autoApplyWorkoutEffortKey = "autoApplyWorkoutEffort"
+    static let showReadinessAICommentKey = "showReadinessAIComment"
     static let workoutRouteStyleKey = "workoutRouteStyle"
+    static let drawsWorkoutRouteOnLoadKey = "drawsWorkoutRouteOnLoad"
     static let sleepStageBreakdownShowsOptimalRangesKey = "sleepStageBreakdownShowsOptimalRanges"
+    static let workoutsChartShowsTypeBreakdownKey = "workoutsChartShowsTypeBreakdown"
     static let homeCardOrderKey = "homeCardOrder"
     static let summaryCardSelectionKey = "summaryCardSelection"
     static let starredMetricKey = "starredMetric"
@@ -36,8 +39,11 @@ enum BodyAppearancePreference {
     static let defaultTrendRangeKey = "defaultTrendRange"
     static let homeTrendCardSelectionKey = "homeTrendCardSelection"
     static let metricDayViewSelectionKey = "metricDayViewSelection"
+    static let metricWarningsKey = "metricWarnings"
+    static let metricWarningThresholdsKey = "metricWarningThresholds"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
     static let healthPermissionExpandedMigratedKey = "healthPermissionExpandedMigrated"
+    static let healthCardioFitnessMigratedKey = "healthCardioFitnessMigrated"
     static let healthDataSourceSelectionKey = "healthDataSourceSelection"
     static let secondaryHealthDataSourceSelectionKey = "secondaryHealthDataSourceSelection"
     static let combinesHealthDataSourcesByNameKey = "combinesHealthDataSourcesByName"
@@ -88,6 +94,7 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
     case wristTemperature
     case timeInDaylight
     case steps
+    case cardioFitness
 
     var id: String {
         rawValue
@@ -123,6 +130,8 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
             return String(localized: "Time in Daylight", table: "BodyMetricsKit")
         case .steps:
             return String(localized: "Steps", table: "BodyMetricsKit")
+        case .cardioFitness:
+            return String(localized: "Cardio Fitness", table: "BodyMetricsKit")
         }
     }
 
@@ -133,11 +142,11 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
         case .workouts:
             return String(localized: "Workout history, effort, and details", table: "BodyMetricsKit")
         case .workoutMetrics:
-            return String(localized: "VO₂max, power, cadence, and swim strokes", table: "BodyMetricsKit")
+            return String(localized: "VO₂max, power, cadence, running form, and swim strokes", table: "BodyMetricsKit")
         case .sleep:
             return String(localized: "Sleep duration, stages, and score", table: "BodyMetricsKit")
         case .heart:
-            return String(localized: "Heart rate and HRV", table: "BodyMetricsKit")
+            return String(localized: "Heart rate, HRV, and recovery", table: "BodyMetricsKit")
         case .dateOfBirth:
             return String(localized: "Anchors workout HR zones (max HR)", table: "BodyMetricsKit")
         case .basics:
@@ -156,6 +165,8 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
             return String(localized: "Daylight exposure time", table: "BodyMetricsKit")
         case .steps:
             return String(localized: "Step count totals", table: "BodyMetricsKit")
+        case .cardioFitness:
+            return String(localized: "VO₂ max and fitness level", table: "BodyMetricsKit")
         }
     }
 
@@ -189,6 +200,8 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
             return "sun.max.fill"
         case .steps:
             return "figure.walk"
+        case .cardioFitness:
+            return "heart.circle.fill"
         }
     }
 
@@ -202,7 +215,8 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
             return .indigo
         case .sleep:
             return Color(red: 0.20, green: 0.72, blue: 1.00)
-        case .heart:
+        case .heart,
+             .cardioFitness:
             return Color(red: 1.00, green: 0.25, blue: 0.45)
         case .dateOfBirth:
             return .brown
@@ -289,7 +303,11 @@ struct BodyHealthPermissionSelection: Equatable {
             from: defaults.string(forKey: BodyAppearancePreference.healthPermissionSelectionKey)
                 ?? defaultRawValue
         )
-        return migratingExpandedPermissionsIfNeeded(stored, defaults: defaults)
+        let expanded = migratingExpandedPermissionsIfNeeded(stored, defaults: defaults)
+        // Chained AFTER the expanded migration on purpose: that one can insert
+        // `.workoutMetrics` for a selection that predates the category, and the
+        // cardio fitness gate below reads it.
+        return migratingCardioFitnessPermissionIfNeeded(expanded, defaults: defaults)
     }
 
     /// One-time migration for users whose saved selection predates the `.workoutMetrics`
@@ -320,6 +338,39 @@ struct BodyHealthPermissionSelection: Equatable {
         return migrated
     }
 
+    /// One-time migration for users whose saved selection predates the
+    /// `.cardioFitness` category. Deliberately carries its OWN key rather than
+    /// extending the migration above: that one early-returns on
+    /// `healthPermissionExpandedMigratedKey` and sets it permanently, so every
+    /// user who has already launched the app would skip anything added to it.
+    ///
+    /// The gate is `.workouts` AND `.workoutMetrics` because that pair is the
+    /// exact condition under which VO₂max was already readable
+    /// (`BodyHealthReadTypes.readObjectTypes`). Enabling the new category only
+    /// there preserves prior access without silently broadening the read set for
+    /// someone who had turned those categories off. Records its own flag so a
+    /// later intentional opt-out is never re-enabled; idempotent and per-`defaults`
+    /// domain, and fresh installs already default to all cases.
+    private static func migratingCardioFitnessPermissionIfNeeded(
+        _ selection: BodyHealthPermissionSelection,
+        defaults: UserDefaults
+    ) -> BodyHealthPermissionSelection {
+        guard !defaults.bool(forKey: BodyAppearancePreference.healthCardioFitnessMigratedKey) else {
+            return selection
+        }
+
+        var migrated = selection
+        if selection.includes(.workouts) && selection.includes(.workoutMetrics) {
+            migrated.enabledPermissions.insert(.cardioFitness)
+        }
+
+        if migrated != selection {
+            migrated.save(defaults: defaults)
+        }
+        defaults.set(true, forKey: BodyAppearancePreference.healthCardioFitnessMigratedKey)
+        return migrated
+    }
+
     func save(defaults: UserDefaults = .standard) {
         defaults.set(rawValue, forKey: BodyAppearancePreference.healthPermissionSelectionKey)
     }
@@ -328,11 +379,21 @@ struct BodyHealthPermissionSelection: Equatable {
 enum BodyWorkoutRouteStyle: String, CaseIterable, Identifiable {
     case map
     case plain
+    /// Oblique, elevation-extruded ribbon when the route carries altitude; falls back to Plain otherwise.
+    case threeD = "3d"
 
-    static let defaultValue: BodyWorkoutRouteStyle = .map
+    static let defaultValue: BodyWorkoutRouteStyle = .threeD
 
     var id: String {
         rawValue
+    }
+
+    /// Whether the workout detail hero can draw this style's route in as it loads.
+    /// Map can't: its route is composited into the map snapshot by Core Graphics rather
+    /// than stroked by the hero, so there is no path to grow. Route Style offers the
+    /// Draw Route switch only for the styles that stroke their own trace.
+    var supportsRouteDraw: Bool {
+        self != .map
     }
 
     var title: String {
@@ -341,6 +402,8 @@ enum BodyWorkoutRouteStyle: String, CaseIterable, Identifiable {
             return String(localized: "Map", table: "BodyMetricsKit")
         case .plain:
             return String(localized: "Plain", table: "BodyMetricsKit")
+        case .threeD:
+            return String(localized: "3D", table: "BodyMetricsKit")
         }
     }
 
@@ -350,6 +413,8 @@ enum BodyWorkoutRouteStyle: String, CaseIterable, Identifiable {
             return String(localized: "Apple Maps", table: "BodyMetricsKit")
         case .plain:
             return String(localized: "Route Only", table: "BodyMetricsKit")
+        case .threeD:
+            return String(localized: "Elevation Ribbon", table: "BodyMetricsKit")
         }
     }
 

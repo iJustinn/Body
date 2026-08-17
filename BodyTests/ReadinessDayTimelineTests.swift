@@ -251,4 +251,86 @@ final class ReadinessDayTimelineTests: XCTestCase {
         XCTAssertEqual(row.averageValue, Double(-Int(ActivityReadinessImpact.perWorkoutDrain(hard).rounded())))
         XCTAssertEqual(row.source, "Watch")
     }
+
+    // MARK: - Carry-in (pre-day wake-cycle workout)
+
+    func testCarryInPreDayWorkoutDrainsFromFirstSample() {
+        // Ended before dayInterval.start (e.g. a late-wake wake cycle carried
+        // over from yesterday), plus a normal workout today.
+        let carryIn = workout(.running, startOffsetMinutes: -120, minutes: 60, effort: 8)
+        let today = workout(.strengthTraining, startOffsetMinutes: 600, minutes: 45, effort: 7)
+        let morning = readiness(score: 76)
+
+        let firstSampleExpected = HealthDashboardSnapshot.draining(morning, with: [carryIn]).score
+        let endOfDayExpected = HealthDashboardSnapshot.draining(morning, with: [carryIn, today]).score
+
+        let timeline = ReadinessDayTimeline.make(
+            morningScore: 76,
+            workouts: [carryIn, today],
+            dayInterval: dayInterval,
+            now: pastNow
+        )
+
+        XCTAssertEqual(timeline.displayedScore(at: dayInterval.start), firstSampleExpected)
+        XCTAssertEqual(timeline.displayedScore(at: dayInterval.end - 1), endOfDayExpected)
+    }
+
+    // MARK: - Morning-score selection
+
+    func testMorningScorePrefersLiveScoreForToday() {
+        let live = readiness(score: 60)
+        var withDrain = live
+        withDrain.activityDrainMorningScore = 68
+
+        let result = ReadinessDayTimeline.morningScore(
+            isToday: true,
+            liveReadiness: withDrain,
+            recordedScore: 55,
+            trendValue: 50
+        )
+
+        XCTAssertEqual(result, 68)
+    }
+
+    func testMorningScoreUsesLiveScoreWhenDrainIsBelowHalfPoint() {
+        // `activityDrainMorningScore` is only set once drain >= 0.5; below that
+        // `score` itself is the undrained value.
+        let live = readiness(score: 60)
+
+        let result = ReadinessDayTimeline.morningScore(
+            isToday: true,
+            liveReadiness: live,
+            recordedScore: 55,
+            trendValue: 50
+        )
+
+        XCTAssertEqual(result, 60)
+    }
+
+    func testMorningScoreFallsBackToRecordedWhenTodaysLiveScoreIsNil() {
+        var live = readiness(score: 60)
+        live.score = nil
+
+        let result = ReadinessDayTimeline.morningScore(
+            isToday: true,
+            liveReadiness: live,
+            recordedScore: 55,
+            trendValue: 50
+        )
+
+        XCTAssertEqual(result, 55)
+    }
+
+    func testMorningScorePrefersRecordedOverLiveForPastDay() {
+        let live = readiness(score: 60)
+
+        let result = ReadinessDayTimeline.morningScore(
+            isToday: false,
+            liveReadiness: live,
+            recordedScore: 55,
+            trendValue: 50
+        )
+
+        XCTAssertEqual(result, 55)
+    }
 }

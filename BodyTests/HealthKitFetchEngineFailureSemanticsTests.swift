@@ -64,6 +64,49 @@ final class HealthKitFetchEngineFailureSemanticsTests: XCTestCase {
         XCTAssertEqual(Samples.success([1, 2]).valueOr([]), [1, 2])
     }
 
+    // MARK: - Metric warning resolver
+
+    private static let cachedWarning = MetricWarningEvent(
+        kind: .lowHeartRate,
+        startDate: Date(timeIntervalSince1970: 1_700_000_000),
+        endDate: Date(timeIntervalSince1970: 1_700_000_300),
+        extremeValue: 38,
+        sampleCount: 3
+    )
+
+    func testResolvedMetricWarningClearsOnConfirmedAbsent() {
+        // The threshold-filtered query came back empty today → the badge must
+        // clear rather than keep yesterday's episode.
+        typealias WarningOutcome = HealthKitFetchEngine.QueryOutcome<MetricWarningEvent>
+        XCTAssertNil(
+            HealthKitFetchEngine.resolvedSummaryValue(
+                fetched: WarningOutcome.success(nil),
+                cached: Self.cachedWarning
+            )
+        )
+    }
+
+    func testResolvedMetricWarningKeepsCacheOnFailureAndReplacesOnSuccess() {
+        typealias WarningOutcome = HealthKitFetchEngine.QueryOutcome<MetricWarningEvent>
+        let cached = Self.cachedWarning
+        let fresh = MetricWarningEvent(
+            kind: .lowHeartRate,
+            startDate: Date(timeIntervalSince1970: 1_700_086_400),
+            endDate: Date(timeIntervalSince1970: 1_700_086_700),
+            extremeValue: 35,
+            sampleCount: 2
+        )
+        // Failure (including cancellation, which resumes `.failure`) retains.
+        XCTAssertEqual(
+            HealthKitFetchEngine.resolvedSummaryValue(fetched: WarningOutcome.failure, cached: cached),
+            cached
+        )
+        XCTAssertEqual(
+            HealthKitFetchEngine.resolvedSummaryValue(fetched: WarningOutcome.success(fresh), cached: cached),
+            fresh
+        )
+    }
+
     // MARK: - Effort failure fallback (H12)
 
     func testEffortFallbackUsesFetchedWhenPresent() {

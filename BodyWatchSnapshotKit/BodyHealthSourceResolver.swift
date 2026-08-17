@@ -255,6 +255,11 @@ enum BodyHealthSourceResolver {
             return .wristTemperature
         case .timeInDaylight:
             return .timeInDaylight
+        case .cardioFitness:
+            // Not source-selectable (absent from `sourceSelectableKinds`), so
+            // nothing calls this for the kind today — mapped explicitly anyway so
+            // a future caller can't silently inherit the `.heart` fallback below.
+            return .cardioFitness
         default:
             return .heart
         }

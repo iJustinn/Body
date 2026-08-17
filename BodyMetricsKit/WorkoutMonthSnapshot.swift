@@ -191,6 +191,19 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
         )
     }
 
+    /// Returns a copy with heart-rate recovery stripped from every workout, for
+    /// when the user disables the Heart permission. Same identity/`generatedAt`
+    /// preservation as `removingWorkoutMetrics(calendar:)`.
+    func removingHeartRateRecovery(calendar: Calendar = .bodyGregorian) -> WorkoutMonthSnapshot {
+        WorkoutMonthSnapshot.make(
+            month: month,
+            year: year,
+            workouts: days.flatMap(\.workouts).map { $0.removingHeartRateRecovery() },
+            calendar: calendar,
+            generatedAt: generatedAt
+        )
+    }
+
     static var placeholder: WorkoutMonthSnapshot {
         makePlaceholder(generatedAt: Date(), calendar: .bodyGregorian)
     }

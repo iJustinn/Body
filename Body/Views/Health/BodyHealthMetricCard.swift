@@ -15,6 +15,17 @@ struct BodyHealthMetricCard: View {
             var region: SleepVitalRegion
         }
 
+        /// The cardio fitness level the newest reading landed in, for the levels
+        /// preview. `Equatable` so the preview's animation has something to
+        /// compare — without it the ring would jump between rows.
+        struct LevelEntry: Equatable {
+            var level: CardioFitnessLevel
+            /// 0…1 *within this level's own row*, 1 at the top of the row (the
+            /// level's upper bound). 0.5 when the band is open-ended and there
+            /// is no span to place the reading in.
+            var position: Double
+        }
+
         let kind: HealthMetricKind
         let title: String
         let value: String
@@ -27,6 +38,8 @@ struct BodyHealthMetricCard: View {
         let previewCalendarPoints: [HealthTrendCalendarPoint]
         let previewRangeCalendarPoints: [HealthTrendRangeCalendarPoint]
         let previewDotEntries: [DotEntry]
+        let levelPreviewEntry: LevelEntry?
+        let warningSymbolName: String?
 
         init(
             kind: HealthMetricKind,
@@ -40,6 +53,8 @@ struct BodyHealthMetricCard: View {
             chartPreview: HealthTrendSeries? = nil,
             chartRangePreview: HealthTrendRangeSeries? = nil,
             previewDotEntries: [DotEntry] = [],
+            levelPreviewEntry: LevelEntry? = nil,
+            warningSymbolName: String? = nil,
             previewDayCount: Int = BodyHomeMetricCardPreview.dayCount(forScreenWidth: UIScreen.main.bounds.width)
         ) {
             self.kind = kind
@@ -51,16 +66,20 @@ struct BodyHealthMetricCard: View {
             self.prominentMetrics = prominentMetrics
             self.chartPreviewStyle = chartPreviewStyle
             self.previewDotEntries = previewDotEntries
+            self.levelPreviewEntry = levelPreviewEntry
+            self.warningSymbolName = warningSymbolName
             // Preview points are derived once per model — the preview view
             // used to regroup the full trend series in chained computed
             // properties on every render of every card.
             // The dots preview keeps drawing its three regions while the night's
             // vitals are pending, so the card doesn't lose the chart and get it
-            // back — it fills the skeleton in place.
+            // back — it fills the skeleton in place. The levels preview does the
+            // same while the reading is unclassified: four gray rows, no ring.
             hasChartPreview = chartPreview != nil
                 || chartRangePreview != nil
                 || !previewDotEntries.isEmpty
                 || chartPreviewStyle == .dots
+                || chartPreviewStyle == .levels
             previewCalendarPoints = chartPreview.map {
                 BodyHomeMetricCardPreview.calendarPoints(from: $0, previewDayCount: previewDayCount)
             } ?? []
@@ -72,7 +91,14 @@ struct BodyHealthMetricCard: View {
         var id: String {
             kind.id
         }
+
+        /// Cards whose headline is a status word rather than a number.
+        var usesWordValue: Bool {
+            kind == .vitals
+        }
     }
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let metric: Model
 
@@ -101,6 +127,10 @@ struct BodyHealthMetricCard: View {
 
                 Spacer(minLength: 0)
 
+                warningBadge
+
+                Spacer(minLength: 0)
+
                 valueRow
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -117,6 +147,10 @@ struct BodyHealthMetricCard: View {
 
                 Spacer(minLength: 0)
 
+                warningBadge
+
+                Spacer(minLength: 0)
+
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(metric.prominentMetrics) { display in
                         displayValueRow(display, valueFontSize: 26)
@@ -128,6 +162,25 @@ struct BodyHealthMetricCard: View {
 
             visualStack
         }
+    }
+
+    @ViewBuilder
+    private var warningBadge: some View {
+        // Sits between two spacers so it centres in the gap between the title
+        // and the value instead of hugging the title. Wrapped in a ZStack so the
+        // glyph's insertion/removal is a real transition (fade in AND out) rather
+        // than an instant swap; keyed on the symbol name so only that change
+        // animates, not the card's frequent re-renders.
+        ZStack {
+            if let warningSymbolName = metric.warningSymbolName {
+                Image(systemName: warningSymbolName)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.yellow)
+                    .accessibilityLabel(Text("Low Heart Rate"))
+                    .transition(.opacity)
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: metric.warningSymbolName)
     }
 
     private var titleLabel: some View {
@@ -146,6 +199,7 @@ struct BodyHealthMetricCard: View {
                     calendarPoints: metric.previewCalendarPoints,
                     rangeCalendarPoints: metric.previewRangeCalendarPoints,
                     dotEntries: metric.previewDotEntries,
+                    levelPreviewEntry: metric.levelPreviewEntry,
                     tintColor: metric.symbolColor,
                     style: metric.chartPreviewStyle
                 )
@@ -171,18 +225,18 @@ struct BodyHealthMetricCard: View {
     private var valueRow: some View {
         displayValueRow(
             BodyMetricDisplayValue(title: metric.title, value: metric.value, unit: metric.unit),
-            // Word values run longer than digits, so vitals sets them a touch
-            // smaller than the numeric cards.
-            valueFontSize: metric.kind == .vitals ? 28 : 30
+            // Word values run longer than digits, so vitals and cardio fitness
+            // set them a touch smaller than the numeric cards.
+            valueFontSize: metric.usesWordValue ? 28 : 30
         )
     }
 
     private func displayValueRow(_ display: BodyMetricDisplayValue, valueFontSize: CGFloat) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
             Group {
-                // Word values ("Typical", "2 Outliers") must not get the
-                // numeric text treatment digits rely on.
-                if metric.kind == .vitals {
+                // Word values ("Typical", "2 Outliers", "Below Average") must not
+                // get the numeric text treatment digits rely on.
+                if metric.usesWordValue {
                     BodyMetricStatusValueText(text: display.value, fontSize: valueFontSize)
                 } else {
                     BodyAnimatedMetricValueText(
@@ -215,6 +269,7 @@ struct BodyHealthMetricCardTrendPreview: View {
     let calendarPoints: [HealthTrendCalendarPoint]
     let rangeCalendarPoints: [HealthTrendRangeCalendarPoint]
     let dotEntries: [BodyHealthMetricCard.Model.DotEntry]
+    let levelPreviewEntry: BodyHealthMetricCard.Model.LevelEntry?
     let tintColor: Color
     let style: BodyHomeMetricCardPreview.Style
 
@@ -222,12 +277,14 @@ struct BodyHealthMetricCardTrendPreview: View {
         calendarPoints: [HealthTrendCalendarPoint],
         rangeCalendarPoints: [HealthTrendRangeCalendarPoint] = [],
         dotEntries: [BodyHealthMetricCard.Model.DotEntry] = [],
+        levelPreviewEntry: BodyHealthMetricCard.Model.LevelEntry? = nil,
         tintColor: Color,
         style: BodyHomeMetricCardPreview.Style
     ) {
         self.calendarPoints = calendarPoints
         self.rangeCalendarPoints = rangeCalendarPoints
         self.dotEntries = dotEntries
+        self.levelPreviewEntry = levelPreviewEntry
         self.tintColor = tintColor
         self.style = style
     }
@@ -294,6 +351,8 @@ struct BodyHealthMetricCardTrendPreview: View {
                 rangePreview
             case .dots:
                 dotsPreview
+            case .levels:
+                levelsPreview
             }
         }
         .frame(width: previewWidth, height: previewHeight, alignment: .bottomTrailing)
@@ -723,6 +782,143 @@ struct BodyHealthMetricCardTrendPreview: View {
             return BodyVitalsChartStyle.lowColor
         case nil:
             return Color.secondary.opacity(0.45)
+        }
+    }
+
+    /// Health's Cardio Fitness preview: the four fitness levels as equal stacked
+    /// rows — high at the top, low at the bottom — with the row the newest VO₂
+    /// max reading landed in taking that level's color and holding one
+    /// dark-centered ring at the reading's place inside that row. While the
+    /// reading is unclassified — no VO₂ max yet, or an age the norms don't cover
+    /// — the same four rows render dimmed with no ring, so the card shows the
+    /// shape of the metric rather than an empty corner. Row heights are fixed,
+    /// unlike the dots preview: there is only ever one reading, so growing its
+    /// row would make the card lurch every time the level changed. That leaves
+    /// the tint and the ring as the only things that move when a reading lands.
+    private var levelsPreview: some View {
+        GeometryReader { proxy in
+            let layout = LevelPreviewLayout(size: proxy.size)
+
+            ZStack {
+                ForEach(CardioFitnessLevel.displayOrder, id: \.self) { level in
+                    RoundedRectangle(cornerRadius: layout.cornerRadius(for: level), style: .continuous)
+                        .fill(levelRowColor(for: level))
+                        .frame(width: proxy.size.width, height: layout.height(for: level))
+                        .position(x: proxy.size.width / 2, y: layout.centerY(for: level))
+                }
+
+                if let entry = levelPreviewEntry {
+                    Circle()
+                        .fill(Color.black.opacity(0.62))
+                        .overlay(
+                            Circle()
+                                .strokeBorder(
+                                    BodyCardioFitnessLevelPresentation.color(for: entry.level),
+                                    lineWidth: layout.ringStroke
+                                )
+                        )
+                        .frame(width: layout.ringDiameter, height: layout.ringDiameter)
+                        .position(
+                            x: proxy.size.width / 2,
+                            y: layout.ringY(for: entry.level, position: entry.position)
+                        )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .animation(refreshAnimation, value: levelPreviewEntry)
+        }
+    }
+
+    private func levelRowColor(for level: CardioFitnessLevel) -> Color {
+        guard let entry = levelPreviewEntry else {
+            // Same dimmed skeleton the dots preview shows while it waits.
+            return Color.secondary.opacity(0.24)
+        }
+
+        // The occupied row is a muted wash of its level color, not the full
+        // tint: the ring sits inside it, and the dots preview gets its ring
+        // legible the same way — a dark, desaturated band under a fully
+        // saturated ring. A full-strength row would swallow the ring, which is
+        // the only thing marking where in the level the reading falls.
+        return level == entry.level
+            ? BodyCardioFitnessLevelPresentation.color(for: level).opacity(0.42)
+            : Color.secondary.opacity(0.42)
+    }
+
+    /// Row geometry for the levels preview: four equal rows separated by three
+    /// gaps, highest level first. The four heights plus the three gaps always
+    /// sum to the drawable height, so the preview's fixed frame stays exactly
+    /// filled at any size.
+    ///
+    /// Not `private`: `BodyTests` exercises this height math directly.
+    struct LevelPreviewLayout {
+        /// Share of the preview's height each gap between rows takes.
+        static let gapFraction: CGFloat = 0.045
+
+        static var rowCount: Int {
+            CardioFitnessLevel.displayOrder.count
+        }
+
+        let gap: CGFloat
+        let rowHeight: CGFloat
+        let ringDiameter: CGFloat
+        let ringStroke: CGFloat
+
+        init(size: CGSize) {
+            let height = max(size.height, 0)
+            let rows = CGFloat(Self.rowCount)
+            // Capping a gap at half a row's even share is what keeps the rows and
+            // gaps summing to the drawable height however small the preview is:
+            // the three gaps can never claim more than half of it.
+            gap = min(max(height * Self.gapFraction, 1.5), height / (2 * (rows - 1)))
+            rowHeight = (height - gap * (rows - 1)) / rows
+            // The ring keeps one size across every level so it glides rather than
+            // resizes as it moves rows, and a row's height is the hard cap so it
+            // can never outgrow the row it rests in.
+            ringDiameter = min(max(min(rowHeight * 0.72, size.width * 0.16), 5), rowHeight)
+            ringStroke = max(ringDiameter * 0.26, 2)
+        }
+
+        /// Every row is the same height — the level is taken so callers read the
+        /// same way the dots preview's do.
+        func height(for level: CardioFitnessLevel) -> CGFloat {
+            rowHeight
+        }
+
+        func topY(for level: CardioFitnessLevel) -> CGFloat {
+            CGFloat(Self.rowIndex(of: level)) * (rowHeight + gap)
+        }
+
+        func centerY(for level: CardioFitnessLevel) -> CGFloat {
+            topY(for: level) + rowHeight / 2
+        }
+
+        func cornerRadius(for level: CardioFitnessLevel) -> CGFloat {
+            max(height(for: level) * 0.14, 3)
+        }
+
+        /// Where the ring rests inside its own row: `position` 1 is the top of
+        /// the row (the level's upper bound), 0 the bottom, matching the
+        /// highest-first stacking. The ring stays a half-diameter clear of both
+        /// row edges so it never bleeds into a neighbouring level.
+        func ringY(for level: CardioFitnessLevel, position: Double) -> CGFloat {
+            let clamped = min(max(position, 0), 1)
+            let top = topY(for: level)
+            let halfRing = ringDiameter / 2
+            let minY = top + halfRing + 0.5
+            let maxY = top + rowHeight - halfRing - 0.5
+
+            guard minY <= maxY else {
+                // At very small preview sizes the ring fills its row outright,
+                // so there is no travel left to spend.
+                return centerY(for: level)
+            }
+
+            return min(max(top + rowHeight * CGFloat(1 - clamped), minY), maxY)
+        }
+
+        private static func rowIndex(of level: CardioFitnessLevel) -> Int {
+            CardioFitnessLevel.displayOrder.firstIndex(of: level) ?? 0
         }
     }
 }

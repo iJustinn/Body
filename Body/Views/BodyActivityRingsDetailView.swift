@@ -852,17 +852,17 @@ private struct BodyActivityRingCalendarDayCell: View {
             values: [
                 BodyChartSelectionValue(
                     title: String(localized: "Move"),
-                    value: bodyActivityRingCalloutValueText(day.summary.move, unit: "KCAL"),
+                    value: bodyActivityRingCalloutValueText(day.summary.move, unit: "kcal"),
                     color: BodyActivityRingPalette.move
                 ),
                 BodyChartSelectionValue(
                     title: String(localized: "Exercise"),
-                    value: bodyActivityRingCalloutValueText(day.summary.exercise, unit: "MIN"),
+                    value: bodyActivityRingCalloutValueText(day.summary.exercise, unit: "min"),
                     color: BodyActivityRingPalette.exercise
                 ),
                 BodyChartSelectionValue(
                     title: String(localized: "Stand"),
-                    value: bodyActivityRingCalloutValueText(day.summary.stand, unit: "HRS"),
+                    value: bodyActivityRingCalloutValueText(day.summary.stand, unit: "hrs"),
                     color: BodyActivityRingPalette.stand
                 )
             ],
@@ -974,19 +974,19 @@ struct BodyActivityRingsCard: View {
                 BodyActivityRingMetricRow(
                     title: "Move",
                     metric: summary.move,
-                    unit: "KCAL",
+                    unit: "kcal",
                     color: moveColor
                 )
                 BodyActivityRingMetricRow(
                     title: "Exercise",
                     metric: summary.exercise,
-                    unit: "MIN",
+                    unit: "min",
                     color: exerciseColor
                 )
                 BodyActivityRingMetricRow(
                     title: "Stand",
                     metric: summary.stand,
-                    unit: "HRS",
+                    unit: "hrs",
                     color: standColor
                 )
             }
@@ -1045,7 +1045,7 @@ private func bodyActivityRingRoundedText(_ value: Double) -> String {
     BodyValueFormat.numberText(value.rounded(), decimals: 0)
 }
 
-/// "503/500 KCAL" for the peek callout, or the localized no-data text when the
+/// "503/500 kcal" for the peek callout, or the localized no-data text when the
 /// day is missing either half.
 private func bodyActivityRingCalloutValueText(_ metric: ActivityRingMetric, unit: String) -> String {
     guard let value = metric.value, let goal = metric.goal else {

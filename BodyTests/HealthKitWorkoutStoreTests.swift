@@ -66,6 +66,9 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         let runningPower = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .runningPower))
         let cyclingCadence = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .cyclingCadence))
         let swimStrokes = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .swimmingStrokeCount))
+        let strideLength = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .runningStrideLength))
+        let groundContact = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .runningGroundContactTime))
+        let verticalOscillation = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .runningVerticalOscillation))
         let distance = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning))
 
         // Workouts + Workout Metrics: detail metrics requested; distance (core) also present.
@@ -76,6 +79,9 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertTrue(both.contains(runningPower))
         XCTAssertTrue(both.contains(cyclingCadence))
         XCTAssertTrue(both.contains(swimStrokes))
+        XCTAssertTrue(both.contains(strideLength))
+        XCTAssertTrue(both.contains(groundContact))
+        XCTAssertTrue(both.contains(verticalOscillation))
         XCTAssertTrue(both.contains(distance))
         XCTAssertTrue(both.contains(HKObjectType.workoutType()))
 
@@ -88,6 +94,9 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertFalse(workoutsOnly.contains(vo2Max))
         XCTAssertFalse(workoutsOnly.contains(runningPower))
         XCTAssertFalse(workoutsOnly.contains(swimStrokes))
+        XCTAssertFalse(workoutsOnly.contains(strideLength))
+        XCTAssertFalse(workoutsOnly.contains(groundContact))
+        XCTAssertFalse(workoutsOnly.contains(verticalOscillation))
 
         // Workout Metrics without Workouts: nothing requested (AND-gate).
         let metricsOnly = HealthKitWorkoutStore.readObjectTypes(
@@ -95,6 +104,20 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         )
         XCTAssertFalse(metricsOnly.contains(vo2Max))
         XCTAssertFalse(metricsOnly.contains(distance))
+    }
+
+    /// Heart-rate recovery feeds a workout-detail tile but is heart data, so it
+    /// rides the Heart toggle rather than Workouts/Workout Metrics.
+    func testHeartPermissionGatesHeartRateRecoveryReadType() throws {
+        let recovery = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .heartRateRecoveryOneMinute))
+
+        XCTAssertTrue(HealthKitWorkoutStore.readObjectTypes(
+            for: BodyHealthPermissionSelection(enabledPermissions: [.heart])
+        ).contains(recovery))
+
+        XCTAssertFalse(HealthKitWorkoutStore.readObjectTypes(
+            for: BodyHealthPermissionSelection(enabledPermissions: [.workouts, .workoutMetrics])
+        ).contains(recovery))
     }
 
     func testDateOfBirthPermissionGatesCharacteristicReadType() throws {
@@ -1268,6 +1291,121 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
 
         XCTAssertEqual(merged.points.map(\.date), [keptDate])
         XCTAssertEqual(merged.points.map(\.value), [61])
+    }
+
+    /// A comparison source that resolved to No Comparison (Body Pro lapsed, or the
+    /// primary source was changed to match the secondary and collapsed it) fetches an
+    /// authoritative EMPTY, which has to clear the cached series. Anchoring the
+    /// refetch boundary on the newest cached point instead leaves every point older
+    /// than the 48h overlap on the chart, so the comparison line keeps drawing after
+    /// it should have vanished. Both halves are asserted: the boundary that works and
+    /// the boundary that silently strands the stale points.
+    func testDisabledSecondaryClearsCacheOnlyWhenRefetchStartsAtWindowStart() throws {
+        let calendar = Calendar.bodyGregorian
+        let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let staleDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 3, hour: 9)))
+        let recentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 8, hour: 9)))
+        let cached = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: staleDate, value: 58),
+            HealthTrendDataPoint(date: recentDate, value: 61)
+        ])
+
+        // What the store now does for a disabled comparison: the whole window is
+        // authoritative, so the empty result wipes the series.
+        let cleared = HealthKitFetchEngine.mergeIntradaySamples(
+            existing: cached,
+            incoming: .empty,
+            windowStart: windowStart,
+            refetchStart: windowStart
+        )
+        XCTAssertTrue(cleared.isEmpty)
+
+        // The incremental boundary — correct for an ENABLED comparison, wrong for a
+        // disabled one, because it preserves everything before the overlap.
+        let incrementalStart = HealthKitFetchEngine.incrementalFetchStart(after: cached, windowStart: windowStart)
+        let stranded = HealthKitFetchEngine.mergeIntradaySamples(
+            existing: cached,
+            incoming: .empty,
+            windowStart: windowStart,
+            refetchStart: incrementalStart
+        )
+        XCTAssertEqual(stranded.points.map(\.date), [staleDate])
+    }
+
+    /// Clearing the comparison cache is what makes the next detail-view visit pull a
+    /// FULL window rather than incrementally topping up pre-lapse points: an empty
+    /// cache has no anchor, so `incrementalFetchStart` falls back to `windowStart`.
+    /// This is why the entitlement handler invalidates instead of eagerly refetching
+    /// — the lazy path already does the right thing once the cache is genuinely
+    /// empty, and a comparison kind is ~50k raw samples to fetch eagerly.
+    func testClearedComparisonCacheRefetchesFullWindowOnNextVisit() throws {
+        let calendar = Calendar.bodyGregorian
+        let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let preLapse = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 18, hour: 6)))
+        let staleCache = HealthTrendSeries(points: [HealthTrendDataPoint(date: preLapse, value: 57)])
+
+        // Left in place, the pre-lapse points anchor the refetch 48h back and every
+        // older point is silently trusted forever.
+        XCTAssertEqual(
+            HealthKitFetchEngine.incrementalFetchStart(after: staleCache, windowStart: windowStart),
+            preLapse.addingTimeInterval(-HealthKitFetchEngine.incrementalOverlapWindow)
+        )
+        // Cleared, the next visit re-reads the whole window from HealthKit.
+        XCTAssertEqual(
+            HealthKitFetchEngine.incrementalFetchStart(after: .empty, windowStart: windowStart),
+            windowStart
+        )
+    }
+
+    /// The secondary day-sample fetch is now incremental too, so it must land on the
+    /// same 48h boundary the primary uses — a comparison cache and a primary cache
+    /// with the same newest point refetch the same window.
+    func testSecondaryIncrementalFetchStartMatchesPrimary() throws {
+        let calendar = Calendar.bodyGregorian
+        let windowStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let newest = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 20, hour: 6)))
+        let series = HealthTrendSeries(points: [HealthTrendDataPoint(date: newest, value: 55)])
+
+        let fetchStart = HealthKitFetchEngine.incrementalFetchStart(after: series, windowStart: windowStart)
+
+        XCTAssertEqual(fetchStart, newest.addingTimeInterval(-HealthKitFetchEngine.incrementalOverlapWindow))
+        // An empty comparison cache (first load, or just-cleared after a source
+        // switch) still pulls the full window.
+        XCTAssertEqual(
+            HealthKitFetchEngine.incrementalFetchStart(after: .empty, windowStart: windowStart),
+            windowStart
+        )
+    }
+
+    /// The Step-2 guard in `refreshHealthMetric` keys off `HealthTrendDaySampleSignatures`,
+    /// so a secondary-source switch or a combine-flag flip mid-fetch has to register
+    /// as a mismatch — otherwise a mixed-source merge gets published and persisted.
+    func testDaySampleSignaturesDifferForSecondaryAndCombineChanges() {
+        let base = HealthTrendDaySampleSignatures(
+            primarySelectionSignature: "primary-a",
+            secondarySelectionSignature: "secondary-a",
+            permissionSignature: "perm-a",
+            combinesHealthDataSourcesByName: false
+        )
+
+        XCTAssertNotEqual(base, HealthTrendDaySampleSignatures(
+            primarySelectionSignature: "primary-a",
+            secondarySelectionSignature: "secondary-b",
+            permissionSignature: "perm-a",
+            combinesHealthDataSourcesByName: false
+        ))
+        XCTAssertNotEqual(base, HealthTrendDaySampleSignatures(
+            primarySelectionSignature: "primary-a",
+            secondarySelectionSignature: "secondary-a",
+            permissionSignature: "perm-a",
+            combinesHealthDataSourcesByName: true
+        ))
+        XCTAssertEqual(base, HealthTrendDaySampleSignatures(
+            primarySelectionSignature: "primary-a",
+            secondarySelectionSignature: "secondary-a",
+            permissionSignature: "perm-a",
+            combinesHealthDataSourcesByName: false
+        ))
     }
 
     func testAverageVitalValuesPartitionsSamplesPerNightInterval() throws {

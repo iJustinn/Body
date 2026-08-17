@@ -188,6 +188,23 @@
         }
       }
     },
+    "3D" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3D"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3D"
+          }
+        }
+      }
+    },
     "6 Months" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -353,6 +370,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关于体脂率"
+          }
+        }
+      }
+    },
+    "About Cardio Fitness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Cardio Fitness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于有氧适能"
           }
         }
       }
@@ -781,6 +815,23 @@
         }
       }
     },
+    "Ascent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ascent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "爬升"
+          }
+        }
+      }
+    },
     "Australian Football" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -832,6 +883,40 @@
         }
       }
     },
+    "Avg Cycling Cadence" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avg Cadence"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均踏频"
+          }
+        }
+      }
+    },
+    "Avg Ground Contact" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avg Ground Contact"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均触地时间"
+          }
+        }
+      }
+    },
     "Avg Heart Rate" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -862,6 +947,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "平均心率"
+          }
+        }
+      }
+    },
+    "Avg METs" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avg METs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均 METs"
           }
         }
       }
@@ -913,6 +1015,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "平均速度"
+          }
+        }
+      }
+    },
+    "Avg Step Cadence" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avg Cadence"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均步频"
+          }
+        }
+      }
+    },
+    "Avg Stride Length" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avg Stride Length"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均步长"
+          }
+        }
+      }
+    },
+    "Avg Vertical Osc." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avg Vertical Osc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均垂直振幅"
           }
         }
       }
@@ -1065,6 +1218,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "篮球"
+          }
+        }
+      }
+    },
+    "Best Pace" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Best Pace"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最佳配速"
           }
         }
       }
@@ -1426,6 +1596,40 @@
         }
       }
     },
+    "Cadence, average %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cadence, average %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "步频，平均 %@ %@，最高 %@ %@"
+          }
+        }
+      }
+    },
+    "Calculating the 30-day comparison" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculating the 30-day comparison"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在计算30天对比"
+          }
+        }
+      }
+    },
     "Cardio Dance" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1455,7 +1659,143 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "心肺适能"
+            "value" : "有氧适能"
+          }
+        }
+      }
+    },
+    "Cardio fitness is a measurement of your VO₂ max, the maximum amount of oxygen your body can use during exercise. It is one of the strongest single indicators of long-term health, and most people can raise it by increasing the intensity and frequency of cardiovascular exercise.\nApple Watch does not measure this continuously. It records one estimate after an Outdoor Walk, Outdoor Run, or Hike on relatively flat ground, when GPS and heart-rate signal are good and you work hard enough. Indoor and gym-equipment workouts do not count, and your first qualifying workout will not produce a reading, because Apple Watch needs about a day of wear first. That is why readings arrive every few days or weeks rather than daily, and why short ranges here are often empty.\nYour level compares your VO₂ max against people of the same age and sex, using normative data from the Fitness Registry and the Importance of Exercise National Database (FRIEND). Levels are available from age 20 through 79. Medications and conditions that limit your heart rate can cause an overestimate." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cardio fitness is a measurement of your VO₂ max — the maximum amount of oxygen your body can use during exercise. It is one of the strongest single indicators of long-term health, and most people can raise it by increasing the intensity and frequency of cardiovascular exercise.\nApple Watch does not measure this continuously. It records one estimate after an Outdoor Walk, Outdoor Run, or Hike on relatively flat ground, when GPS and heart-rate signal are good and you work hard enough. Indoor and gym-equipment workouts do not count, and your first qualifying workout will not produce a reading — Apple Watch needs about a day of wear first. That is why readings arrive every few days or weeks rather than daily, and why short ranges here are often empty.\nYour level compares your VO₂ max against people of the same age and sex, using normative data from the Fitness Registry and the Importance of Exercise National Database (FRIEND). Levels are available from age 20 through 79. Medications and conditions that limit your heart rate can cause an overestimate."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有氧适能衡量的是你的最大摄氧量，也就是运动时身体能够消耗的最大氧气量。它是长期健康最有力的单项指标之一，大多数人都可以通过提高有氧运动的强度和频率来提升它。\nApple Watch 并不会持续测量这一数据。它只在户外步行、户外跑步或徒步时记录一次估算值，且需要地面相对平坦、GPS 与心率信号良好，并达到足够的运动强度。室内运动和使用健身器械的运动不计入其中；你的第一次符合条件的运动也不会生成读数，因为 Apple Watch 需要先佩戴约一天。因此读数往往每隔几天或几周才出现一次，较短的时间范围也常常没有数据。\n你的水平是将你的最大摄氧量与同龄同性别人群进行比较，所用的常模数据来自 Fitness Registry and the Importance of Exercise National Database（FRIEND）。该分级适用于 20 至 79 岁。会限制心率的药物或疾病可能导致估算值偏高。"
+          }
+        }
+      }
+    },
+    "Elevation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elevation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "海拔"
+          }
+        }
+      }
+    },
+    "Elevation, ascent %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elevation, ascent %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "海拔，爬升 %@ %@，最高 %@ %@"
+          }
+        }
+      }
+    },
+    "Max Elevation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Elevation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最高海拔"
+          }
+        }
+      }
+    },
+    "cardioFitness.level.aboveAverage" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Above Average"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高于平均"
+          }
+        }
+      }
+    },
+    "cardioFitness.level.belowAverage" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Below Average"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低于平均"
+          }
+        }
+      }
+    },
+    "cardioFitness.level.high" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高"
+          }
+        }
+      }
+    },
+    "cardioFitness.level.low" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低"
           }
         }
       }
@@ -1490,6 +1830,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "攀岩"
+          }
+        }
+      }
+    },
+    "cm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cm"
           }
         }
       }
@@ -1660,6 +2017,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "踏频"
+          }
+        }
+      }
+    },
+    "Cycling cadence, average %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cycling cadence, average %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "踏频，平均 %@ %@，最高 %@ %@"
           }
         }
       }
@@ -1898,6 +2272,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "爬升高度"
+          }
+        }
+      }
+    },
+    "Elevation Ribbon" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elevation Ribbon"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "海拔立体路线"
           }
         }
       }
@@ -2156,6 +2547,23 @@
         }
       }
     },
+    "ft/step" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ft/step"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "英尺/步"
+          }
+        }
+      }
+    },
     "Functional Strength" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2186,6 +2594,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "高尔夫球"
+          }
+        }
+      }
+    },
+    "Ground Contact Time" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ground Contact Time"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "触地时间"
+          }
+        }
+      }
+    },
+    "Ground contact time, average %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ground contact time, average %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "触地时间，平均 %@ %@，最长 %@ %@"
           }
         }
       }
@@ -2292,19 +2734,19 @@
         }
       }
     },
-    "Heart rate and HRV" : {
+    "Heart rate, HRV, and recovery" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Heart rate and HRV"
+            "value" : "Heart rate, HRV, and recovery"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "心率与心率变异性"
+            "value" : "心率、心率变异性与恢复"
           }
         }
       }
@@ -2462,6 +2904,23 @@
         }
       }
     },
+    "HR Recovery" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HR Recovery"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率恢复"
+          }
+        }
+      }
+    },
     "HRV is a little under baseline, but recovery is solid. Normal training is fine." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2595,6 +3054,23 @@
         }
       }
     },
+    "Humidity" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Humidity"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "湿度"
+          }
+        }
+      }
+    },
     "Hunting" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2625,6 +3101,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "英制"
+          }
+        }
+      }
+    },
+    "in" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "in"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "in"
           }
         }
       }
@@ -2764,19 +3257,36 @@
         }
       }
     },
-    "KM" : {
+    "km" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "KM"
+            "value" : "km"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "公里"
+          }
+        }
+      }
+    },
+    "km/h" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "km/h"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "km/h"
           }
         }
       }
@@ -2933,6 +3443,23 @@
         }
       }
     },
+    "m/step" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "m/step"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "米/步"
+          }
+        }
+      }
+    },
     "Map" : {
       "localizations" : {
         "en" : {
@@ -2966,6 +3493,40 @@
         }
       }
     },
+    "Max Cycling Cadence" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Cadence"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最高踏频"
+          }
+        }
+      }
+    },
+    "Max Ground Contact" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Ground Contact"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最长触地时间"
+          }
+        }
+      }
+    },
     "Max Heart Rate" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2979,6 +3540,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最高心率"
+          }
+        }
+      }
+    },
+    "Max Speed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Speed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最高速度"
+          }
+        }
+      }
+    },
+    "Max Step Cadence" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Cadence"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最高步频"
+          }
+        }
+      }
+    },
+    "Max Stride Length" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Stride Length"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最大步长"
+          }
+        }
+      }
+    },
+    "Max Vertical Osc." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Vertical Osc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最大垂直振幅"
           }
         }
       }
@@ -3034,13 +3663,13 @@
         }
       }
     },
-    "MI" : {
+    "mi" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "MI"
+            "value" : "mi"
           }
         },
         "zh-Hans" : {
@@ -3081,6 +3710,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "英里"
+          }
+        }
+      }
+    },
+    "min/km" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "min/km"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "min/km"
+          }
+        }
+      }
+    },
+    "min/mi" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "min/mi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "min/mi"
           }
         }
       }
@@ -3204,6 +3867,40 @@
         }
       }
     },
+    "mph" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "mph"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "mph"
+          }
+        }
+      }
+    },
+    "ms" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms"
+          }
+        }
+      }
+    },
     "Multiple signals are down together — readiness is poor. Rest or keep it very light." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3305,6 +4002,23 @@
         }
       }
     },
+    "Not enough history to compare" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not enough history to compare"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "历史数据不足，无法对比"
+          }
+        }
+      }
+    },
     "Only a light activity today, so your low readiness mainly reflects your recovery signals, not training." : {
       "localizations" : {
         "en" : {
@@ -3384,6 +4098,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "配速"
+          }
+        }
+      }
+    },
+    "Pace, average %@ %@, best %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pace, average %@ %@, best %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配速，平均 %@ %@，最佳 %@ %@"
           }
         }
       }
@@ -4166,6 +4897,23 @@
         }
       }
     },
+    "rpm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "rpm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "rpm"
+          }
+        }
+      }
+    },
     "Rugby" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4921,6 +5669,40 @@
         }
       }
     },
+    "Speed, average %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Speed, average %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "速度，平均 %@ %@，最高 %@ %@"
+          }
+        }
+      }
+    },
+    "spm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "spm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "spm"
+          }
+        }
+      }
+    },
     "Squash" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5070,6 +5852,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "力量训练"
+          }
+        }
+      }
+    },
+    "Stride Length" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stride Length"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "步长"
+          }
+        }
+      }
+    },
+    "Stride length, average %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stride length, average %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "步长，平均 %@ %@，最大 %@ %@"
           }
         }
       }
@@ -5594,6 +6410,40 @@
         }
       }
     },
+    "Vertical Oscillation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertical Oscillation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "垂直振幅"
+          }
+        }
+      }
+    },
+    "Vertical oscillation, average %@ %@, maximum %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertical oscillation, average %@ %@, maximum %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "垂直振幅，平均 %@ %@，最大 %@ %@"
+          }
+        }
+      }
+    },
     "Very little sleep last night has readiness low. Rest is the priority today." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5645,19 +6495,36 @@
         }
       }
     },
-    "VO₂max, power, cadence, and swim strokes" : {
+    "VO₂ max and fitness level" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "VO₂max, power, cadence, and swim strokes"
+            "value" : "VO₂ max and fitness level"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最大摄氧量、功率、步频与划水次数"
+            "value" : "最大摄氧量与体能水平"
+          }
+        }
+      }
+    },
+    "VO₂max, power, cadence, running form, and swim strokes" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VO₂max, power, cadence, running form, and swim strokes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最大摄氧量、功率、步频、跑步动态与划水次数"
           }
         }
       }
@@ -6029,6 +6896,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "各项信号都稳定高于基准。今天适合训练。"
+          }
+        }
+      }
+    },
+    "Your VO₂ max is above the midpoint for your age and sex. Keeping your current cardio routine should hold it there." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your VO₂ max is above the midpoint for your age and sex. Keeping your current cardio routine should hold it there."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的最大摄氧量高于同龄同性别人群的中位水平。保持目前的有氧运动习惯即可维持在这一水平。"
+          }
+        }
+      }
+    },
+    "Your VO₂ max is below most people of your age and sex. Regular cardiovascular exercise is the most reliable way to raise it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your VO₂ max is below most people of your age and sex. Regular cardiovascular exercise is the most reliable way to raise it."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的最大摄氧量低于大多数同龄同性别的人。规律的有氧运动是提升它最可靠的方式。"
+          }
+        }
+      }
+    },
+    "Your VO₂ max is well above most people of your age and sex. That is a strong marker of cardiorespiratory fitness." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your VO₂ max is well above most people of your age and sex — a strong marker of cardiorespiratory fitness."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的最大摄氧量远高于大多数同龄同性别的人。这是有氧适能出色的有力标志。"
+          }
+        }
+      }
+    },
+    "Your VO₂ max sits under the midpoint for your age and sex. Adding intensity or frequency to your cardio usually moves this up." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your VO₂ max sits under the midpoint for your age and sex. Adding intensity or frequency to your cardio usually moves this up."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的最大摄氧量低于同龄同性别人群的中位水平。提高有氧运动的强度或频率通常能让它上升。"
           }
         }
       }

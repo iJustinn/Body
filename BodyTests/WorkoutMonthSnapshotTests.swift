@@ -325,18 +325,21 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(presentation.title, "Strength")
         XCTAssertEqual(presentation.dateTitle, "Mon, May 11")
         // Foundation separates time and AM/PM with U+202F (narrow no-break space).
+        // The detail page header shows the start alone; the share card still
+        // uses the full range.
+        XCTAssertEqual(presentation.startTimeText, "3:57\u{202F}PM")
         XCTAssertEqual(presentation.timeRangeText, "3:57\u{202F}PM-4:58\u{202F}PM")
         XCTAssertEqual(presentation.durationClockText, "1:00:39")
         XCTAssertEqual(presentation.activeEnergyText, "416 kcal")
         XCTAssertEqual(presentation.totalEnergyText, "482 kcal")
-        XCTAssertEqual(presentation.averageHeartRateText, "122 BPM")
+        XCTAssertEqual(presentation.averageHeartRateText, "122 bpm")
         XCTAssertEqual(presentation.distanceText, "1.00 km")
         XCTAssertEqual(presentation.effortText, "7 Hard")
         XCTAssertEqual(presentation.effortPresentation?.intensity, .hard)
         XCTAssertEqual(presentation.effortPresentation?.segmentFills, [1, 1, 1, 0.5, 0])
         XCTAssertEqual(presentation.heartRateSamples.map(\.beatsPerMinute), [102, 122, 146])
         XCTAssertEqual(presentation.sourceText, "Motra")
-        XCTAssertEqual(presentation.detailMetrics.map(\.title), ["Distance", "Active Kcal", "Total Kcal", "Avg Heart Rate"])
+        XCTAssertEqual(presentation.detailMetrics.map(\.title), ["Distance", "Active kcal", "Total kcal", "Avg Heart Rate"])
         XCTAssertNil(presentation.heroDistanceValue)
     }
 
@@ -550,6 +553,41 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(optimalEntry.fractionOfTotal, 0.4, accuracy: 0.001)
     }
 
+    func testWorkoutDetailPresentationHeroDateLineJoinsDateWeekdayAndStartTime() throws {
+        let calendar = Calendar.bodyGregorian
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let startDate = try XCTUnwrap(calendar.date(
+            from: DateComponents(timeZone: timeZone, year: 2025, month: 11, day: 14, hour: 9, minute: 41)
+        ))
+        let workout = WorkoutSummary(
+            type: .running,
+            startDate: startDate,
+            duration: 1_800,
+            sourceName: "Motra"
+        )
+
+        let presentation = WorkoutDetailPresentation(
+            workout: workout,
+            calendar: calendar,
+            locale: Locale(identifier: "en_US"),
+            timeZone: timeZone
+        )
+
+        // Foundation separates time and AM/PM with U+202F (narrow no-break space).
+        XCTAssertEqual(presentation.heroDateLineText, "Nov 14, Fri, 9:41\u{202F}AM")
+
+        let chinese = WorkoutDetailPresentation(
+            workout: workout,
+            calendar: calendar,
+            locale: Locale(identifier: "zh-Hans"),
+            timeZone: timeZone
+        )
+        let parts = chinese.heroDateLineText.components(separatedBy: ", ")
+        XCTAssertEqual(parts.count, 3)
+        XCTAssertFalse(parts.contains { $0.isEmpty })
+        XCTAssertEqual(parts.last, chinese.startTimeText)
+    }
+
     func testWorkoutDetailPresentationOmitsDistanceMetricWhenDistanceDoesNotExist() throws {
         let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
             from: DateComponents(year: 2026, month: 5, day: 11, hour: 15, minute: 57)
@@ -571,7 +609,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             unitPreference: .metric
         )
 
-        XCTAssertEqual(presentation.detailMetrics.map(\.title), ["Active Kcal", "Total Kcal", "Avg Heart Rate"])
+        XCTAssertEqual(presentation.detailMetrics.map(\.title), ["Active kcal", "Total kcal", "Avg Heart Rate"])
         XCTAssertNil(presentation.distanceText)
     }
 
@@ -657,7 +695,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         XCTAssertEqual(presentation.detailMetrics.map(\.title), [
             "Avg Pace", "Elevation Gain",
-            "Active Kcal", "Total Kcal", "Avg Heart Rate", "Max Heart Rate",
+            "Active kcal", "Total kcal", "Avg Heart Rate", "Max Heart Rate",
             "Cadence", "Avg Power", "Cardio Fitness"
         ])
         XCTAssertEqual(presentation.heroDistanceValue, "5.00")
@@ -666,8 +704,8 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let byTitle = Dictionary(uniqueKeysWithValues: presentation.detailMetrics.map { ($0.title, $0.value) })
         XCTAssertEqual(byTitle["Avg Pace"], "6:00 /km")
         XCTAssertEqual(byTitle["Elevation Gain"], "80 m")
-        XCTAssertEqual(byTitle["Max Heart Rate"], "172 BPM")
-        XCTAssertEqual(byTitle["Cadence"], "168 SPM")
+        XCTAssertEqual(byTitle["Max Heart Rate"], "172 bpm")
+        XCTAssertEqual(byTitle["Cadence"], "168 spm")
         XCTAssertEqual(byTitle["Avg Power"], "310 W")
         XCTAssertEqual(byTitle["Cardio Fitness"], "48.5 ml/kg·min")
         XCTAssertEqual(presentation.detailMetrics.first { $0.title == "Cadence" }?.kind, .stepCadence)
@@ -698,7 +736,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         let byTitle = Dictionary(uniqueKeysWithValues: presentation.detailMetrics.map { ($0.title, $0.value) })
         XCTAssertEqual(byTitle["Avg Speed"], "30.0 km/h")
-        XCTAssertEqual(byTitle["Cadence"], "85 RPM")
+        XCTAssertEqual(byTitle["Cadence"], "85 rpm")
         XCTAssertEqual(byTitle["Avg Power"], "220 W")
         XCTAssertEqual(presentation.detailMetrics.first { $0.title == "Cadence" }?.kind, .cyclingCadence)
         XCTAssertTrue(presentation.detailMetrics.map(\.kind).contains(.speed))
@@ -774,7 +812,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             "80 m"
         )
         XCTAssertEqual(BodyValueFormat.powerText(watts: 310, locale: locale), "310 W")
-        XCTAssertEqual(BodyValueFormat.cadenceText(168, unit: "SPM", locale: locale), "168 SPM")
+        XCTAssertEqual(BodyValueFormat.cadenceText(168, unit: "spm", locale: locale), "168 spm")
         XCTAssertEqual(BodyValueFormat.vo2MaxText(48.5, locale: locale), "48.5 ml/kg·min")
         XCTAssertEqual(BodyValueFormat.strokeCountText(600, locale: locale), "600")
     }
@@ -2347,6 +2385,47 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(sanitized.effortLevel, 6)
     }
 
+    func testRemovingHeartRateRecoveryClearsOnlyThatField() {
+        let summary = WorkoutSummary(
+            id: UUID(),
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            duration: 1_800,
+            activeEnergyKilocalories: 250,
+            totalEnergyKilocalories: 300,
+            distanceMeters: 5_000,
+            averageHeartRateBeatsPerMinute: 150,
+            maximumHeartRateBeatsPerMinute: 175,
+            effortLevel: 6,
+            averagePowerWatts: 240,
+            averageStepCadenceSPM: 170,
+            averageCyclingCadenceRPM: nil,
+            swimmingStrokeCount: nil,
+            cardioFitnessVO2Max: 48,
+            heartRateRecoveryBPM: 32
+        )
+
+        let sanitized = summary.removingHeartRateRecovery()
+
+        // Only heart-rate recovery drops (it rides the Heart toggle) …
+        XCTAssertNil(sanitized.heartRateRecoveryBPM)
+        // … the Workout Metrics fields and core data are untouched.
+        XCTAssertEqual(sanitized.averagePowerWatts, 240)
+        XCTAssertEqual(sanitized.averageStepCadenceSPM, 170)
+        XCTAssertEqual(sanitized.cardioFitnessVO2Max, 48)
+        XCTAssertEqual(sanitized.averageHeartRateBeatsPerMinute, 150)
+        XCTAssertEqual(sanitized.distanceMeters, 5_000)
+        XCTAssertEqual(sanitized.id, summary.id)
+
+        // The month-level wrapper strips every workout and keeps identity.
+        let month = WorkoutMonthSnapshot.make(month: 11, year: 2023, workouts: [summary], calendar: .bodyGregorian)
+        let strippedMonth = month.removingHeartRateRecovery()
+        XCTAssertEqual(strippedMonth.month, month.month)
+        XCTAssertEqual(strippedMonth.year, month.year)
+        XCTAssertEqual(strippedMonth.generatedAt, month.generatedAt)
+        XCTAssertTrue(strippedMonth.days.flatMap(\.workouts).allSatisfy { $0.heartRateRecoveryBPM == nil })
+    }
+
     func testRemovingWorkoutMetricsPreservesEffortUnresolvedFlag() throws {
         // `removingWorkoutMetrics()` reconstructs the summary field-by-field and is
         // rewritten to disk when Workout Metrics is disabled. If it dropped
@@ -2403,6 +2482,41 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertFalse(resolvedJSON.contains("effortUnresolved"))
         let resolvedDecoded = try JSONDecoder().decode(WorkoutSummary.self, from: resolvedEncoded)
         XCTAssertNil(resolvedDecoded.effortUnresolved)
+    }
+
+    func testWorkoutSummaryHeartRateRecoverySurvivesCodableRoundTrip() throws {
+        let withRecovery = WorkoutSummary(
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 3_000_000),
+            duration: 900,
+            heartRateRecoveryBPM: 32
+        )
+        let decoded = try JSONDecoder().decode(
+            WorkoutSummary.self,
+            from: try JSONEncoder().encode(withRecovery)
+        )
+        XCTAssertEqual(decoded.heartRateRecoveryBPM, 32)
+        XCTAssertEqual(decoded, withRecovery)
+
+        // Snapshots persisted before the field existed have no key at all — they
+        // must still decode, with the recovery left to the detail sheet's lazy read.
+        // (`encodeIfPresent` also keeps a nil out of the bytes, so the M10 byte-dedupe
+        // doesn't see a change on workouts that have no recovery.)
+        let legacyJSON = try XCTUnwrap(
+            String(data: try JSONEncoder().encode(
+                WorkoutSummary(
+                    type: .running,
+                    startDate: Date(timeIntervalSince1970: 3_000_000),
+                    duration: 900
+                )
+            ), encoding: .utf8)
+        )
+        XCTAssertFalse(legacyJSON.contains("heartRateRecoveryBPM"))
+        let legacyDecoded = try JSONDecoder().decode(
+            WorkoutSummary.self,
+            from: try XCTUnwrap(legacyJSON.data(using: .utf8))
+        )
+        XCTAssertNil(legacyDecoded.heartRateRecoveryBPM)
     }
 
     func testExpandedPermissionMigrationAddsNewTogglesForLegacySelections() throws {
@@ -2664,6 +2778,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 .heartRate,
                 .restingHeartRate,
                 .heartRateVariability,
+                .cardioFitness,
                 .respiratoryRate,
                 .oxygenSaturation,
                 .sleep,
@@ -2817,7 +2932,10 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
     func testVitalsHomeCardKindConfiguration() {
         XCTAssertEqual(BodyHomeCardKind.vitals.healthMetricKind, .vitals)
-        XCTAssertTrue(BodyHomeCardKind.vitals.isBeta)
+        // Readiness is the only card still carrying the "v1" chip.
+        XCTAssertFalse(BodyHomeCardKind.vitals.isBeta)
+        XCTAssertFalse(BodyHomeCardKind.cardioFitness.isBeta)
+        XCTAssertTrue(BodyHomeCardKind.readiness.isBeta)
         XCTAssertFalse(BodyHomeCardKind.starEligible.contains(.vitals))
     }
 
@@ -3423,7 +3541,8 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 .wristTemperature,
                 .timeInDaylight,
                 .steps,
-                .vitals
+                .vitals,
+                .cardioFitness
             ]
         )
         XCTAssertEqual(HealthMetricKind.readiness.detailDataSourceText?.sourceText, "Apple Health")
@@ -4900,7 +5019,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
         let sleepTrend = try XCTUnwrap(snapshot.metricTrends.first { $0.metric == .sleep })
         let scoreValue = try XCTUnwrap(sleepTrend.displayValues.first)
-        XCTAssertEqual(scoreValue.unit, "PTS")
+        XCTAssertEqual(scoreValue.unit, "pts")
         XCTAssertNotNil(Int(scoreValue.value))
 
         summary.sleep = SleepSummary(duration: nil)
@@ -5010,6 +5129,70 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertFalse(WorkoutCalendarDaySelection.isSelectable(emptyDay, hasSelectionHandler: true))
         XCTAssertFalse(WorkoutCalendarDaySelection.isSelectable(activeDay, hasSelectionHandler: false))
         XCTAssertTrue(WorkoutCalendarDaySelection.isSelectable(activeDay, hasSelectionHandler: true))
+    }
+
+    func testWorkoutCalendarSwitchControlAlwaysTakesTheLastColumn() {
+        // Every shape a Gregorian month can take: any weekday start, any length.
+        for leadingBlankDayCount in 0...6 {
+            for dayCount in 28...31 {
+                let cells = WorkoutCalendarView.cellLayout(
+                    leadingBlankDayCount: leadingBlankDayCount,
+                    dayCount: dayCount,
+                    includesSwitchControl: true
+                )
+                let context = "blanks \(leadingBlankDayCount), days \(dayCount)"
+
+                XCTAssertEqual(cells.last, .switchControl, context)
+                XCTAssertEqual(cells.filter { $0 == .switchControl }.count, 1, context)
+                // A full number of rows, so the last index is the trailing
+                // column and the control can never sit beside a date.
+                XCTAssertEqual(cells.count % 7, 0, context)
+                // Padding is blanks only — no day is dropped or duplicated.
+                XCTAssertEqual(cells.filter { $0 != .blank && $0 != .switchControl }.count, dayCount, context)
+            }
+        }
+    }
+
+    func testWorkoutCalendarSwitchControlOnlyAddsARowWhenTheMonthFillsItsLast() {
+        // Aug 2026 — Aug 1 is a Saturday, so 6 + 31 = 37 cells leave a gap in
+        // the final row and the control shares it with the 30th and 31st.
+        let sharesLastRow = WorkoutCalendarView.cellLayout(
+            leadingBlankDayCount: 6,
+            dayCount: 31,
+            includesSwitchControl: true
+        )
+        XCTAssertEqual(sharesLastRow.count, 42)
+
+        // A 28-day February starting on Sunday fills its last row exactly, so
+        // the control has nowhere to go but a row of its own.
+        let needsItsOwnRow = WorkoutCalendarView.cellLayout(
+            leadingBlankDayCount: 0,
+            dayCount: 28,
+            includesSwitchControl: true
+        )
+        XCTAssertEqual(needsItsOwnRow.count, 35)
+        XCTAssertEqual(
+            Array(needsItsOwnRow.suffix(7)),
+            Array(repeating: WorkoutCalendarCellKind.blank, count: 6) + [.switchControl]
+        )
+    }
+
+    func testWorkoutCalendarWithoutSwitchControlKeepsTheWidgetsLayout() {
+        for leadingBlankDayCount in 0...6 {
+            for dayCount in 28...31 {
+                let cells = WorkoutCalendarView.cellLayout(
+                    leadingBlankDayCount: leadingBlankDayCount,
+                    dayCount: dayCount,
+                    includesSwitchControl: false
+                )
+                let expected = Array(repeating: WorkoutCalendarCellKind.blank, count: leadingBlankDayCount)
+                    + (0..<dayCount).map { WorkoutCalendarCellKind.day(index: $0) }
+
+                // No trailing padding at all — the widgets pass no handler, so
+                // their grid must stop at the last day exactly as it always has.
+                XCTAssertEqual(cells, expected, "blanks \(leadingBlankDayCount), days \(dayCount)")
+            }
+        }
     }
 
     func testWorkoutCalendarCountMarkersMatchCountRepresentation() {

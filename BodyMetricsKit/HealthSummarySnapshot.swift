@@ -25,6 +25,7 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
     case timeInDaylight
     case steps
     case vitals
+    case cardioFitness
 
     var id: String {
         rawValue
@@ -127,6 +128,11 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
                 title: String(localized: "About Vitals", table: "BodyMetricsKit"),
                 body: String(localized: "Vitals reviews overnight measurements of sleeping heart rate, respiratory rate, skin temperature, blood oxygen, and sleep duration. Each one is compared against your personal typical range, learned from about eight weeks of your own sleep data. Outliers can follow illness, alcohol, travel, or hard training, and they are not a diagnosis. It takes about two weeks of sleep data to calibrate.\nVitals follows the data sources you select for Sleep and for each individual vital, so choosing a single source may limit how many nights have data and how far back the charts reach.", table: "BodyMetricsKit")
             )
+        case .cardioFitness:
+            return HealthMetricDetailHelpText(
+                title: String(localized: "About Cardio Fitness", table: "BodyMetricsKit"),
+                body: String(localized: "Cardio fitness is a measurement of your VO₂ max, the maximum amount of oxygen your body can use during exercise. It is one of the strongest single indicators of long-term health, and most people can raise it by increasing the intensity and frequency of cardiovascular exercise.\nApple Watch does not measure this continuously. It records one estimate after an Outdoor Walk, Outdoor Run, or Hike on relatively flat ground, when GPS and heart-rate signal are good and you work hard enough. Indoor and gym-equipment workouts do not count, and your first qualifying workout will not produce a reading, because Apple Watch needs about a day of wear first. That is why readings arrive every few days or weeks rather than daily, and why short ranges here are often empty.\nYour level compares your VO₂ max against people of the same age and sex, using normative data from the Fitness Registry and the Importance of Exercise National Database (FRIEND). Levels are available from age 20 through 79. Medications and conditions that limit your heart rate can cause an overestimate.", table: "BodyMetricsKit")
+            )
         }
     }
 
@@ -147,13 +153,27 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
              .wristTemperature,
              .timeInDaylight,
              .steps,
-             .vitals:
+             .vitals,
+             .cardioFitness:
             return HealthMetricDetailDataSourceText(sourceText: "Apple Health")
         case .bodyMass,
              .bodyFatPercentage,
              .bodyMassIndex:
             return nil
         }
+    }
+
+    /// Whether this metric's trend line should plot each reading on its own day
+    /// instead of averaging readings into the range's fixed buckets.
+    ///
+    /// Only Cardio Fitness: Apple Watch writes one VO₂ max estimate per
+    /// qualifying outdoor workout, so a month often holds two readings. Bucket
+    /// averaging would stamp those at the bucket's end date — up to 11 days from
+    /// when they were measured on the year range — and report an average of
+    /// readings that were never averaged. Every other metric here has a reading
+    /// most days, where bucketing is what keeps a long range readable.
+    var usesSparseTrendReadings: Bool {
+        self == .cardioFitness
     }
 }
 
@@ -185,6 +205,32 @@ struct HealthSummarySnapshot: Codable, Equatable {
     var wristTemperature: HealthMetricSummary
     var timeInDaylight: HealthMetricSummary
     var steps: HealthMetricSummary
+    var cardioFitness: HealthMetricSummary
+    /// Age + sex behind the cardio fitness level, persisted with the reading so
+    /// the home card can classify on cold launch before a fetch lands. `nil`
+    /// when the characteristics are unreadable or the permission is off, which
+    /// every band UI renders as unclassified.
+    var cardioFitnessProfile: CardioFitnessProfile?
+    /// Today's earliest past-threshold episode per warning kind, fetched with the
+    /// summary so the home card can flag it without the intraday samples. Kinds
+    /// with nothing past their threshold today are simply absent.
+    var metricWarnings: [MetricWarningEvent]
+
+    /// Today's episode for one warning kind, if any.
+    func warning(_ kind: MetricWarningKind) -> MetricWarningEvent? {
+        metricWarnings.first { $0.kind == kind }
+    }
+
+    /// Swaps in a freshly detected set of warnings for one metric, leaving the
+    /// other metrics' warnings untouched.
+    func replacingWarnings(
+        for metric: HealthMetricKind,
+        with warnings: [MetricWarningEvent]
+    ) -> HealthSummarySnapshot {
+        var next = self
+        next.metricWarnings = metricWarnings.filter { $0.kind.metric != metric } + warnings
+        return next
+    }
 
     init(
         activityRings: ActivityRingSummary,
@@ -204,7 +250,10 @@ struct HealthSummarySnapshot: Codable, Equatable {
         trainingLoad: HealthMetricSummary = HealthMetricSummary(value: nil),
         wristTemperature: HealthMetricSummary = HealthMetricSummary(value: nil),
         timeInDaylight: HealthMetricSummary = HealthMetricSummary(value: nil),
-        steps: HealthMetricSummary = HealthMetricSummary(value: nil)
+        steps: HealthMetricSummary = HealthMetricSummary(value: nil),
+        cardioFitness: HealthMetricSummary = HealthMetricSummary(value: nil),
+        cardioFitnessProfile: CardioFitnessProfile? = nil,
+        metricWarnings: [MetricWarningEvent] = []
     ) {
         self.activityRings = activityRings
         self.readiness = readiness
@@ -224,6 +273,9 @@ struct HealthSummarySnapshot: Codable, Equatable {
         self.wristTemperature = wristTemperature
         self.timeInDaylight = timeInDaylight
         self.steps = steps
+        self.cardioFitness = cardioFitness
+        self.cardioFitnessProfile = cardioFitnessProfile
+        self.metricWarnings = metricWarnings
     }
 
     var isEmpty: Bool {
@@ -246,7 +298,11 @@ struct HealthSummarySnapshot: Codable, Equatable {
             trainingLoad.value == nil &&
             wristTemperature.value == nil &&
             timeInDaylight.value == nil &&
-            steps.value == nil
+            steps.value == nil &&
+            // Deliberately the VO₂ value only, never `cardioFitnessProfile`:
+            // this gates first-load behavior, and age + sex alone is
+            // demographics, not dashboard data the user can read.
+            cardioFitness.value == nil
     }
 
     static let empty = HealthSummarySnapshot(
@@ -267,7 +323,9 @@ struct HealthSummarySnapshot: Codable, Equatable {
         trainingLoad: HealthMetricSummary(value: nil),
         wristTemperature: HealthMetricSummary(value: nil),
         timeInDaylight: HealthMetricSummary(value: nil),
-        steps: HealthMetricSummary(value: nil)
+        steps: HealthMetricSummary(value: nil),
+        cardioFitness: HealthMetricSummary(value: nil),
+        cardioFitnessProfile: nil
     )
 
     static let placeholder = HealthSummarySnapshot(
@@ -332,7 +390,9 @@ struct HealthSummarySnapshot: Codable, Equatable {
         trainingLoad: HealthMetricSummary(value: 1.08),
         wristTemperature: HealthMetricSummary(value: 36.4),
         timeInDaylight: HealthMetricSummary(value: 32),
-        steps: HealthMetricSummary(value: 1_212)
+        steps: HealthMetricSummary(value: 1_212),
+        cardioFitness: HealthMetricSummary(value: 40.1),
+        cardioFitnessProfile: CardioFitnessProfile(ageYears: 34, sex: .male)
     )
 
     private enum CodingKeys: String, CodingKey {
@@ -354,6 +414,22 @@ struct HealthSummarySnapshot: Codable, Equatable {
         case wristTemperature
         case timeInDaylight
         case steps
+        case cardioFitness
+        case cardioFitnessProfile
+        case metricWarnings
+    }
+
+    /// Snapshots written before `metricWarnings` carried the low heart rate
+    /// episode under its own key. Read-only: new saves write `metricWarnings`.
+    private enum LegacyCodingKeys: String, CodingKey {
+        case lowHeartRateEvent
+    }
+
+    private struct LegacyLowHeartRateEvent: Decodable {
+        var startDate: Date
+        var endDate: Date
+        var minimumBPM: Double
+        var sampleCount: Int
     }
 
     init(from decoder: Decoder) throws {
@@ -376,6 +452,23 @@ struct HealthSummarySnapshot: Codable, Equatable {
         wristTemperature = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .wristTemperature) ?? HealthMetricSummary(value: nil)
         timeInDaylight = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .timeInDaylight) ?? HealthMetricSummary(value: nil)
         steps = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .steps) ?? HealthMetricSummary(value: nil)
+        cardioFitness = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .cardioFitness) ?? HealthMetricSummary(value: nil)
+        cardioFitnessProfile = try container.decodeIfPresent(CardioFitnessProfile.self, forKey: .cardioFitnessProfile)
+        if let warnings = try container.decodeIfPresent([MetricWarningEvent].self, forKey: .metricWarnings) {
+            metricWarnings = warnings
+        } else {
+            let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
+            let legacy = try legacyContainer.decodeIfPresent(LegacyLowHeartRateEvent.self, forKey: .lowHeartRateEvent)
+            metricWarnings = legacy.map {
+                [MetricWarningEvent(
+                    kind: .lowHeartRate,
+                    startDate: $0.startDate,
+                    endDate: $0.endDate,
+                    extremeValue: $0.minimumBPM,
+                    sampleCount: $0.sampleCount
+                )]
+            } ?? []
+        }
     }
 
     func filtered(by selection: BodyHealthPermissionSelection) -> HealthSummarySnapshot {
@@ -393,6 +486,12 @@ struct HealthSummarySnapshot: Codable, Equatable {
             filtered.heartRateVariability = HealthSummarySnapshot.empty.heartRateVariability
             filtered.sleep.vitals.heartRate = nil
             filtered.sleep.vitals.heartRateVariability = nil
+            filtered.metricWarnings.removeAll { $0.kind.metric == .heartRate }
+        }
+        if !selection.includes(.workouts) {
+            // Warnings that exclude in-workout readings need workout coverage;
+            // without it a cached one would keep the Home glyph up unrefreshed.
+            filtered.metricWarnings.removeAll(where: \.kind.excludesWorkouts)
         }
         if !selection.includes(.basics) {
             filtered.bodyMass = HealthSummarySnapshot.empty.bodyMass
@@ -402,6 +501,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         if !selection.includes(.bloodOxygen) {
             filtered.oxygenSaturation = HealthSummarySnapshot.empty.oxygenSaturation
             filtered.sleep.vitals.oxygenSaturation = nil
+            filtered.metricWarnings.removeAll { $0.kind.metric == .oxygenSaturation }
         }
         if !selection.includes(.respiratory) {
             filtered.respiratoryRate = HealthSummarySnapshot.empty.respiratoryRate
@@ -427,6 +527,13 @@ struct HealthSummarySnapshot: Codable, Equatable {
         if !selection.includes(.steps) {
             filtered.steps = HealthSummarySnapshot.empty.steps
         }
+        if !selection.includes(.cardioFitness) {
+            // The profile is demographics read solely to classify this metric,
+            // so it clears with the reading — a revoke must never leave age and
+            // sex behind on their own.
+            filtered.cardioFitness = HealthSummarySnapshot.empty.cardioFitness
+            filtered.cardioFitnessProfile = HealthSummarySnapshot.empty.cardioFitnessProfile
+        }
 
         return filtered
     }
@@ -445,6 +552,10 @@ struct HealthSummarySnapshot: Codable, Equatable {
             next.bodyMassIndex = refreshed.bodyMassIndex
         case .heartRate:
             next.heartRate = refreshed.heartRate
+            next = next.replacingWarnings(
+                for: .heartRate,
+                with: refreshed.metricWarnings.filter { $0.kind.metric == .heartRate }
+            )
         case .restingHeartRate:
             next.restingHeartRate = refreshed.restingHeartRate
         case .bodyMass:
@@ -457,6 +568,10 @@ struct HealthSummarySnapshot: Codable, Equatable {
             next.respiratoryRate = refreshed.respiratoryRate
         case .oxygenSaturation:
             next.oxygenSaturation = refreshed.oxygenSaturation
+            next = next.replacingWarnings(
+                for: .oxygenSaturation,
+                with: refreshed.metricWarnings.filter { $0.kind.metric == .oxygenSaturation }
+            )
         case .bodyMassIndex:
             next.bodyMassIndex = refreshed.bodyMassIndex
         case .activeEnergy:
@@ -475,6 +590,11 @@ struct HealthSummarySnapshot: Codable, Equatable {
             next.steps = refreshed.steps
         case .vitals:
             next.sleep = refreshed.sleep
+        case .cardioFitness:
+            // Reading and profile move together: a value classified against a
+            // stale age or sex is worse than an unclassified one.
+            next.cardioFitness = refreshed.cardioFitness
+            next.cardioFitnessProfile = refreshed.cardioFitnessProfile
         }
 
         return next

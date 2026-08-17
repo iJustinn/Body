@@ -362,6 +362,23 @@
         }
       }
     },
+    "%@ VO₂ max" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ VO₂ max"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 最大摄氧量"
+          }
+        }
+      }
+    },
     "%@ vs %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -508,6 +525,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已缓存%1$lld%2$@的活动圆环数据。"
+          }
+        }
+      }
+    },
+    "%lld bpm" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld bpm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 次/分钟"
           }
         }
       }
@@ -809,6 +842,70 @@
         }
       }
     },
+    "2D" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2D"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2D"
+          }
+        }
+      }
+    },
+    "3D" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3D"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3D"
+          }
+        }
+      }
+    },
+    "3D needs a route with elevation data." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3D needs a route with elevation data."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3D 需要包含海拔数据的路线。"
+          }
+        }
+      }
+    },
+    "3D Route Share" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3D Route Share"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3D 路线分享"
+          }
+        }
+      }
+    },
     "About" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -886,6 +983,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关于你的区间"
+          }
+        }
+      }
+    },
+    "About your level" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About your level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于你的水平"
           }
         }
       }
@@ -1007,6 +1121,23 @@
         }
       }
     },
+    "AI comment on today's score" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI comment on today's score"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI 点评今日分数"
+          }
+        }
+      }
+    },
     "All Apple Health data permissions are turned off in Settings." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1037,6 +1168,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "时长"
+          }
+        }
+      }
+    },
+    "Any reading above %lld bpm today, outside workouts" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Any reading above %lld bpm today, outside workouts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天任一读数高于 %lld 次/分钟（体能训练期间除外）"
+          }
+        }
+      }
+    },
+    "Any reading below %lld bpm today" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Any reading below %lld bpm today"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天任一读数低于 %lld 次/分钟"
+          }
+        }
+      }
+    },
+    "Any reading below %lld%% today" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Any reading below %lld%% today"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天任一读数低于 %lld%%"
           }
         }
       }
@@ -1143,6 +1322,57 @@
         }
       }
     },
+    "Apple Intelligence" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Intelligence"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple 智能"
+          }
+        }
+      }
+    },
+    "Apple Intelligence comment: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Intelligence comment: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple 智能点评：%@"
+          }
+        }
+      }
+    },
+    "Apple Intelligence readiness comments need a supported device with Apple Intelligence turned on in Settings. Body's built-in explanation is shown instead." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Intelligence readiness comments need a supported device with Apple Intelligence turned on in Settings. Body's built-in explanation is shown instead."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple 智能恢复状态点评需要支持该功能的设备，并在设置中开启 Apple 智能。否则将显示 Body 自带的说明。"
+          }
+        }
+      }
+    },
     "Apple Watch" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1172,6 +1402,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "应用"
+          }
+        }
+      }
+    },
+    "Arrange" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrange"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "排布"
+          }
+        }
+      }
+    },
+    "At least one metric stays on the card." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At least one metric stays on the card."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卡片至少保留一个指标。"
           }
         }
       }
@@ -1441,6 +1703,7 @@
       }
     },
     "Beta v2" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1553,6 +1816,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "体重指数"
+          }
+        }
+      }
+    },
+    "Body Blue" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body Blue"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 蓝"
           }
         }
       }
@@ -1976,6 +2255,22 @@
         }
       }
     },
+    "Body's prediction: Calculating…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body's prediction: Calculating…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 预测：正在计算…"
+          }
+        }
+      }
+    },
     "bpm" : {
       "localizations" : {
         "en" : {
@@ -1988,22 +2283,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "bpm"
-          }
-        }
-      }
-    },
-    "BPM" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "BPM"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "BPM"
           }
         }
       }
@@ -2157,6 +2436,22 @@
         }
       }
     },
+    "Calculating…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculating…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在计算…"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2170,6 +2465,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "取消"
+          }
+        }
+      }
+    },
+    "Cardio Fitness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cardio Fitness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有氧适能"
           }
         }
       }
@@ -2238,6 +2550,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择终身版"
+          }
+        }
+      }
+    },
+    "Choose which metrics your workout share card shows." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose which metrics your workout share card shows."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择运动分享卡片显示哪些指标。"
           }
         }
       }
@@ -2906,6 +3234,23 @@
         }
       }
     },
+    "Days by Level" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Days by Level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按水平划分的天数"
+          }
+        }
+      }
+    },
     "Days by Status" : {
       "localizations" : {
         "en" : {
@@ -2951,6 +3296,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "有所下降"
+          }
+        }
+      }
+    },
+    "Default: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认：%@"
           }
         }
       }
@@ -3204,6 +3565,22 @@
         }
       }
     },
+    "Drag to move the photo. Pinch to zoom. Double-tap to reset." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag to move the photo. Pinch to zoom. Double-tap to reset."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拖动移动照片。捏合缩放。双击重置。"
+          }
+        }
+      }
+    },
     "Drag to move. Pinch to resize. Double-tap to reset." : {
       "localizations" : {
         "en" : {
@@ -3216,6 +3593,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "拖动可移动，捏合可缩放，双击可重置。"
+          }
+        }
+      }
+    },
+    "Draw Route" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Draw Route"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "绘制路线"
           }
         }
       }
@@ -3418,6 +3812,22 @@
         }
       }
     },
+    "Export workout share cards as 16:9, 3:4, 4:3, or square, portrait or landscape." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export workout share cards as 16:9, 3:4, 4:3, or square, portrait or landscape."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将运动分享卡片导出为 16:9、3:4、4:3 或方形，横版或竖版。"
+          }
+        }
+      }
+    },
     "Fahrenheit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3616,6 +4026,22 @@
         }
       }
     },
+    "Font" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Font"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "字体"
+          }
+        }
+      }
+    },
     "Full Day History" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3666,6 +4092,23 @@
         }
       }
     },
+    "Generating comment…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Generating comment…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在生成点评…"
+          }
+        }
+      }
+    },
     "Go to Month" : {
       "localizations" : {
         "en" : {
@@ -3712,6 +4155,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "灰色"
+          }
+        }
+      }
+    },
+    "Green" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Green"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "绿色"
           }
         }
       }
@@ -3900,6 +4359,22 @@
         }
       }
     },
+    "High Heart Rate" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Heart Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率过高"
+          }
+        }
+      }
+    },
     "Hour-by-hour chart for a chosen day" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3968,13 +4443,13 @@
         }
       }
     },
-    "HRS" : {
+    "hrs" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "HRS"
+            "value" : "hrs"
           }
         },
         "zh-Hans" : {
@@ -4015,6 +4490,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "图标"
+          }
+        }
+      }
+    },
+    "If you were working out, this warning will disappear once the workout is logged." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If you were working out, this warning will disappear once the workout is logged."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "如果您当时正在体能训练，该警告会在训练记录同步后消失。"
           }
         }
       }
@@ -4152,13 +4643,13 @@
         }
       }
     },
-    "KCAL" : {
+    "kcal" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "KCAL"
+            "value" : "kcal"
           }
         },
         "zh-Hans" : {
@@ -4237,6 +4728,38 @@
         }
       }
     },
+    "Landscape 4:3" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Landscape 4:3"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "横版 4:3"
+          }
+        }
+      }
+    },
+    "Landscape 16:9" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Landscape 16:9"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "横版 16:9"
+          }
+        }
+      }
+    },
     "Last Night" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4267,6 +4790,72 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "上次刷新：%@"
+          }
+        }
+      }
+    },
+    "Layout" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Layout"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "布局"
+          }
+        }
+      }
+    },
+    "Layout doesn't apply to the Map background." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Layout doesn't apply to the Map background."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "排布不适用于地图背景。"
+          }
+        }
+      }
+    },
+    "Levels compare you against people of the same age and sex. Add your date of birth and sex in the Health app to see yours. Levels are available from age 20 through 79." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Levels compare you against people of the same age and sex. Add your date of birth and sex in the Health app to see yours — they are available from age 20 through 79."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分级会将你与同龄同性别的人进行比较。请在“健康”App 中填写你的出生日期和性别以查看你的水平。该分级适用于 20 至 79 岁。"
+          }
+        }
+      }
+    },
+    "Levels need your Health profile" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Levels need your Health profile"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分级需要你的健康资料"
           }
         }
       }
@@ -4504,6 +5093,22 @@
         }
       }
     },
+    "Low Blood Oxygen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Blood Oxygen"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "血氧过低"
+          }
+        }
+      }
+    },
     "Low Deviation" : {
       "localizations" : {
         "en" : {
@@ -4516,6 +5121,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "低偏差"
+          }
+        }
+      }
+    },
+    "Low Heart Rate" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Heart Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率过低"
           }
         }
       }
@@ -4621,19 +5242,35 @@
         }
       }
     },
-    "MIN" : {
+    "min" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "MIN"
+            "value" : "min"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "分钟"
+          }
+        }
+      }
+    },
+    "Monospaced" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monospaced"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等宽"
           }
         }
       }
@@ -4887,6 +5524,22 @@
         }
       }
     },
+    "Next" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下一步"
+          }
+        }
+      }
+    },
     "Next month" : {
       "localizations" : {
         "en" : {
@@ -4933,6 +5586,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未找到健康 App 数据。如果应该有数据，请在健康 App 中检查 Body 的权限。"
+          }
+        }
+      }
+    },
+    "No Cardio Fitness yet" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Cardio Fitness yet"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无有氧适能数据"
           }
         }
       }
@@ -5364,6 +6034,22 @@
         }
       }
     },
+    "Not enough history yet" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not enough history yet"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "历史数据还不够"
+          }
+        }
+      }
+    },
     "Not enough sleep data yet" : {
       "localizations" : {
         "en" : {
@@ -5649,6 +6335,22 @@
         }
       }
     },
+    "Orange" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Orange"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "橙色"
+          }
+        }
+      }
+    },
     "Original" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5800,6 +6502,22 @@
         }
       }
     },
+    "Photo" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "照片"
+          }
+        }
+      }
+    },
     "Photo Activity Share" : {
       "localizations" : {
         "en" : {
@@ -5812,6 +6530,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "照片运动分享"
+          }
+        }
+      }
+    },
+    "Pick 1 to 3 metrics." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick 1 to 3 metrics."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择 1 到 3 个指标。"
           }
         }
       }
@@ -5845,6 +6579,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "粉色"
+          }
+        }
+      }
+    },
+    "Portrait 3:4" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portrait 3:4"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "竖版 3:4"
+          }
+        }
+      }
+    },
+    "Portrait 9:16" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Portrait 9:16"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "竖版 9:16"
           }
         }
       }
@@ -6069,6 +6835,22 @@
         }
       }
     },
+    "Ratio" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ratio"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "比例"
+          }
+        }
+      }
+    },
     "Re-rate any workout anytime to override Body's value." : {
       "localizations" : {
         "en" : {
@@ -6148,6 +6930,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢复状态与压力信号"
+          }
+        }
+      }
+    },
+    "Readiness Comment" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Readiness Comment"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态点评"
           }
         }
       }
@@ -6366,6 +7165,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重置布局"
+          }
+        }
+      }
+    },
+    "Reset Photo" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset Photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置照片"
           }
         }
       }
@@ -6655,6 +7470,103 @@
         }
       }
     },
+    "Rotate Left" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rotate Left"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向左旋转"
+          }
+        }
+      }
+    },
+    "Rotate Right" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rotate Right"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向右旋转"
+          }
+        }
+      }
+    },
+    "Rounded" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rounded"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "圆体"
+          }
+        }
+      }
+    },
+    "Route" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Route"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "路线"
+          }
+        }
+      }
+    },
+    "Route Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Route Color"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "路线颜色"
+          }
+        }
+      }
+    },
+    "Route color doesn't apply to the Map background." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Route color doesn't apply to the Map background."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "路线颜色不适用于地图背景。"
+          }
+        }
+      }
+    },
     "Route map" : {
       "localizations" : {
         "en" : {
@@ -6683,6 +7595,59 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "路线样式"
+          }
+        }
+      }
+    },
+    "routeStyle.drawSubtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Animate the route as it loads on a workout's page"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在训练页面加载时以动画绘制路线"
+          }
+        }
+      }
+    },
+    "routeStyle.drawSummary" : {
+      "comment" : "Leads the Route Style row's value when the draw animation is on, as \"Draw · 3D\".",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Draw"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "绘制"
+          }
+        }
+      }
+    },
+    "routeStyle.drawUnavailable" : {
+      "comment" : "Replaces the Draw Route subtitle while the switch is dimmed on the Map style.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not available with the Map style, which draws its route onto the map"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "地图样式不支持，其路线直接绘制在地图上"
           }
         }
       }
@@ -7049,6 +8014,22 @@
         }
       }
     },
+    "Serif" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Serif"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "衬线"
+          }
+        }
+      }
+    },
     "Settings" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7062,6 +8043,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "设置"
+          }
+        }
+      }
+    },
+    "settings.section.ai" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI"
           }
         }
       }
@@ -7083,6 +8081,38 @@
         }
       }
     },
+    "Share Card Metrics" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share Card Metrics"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享卡片指标"
+          }
+        }
+      }
+    },
+    "Share Card Sizes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share Card Sizes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享卡片尺寸"
+          }
+        }
+      }
+    },
     "Share Workout" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7096,6 +8126,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "分享运动"
+          }
+        }
+      }
+    },
+    "Share workout cards with the route drawn as a 3D elevation ribbon on any background." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share workout cards with the route drawn as a 3D elevation ribbon on any background."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在任意背景上以 3D 海拔丝带绘制路线来分享运动卡片。"
           }
         }
       }
@@ -7280,6 +8326,22 @@
         }
       }
     },
+    "Shows a full screen interactive map. Swipe left or right to rotate the 3D route." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows a full screen interactive map. Swipe left or right to rotate the 3D route."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示全屏交互地图。左右滑动可旋转 3D 路线。"
+          }
+        }
+      }
+    },
     "Shows detailed sleep score scoring" : {
       "localizations" : {
         "en" : {
@@ -7308,6 +8370,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示运动详情"
+          }
+        }
+      }
+    },
+    "Side by Side" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Side by Side"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左右排列"
           }
         }
       }
@@ -7681,6 +8759,38 @@
         }
       }
     },
+    "Square" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Square"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "方形"
+          }
+        }
+      }
+    },
+    "Stacked" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stacked"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上下排列"
+          }
+        }
+      }
+    },
     "Stage" : {
       "localizations" : {
         "en" : {
@@ -7742,6 +8852,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "站立"
+          }
+        }
+      }
+    },
+    "Standard" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Standard"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "标准"
           }
         }
       }
@@ -8078,6 +9204,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此配置方案将被移除。"
+          }
+        }
+      }
+    },
+    "Threshold" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Threshold"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "阈值"
           }
         }
       }
@@ -8479,6 +9621,22 @@
         }
       }
     },
+    "Use Default" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Default"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用默认值"
+          }
+        }
+      }
+    },
     "Use your own photos as the background of workout share cards." : {
       "localizations" : {
         "en" : {
@@ -8663,6 +9821,40 @@
         }
       }
     },
+    "VO₂ max fitness level" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VO₂ max fitness level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最大摄氧量体能水平"
+          }
+        }
+      }
+    },
+    "VO₂ max trend" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VO₂ max trend"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最大摄氧量趋势"
+          }
+        }
+      }
+    },
     "vs 30-day avg" : {
       "localizations" : {
         "en" : {
@@ -8675,6 +9867,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "对比30天平均值"
+          }
+        }
+      }
+    },
+    "Warnings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warnings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "警告"
+          }
+        }
+      }
+    },
+    "Warnings appear on the Home card and the metric's detail page." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warnings appear on the Home card and the metric's detail page."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "警告会显示在主页卡片和该指标的详情页上。"
           }
         }
       }
@@ -8760,6 +9984,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "体重、体脂率和体重指数"
+          }
+        }
+      }
+    },
+    "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score — your heart rate, HRV, sleep, and training signals. Everything runs on your device; your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score — your heart rate, HRV, sleep, and training signals. Everything runs on your device; your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启后，Apple 智能会写下一句简短点评，说明是什么在影响今天的恢复状态分数——你的心率、心率变异性、睡眠和训练信号。全部处理都在你的设备上完成，健康数据不会离开设备。关闭或不可用时，Body 会改为显示自带的说明。"
           }
         }
       }
@@ -8881,6 +10122,7 @@
       }
     },
     "Workout Route" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9080,6 +10322,22 @@
         }
       }
     },
+    "Your blood oxygen fell below %lld%% starting at %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your blood oxygen fell below %lld%% starting at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的血氧降至 %1$lld%% 以下。"
+          }
+        }
+      }
+    },
     "your body fat" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -9093,6 +10351,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的体脂率"
+          }
+        }
+      }
+    },
+    "your cardio fitness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "your cardio fitness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的有氧适能"
           }
         }
       }
@@ -9127,6 +10402,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的心率"
+          }
+        }
+      }
+    },
+    "Your heart rate fell below %lld BPM starting at %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your heart rate fell below %lld BPM starting at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的心率降至 %1$lld 次/分钟以下。"
+          }
+        }
+      }
+    },
+    "Your heart rate rose above %lld BPM starting at %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your heart rate rose above %lld BPM starting at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的心率升至 %1$lld 次/分钟以上。"
           }
         }
       }
