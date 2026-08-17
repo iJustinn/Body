@@ -1703,6 +1703,7 @@
       }
     },
     "Beta v2" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3811,18 +3812,18 @@
         }
       }
     },
-    "Export workout share cards as 16:9, 4:5, 5:4, or square, portrait or landscape." : {
+    "Export workout share cards as 16:9, 3:4, 4:3, or square, portrait or landscape." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Export workout share cards as 16:9, 4:5, 5:4, or square, portrait or landscape."
+            "value" : "Export workout share cards as 16:9, 3:4, 4:3, or square, portrait or landscape."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将运动分享卡片导出为 16:9、4:5、5:4 或方形，横版或竖版。"
+            "value" : "将运动分享卡片导出为 16:9、3:4、4:3 或方形，横版或竖版。"
           }
         }
       }
@@ -4727,18 +4728,18 @@
         }
       }
     },
-    "Landscape 5:4" : {
+    "Landscape 4:3" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Landscape 5:4"
+            "value" : "Landscape 4:3"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "横版 5:4"
+            "value" : "横版 4:3"
           }
         }
       }
@@ -6582,18 +6583,18 @@
         }
       }
     },
-    "Portrait 4:5" : {
+    "Portrait 3:4" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Portrait 4:5"
+            "value" : "Portrait 3:4"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "竖版 4:5"
+            "value" : "竖版 3:4"
           }
         }
       }

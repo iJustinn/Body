@@ -534,8 +534,8 @@ enum WorkoutShareRouteDimension: String, CaseIterable {
 enum WorkoutShareAspectRatio: String, CaseIterable, Identifiable {
     case portrait9x16 = "9:16"
     case landscape16x9 = "16:9"
-    case portrait4x5 = "4:5"
-    case landscape5x4 = "5:4"
+    case portrait3x4 = "3:4"
+    case landscape4x3 = "4:3"
     case square = "1:1"
 
     var id: String { rawValue }
@@ -554,8 +554,8 @@ enum WorkoutShareAspectRatio: String, CaseIterable, Identifiable {
         switch self {
         case .portrait9x16: return CGSize(width: 360, height: 640)
         case .landscape16x9: return CGSize(width: 640, height: 360)
-        case .portrait4x5: return CGSize(width: 360, height: 450)
-        case .landscape5x4: return CGSize(width: 450, height: 360)
+        case .portrait3x4: return CGSize(width: 360, height: 480)
+        case .landscape4x3: return CGSize(width: 480, height: 360)
         case .square: return CGSize(width: 360, height: 360)
         }
     }
@@ -572,8 +572,8 @@ enum WorkoutShareAspectRatio: String, CaseIterable, Identifiable {
         switch self {
         case .portrait9x16: return String(localized: "Portrait 9:16")
         case .landscape16x9: return String(localized: "Landscape 16:9")
-        case .portrait4x5: return String(localized: "Portrait 4:5")
-        case .landscape5x4: return String(localized: "Landscape 5:4")
+        case .portrait3x4: return String(localized: "Portrait 3:4")
+        case .landscape4x3: return String(localized: "Landscape 4:3")
         case .square: return String(localized: "Square")
         }
     }
@@ -843,7 +843,7 @@ struct WorkoutShareCardGeometry: Equatable {
         }
     }
 
-    /// Shrinks until the row and the branding both fit under it: 4:5 keeps the full
+    /// Shrinks until the row and the branding both fit under it: 3:4 keeps the full
     /// 260, the 360-tall cards drop to 182.
     private var routeOverRowSide: CGFloat {
         min(

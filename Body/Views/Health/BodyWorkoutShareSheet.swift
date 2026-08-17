@@ -444,7 +444,7 @@ struct BodyWorkoutShareSheet: View {
                 NavigationStack { BodyProView() }
             }
             // The title stays set for accessibility/back-button inheritance; the
-            // principal item is what actually draws, so the beta badge can sit beside it.
+            // principal item is what actually draws, so the version badge can sit beside it.
             .navigationTitle(Text("Share"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -454,7 +454,7 @@ struct BodyWorkoutShareSheet: View {
                             .font(.headline)
                             .foregroundColor(.primary)
 
-                        Text("Beta v2")
+                        Text("v1")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(.blue)
                             .padding(.horizontal, 7)

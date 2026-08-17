@@ -195,7 +195,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let keys = [
             "Share",
             "Share Workout",
-            "Beta v2",
+            "v1",
             "Background",
             "Your Photo",
             "Close",
@@ -253,11 +253,11 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Ratio",
             "Portrait 9:16",
             "Landscape 16:9",
-            "Portrait 4:5",
-            "Landscape 5:4",
+            "Portrait 3:4",
+            "Landscape 4:3",
             "Square",
             "Share Card Sizes",
-            "Export workout share cards as 16:9, 4:5, 5:4, or square, portrait or landscape.",
+            "Export workout share cards as 16:9, 3:4, 4:3, or square, portrait or landscape.",
             // Landscape arrangement rail icon, tray tile names, and the Map-dimming
             // hint from WorkoutShareLandscapeArrangement.localizedName.
             "Arrange",

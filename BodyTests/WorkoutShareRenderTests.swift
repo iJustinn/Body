@@ -375,8 +375,8 @@ final class WorkoutShareRenderTests: XCTestCase {
     func testNewAspectRatiosRenderToExactPixelSize() throws {
         let expectations: [(ratio: WorkoutShareAspectRatio, width: Int, height: Int)] = [
             (.landscape16x9, 1_920, 1_080),
-            (.portrait4x5, 1_080, 1_350),
-            (.landscape5x4, 1_350, 1_080),
+            (.portrait3x4, 1_080, 1_440),
+            (.landscape4x3, 1_440, 1_080),
             (.square, 1_080, 1_080)
         ]
         for expectation in expectations {

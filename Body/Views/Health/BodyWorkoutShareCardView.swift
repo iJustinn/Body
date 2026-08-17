@@ -3,8 +3,8 @@
 //  Body
 //
 //  The share card, exported at `ImageRenderer.scale = 3` (1080 px on its short
-//  side). Its shape is the user's `WorkoutShareAspectRatio` — 9:16, 16:9, 4:5,
-//  5:4, or 1:1 — and on a landscape card the `WorkoutShareLandscapeArrangement`
+//  side). Its shape is the user's `WorkoutShareAspectRatio` — 9:16, 16:9, 3:4,
+//  4:3, or 1:1 — and on a landscape card the `WorkoutShareLandscapeArrangement`
 //  decides whether route and metrics stack or sit side by side. No layout number
 //  is written here: `WorkoutShareCardGeometry` derives every frame, scrim, and
 //  anchor from those two inputs, so the card, the sheet's map region, the
@@ -674,8 +674,8 @@ private func previewCard(
     previewCard(layout: .centered, withRoute: true, aspectRatio: .square)
 }
 
-#Preview("4:5") {
-    previewCard(layout: .centered, withRoute: true, aspectRatio: .portrait4x5)
+#Preview("3:4") {
+    previewCard(layout: .centered, withRoute: true, aspectRatio: .portrait3x4)
 }
 
 #Preview("16:9 routeless") {

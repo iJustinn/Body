@@ -1219,8 +1219,8 @@ final class WorkoutShareCardTests: XCTestCase {
     func testAspectRatioSizesAreTenEightyOnTheShortSideAtThreeX() {
         XCTAssertEqual(WorkoutShareAspectRatio.portrait9x16.cardSize, CGSize(width: 360, height: 640))
         XCTAssertEqual(WorkoutShareAspectRatio.landscape16x9.cardSize, CGSize(width: 640, height: 360))
-        XCTAssertEqual(WorkoutShareAspectRatio.portrait4x5.cardSize, CGSize(width: 360, height: 450))
-        XCTAssertEqual(WorkoutShareAspectRatio.landscape5x4.cardSize, CGSize(width: 450, height: 360))
+        XCTAssertEqual(WorkoutShareAspectRatio.portrait3x4.cardSize, CGSize(width: 360, height: 480))
+        XCTAssertEqual(WorkoutShareAspectRatio.landscape4x3.cardSize, CGSize(width: 480, height: 360))
         XCTAssertEqual(WorkoutShareAspectRatio.square.cardSize, CGSize(width: 360, height: 360))
 
         for ratio in WorkoutShareAspectRatio.allCases {
@@ -1229,7 +1229,7 @@ final class WorkoutShareCardTests: XCTestCase {
     }
 
     func testAspectRatioLandscapeProGatingAndLabels() {
-        XCTAssertEqual(WorkoutShareAspectRatio.allCases.filter(\.isLandscape), [.landscape16x9, .landscape5x4])
+        XCTAssertEqual(WorkoutShareAspectRatio.allCases.filter(\.isLandscape), [.landscape16x9, .landscape4x3])
         // Only the original vertical card is free.
         XCTAssertEqual(WorkoutShareAspectRatio.allCases.filter { !$0.isProGated }, [.portrait9x16])
 
@@ -1335,31 +1335,31 @@ final class WorkoutShareCardTests: XCTestCase {
         for arrangement in WorkoutShareLandscapeArrangement.allCases {
             // Portrait/square never split side by side, whatever is stored.
             XCTAssertEqual(geometry(.portrait9x16, arrangement: arrangement).centeredMode, .column)
-            XCTAssertEqual(geometry(.portrait4x5, arrangement: arrangement).centeredMode, .routeOverRow)
+            XCTAssertEqual(geometry(.portrait3x4, arrangement: arrangement).centeredMode, .routeOverRow)
             XCTAssertEqual(geometry(.square, arrangement: arrangement).centeredMode, .routeOverRow)
         }
         XCTAssertEqual(geometry(.landscape16x9, arrangement: .stacked).centeredMode, .routeOverRow)
-        XCTAssertEqual(geometry(.landscape5x4, arrangement: .stacked).centeredMode, .routeOverRow)
+        XCTAssertEqual(geometry(.landscape4x3, arrangement: .stacked).centeredMode, .routeOverRow)
         XCTAssertEqual(geometry(.landscape16x9, arrangement: .sideBySide).centeredMode, .sideBySide)
-        XCTAssertEqual(geometry(.landscape5x4, arrangement: .sideBySide).centeredMode, .sideBySide)
+        XCTAssertEqual(geometry(.landscape4x3, arrangement: .sideBySide).centeredMode, .sideBySide)
     }
 
     func testCenteredRouteSidePerRatio() {
-        // 4:5 is tall enough for the full 260; the 360-tall cards shrink to fit the
+        // 3:4 is tall enough for the full 260; the 360-tall cards shrink to fit the
         // metric row and the branding under the square.
-        XCTAssertEqual(geometry(.portrait4x5).centeredRouteRect.width, 260, accuracy: 1e-9)
+        XCTAssertEqual(geometry(.portrait3x4).centeredRouteRect.width, 260, accuracy: 1e-9)
         XCTAssertEqual(geometry(.square).centeredRouteRect.width, 182, accuracy: 1e-9)
         XCTAssertEqual(geometry(.landscape16x9, arrangement: .stacked).centeredRouteRect.width, 182, accuracy: 1e-9)
-        XCTAssertEqual(geometry(.landscape5x4, arrangement: .stacked).centeredRouteRect.width, 182, accuracy: 1e-9)
+        XCTAssertEqual(geometry(.landscape4x3, arrangement: .stacked).centeredRouteRect.width, 182, accuracy: 1e-9)
 
-        // Side by side trades height for the free half-width — but 5:4's half is
+        // Side by side trades height for the free half-width — but 4:3's half is
         // narrower than its height, so the midline is what limits it.
         XCTAssertEqual(geometry(.landscape16x9, arrangement: .sideBySide).centeredRouteRect.width, 280, accuracy: 1e-9)
-        XCTAssertEqual(geometry(.landscape5x4, arrangement: .sideBySide).centeredRouteRect.width, 201, accuracy: 1e-9)
+        XCTAssertEqual(geometry(.landscape4x3, arrangement: .sideBySide).centeredRouteRect.width, 216, accuracy: 1e-9)
     }
 
     func testSideBySideRouteNeverCrossesTheMidline() {
-        for ratio in [WorkoutShareAspectRatio.landscape16x9, .landscape5x4] {
+        for ratio in [WorkoutShareAspectRatio.landscape16x9, .landscape4x3] {
             let geo = geometry(ratio, arrangement: .sideBySide)
             XCTAssertLessThanOrEqual(geo.centeredRouteRect.maxX, geo.size.width / 2)
             // ...and the metrics stay in the other half.
@@ -1369,7 +1369,7 @@ final class WorkoutShareCardTests: XCTestCase {
     }
 
     func testRouteOverRowMetricsSitAboveTheBrandingZone() {
-        for ratio in [WorkoutShareAspectRatio.portrait4x5, .square, .landscape16x9, .landscape5x4] {
+        for ratio in [WorkoutShareAspectRatio.portrait3x4, .square, .landscape16x9, .landscape4x3] {
             let geo = geometry(ratio, arrangement: .stacked)
             XCTAssertEqual(geo.centeredMode, .routeOverRow)
             XCTAssertEqual(geo.metricsAxis, .horizontal)
@@ -1422,12 +1422,12 @@ final class WorkoutShareCardTests: XCTestCase {
     func testRoutelessRowsWrapOnlyOnTheNarrowCards() {
         for ratio in WorkoutShareAspectRatio.allCases {
             let geo = geometry(ratio, layout: .routeless)
-            // Four metric blocks need ~140 pt each; only 450/640-wide cards fit a line.
+            // Four metric blocks need ~140 pt each; only 480/640-wide cards fit a line.
             XCTAssertEqual(geo.routelessWrapsMetricRows, geo.size.width < 400, "\(ratio.rawValue) wrapped wrongly")
             XCTAssertEqual(geo.routelessMetricsAxis, ratio == .portrait9x16 ? .vertical : .horizontal)
         }
         XCTAssertTrue(geometry(.square, layout: .routeless).routelessWrapsMetricRows)
-        XCTAssertFalse(geometry(.landscape5x4, layout: .routeless).routelessWrapsMetricRows)
+        XCTAssertFalse(geometry(.landscape4x3, layout: .routeless).routelessWrapsMetricRows)
     }
 
     // MARK: - Transforms on a landscape card
