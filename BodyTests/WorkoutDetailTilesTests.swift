@@ -183,4 +183,48 @@ final class WorkoutDetailTilesTests: XCTestCase {
         XCTAssertEqual(stripped.averageMETs, 8.4)
         XCTAssertEqual(stripped.heartRateRecoveryBPM, 32)
     }
+
+    // MARK: - Custom workout name
+
+    func testCustomNameReplacesTheWorkoutTypeTitle() {
+        let presentation = WorkoutDetailPresentation(
+            workout: workout(),
+            locale: locale,
+            customName: "Morning Tempo"
+        )
+
+        XCTAssertEqual(presentation.title, "Morning Tempo")
+    }
+
+    func testBlankAndMissingCustomNamesFallBackToTheWorkoutType() {
+        let summary = workout()
+
+        XCTAssertEqual(
+            WorkoutDetailPresentation(workout: summary, locale: locale, customName: "   ").title,
+            summary.type.displayName
+        )
+        XCTAssertEqual(
+            WorkoutDetailPresentation(workout: summary, locale: locale, customName: nil).title,
+            summary.type.displayName
+        )
+    }
+
+    func testLongCustomNameIsTrimmedAndCappedAtSixtyCharacters() {
+        let raw = "  " + String(repeating: "a", count: 70) + "  "
+
+        XCTAssertEqual(
+            WorkoutDetailPresentation(workout: workout(), locale: locale, customName: raw).title,
+            String(repeating: "a", count: 60)
+        )
+    }
+
+    func testNormalizedCustomNameTrimsCapsAndRejectsBlanks() {
+        XCTAssertEqual(WorkoutSummary.normalizedCustomName("  Easy Spin \n"), "Easy Spin")
+        XCTAssertNil(WorkoutSummary.normalizedCustomName(nil))
+        XCTAssertNil(WorkoutSummary.normalizedCustomName(" \n "))
+        XCTAssertEqual(
+            WorkoutSummary.normalizedCustomName(String(repeating: "b", count: 61))?.count,
+            60
+        )
+    }
 }

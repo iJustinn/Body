@@ -2252,7 +2252,7 @@ struct BodyHealthMetricDetailView: View {
                     kind: .workout,
                     startDate: $0.start,
                     endDate: $0.end,
-                    title: workout.type.displayName,
+                    title: workoutStore.workoutCustomNames[workout.id] ?? workout.type.displayName,
                     symbolName: workout.type.symbolName,
                     color: workout.type.color
                 )

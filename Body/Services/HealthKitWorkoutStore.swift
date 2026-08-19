@@ -115,6 +115,10 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// `[String]` capped at `suggestionAcceptedEffortIDsCap` (oldest dropped first).
     @Published private(set) var suggestionAcceptedEffortWorkoutIDs: Set<UUID> =
         HealthKitWorkoutStore.loadSuggestionAcceptedEffortIDs()
+    /// Device-local user renames keyed by HealthKit workout UUID. Persisted in
+    /// `UserDefaults` as a `[String: String]` (UUID string → name); nothing is
+    /// written back to HealthKit.
+    @Published private(set) var workoutCustomNames: [UUID: String]
     @Published private(set) var healthSummary: HealthSummarySnapshot = .empty
     /// Primary-source + permission signature captured when `healthSummary` was
     /// last published by a full dashboard refresh. A failed summary leaf reuses
@@ -243,6 +247,9 @@ final class HealthKitWorkoutStore: ObservableObject {
     nonisolated static let maximumCachedMonthSnapshots = 12
 
     private let engine: HealthKitFetchEngine
+    /// Backing store for `workoutCustomNames` — injectable so tests can use an
+    /// isolated suite.
+    private let customNameDefaults: UserDefaults
     /// Session cache of resolved workout routes keyed by workout UUID. A cached
     /// `.some(nil)` means "confirmed no readable route", so non-route workouts
     /// aren't re-queried and the city label isn't re-geocoded when a detail
@@ -347,8 +354,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         initialSecondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection = BodyHealthSecondaryDataSourceSelection.load(),
         initialCombinesHealthDataSourcesByName: Bool = UserDefaults.standard.bool(forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey),
         initialCustomHealthSourceGroups: [BodyCustomHealthSourceGroup] = HealthKitWorkoutStore.loadCustomHealthSourceGroups(),
+        customNameDefaults: UserDefaults = .standard,
         date: Date = Date()
     ) {
+        self.customNameDefaults = customNameDefaults
+        workoutCustomNames = Self.loadWorkoutCustomNames(from: customNameDefaults)
         permissionSelection = initialPermissionSelection
         healthDataSourceSelection = initialHealthDataSourceSelection
         secondaryHealthDataSourceSelection = initialSecondaryHealthDataSourceSelection
@@ -797,6 +807,31 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
         UserDefaults.standard.set(stored, forKey: Self.suggestionAcceptedEffortIDsKey)
         suggestionAcceptedEffortWorkoutIDs = Set(stored.compactMap(UUID.init(uuidString:)))
+    }
+
+    // MARK: - Custom workout names
+
+    nonisolated static let workoutCustomNamesKey = "workoutCustomNames"
+
+    nonisolated static func loadWorkoutCustomNames(from defaults: UserDefaults) -> [UUID: String] {
+        let stored = defaults.dictionary(forKey: workoutCustomNamesKey) as? [String: String] ?? [:]
+        return stored.reduce(into: [UUID: String]()) { result, entry in
+            guard let id = UUID(uuidString: entry.key) else { return }
+            result[id] = entry.value
+        }
+    }
+
+    /// Renames a workout for this device only. A nil or blank name clears the
+    /// rename so the workout falls back to its type's display name.
+    func setCustomName(_ name: String?, workoutID: UUID) {
+        var stored = customNameDefaults.dictionary(forKey: Self.workoutCustomNamesKey) as? [String: String] ?? [:]
+        if let normalized = WorkoutSummary.normalizedCustomName(name) {
+            stored[workoutID.uuidString] = normalized
+        } else {
+            stored.removeValue(forKey: workoutID.uuidString)
+        }
+        customNameDefaults.set(stored, forKey: Self.workoutCustomNamesKey)
+        workoutCustomNames = Self.loadWorkoutCustomNames(from: customNameDefaults)
     }
 
     // MARK: - Auto-apply predicted effort

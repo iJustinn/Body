@@ -103,6 +103,7 @@ enum BodyWorkoutFetch {
             endDate: workout.endDate,
             weatherTemperatureCelsius: weatherTemperatureCelsius(for: workout),
             weatherHumidityPercent: weatherHumidityPercent(for: workout),
+            weatherCondition: weatherCondition(for: workout),
             averageMETs: averageMETs(for: workout),
             heartRateRecoveryBPM: includesHeartMetrics ? heartRateRecoveryBPM(for: workout) : nil
         )
@@ -151,6 +152,7 @@ enum BodyWorkoutFetch {
             endDate: workout.endDate,
             weatherTemperatureCelsius: weatherTemperatureCelsius(for: workout),
             weatherHumidityPercent: weatherHumidityPercent(for: workout),
+            weatherCondition: weatherCondition(for: workout),
             averageMETs: averageMETs(for: workout),
             heartRateRecoveryBPM: includesHeartMetrics ? heartRateRecoveryBPM(for: workout) : nil
         )
@@ -200,6 +202,34 @@ enum BodyWorkoutFetch {
     private static func weatherTemperatureCelsius(for workout: HKWorkout) -> Double? {
         finite((workout.metadata?[HKMetadataKeyWeatherTemperature] as? HKQuantity)?
             .doubleValue(for: .degreeCelsius()))
+    }
+
+    /// The recorded sky condition, collapsed from HealthKit's 28 cases to the
+    /// buckets the detail hero has an icon for. `.none` and anything unrecognized
+    /// map to `nil`, which leaves the hero on its thermometer glyph.
+    private static func weatherCondition(for workout: HKWorkout) -> WorkoutWeatherCondition? {
+        guard let rawValue = workout.metadata?[HKMetadataKeyWeatherCondition] as? NSNumber,
+              let condition = HKWeatherCondition(rawValue: rawValue.intValue) else {
+            return nil
+        }
+
+        switch condition {
+        case .none: return nil
+        case .clear, .fair: return .clear
+        case .partlyCloudy: return .partlyCloudy
+        case .mostlyCloudy, .cloudy: return .cloudy
+        case .foggy: return .fog
+        case .haze, .smoky, .dust: return .haze
+        case .windy, .blustery: return .wind
+        case .drizzle: return .drizzle
+        case .showers, .scatteredShowers: return .showers
+        case .thunderstorms: return .thunderstorms
+        case .snow, .mixedRainAndSnow, .mixedSnowAndSleet: return .snow
+        case .sleet, .freezingDrizzle, .freezingRain, .mixedRainAndSleet: return .sleet
+        case .hail, .mixedRainAndHail: return .hail
+        case .tropicalStorm, .hurricane, .tornado: return .tropicalStorm
+        @unknown default: return nil
+        }
     }
 
     /// Recorded relative humidity as a percentage. HealthKit stores it as a 0…1

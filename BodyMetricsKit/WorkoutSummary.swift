@@ -95,6 +95,48 @@ enum WorkoutHeartRateZones {
     }
 }
 
+/// The sky condition the recording device wrote with the workout
+/// (`HKMetadataKeyWeatherCondition`), collapsed to the buckets the detail hero
+/// draws an icon for. Persisted by name rather than by HealthKit's raw value so a
+/// cached snapshot keeps its meaning if that enum ever renumbers, and optional so
+/// indoor workouts — and summaries cached before this existed — decode `nil`.
+enum WorkoutWeatherCondition: String, Codable, Equatable, Hashable, CaseIterable {
+    case clear
+    case partlyCloudy
+    case cloudy
+    case fog
+    case haze
+    case wind
+    case drizzle
+    case rain
+    case showers
+    case thunderstorms
+    case snow
+    case sleet
+    case hail
+    case tropicalStorm
+
+    /// The SF Symbol the hero shows in place of the thermometer.
+    var symbolName: String {
+        switch self {
+        case .clear: return "sun.max.fill"
+        case .partlyCloudy: return "cloud.sun.fill"
+        case .cloudy: return "cloud.fill"
+        case .fog: return "cloud.fog.fill"
+        case .haze: return "sun.haze.fill"
+        case .wind: return "wind"
+        case .drizzle: return "cloud.drizzle.fill"
+        case .rain: return "cloud.rain.fill"
+        case .showers: return "cloud.heavyrain.fill"
+        case .thunderstorms: return "cloud.bolt.rain.fill"
+        case .snow: return "cloud.snow.fill"
+        case .sleet: return "cloud.sleet.fill"
+        case .hail: return "cloud.hail.fill"
+        case .tropicalStorm: return "tropicalstorm"
+        }
+    }
+}
+
 struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     let id: UUID
     let type: BodyWorkoutType
@@ -132,6 +174,10 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     /// Recorded relative humidity as a percentage (0…100); HealthKit stores it as a
     /// 0…1 fraction.
     let weatherHumidityPercent: Double?
+    /// The recorded sky condition (`HKMetadataKeyWeatherCondition`). Rides the
+    /// Workouts permission alongside the other weather metadata, and is `nil` for
+    /// indoor workouts and for sources that don't write it.
+    let weatherCondition: WorkoutWeatherCondition?
     /// `HKMetadataKeyAverageMETs` in kcal/(kg·hr) — the workout's average metabolic
     /// equivalent.
     let averageMETs: Double?
@@ -171,6 +217,7 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         endDate: Date? = nil,
         weatherTemperatureCelsius: Double? = nil,
         weatherHumidityPercent: Double? = nil,
+        weatherCondition: WorkoutWeatherCondition? = nil,
         averageMETs: Double? = nil,
         heartRateRecoveryBPM: Double? = nil
     ) {
@@ -196,6 +243,7 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         self.endDate = endDate
         self.weatherTemperatureCelsius = weatherTemperatureCelsius
         self.weatherHumidityPercent = weatherHumidityPercent
+        self.weatherCondition = weatherCondition
         self.averageMETs = averageMETs
         self.heartRateRecoveryBPM = heartRateRecoveryBPM
     }
@@ -231,6 +279,7 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
             // they ride the Workouts permission and survive the opt-out.
             weatherTemperatureCelsius: weatherTemperatureCelsius,
             weatherHumidityPercent: weatherHumidityPercent,
+            weatherCondition: weatherCondition,
             averageMETs: averageMETs,
             // Heart-rate recovery rides the Heart permission, not Workout Metrics.
             heartRateRecoveryBPM: heartRateRecoveryBPM
@@ -264,9 +313,21 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
             endDate: endDate,
             weatherTemperatureCelsius: weatherTemperatureCelsius,
             weatherHumidityPercent: weatherHumidityPercent,
+            weatherCondition: weatherCondition,
             averageMETs: averageMETs,
             heartRateRecoveryBPM: nil
         )
+    }
+
+    /// Normalizes a device-local user rename: trims surrounding whitespace and
+    /// newlines and caps the result at 60 characters. Returns nil when nothing
+    /// is left, which means "no custom name" — fall back to the workout type.
+    static func normalizedCustomName(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return String(trimmed.prefix(60))
     }
 }
 
@@ -639,6 +700,8 @@ struct WorkoutEffortPresentation: Equatable {
 }
 
 struct WorkoutDetailPresentation: Equatable {
+    /// The user's device-local rename when there is one, otherwise the workout
+    /// type's display name.
     let title: String
     let dateTitle: String
     /// The start time alone — what the detail page's header shows.
@@ -676,11 +739,12 @@ struct WorkoutDetailPresentation: Equatable {
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories,
         comparisonWorkouts: [WorkoutSummary]? = nil,
         comparisonDataComplete: Bool = true,
-        comparisonLoadSettled: Bool = true
+        comparisonLoadSettled: Bool = true,
+        customName: String? = nil
     ) {
         let endDate = workout.startDate.addingTimeInterval(max(0, workout.duration))
 
-        title = workout.type.displayName
+        title = WorkoutSummary.normalizedCustomName(customName) ?? workout.type.displayName
         dateTitle = Self.formattedDate(
             workout.startDate,
             template: "EEEMMMd",
@@ -699,13 +763,6 @@ struct WorkoutDetailPresentation: Equatable {
             Self.formattedDate(
                 workout.startDate,
                 template: "MMMd",
-                calendar: calendar,
-                locale: locale,
-                timeZone: timeZone
-            ),
-            Self.formattedDate(
-                workout.startDate,
-                template: "EEE",
                 calendar: calendar,
                 locale: locale,
                 timeZone: timeZone

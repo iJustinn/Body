@@ -2176,6 +2176,62 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(store.lastSuccessfulRefreshDate, date)
     }
 
+    // MARK: - Custom workout names
+
+    @MainActor
+    private func customNameStore(defaults: UserDefaults) -> HealthKitWorkoutStore {
+        HealthKitWorkoutStore(
+            initialSnapshot: WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian),
+            customNameDefaults: defaults
+        )
+    }
+
+    @MainActor
+    func testCustomWorkoutNameSetAndClear() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = customNameStore(defaults: defaults)
+        let workoutID = UUID()
+
+        XCTAssertNil(store.workoutCustomNames[workoutID])
+
+        store.setCustomName("Morning Tempo", workoutID: workoutID)
+        XCTAssertEqual(store.workoutCustomNames[workoutID], "Morning Tempo")
+
+        // Whitespace-only reads as "no name" and removes the stored rename.
+        store.setCustomName("   ", workoutID: workoutID)
+        XCTAssertNil(store.workoutCustomNames[workoutID])
+        XCTAssertNil(
+            (defaults.dictionary(forKey: HealthKitWorkoutStore.workoutCustomNamesKey) as? [String: String])?[workoutID.uuidString]
+        )
+    }
+
+    @MainActor
+    func testCustomWorkoutNameSurvivesRelaunch() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let workoutID = UUID()
+
+        customNameStore(defaults: defaults).setCustomName("Easy Spin", workoutID: workoutID)
+
+        XCTAssertEqual(customNameStore(defaults: defaults).workoutCustomNames[workoutID], "Easy Spin")
+    }
+
+    @MainActor
+    func testCustomWorkoutNameIsTrimmedAndCapped() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = customNameStore(defaults: defaults)
+        let workoutID = UUID()
+
+        store.setCustomName("  " + String(repeating: "a", count: 70) + "  ", workoutID: workoutID)
+
+        XCTAssertEqual(store.workoutCustomNames[workoutID], String(repeating: "a", count: 60))
+    }
+
     private struct LegacyHealthDashboardSnapshot: Codable {
         var summary: HealthSummarySnapshot
         var trends: HealthTrendSnapshot

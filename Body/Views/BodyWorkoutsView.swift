@@ -128,9 +128,10 @@ struct BodyWorkoutsView: View {
                                             } label: {
                                                 BodyWorkoutExpenseStyleRow(
                                                     workout: workout,
-                                                    titleFontSize: 23,
-                                                    metadataFontSize: 15,
-                                                    amountFontSize: 26
+                                                    titleFontSize: 20,
+                                                    metadataFontSize: 13,
+                                                    amountFontSize: 25,
+                                                    customName: workoutStore.workoutCustomNames[workout.id]
                                                 )
                                                 .matchedTransitionSource(id: workout.id, in: workoutZoom) {
                                                     $0.clipShape(.rect(cornerRadius: 30, style: .continuous))
@@ -294,15 +295,20 @@ struct BodyWorkoutsView: View {
                 return false
             }
 
+            // The custom name is matched outside the corpus: renames don't change the
+            // snapshot identity the cache is keyed on, so baking it in would serve a
+            // stale name. The type name stays a searchable alias either way.
             guard let corpusEntry = corpus[workout.id] else {
                 return workout.type.displayName.lowercased().contains(normalizedSearchText)
                     || workout.sourceName.lowercased().contains(normalizedSearchText)
                     || dateSearchText(for: workout.startDate).contains(normalizedSearchText)
+                    || (workoutStore.workoutCustomNames[workout.id]?.lowercased().contains(normalizedSearchText) ?? false)
             }
 
             return corpusEntry.typeText.contains(normalizedSearchText)
                 || corpusEntry.sourceText.contains(normalizedSearchText)
                 || corpusEntry.dateText.contains(normalizedSearchText)
+                || (workoutStore.workoutCustomNames[workout.id]?.lowercased().contains(normalizedSearchText) ?? false)
         }
     }
 
@@ -843,6 +849,7 @@ private struct BodyWorkoutExpenseStyleRow: View {
     let titleFontSize: CGFloat
     let metadataFontSize: CGFloat
     let amountFontSize: CGFloat
+    var customName: String? = nil
 
     var body: some View {
         HStack(spacing: 16) {
@@ -850,12 +857,12 @@ private struct BodyWorkoutExpenseStyleRow: View {
                 .font(.system(size: 30, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(workout.type.color)
-                .frame(width: 58, height: 58)
+                .frame(width: 56, height: 56)
                 .background(workout.type.color.opacity(0.14))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(workout.type.displayName)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(customName ?? workout.type.displayName)
                     .font(.system(size: titleFontSize, weight: .bold))
                     .fontWeight(.bold)
                     .lineLimit(1)
@@ -883,7 +890,7 @@ private struct BodyWorkoutExpenseStyleRow: View {
 
             Spacer(minLength: 12)
 
-            VStack(alignment: .trailing, spacing: 7) {
+            VStack(alignment: .trailing, spacing: 5) {
                 Text(BodyValueFormat.durationText(for: workout.duration))
                     .font(.system(size: amountFontSize, weight: .bold, design: .rounded))
                     .fontWeight(.bold)
@@ -902,8 +909,8 @@ private struct BodyWorkoutExpenseStyleRow: View {
             .layoutPriority(3)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 18)
-        .frame(maxWidth: .infinity, minHeight: 104)
+        .padding(.vertical, 13)
+        .frame(maxWidth: .infinity, minHeight: 78)
         .bodyCardBackground(translucent: true)
     }
 
@@ -1012,6 +1019,8 @@ struct BodyWorkoutDetailSheet: View {
     @State private var editingScore = 5
     @State private var isSavingEffort = false
     @State private var effortError: String?
+    @State private var isRenamingWorkout = false
+    @State private var renameDraft = ""
     /// The current effort prediction, shown persistently as "Body's prediction: N" on
     /// every workout — rated or not, editing or not. Cached in @State so it isn't
     /// rebuilt on each scroll frame; refreshed when the workout, max HR, comparison
@@ -1099,6 +1108,9 @@ struct BodyWorkoutDetailSheet: View {
     /// the capsule's bounding box, which the capsule shape doesn't cover — opened
     /// the map instead of the share sheet.
     private static let shareButtonTapSlop: CGFloat = 12
+    /// Invisible vertical tap slop around the hero title's rename button, so its
+    /// ~24 pt text line still meets the 44 pt minimum target without shifting layout.
+    private static let titleTapSlop: CGFloat = 10
 
     private var routeStyle: BodyWorkoutRouteStyle {
         BodyWorkoutRouteStyle(rawValue: workoutRouteStyleRawValue) ?? .defaultValue
@@ -1343,6 +1355,15 @@ struct BodyWorkoutDetailSheet: View {
         }
         .fullScreenCover(isPresented: $showsShareSheet) {
             BodyWorkoutShareSheet(workout: workout, route: displayedRoute, presentation: presentation)
+        }
+        .alert("Rename Workout", isPresented: $isRenamingWorkout) {
+            TextField(workout.type.displayName, text: $renameDraft)
+
+            Button("Save") {
+                workoutStore.setCustomName(renameDraft, workoutID: workout.id)
+            }
+
+            Button("Cancel", role: .cancel) {}
         }
         .fullScreenCover(isPresented: $showsFullScreenRouteMap) {
             if let route = displayedRoute {
@@ -1676,16 +1697,38 @@ struct BodyWorkoutDetailSheet: View {
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(presentation.title)
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                        .foregroundColor(.primary)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.7)
+                    Button {
+                        renameDraft = workoutStore.workoutCustomNames[workout.id] ?? ""
+                        isRenamingWorkout = true
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(presentation.title)
+                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                .foregroundColor(.primary)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.7)
+
+                            Image(systemName: "pencil")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        // Grows the tap area to a 44 pt minimum without moving the
+                        // title: the vertical slop is padded in here and cancelled
+                        // out below, like the Share capsule's slop. It stays as wide
+                        // as the title only — the map/route surface behind this
+                        // column must remain hittable.
+                        .padding(.vertical, Self.titleTapSlop)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, -Self.titleTapSlop)
+                    .accessibilityLabel(presentation.title)
+                    .accessibilityHint("Rename Workout")
 
                     heroContextRow
 
                     Text(presentation.heroDateLineText)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
@@ -1702,30 +1745,30 @@ struct BodyWorkoutDetailSheet: View {
                         // scale together under one minimumScaleFactor within the fixed-width column.
                         (
                             Text(value)
-                                .font(.system(size: 48, weight: .bold))
+                                .font(.system(size: 40, weight: .bold))
                                 .foregroundColor(.primary)
                             + Text(" \(unit)")
-                                .font(.system(size: 20, weight: .semibold))
+                                .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.secondary)
                         )
                         .lineLimit(1)
                         .minimumScaleFactor(0.45)
 
                         Text("Distance")
-                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
                             .foregroundColor(.secondary)
                     }
                 }
 
                 VStack(alignment: .trailing, spacing: -2) {
                     Text(presentation.durationClockText)
-                        .font(.system(size: 48, weight: .bold))
+                        .font(.system(size: 40, weight: .bold))
                         .foregroundColor(.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.45)
 
                     Text("Duration")
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundColor(.secondary)
                 }
             }
@@ -1740,8 +1783,8 @@ struct BodyWorkoutDetailSheet: View {
         }
     }
 
-    /// Locality and weather temperature, side by side when they fit and stacked when
-    /// they don't. Either half is dropped when its value is missing.
+    /// Locality above weather, each on its own line. Either line is dropped when its
+    /// value is missing.
     ///
     /// The locality half is held open for the whole routed layout, invisible until the
     /// reverse geocode lands. The row sits in the hero's leading column while the metrics
@@ -1758,46 +1801,47 @@ struct BodyWorkoutDetailSheet: View {
                 temperatureUnitPreference: selectedTemperatureUnitPreference
             )
         }
+        // Whole percent with no space before the sign, matching the temperature's
+        // tight hero formatting rather than the Details tile's "64 %".
+        let humidityText = workout.weatherHumidityPercent.flatMap { humidity -> String? in
+            guard humidity.isFinite else {
+                return nil
+            }
 
-        if localityText != nil || temperatureText != nil {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) {
-                    heroContextPairs(
-                        localityText: localityText,
-                        localityVisible: locality != nil,
-                        temperatureText: temperatureText
-                    )
+            return "\(BodyValueFormat.numberText(humidity.rounded(), decimals: 0))%"
+        }
+        let weatherText = [temperatureText, humidityText]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+
+        if localityText != nil || !weatherText.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                if let localityText {
+                    heroContextPair(systemImage: "location.fill", text: localityText)
+                        .opacity(locality != nil ? 1 : 0)
+                        .animation(
+                            reduceMotion ? nil : .easeInOut(duration: 0.28),
+                            value: displayedRoute?.locality
+                        )
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    heroContextPairs(
-                        localityText: localityText,
-                        localityVisible: locality != nil,
-                        temperatureText: temperatureText
+                if !weatherText.isEmpty {
+                    // The recorded sky condition when the source wrote one; the
+                    // thermometer otherwise, so an indoor or condition-less workout
+                    // still reads as a temperature.
+                    heroContextPair(
+                        systemImage: workout.weatherCondition?.symbolName ?? "thermometer.medium",
+                        text: weatherText
                     )
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private func heroContextPairs(
-        localityText: String?,
-        localityVisible: Bool,
-        temperatureText: String?
-    ) -> some View {
-        if let localityText {
-            heroContextPair(systemImage: "location.fill", text: localityText)
-                .opacity(localityVisible ? 1 : 0)
-                .animation(
-                    reduceMotion ? nil : .easeInOut(duration: 0.28),
-                    value: displayedRoute?.locality
-                )
-                .layoutPriority(1)
-        }
-
-        if let temperatureText {
-            heroContextPair(systemImage: "thermometer.medium", text: temperatureText)
+            // Both rows shrink themselves to fit (`minimumScaleFactor`), which lets the
+            // hero's HStack propose them less width than they'd like and hand the slack
+            // to the metrics column — the rows then render below their real point size
+            // while the date line beside them stays full size. The priority makes them
+            // claim their ideal width first, so the scale factor only engages for a
+            // locality long enough to genuinely need it.
+            .layoutPriority(1)
         }
     }
 
@@ -1807,7 +1851,7 @@ struct BodyWorkoutDetailSheet: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(workout.type.color)
             Text(text)
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
@@ -1825,7 +1869,7 @@ struct BodyWorkoutDetailSheet: View {
         return VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("Details")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
 
                 if let availability = presentation.comparisonAvailability {
@@ -1835,7 +1879,7 @@ struct BodyWorkoutDetailSheet: View {
                 Spacer(minLength: 0)
             }
 
-            LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 18) {
+            LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 20) {
                 ForEach(metrics, id: \.kind) { metric in
                     BodyWorkoutDetailMetricTile(
                         title: metric.title,
@@ -2165,7 +2209,8 @@ struct BodyWorkoutDetailSheet: View {
             energyUnitPreference: selectedEnergyUnitPreference,
             comparisonWorkouts: comparison.priorWorkouts,
             comparisonDataComplete: comparison.isComplete,
-            comparisonLoadSettled: comparisonMonthsSettled
+            comparisonLoadSettled: comparisonMonthsSettled,
+            customName: workoutStore.workoutCustomNames[workout.id]
         )
     }
 
@@ -2323,7 +2368,7 @@ private struct BodyWorkoutComparisonLegend: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 15, weight: .semibold, design: .rounded))
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
             .foregroundColor(.secondary)
             .lineLimit(1)
             // The two placeholder states are markedly longer than "vs 30-day avg", so
@@ -2398,16 +2443,16 @@ private struct BodyWorkoutDetailMetricTile: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .foregroundColor(.primary)
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
 
             HStack(alignment: .lastTextBaseline, spacing: 4) {
                 Text(valueParts.number)
-                    .font(.system(size: 33, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
@@ -2416,7 +2461,7 @@ private struct BodyWorkoutDetailMetricTile: View {
                     VStack(alignment: .leading, spacing: -2) {
                         if let comparison {
                             Text(comparison.badgeText)
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.7)
@@ -2426,7 +2471,7 @@ private struct BodyWorkoutDetailMetricTile: View {
                         }
                         if !valueParts.unit.isEmpty {
                             Text(valueParts.unit)
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.7)
@@ -2435,7 +2480,7 @@ private struct BodyWorkoutDetailMetricTile: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(metricAccessibilityLabel)
     }
