@@ -37,6 +37,8 @@ struct BodyWorkoutShareSheet: View {
         BodyWorkoutShareBackgroundChoice.preset(.midnight).rawValue
     @AppStorage(WorkoutShareRouteDimension.storageKey) private var storedDimension: String =
         WorkoutShareRouteDimension.twoD.rawValue
+    @AppStorage(WorkoutShareRouteVisibility.storageKey) private var storedRouteVisibility: String =
+        WorkoutShareRouteVisibility.shown.rawValue
     @AppStorage(WorkoutShareFontChoice.storageKey) private var storedFont: String =
         WorkoutShareFontChoice.rounded.rawValue
     @AppStorage(WorkoutShareRouteColorChoice.storageKey) private var storedRouteColor: String =
@@ -171,6 +173,13 @@ struct BodyWorkoutShareSheet: View {
             isProUnlocked: isProUnlocked,
             isThreeDAvailable: isThreeDAvailable
         )
+    }
+
+    /// Whether the card-drawn trace is hidden. Free, so nothing to resolve; the map
+    /// background ignores it (its route is part of the snapshot), and the tile is
+    /// disabled there so the stored choice can't silently mean nothing.
+    private var isRouteHidden: Bool {
+        WorkoutShareRouteVisibility.stored(rawValue: storedRouteVisibility) == .hidden
     }
 
     /// The shape the card actually renders at — the stored one only when it's free or
@@ -344,8 +353,10 @@ struct BodyWorkoutShareSheet: View {
             centeredMetrics: ids.compactMap { id in
                 availableMetricOptions.first { $0.id == id }?.centeredMetric
             },
-            routePoints: routePoints,
-            route3D: route3D,
+            // Hidden is the traceless centered card: the metrics stand alone, exactly
+            // as they do for a route that projects to nothing.
+            routePoints: isRouteHidden ? nil : routePoints,
+            route3D: isRouteHidden ? nil : route3D,
             dimension: activeDimension,
             locality: route?.locality,
             type: workout.type,
@@ -454,7 +465,7 @@ struct BodyWorkoutShareSheet: View {
                             .font(.headline)
                             .foregroundColor(.primary)
 
-                        Text("v1")
+                        Text("v2")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(.blue)
                             .padding(.horizontal, 7)
@@ -722,6 +733,16 @@ struct BodyWorkoutShareSheet: View {
     /// Between a rail icon and its open tray.
     private static let railTrayGap: CGFloat = 12
 
+    /// `textformat` rendered against an English locale: SF Symbols swaps that glyph for
+    /// localized text ("格式" in Chinese), and the rail means font, not format.
+    /// Sized here rather than by `.font`, which a `UIImage`-backed `Image` ignores.
+    private static let fontRailIcon: Image? = UIImage(
+        systemName: "textformat",
+        withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+            .applying(UIImage.SymbolConfiguration(locale: Locale(identifier: "en")))
+    )
+        .map { Image(uiImage: $0.withRenderingMode(.alwaysTemplate)) }
+
     /// The trailing icon rail (thumb side). Rows that don't apply to this workout are absent rather
     /// than disabled — a route-less card has no trace to colour, arrange, or lift.
     /// Everything here is free except the 3D tile and the non-9:16 ratios.
@@ -737,7 +758,9 @@ struct BodyWorkoutShareSheet: View {
         let appliesToCardDrawnRoute = activeSelection != .map
 
         return VStack(alignment: .trailing, spacing: 22) {
-            railRow(.font, symbol: "textformat", label: Text("Font"), trayWidth: trayWidth) {
+            // The `textformat` symbol localizes itself — in Chinese it draws "格式"
+            // (Format), naming the wrong thing — so this row pins the Latin "Aa" glyph.
+            railRow(.font, icon: Self.fontRailIcon, label: Text("Font"), trayWidth: trayWidth) {
                 optionTiles {
                     ForEach(WorkoutShareFontChoice.allCases) { choice in
                         fontTile(choice)
@@ -817,7 +840,7 @@ struct BodyWorkoutShareSheet: View {
             }
 
             if hasRoute {
-                railRow(.dimension, symbol: "move.3d", label: Text("3D"), trayWidth: trayWidth) {
+                railRow(.dimension, symbol: "move.3d", label: Text("Route Style"), trayWidth: trayWidth) {
                     dimensionTray
                 }
             }
@@ -854,7 +877,8 @@ struct BodyWorkoutShareSheet: View {
     /// wouldn't change the card.
     private func railRow<Content: View>(
         _ option: RailOption,
-        symbol: String,
+        symbol: String? = nil,
+        icon: Image? = nil,
         label: Text,
         trayWidth: CGFloat,
         isLocked: Bool = false,
@@ -877,7 +901,7 @@ struct BodyWorkoutShareSheet: View {
                 }
                 withAnimation(.snappy) { expandedOption = isOpen ? nil : option }
             } label: {
-                Image(systemName: symbol)
+                (icon ?? Image(systemName: symbol ?? ""))
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: Self.railIconSize, height: Self.railIconSize)
@@ -933,7 +957,7 @@ struct BodyWorkoutShareSheet: View {
                 }
             }
 
-            Text("Pick 1 to 3 metrics.")
+            Text("Pick 1 to 5 metrics.")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundColor(.white.opacity(0.6))
                 .fixedSize(horizontal: false, vertical: true)
@@ -944,7 +968,7 @@ struct BodyWorkoutShareSheet: View {
     }
 
     /// One pickable metric. Unlike every other tray, a tap here doesn't close the tray:
-    /// picking three metrics is three taps, and re-opening between each would make the
+    /// picking five metrics is five taps, and re-opening between each would make the
     /// bounds impossible to feel.
     private func metricChip(_ option: WorkoutShareMetricOption) -> some View {
         let ids = activeMetricIDs
@@ -1075,6 +1099,7 @@ struct BodyWorkoutShareSheet: View {
     private var dimensionTray: some View {
         VStack(alignment: .trailing, spacing: 6) {
             optionTiles {
+                hideRouteTile
                 dimensionTile(.twoD)
                 dimensionTile(.threeD)
             }
@@ -1091,7 +1116,9 @@ struct BodyWorkoutShareSheet: View {
     private func dimensionTile(_ dimension: WorkoutShareRouteDimension) -> some View {
         // Keyed off the *resolved* dimension: a stored 3D that can't render (non-Pro, or
         // a flat route) shows 2D selected, because 2D is what the card is drawing.
-        let isSelected = activeDimension == dimension
+        // A hidden trace (on a card-drawn background) selects neither: the Hide tile
+        // holds the ring. The map keeps showing its dimension — it ignores hiding.
+        let isSelected = activeDimension == dimension && !(isRouteHidden && activeSelection != .map)
         let isAvailable = dimension == .twoD || isThreeDAvailable
         let isLocked = dimension == .threeD && !isProUnlocked
         return Button {
@@ -1101,6 +1128,8 @@ struct BodyWorkoutShareSheet: View {
                 return
             }
             storedDimension = dimension.rawValue
+            // Picking a dimension is asking to see the trace again.
+            storedRouteVisibility = WorkoutShareRouteVisibility.shown.rawValue
         } label: {
             Group {
                 if dimension == .twoD {
@@ -1127,6 +1156,33 @@ struct BodyWorkoutShareSheet: View {
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .accessibilityHint(
             isAvailable ? Text(verbatim: "") : Text("3D needs a route with elevation data.")
+        )
+    }
+
+    /// Metrics only, no trace. Disabled on the Map background: its route is baked into
+    /// the snapshot, and a map framed to a route it doesn't show would be a map of
+    /// nothing — the stored choice waits for a gradient or photo.
+    private var hideRouteTile: some View {
+        let appliesHere = activeSelection != .map
+        let isSelected = isRouteHidden && appliesHere
+        return Button {
+            closeTray()
+            storedRouteVisibility = WorkoutShareRouteVisibility.hidden.rawValue
+        } label: {
+            Image(systemName: "eye.slash")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: Self.optionTileSize, height: Self.optionTileSize)
+                .background(Color.white.opacity(0.1), in: Circle())
+                .overlay { selectionRing(isSelected: isSelected) }
+        }
+        .buttonStyle(.plain)
+        .opacity(appliesHere ? 1 : 0.4)
+        .disabled(!appliesHere)
+        .accessibilityLabel(Text("Hide Route"))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityHint(
+            appliesHere ? Text(verbatim: "") : Text("Hiding the route doesn't apply to the Map background.")
         )
     }
 

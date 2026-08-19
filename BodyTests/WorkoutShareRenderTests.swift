@@ -79,7 +79,8 @@ final class WorkoutShareRenderTests: XCTestCase {
         fontDesign: Font.Design = .rounded,
         routeColor: Color = BodyWorkoutShareCardView.defaultRouteColor,
         aspectRatio: WorkoutShareAspectRatio = .portrait9x16,
-        arrangement: WorkoutShareLandscapeArrangement = .stacked
+        arrangement: WorkoutShareLandscapeArrangement = .stacked,
+        centeredMetrics: [WorkoutShareMetric]? = nil
     ) -> ImageRenderer<some View> {
         let workout = fixtureWorkout()
         let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
@@ -88,9 +89,9 @@ final class WorkoutShareRenderTests: XCTestCase {
         let card = BodyWorkoutShareCardView(
             presentation: presentation,
             metrics: isRouteless ? [] : WorkoutShareMetricsBuilder.metrics(for: presentation, type: workout.type),
-            centeredMetrics: isRouteless
+            centeredMetrics: centeredMetrics ?? (isRouteless
                 ? WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: workout.type)
-                : WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type),
+                : WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type)),
             routePoints: withRoute ? WorkoutShareRouteProjection.normalizedPoints(for: routeCoordinates) : nil,
             route3D: withRoute ? WorkoutRoute3DProjection.projected(for: routeCoordinates) : nil,
             dimension: dimension,
@@ -486,6 +487,226 @@ final class WorkoutShareRenderTests: XCTestCase {
         )
         XCTAssertEqual(cgImage.width, 1_920)
         XCTAssertEqual(cgImage.height, 1_080)
+    }
+
+    // MARK: - Five metrics
+
+    /// A deliberate five-metric pick with the widest values the card realistically
+    /// carries — a pace with a foot mark and a quote, and an hours-long clock — so the
+    /// rows are exercised at the point where the blocks have to shrink to fit.
+    private func fiveMetrics() -> [WorkoutShareMetric] {
+        [
+            WorkoutShareMetric(title: "Distance", value: "8.20 km"),
+            WorkoutShareMetric(title: "Pace", value: "7'48\"/km"),
+            WorkoutShareMetric(title: "Time", value: "1:23:45"),
+            WorkoutShareMetric(title: "Active kcal", value: "412 kcal"),
+            WorkoutShareMetric(title: "Avg HR", value: "154 bpm")
+        ]
+    }
+
+    /// The route-less card stacks its 30 pt type glyph over the blocks with a 20 pt gap;
+    /// the glyph's line box is estimated rather than pinned, which is why the probe bands
+    /// below only cover the middle half of each row.
+    private static let routelessGlyphHeight: CGFloat = 36
+    private static let routelessGlyphGap: CGFloat = 20
+
+    /// Where the first metric row's top edge lands, in card points — the one number the
+    /// per-row probes need that the geometry doesn't state outright, because each of the
+    /// card's four block sites anchors the grid differently (top-anchored in the column,
+    /// exactly frame-sized over a row, centred in the side-by-side frame, and centred on
+    /// a point with no trace above it).
+    private func metricRowsTop(_ geometry: WorkoutShareCardGeometry, showsTrace: Bool) -> CGFloat {
+        let brandingZone = WorkoutShareCardGeometry.brandingZoneHeight
+        if geometry.layout == .routeless {
+            let center = geometry.routelessMetricsAxis == .vertical
+                ? geometry.size.height / 2
+                : (geometry.size.height - brandingZone) / 2
+            let block = Self.routelessGlyphHeight + Self.routelessGlyphGap + geometry.metricContentHeight
+            return center - block / 2 + Self.routelessGlyphHeight + Self.routelessGlyphGap
+        }
+        guard showsTrace else {
+            let center = geometry.centeredMode == .column
+                ? geometry.size.height / 2
+                : (geometry.size.height - brandingZone) / 2
+            return center - geometry.metricContentHeight / 2
+        }
+        switch geometry.centeredMode {
+        case .column, .routeOverRow:
+            return geometry.metricsFrame.minY
+        case .sideBySide:
+            // The grid is centred in a frame that runs the card's full usable height.
+            return geometry.metricsFrame.minY + (geometry.metricsFrame.height - geometry.metricContentHeight) / 2
+        }
+    }
+
+    /// The middle half of each metric row, full card width — deliberately loose, since
+    /// the exact glyph metrics of a row are the renderer's business and only "the row
+    /// drew something here" is being asserted.
+    private func metricRowBands(_ geometry: WorkoutShareCardGeometry, showsTrace: Bool) -> [CGRect] {
+        let style = geometry.metricBlockStyle
+        let top = metricRowsTop(geometry, showsTrace: showsTrace)
+        return geometry.metricRowSizes.indices.map { index in
+            let rowTop = top + CGFloat(index) * (style.rowHeight + style.rowGap)
+            return CGRect(
+                x: 12,
+                y: rowTop + style.rowHeight * 0.25,
+                width: geometry.size.width - 24,
+                height: style.rowHeight * 0.5
+            )
+        }
+    }
+
+    /// Every shape a five-metric pick can land on: the card still rasterizes at its exact
+    /// export size, every wrapped row actually draws, and the strip between the last row
+    /// and the branding zone stays empty — the failure mode the row/grid logic exists to
+    /// prevent is a block bleeding into the wordmark.
+    func testFiveMetricCardsDrawEveryRowClearOfTheBranding() throws {
+        let cases: [(
+            name: String,
+            ratio: WorkoutShareAspectRatio,
+            arrangement: WorkoutShareLandscapeArrangement,
+            layout: WorkoutShareCardLayout,
+            withRoute: Bool,
+            font: Font.Design
+        )] = [
+            // Compact two-row grid over a shrunken route square, in the widest type the
+            // card offers — the min-scale path.
+            ("square centered", .square, .stacked, .centered, true, .monospaced),
+            ("9:16 column", .portrait9x16, .stacked, .centered, true, .rounded),
+            ("4:3 side by side", .landscape4x3, .sideBySide, .centered, true, .rounded),
+            ("16:9 stacked", .landscape16x9, .stacked, .centered, true, .rounded),
+            ("square route-less", .square, .stacked, .routeless, false, .rounded),
+            // A route that projects to nothing: centered layout, no trace, blocks only.
+            ("square traceless centered", .square, .stacked, .centered, false, .rounded)
+        ]
+
+        for testCase in cases {
+            let geometry = WorkoutShareCardGeometry(
+                aspectRatio: testCase.ratio,
+                layout: testCase.layout,
+                arrangement: testCase.arrangement,
+                metricCount: 5
+            )
+            let cgImage = try XCTUnwrap(
+                makeRenderer(
+                    layout: testCase.layout,
+                    withRoute: testCase.withRoute,
+                    fontDesign: testCase.font,
+                    aspectRatio: testCase.ratio,
+                    arrangement: testCase.arrangement,
+                    centeredMetrics: fiveMetrics()
+                ).uiImage?.cgImage,
+                "no image for \(testCase.name)"
+            )
+
+            XCTAssertEqual(cgImage.width, Int(testCase.ratio.cardSize.width * 3), "\(testCase.name) width")
+            XCTAssertEqual(cgImage.height, Int(testCase.ratio.cardSize.height * 3), "\(testCase.name) height")
+
+            let showsTrace = testCase.withRoute && testCase.layout != .routeless
+            let bands = metricRowBands(geometry, showsTrace: showsTrace)
+            XCTAssertEqual(bands.count, geometry.metricRowSizes.count)
+            for (index, band) in bands.enumerated() {
+                XCTAssertTrue(
+                    Self.containsNonBlackPixel(
+                        in: cgImage,
+                        region: Self.pixelRect(x: band.minX, y: band.minY, width: band.width, height: band.height, in: cgImage)
+                    ),
+                    "\(testCase.name) row \(index) (\(geometry.metricRowSizes[index]) blocks) drew nothing at \(band)"
+                )
+            }
+
+            // 4 pt of slack for the rows' real glyph metrics, then everything down to the
+            // branding zone has to be bare background.
+            let contentBottom = metricRowsTop(geometry, showsTrace: showsTrace) + geometry.metricContentHeight + 4
+            let brandingTop = geometry.size.height - WorkoutShareCardGeometry.brandingZoneHeight
+            if brandingTop - contentBottom >= 4 {
+                XCTAssertFalse(
+                    Self.containsNonBlackPixel(
+                        in: cgImage,
+                        region: Self.pixelRect(
+                            x: 0,
+                            y: contentBottom,
+                            width: geometry.size.width,
+                            height: brandingTop - contentBottom,
+                            in: cgImage
+                        )
+                    ),
+                    "\(testCase.name) drew into the strip above the branding zone"
+                )
+            }
+        }
+    }
+
+    /// With five blocks the route square gives up height to the rows, so the trace has to
+    /// follow it — it must still rasterize inside the (smaller) region the geometry moved
+    /// it to, and never below the metrics' top edge.
+    func testFiveMetricRouteStaysAboveTheMetricRows() throws {
+        for ratio in [WorkoutShareAspectRatio.square, .portrait9x16, .landscape16x9] {
+            let geometry = WorkoutShareCardGeometry(
+                aspectRatio: ratio,
+                layout: .centered,
+                arrangement: .stacked,
+                metricCount: 5
+            )
+            let cgImage = try XCTUnwrap(
+                makeRenderer(aspectRatio: ratio, centeredMetrics: fiveMetrics()).uiImage?.cgImage,
+                "no image for \(ratio.rawValue)"
+            )
+            let route = geometry.centeredRouteRect
+            XCTAssertLessThanOrEqual(
+                route.maxY - WorkoutShareCardGeometry.routeInset,
+                geometry.centeredMetricsTopY,
+                "\(ratio.rawValue) route region overlaps the metric rows"
+            )
+            XCTAssertTrue(
+                Self.containsRouteBluePixel(
+                    in: cgImage,
+                    region: Self.pixelRect(x: route.minX, y: route.minY, width: route.width, height: route.height, in: cgImage)
+                ),
+                "\(ratio.rawValue) drew no trace in its five-metric route region"
+            )
+            XCTAssertFalse(
+                Self.containsRouteBluePixel(
+                    in: cgImage,
+                    region: Self.pixelRect(
+                        x: 0,
+                        y: geometry.centeredMetricsTopY,
+                        width: geometry.size.width,
+                        height: geometry.metricContentHeight,
+                        in: cgImage
+                    )
+                ),
+                "\(ratio.rawValue) route bled into the metric rows"
+            )
+        }
+    }
+
+    /// Side by side splits the card at the midline whatever the metric count is: five
+    /// blocks wrap into three rows in the right half and never reach the trace.
+    func testFiveMetricSideBySideKeepsTheRouteInTheLeftHalf() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(
+                aspectRatio: .landscape4x3,
+                arrangement: .sideBySide,
+                centeredMetrics: fiveMetrics()
+            ).uiImage?.cgImage
+        )
+        let geometry = WorkoutShareCardGeometry(
+            aspectRatio: .landscape4x3,
+            layout: .centered,
+            arrangement: .sideBySide,
+            metricCount: 5
+        )
+        XCTAssertEqual(geometry.metricRowSizes, [2, 2, 1])
+
+        XCTAssertTrue(
+            Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 0, y: 0, width: 240, height: 360, in: cgImage)),
+            "Five-metric side-by-side route did not draw in the left half"
+        )
+        XCTAssertFalse(
+            Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 240, y: 0, width: 240, height: 360, in: cgImage)),
+            "Five-metric side-by-side route leaked into the metrics half"
+        )
     }
 
     /// Card points × the renderer's scale 3, clamped to the rendered image's actual pixel

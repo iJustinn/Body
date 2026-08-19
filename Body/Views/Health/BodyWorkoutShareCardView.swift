@@ -23,6 +23,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 /// What fills the card behind the content. `.map` is a pre-composited route-map
 /// snapshot, so the card skips its own Canvas trace for that case.
@@ -87,7 +88,12 @@ struct BodyWorkoutShareCardView: View {
     /// Every frame the card draws with. A value type derived from the three inputs
     /// above, so recomputing it per access is cheaper than caching it.
     private var geometry: WorkoutShareCardGeometry {
-        WorkoutShareCardGeometry(aspectRatio: aspectRatio, layout: layout, arrangement: arrangement)
+        WorkoutShareCardGeometry(
+            aspectRatio: aspectRatio,
+            layout: layout,
+            arrangement: arrangement,
+            metricCount: centeredMetrics.count
+        )
     }
 
     /// `.routeless` never traces, whatever it's handed: making that a property of the
@@ -425,9 +431,15 @@ struct BodyWorkoutShareCardView: View {
                 // Traceless cards have nothing above the metrics, so the stack centers
                 // in the space the branding leaves — the same fallback the classic
                 // layout's metrics take.
-                centeredMetricsStack
-                    .frame(width: geometry.size.width - 48)
-                    .position(x: geometry.size.width / 2, y: metricsOnlyCenterY)
+                Group {
+                    if usesMetricGrid {
+                        metricGrid
+                    } else {
+                        centeredMetricsStack
+                    }
+                }
+                .frame(width: geometry.size.width - 48)
+                .position(x: geometry.size.width / 2, y: metricsOnlyCenterY)
             }
         }
     }
@@ -444,7 +456,11 @@ struct BodyWorkoutShareCardView: View {
             // edge, so pinning the stack's top edge is what keeps the gap between
             // them constant no matter how many metrics the stack carries.
             VStack(spacing: 0) {
-                centeredMetricsStack
+                if usesMetricGrid {
+                    metricGrid
+                } else {
+                    centeredMetricsStack
+                }
                 Spacer(minLength: 0)
             }
             .frame(width: metricsRect.width, height: metricsRect.height)
@@ -452,15 +468,28 @@ struct BodyWorkoutShareCardView: View {
         case .routeOverRow:
             routeRegion
             // A short card can't afford a column under the trace, so the blocks go
-            // wide in a single row sized to sit clear of the branding.
-            centeredMetricsRow
-                .frame(width: metricsRect.width, height: metricsRect.height)
-                .position(x: metricsRect.midX, y: metricsRect.midY)
+            // wide in a single row sized to sit clear of the branding — or, at four
+            // and five, in the rows the geometry wrapped them into.
+            Group {
+                if usesMetricGrid {
+                    metricGrid
+                } else {
+                    centeredMetricsRow
+                }
+            }
+            .frame(width: metricsRect.width, height: metricsRect.height)
+            .position(x: metricsRect.midX, y: metricsRect.midY)
         case .sideBySide:
             routeRegion
-            centeredMetricsStack
-                .frame(width: metricsRect.width, height: metricsRect.height)
-                .position(x: metricsRect.midX, y: metricsRect.midY)
+            Group {
+                if usesMetricGrid {
+                    metricGrid
+                } else {
+                    centeredMetricsStack
+                }
+            }
+            .frame(width: metricsRect.width, height: metricsRect.height)
+            .position(x: metricsRect.midX, y: metricsRect.midY)
         }
     }
 
@@ -474,7 +503,7 @@ struct BodyWorkoutShareCardView: View {
     }
 
     /// Glyph and metrics are one flowing block, not two absolute slots: the metric
-    /// count varies from one to three here, and the pair stays visually centered
+    /// count varies from one to five here, and the pair stays visually centered
     /// together at any of them.
     private var routelessBlock: some View {
         VStack(spacing: 20) {
@@ -487,9 +516,11 @@ struct BodyWorkoutShareCardView: View {
 
     @ViewBuilder
     private var routelessMetrics: some View {
-        if geometry.routelessMetricsAxis == .vertical {
+        if usesMetricGrid {
+            metricGrid
+        } else if geometry.routelessMetricsAxis == .vertical {
             centeredMetricsStack
-        } else if geometry.routelessWrapsMetricRows {
+        } else if geometry.metricRowSizes.count > 1 {
             // Three blocks won't read on one line of a 360 pt card, so they wrap into
             // rows of two — which centers the odd one under the pair.
             VStack(spacing: 20) {
@@ -521,7 +552,7 @@ struct BodyWorkoutShareCardView: View {
 
     /// Branding baseline + wordmark height + breathing room — the strip at the bottom
     /// of the card nothing else may enter.
-    private static let brandingZoneHeight: CGFloat = WorkoutShareCardGeometry.brandingBottomPadding + 18 + 12
+    private static let brandingZoneHeight: CGFloat = WorkoutShareCardGeometry.brandingZoneHeight
 
     /// The route-less card's only identity — no chip, no title, no date — so it keeps
     /// its accessibility label rather than being decorative like the classic layout's
@@ -566,13 +597,91 @@ struct BodyWorkoutShareCardView: View {
         }
     }
 
-    private func metricBlock(_ metric: WorkoutShareMetric, minimumScale: CGFloat = 0.6) -> some View {
+    /// One to three blocks keep the stack or the single row they have always had; only
+    /// a four- or five-metric pick takes the wrapped grid.
+    private var usesMetricGrid: Bool {
+        centeredMetrics.count > WorkoutShareMetricSelection.defaultCount
+    }
+
+    /// The blocks in the rows `WorkoutShareCardGeometry.metricRowSizes` wrapped them
+    /// into — and, on the short cards, in the compact type that keeps those rows clear
+    /// of the branding.
+    private var metricGrid: some View {
+        let style = geometry.metricBlockStyle
+        let valueSize = gridValueSize
+        return VStack(spacing: style.rowGap) {
+            ForEach(Array(metricGridRows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 24) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, metric in
+                        metricBlock(metric, style: style, valueSize: valueSize, minimumScale: 0.45)
+                            // Equal columns, and a row height that stays the geometry's
+                            // whatever size the values landed at.
+                            .frame(maxWidth: .infinity)
+                            .frame(height: style.rowHeight)
+                    }
+                }
+            }
+        }
+        .multilineTextAlignment(.center)
+        .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+    }
+
+    /// One value size for the whole grid, not one per block: `minimumScaleFactor`
+    /// shrinks each text on its own, so a three-wide row would land smaller than the
+    /// two-wide row under it. The widest value is measured against the narrowest
+    /// column, and every block takes that size (never above the style's own, never
+    /// below its 0.45 floor — the per-text scale stays as the backstop).
+    private var gridValueSize: CGFloat {
+        let style = geometry.metricBlockStyle
+        let columns = CGFloat(geometry.metricRowSizes.max() ?? 1)
+        let rowWidth = layout == .centered && showsTrace ? geometry.metricsFrame.width : geometry.size.width - 48
+        let columnWidth = (rowWidth - 24 * (columns - 1)) / columns
+        let widest = centeredMetrics
+            .map { Self.measuredWidth($0.value, size: style.valueSize, design: fontDesign) }
+            .max() ?? 0
+        guard widest > columnWidth, widest > 0 else { return style.valueSize }
+        return max(style.valueSize * 0.45, style.valueSize * columnWidth / widest)
+    }
+
+    /// Width of `text` in the card's bold value face — the same system design the
+    /// SwiftUI font uses, so the fit is measured in the face that's drawn.
+    private static func measuredWidth(_ text: String, size: CGFloat, design: Font.Design) -> CGFloat {
+        let systemDesign: UIFontDescriptor.SystemDesign
+        switch design {
+        case .rounded: systemDesign = .rounded
+        case .serif: systemDesign = .serif
+        case .monospaced: systemDesign = .monospaced
+        default: systemDesign = .default
+        }
+        var descriptor = UIFont.systemFont(ofSize: size, weight: .bold).fontDescriptor
+        if let designed = descriptor.withDesign(systemDesign) { descriptor = designed }
+        let font = UIFont(descriptor: descriptor, size: size)
+        return (text as NSString).size(withAttributes: [.font: font]).width
+    }
+
+    private var metricGridRows: [[WorkoutShareMetric]] {
+        var rows: [[WorkoutShareMetric]] = []
+        var start = 0
+        for size in geometry.metricRowSizes where start < centeredMetrics.count {
+            let end = min(start + size, centeredMetrics.count)
+            rows.append(Array(centeredMetrics[start..<end]))
+            start = end
+        }
+        return rows
+    }
+
+    private func metricBlock(
+        _ metric: WorkoutShareMetric,
+        style: WorkoutShareCardGeometry.MetricBlockStyle = .regular,
+        valueSize: CGFloat? = nil,
+        minimumScale: CGFloat = 0.6
+    ) -> some View {
         VStack(spacing: 2) {
             Text(metric.title)
-                .font(.system(size: 15, weight: .semibold, design: fontDesign))
+                .font(.system(size: style.labelSize, weight: .semibold, design: fontDesign))
                 .foregroundColor(.white.opacity(0.7))
             Text(metric.value)
-                .font(.system(size: 40, weight: .bold, design: fontDesign))
+                .font(.system(size: valueSize ?? style.valueSize, weight: .bold, design: fontDesign))
                 .foregroundColor(.white)
         }
         .lineLimit(1)

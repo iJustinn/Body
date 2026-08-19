@@ -45,7 +45,8 @@ enum WorkoutShareMetricsBuilder {
         )
     }
 
-    /// Up to 3 metrics for the centered card, where every metric is a label-over-value
+    /// Up to `WorkoutShareMetricSelection.defaultCount` metrics for the centered card,
+    /// where every metric is a label-over-value
     /// block — so distance and duration are part of the stack here rather than living in
     /// a header. Distance, rate, and time lead; elevation/avg HR only fill slots the
     /// workout couldn't (a distance-less or rate-less type), never push those out.
@@ -53,7 +54,8 @@ enum WorkoutShareMetricsBuilder {
         blockMetrics(for: presentation, type: type, hasRoute: true)
     }
 
-    /// Up to 3 metrics for the route-less card. Same block-style selection as
+    /// Up to `WorkoutShareMetricSelection.defaultCount` metrics for the route-less card.
+    /// Same block-style selection as
     /// `centeredMetrics`, with active energy joining the list: with no trace and no
     /// header, the stack is all the card says about the workout, and an indoor workout
     /// (strength, yoga, HIIT) often has no distance or rate to fill it.
@@ -227,7 +229,8 @@ extension WorkoutShareMetricsBuilder {
 
     /// What the card shows when nobody picked (and what a non-Pro user always gets):
     /// the story the layout tells best, filtered to what this workout actually has and
-    /// capped at `WorkoutShareMetricSelection.maximumCount`. The route-less card adds
+    /// capped at `WorkoutShareMetricSelection.defaultCount` — the automatic card stays
+    /// at three blocks even though a deliberate pick may go to five. The route-less card adds
     /// active energy, because with no trace the stack is all the card says.
     static func defaultMetricIDs(
         for presentation: WorkoutDetailPresentation,
@@ -257,7 +260,7 @@ extension WorkoutShareMetricsBuilder {
             ]
         }
         let availableIDs = Set(available.map(\.id))
-        return Array(preferred.compactMap { $0 }.filter { availableIDs.contains($0) }.prefix(WorkoutShareMetricSelection.maximumCount))
+        return Array(preferred.compactMap { $0 }.filter { availableIDs.contains($0) }.prefix(WorkoutShareMetricSelection.defaultCount))
     }
 
     /// The classic card's bottom row: the picked metrics minus the ones its header
@@ -328,7 +331,12 @@ extension WorkoutShareMetricsBuilder {
 /// leaner workout must not silently erase the user's choice.
 enum WorkoutShareMetricSelection {
     static let storageKey = "workoutShareMetricSelections"
-    static let maximumCount = 3
+    /// The ceiling of a deliberate Body Pro pick — five blocks is the most the card's
+    /// layouts can place without crowding the branding.
+    static let maximumCount = 5
+    /// What the *automatic* selection stops at, so a card nobody configured (and every
+    /// non-Pro card) keeps the three-block composition it has always had.
+    static let defaultCount = 3
 
     /// The remembered pick for this type, or nil when nothing is stored for it (or the
     /// blob is unreadable — an unparseable value is treated as no preference, never as
@@ -524,6 +532,25 @@ enum WorkoutShareRouteDimension: String, CaseIterable {
             return .twoD
         }
         return dimension
+    }
+}
+
+/// Whether the card draws its route at all. Free, stored across sessions like the
+/// dimension. Only the card-drawn trace (gradient and photo backgrounds) honours it:
+/// the map background's route is baked into the snapshot the card is framed to, so
+/// the sheet disables the option there rather than shipping a map of nothing.
+enum WorkoutShareRouteVisibility: String, CaseIterable {
+    case shown
+    case hidden
+
+    static let storageKey = "workoutShareRouteVisibility"
+
+    /// Anything unknown (or nothing stored) shows the route.
+    static func stored(rawValue: String?) -> WorkoutShareRouteVisibility {
+        guard let rawValue, let visibility = WorkoutShareRouteVisibility(rawValue: rawValue) else {
+            return .shown
+        }
+        return visibility
     }
 }
 
@@ -752,18 +779,60 @@ struct WorkoutShareCardGeometry: Equatable {
         case sideBySide
     }
 
+    /// How big one metric block is drawn. Four or five blocks only fit on a 360 pt-tall
+    /// card once they shrink, so the short cards' multi-row grids go `.compact`.
+    enum MetricBlockStyle {
+        case regular
+        case compact
+
+        /// A label line over a value line, plus the 2 pt gap between them.
+        var rowHeight: CGFloat {
+            switch self {
+            case .regular: return 68
+            case .compact: return 54
+            }
+        }
+
+        var rowGap: CGFloat {
+            switch self {
+            case .regular: return 20
+            case .compact: return 16
+            }
+        }
+
+        var labelSize: CGFloat {
+            switch self {
+            case .regular: return 15
+            case .compact: return 13
+            }
+        }
+
+        var valueSize: CGFloat {
+            switch self {
+            case .regular: return 40
+            case .compact: return 30
+            }
+        }
+    }
+
     let aspectRatio: WorkoutShareAspectRatio
     let layout: WorkoutShareCardLayout
     let arrangement: WorkoutShareLandscapeArrangement
+    /// How many metric blocks the card actually draws. Defaults to the automatic
+    /// three, which is what every non-centered caller (the sheet's map region, the
+    /// transforms' clamps) is asking about anyway.
+    let metricCount: Int
 
     init(
         aspectRatio: WorkoutShareAspectRatio,
         layout: WorkoutShareCardLayout,
-        arrangement: WorkoutShareLandscapeArrangement
+        arrangement: WorkoutShareLandscapeArrangement,
+        metricCount: Int = WorkoutShareMetricSelection.defaultCount
     ) {
         self.aspectRatio = aspectRatio
         self.layout = layout
         self.arrangement = arrangement
+        self.metricCount = metricCount
     }
 
     var size: CGSize { aspectRatio.cardSize }
@@ -777,10 +846,8 @@ struct WorkoutShareCardGeometry: Equatable {
     private static let topMargin: CGFloat = 24
     /// Gap between the route square's bottom edge and the metric row.
     private static let routeGap: CGFloat = 30
-    /// A 15 pt label line (≈18) over a 40 pt value line (≈48), plus the 2 pt gap.
-    private static let metricRowHeight: CGFloat = 68
     /// Branding baseline + wordmark height + breathing room — nothing may enter it.
-    private static let brandingZone: CGFloat = brandingBottomPadding + 18 + 12
+    static let brandingZoneHeight: CGFloat = brandingBottomPadding + 18 + 12
     /// The largest a centered route square ever gets, on any ratio.
     private static let maximumCenteredRouteSide: CGFloat = 260
 
@@ -830,31 +897,47 @@ struct WorkoutShareCardGeometry: Equatable {
     var centeredRouteRect: CGRect {
         switch centeredMode {
         case .column:
-            // The original: 260 square centred at (180, 170).
-            let side = Self.maximumCenteredRouteSide
-            return CGRect(x: size.width / 2 - side / 2, y: 170 - side / 2, width: side, height: side)
+            // The original: 260 square centred at (180, 170). Four or five blocks keep
+            // the square's top edge where it was and shrink it from the bottom, so the
+            // column under it still clears the branding.
+            let side = columnRouteSide
+            return CGRect(x: size.width / 2 - side / 2, y: Self.columnRouteTop, width: side, height: side)
         case .routeOverRow:
             let side = routeOverRowSide
             return CGRect(x: size.width / 2 - side / 2, y: Self.topMargin, width: side, height: side)
         case .sideBySide:
             let side = sideBySideRouteSide
-            let centerY = Self.topMargin + (size.height - Self.topMargin - Self.brandingZone) / 2
+            let centerY = Self.topMargin + (size.height - Self.topMargin - Self.brandingZoneHeight) / 2
             return CGRect(x: size.width / 4 - side / 2, y: centerY - side / 2, width: side, height: side)
         }
     }
 
-    /// Shrinks until the row and the branding both fit under it: 3:4 keeps the full
-    /// 260, the 360-tall cards drop to 182.
+    /// Top edge of the 9:16 column's route square — the original 170 − 130.
+    private static let columnRouteTop: CGFloat = 170 - maximumCenteredRouteSide / 2
+
+    /// The full 260 for one to three blocks; four compact ones take it to 250, five
+    /// to 180.
+    private var columnRouteSide: CGFloat {
+        guard metricCount > WorkoutShareMetricSelection.defaultCount else { return Self.maximumCenteredRouteSide }
+        return min(
+            Self.maximumCenteredRouteSide,
+            size.height - Self.columnRouteTop - Self.routeGap - metricContentHeight - Self.brandingZoneHeight
+        )
+    }
+
+    /// Shrinks until the metric rows and the branding both fit under it: with one
+    /// regular row 3:4 keeps the full 260 and the 360-tall cards drop to 182; extra
+    /// rows come out of the square.
     private var routeOverRowSide: CGFloat {
         min(
             Self.maximumCenteredRouteSide,
-            size.height - Self.topMargin - Self.routeGap - Self.metricRowHeight - Self.brandingZone
+            size.height - Self.topMargin - Self.routeGap - metricContentHeight - Self.brandingZoneHeight
         )
     }
 
     /// Never crosses the midline (`width / 2 − 24`), never enters the branding zone.
     private var sideBySideRouteSide: CGFloat {
-        min(size.height - Self.topMargin - Self.brandingZone, size.width / 2 - Self.topMargin)
+        min(size.height - Self.topMargin - Self.brandingZoneHeight, size.width / 2 - Self.topMargin)
     }
 
     /// Where the metric stack/row is positioned. Top-anchored in `.column` (the
@@ -862,19 +945,25 @@ struct WorkoutShareCardGeometry: Equatable {
     var metricsFrame: CGRect {
         switch centeredMode {
         case .column:
-            let top: CGFloat = 330
-            return CGRect(x: 24, y: top, width: size.width - 48, height: size.height - top)
+            guard metricCount > WorkoutShareMetricSelection.defaultCount else {
+                let top: CGFloat = 330
+                return CGRect(x: 24, y: top, width: size.width - 48, height: size.height - top)
+            }
+            // Four or five: the column follows the route's ink the way the row layouts
+            // do, and is exactly as tall as its blocks.
+            let top = Self.columnRouteTop + columnRouteSide - Self.routeInset + Self.routeGap
+            return CGRect(x: 24, y: top, width: size.width - 48, height: metricContentHeight)
         case .routeOverRow:
             // The route is bottom-anchored on its inset drawing rect, so the row
             // follows the ink (side − inset), not the region's edge.
             let top = Self.topMargin + routeOverRowSide - Self.routeInset + Self.routeGap
-            return CGRect(x: 24, y: top, width: size.width - 48, height: Self.metricRowHeight)
+            return CGRect(x: 24, y: top, width: size.width - 48, height: metricContentHeight)
         case .sideBySide:
             return CGRect(
                 x: size.width / 2 + 12,
                 y: Self.topMargin,
                 width: size.width / 2 - 24,
-                height: size.height - Self.topMargin - Self.brandingZone
+                height: size.height - Self.topMargin - Self.brandingZoneHeight
             )
         }
     }
@@ -889,18 +978,100 @@ struct WorkoutShareCardGeometry: Equatable {
         aspectRatio == .portrait9x16 ? .vertical : .horizontal
     }
 
-    /// A 360-wide card can't fit three metric blocks on one line at a readable size,
-    /// so they wrap (2 + a centred remainder); 450/640-wide cards keep a single row.
-    var routelessWrapsMetricRows: Bool { size.width < 400 }
+    // MARK: - Metric rows
+
+    /// How many blocks a wide row may carry before it wraps: a 360 pt card fits three
+    /// at a readable size, a 480 pt one four, a 640 pt one five.
+    var metricsPerRow: Int {
+        if size.width >= 600 { return 5 }
+        if size.width >= 450 { return 4 }
+        return 3
+    }
+
+    /// How the blocks are split into rows, top row first — `[3, 2]` is a row of three
+    /// over a row of two, and `[1, 1, 1]` is the original vertical stack. One to three
+    /// blocks keep exactly the arrangement they have always had on every shape; only a
+    /// deliberate four- or five-metric pick wraps.
+    var metricRowSizes: [Int] {
+        let count = max(1, metricCount)
+        if layout == .routeless {
+            guard routelessMetricsAxis == .horizontal else { return Self.columnRowSizes(count) }
+            // A 360-wide card can't fit three blocks on one line at a readable size, so
+            // they wrap (2 + a centred remainder); 450/640-wide cards keep a single row.
+            return Self.rowSizes(count, perRow: size.width < 400 ? 2 : metricsPerRow)
+        }
+        switch centeredMode {
+        case .column:
+            return Self.columnRowSizes(count)
+        case .routeOverRow:
+            return Self.rowSizes(count, perRow: metricsPerRow)
+        case .sideBySide:
+            // Half a card's width, so a row never carries more than a pair.
+            return count <= WorkoutShareMetricSelection.defaultCount
+                ? Array(repeating: 1, count: count)
+                : Self.rowSizes(count, perRow: 2)
+        }
+    }
+
+    /// The vertical column's rule: always one block per line, top to bottom — four and
+    /// five compact, with the route square above giving up the height they need.
+    private static func columnRowSizes(_ count: Int) -> [Int] {
+        Array(repeating: 1, count: count)
+    }
+
+    /// Balanced chunking with the earlier rows larger: `perRow` only fixes how many
+    /// rows are needed, and the blocks then spread evenly over them — 4 at 3 per row is
+    /// `[2, 2]` rather than a lopsided `[3, 1]`; 5 at 3 is `[3, 2]`, 5 at 2 is
+    /// `[2, 2, 1]`.
+    private static func rowSizes(_ count: Int, perRow: Int) -> [Int] {
+        let rows = max(1, Int(ceil(Double(count) / Double(perRow))))
+        let base = count / rows
+        let remainder = count % rows
+        return (0..<rows).map { $0 < remainder ? base + 1 : base }
+    }
+
+    /// Smaller type and tighter rows, for the cards where four or five blocks only fit
+    /// once the route square has given up all it can: the short cards, and the 9:16
+    /// column (five regular blocks would be 420 pt tall). Side by side never compacts:
+    /// its metric column doesn't compete with the route, and three regular rows
+    /// (244 pt) fit its 280 pt frame.
+    var metricBlockStyle: MetricBlockStyle {
+        metricCount > WorkoutShareMetricSelection.defaultCount
+            && metricRowSizes.count > 1
+            && (size.height <= 360 || aspectRatio == .portrait9x16)
+            && !(layout != .routeless && centeredMode == .sideBySide)
+            ? .compact
+            : .regular
+    }
+
+    /// The metric block's real extent — distinct from `metricsFrame.height`, which in
+    /// `.column` runs to the card's bottom edge by design.
+    var metricContentHeight: CGFloat {
+        let style = metricBlockStyle
+        let rows = CGFloat(metricRowSizes.count)
+        return rows * style.rowHeight + (rows - 1) * style.rowGap
+    }
 
     /// The pinch anchor for the draggable info block: its visual centre, so a pinch
     /// doesn't push the trace off the top the way anchoring on the card would.
     func blockAnchor(showsTrace: Bool) -> UnitPoint {
         guard showsTrace else { return .center }
-        if centeredMode == .column {
+        if centeredMode == .column, metricCount <= WorkoutShareMetricSelection.defaultCount {
             // The original: midpoint of the route region's top edge and a
             // three-metric stack's bottom.
             return UnitPoint(x: 0.5, y: 305 / size.height)
+        }
+        if centeredMode == .column {
+            // The shrunken route and the taller column: the anchor comes from the
+            // block's real extent rather than the original literal.
+            let content = CGRect(
+                x: metricsFrame.minX,
+                y: metricsFrame.minY,
+                width: metricsFrame.width,
+                height: metricContentHeight
+            )
+            let union = centeredRouteRect.union(content)
+            return UnitPoint(x: union.midX / size.width, y: union.midY / size.height)
         }
         let union = centeredRouteRect.union(metricsFrame)
         return UnitPoint(x: union.midX / size.width, y: union.midY / size.height)
