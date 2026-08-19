@@ -195,7 +195,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let keys = [
             "Share",
             "Share Workout",
-            "v1",
+            "v2",
             "Background",
             "Your Photo",
             "Close",
@@ -216,8 +216,11 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Couldn't Create Image",
             "Couldn't Save Image",
             "Body needs permission to add photos. Allow it in Settings › Body › Photos, then try again.",
-            // Background dimension rows and the explainer under a route that can't
-            // carry a ribbon.
+            // Route Style rail icon, its Hide tile and Map-dimming hint, the dimension
+            // tiles, and the explainer under a route that can't carry a ribbon.
+            "Route Style",
+            "Hide Route",
+            "Hiding the route doesn't apply to the Map background.",
             "2D",
             "3D",
             "3D needs a route with elevation data.",
@@ -268,7 +271,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             // and the Pro feature entry from BodyProView.
             "Metrics",
             "Requires Body Pro",
-            "Pick 1 to 3 metrics.",
+            "Pick 1 to 5 metrics.",
             "At least one metric stays on the card.",
             "Share Card Metrics",
             "Choose which metrics your workout share card shows."
@@ -365,6 +368,20 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "If you were working out, this warning will disappear once the workout is logged.",
             "Default: %@",
             "%lld bpm"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testWorkoutRenameKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // The workout detail hero's title button opens the rename alert; its
+        // Save/Cancel buttons reuse keys the catalog already carries.
+        let keys = [
+            "Rename Workout",
+            "Save",
+            "Cancel"
         ]
 
         try assertKeysTranslated(keys, in: catalog)

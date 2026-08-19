@@ -1105,6 +1105,38 @@
         }
       }
     },
+    "Add a name" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a name"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加名字"
+          }
+        }
+      }
+    },
+    "Add a name and photo" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a name and photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加名字和照片"
+          }
+        }
+      }
+    },
     "Add Measurement" : {
       "localizations" : {
         "en" : {
@@ -1117,6 +1149,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "添加测量记录"
+          }
+        }
+      }
+    },
+    "Adjust Photo" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adjust Photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调整照片"
           }
         }
       }
@@ -2503,6 +2551,22 @@
         }
       }
     },
+    "Change Photo" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Change Photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更换照片"
+          }
+        }
+      }
+    },
     "chart.legendRange" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2550,6 +2614,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择终身版"
+          }
+        }
+      }
+    },
+    "Choose Photo" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose Photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择照片"
           }
         }
       }
@@ -3362,6 +3442,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "删除自定义来源"
+          }
+        }
+      }
+    },
+    "Delete Photo" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除照片"
           }
         }
       }
@@ -4306,6 +4402,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "各活动心率"
+          }
+        }
+      }
+    },
+    "Hide Route" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Route"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐藏路线"
+          }
+        }
+      }
+    },
+    "Hiding the route doesn't apply to the Map background." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiding the route doesn't apply to the Map background."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐藏路线不适用于地图背景。"
           }
         }
       }
@@ -6534,18 +6662,18 @@
         }
       }
     },
-    "Pick 1 to 3 metrics." : {
+    "Pick 1 to 5 metrics." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pick 1 to 3 metrics."
+            "value" : "Pick 1 to 5 metrics."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "选择 1 到 3 个指标。"
+            "value" : "选择 1 到 5 个指标。"
           }
         }
       }
@@ -6562,6 +6690,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "至少选择两个来源，合并为这一个来源。"
+          }
+        }
+      }
+    },
+    "Pinch to zoom, drag to position." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pinch to zoom, drag to position."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "双指缩放，拖动调整位置。"
           }
         }
       }
@@ -6729,6 +6873,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "隐私"
+          }
+        }
+      }
+    },
+    "Profile" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profile"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "个人资料"
           }
         }
       }
@@ -7117,6 +7277,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重命名配置方案"
+          }
+        }
+      }
+    },
+    "Rename Workout" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename Workout"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重命名运动"
           }
         }
       }
@@ -10455,6 +10632,22 @@
         }
       }
     },
+    "Your name and photo are used only to personalize your workout share cards. Both are stored locally on this device and nothing is ever uploaded." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your name and photo are used only to personalize your workout share cards. Both are stored locally on this device and nothing is ever uploaded."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的名字和照片仅用于个性化你的运动分享卡片。两者都只保存在本机，不会上传任何内容。"
+          }
+        }
+      }
+    },
     "Your Photo" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -10468,6 +10661,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的照片"
+          }
+        }
+      }
+    },
+    "Your Profile" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Profile"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的资料"
           }
         }
       }

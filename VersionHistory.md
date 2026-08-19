@@ -1,5 +1,21 @@
 # Version History
 
+## 1.0.0 (build 9)
+
+- The share page's title badge now reads **v2**, marking the reworked share card (5-metric picks, the 9:16 column, and Hide Route).
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 9.
+
+## 1.0.0 (build 8)
+
+- **The workout share card's Body Pro metric picker cap rises from 3 to 5 metrics.** The automatic default pick still holds at 3, and the classic Map-background card's bottom row still caps at 2 extras beyond the header's Distance/Duration, but a deliberate Pro pick of 4 or 5 now re-lays the card's other layouts: 9:16 keeps a single top-to-bottom column of compact blocks with the route square shrinking to make room, landscape ratios arrange side-by-side rows of 2, and the shorter shapes (3:4, 1:1, and stacked 16:9/4:3) wrap to two rows and shrink the route square to make room — 1:1 and stacked landscape fall back to smaller compact metric blocks, while 16:9 Stacked keeps a single row of all 5.
+- **The share card's route can now be hidden.** The 3D tray on the share page leads with a free **Hide Route** tile: on a gradient or photo background the card drops its trace and shows the metrics alone, the choice is remembered across sessions, and picking 2D or 3D brings the route back. On the Map background the tile is greyed out, because the map's route is part of its snapshot.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 8.
+
+## 1.0.0 (build 7)
+
+- **A profile card now sits at the top of Settings.** It shows your chosen photo (or a placeholder icon) and your name once set, otherwise "Your Profile" with an "Add a name and photo" subtitle. Tapping it pushes a new **Profile** page where you set a name (up to 24 characters) and a photo — Choose Photo / Change Photo opens a pinch-to-zoom, drag-to-position rounded-square crop before applying, and Delete Photo reverts to the placeholder. The name and photo are stored locally in `UserDefaults` and never uploaded.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 7.
+
 ## 1.0.0 (build 6)
 
 - Updated the app, widget, watch, and test bundle version to 1.0.0 build 6.

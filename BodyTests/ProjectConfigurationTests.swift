@@ -296,8 +296,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let shareSheetSource = try text(at: "Body/Views/Health/BodyWorkoutShareSheet.swift")
         XCTAssertTrue(shareSheetSource.contains("placement: .topBarLeading"))
         XCTAssertTrue(shareSheetSource.contains("\"xmark\""))
-        // The badge beside the "Share" title reads "v1", matching the settings badges.
-        XCTAssertTrue(shareSheetSource.contains(#"Text("v1")"#))
+        // The badge beside the "Share" title reads "v2" — the reworked share card.
+        XCTAssertTrue(shareSheetSource.contains(#"Text("v2")"#))
         XCTAssertFalse(shareSheetSource.contains(#"Text("Beta v2")"#))
         XCTAssertTrue(shareSheetSource.contains("\"square.and.arrow.up\""))
         XCTAssertTrue(shareSheetSource.contains("\"square.and.arrow.down\""))
@@ -330,6 +330,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(shareSheetSource.contains("resolvedAspectRatio"))
         XCTAssertTrue(shareSheetSource.contains(#"Text("2D")"#))
         XCTAssertTrue(shareSheetSource.contains(#"Text("3D")"#))
+        // The Route Style tray's Hide tile: stored under its own key, disabled on the
+        // Map background with a hint, and any dimension pick shows the trace again.
+        XCTAssertTrue(shareSheetSource.contains("WorkoutShareRouteVisibility.storageKey"))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Hide Route")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Hiding the route doesn't apply to the Map background.")"#))
         // A route without usable altitude greys the 3D row out and says why.
         XCTAssertTrue(shareSheetSource.contains(#"Text("3D needs a route with elevation data.")"#))
         // Map snapshots are cached per ratio as well as per dimension.
@@ -355,7 +360,7 @@ final class ProjectConfigurationTests: XCTestCase {
         // Body Pro picks which metrics the card shows, remembered per workout type.
         XCTAssertTrue(shareSheetSource.contains("WorkoutShareMetricSelection.storageKey"))
         XCTAssertTrue(shareSheetSource.contains(#"Text("Metrics")"#))
-        XCTAssertTrue(shareSheetSource.contains(#"Text("Pick 1 to 3 metrics.")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Pick 1 to 5 metrics.")"#))
         XCTAssertTrue(shareSheetSource.contains(#"Text("Requires Body Pro")"#))
 
         // The card computes its geometry from the aspect ratio, replacing the fixed
@@ -1088,11 +1093,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(chartBlock.contains("guard let highlightedRangeResolver, let activeHighlightSourceValue else {"))
         XCTAssertTrue(chartBlock.contains("return highlightedRangeResolver(activeHighlightSourceValue) ?? highlightedRange"))
         XCTAssertTrue(chartBlock.contains("private var activeHighlightSourceValue: Double?"))
-        // Idle must fall back to the caller's `highlightedRange` (live summary
-        // value), never the last plotted point — the plotted point is the frozen
-        // morning value and once showed the wrong band as "Current".
-        XCTAssertTrue(chartBlock.contains("selectedTrendPoint?.value ?? currentValuePoint?.value"))
-        XCTAssertFalse(chartBlock.contains("latestVisibleTrendPoint"))
+        // Idle follows the last plotted point of the selected range (the dot
+        // only while it is visible on the week chart), not the live summary
+        // value: the band must track the line on screen in every range.
+        XCTAssertTrue(chartBlock.contains("if showsCurrentValueDot, let currentValuePoint {"))
+        XCTAssertTrue(chartBlock.contains("return visibleFinitePoints.last?.value"))
+        XCTAssertFalse(chartBlock.contains("selectedTrendPoint?.value ?? currentValuePoint?.value"))
         XCTAssertTrue(chartBlock.contains(".chartBackground { chartProxy in"))
         XCTAssertTrue(chartBlock.contains("highlightedRange.lowerPlotBound(in: chartYDomain)"))
         XCTAssertTrue(chartBlock.contains("highlightedRange.upperPlotBound(in: chartYDomain)"))
@@ -1161,8 +1167,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(cardBlock.contains("interval.explanation"))
         XCTAssertTrue(cardBlock.contains("BodyTrainingLoadIntervalPresentation.color(for: interval)"))
         XCTAssertTrue(cardBlock.contains(#"Text("Current")"#))
-        // The Current chip follows the scrubbed point, falling back to the live
-        // summary value the hero displays — never the last plotted point.
+        // The Current chip follows the scrubbed point, falling back to the trend
+        // chart's last plotted point (via the chart's active-value binding), and
+        // to the live summary value only when the chart is empty.
         XCTAssertTrue(source.contains("private var activeTrainingLoadInterval: TrainingLoadInterval?"))
         XCTAssertTrue(source.contains("TrainingLoadInterval.interval(for: activeTrainingLoadTrendValue)"))
         XCTAssertTrue(source.contains("TrainingLoadInterval.interval(for: model.trainingLoadValue)"))
@@ -2306,12 +2313,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 6;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 9;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.0;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 6;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 9;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2346,13 +2353,16 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 6)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 9)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 8)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
         XCTAssertTrue(readme.contains("**Metric warnings**"))
         XCTAssertTrue(readme.contains("Low Heart Rate"))
         XCTAssertTrue(readme.contains("High Heart Rate"))
         XCTAssertTrue(readme.contains("Low Blood Oxygen"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 7)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 17)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 16)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 15)**"))
@@ -2442,6 +2452,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 9)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 9."))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 8)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 8."))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 7)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 7."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 6)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 6."))
         XCTAssertTrue(versionHistory.contains("## 0.9.12 (build 17)"))
@@ -2821,6 +2837,28 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains(".toolbar(.hidden, for: .navigationBar)"))
     }
 
+    func testWorkoutCustomNamePlumbing() throws {
+        let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
+
+        XCTAssertGreaterThanOrEqual(
+            workoutsSource.occurrenceCount(of: "customName: workoutStore.workoutCustomNames[workout.id]"),
+            2
+        )
+        XCTAssertTrue(workoutsSource.contains(".alert(\"Rename Workout\""))
+        XCTAssertGreaterThanOrEqual(workoutsSource.occurrenceCount(of: "workoutCustomNames"), 4)
+
+        let listSheetSource = try text(at: "Body/Views/BodyWorkoutListSheet.swift")
+        XCTAssertTrue(listSheetSource.contains("customName: workoutStore.workoutCustomNames[workout.id]"))
+        XCTAssertTrue(listSheetSource.contains("Text(customName ?? workout.type.displayName)"))
+
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        XCTAssertTrue(storeSource.contains("func setCustomName(_ name: String?, workoutID: UUID)"))
+        XCTAssertTrue(storeSource.contains("workoutCustomNamesKey = \"workoutCustomNames\""))
+
+        let summarySource = try text(at: "BodyMetricsKit/WorkoutSummary.swift")
+        XCTAssertTrue(summarySource.contains("static func normalizedCustomName(_ raw: String?) -> String?"))
+    }
+
     func testWorkoutStepSamplesPropagateReadFailuresInsteadOfSwallowingErrors() throws {
         let splitsSource = try text(at: "Body/Services/HealthKitFetchEngine+Splits.swift")
 
@@ -2863,7 +2901,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 6)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 9)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 8)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 7)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 6)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 17)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 16)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.12 build 15)"))
@@ -3366,12 +3407,16 @@ final class ProjectConfigurationTests: XCTestCase {
         let settingsStackStart = try XCTUnwrap(
             settingsSource.range(of: "VStack(alignment: .leading, spacing: 22) {")?.lowerBound
         )
-        let settingsStack = String(settingsSource[settingsStackStart...].prefix(350))
+        let settingsStack = String(settingsSource[settingsStackStart...].prefix(420))
         let aboutSectionRange = try XCTUnwrap(settingsStack.range(of: "aboutSection"))
         let bodyProEntryRange = try XCTUnwrap(settingsStack.range(of: "bodyProEntryCard"))
+        let profileEntryRange = try XCTUnwrap(settingsStack.range(of: "profileEntryCard"))
+        let appearanceRange = try XCTUnwrap(settingsStack.range(of: "appearanceSection"))
 
         XCTAssertTrue(settingsSource.contains("bodyProEntryCard"))
         XCTAssertLessThan(aboutSectionRange.lowerBound, bodyProEntryRange.lowerBound)
+        // The profile card is the first thing in Settings, above Appearance.
+        XCTAssertLessThan(profileEntryRange.lowerBound, appearanceRange.lowerBound)
         XCTAssertTrue(settingsSource.contains("NavigationLink {"))
         XCTAssertTrue(settingsSource.contains("BodyProView()"))
         XCTAssertTrue(settingsSource.contains("BodySettingsTypography.sectionTitleFontSize"))
