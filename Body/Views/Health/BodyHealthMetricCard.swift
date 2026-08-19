@@ -153,7 +153,7 @@ struct BodyHealthMetricCard: View {
 
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(metric.prominentMetrics) { display in
-                        displayValueRow(display, valueFontSize: 26)
+                        displayValueRow(display, valueFontSize: valueFontSize)
                     }
                 }
             }
@@ -222,12 +222,16 @@ struct BodyHealthMetricCard: View {
         .padding(.bottom, 4)
     }
 
+    // Word values run longer than digits, so vitals and cardio fitness set them
+    // a touch smaller than the numeric cards.
+    private var valueFontSize: CGFloat {
+        metric.usesWordValue ? 22 : 23
+    }
+
     private var valueRow: some View {
         displayValueRow(
             BodyMetricDisplayValue(title: metric.title, value: metric.value, unit: metric.unit),
-            // Word values run longer than digits, so vitals and cardio fitness
-            // set them a touch smaller than the numeric cards.
-            valueFontSize: metric.usesWordValue ? 28 : 30
+            valueFontSize: valueFontSize
         )
     }
 

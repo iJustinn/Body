@@ -170,19 +170,20 @@ struct BodyHealthMetricTrendChart: View {
         return highlightedRangeResolver(activeHighlightSourceValue) ?? highlightedRange
     }
 
-    // Idle (no scrub, no current-value dot) reports nil so the band falls back
-    // to the caller's `highlightedRange`, built from the live summary value the
-    // hero displays. It must NOT fall back to the last plotted point: that can
-    // disagree with the live score (the plotted point is the frozen morning
-    // value) and briefly showed the wrong band as "Current".
+    // Scrubbed point first; then the current-value dot, but only while it is
+    // visible (the caller passes it for every range so it can morph — off the
+    // week range it must not feed the band); otherwise the last plotted point
+    // of the selected range, so the band tracks the line the user is looking
+    // at. An empty chart reports nil so the band falls back to the caller's
+    // `highlightedRange`.
     private var activeHighlightSourceValue: Double? {
-        // The caller passes the dot for every range so it can morph; off the
-        // week range it is invisible and must not feed the band either.
-        guard selectedTrendPoint != nil || showsCurrentValuePoint else {
-            return nil
+        if let selectedTrendPoint {
+            return selectedTrendPoint.value
         }
-
-        return selectedTrendPoint?.value ?? currentValuePoint?.value
+        if showsCurrentValueDot, let currentValuePoint {
+            return currentValuePoint.value
+        }
+        return visibleFinitePoints.last?.value
     }
 
     /// The dot belongs to the week chart only. Other ranges keep it resident at

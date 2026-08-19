@@ -156,8 +156,6 @@ struct BodyMetricWarningCard: View {
                 .lineStyle(StrokeStyle(lineWidth: 2, dash: [4, 4]))
 
             if let selectedSample {
-                // Rule only, no fattened dot: the readings are already ringed,
-                // and a scrub dot on top of one only smeared it.
                 RuleMark(x: .value("Selected Time", selectedSample.date))
                     .foregroundStyle(Color.secondary.opacity(0.48))
                     .lineStyle(StrokeStyle(lineWidth: 1.4))
@@ -172,6 +170,16 @@ struct BodyMetricWarningCard: View {
                             selectionAnnotation(for: selectedSample)
                         }
                     }
+
+                // The same filled dot the Day View and range trend charts drop
+                // on the scrubbed reading, so the callout's value is anchored
+                // to a point on the line.
+                PointMark(
+                    x: .value("Selected Time", selectedSample.date),
+                    y: .value(valueLabel, selectedSample.value)
+                )
+                .foregroundStyle(isPastThreshold(selectedSample.value) ? .yellow : tint)
+                .symbolSize(82)
             }
         }
         .chartXScale(domain: window.start...window.end)

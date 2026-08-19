@@ -574,7 +574,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         )
 
         // Foundation separates time and AM/PM with U+202F (narrow no-break space).
-        XCTAssertEqual(presentation.heroDateLineText, "Nov 14, Fri, 9:41\u{202F}AM")
+        XCTAssertEqual(presentation.heroDateLineText, "Nov 14, 9:41\u{202F}AM")
 
         let chinese = WorkoutDetailPresentation(
             workout: workout,
@@ -583,7 +583,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             timeZone: timeZone
         )
         let parts = chinese.heroDateLineText.components(separatedBy: ", ")
-        XCTAssertEqual(parts.count, 3)
+        XCTAssertEqual(parts.count, 2)
         XCTAssertFalse(parts.contains { $0.isEmpty })
         XCTAssertEqual(parts.last, chinese.startTimeText)
     }
@@ -2665,7 +2665,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             .timeInDaylight,
             .sleep
         ])
-        XCTAssertEqual(migratedOrder.last, .steps)
+        XCTAssertEqual(migratedOrder.last, .respiratoryRate)
         XCTAssertEqual(Set(order), Set(BodyHomeCardKind.defaultOrder))
         XCTAssertEqual(order.count, BodyHomeCardKind.defaultOrder.count)
         XCTAssertTrue(order.contains(.activityRings))
@@ -2677,7 +2677,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(order.contains(.heartRate))
         XCTAssertEqual(
             Array(BodyHomeCardKind.defaultOrder.prefix(6)),
-            [.sleep, .vitals, .basics, .heartRate, .heartRateVariability, .trainingLoad]
+            [.sleep, .vitals, .trainingLoad, .basics, .heartRate, .heartRateVariability]
         )
         XCTAssertEqual(BodyHomeCardKind.defaultOrder.last, .activityRings)
         XCTAssertLessThan(
@@ -2692,7 +2692,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let movedDown = BodyHomeCardKind.reordered(order, moving: .sleep, to: .basics)
         XCTAssertEqual(
             Array(movedDown.prefix(9)),
-            [.vitals, .basics, .sleep, .heartRate, .heartRateVariability, .trainingLoad, .readiness, .activeEnergy, .restingEnergy]
+            [.vitals, .trainingLoad, .basics, .sleep, .heartRate, .heartRateVariability, .readiness, .activeEnergy, .restingEnergy]
         )
         XCTAssertEqual(movedDown.last, .activityRings)
         XCTAssertEqual(Set(movedDown), Set(order))
@@ -2701,7 +2701,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let movedUp = BodyHomeCardKind.reordered(order, moving: .activeEnergy, to: .sleep)
         XCTAssertEqual(
             Array(movedUp.prefix(9)),
-            [.activeEnergy, .sleep, .vitals, .basics, .heartRate, .heartRateVariability, .trainingLoad, .readiness, .restingEnergy]
+            [.activeEnergy, .sleep, .vitals, .trainingLoad, .basics, .heartRate, .heartRateVariability, .readiness, .restingEnergy]
         )
         XCTAssertEqual(movedUp.last, .activityRings)
         XCTAssertEqual(Set(movedUp), Set(order))

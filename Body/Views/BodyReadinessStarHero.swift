@@ -176,7 +176,7 @@ struct BodyReadinessHeroLabel: View {
     private var statusText: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(headline)
-                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .font(.system(size: 26, weight: .bold, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
 
@@ -195,7 +195,7 @@ struct BodyReadinessHeroLabel: View {
             if let startedTodayText {
                 Text(startedTodayText)
                     .font(.system(size: 15, weight: .medium, design: .rounded))
-                    .opacity(0.8)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -203,14 +203,14 @@ struct BodyReadinessHeroLabel: View {
 
     /// The explanation slot: the Apple Intelligence glyph leads both the placeholder and
     /// the generated comment; the authored one-liner has no glyph. Same type, size and
-    /// opacity either way, the placeholder a touch dimmer.
+    /// color in every state.
     @ViewBuilder
     private var explanationText: some View {
         switch aiComment {
         case .authored:
             Text(explanationString)
                 .font(.system(size: 15, weight: .medium, design: .rounded))
-                .opacity(0.92)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         case .generating, .comment:
             // The glyph is interpolated into the text run rather than laid out in an
@@ -220,7 +220,7 @@ struct BodyReadinessHeroLabel: View {
                 + Text(verbatim: " ")
                 + Text(explanationString))
                 .font(.system(size: 15, weight: .medium, design: .rounded))
-                .opacity(aiComment == .generating ? 0.7 : 0.92)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
