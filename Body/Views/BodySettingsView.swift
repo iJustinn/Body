@@ -36,6 +36,9 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsWorkoutRouteOnLoad = true
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
+    @AppStorage(BodyAppearancePreference.profileNameKey) private var profileName = ""
+    // Empty `Data` is "no photo" — `@AppStorage` has no optional-Data overload.
+    @AppStorage(BodyAppearancePreference.profileAvatarDataKey) private var profileAvatarData = Data()
     @State private var activeSheet: BodySettingsSheet?
     @State private var showBodyProPaywall = false
     @State private var showCustomerCenter = false
@@ -56,6 +59,7 @@ struct BodySettingsView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 22) {
+                        profileEntryCard
                         appearanceSection
                         metricsSection
                         workoutsSection
@@ -122,6 +126,63 @@ struct BodySettingsView: View {
             .onChange(of: selectedEnergyUnitRawValue) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedWeightUnitRawValue) { workoutStore.republishCompanionSnapshots() }
         }
+    }
+
+    private var profileEntryCard: some View {
+        NavigationLink {
+            BodyProfileView()
+        } label: {
+            HStack(spacing: 15) {
+                Group {
+                    if !profileAvatarData.isEmpty, let uiImage = UIImage(data: profileAvatarData) {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 58, height: 58)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    } else {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 28, weight: .regular))
+                            .foregroundColor(.white)
+                            .frame(width: 58, height: 58)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(Color.white.opacity(0.14))
+                            )
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(profileCardTitle)
+                        .font(.system(size: 23, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+
+                    Text("Add a name and photo")
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(.caption, weight: .bold))
+                    .foregroundColor(.secondary.opacity(0.7))
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+            .bodyCardBackground(cornerRadius: 26, translucent: true)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The stored name once set, otherwise the generic card title.
+    private var profileCardTitle: String {
+        BodyUserProfile.displayName(from: profileName) ?? String(localized: "Your Profile")
     }
 
     private var bodyProEntryCard: some View {

@@ -7,7 +7,7 @@ import StoreKit
 import SwiftUI
 import UIKit
 
-private enum BodyProPalette {
+enum BodyProPalette {
     static let gold = Color(red: 1.0, green: 0.76, blue: 0.18)
 }
 
@@ -308,7 +308,7 @@ private struct BodyProIconGlow: View {
     }
 }
 
-private struct BodyProConfetti: View {
+struct BodyProConfetti: View {
     private let items: [(icon: String, color: Color, x: CGFloat, y: CGFloat, rotation: Double, size: CGFloat)] = [
         ("diamond.fill", .green, -118, -38, 18, 11),
         ("sparkle", .blue, -82, 22, -12, 20),

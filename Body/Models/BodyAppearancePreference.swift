@@ -297,6 +297,27 @@ extension BodyAppearancePreference {
     /// selections are stored independently, so a user who customized one but not
     /// the other must still be migrated for both.
     static let homeTrendCardCardioFitnessMigratedKey = "homeTrendCardCardioFitnessMigrated"
+
+    /// The user's on-device display name shown on the Settings profile card.
+    static let profileNameKey = "profileName"
+
+    /// The user's on-device avatar, stored as a small JPEG. Empty `Data` means none.
+    static let profileAvatarDataKey = "profileAvatarData"
+}
+
+/// The local-only user profile shown at the top of Settings. Nothing here is
+/// uploaded; it only personalizes how the app looks for the person using it.
+enum BodyUserProfile {
+    /// Names longer than this are hard-truncated as they're typed — the card
+    /// title has to stay on one line.
+    static let maximumNameLength = 24
+
+    /// The name to show, or `nil` when the user hasn't set one (so callers can
+    /// fall back to the generic card title).
+    static func displayName(from raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }
 
 struct BodySummaryCardSelection: Equatable {
@@ -1057,20 +1078,20 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     static let defaultOrder: [BodyHomeCardKind] = [
         .sleep,
         .vitals,
+        .trainingLoad,
         .basics,
         .heartRate,
         .heartRateVariability,
-        .trainingLoad,
         .readiness,
         .activeEnergy,
         .restingEnergy,
-        .wristTemperature,
         .restingHeartRate,
         .cardioFitness,
+        .steps,
+        .exerciseMinutes,
+        .wristTemperature,
         .oxygenSaturation,
         .respiratoryRate,
-        .exerciseMinutes,
-        .steps,
         .timeInDaylight,
         .activityRings
     ]
