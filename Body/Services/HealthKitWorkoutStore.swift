@@ -288,6 +288,14 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// the watch writes the recovery sample a minute after the workout ends, so a
     /// just-finished workout must be re-read on the next sheet open.
     private var heartRateRecoveryCache: [UUID: Double?] = [:]
+    /// In-flight (or finished) disk hydrations of the persisted per-workout detail
+    /// snapshot, keyed by workout UUID. A task map rather than a "done" flag Set
+    /// because the detail sheet fires the route probe, the route load, the series
+    /// load and the recovery load concurrently: a flag written only on completion
+    /// would let three of them hydrate in parallel, and a flag written up front
+    /// would let them skip past a hydration that hasn't read the file yet. Awaiting
+    /// the shared task gives every entry point the seeded caches exactly once.
+    private var detailHydrations: [UUID: Task<WorkoutDetailSnapshot?, Never>] = [:]
     private var loadedMonthKeys: Set<BodyWorkoutMonthKey> = []
     private var monthLoadOrder: [BodyWorkoutMonthKey] = []
     private var loadedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
@@ -601,6 +609,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             WorkoutSnapshotStore.totalDiskSizeBytes
                 + HealthDashboardSnapshotStore.totalDiskSizeBytes
                 + HealthWidgetSnapshotStore.totalDiskSizeBytes
+                + WorkoutDetailSnapshotStore.totalDiskSizeBytes()
         }.value
         cacheDiskSizeBytes = size
     }
@@ -1261,6 +1270,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// Caching matches `loadWorkoutRoute`'s original contract exactly: a confirmed
     /// no-route is cached, a cancelled or failed read is not.
     func loadWorkoutRouteCoordinates(for workout: WorkoutSummary) async -> WorkoutRoute? {
+        await hydrateWorkoutDetailIfNeeded(for: workout)
         if let cached = routeCache[workout.id] {
             return cached
         }
@@ -1295,14 +1305,17 @@ final class HealthKitWorkoutStore: ObservableObject {
         // available the moment GPS resolves; the city label is a follow-up that
         // folds back into the cache. The detail sheet awaits this stage on its own to
         // render the route without blocking on the geocode.
-        routeCache[workout.id] = .some(
-            WorkoutRoute(
-                coordinates: routeData.coordinates,
-                locality: nil,
-                elevationProfile: routeData.elevationProfile
-            )
+        let route = WorkoutRoute(
+            coordinates: routeData.coordinates,
+            locality: nil,
+            elevationProfile: routeData.elevationProfile
         )
+        routeCache[workout.id] = .some(route)
         routePresenceCache[workout.id] = true
+        if permissionSelection.includes(.workouts) {
+            let dto = PersistedWorkoutRoute(model: route)
+            persistWorkoutDetail(for: workout) { $0.route = dto }
+        }
         return routeCache[workout.id] ?? nil
     }
 
@@ -1315,6 +1328,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// failed or cancelled probe answers `.unknown` and is never cached, so the page
     /// simply behaves as it did before the probe existed and reopening retries.
     func workoutRoutePresence(for workout: WorkoutSummary) async -> BodyWorkoutRoutePresence {
+        await hydrateWorkoutDetailIfNeeded(for: workout)
         let cached = cachedWorkoutRoutePresence(for: workout)
         guard cached == .unknown else {
             return cached
@@ -1394,6 +1408,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             elevationProfile: route.elevationProfile
         )
         routeCache[workout.id] = .some(resolved)
+        // Persist the localized route over the coordinates-only one written by the
+        // load: the label costs a CLGeocoder round trip that a later cold open
+        // would otherwise repeat.
+        if permissionSelection.includes(.workouts) {
+            let dto = PersistedWorkoutRoute(model: resolved)
+            persistWorkoutDetail(for: workout) { $0.route = dto }
+        }
         return resolved
     }
 
@@ -1451,6 +1472,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return .empty
         }
 
+        await hydrateWorkoutDetailIfNeeded(for: workout)
         if let cached = metricSeriesCache[workout.id] {
             return cached
         }
@@ -1472,6 +1494,19 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
         if Date().timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60, !data.hadReadFailure {
             metricSeriesCache[workout.id] = data
+            // Persist only a bundle that actually carries a series. A denied
+            // Workout Metrics read surfaces as an empty (non-throwing) bundle, and
+            // writing that would freeze the negative on disk past the session wipes.
+            let carriesData = !data.distanceMeters.isEmpty
+                || !data.steps.isEmpty
+                || data.strideLengthMeters != nil
+                || data.groundContactTimeMs != nil
+                || data.verticalOscillationCm != nil
+                || data.cyclingCadenceRPM != nil
+            if carriesData, permissionSelection.includes(.workoutMetrics) {
+                let dto = PersistedWorkoutMetricSeries(model: data)
+                persistWorkoutDetail(for: workout) { $0.metricSeries = dto }
+            }
         }
         return data
     }
@@ -1480,6 +1515,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// when the Heart permission is off, no recovery reading exists, or the read
     /// failed. Not gated on pace style — every activity type can have one.
     func loadWorkoutHeartRateRecovery(for workout: WorkoutSummary) async -> Double? {
+        await hydrateWorkoutDetailIfNeeded(for: workout)
         if let cached = heartRateRecoveryCache[workout.id] {
             return cached
         }
@@ -1501,8 +1537,107 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
         if Date().timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60 {
             heartRateRecoveryCache[workout.id] = recovery
+            // The confirmed-absent `nil` above stays session-only: a Heart read the
+            // user has denied also answers nil, so persisting it would outlive the
+            // permission change that a session cache can't survive.
+            if let bpm = recovery, bpm > 0, permissionSelection.includes(.heart) {
+                persistWorkoutDetail(for: workout) { $0.heartRateRecoveryBPM = bpm }
+            }
         }
         return recovery
+    }
+
+    /// Seeds the per-workout detail session caches from the workout's persisted
+    /// snapshot, so reopening a settled workout after a cold launch paints its map,
+    /// charts and recovery tile without re-scanning HealthKit. Idempotent;
+    /// concurrent callers share one file read.
+    ///
+    /// Only *missing* entries are seeded — a value this session already read from
+    /// HealthKit is always the fresher one. Nothing on disk is a negative (the store
+    /// is written positive-only), so a seed can never pin a "no route" / "no
+    /// recovery" answer.
+    private func hydrateWorkoutDetailIfNeeded(for workout: WorkoutSummary) async {
+        if let existing = detailHydrations[workout.id] {
+            _ = await existing.value
+            return
+        }
+
+        let epoch = cacheEpoch
+        let task = Task.detached(priority: .userInitiated) {
+            WorkoutDetailSnapshotStore.load(workoutID: workout.id)
+        }
+        detailHydrations[workout.id] = task
+        let snapshot = await task.value
+
+        // A cache clear landed while the file read was in flight — the workout this
+        // describes is gone, so don't re-seed the wiped caches (H7).
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
+            return
+        }
+
+        if let route = snapshot?.route, routeCache[workout.id] == nil {
+            routeCache[workout.id] = .some(route.toModel())
+            routePresenceCache[workout.id] = true
+        }
+        if let series = snapshot?.metricSeries, metricSeriesCache[workout.id] == nil {
+            metricSeriesCache[workout.id] = series.toModel()
+        }
+        if let bpm = snapshot?.heartRateRecoveryBPM, heartRateRecoveryCache[workout.id] == nil {
+            heartRateRecoveryCache[workout.id] = .some(bpm)
+        }
+    }
+
+    /// Whether a workout's details are worth keeping on disk: it has settled (the
+    /// same >24 h rule the loaders admit results to the session caches under, so a
+    /// still-syncing watch workout is never pinned), and it falls inside the two
+    /// months the persisted workout list itself covers — details for a workout the
+    /// list can't show would only be pruned again.
+    nonisolated static func isWorkoutDetailPersistable(
+        workout: WorkoutSummary,
+        now: Date,
+        calendar: Calendar
+    ) -> Bool {
+        guard now.timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60 else {
+            return false
+        }
+
+        let currentKey = BodyWorkoutMonthKey(date: now, calendar: calendar)
+        let workoutKey = BodyWorkoutMonthKey(date: workout.startDate, calendar: calendar)
+        if workoutKey == currentKey {
+            return true
+        }
+        guard let previousMonthStart = calendar.date(byAdding: .month, value: -1, to: now) else {
+            return false
+        }
+        return workoutKey == BodyWorkoutMonthKey(date: previousMonthStart, calendar: calendar)
+    }
+
+    /// Read-modify-writes the workout's on-disk detail snapshot through `mutate`,
+    /// on the shared persist queue so the store (which carries no lock of its own)
+    /// only ever sees one mutation at a time. `mutate` must capture DTOs built on
+    /// the main actor — nothing else here is Sendable.
+    private func persistWorkoutDetail(
+        for workout: WorkoutSummary,
+        mutate: @escaping @Sendable (inout WorkoutDetailSnapshot) -> Void
+    ) {
+        guard Self.isWorkoutDetailPersistable(
+            workout: workout,
+            now: Date(),
+            calendar: .bodyGregorian
+        ) else {
+            return
+        }
+
+        let workoutID = workout.id
+        Self.snapshotPersistQueue.async {
+            var snapshot = WorkoutDetailSnapshotStore.load(workoutID: workoutID)
+                ?? WorkoutDetailSnapshot(workoutID: workoutID)
+            mutate(&snapshot)
+            guard !snapshot.isEmpty, WorkoutDetailSnapshotStore.save(snapshot) else {
+                return
+            }
+            Task { @MainActor in await self.refreshCacheDiskSize() }
+        }
     }
 
     /// Estimated max heart rate (220 − age) from Apple Health, anchoring the
@@ -1519,6 +1654,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         distanceSampleCache.removeAll()
         metricSeriesCache.removeAll()
         heartRateRecoveryCache.removeAll()
+        // Safe to re-hydrate from disk right away: the files hold only positives,
+        // so nothing they seed can contradict the fresh authorization.
+        detailHydrations = [:]
     }
 
     /// Loads the intraday day-sample sidecar (split out of the launch-critical
@@ -1827,10 +1965,12 @@ final class HealthKitWorkoutStore: ObservableObject {
             distanceSampleCache.removeAll()
                 metricSeriesCache.removeAll()
             heartRateRecoveryCache.removeAll()
+            detailHydrations = [:]
         } else if permission == .heart {
             // Heart-rate recovery rides the Heart toggle; drop it rather than
             // serving a toggle change a result read under the old selection.
             heartRateRecoveryCache.removeAll()
+            detailHydrations = [:]
         } else if permission == .workoutMetrics {
             // Cached split data carries per-split step cadence, and stride length is
             // gated the same way — both ride on the Workout Metrics permission, so
@@ -1838,6 +1978,24 @@ final class HealthKitWorkoutStore: ObservableObject {
             // read taken under the previous selection.
             distanceSampleCache.removeAll()
                 metricSeriesCache.removeAll()
+            detailHydrations = [:]
+        }
+        if !isEnabled {
+            // The in-memory drop above leaves the persisted detail files intact, and
+            // a hydration would seed them straight back. Strip the data at rest on
+            // opt-out too, same rationale as `sanitizeWorkoutSnapshots`.
+            Self.snapshotPersistQueue.async {
+                switch permission {
+                case .workouts:
+                    WorkoutDetailSnapshotStore.deleteAll()
+                case .workoutMetrics:
+                    WorkoutDetailSnapshotStore.stripMetricSeries()
+                case .heart:
+                    WorkoutDetailSnapshotStore.stripHeartRateRecovery()
+                default:
+                    break
+                }
+            }
         }
         await applyPermissionSelectionToCachedData()
 
@@ -3013,6 +3171,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         distanceSampleCache.removeAll()
         metricSeriesCache.removeAll()
         heartRateRecoveryCache.removeAll()
+        detailHydrations = [:]
         healthSummary = .empty
         // Drop the summary-reuse signature so a post-clear failed leaf resolves
         // to empty rather than reusing anything against the wiped summary.
@@ -3068,6 +3227,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 HealthDashboardSnapshotStore.clearWatchTrainingLoadSeed()
                 HealthDashboardSnapshotStore.clearActivityRingBackfillCompleted()
                 HealthWidgetSnapshotStore.delete()
+                WorkoutDetailSnapshotStore.deleteAll()
                 continuation.resume()
             }
         }
@@ -4659,6 +4819,27 @@ final class HealthKitWorkoutStore: ObservableObject {
             if widgetReloadNeeded {
                 Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
             }
+
+            // Drop detail files for workouts the persisted list no longer carries.
+            // The keep-set is read back from the two ON-DISK month files, not from
+            // `monthSnapshots`: the previous month isn't seeded into memory at
+            // launch, so an in-memory keep-set would delete every previous-month
+            // detail on the first refresh. For the same reason, a missing file means
+            // "unknown", not "empty" — skip the prune entirely rather than guess.
+            if let current = WorkoutSnapshotStore.load(),
+               current.workoutCount > 0,
+               let previous = WorkoutSnapshotStore.loadPrevious() {
+                var keeping: Set<UUID> = []
+                for month in [current, previous] {
+                    for day in month.days {
+                        for workout in day.workouts {
+                            keeping.insert(workout.id)
+                        }
+                    }
+                }
+                WorkoutDetailSnapshotStore.prune(keeping: keeping)
+            }
+
             Task { @MainActor in await self.refreshCacheDiskSize() }
         }
     }
