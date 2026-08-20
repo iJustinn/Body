@@ -380,7 +380,9 @@ enum WorkoutShareVideoComposer {
 
 /// One instruction for the whole export: the card overlay never changes and the pan/zoom
 /// is fixed at the moment Share is tapped, so there is nothing to tween.
-final class WorkoutShareVideoOverlayInstruction: NSObject, AVVideoCompositionInstructionProtocol {
+/// `@unchecked Sendable`: the protocol requires Sendable, and every stored property is
+/// a `let` set once in `init` — the NSValue/CIImage members are never mutated after.
+final class WorkoutShareVideoOverlayInstruction: NSObject, AVVideoCompositionInstructionProtocol, @unchecked Sendable {
     let timeRange: CMTimeRange
     let enablePostProcessing = false
     let containsTweening = false
