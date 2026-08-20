@@ -288,16 +288,23 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(workoutsSource.contains(".fullScreenCover(isPresented: $showsShareSheet)"))
         XCTAssertFalse(workoutsSource.contains(".sheet(isPresented: $showsShareSheet)"))
         // The Share button waits for the route fetch to settle (route or nil), not just
-        // for a non-nil route, so route-less workouts get it too.
-        XCTAssertTrue(workoutsSource.contains("if routeLoadSettled"))
+        // for a non-nil route, so route-less workouts get it too. It's always present
+        // now — grayed out and inert via .disabled(!routeLoadSettled) rather than
+        // conditionally inserted, so it never pops in mid-load.
+        XCTAssertTrue(workoutsSource.contains(".disabled(!routeLoadSettled)"))
+        // Scoped to the share-button overlay: `effectiveRoutePresence` legitimately
+        // branches on `if routeLoadSettled` elsewhere in the file.
+        let shareOverlayStart = try XCTUnwrap(workoutsSource.range(of: ".overlay(alignment: .topTrailing)")?.lowerBound)
+        let shareOverlayEnd = try XCTUnwrap(workoutsSource.range(of: ".fullScreenCover(isPresented: $showsShareSheet)")?.lowerBound)
+        XCTAssertFalse(workoutsSource[shareOverlayStart..<shareOverlayEnd].contains("if routeLoadSettled"))
 
         // A top-left ✕ close button and top-right Liquid Glass circle Share/Save
         // buttons replace the old bottom capsule bar.
         let shareSheetSource = try text(at: "Body/Views/Health/BodyWorkoutShareSheet.swift")
         XCTAssertTrue(shareSheetSource.contains("placement: .topBarLeading"))
         XCTAssertTrue(shareSheetSource.contains("\"xmark\""))
-        // The badge beside the "Share" title reads "v2" — the reworked share card.
-        XCTAssertTrue(shareSheetSource.contains(#"Text("v2")"#))
+        // The badge beside the "Share" title reads "v3" — the reworked share card.
+        XCTAssertTrue(shareSheetSource.contains(#"Text("v3")"#))
         XCTAssertFalse(shareSheetSource.contains(#"Text("Beta v2")"#))
         XCTAssertTrue(shareSheetSource.contains("\"square.and.arrow.up\""))
         XCTAssertTrue(shareSheetSource.contains("\"square.and.arrow.down\""))
@@ -335,19 +342,34 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(shareSheetSource.contains("WorkoutShareRouteVisibility.storageKey"))
         XCTAssertTrue(shareSheetSource.contains(#"Text("Hide Route")"#))
         XCTAssertTrue(shareSheetSource.contains(#"Text("Hiding the route doesn't apply to the Map background.")"#))
+        // Route-less workouts show an Icon row (Route Style slot) instead, with its own
+        // storage key and Show/Hide tiles.
+        XCTAssertTrue(shareSheetSource.contains("WorkoutShareIconVisibility.storageKey"))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Icon")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Show Icon")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Hide Icon")"#))
         // A route without usable altitude greys the 3D row out and says why.
         XCTAssertTrue(shareSheetSource.contains(#"Text("3D needs a route with elevation data.")"#))
         // Map snapshots are cached per ratio as well as per dimension.
         XCTAssertTrue(shareSheetSource.contains("MapSnapshotKey"))
 
-        // Photo mode is two steps, switched by a segmented control.
+        // Photo mode is two steps, switched by a chip strip in the tray position (no
+        // segmented control, no Next button).
         XCTAssertTrue(shareSheetSource.contains("PhotoAdjustStep"))
-        XCTAssertTrue(shareSheetSource.contains(".pickerStyle(.segmented)"))
-        XCTAssertTrue(shareSheetSource.contains(#"Text("Next")"#))
+        XCTAssertTrue(shareSheetSource.contains("mediaAdjustTray"))
         XCTAssertTrue(shareSheetSource.contains(#"Text("Reset Photo")"#))
         XCTAssertTrue(shareSheetSource.contains(#""Drag to move the photo. Pinch to zoom. Double-tap to reset.""#))
         XCTAssertTrue(shareSheetSource.contains(#""Drag to move. Pinch to resize. Double-tap to reset.""#))
         XCTAssertTrue(shareSheetSource.contains("clamped(imageSize:"))
+        // While an import is in flight, the standard sync badge floats over the page
+        // instead of a spinner on the tray tile.
+        XCTAssertTrue(shareSheetSource.contains(#"BodySyncStatusBadgeLabel(icon: .spinner, text: "Importing media...")"#))
+
+        // Video background: tile, load/create/save failure alerts.
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Your Video")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Couldn't Load Video")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Couldn't Create Video")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Couldn't Save Video")"#))
 
         // Free font row, plus the new ratio/arrangement/route-colour trays.
         XCTAssertTrue(shareSheetSource.contains("WorkoutShareFontChoice"))
@@ -381,6 +403,91 @@ final class ProjectConfigurationTests: XCTestCase {
         let cardModelSource = try text(at: "Body/Models/WorkoutShareCard.swift")
         XCTAssertTrue(cardModelSource.contains("struct WorkoutShareCardGeometry"))
         XCTAssertTrue(cardModelSource.contains("\"workoutShareAspectRatio\""))
+    }
+
+    func testWorkoutShareOptionRailOrder() throws {
+        // Rail order: Font, Route Color, Route Style, Metrics, Background, Ratio,
+        // Arrange — user's words (font, color, route, metrics, media, ratio) with
+        // Arrange last per follow-up. Metrics is no longer the last icon.
+        let shareSheetSource = try text(at: "Body/Views/Health/BodyWorkoutShareSheet.swift")
+        let railStart = try XCTUnwrap(shareSheetSource.range(of: "private func optionRail")?.lowerBound)
+        let searchStart = shareSheetSource.index(railStart, offsetBy: 20)
+        let nextFuncStart = try XCTUnwrap(
+            shareSheetSource.range(of: "\n    private func ", range: searchStart..<shareSheetSource.endIndex)?.lowerBound
+        )
+        let railRegion = shareSheetSource[railStart..<nextFuncStart]
+
+        let fontIndex = try XCTUnwrap(railRegion.range(of: #"Text("Font")"#)?.lowerBound)
+        let routeColorIndex = try XCTUnwrap(railRegion.range(of: #"Text("Route Color")"#)?.lowerBound)
+        let routeStyleIndex = try XCTUnwrap(railRegion.range(of: #"Text("Route Style")"#)?.lowerBound)
+        let metricsIndex = try XCTUnwrap(railRegion.range(of: #"Text("Metrics")"#)?.lowerBound)
+        let backgroundIndex = try XCTUnwrap(railRegion.range(of: #"Text("Background")"#)?.lowerBound)
+        let ratioIndex = try XCTUnwrap(railRegion.range(of: #"Text("Ratio")"#)?.lowerBound)
+        let arrangeIndex = try XCTUnwrap(railRegion.range(of: #"Text("Arrange")"#)?.lowerBound)
+
+        XCTAssertLessThan(fontIndex, routeColorIndex)
+        XCTAssertLessThan(routeColorIndex, routeStyleIndex)
+        XCTAssertLessThan(routeStyleIndex, metricsIndex)
+        XCTAssertLessThan(metricsIndex, backgroundIndex)
+        XCTAssertLessThan(backgroundIndex, ratioIndex)
+        XCTAssertLessThan(ratioIndex, arrangeIndex)
+    }
+
+    func testWorkoutShareLongImageMode() throws {
+        // The long image is its own output style under its own key — deliberately not a
+        // sixth `WorkoutShareAspectRatio` case, which would join every `allCases` sweep,
+        // the Pro gate, and the map-snapshot keys.
+        let cardModelSource = try text(at: "Body/Models/WorkoutShareCard.swift")
+        XCTAssertTrue(cardModelSource.contains("enum WorkoutShareOutputStyle"))
+        XCTAssertTrue(cardModelSource.contains("\"workoutShareOutputStyle\""))
+        XCTAssertTrue(cardModelSource.contains("\"workoutShareLongMetricSelections\""))
+        // The two policy seams Share/Save branch on, plus the section rule.
+        XCTAssertTrue(cardModelSource.contains("static func resolvedOutputStyle("))
+        XCTAssertTrue(cardModelSource.contains("static func resolvedOutput("))
+        XCTAssertTrue(cardModelSource.contains("static func longPreset("))
+        XCTAssertTrue(cardModelSource.contains("enum WorkoutShareLongImageSections"))
+        XCTAssertTrue(cardModelSource.contains("static func resolvedLong("))
+        XCTAssertTrue(cardModelSource.contains("static func togglingLong("))
+
+        let shareSheetSource = try text(at: "Body/Views/Health/BodyWorkoutShareSheet.swift")
+        // The sixth Ratio tile, the uncapped metrics caption, and the disabled-media hint.
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Long Image")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Pick the metrics for the long image.")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("The long image uses a gradient background.")"#))
+        XCTAssertTrue(shareSheetSource.contains("WorkoutShareOutputStyle.storageKey"))
+        XCTAssertTrue(shareSheetSource.contains("WorkoutShareMetricSelection.longStorageKey"))
+        // Share and Save both branch on the one resolved output, so a clip held under a
+        // long image can't turn either into a video.
+        XCTAssertTrue(shareSheetSource.contains("resolvedOutput("))
+        XCTAssertTrue(shareSheetSource.contains("case .cardImage, .longImage:"))
+        XCTAssertTrue(shareSheetSource.contains("if output == .video, let clip = renderableVideo {"))
+        // Natural height: a nil height proposal plus the adaptive scale clamp.
+        XCTAssertTrue(shareSheetSource.contains("ProposedViewSize(width: BodyWorkoutShareLongCardView.width, height: nil)"))
+        XCTAssertTrue(shareSheetSource.contains("maximumLongOutputPixels"))
+        // The detail page hands over everything the long image's charts need.
+        let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
+        XCTAssertTrue(workoutsSource.contains("splitData: splitData,"))
+        XCTAssertTrue(workoutsSource.contains("heartRateRecoveryBPM: heartRateRecoveryBPM"))
+        XCTAssertTrue(workoutsSource.contains("enum WorkoutDetailChartPresentations"))
+        // The cards the long image reuses are internal now — a copy of them in the
+        // share view would be free to drift from the detail page.
+        for card in [
+            "BodyWorkoutHeartRateChartCard",
+            "BodyWorkoutPaceCard",
+            "BodyWorkoutElevationLineCard",
+            "BodyWorkoutBucketedSeriesCard",
+            "BodyWorkoutDetailMetricTile"
+        ] {
+            XCTAssertTrue(workoutsSource.contains("\nstruct \(card): View {"), "\(card) should be internal")
+            XCTAssertFalse(workoutsSource.contains("private struct \(card): View {"))
+        }
+        // Both share exports paint the route through one extracted painter.
+        let cardSource = try text(at: "Body/Views/Health/BodyWorkoutShareCardView.swift")
+        XCTAssertTrue(cardSource.contains("struct WorkoutShareRouteTrace: View"))
+        let longSource = try text(at: "Body/Views/Health/BodyWorkoutShareLongCardView.swift")
+        XCTAssertTrue(longSource.contains("WorkoutShareRouteTrace("))
+        XCTAssertTrue(longSource.contains("static let width: CGFloat = 360"))
+        XCTAssertTrue(longSource.contains(".fixedSize(horizontal: false, vertical: true)"))
     }
 
     func testRouteStylePickerAndThreeDHero() throws {
@@ -2306,6 +2413,9 @@ final class ProjectConfigurationTests: XCTestCase {
         // the add-only authorization prompt crashes the app. App target only (Debug +
         // Release) — the widget and watch never save.
         XCTAssertEqual(project.occurrenceCount(of: "INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription"), 2)
+        // The copy now covers video saves too, since the Save button can also write an
+        // exported MP4 from the Your Video background.
+        XCTAssertEqual(project.occurrenceCount(of: "INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = \"Body saves the workout images and videos you create to your photo library.\";"), 2)
         XCTAssertTrue(project.contains("INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;"))
         XCTAssertTrue(project.contains("IPHONEOS_DEPLOYMENT_TARGET = 18.0;"))
         XCTAssertTrue(project.contains("TARGETED_DEVICE_FAMILY = \"1,2\";"))
@@ -2313,12 +2423,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 9;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 11;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.0;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 9;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 11;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2353,7 +2463,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 9)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 11)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 10)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 9)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 8)**"))
         XCTAssertTrue(readme.contains("floating sync status badge"))
         XCTAssertTrue(readme.contains("Share workout"))
@@ -2452,6 +2564,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 11)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 11."))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 10)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 10."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 9)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 9."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 8)"))
@@ -2901,7 +3017,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 9)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 11)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 10)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 9)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 8)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 7)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 6)"))
@@ -3436,7 +3554,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(bodyProSource.contains("HStack(alignment: .top, spacing: 14)"))
         XCTAssertFalse(bodyProSource.contains(".padding(.top, 2)"))
         XCTAssertFalse(bodyProSource.contains(".padding(.top, 8)"))
-        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 10)
+        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 11)
         XCTAssertTrue(bodyProSource.contains("Longer-Range Charts"))
         XCTAssertTrue(bodyProSource.contains("Full Day History"))
         XCTAssertTrue(bodyProSource.contains("Custom Backgrounds"))

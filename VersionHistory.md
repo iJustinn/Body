@@ -1,5 +1,19 @@
 # Version History
 
+## 1.0.0 (build 11)
+
+- **The workout share card's type icon can now be hidden on route-less workouts.** A free **Icon** row appears in the Route Style slot for route-less cards, with **Show**/**Hide** tiles; hiding it centers the metrics alone and the choice is remembered across sessions.
+- **The share card's watermark is smaller** — a more subtle wordmark and icon in the bottom branding strip, on every card.
+- **Share videos now export up to 60 seconds** instead of 15, both in the looping preview and the exported MP4.
+- **A new Long Image export joins the Ratio tray.** Body Pro's **Long Image** tile renders a tall, scrollable export of the whole workout — header, route or type icon, the selected metric tiles, and the matching detail charts — on a flat gradient background (Map, photo, and video backgrounds are disabled while it's active). The metric chips have no 1–5 cap in this mode, and a deselected chip hides both its tile and its chart section.
+- The tray tile scrollers (Ratio, Metrics, and the new Long Image chip strip) now fade softly at their scrolled edges, matching the workout list's month scroller.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 11.
+
+## 1.0.0 (build 10)
+
+- **The workout share card now supports a video background.** A Body Pro user can tap the new **Your Video** background tile to pick a clip from their library; the preview plays it muted, looping the first 15 seconds behind the card, with the same drag/pinch/double-tap pan-and-zoom framing as a photo across matching **Video | Layout** steps. Share and Save export an **MP4** with the card overlay composited onto every frame — first 15 seconds only, original audio kept, 30 fps SDR, at the ratio's pixel size. The clip is session-only: picking a preset, Map, or photo drops it, and a Pro lapse drops it for the session too.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 10.
+
 ## 1.0.0 (build 9)
 
 - The share page's title badge now reads **v2**, marking the reworked share card (5-metric picks, the 9:16 column, and Hide Route).
