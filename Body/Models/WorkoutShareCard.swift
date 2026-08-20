@@ -398,12 +398,129 @@ enum WorkoutShareMetricSelection {
         return ordered.isEmpty ? current : ordered
     }
 
+    /// The long image's own pick, under its own key: it has no five-metric ceiling
+    /// (the tall export has room for every tile) and defaults to *everything*, so
+    /// sharing the two through one blob would silently move the card's pick around.
+    static let longStorageKey = "workoutShareLongMetricSelections"
+
+    /// What the long image actually shows: the stored pick narrowed to this workout's
+    /// metrics, in pool order. Nothing stored, an empty pick, or a pick whose ids are
+    /// all stale (every one belongs to a workout with different tiles) all mean the
+    /// same thing here — show everything, which is the long image's default.
+    static func resolvedLong(
+        stored: [String]?,
+        available: [WorkoutShareMetricOption]
+    ) -> [String] {
+        let order = available.map(\.id)
+        guard let stored, !stored.isEmpty else { return order }
+        let picked = Set(stored)
+        let intersection = order.filter { picked.contains($0) }
+        return intersection.isEmpty ? order : intersection
+    }
+
+    /// One long-image chip tap: no ceiling, the same "at least one stays on" floor as
+    /// the card, and the result in pool order so it can be stored as-is.
+    static func togglingLong(
+        _ id: String,
+        in current: [String],
+        available: [WorkoutShareMetricOption]
+    ) -> [String] {
+        let order = available.map(\.id)
+        var updated: Set<String>
+        if current.contains(id) {
+            guard current.count > 1 else { return current }
+            updated = Set(current)
+            updated.remove(id)
+        } else {
+            guard order.contains(id) else { return current }
+            updated = Set(current)
+            updated.insert(id)
+        }
+        let ordered = order.filter { updated.contains($0) }
+        return ordered.isEmpty ? current : ordered
+    }
+
     private static func decode(_ json: String?) -> [String: [String]] {
         guard let json, !json.isEmpty, let data = json.data(using: .utf8),
               let selections = try? JSONDecoder().decode([String: [String]].self, from: data) else {
             return [:]
         }
         return selections
+    }
+}
+
+/// Which chart sections the long image draws, given what the workout has and which
+/// metric chips are on. Pure and separate from the view so the rule can be read (and
+/// tested) in one place instead of being spread over eight `if` statements.
+///
+/// The rule: a section is tied to the pool chips that name the same thing, and shows
+/// when one of them is on. A section whose chips this workout's pool doesn't offer at
+/// all (stride length, ground contact and vertical oscillation never have a Details
+/// tile; splits on a type with no pace/speed tile) has no control the user could
+/// reach, so it always shows — hiding it would make the data unreachable.
+enum WorkoutShareLongImageSections {
+    /// What this workout actually has data for — each flag is "the presentation this
+    /// section draws exists", nothing more.
+    struct Availability: Equatable {
+        var heartRate = false
+        var pace = false
+        var splits = false
+        var elevation = false
+        var cadence = false
+        var strideLength = false
+        var groundContact = false
+        var verticalOscillation = false
+    }
+
+    /// What the long image draws. Every flag implies its `Availability` counterpart.
+    struct Visibility: Equatable {
+        var heartRate = false
+        var pace = false
+        var splits = false
+        var elevation = false
+        var cadence = false
+        var strideLength = false
+        var groundContact = false
+        var verticalOscillation = false
+
+        /// The merged Pace card carries both halves, so it's drawn when either is.
+        var showsPaceCard: Bool { pace || splits }
+    }
+
+    private static let heartRateIDs = ["avgHeartRate", "maxHeartRate"]
+    /// Every rate a type can have. At most one of them is ever in a pool (a workout
+    /// has one pace style), so listing all three matches "the applicable rate chip"
+    /// without the caller having to work out which one that is.
+    private static let rateIDs = ["pace", "speed", "swimPace"]
+    private static let elevationIDs = ["elevation"]
+    private static let cadenceIDs = ["stepCadence", "cyclingCadence"]
+
+    static func sections(
+        available: [WorkoutShareMetricOption],
+        selectedIDs: [String],
+        data: Availability
+    ) -> Visibility {
+        let pool = Set(available.map(\.id))
+        let selected = Set(selectedIDs)
+
+        func isOn(_ ids: [String]) -> Bool {
+            let offered = ids.filter { pool.contains($0) }
+            // No chip names this section — nothing could turn it back on.
+            guard !offered.isEmpty else { return true }
+            return offered.contains { selected.contains($0) }
+        }
+
+        let rateOn = isOn(rateIDs)
+        return Visibility(
+            heartRate: data.heartRate && isOn(heartRateIDs),
+            pace: data.pace && rateOn,
+            splits: data.splits && rateOn,
+            elevation: data.elevation && isOn(elevationIDs),
+            cadence: data.cadence && isOn(cadenceIDs),
+            strideLength: data.strideLength,
+            groundContact: data.groundContact,
+            verticalOscillation: data.verticalOscillation
+        )
     }
 }
 
@@ -552,6 +669,55 @@ enum WorkoutShareRouteVisibility: String, CaseIterable {
         }
         return visibility
     }
+}
+
+/// Whether the route-less card draws its type glyph. Free, stored across sessions
+/// like the route visibility it mirrors. Only meaningful on a route-less card — a
+/// workout with a trace has no glyph to hide.
+enum WorkoutShareIconVisibility: String, CaseIterable {
+    case shown
+    case hidden
+
+    static let storageKey = "workoutShareIconVisibility"
+
+    /// Anything unknown (or nothing stored) shows the icon.
+    static func stored(rawValue: String?) -> WorkoutShareIconVisibility {
+        guard let rawValue, let visibility = WorkoutShareIconVisibility(rawValue: rawValue) else {
+            return .shown
+        }
+        return visibility
+    }
+}
+
+/// What Share/Save actually produce: the fixed-shape card, or the tall "long image"
+/// of the detail page's tiles and charts. Deliberately *not* a
+/// `WorkoutShareAspectRatio` case — a new ratio would join every `allCases` sweep,
+/// the Pro gate, the centered-layout modes, and the map-snapshot keys, none of which
+/// mean anything for a naturally sized export. Only the tray *tile* lives beside the
+/// ratios. Pro-gated through `WorkoutShareBackgroundPolicy.resolvedOutputStyle`.
+enum WorkoutShareOutputStyle: String, CaseIterable {
+    case card
+    case longImage
+
+    static let storageKey = "workoutShareOutputStyle"
+
+    /// Anything unknown (or nothing stored) is the ordinary card.
+    static func stored(rawValue: String?) -> WorkoutShareOutputStyle {
+        guard let rawValue, let style = WorkoutShareOutputStyle(rawValue: rawValue) else {
+            return .card
+        }
+        return style
+    }
+}
+
+/// What one Share/Save tap has to produce. One value rather than two booleans read in
+/// two places: the export path, the save path, and the photo-permission error copy all
+/// have to agree, and forcing the background selection does *not* nil out a clip the
+/// user already picked.
+enum WorkoutShareOutput: Equatable {
+    case cardImage
+    case video
+    case longImage
 }
 
 /// The shape of the exported card. Every ratio is 1080 px on its short side at
@@ -847,6 +1013,9 @@ struct WorkoutShareCardGeometry: Equatable {
     /// Gap between the route square's bottom edge and the metric row.
     private static let routeGap: CGFloat = 30
     /// Branding baseline + wordmark height + breathing room — nothing may enter it.
+    /// The "+18" is now headroom rather than the exact mark height (the drawn
+    /// watermark shrank to 15/13 pt), kept as-is on purpose so this zone — and every
+    /// geometry test pinned to it — doesn't move.
     static let brandingZoneHeight: CGFloat = brandingBottomPadding + 18 + 12
     /// The largest a centered route square ever gets, on any ratio.
     private static let maximumCenteredRouteSide: CGFloat = 260
@@ -1193,6 +1362,14 @@ enum WorkoutShareBackgroundPolicy {
         isProUnlocked ? photo : nil
     }
 
+    /// The same gate for a video background: a clip picked before the entitlement lapses
+    /// stops rendering (and stops playing) without the sheet having to drop the pick.
+    static func resolvedVideo(
+        _ clip: WorkoutShareVideoClip?, isProUnlocked: Bool
+    ) -> WorkoutShareVideoClip? {
+        isProUnlocked ? clip : nil
+    }
+
     /// The dimension the card may actually draw: 3D is Pro-only and needs a route with
     /// usable altitude. Never rewrites the stored key — a Pro lapse or a flat route
     /// falls back to 2D for the session only, so the next eligible share opens in 3D
@@ -1215,6 +1392,42 @@ enum WorkoutShareBackgroundPolicy {
     ) -> WorkoutShareAspectRatio {
         guard ratio.isProGated, !isProUnlocked else { return ratio }
         return .portrait9x16
+    }
+
+    /// The output style the sheet may actually use: the long image is Pro. Same
+    /// session-only fallback as the ratio — a lapsed subscriber shares the card and
+    /// gets the long image back on resubscribe, with the stored key untouched.
+    static func resolvedOutputStyle(
+        _ style: WorkoutShareOutputStyle,
+        isProUnlocked: Bool
+    ) -> WorkoutShareOutputStyle {
+        style == .longImage && isProUnlocked ? .longImage : .card
+    }
+
+    /// What one Share/Save tap produces. The long image wins over a held clip: forcing
+    /// the background selection doesn't nil out `renderableVideo`, so without this seam
+    /// a user who picked a video and then switched to the long image would get an MP4
+    /// of the card they aren't looking at.
+    static func resolvedOutput(
+        style: WorkoutShareOutputStyle,
+        hasRenderableVideo: Bool
+    ) -> WorkoutShareOutput {
+        if style == .longImage { return .longImage }
+        return hasRenderableVideo ? .video : .cardImage
+    }
+
+    /// The gradient the long image paints. It never draws a map, a photo, or a clip, so
+    /// a stored background that isn't a preset resolves to Midnight for the session —
+    /// the key is left alone, exactly like every other fallback here, and the tray's
+    /// selection ring reads this so it matches what renders.
+    static func longPreset(storedBackground: String?, hasRoute: Bool) -> BodyWorkoutSharePreset {
+        guard case .preset(let preset) = BodyWorkoutShareBackgroundChoice.stored(
+            rawValue: storedBackground,
+            hasRoute: hasRoute
+        ) else {
+            return .midnight
+        }
+        return preset
     }
 
     /// The metrics the card may actually show: picking them is Pro, so everyone else

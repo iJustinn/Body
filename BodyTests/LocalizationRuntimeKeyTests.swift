@@ -64,7 +64,14 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let keys = [
             "Humidity",
             "Avg METs",
-            "HR Recovery"
+            "HR Recovery",
+            // Comparison-badge stand-in shown on every comparable tile once the
+            // 30-day window settles without a measured delta
+            // (WorkoutMetricComparisonBuilder.placeholder). The badge itself is a
+            // dotted key — "--%" has no Swift-identifier characters, so Xcode's
+            // symbol generator rejects it as a key.
+            "comparison.noDeltaBadge",
+            "No 30-day comparison yet"
         ]
 
         try assertKeysTranslated(keys, in: catalog)
@@ -195,7 +202,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let keys = [
             "Share",
             "Share Workout",
-            "v2",
+            "v3",
             "Background",
             "Your Photo",
             "Close",
@@ -224,15 +231,35 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "2D",
             "3D",
             "3D needs a route with elevation data.",
-            // Photo adjust steps: the two captions, the segmented picker, Next, and the
-            // VoiceOver reset actions.
+            // Icon visibility rail row (route-less workouts) and its tray tile names.
+            "Icon",
+            "Show Icon",
+            "Hide Icon",
+            // Photo adjust steps: the two chip-strip captions, the step chip labels, the
+            // progression accessibility hint, and the VoiceOver reset actions.
             "Drag to move the photo. Pinch to zoom. Double-tap to reset.",
             "Drag to move. Pinch to resize. Double-tap to reset.",
             "Photo",
             "Layout",
-            "Next",
+            "Adjust the media, then choose Layout to move the workout info.",
             "Reset Photo",
             "Reset Layout",
+            // Media import busy state, shown as a floating sync badge while a photo or
+            // video import is in flight.
+            "Importing media...",
+            // Workout detail Share button's disabled-state VoiceOver hint while the
+            // route fetch is in flight.
+            "Loading workout data.",
+            // Video background: tile, captions, adjust step, and error alerts.
+            "Your Video",
+            "Video",
+            "Reset Video",
+            "Couldn't Load Video",
+            "Couldn't Create Video",
+            "Couldn't Save Video",
+            "Drag to move the video. Pinch to zoom. Double-tap to reset.",
+            "Video Activity Share",
+            "Use your own videos as the background of workout share cards.",
             // Font row label and the option names, built via String(localized:) in
             // WorkoutShareFontChoice.localizedName.
             "Font",
@@ -260,7 +287,11 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Landscape 4:3",
             "Square",
             "Share Card Sizes",
-            "Export workout share cards as 16:9, 3:4, 4:3, or square, portrait or landscape.",
+            "Export workout share cards as 16:9, 3:4, 4:3, or square — or as a long image of the whole workout.",
+            // Long Image tray tile, its metrics caption, and the disabled-background hint.
+            "Long Image",
+            "Pick the metrics for the long image.",
+            "The long image uses a gradient background.",
             // Landscape arrangement rail icon, tray tile names, and the Map-dimming
             // hint from WorkoutShareLandscapeArrangement.localizedName.
             "Arrange",

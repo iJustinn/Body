@@ -80,7 +80,8 @@ final class WorkoutShareRenderTests: XCTestCase {
         routeColor: Color = BodyWorkoutShareCardView.defaultRouteColor,
         aspectRatio: WorkoutShareAspectRatio = .portrait9x16,
         arrangement: WorkoutShareLandscapeArrangement = .stacked,
-        centeredMetrics: [WorkoutShareMetric]? = nil
+        centeredMetrics: [WorkoutShareMetric]? = nil,
+        iconHidden: Bool = false
     ) -> ImageRenderer<some View> {
         let workout = fixtureWorkout()
         let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
@@ -95,6 +96,7 @@ final class WorkoutShareRenderTests: XCTestCase {
             routePoints: withRoute ? WorkoutShareRouteProjection.normalizedPoints(for: routeCoordinates) : nil,
             route3D: withRoute ? WorkoutRoute3DProjection.projected(for: routeCoordinates) : nil,
             dimension: dimension,
+            iconHidden: iconHidden,
             locality: "Cupertino",
             type: workout.type,
             background: background,
@@ -180,6 +182,50 @@ final class WorkoutShareRenderTests: XCTestCase {
         )
     }
 
+    /// Same premise as `testRoutelessGlyphAreaRasterizesOverDarkPreset`, `iconHidden:
+    /// true`: the block recenters around the same point, so hiding the glyph only
+    /// reclaims the top half of the space it and its gap used (the block's center is
+    /// fixed, so the bottom half of that space is exactly where the metrics now start).
+    /// That reclaimed band — strictly between the shown block's old top and the hidden
+    /// block's new top — must be empty over Midnight.
+    func testRoutelessGlyphAreaIsEmptyWhenIconHidden() throws {
+        let renderer = makeRenderer(layout: .routeless, withRoute: false, iconHidden: true)
+        let image = try XCTUnwrap(renderer.uiImage)
+        let cgImage = try XCTUnwrap(image.cgImage)
+
+        let workout = fixtureWorkout()
+        let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
+        let metricCount = WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: workout.type).count
+        let geo = WorkoutShareCardGeometry(
+            aspectRatio: .portrait9x16, layout: .routeless, arrangement: .stacked, metricCount: metricCount
+        )
+        // 9:16 keeps the route-less block on the card's own vertical center (the axis
+        // is `.vertical` there — see `testRoutelessRowsWrapOnlyOnTheNarrowCards`).
+        let centerY = geo.size.height / 2
+        let shownTop = centerY - (Self.routelessGlyphHeight + Self.routelessGlyphGap + geo.metricContentHeight) / 2
+        let hiddenTop = centerY - geo.metricContentHeight / 2
+        let vacatedHeight = hiddenTop - shownTop
+        XCTAssertGreaterThan(vacatedHeight, 4, "test's own geometry math left no band to sample")
+
+        let region = Self.pixelRect(
+            x: 100, y: shownTop + 2, width: 160, height: vacatedHeight - 4, in: cgImage
+        )
+        XCTAssertFalse(
+            Self.containsNonBlackPixel(in: cgImage, region: region),
+            "Vacated glyph band had non-black pixels with the icon hidden"
+        )
+
+        // A hidden glyph shrinks the block but doesn't move it off-screen: the metrics
+        // starting at the new top, and the pinned branding strip below them, still draw.
+        let belowVacatedBand = Self.pixelRect(
+            x: 0, y: hiddenTop, width: 360, height: geo.size.height - hiddenTop, in: cgImage
+        )
+        XCTAssertTrue(
+            Self.containsNonBlackPixel(in: cgImage, region: belowVacatedBand),
+            "Metrics/branding didn't draw below the vacated glyph band"
+        )
+    }
+
     func testRouteAreaRasterizesOverDarkPreset() throws {
         let renderer = makeRenderer()
         let image = try XCTUnwrap(renderer.uiImage)
@@ -239,6 +285,27 @@ final class WorkoutShareRenderTests: XCTestCase {
         XCTAssertFalse(
             Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 0, y: 60, width: 360, height: 200, in: cgImage)),
             "Route still drew in its unanchored, vertically centered position"
+        )
+    }
+
+    // MARK: - Branding watermark
+
+    /// No probe existed for the branding strip before the watermark shrank (18/15 →
+    /// 15/13 pt icon/wordmark) — every other render test deliberately stops above it
+    /// (see the comment above). This proves the shrunk mark still draws: a broad
+    /// bottom-center band spanning the whole 56 pt branding zone must not be all
+    /// background over the flat Midnight preset.
+    func testBrandingWatermarkRasterizesInTheZone() throws {
+        let renderer = makeRenderer()
+        let image = try XCTUnwrap(renderer.uiImage)
+        let cgImage = try XCTUnwrap(image.cgImage)
+
+        // Card points: x 108–252 is the middle 40% of the 360 pt card's width, y
+        // 584–640 is the full 56 pt branding zone at the card's bottom edge.
+        let region = Self.pixelRect(x: 108, y: 584, width: 144, height: 56, in: cgImage)
+        XCTAssertTrue(
+            Self.containsNonBlackPixel(in: cgImage, region: region),
+            "Branding zone had no non-background pixels — the shrunk watermark did not rasterize"
         )
     }
 
@@ -712,6 +779,190 @@ final class WorkoutShareRenderTests: XCTestCase {
     /// Card points × the renderer's scale 3, clamped to the rendered image's actual pixel
     /// bounds — not a fixed 1080×1920 literal, since the card can now render at any of the
     /// five aspect ratios.
+    // MARK: - Long image
+
+    /// Heart-rate samples across the fixture workout, so the long image's heart-rate
+    /// section has something to draw.
+    private func fixtureHeartRateSamples(count: Int = 40) -> [WorkoutHeartRateSample] {
+        let workout = fixtureWorkout()
+        return (0..<count).map { index in
+            WorkoutHeartRateSample(
+                date: workout.startDate.addingTimeInterval(Double(index) / Double(count) * workout.duration),
+                beatsPerMinute: 130 + Double(index % 20)
+            )
+        }
+    }
+
+    /// One distance sample every 10 s at a steady 3 m/s, for `unitCount` kilometres —
+    /// the input the splits table is built from. 40 km is the tall-output stress case.
+    private func fixtureSplitData(kilometers: Int) -> WorkoutSplitData {
+        let start = fixtureWorkout().startDate
+        let seconds = Double(kilometers) * 1_000 / 3
+        let stepCount = Int(seconds / 10)
+        let samples = (0..<stepCount).map { index in
+            WorkoutDistanceSample(
+                startDate: start.addingTimeInterval(Double(index) * 10),
+                endDate: start.addingTimeInterval(Double(index + 1) * 10),
+                meters: 30
+            )
+        }
+        return WorkoutSplitData(distanceSamples: samples, segments: [], stepSamples: [])
+    }
+
+    /// The long image at scale 1 — the size pass the sheet's exporter also takes before
+    /// it decides how far it can upscale.
+    private func makeLongRenderer(
+        selectedIDs: [String]? = nil,
+        splitKilometers: Int = 5,
+        heartRateSampleCount: Int = 40,
+        withRoute: Bool = true
+    ) -> ImageRenderer<some View> {
+        let workout = WorkoutSummary(
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            duration: Double(splitKilometers) * 1_000 / 3,
+            activeEnergyKilocalories: 412,
+            distanceMeters: Double(splitKilometers) * 1_000,
+            averageHeartRateBeatsPerMinute: 154,
+            heartRateSamples: fixtureHeartRateSamples(count: heartRateSampleCount)
+        )
+        let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: workout.type)
+        let ids = selectedIDs ?? available.map(\.id)
+        let splits = WorkoutDetailChartPresentations.splits(
+            workout: workout,
+            splitData: fixtureSplitData(kilometers: splitKilometers),
+            distanceUnitPreference: .kilometers
+        )
+        let sections = WorkoutShareLongImageSections.sections(
+            available: available,
+            selectedIDs: ids,
+            data: WorkoutShareLongImageSections.Availability(
+                heartRate: !presentation.heartRateSamples.isEmpty,
+                splits: splits != nil
+            )
+        )
+        let coordinates = fixtureCoordinates()
+        let card = BodyWorkoutShareLongCardView(
+            presentation: presentation,
+            tiles: ids.compactMap { id in
+                presentation.detailMetrics.first { WorkoutShareMetricOption.key(for: $0.kind) == id }
+            },
+            routePoints: withRoute ? WorkoutShareRouteProjection.normalizedPoints(for: coordinates) : nil,
+            route3D: withRoute ? WorkoutRoute3DProjection.projected(for: coordinates) : nil,
+            dimension: .twoD,
+            iconHidden: false,
+            locality: "Cupertino",
+            type: workout.type,
+            preset: .midnight,
+            fontDesign: .rounded,
+            routeColor: BodyWorkoutShareCardView.defaultRouteColor,
+            sections: sections,
+            heartRateSamples: presentation.heartRateSamples,
+            maxHeartRate: 190,
+            paceOrSpeed: nil,
+            splits: splits,
+            elevation: nil,
+            cadence: nil,
+            strideLength: nil,
+            groundContact: nil,
+            verticalOscillation: nil
+        )
+        let renderer = ImageRenderer(
+            content: card
+                .frame(width: BodyWorkoutShareLongCardView.width)
+                .fixedSize(horizontal: false, vertical: true)
+                .environment(\.colorScheme, .dark)
+                .dynamicTypeSize(.large)
+                .transaction { $0.disablesAnimations = true }
+        )
+        renderer.proposedSize = ProposedViewSize(width: BodyWorkoutShareLongCardView.width, height: nil)
+        renderer.scale = 1
+        return renderer
+    }
+
+    /// The long image is exactly the card's width and taller than any card ratio, and
+    /// its wordmark is the last thing on it.
+    func testLongImageRendersAtCardWidthAndNaturalHeight() throws {
+        let renderer = makeLongRenderer()
+        let image = try XCTUnwrap(renderer.uiImage, "ImageRenderer produced no long image")
+        let cgImage = try XCTUnwrap(image.cgImage)
+
+        XCTAssertEqual(cgImage.width, Int(BodyWorkoutShareLongCardView.width))
+        XCTAssertGreaterThan(
+            cgImage.height,
+            Int(WorkoutShareAspectRatio.portrait9x16.cardSize.height),
+            "the long image should be taller than the tallest card"
+        )
+
+        // The wordmark sits in the branding zone at the very bottom, centred — the only
+        // ink down there over Midnight's flat black.
+        let brandingBand = CGRect(
+            x: 0.3 * CGFloat(cgImage.width),
+            y: CGFloat(cgImage.height) - WorkoutShareCardGeometry.brandingZoneHeight,
+            width: 0.4 * CGFloat(cgImage.width),
+            height: WorkoutShareCardGeometry.brandingZoneHeight
+        )
+        XCTAssertTrue(
+            Self.containsNonBlackPixel(in: cgImage, region: brandingBand),
+            "the branding strip at the bottom of the long image had no ink"
+        )
+    }
+
+    /// A deselected chip takes its whole section off the image: the policy says so, and
+    /// the raster gets shorter by more than a rounding error because of it.
+    func testDeselectingAChipRemovesItsLongImageSection() throws {
+        let workout = fixtureWorkout()
+        let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: workout.type)
+        let withoutHeartRate = available.map(\.id).filter { $0 != "avgHeartRate" && $0 != "maxHeartRate" }
+
+        // The policy's answer first — the raster only confirms it took effect.
+        let sections = WorkoutShareLongImageSections.sections(
+            available: available,
+            selectedIDs: withoutHeartRate,
+            data: WorkoutShareLongImageSections.Availability(heartRate: true, splits: true)
+        )
+        XCTAssertFalse(sections.heartRate)
+        XCTAssertTrue(sections.splits)
+
+        let full = try XCTUnwrap(makeLongRenderer().uiImage?.cgImage)
+        let trimmed = try XCTUnwrap(makeLongRenderer(selectedIDs: withoutHeartRate).uiImage?.cgImage)
+
+        XCTAssertEqual(trimmed.width, full.width)
+        XCTAssertLessThan(
+            trimmed.height,
+            full.height - 200,
+            "dropping the heart-rate chip should remove the whole heart-rate card, not just a tile"
+        )
+    }
+
+    /// A workout with dozens of splits produces an image thousands of points tall. The
+    /// exporter backs its scale off so the bitmap stays bounded, and only refuses — into
+    /// the "Couldn't Create Image" alert — when even 1x wouldn't fit.
+    func testTallLongImageClampsItsExportScale() throws {
+        // The rule itself, at the heights that matter.
+        XCTAssertEqual(BodyWorkoutShareSheet.longExportScale(forHeight: 640), 3)
+        XCTAssertEqual(BodyWorkoutShareSheet.longExportScale(forHeight: 4_000), 3)
+        XCTAssertEqual(try XCTUnwrap(BodyWorkoutShareSheet.longExportScale(forHeight: 6_000)), 2, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(BodyWorkoutShareSheet.longExportScale(forHeight: 12_000)), 1, accuracy: 0.0001)
+        XCTAssertNil(
+            BodyWorkoutShareSheet.longExportScale(forHeight: 20_000),
+            "an image too tall to rasterize even at 1x must refuse rather than allocate"
+        )
+        XCTAssertNil(BodyWorkoutShareSheet.longExportScale(forHeight: 0))
+
+        // And a real 40-split workout: very tall, still exportable, and its clamped
+        // output stays inside the budget.
+        let renderer = makeLongRenderer(splitKilometers: 40)
+        let image = try XCTUnwrap(renderer.uiImage)
+        let heightPoints = image.size.height
+        XCTAssertGreaterThan(heightPoints, 1_500, "40 splits should produce a very tall image")
+
+        let scale = try XCTUnwrap(BodyWorkoutShareSheet.longExportScale(forHeight: heightPoints))
+        XCTAssertLessThanOrEqual(heightPoints * scale, 12_000)
+    }
+
     private static func pixelRect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, in cgImage: CGImage) -> CGRect {
         let scale: CGFloat = 3
         return CGRect(x: x * scale, y: y * scale, width: width * scale, height: height * scale)

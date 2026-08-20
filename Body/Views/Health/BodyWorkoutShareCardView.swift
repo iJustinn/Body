@@ -17,20 +17,27 @@
 //  photos) drops the header for label-over-value blocks under (or beside) the trace;
 //  `.routeless` (a workout with no GPS route) has no trace to show, so the workout
 //  type's symbol stands in as the card's only identity above those same blocks.
-//  On photo backgrounds the centered layout's info block (trace + metrics, never the
-//  pinned branding) is repositionable and resizable: the placement arrives as an
-//  `infoTransform` the sheet's gestures drive, and is `.identity` everywhere else.
+//  On photo and video backgrounds the centered layout's info block (trace + metrics,
+//  never the pinned branding) is repositionable and resizable: the placement arrives as
+//  an `infoTransform` the sheet's gestures drive, and is `.identity` everywhere else.
+//  A `.video` background draws nothing of its own — the card becomes a transparent
+//  overlay the sheet holds over a player layer (preview) or composites onto every
+//  frame of the exported MP4.
 //
 
 import SwiftUI
 import UIKit
 
 /// What fills the card behind the content. `.map` is a pre-composited route-map
-/// snapshot, so the card skips its own Canvas trace for that case.
+/// snapshot, so the card skips its own Canvas trace for that case. `.video` draws
+/// *nothing*: the moving frames come from a player layer the sheet puts under the
+/// card in the preview, and from the video composition on export — either way the
+/// card is the transparent overlay held over them, scrims and all.
 enum WorkoutShareCardBackground {
     case preset(BodyWorkoutSharePreset)
     case photo(UIImage)
     case map(UIImage)
+    case video
 }
 
 /// Which arrangement the card draws. Passed in rather than derived from `background`:
@@ -61,6 +68,9 @@ struct BodyWorkoutShareCardView: View {
     /// Already resolved through `WorkoutShareBackgroundPolicy.resolvedDimension` — the
     /// card never re-checks the Pro entitlement.
     let dimension: WorkoutShareRouteDimension
+    /// Whether the route-less layout's type glyph is drawn. Every other layout ignores
+    /// it — there's no glyph to hide once a trace or header carries the card's identity.
+    let iconHidden: Bool
     let locality: String?
     let type: BodyWorkoutType
     let background: WorkoutShareCardBackground
@@ -161,6 +171,12 @@ struct BodyWorkoutShareCardView: View {
                 .scaledToFill()
                 .frame(width: size.width, height: size.height)
                 .clipped()
+        case .video:
+            // Deliberately empty, sized so the ZStack still gets the card's frame from
+            // its background layer. `ImageRenderer.isOpaque` is false, so the rendered
+            // overlay keeps this transparency and the clip shows through it.
+            Color.clear
+                .frame(width: size.width, height: size.height)
         }
     }
 
@@ -298,61 +314,12 @@ struct BodyWorkoutShareCardView: View {
     ///   3D ribbon's lifted line rises into free space); the classic layout keeps the
     ///   trace centered on the map's own geometry.
     private func routeHero(bottomAnchored: Bool) -> some View {
-        Canvas { context, size in
-            let inset = WorkoutShareCardGeometry.routeInset
-            let rect = CGRect(
-                x: inset,
-                y: inset,
-                width: size.width - inset * 2,
-                height: size.height - inset * 2
-            )
-
-            if let ribbon {
-                let top = Self.mapped(ribbon.top, in: rect)
-                let base = Self.mapped(ribbon.base, in: rect)
-                // The ground trace is the ribbon's lowest line by construction, so it
-                // alone decides the anchor.
-                let shift = bottomAnchored ? Self.bottomAnchorShift(for: base, in: rect) : 0
-                BodyWorkoutRoute3DHero.drawRibbon(
-                    top: Self.shifted(top, by: shift),
-                    base: Self.shifted(base, by: shift),
-                    tint: routeColor,
-                    in: &context
-                )
-                return
-            }
-
-            guard let routePoints, routePoints.count >= 2 else { return }
-            let mapped = Self.mapped(routePoints, in: rect)
-            let shift = bottomAnchored ? Self.bottomAnchorShift(for: mapped, in: rect) : 0
-
-            var path = Path()
-            path.addLines(Self.shifted(mapped, by: shift))
-
-            var strokeContext = context
-            strokeContext.addFilter(.shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5))
-            strokeContext.stroke(
-                path,
-                with: .color(routeColor),
-                style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
-            )
-        }
-    }
-
-    /// Projection space (unit square for the flat trace, the ribbon's own camera space
-    /// for 3D) into the drawing rect. The rect is square, so one scale serves both axes
-    /// and neither drawing is distorted.
-    private static func mapped(_ points: [CGPoint], in rect: CGRect) -> [CGPoint] {
-        points.map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) }
-    }
-
-    private static func shifted(_ points: [CGPoint], by shift: CGFloat) -> [CGPoint] {
-        shift == 0 ? points : points.map { CGPoint(x: $0.x, y: $0.y + shift) }
-    }
-
-    private static func bottomAnchorShift(for points: [CGPoint], in rect: CGRect) -> CGFloat {
-        guard let lowest = points.map(\.y).max() else { return 0 }
-        return rect.maxY - lowest
+        WorkoutShareRouteTrace(
+            routePoints: routePoints,
+            ribbon: ribbon,
+            routeColor: routeColor,
+            bottomAnchored: bottomAnchored
+        )
     }
 
     // MARK: - Bottom bar (metrics leading, branding trailing)
@@ -384,14 +351,14 @@ struct BodyWorkoutShareCardView: View {
             Image("BodyIcon01")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 18, height: 18)
-                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .frame(width: 15, height: 15)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                 .accessibilityHidden(true)
             // verbatim: brand wordmark, never localized — and never extracted
             // into the catalog (an empty auto-extracted "Body" entry would trip
             // the catalog-completeness guard).
             Text(verbatim: "Body")
-                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundColor(.white.opacity(0.6))
         }
     }
@@ -505,13 +472,27 @@ struct BodyWorkoutShareCardView: View {
     /// Glyph and metrics are one flowing block, not two absolute slots: the metric
     /// count varies from one to five here, and the pair stays visually centered
     /// together at any of them.
+    ///
+    /// A hidden glyph leaves the block as the card's only VoiceOver identity — no
+    /// chip, no title — so the block itself carries `type.displayName` then. Shown,
+    /// the glyph keeps its own label and the block adds nothing, so there's no
+    /// duplicate.
+    @ViewBuilder
     private var routelessBlock: some View {
-        VStack(spacing: 20) {
-            typeGlyph
+        let block = VStack(spacing: 20) {
+            if !iconHidden {
+                typeGlyph
+            }
             routelessMetrics
         }
         .frame(width: geometry.size.width - 48)
         .position(x: geometry.size.width / 2, y: routelessCenterY)
+
+        if iconHidden {
+            block.accessibilityLabel(Text(type.displayName))
+        } else {
+            block
+        }
     }
 
     @ViewBuilder
@@ -689,6 +670,86 @@ struct BodyWorkoutShareCardView: View {
     }
 }
 
+/// The route trace both share exports paint: the flat polyline, or the oblique
+/// elevation ribbon in 3D, drawn through the centered, inset rect of whatever frame
+/// it's given so the stroke never clips. No start/end markers — only the map
+/// background's composited route carries those.
+///
+/// Its own view rather than a method on the card, because the long image draws the
+/// same trace from a completely different layout; two Canvases with the same
+/// projection maths in them would be one bug fix away from disagreeing.
+struct WorkoutShareRouteTrace: View {
+    /// Already normalized to the unit square by `WorkoutShareRouteProjection`.
+    let routePoints: [CGPoint]?
+    /// Drawn instead of the flat polyline when non-nil — already gated on the resolved
+    /// dimension by the caller.
+    let ribbon: WorkoutRoute3DProjection.Projected3D?
+    let routeColor: Color
+    /// Translates the finished drawing so its lowest point lands on the rect's bottom
+    /// edge, so the gap to whatever sits below is the same for a tall route and a wide
+    /// one (and the 3D ribbon's lifted line rises into free space). The classic layout
+    /// keeps the trace centered on the map's own geometry instead.
+    let bottomAnchored: Bool
+
+    var body: some View {
+        Canvas { context, size in
+            let inset = WorkoutShareCardGeometry.routeInset
+            let rect = CGRect(
+                x: inset,
+                y: inset,
+                width: size.width - inset * 2,
+                height: size.height - inset * 2
+            )
+
+            if let ribbon {
+                let top = Self.mapped(ribbon.top, in: rect)
+                let base = Self.mapped(ribbon.base, in: rect)
+                // The ground trace is the ribbon's lowest line by construction, so it
+                // alone decides the anchor.
+                let shift = bottomAnchored ? Self.bottomAnchorShift(for: base, in: rect) : 0
+                BodyWorkoutRoute3DHero.drawRibbon(
+                    top: Self.shifted(top, by: shift),
+                    base: Self.shifted(base, by: shift),
+                    tint: routeColor,
+                    in: &context
+                )
+                return
+            }
+
+            guard let routePoints, routePoints.count >= 2 else { return }
+            let mapped = Self.mapped(routePoints, in: rect)
+            let shift = bottomAnchored ? Self.bottomAnchorShift(for: mapped, in: rect) : 0
+
+            var path = Path()
+            path.addLines(Self.shifted(mapped, by: shift))
+
+            var strokeContext = context
+            strokeContext.addFilter(.shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5))
+            strokeContext.stroke(
+                path,
+                with: .color(routeColor),
+                style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
+            )
+        }
+    }
+
+    /// Projection space (unit square for the flat trace, the ribbon's own camera space
+    /// for 3D) into the drawing rect. The rect is square, so one scale serves both axes
+    /// and neither drawing is distorted.
+    private static func mapped(_ points: [CGPoint], in rect: CGRect) -> [CGPoint] {
+        points.map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) }
+    }
+
+    private static func shifted(_ points: [CGPoint], by shift: CGFloat) -> [CGPoint] {
+        shift == 0 ? points : points.map { CGPoint(x: $0.x, y: $0.y + shift) }
+    }
+
+    private static func bottomAnchorShift(for points: [CGPoint], in rect: CGRect) -> CGFloat {
+        guard let lowest = points.map(\.y).max() else { return 0 }
+        return rect.maxY - lowest
+    }
+}
+
 /// Shared preview fixture: an 8.2 km run with a looping route.
 private func previewCard(
     layout: WorkoutShareCardLayout,
@@ -728,6 +789,7 @@ private func previewCard(
         routePoints: withRoute ? WorkoutShareRouteProjection.normalizedPoints(for: coordinates) : nil,
         route3D: withRoute ? WorkoutRoute3DProjection.projected(for: coordinates) : nil,
         dimension: dimension,
+        iconHidden: false,
         locality: "Cupertino",
         type: .running,
         background: .preset(.midnight),

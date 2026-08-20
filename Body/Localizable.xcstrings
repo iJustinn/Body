@@ -1169,6 +1169,22 @@
         }
       }
     },
+    "Adjust the media, then choose Layout to move the workout info." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adjust the media, then choose Layout to move the workout info."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调整媒体后，选择布局以移动体能训练信息。"
+          }
+        }
+      }
+    },
     "AI comment on today's score" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2915,6 +2931,23 @@
         }
       }
     },
+    "Couldn't Create Video" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't Create Video"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法创建视频"
+          }
+        }
+      }
+    },
     "Couldn't Load Map" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2949,6 +2982,23 @@
         }
       }
     },
+    "Couldn't Load Video" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't Load Video"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法加载视频"
+          }
+        }
+      }
+    },
     "Couldn't Save" : {
       "localizations" : {
         "en" : {
@@ -2978,6 +3028,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法保存图片"
+          }
+        }
+      }
+    },
+    "Couldn't Save Video" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't Save Video"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法存储视频"
           }
         }
       }
@@ -3677,6 +3744,22 @@
         }
       }
     },
+    "Drag to move the video. Pinch to zoom. Double-tap to reset." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag to move the video. Pinch to zoom. Double-tap to reset."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拖动以移动视频。捏合以缩放。双击以重置。"
+          }
+        }
+      }
+    },
     "Drag to move. Pinch to resize. Double-tap to reset." : {
       "localizations" : {
         "en" : {
@@ -3908,18 +3991,18 @@
         }
       }
     },
-    "Export workout share cards as 16:9, 3:4, 4:3, or square, portrait or landscape." : {
+    "Export workout share cards as 16:9, 3:4, 4:3, or square — or as a long image of the whole workout." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Export workout share cards as 16:9, 3:4, 4:3, or square, portrait or landscape."
+            "value" : "Export workout share cards as 16:9, 3:4, 4:3, or square — or as a long image of the whole workout."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将运动分享卡片导出为 16:9、3:4、4:3 或方形，横版或竖版。"
+            "value" : "将运动分享卡片导出为 16:9、3:4、4:3 或方形，也可导出整个运动的长图。"
           }
         }
       }
@@ -4406,6 +4489,22 @@
         }
       }
     },
+    "Hide Icon" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Icon"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐藏图标"
+          }
+        }
+      }
+    },
     "Hide Route" : {
       "localizations" : {
         "en" : {
@@ -4650,6 +4749,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "各活动影响"
+          }
+        }
+      }
+    },
+    "Importing media..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importing media..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在导入媒体…"
           }
         }
       }
@@ -5137,6 +5252,22 @@
         }
       }
     },
+    "Loading workout data." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading workout data."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载体能训练数据。"
+          }
+        }
+      }
+    },
     "Local Cache" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5167,6 +5298,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本地缓存已清除。请刷新以重新载入健康 App 数据。"
+          }
+        }
+      }
+    },
+    "Long Image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Long Image"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "长图"
           }
         }
       }
@@ -5653,6 +5800,7 @@
       }
     },
     "Next" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6694,6 +6842,22 @@
         }
       }
     },
+    "Pick the metrics for the long image." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick the metrics for the long image."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择长图要显示的指标。"
+          }
+        }
+      }
+    },
     "Pinch to zoom, drag to position." : {
       "localizations" : {
         "en" : {
@@ -7358,6 +7522,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重置照片"
+          }
+        }
+      }
+    },
+    "Reset Video" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset Video"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置视频"
           }
         }
       }
@@ -8406,6 +8586,22 @@
         }
       }
     },
+    "Show Icon" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Icon"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示图标"
+          }
+        }
+      }
+    },
     "Showing durations" : {
       "localizations" : {
         "en" : {
@@ -9318,6 +9514,22 @@
         }
       }
     },
+    "The long image uses a gradient background." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The long image uses a gradient background."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "长图使用渐变背景。"
+          }
+        }
+      }
+    },
     "The number of steps you took per day" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -9830,6 +10042,22 @@
         }
       }
     },
+    "Use your own videos as the background of workout share cards." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use your own videos as the background of workout share cards."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用你自己的视频作为体能训练分享卡片的背景。"
+          }
+        }
+      }
+    },
     "Used for the comparison bars on this chart." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -9928,6 +10156,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "版本"
+          }
+        }
+      }
+    },
+    "Video" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "视频"
+          }
+        }
+      }
+    },
+    "Video Activity Share" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Video Activity Share"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "视频活动分享"
           }
         }
       }
@@ -10830,6 +11090,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的训练负荷比率"
+          }
+        }
+      }
+    },
+    "Your Video" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Video"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的视频"
           }
         }
       }

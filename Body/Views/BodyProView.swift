@@ -593,6 +593,12 @@ private struct BodyProFeature: Identifiable {
             iconName: "photo.fill"
         ),
         BodyProFeature(
+            id: "video-share",
+            title: String(localized: "Video Activity Share"),
+            detail: String(localized: "Use your own videos as the background of workout share cards."),
+            iconName: "video.fill"
+        ),
+        BodyProFeature(
             id: "three-d-route-share",
             title: String(localized: "3D Route Share"),
             detail: String(localized: "Share workout cards with the route drawn as a 3D elevation ribbon on any background."),
@@ -601,7 +607,7 @@ private struct BodyProFeature: Identifiable {
         BodyProFeature(
             id: "share-ratios",
             title: String(localized: "Share Card Sizes"),
-            detail: String(localized: "Export workout share cards as 16:9, 3:4, 4:3, or square, portrait or landscape."),
+            detail: String(localized: "Export workout share cards as 16:9, 3:4, 4:3, or square — or as a long image of the whole workout."),
             iconName: "aspectratio"
         ),
         BodyProFeature(

@@ -98,7 +98,7 @@ struct BodyWorkoutsView: View {
                         .padding(.top, 8)
 
                     ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 16) {
+                        VStack(spacing: 12) {
                             // One slot, one chart. The month `.id` still gives
                             // the block a fresh identity per month, so a month
                             // switch cross-fades the whole card exactly as it
@@ -1045,7 +1045,8 @@ struct BodyWorkoutDetailSheet: View {
     @State private var editorAwaitingPrediction = false
     @State private var route: WorkoutRoute?
     /// True once `loadWorkoutRoute` has returned — route or nil — so the Share
-    /// button never appears mid-load.
+    /// button stays dimmed and disabled until it can hand the sheet the route it
+    /// found, then enables in place.
     @State private var routeLoadSettled = false
     /// What the cheap `HKWorkoutRoute` probe knows before the fixes land. `.present`
     /// reserves the hero band up front, so the content never drops ~324 pt part-way
@@ -1308,40 +1309,45 @@ struct BodyWorkoutDetailSheet: View {
         .overlay(alignment: .topTrailing) {
             // The ZStack keeps its safe-area insets, so the button clears the
             // status bar / Dynamic Island even though the map extends under them
-            // (same trick as the full-screen map's close button). The animation
-            // is scoped to this subtree so the button fades in once the route fetch
-            // settles, for routed and routeless workouts alike, without animating the
-            // sheet's own layout swap.
+            // (same trick as the full-screen map's close button). The capsule is
+            // there from the first frame — dimmed and inert while the route fetch
+            // is in flight — and the animation, scoped to this subtree, is what
+            // makes the label brighten in place once it settles, for routed and
+            // routeless workouts alike, without animating the sheet's own layout
+            // swap.
             ZStack {
-                if routeLoadSettled {
-                    Button {
-                        showsShareSheet = true
-                    } label: {
-                        Text("Share")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .padding(.horizontal, 18)
-                            .frame(height: 44)
-                            .modifier(BodyWorkoutShareButtonBackground())
-                            // Grows the hit area without moving the capsule: the
-                            // trailing page padding below absorbs the sideways slop.
-                            // Nothing on top — the capsule already sits at the top of
-                            // the safe area, and expanding past it wouldn't hit-test.
-                            .padding(
-                                EdgeInsets(
-                                    top: 0,
-                                    leading: Self.shareButtonTapSlop,
-                                    bottom: Self.shareButtonTapSlop,
-                                    trailing: Self.shareButtonTapSlop
-                                )
+                Button {
+                    showsShareSheet = true
+                } label: {
+                    Text("Share")
+                        .font(.system(size: 15, weight: .semibold))
+                        // Only the label dims: the glass capsule behind it is chrome,
+                        // and greying that too would read as a broken control rather
+                        // than a busy one.
+                        .foregroundStyle(routeLoadSettled ? HierarchicalShapeStyle.primary : .secondary)
+                        .opacity(routeLoadSettled ? 1 : 0.5)
+                        .padding(.horizontal, 18)
+                        .frame(height: 44)
+                        .modifier(BodyWorkoutShareButtonBackground())
+                        // Grows the hit area without moving the capsule: the
+                        // trailing page padding below absorbs the sideways slop.
+                        // Nothing on top — the capsule already sits at the top of
+                        // the safe area, and expanding past it wouldn't hit-test.
+                        .padding(
+                            EdgeInsets(
+                                top: 0,
+                                leading: Self.shareButtonTapSlop,
+                                bottom: Self.shareButtonTapSlop,
+                                trailing: Self.shareButtonTapSlop
                             )
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 20 - Self.shareButtonTapSlop)
-                    .accessibilityLabel("Share Workout")
-                    .transition(.opacity)
+                        )
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .disabled(!routeLoadSettled)
+                .padding(.trailing, 20 - Self.shareButtonTapSlop)
+                .accessibilityLabel("Share Workout")
+                .accessibilityHint(routeLoadSettled ? Text(verbatim: "") : Text("Loading workout data."))
             }
             .animation(.easeInOut(duration: 0.25), value: routeLoadSettled)
         }
@@ -1354,7 +1360,19 @@ struct BodyWorkoutDetailSheet: View {
             chartCallout.callout = nil
         }
         .fullScreenCover(isPresented: $showsShareSheet) {
-            BodyWorkoutShareSheet(workout: workout, route: displayedRoute, presentation: presentation)
+            // Everything the long image's charts need, handed over rather than
+            // refetched: a workout under 24 h old would re-query HealthKit for series
+            // this page already holds. The closure re-evaluates while the cover is up,
+            // so a split/series/HR-recovery load that lands after it opened flows in.
+            BodyWorkoutShareSheet(
+                workout: workout,
+                route: displayedRoute,
+                presentation: presentation,
+                splitData: splitData,
+                metricSeries: metricSeries,
+                maxHeartRate: resolvedMaxHeartRate,
+                heartRateRecoveryBPM: heartRateRecoveryBPM
+            )
         }
         .alert("Rename Workout", isPresented: $isRenamingWorkout) {
             TextField(workout.type.displayName, text: $renameDraft)
@@ -2242,7 +2260,88 @@ struct BodyWorkoutDetailSheet: View {
     /// workout has no usable distance samples or isn't a pace/speed activity.
     /// Recomputes on unit toggle without refetching (boundaries are unit-derived).
     private var splitsPresentation: WorkoutSplitsPresentation? {
-        let unitMeters = selectedDistanceUnitPreference == .miles ? 1_609.344 : 1_000.0
+        WorkoutDetailChartPresentations.splits(
+            workout: workout,
+            splitData: splitData,
+            distanceUnitPreference: selectedDistanceUnitPreference
+        )
+    }
+
+    /// The route's elevation profile for the current unit preference; nil when the
+    /// workout has no route, too few altitude samples, or a flat course — which
+    /// hides the card.
+    private var elevationPresentation: WorkoutElevationLinePresentation? {
+        WorkoutDetailChartPresentations.elevation(
+            workout: workout,
+            profile: displayedRoute?.elevationProfile ?? [],
+            distanceUnitPreference: selectedDistanceUnitPreference
+        )
+    }
+
+    /// Per-bucket pace (walk/run/hike) or speed (cycling) bars; nil when the workout
+    /// has too little distance data or isn't a pace/speed activity.
+    private var paceOrSpeedPresentation: WorkoutBucketedSeriesPresentation? {
+        WorkoutDetailChartPresentations.paceOrSpeed(
+            workout: workout,
+            metricSeries: metricSeries,
+            distanceUnitPreference: selectedDistanceUnitPreference
+        )
+    }
+
+    /// Per-bucket step cadence (walk/run/hike) or cycling cadence bars; nil when the
+    /// workout has too little data.
+    private var cadencePresentation: WorkoutBucketedSeriesPresentation? {
+        WorkoutDetailChartPresentations.cadence(
+            workout: workout,
+            metricSeries: metricSeries,
+            distanceUnitPreference: selectedDistanceUnitPreference
+        )
+    }
+
+    /// Per-bucket stride length bars for the current unit preference; nil when the
+    /// workout has too little stride data (or isn't a stepping activity), which
+    /// hides the card.
+    private var strideLengthPresentation: WorkoutBucketedSeriesPresentation? {
+        WorkoutDetailChartPresentations.strideLength(
+            workout: workout,
+            metricSeries: metricSeries,
+            distanceUnitPreference: selectedDistanceUnitPreference
+        )
+    }
+
+    /// Per-bucket ground contact time bars; nil unless the watch recorded the
+    /// running-form metric.
+    private var groundContactPresentation: WorkoutBucketedSeriesPresentation? {
+        WorkoutDetailChartPresentations.groundContact(
+            workout: workout,
+            metricSeries: metricSeries,
+            distanceUnitPreference: selectedDistanceUnitPreference
+        )
+    }
+
+    /// Per-bucket vertical oscillation bars; nil unless the watch recorded the
+    /// running-form metric.
+    private var verticalOscillationPresentation: WorkoutBucketedSeriesPresentation? {
+        WorkoutDetailChartPresentations.verticalOscillation(
+            workout: workout,
+            metricSeries: metricSeries,
+            distanceUnitPreference: selectedDistanceUnitPreference
+        )
+    }
+}
+
+/// Every chart presentation the workout detail page builds, as pure value-in functions.
+/// Extracted from the detail sheet's computed properties so the share sheet's long
+/// image can build the *same* presentations from the same inputs — a long image whose
+/// splits or elevation were derived a second, slightly different way would be a
+/// screenshot of a page that doesn't exist.
+enum WorkoutDetailChartPresentations {
+    static func splits(
+        workout: WorkoutSummary,
+        splitData: WorkoutSplitData,
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+    ) -> WorkoutSplitsPresentation? {
+        let unitMeters = distanceUnitPreference == .miles ? 1_609.344 : 1_000.0
         let splits = WorkoutSplitCalculator.splits(
             samples: splitData.distanceSamples,
             unitMeters: unitMeters,
@@ -2253,72 +2352,82 @@ struct BodyWorkoutDetailSheet: View {
         return WorkoutSplitsPresentation(
             splits: splits,
             paceStyle: workout.type.paceStyle,
-            distanceUnitPreference: selectedDistanceUnitPreference,
+            distanceUnitPreference: distanceUnitPreference,
             heartRateSamples: workout.heartRateSamples ?? [],
             stepSamples: splitData.stepSamples
         )
     }
 
-    /// The route's elevation profile for the current unit preference; nil when the
-    /// workout has no route, too few altitude samples, or a flat course — which
-    /// hides the card.
-    private var elevationPresentation: WorkoutElevationLinePresentation? {
+    static func elevation(
+        workout: WorkoutSummary,
+        profile: [WorkoutElevationSample],
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+    ) -> WorkoutElevationLinePresentation? {
         WorkoutElevationLinePresentation(
-            profile: displayedRoute?.elevationProfile ?? [],
+            profile: profile,
             workoutDuration: workout.effectiveEndDate.timeIntervalSince(workout.startDate),
             ascentMeters: workout.elevationAscendedMeters,
-            distanceUnitPreference: selectedDistanceUnitPreference
+            distanceUnitPreference: distanceUnitPreference
         )
     }
 
-    /// Per-bucket pace (walk/run/hike) or speed (cycling) bars; nil when the workout
-    /// has too little distance data or isn't a pace/speed activity.
-    private var paceOrSpeedPresentation: WorkoutBucketedSeriesPresentation? {
+    static func paceOrSpeed(
+        workout: WorkoutSummary,
+        metricSeries: WorkoutMetricSeriesData,
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+    ) -> WorkoutBucketedSeriesPresentation? {
         WorkoutMetricSeriesCharts.paceOrSpeed(
             data: metricSeries,
             type: workout.type,
-            distanceUnitPreference: selectedDistanceUnitPreference
+            distanceUnitPreference: distanceUnitPreference
         )
     }
 
-    /// Per-bucket step cadence (walk/run/hike) or cycling cadence bars; nil when the
-    /// workout has too little data.
-    private var cadencePresentation: WorkoutBucketedSeriesPresentation? {
+    static func cadence(
+        workout: WorkoutSummary,
+        metricSeries: WorkoutMetricSeriesData,
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+    ) -> WorkoutBucketedSeriesPresentation? {
         WorkoutMetricSeriesCharts.cadence(
             data: metricSeries,
             type: workout.type,
-            distanceUnitPreference: selectedDistanceUnitPreference
+            distanceUnitPreference: distanceUnitPreference
         )
     }
 
-    /// Per-bucket stride length bars for the current unit preference; nil when the
-    /// workout has too little stride data (or isn't a stepping activity), which
-    /// hides the card.
-    private var strideLengthPresentation: WorkoutBucketedSeriesPresentation? {
+    static func strideLength(
+        workout: WorkoutSummary,
+        metricSeries: WorkoutMetricSeriesData,
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+    ) -> WorkoutBucketedSeriesPresentation? {
         WorkoutMetricSeriesCharts.strideLength(
             data: metricSeries,
             type: workout.type,
-            distanceUnitPreference: selectedDistanceUnitPreference
+            distanceUnitPreference: distanceUnitPreference
         )
     }
 
-    /// Per-bucket ground contact time bars; nil unless the watch recorded the
-    /// running-form metric.
-    private var groundContactPresentation: WorkoutBucketedSeriesPresentation? {
+    static func groundContact(
+        workout: WorkoutSummary,
+        metricSeries: WorkoutMetricSeriesData,
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+    ) -> WorkoutBucketedSeriesPresentation? {
         WorkoutMetricSeriesCharts.groundContactTime(
             data: metricSeries,
             type: workout.type,
-            distanceUnitPreference: selectedDistanceUnitPreference
+            distanceUnitPreference: distanceUnitPreference
         )
     }
 
-    /// Per-bucket vertical oscillation bars; nil unless the watch recorded the
-    /// running-form metric.
-    private var verticalOscillationPresentation: WorkoutBucketedSeriesPresentation? {
+    static func verticalOscillation(
+        workout: WorkoutSummary,
+        metricSeries: WorkoutMetricSeriesData,
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+    ) -> WorkoutBucketedSeriesPresentation? {
         WorkoutMetricSeriesCharts.verticalOscillation(
             data: metricSeries,
             type: workout.type,
-            distanceUnitPreference: selectedDistanceUnitPreference
+            distanceUnitPreference: distanceUnitPreference
         )
     }
 }
@@ -2414,7 +2523,9 @@ private struct BodyWorkoutEffortPredictionLine: View {
     }
 }
 
-private struct BodyWorkoutDetailMetricTile: View {
+/// Internal rather than private: the share sheet's long image draws this same card,
+/// value-for-value, so the export can't drift from the detail page.
+struct BodyWorkoutDetailMetricTile: View {
     let title: String
     let value: String
     let comparison: WorkoutMetricComparison?
@@ -2466,7 +2577,8 @@ private struct BodyWorkoutDetailMetricTile: View {
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.7)
                                 // The "0%" stand-in holds this slot until the history
-                                // lands, so the real percentage rolls in from it.
+                                // lands, so the real percentage rolls in from it; once
+                                // it has settled without a delta, "--%" holds it instead.
                                 .bodyLegendNumberFlip(value: comparison.badgeText)
                         }
                         if !valueParts.unit.isEmpty {
@@ -2727,7 +2839,9 @@ private struct BodyWorkoutHeartRateZoneChart: View {
 /// Pace/Speed and its per-km/mi splits in one card, the way the Heart Rate card
 /// carries the zone breakdown under its chart. Either half can be absent: a workout
 /// can have splits but too few buckets for the plot, or the reverse.
-private struct BodyWorkoutPaceCard: View {
+/// Internal rather than private: the share sheet's long image draws this same card,
+/// value-for-value, so the export can't drift from the detail page.
+struct BodyWorkoutPaceCard: View {
     let presentation: WorkoutBucketedSeriesPresentation?
     let splits: WorkoutSplitsPresentation?
     var floatingCallout: BodyChartFloatingCalloutState?
@@ -3284,7 +3398,9 @@ private struct BodyWorkoutBucketedSeriesPlot: View {
 /// One card for every bucketed workout series — pace/speed, cadence, stride length,
 /// ground contact time, vertical oscillation. The presentation carries the
 /// strings, axis and bars, so all of them share `BodyWorkoutBucketedSeriesPlot`.
-private struct BodyWorkoutBucketedSeriesCard: View {
+/// Internal rather than private: the share sheet's long image draws this same card,
+/// value-for-value, so the export can't drift from the detail page.
+struct BodyWorkoutBucketedSeriesCard: View {
     let presentation: WorkoutBucketedSeriesPresentation
     var floatingCallout: BodyChartFloatingCalloutState?
 
@@ -3346,7 +3462,9 @@ private func bodyWorkoutSeriesStatBlock(value: String, unit: String, caption: St
     .frame(maxWidth: .infinity, alignment: .leading)
 }
 
-private struct BodyWorkoutHeartRateChartCard: View {
+/// Internal rather than private: the share sheet's long image draws this same card,
+/// value-for-value, so the export can't drift from the detail page.
+struct BodyWorkoutHeartRateChartCard: View {
     let samples: [WorkoutHeartRateSample]
     /// Anchors the zone bands (% of this value); nil hides the zone breakdown.
     var maxHeartRate: Double?
@@ -3944,7 +4062,9 @@ private struct BodyWorkoutHeartRateTimeMark: Identifiable {
 /// The Elevation card: the route's smoothed altitude profile drawn in the heart-rate
 /// chart's line style, but with no average/extreme reference lines — the terrain has
 /// no meaningful "average", so the right-hand gutter carries the axis' own ticks.
-private struct BodyWorkoutElevationLineCard: View {
+/// Internal rather than private: the share sheet's long image draws this same card,
+/// value-for-value, so the export can't drift from the detail page.
+struct BodyWorkoutElevationLineCard: View {
     let presentation: WorkoutElevationLinePresentation
     var floatingCallout: BodyChartFloatingCalloutState?
 
