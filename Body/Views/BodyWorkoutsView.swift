@@ -1828,11 +1828,7 @@ struct BodyWorkoutDetailSheet: View {
 
             return "\(BodyValueFormat.numberText(humidity.rounded(), decimals: 0))%"
         }
-        let weatherText = [temperatureText, humidityText]
-            .compactMap { $0 }
-            .joined(separator: ", ")
-
-        if localityText != nil || !weatherText.isEmpty {
+        if localityText != nil || temperatureText != nil || humidityText != nil {
             VStack(alignment: .leading, spacing: 4) {
                 if let localityText {
                     heroContextPair(systemImage: "location.fill", text: localityText)
@@ -1843,14 +1839,22 @@ struct BodyWorkoutDetailSheet: View {
                         )
                 }
 
-                if !weatherText.isEmpty {
-                    // The recorded sky condition when the source wrote one; the
-                    // thermometer otherwise, so an indoor or condition-less workout
-                    // still reads as a temperature.
-                    heroContextPair(
-                        systemImage: workout.weatherCondition?.symbolName ?? "thermometer.medium",
-                        text: weatherText
-                    )
+                if temperatureText != nil || humidityText != nil {
+                    HStack(spacing: 10) {
+                        if let temperatureText {
+                            // The recorded sky condition when the source wrote one; the
+                            // thermometer otherwise, so an indoor or condition-less
+                            // workout still reads as a temperature.
+                            heroContextPair(
+                                systemImage: workout.weatherCondition?.symbolName ?? "thermometer.medium",
+                                text: temperatureText
+                            )
+                        }
+
+                        if let humidityText {
+                            heroContextPair(systemImage: "humidity.fill", text: humidityText)
+                        }
+                    }
                 }
             }
             // Both rows shrink themselves to fit (`minimumScaleFactor`), which lets the
