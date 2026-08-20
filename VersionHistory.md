@@ -1,5 +1,12 @@
 # Version History
 
+## 1.0.0 (build 12)
+
+- **The workout share sheet's font button always shows the "Aa" glyph.** SF Symbols swaps `textformat` for localized text, so the Chinese build drew "格式" (Format) on a button that picks the font; the symbol is now rendered against a fixed English locale in every language.
+- **Reordered the default Summary card layout** — Sleep · Vitals, Training Load · Basics, Heart Rate · HRV, Active Energy · Resting Energy, Resting Heart Rate · Cardio Fitness, Steps · Exercise Minutes, Skin Temp · Blood Oxygen, Respiratory Rate · Time In Daylight, then Activity Rings. Existing custom orders are untouched.
+- **The workout share card can now show your Settings profile avatar and @nickname beside the watermark.** A new free **Profile** rail option (below Metrics) toggles either independently — both hidden by default; each tile stays disabled until the matching field is set in Settings › Profile, and a caption under the preview says so while the tray is open.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 12.
+
 ## 1.0.0 (build 11)
 
 - **The workout share card's type icon can now be hidden on route-less workouts.** A free **Icon** row appears in the Route Style slot for route-less cards, with **Show**/**Hide** tiles; hiding it centers the metrics alone and the choice is remembered across sessions.
@@ -7,6 +14,7 @@
 - **Share videos now export up to 60 seconds** instead of 15, both in the looping preview and the exported MP4.
 - **A new Long Image export joins the Ratio tray.** Body Pro's **Long Image** tile renders a tall, scrollable export of the whole workout — header, route or type icon, the selected metric tiles, and the matching detail charts — on a flat gradient background (Map, photo, and video backgrounds are disabled while it's active). The metric chips have no 1–5 cap in this mode, and a deselected chip hides both its tile and its chart section.
 - The tray tile scrollers (Ratio, Metrics, and the new Long Image chip strip) now fade softly at their scrolled edges, matching the workout list's month scroller.
+- **New Daylight share background** — a third gradient tile alongside Midnight and Workout Color: a pure-white card with dark text and branding, free like the other two. Applies to the card (every ratio) and the Long Image export; the page still opens on Midnight by default.
 - Updated the app, widget, watch, and test bundle version to 1.0.0 build 11.
 
 ## 1.0.0 (build 10)

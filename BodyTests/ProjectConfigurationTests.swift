@@ -385,6 +385,16 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(shareSheetSource.contains(#"Text("Pick 1 to 5 metrics.")"#))
         XCTAssertTrue(shareSheetSource.contains(#"Text("Requires Body Pro")"#))
 
+        // Profile attribution: two independent toggles, free, off by default, and a
+        // caption while the tray is open with data missing.
+        XCTAssertTrue(shareSheetSource.contains("WorkoutShareAvatarVisibility.storageKey"))
+        XCTAssertTrue(shareSheetSource.contains("WorkoutShareNicknameVisibility.storageKey"))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Show Avatar")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Show Nickname")"#))
+        XCTAssertTrue(shareSheetSource.contains(
+            #"Text("Add a photo and name in Settings › Profile to show them on the card.")"#
+        ))
+
         // The card computes its geometry from the aspect ratio, replacing the fixed
         // 9:16 layout constants.
         let cardSource = try text(at: "Body/Views/Health/BodyWorkoutShareCardView.swift")
@@ -406,9 +416,10 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testWorkoutShareOptionRailOrder() throws {
-        // Rail order: Font, Route Color, Route Style, Metrics, Background, Ratio,
-        // Arrange — user's words (font, color, route, metrics, media, ratio) with
-        // Arrange last per follow-up. Metrics is no longer the last icon.
+        // Rail order: Font, Route Color, Route Style, Metrics, Profile, Background,
+        // Ratio, Arrange — user's words (font, color, route, metrics, attribution,
+        // media, ratio) with Arrange last per follow-up. Metrics is no longer the
+        // last icon; Profile sits between Metrics and Background.
         let shareSheetSource = try text(at: "Body/Views/Health/BodyWorkoutShareSheet.swift")
         let railStart = try XCTUnwrap(shareSheetSource.range(of: "private func optionRail")?.lowerBound)
         let searchStart = shareSheetSource.index(railStart, offsetBy: 20)
@@ -421,6 +432,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let routeColorIndex = try XCTUnwrap(railRegion.range(of: #"Text("Route Color")"#)?.lowerBound)
         let routeStyleIndex = try XCTUnwrap(railRegion.range(of: #"Text("Route Style")"#)?.lowerBound)
         let metricsIndex = try XCTUnwrap(railRegion.range(of: #"Text("Metrics")"#)?.lowerBound)
+        let profileIndex = try XCTUnwrap(railRegion.range(of: #"Text("Profile")"#)?.lowerBound)
         let backgroundIndex = try XCTUnwrap(railRegion.range(of: #"Text("Background")"#)?.lowerBound)
         let ratioIndex = try XCTUnwrap(railRegion.range(of: #"Text("Ratio")"#)?.lowerBound)
         let arrangeIndex = try XCTUnwrap(railRegion.range(of: #"Text("Arrange")"#)?.lowerBound)
@@ -428,7 +440,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertLessThan(fontIndex, routeColorIndex)
         XCTAssertLessThan(routeColorIndex, routeStyleIndex)
         XCTAssertLessThan(routeStyleIndex, metricsIndex)
-        XCTAssertLessThan(metricsIndex, backgroundIndex)
+        XCTAssertLessThan(metricsIndex, profileIndex)
+        XCTAssertLessThan(profileIndex, backgroundIndex)
         XCTAssertLessThan(backgroundIndex, ratioIndex)
         XCTAssertLessThan(ratioIndex, arrangeIndex)
     }
@@ -488,6 +501,21 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(longSource.contains("WorkoutShareRouteTrace("))
         XCTAssertTrue(longSource.contains("static let width: CGFloat = 360"))
         XCTAssertTrue(longSource.contains(".fixedSize(horizontal: false, vertical: true)"))
+    }
+
+    func testWorkoutShareDaylightPreset() throws {
+        // Daylight is a third gradient preset — a pure-white card inverting Midnight's
+        // ink. Behavioral ink/scheme resolution is covered by WorkoutShareCardTests and
+        // WorkoutShareRenderTests; these are minimal source guards only.
+        let cardModelSource = try text(at: "Body/Models/WorkoutShareCard.swift")
+        XCTAssertTrue(cardModelSource.contains("case daylight"))
+        XCTAssertTrue(cardModelSource.contains("enum WorkoutShareCardInk"))
+
+        // The sheet forces the preview/export colour scheme off the resolved ink rather
+        // than a hard-coded `.dark`.
+        let shareSheetSource = try text(at: "Body/Views/Health/BodyWorkoutShareSheet.swift")
+        XCTAssertTrue(shareSheetSource.contains(".environment(\\.colorScheme, activeInk == .dark ? .light : .dark)"))
+        XCTAssertTrue(shareSheetSource.contains(".environment(\\.colorScheme, activeLongPreset.ink == .dark ? .light : .dark)"))
     }
 
     func testRouteStylePickerAndThreeDHero() throws {
@@ -2423,12 +2451,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 11;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 12;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.0;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 11;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 12;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2463,7 +2491,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 11)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 12)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 11)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 10)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 9)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 8)**"))
@@ -2564,6 +2593,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 12)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 12."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 11)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 11."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 10)"))
@@ -3017,7 +3048,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 11)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 12)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 11)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 10)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 9)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 8)"))
