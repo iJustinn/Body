@@ -91,6 +91,10 @@ struct BodyWorkoutShareCardView: View {
     /// The card-drawn trace's colour (2D polyline and 3D ribbon). The map background's
     /// composited route ignores it and keeps its pace colouring.
     let routeColor: Color
+    /// The Settings profile avatar/name drawn beside the watermark, resolved by the
+    /// sheet from the visibility toggles and whatever the profile currently has.
+    /// Defaulted so existing call sites (tests, previews) compile unchanged.
+    var attribution: WorkoutShareAttribution = .empty
 
     /// #0128F4 — `WorkoutShareRouteColorChoice.bodyBlue`, the default trace colour.
     static let defaultRouteColor = Color(red: 1 / 255, green: 40 / 255, blue: 244 / 255)
@@ -104,6 +108,17 @@ struct BodyWorkoutShareCardView: View {
             arrangement: arrangement,
             metricCount: centeredMetrics.count
         )
+    }
+
+    /// Which way this card's ink runs, read from the background that is *actually*
+    /// drawn rather than from any stored preference: a photo, a map snapshot, or a video
+    /// frame is dark-backed by the scrims and always takes the light ink, even while a
+    /// Daylight preset stays selected in the tray.
+    private var ink: WorkoutShareCardInk {
+        switch background {
+        case .preset(let preset): return preset.ink
+        case .photo, .map, .video: return .light
+        }
     }
 
     /// `.routeless` never traces, whatever it's handed: making that a property of the
@@ -180,17 +195,20 @@ struct BodyWorkoutShareCardView: View {
         }
     }
 
-    /// Unconditional top + bottom scrims so white text stays legible over any photo
+    /// Unconditional top + bottom scrims so the card's text stays legible over any photo
     /// or map tiles, including a near-white tint. Map tiles carry bright labels and
     /// roads right behind the text, so they get taller, darker shades. The heights are
-    /// fractions of the card's height, so a short landscape card isn't swallowed.
+    /// fractions of the card's height, so a short landscape card isn't swallowed. The
+    /// scrim colour follows the ink — a white card lightens its edges rather than
+    /// darkening them — while the opacities stay the same on both polarities.
     private var scrims: some View {
         let isMap: Bool
         if case .map = background { isMap = true } else { isMap = false }
+        let scrim = ink.scrim
 
         return VStack(spacing: 0) {
             LinearGradient(
-                colors: [Color.black.opacity(isMap ? 0.85 : 0.45), Color.black.opacity(0)],
+                colors: [scrim.opacity(isMap ? 0.85 : 0.45), scrim.opacity(0)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -199,7 +217,7 @@ struct BodyWorkoutShareCardView: View {
             Spacer(minLength: 0)
 
             LinearGradient(
-                colors: [Color.black.opacity(0), Color.black.opacity(isMap ? 0.85 : 0.5)],
+                colors: [scrim.opacity(0), scrim.opacity(isMap ? 0.85 : 0.5)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -234,7 +252,9 @@ struct BodyWorkoutShareCardView: View {
                 .font(.system(size: 20, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 // White symbol on a stronger tint chip: the detail page's tinted-symbol
-                // treatment disappears against the card's dark/photo backgrounds.
+                // treatment disappears against the card's dark/photo backgrounds. Stays
+                // white on both inks — the chip behind it is the workout's colour, not
+                // the card's background, and this layout is map-only (a dark backdrop).
                 .foregroundStyle(.white)
                 .frame(width: 46, height: 46)
                 .background(type.color.opacity(0.45))
@@ -245,7 +265,7 @@ struct BodyWorkoutShareCardView: View {
                 // would otherwise push the header past its (shorter) scrim.
                 Text(presentation.title)
                     .font(.system(size: 24, weight: .bold, design: fontDesign))
-                    .foregroundColor(.white)
+                    .foregroundColor(ink.primary)
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
 
@@ -257,12 +277,12 @@ struct BodyWorkoutShareCardView: View {
                             .font(.system(size: 14, weight: .medium, design: fontDesign))
                             .lineLimit(1)
                     }
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundColor(ink.primary(0.7))
                 }
 
                 Text("\(presentation.dateTitle) - \(presentation.timeRangeText)")
                     .font(.system(size: 14, weight: .medium, design: fontDesign))
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundColor(ink.primary(0.7))
                     .lineLimit(1)
             }
         }
@@ -275,28 +295,28 @@ struct BodyWorkoutShareCardView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text(heroValue)
                             .font(.system(size: 40, weight: .bold, design: fontDesign))
-                            .foregroundColor(.white)
+                            .foregroundColor(ink.primary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
                         Text(heroUnit)
                             .font(.system(size: 17, weight: .semibold, design: fontDesign))
-                            .foregroundColor(.white.opacity(0.85))
+                            .foregroundColor(ink.primary(0.85))
                     }
                     Text("Distance")
                         .font(.system(size: 12, weight: .semibold, design: fontDesign))
-                        .foregroundColor(.white.opacity(0.6))
+                        .foregroundColor(ink.primary(0.6))
                 }
             }
 
             VStack(alignment: .trailing, spacing: 1) {
                 Text(presentation.durationClockText)
                     .font(.system(size: 40, weight: .bold, design: fontDesign))
-                    .foregroundColor(.white)
+                    .foregroundColor(ink.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                 Text("Duration")
                     .font(.system(size: 12, weight: .semibold, design: fontDesign))
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(ink.primary(0.6))
             }
         }
     }
@@ -318,48 +338,102 @@ struct BodyWorkoutShareCardView: View {
             routePoints: routePoints,
             ribbon: ribbon,
             routeColor: routeColor,
-            bottomAnchored: bottomAnchored
+            bottomAnchored: bottomAnchored,
+            shadowColor: ink.legibilityShadow
         )
     }
 
     // MARK: - Bottom bar (metrics leading, branding trailing)
 
     private var bottomBar: some View {
-        HStack(alignment: .bottom, spacing: 24) {
-            ForEach(Array(metrics.enumerated()), id: \.offset) { _, metric in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(metric.value)
-                        .font(.system(size: 21, weight: .bold, design: fontDesign))
-                        .foregroundColor(.white)
-                    Text(metric.title)
-                        .font(.system(size: 10, weight: .semibold, design: fontDesign))
-                        .foregroundColor(.white.opacity(0.7))
+        // The metrics-and-wordmark row is already full on a 360 pt card (~6 pt of
+        // slack), so the attribution can't sit beside the wordmark here the way it
+        // does on the roomier layouts — it would only trade legibility between the
+        // name and the metric values. With attribution on, the whole branding row
+        // drops onto its own full-width line instead, trailing-aligned where the
+        // wordmark alone used to sit.
+        VStack(alignment: .trailing, spacing: 8) {
+            HStack(alignment: .bottom, spacing: 24) {
+                ForEach(Array(metrics.enumerated()), id: \.offset) { _, metric in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(metric.value)
+                            .font(.system(size: 21, weight: .bold, design: fontDesign))
+                            .foregroundColor(ink.primary)
+                        Text(metric.title)
+                            .font(.system(size: 10, weight: .semibold, design: fontDesign))
+                            .foregroundColor(ink.primary(0.7))
+                    }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                 }
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+
+                Spacer(minLength: 12)
+
+                if attribution.isEmpty {
+                    branding
+                }
             }
 
-            Spacer(minLength: 12)
-
-            branding
+            if !attribution.isEmpty {
+                branding
+            }
         }
     }
 
     /// Shared by both layouts so the wordmark can't drift between them.
     private var branding: some View {
         HStack(spacing: 6) {
-            Image("BodyIcon01")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 15, height: 15)
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                .accessibilityHidden(true)
-            // verbatim: brand wordmark, never localized — and never extracted
-            // into the catalog (an empty auto-extracted "Body" entry would trip
-            // the catalog-completeness guard).
-            Text(verbatim: "Body")
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundColor(.white.opacity(0.6))
+            HStack(spacing: 6) {
+                Image("BodyIcon01")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 15, height: 15)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .accessibilityHidden(true)
+                // verbatim: brand wordmark, never localized — and never extracted
+                // into the catalog (an empty auto-extracted "Body" entry would trip
+                // the catalog-completeness guard).
+                Text(verbatim: "Body")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(ink.primary(0.6))
+            }
+            .layoutPriority(1)
+            .fixedSize()
+
+            if !attribution.isEmpty {
+                // verbatim: a typographic dash between the wordmark and the
+                // attribution, never localized or extracted.
+                Text(verbatim: "–")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(ink.primary(0.6))
+                    .layoutPriority(1)
+                    .fixedSize()
+
+                if let avatar = attribution.avatar {
+                    Image(uiImage: avatar)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 15, height: 15)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .strokeBorder(ink.primary(0.3), lineWidth: 1)
+                        )
+                        .accessibilityHidden(true)
+                        .layoutPriority(1)
+                        .fixedSize()
+                }
+
+                if let name = attribution.name {
+                    // verbatim: the "@" prefix is typographic, not localized text.
+                    Text(verbatim: "@" + name)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(ink.primary(0.6))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .minimumScaleFactor(0.8)
+                }
+            }
         }
     }
 
@@ -510,7 +584,7 @@ struct BodyWorkoutShareCardView: View {
                 }
             }
             .multilineTextAlignment(.center)
-            .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+            .shadow(color: ink.legibilityShadow, radius: 5, x: 0, y: 1.5)
         } else {
             centeredMetricsRow
         }
@@ -542,8 +616,8 @@ struct BodyWorkoutShareCardView: View {
         Image(systemName: type.symbolName)
             .font(.system(size: 30, weight: .semibold))
             .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+            .foregroundStyle(ink.primary)
+            .shadow(color: ink.legibilityShadow, radius: 5, x: 0, y: 1.5)
             .accessibilityLabel(Text(type.displayName))
     }
 
@@ -556,7 +630,7 @@ struct BodyWorkoutShareCardView: View {
         .multilineTextAlignment(.center)
         // The route trace's shadow, so the metrics stay legible when the block is
         // dragged into a bright photo area the scrims don't reach.
-        .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+        .shadow(color: ink.legibilityShadow, radius: 5, x: 0, y: 1.5)
     }
 
     /// The same blocks the stack draws, laid out along the card's width — what a card
@@ -564,7 +638,7 @@ struct BodyWorkoutShareCardView: View {
     private var centeredMetricsRow: some View {
         metricsRow(centeredMetrics)
             .multilineTextAlignment(.center)
-            .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+            .shadow(color: ink.legibilityShadow, radius: 5, x: 0, y: 1.5)
     }
 
     private func metricsRow(_ items: [WorkoutShareMetric]) -> some View {
@@ -604,7 +678,7 @@ struct BodyWorkoutShareCardView: View {
             }
         }
         .multilineTextAlignment(.center)
-        .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+        .shadow(color: ink.legibilityShadow, radius: 5, x: 0, y: 1.5)
     }
 
     /// One value size for the whole grid, not one per block: `minimumScaleFactor`
@@ -660,10 +734,10 @@ struct BodyWorkoutShareCardView: View {
         VStack(spacing: 2) {
             Text(metric.title)
                 .font(.system(size: style.labelSize, weight: .semibold, design: fontDesign))
-                .foregroundColor(.white.opacity(0.7))
+                .foregroundColor(ink.primary(0.7))
             Text(metric.value)
                 .font(.system(size: valueSize ?? style.valueSize, weight: .bold, design: fontDesign))
-                .foregroundColor(.white)
+                .foregroundColor(ink.primary)
         }
         .lineLimit(1)
         .minimumScaleFactor(minimumScale)
@@ -690,6 +764,15 @@ struct WorkoutShareRouteTrace: View {
     /// one (and the 3D ribbon's lifted line rises into free space). The classic layout
     /// keeps the trace centered on the map's own geometry instead.
     let bottomAnchored: Bool
+    /// The 2D polyline's legibility halo — `WorkoutShareCardInk.legibilityShadow` from
+    /// whichever export is drawing. Defaults to the light ink's black halo so a caller
+    /// that has no ink of its own keeps today's drawing exactly.
+    ///
+    /// Deliberately 2D-only: the 3D ribbon draws **unshadowed**, and has since it
+    /// shipped. Its filled quads would smear a halo across the whole ribbon rather than
+    /// outline a stroke, so the contract here is "flat trace haloed, ribbon bare" —
+    /// `WorkoutShareRenderTests` pins it.
+    var shadowColor: Color = Color.black.opacity(0.45)
 
     var body: some View {
         Canvas { context, size in
@@ -724,7 +807,7 @@ struct WorkoutShareRouteTrace: View {
             path.addLines(Self.shifted(mapped, by: shift))
 
             var strokeContext = context
-            strokeContext.addFilter(.shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5))
+            strokeContext.addFilter(.shadow(color: shadowColor, radius: 5, x: 0, y: 1.5))
             strokeContext.stroke(
                 path,
                 with: .color(routeColor),

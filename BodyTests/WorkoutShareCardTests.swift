@@ -1296,6 +1296,52 @@ final class WorkoutShareCardTests: XCTestCase {
         }
     }
 
+    // MARK: - Ink polarity
+
+    /// Daylight is the only preset that inverts the card's ink; the two dark presets
+    /// keep the light ink the card has always drawn with.
+    func testPresetInkPolarity() {
+        XCTAssertEqual(BodyWorkoutSharePreset.midnight.ink, .light)
+        XCTAssertEqual(BodyWorkoutSharePreset.workoutTint.ink, .light)
+        XCTAssertEqual(BodyWorkoutSharePreset.daylight.ink, .dark)
+    }
+
+    /// The new preset has to survive the same @AppStorage round trip the others do —
+    /// `stored` maps unknown raw values to Midnight, so a typo'd raw value would
+    /// silently degrade rather than fail.
+    func testDaylightPresetRoundTripsThroughStoredBackground() {
+        XCTAssertEqual(BodyWorkoutSharePreset.daylight.rawValue, "daylight")
+        XCTAssertEqual(
+            BodyWorkoutShareBackgroundChoice.stored(rawValue: "daylight", hasRoute: true),
+            .preset(.daylight)
+        )
+        XCTAssertEqual(
+            BodyWorkoutShareBackgroundChoice.stored(rawValue: "daylight", hasRoute: false),
+            .preset(.daylight)
+        )
+    }
+
+    /// The long image paints whatever preset is stored, Daylight included — only a
+    /// non-preset background (the map) falls back to Midnight.
+    func testLongPresetPassesDaylightThrough() {
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.longPreset(storedBackground: "daylight", hasRoute: true),
+            .daylight
+        )
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.longPreset(storedBackground: "daylight", hasRoute: false),
+            .daylight
+        )
+    }
+
+    /// Every preset names itself, and no two share a name — a missing `case` in
+    /// `localizedName` would be a compile error, but a copy-pasted one wouldn't.
+    func testEveryPresetHasADistinctName() {
+        let names = BodyWorkoutSharePreset.allCases.map(\.localizedName)
+        XCTAssertEqual(Set(names).count, BodyWorkoutSharePreset.allCases.count)
+        XCTAssertFalse(names.contains(where: \.isEmpty))
+    }
+
     func testResolvedPhotoReturnsNilForNonProEvenWithAPhoto() {
         let photo = UIImage()
         XCTAssertNil(WorkoutShareBackgroundPolicy.resolvedPhoto(photo, isProUnlocked: false))
@@ -1329,6 +1375,32 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertEqual(WorkoutShareIconVisibility.stored(rawValue: nil), .shown)
         XCTAssertEqual(WorkoutShareIconVisibility.stored(rawValue: "invisible"), .shown)
         XCTAssertEqual(WorkoutShareIconVisibility.storageKey, "workoutShareIconVisibility")
+    }
+
+    func testStoredAvatarVisibilityRoundTripsAndDefaultsToHidden() {
+        for visibility in WorkoutShareAvatarVisibility.allCases {
+            XCTAssertEqual(WorkoutShareAvatarVisibility.stored(rawValue: visibility.rawValue), visibility)
+        }
+        XCTAssertEqual(WorkoutShareAvatarVisibility.stored(rawValue: nil), .hidden)
+        XCTAssertEqual(WorkoutShareAvatarVisibility.stored(rawValue: "invisible"), .hidden)
+        XCTAssertEqual(WorkoutShareAvatarVisibility.storageKey, "workoutShareAvatarVisibility")
+    }
+
+    func testStoredNicknameVisibilityRoundTripsAndDefaultsToHidden() {
+        for visibility in WorkoutShareNicknameVisibility.allCases {
+            XCTAssertEqual(WorkoutShareNicknameVisibility.stored(rawValue: visibility.rawValue), visibility)
+        }
+        XCTAssertEqual(WorkoutShareNicknameVisibility.stored(rawValue: nil), .hidden)
+        XCTAssertEqual(WorkoutShareNicknameVisibility.stored(rawValue: "invisible"), .hidden)
+        XCTAssertEqual(WorkoutShareNicknameVisibility.storageKey, "workoutShareNicknameVisibility")
+    }
+
+    func testWorkoutShareAttributionIsEmptyOnlyWhenBothFieldsAreNil() {
+        XCTAssertTrue(WorkoutShareAttribution.empty.isEmpty)
+        XCTAssertTrue(WorkoutShareAttribution(avatar: nil, name: nil).isEmpty)
+        XCTAssertFalse(WorkoutShareAttribution(avatar: UIImage(), name: nil).isEmpty)
+        XCTAssertFalse(WorkoutShareAttribution(avatar: nil, name: "Justin").isEmpty)
+        XCTAssertFalse(WorkoutShareAttribution(avatar: UIImage(), name: "Justin").isEmpty)
     }
 
     func testStoredDimensionRoundTripsEveryCase() {

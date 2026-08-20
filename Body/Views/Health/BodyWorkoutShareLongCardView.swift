@@ -16,6 +16,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct BodyWorkoutShareLongCardView: View {
     /// The card's width, and the width `ImageRenderer` proposes. The same 360 pt as the
@@ -54,6 +55,9 @@ struct BodyWorkoutShareLongCardView: View {
     let strideLength: WorkoutBucketedSeriesPresentation?
     let groundContact: WorkoutBucketedSeriesPresentation?
     let verticalOscillation: WorkoutBucketedSeriesPresentation?
+    /// The Settings profile avatar/name drawn beside the watermark. Defaulted so
+    /// existing call sites (tests, previews) compile unchanged.
+    var attribution: WorkoutShareAttribution = .empty
 
     /// The trace draws only when there are points and the layout isn't the route-less
     /// one — same rule as the card, so Hide Route lands here as `routePoints == nil`.
@@ -62,6 +66,26 @@ struct BodyWorkoutShareLongCardView: View {
     private var ribbon: WorkoutRoute3DProjection.Projected3D? {
         guard showsTrace, dimension == .threeD else { return nil }
         return route3D
+    }
+
+    /// The long image never draws a map, a photo, or a clip, so its ink comes straight
+    /// from the preset it paints — nothing else can be behind the text.
+    private var ink: WorkoutShareCardInk { preset.ink }
+
+    /// The header chip's glyph. On the light ink it's the card's own white-on-tint
+    /// treatment; on a white card the chip has to carry its own contrast, so the glyph
+    /// takes the luminance-aware colour the calendar uses on the same tints — a
+    /// high-luminance type (yellow, mint) gets a dark glyph instead of an invisible
+    /// white one.
+    private var chipGlyphColor: Color {
+        ink == .dark ? type.calendarContentColor : .white
+    }
+
+    /// A 45%-alpha tint chip washes out to near-white on a white card, taking the glyph
+    /// with it — so the dark ink gets the full-strength tint the glyph colour was
+    /// computed against.
+    private var chipFillOpacity: Double {
+        ink == .dark ? 1 : 0.45
     }
 
     var body: some View {
@@ -94,15 +118,15 @@ struct BodyWorkoutShareLongCardView: View {
                 Image(systemName: type.symbolName)
                     .font(.system(size: 20, weight: .semibold))
                     .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(chipGlyphColor)
                     .frame(width: 46, height: 46)
-                    .background(type.color.opacity(0.45))
+                    .background(type.color.opacity(chipFillOpacity))
                     .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(presentation.title)
                         .font(.system(size: 24, weight: .bold, design: fontDesign))
-                        .foregroundColor(.white)
+                        .foregroundColor(ink.primary)
                         .lineLimit(2)
                         .minimumScaleFactor(0.7)
 
@@ -114,12 +138,12 @@ struct BodyWorkoutShareLongCardView: View {
                                 .font(.system(size: 14, weight: .medium, design: fontDesign))
                                 .lineLimit(1)
                         }
-                        .foregroundColor(.white.opacity(0.7))
+                        .foregroundColor(ink.primary(0.7))
                     }
 
                     Text("\(presentation.dateTitle) - \(presentation.timeRangeText)")
                         .font(.system(size: 14, weight: .medium, design: fontDesign))
-                        .foregroundColor(.white.opacity(0.7))
+                        .foregroundColor(ink.primary(0.7))
                         .lineLimit(1)
                 }
 
@@ -141,18 +165,18 @@ struct BodyWorkoutShareLongCardView: View {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
                     .font(.system(size: 36, weight: .bold, design: fontDesign))
-                    .foregroundColor(.white)
+                    .foregroundColor(ink.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                 if let unit {
                     Text(unit)
                         .font(.system(size: 16, weight: .semibold, design: fontDesign))
-                        .foregroundColor(.white.opacity(0.85))
+                        .foregroundColor(ink.primary(0.85))
                 }
             }
             caption
                 .font(.system(size: 12, weight: .semibold, design: fontDesign))
-                .foregroundColor(.white.opacity(0.6))
+                .foregroundColor(ink.primary(0.6))
         }
     }
 
@@ -169,7 +193,8 @@ struct BodyWorkoutShareLongCardView: View {
                 routePoints: routePoints,
                 ribbon: ribbon,
                 routeColor: routeColor,
-                bottomAnchored: true
+                bottomAnchored: true,
+                shadowColor: ink.legibilityShadow
             )
             .frame(width: Self.width - Self.margin * 2, height: Self.width - Self.margin * 2)
             .accessibilityHidden(true)
@@ -177,8 +202,8 @@ struct BodyWorkoutShareLongCardView: View {
             Image(systemName: type.symbolName)
                 .font(.system(size: 30, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+                .foregroundStyle(ink.primary)
+                .shadow(color: ink.legibilityShadow, radius: 5, x: 0, y: 1.5)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 8)
                 .accessibilityLabel(Text(type.displayName))
@@ -257,19 +282,55 @@ struct BodyWorkoutShareLongCardView: View {
     // MARK: - Branding
 
     /// The share card's wordmark at the same size, pinned to the bottom of however tall
-    /// this image turned out.
+    /// this image turned out. Same attribution extension as the share card, but with no
+    /// width cap on `@name` — the long image is a fixed 360 pt wide with no metrics
+    /// sharing the row, so there's no budget to protect.
     private var branding: some View {
         HStack(spacing: 6) {
-            Image("BodyIcon01")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 15, height: 15)
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                .accessibilityHidden(true)
-            // verbatim: brand wordmark, never localized — see the share card.
-            Text(verbatim: "Body")
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundColor(.white.opacity(0.6))
+            HStack(spacing: 6) {
+                Image("BodyIcon01")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 15, height: 15)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .accessibilityHidden(true)
+                // verbatim: brand wordmark, never localized — see the share card.
+                Text(verbatim: "Body")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(ink.primary(0.6))
+            }
+            .layoutPriority(1)
+            .fixedSize()
+
+            if !attribution.isEmpty {
+                // verbatim: see the share card's branding.
+                Text(verbatim: "–")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(ink.primary(0.6))
+
+                if let avatar = attribution.avatar {
+                    Image(uiImage: avatar)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 15, height: 15)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .strokeBorder(ink.primary(0.3), lineWidth: 1)
+                        )
+                        .accessibilityHidden(true)
+                        .layoutPriority(1)
+                        .fixedSize()
+                }
+
+                if let name = attribution.name {
+                    // verbatim: see the share card's branding.
+                    Text(verbatim: "@" + name)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(ink.primary(0.6))
+                        .lineLimit(1)
+                }
+            }
         }
     }
 }

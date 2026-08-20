@@ -81,7 +81,11 @@ final class WorkoutShareRenderTests: XCTestCase {
         aspectRatio: WorkoutShareAspectRatio = .portrait9x16,
         arrangement: WorkoutShareLandscapeArrangement = .stacked,
         centeredMetrics: [WorkoutShareMetric]? = nil,
-        iconHidden: Bool = false
+        iconHidden: Bool = false,
+        attribution: WorkoutShareAttribution = .empty,
+        /// What the sheet's exporter picks from the resolved ink: `.dark` for the
+        /// dark-backed backgrounds every existing sweep uses, `.light` for Daylight.
+        colorScheme: ColorScheme = .dark
     ) -> ImageRenderer<some View> {
         let workout = fixtureWorkout()
         let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
@@ -106,12 +110,13 @@ final class WorkoutShareRenderTests: XCTestCase {
             infoTransform: infoTransform,
             photoTransform: photoTransform,
             fontDesign: fontDesign,
-            routeColor: routeColor
+            routeColor: routeColor,
+            attribution: attribution
         )
         let renderer = ImageRenderer(
             content: card
                 .frame(width: aspectRatio.cardSize.width, height: aspectRatio.cardSize.height)
-                .environment(\.colorScheme, .dark)
+                .environment(\.colorScheme, colorScheme)
                 .dynamicTypeSize(.large)
         )
         renderer.scale = 3
@@ -815,7 +820,13 @@ final class WorkoutShareRenderTests: XCTestCase {
         selectedIDs: [String]? = nil,
         splitKilometers: Int = 5,
         heartRateSampleCount: Int = 40,
-        withRoute: Bool = true
+        withRoute: Bool = true,
+        preset: BodyWorkoutSharePreset = .midnight,
+        attribution: WorkoutShareAttribution = .empty,
+        /// The exporter's scheme, which follows the preset's ink: the long image's chart
+        /// cards are `colorScheme`-adaptive, so a Daylight export has to render `.light`
+        /// or its tiles would stay dark-on-white.
+        colorScheme: ColorScheme = .dark
     ) -> ImageRenderer<some View> {
         let workout = WorkoutSummary(
             type: .running,
@@ -854,7 +865,7 @@ final class WorkoutShareRenderTests: XCTestCase {
             iconHidden: false,
             locality: "Cupertino",
             type: workout.type,
-            preset: .midnight,
+            preset: preset,
             fontDesign: .rounded,
             routeColor: BodyWorkoutShareCardView.defaultRouteColor,
             sections: sections,
@@ -866,13 +877,14 @@ final class WorkoutShareRenderTests: XCTestCase {
             cadence: nil,
             strideLength: nil,
             groundContact: nil,
-            verticalOscillation: nil
+            verticalOscillation: nil,
+            attribution: attribution
         )
         let renderer = ImageRenderer(
             content: card
                 .frame(width: BodyWorkoutShareLongCardView.width)
                 .fixedSize(horizontal: false, vertical: true)
-                .environment(\.colorScheme, .dark)
+                .environment(\.colorScheme, colorScheme)
                 .dynamicTypeSize(.large)
                 .transaction { $0.disablesAnimations = true }
         )
@@ -907,6 +919,17 @@ final class WorkoutShareRenderTests: XCTestCase {
             Self.containsNonBlackPixel(in: cgImage, region: brandingBand),
             "the branding strip at the bottom of the long image had no ink"
         )
+    }
+
+    /// The long image's branding row has no metrics sharing it, so attribution only
+    /// needs to prove it renders without breaking the natural-height layout.
+    func testLongImageWithAttributionRendersAtCardWidth() throws {
+        let renderer = makeLongRenderer(
+            attribution: WorkoutShareAttribution(avatar: solidAvatarImage(), name: "Justin")
+        )
+        let cgImage = try XCTUnwrap(renderer.uiImage?.cgImage, "ImageRenderer produced no long image")
+
+        XCTAssertEqual(cgImage.width, Int(BodyWorkoutShareLongCardView.width))
     }
 
     /// A deselected chip takes its whole section off the image: the policy says so, and
@@ -961,6 +984,283 @@ final class WorkoutShareRenderTests: XCTestCase {
 
         let scale = try XCTUnwrap(BodyWorkoutShareSheet.longExportScale(forHeight: heightPoints))
         XCTAssertLessThanOrEqual(heightPoints * scale, 12_000)
+    }
+
+    // MARK: - Daylight ink polarity
+    //
+    // Every sweep above stays pinned to Midnight, whose "empty band is black"
+    // assertions are the inverse of what a white card produces. These are targeted
+    // probes instead: the Daylight card must be near-white where nothing drew, and
+    // carry near-black ink where the light presets carry white.
+
+    /// A flat, single-colour 360×640 backdrop — a "photo" whose every pixel is known,
+    /// so a probe can tell the card's own ink apart from the picture behind it.
+    private func flatImage(_ color: UIColor) -> UIImage {
+        let size = CGSize(width: 360, height: 640)
+        return UIGraphicsImageRenderer(size: size).image { context in
+            color.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+    }
+
+    /// The Daylight 9:16 card: white where nothing drew, black ink in the metric stack,
+    /// and the route still in its own colour (the trace is the user's pick, not ink).
+    func testDaylightCardDrawsDarkInkOnAWhiteCard() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(background: .preset(.daylight), colorScheme: .light).uiImage?.cgImage
+        )
+
+        // A corner the card never draws in: Daylight's flat white, scrim included.
+        let corner = Self.averageColor(in: cgImage, region: Self.pixelRect(x: 0, y: 0, width: 20, height: 20, in: cgImage))
+        XCTAssertGreaterThan(corner.red, 240, "the Daylight card's corner was not near-white")
+        XCTAssertGreaterThan(corner.green, 240)
+        XCTAssertGreaterThan(corner.blue, 240)
+
+        XCTAssertTrue(
+            Self.containsNearBlackPixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 30, y: 335, width: 300, height: 225, in: cgImage)
+            ),
+            "the Daylight card's metric stack had no dark ink — the text is still white on white"
+        )
+
+        XCTAssertTrue(
+            Self.containsRouteBluePixel(in: cgImage, region: Self.centeredRouteRegionInPixels(of: cgImage)),
+            "the route trace did not draw on the Daylight card"
+        )
+    }
+
+    /// The route-less tree (type glyph + stack, no trace) flips too — its glyph is the
+    /// card's only identity, so a white one on a white card would erase it.
+    func testDaylightRoutelessCardDrawsDarkInk() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(
+                layout: .routeless,
+                withRoute: false,
+                background: .preset(.daylight),
+                colorScheme: .light
+            ).uiImage?.cgImage
+        )
+
+        // The same band `testRoutelessGlyphAreaRasterizesOverDarkPreset` samples, read
+        // the other way round: dark ink on white rather than any ink on black.
+        XCTAssertTrue(
+            Self.containsNearBlackPixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 150, y: 100, width: 60, height: 160, in: cgImage)
+            ),
+            "the Daylight route-less card's type glyph did not draw in dark ink"
+        )
+
+        let corner = Self.averageColor(in: cgImage, region: Self.pixelRect(x: 0, y: 0, width: 20, height: 20, in: cgImage))
+        XCTAssertGreaterThan(corner.red, 240, "the Daylight route-less card's corner was not near-white")
+    }
+
+    /// Five metrics take the grid path (uniform block sizing plus the grid's own
+    /// shadow), which is a different set of colour literals from the three-block stack.
+    func testDaylightFiveMetricCardDrawsDarkInk() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(
+                background: .preset(.daylight),
+                centeredMetrics: fiveMetrics(),
+                colorScheme: .light
+            ).uiImage?.cgImage
+        )
+
+        // Five compact rows on 9:16 run from card y 238 to 572 (the geometry shrinks the
+        // route square to make room); sample well inside that.
+        XCTAssertTrue(
+            Self.containsNearBlackPixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 30, y: 250, width: 300, height: 310, in: cgImage)
+            ),
+            "the Daylight five-metric grid had no dark ink"
+        )
+    }
+
+    /// The wordmark alone, not the whole branding strip: `BodyIcon01` is a colourful
+    /// asset that draws the same on either ink, so a broad band probe would pass even
+    /// with an invisible white-on-white "Body".
+    func testDaylightWordmarkDrawsDarkInk() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(background: .preset(.daylight), colorScheme: .light).uiImage?.cgImage
+        )
+
+        // Card points: the branding HStack is centred on x 180 and its bottom edge sits
+        // `brandingBottomPadding` (26) above the card's, so x 180–202 is inside the
+        // wordmark and clear of the icon to its left.
+        XCTAssertTrue(
+            Self.containsNearBlackPixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 180, y: 600, width: 22, height: 12, in: cgImage),
+                threshold: 150
+            ),
+            "the Daylight wordmark did not draw in dark ink"
+        )
+    }
+
+    /// A small solid-colour square, standing in for a decoded profile photo — its exact
+    /// pixels don't matter, only that something opaque and dark-edged lands where the
+    /// avatar chip is drawn.
+    private func solidAvatarImage(_ color: UIColor = .black) -> UIImage {
+        let size = CGSize(width: 60, height: 60)
+        return UIGraphicsImageRenderer(size: size).image { context in
+            color.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+    }
+
+    /// With attribution set, the branding strip grows past the wordmark: a wide band to
+    /// its right — background-only with no attribution (`testDaylightWordmarkAbsentAttributionLeavesBandBlank`
+    /// below) — now carries the dash, avatar, and `@name`.
+    func testDaylightAttributionDrawsDarkInkRightOfWordmark() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(
+                background: .preset(.daylight),
+                attribution: WorkoutShareAttribution(avatar: solidAvatarImage(), name: "Justin"),
+                colorScheme: .light
+            ).uiImage?.cgImage
+        )
+
+        XCTAssertTrue(
+            Self.containsNearBlackPixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 250, y: 600, width: 80, height: 12, in: cgImage),
+                threshold: 150
+            ),
+            "the attribution did not draw in dark ink beside the wordmark"
+        )
+    }
+
+    /// Control for the test above: the same render with no attribution leaves the wide
+    /// right-of-wordmark band untouched — proving the ink there comes from the
+    /// attribution, not from some other element drifting into the probe.
+    func testDaylightWordmarkAbsentAttributionLeavesBandBlank() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(background: .preset(.daylight), attribution: .empty, colorScheme: .light).uiImage?.cgImage
+        )
+
+        XCTAssertFalse(
+            Self.containsNearBlackPixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 250, y: 600, width: 80, height: 12, in: cgImage),
+                threshold: 150
+            ),
+            "the branding band right of the wordmark should be empty with no attribution"
+        )
+    }
+
+    /// Ink follows the background that actually renders, never the stored preference: a
+    /// photo is dark-backed by its scrims, so it keeps the light ink and the black
+    /// legibility halo even when the tray still says Daylight. The block is moved off
+    /// its default slot to prove the rule holds wherever it lands.
+    func testBrightPhotoKeepsLightInkAndItsBlackShadow() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(
+                infoTransform: WorkoutShareInfoTransform(offset: CGSize(width: 20, height: 30), scale: 1),
+                withRoute: false,
+                background: .photo(flatImage(.white)),
+                colorScheme: .dark
+            ).uiImage?.cgImage
+        )
+
+        // The moved metric stack, entirely inside the clear band between the scrims.
+        let block = Self.pixelRect(x: 44, y: 250, width: 296, height: 200, in: cgImage)
+
+        XCTAssertFalse(
+            Self.containsNearBlackPixel(in: cgImage, region: block, threshold: 100),
+            "the metrics over a white photo drew in dark ink — the background did not win"
+        )
+        // White text on a white photo is only visible through its halo, so a region that
+        // is *uniformly* white means the black shadow stopped being drawn.
+        XCTAssertTrue(
+            Self.containsPixel(in: cgImage, region: block) { red, green, blue in
+                red < 235 && green < 235 && blue < 235
+            },
+            "the black legibility shadow did not draw over a white photo"
+        )
+    }
+
+    /// The map's composited snapshot is dark-backed by the classic layout's heavier
+    /// scrims, so its header keeps white ink whatever preset is stored.
+    func testMapBackgroundKeepsLightInk() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(layout: .classic, background: .map(flatImage(.white))).uiImage?.cgImage
+        )
+
+        XCTAssertTrue(
+            Self.containsNearWhitePixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 24, y: 88, width: 256, height: 24, in: cgImage)
+            ),
+            "the map card's title lost its white ink"
+        )
+    }
+
+    /// The video overlay draws no background of its own — the frames come from under it
+    /// — so it is light ink by the same rule, over transparency.
+    func testVideoOverlayKeepsLightInk() throws {
+        let cgImage = try XCTUnwrap(makeRenderer(background: .video).uiImage?.cgImage)
+
+        XCTAssertTrue(
+            Self.containsNearWhitePixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 30, y: 335, width: 300, height: 225, in: cgImage)
+            ),
+            "the video overlay's metrics lost their white ink"
+        )
+    }
+
+    /// The Daylight long image: near-white background, dark ink in the header band.
+    func testDaylightLongImageDrawsDarkInkOnWhite() throws {
+        let cgImage = try XCTUnwrap(
+            makeLongRenderer(preset: .daylight, colorScheme: .light).uiImage?.cgImage
+        )
+
+        // Scale 1 here, so these are image pixels directly. The top-left corner is
+        // inside the 24 pt margin — nothing but the preset's white.
+        let corner = Self.averageColor(in: cgImage, region: CGRect(x: 0, y: 0, width: 12, height: 12))
+        XCTAssertGreaterThan(corner.red, 240, "the Daylight long image's corner was not near-white")
+
+        // The title, right of the 46 pt type chip and below the 28 pt top padding.
+        XCTAssertTrue(
+            Self.containsNearBlackPixel(in: cgImage, region: CGRect(x: 84, y: 30, width: 250, height: 26)),
+            "the Daylight long image's header had no dark ink"
+        )
+    }
+
+    /// The trace's legibility halo is a 2D-only contract: the flat polyline is stroked
+    /// through a shadow filter, and the 3D ribbon deliberately draws bare (a halo on its
+    /// filled quads would smear rather than outline). Both are rendered over the same
+    /// flat mid-grey photo, where a black halo is measurable, and the band just below
+    /// the shared bottom-anchored ground line is compared.
+    func testFlatTraceIsHaloedAndTheThreeDRibbonIsNot() throws {
+        let photo = flatImage(UIColor(white: 0.5, alpha: 1))
+        let twoD = try XCTUnwrap(
+            makeRenderer(coordinates: flatFixtureCoordinates(), background: .photo(photo)).uiImage?.cgImage
+        )
+        let threeD = try XCTUnwrap(
+            makeRenderer(
+                coordinates: flatFixtureCoordinates(),
+                dimension: .threeD,
+                background: .photo(photo)
+            ).uiImage?.cgImage
+        )
+
+        // Just under the ground line at card y 288 (stroke half-width 2.5), still inside
+        // the route Canvas, and above the metric stack at y 330.
+        let band = Self.pixelRect(x: 100, y: 294, width: 160, height: 5, in: twoD)
+        let flat = Self.averageColor(in: twoD, region: band)
+        let ribbon = Self.averageColor(in: threeD, region: band)
+
+        XCTAssertLessThan(
+            flat.red, ribbon.red - 3,
+            "the 2D trace drew no shadow below its stroke"
+        )
+        XCTAssertEqual(
+            ribbon.red, 127.5, accuracy: 3,
+            "the 3D ribbon grew a shadow — it draws bare by design; see WorkoutShareRouteTrace"
+        )
     }
 
     private static func pixelRect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, in cgImage: CGImage) -> CGRect {
@@ -1083,6 +1383,24 @@ final class WorkoutShareRenderTests: XCTestCase {
         return pixels
     }
 
+    /// The mirror of `containsNonBlackPixel` for the Daylight card: any pixel dark on
+    /// every channel, i.e. the dark ink actually landed somewhere in `region`. A
+    /// threshold rather than an exact match, because text is antialiased and the
+    /// secondary strengths (`ink.primary(0.6)`) are greys, not black.
+    private static func containsNearBlackPixel(in cgImage: CGImage, region: CGRect, threshold: UInt8 = 110) -> Bool {
+        containsPixel(in: cgImage, region: region) { red, green, blue in
+            red <= threshold && green <= threshold && blue <= threshold
+        }
+    }
+
+    /// The same probe for the light ink — used where a background must keep white text
+    /// even though a Daylight preset is stored.
+    private static func containsNearWhitePixel(in cgImage: CGImage, region: CGRect, threshold: UInt8 = 200) -> Bool {
+        containsPixel(in: cgImage, region: region) { red, green, blue in
+            red >= threshold && green >= threshold && blue >= threshold
+        }
+    }
+
     /// Draws the CGImage into an RGBA8 buffer and scans `region` for any pixel that
     /// isn't Midnight's flat black background — a loose check for "something drew here"
     /// rather than a match on any particular color.
@@ -1116,3 +1434,4 @@ final class WorkoutShareRenderTests: XCTestCase {
         return false
     }
 }
+

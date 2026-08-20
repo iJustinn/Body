@@ -208,6 +208,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Close",
             "Midnight",
             "Workout Color",
+            "Daylight",
             "Map",
             "Save",
             "Save to Photos",
@@ -305,7 +306,14 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Pick 1 to 5 metrics.",
             "At least one metric stays on the card.",
             "Share Card Metrics",
-            "Choose which metrics your workout share card shows."
+            "Choose which metrics your workout share card shows.",
+            // Profile attribution rail icon, its tray tile names and disabled-tile
+            // hint, and the missing-data caption shown while the tray is open.
+            "Profile",
+            "Show Avatar",
+            "Show Nickname",
+            "Add it in Settings › Profile first.",
+            "Add a photo and name in Settings › Profile to show them on the card."
         ]
 
         try assertKeysTranslated(keys, in: catalog)

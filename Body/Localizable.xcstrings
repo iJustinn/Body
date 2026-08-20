@@ -1137,6 +1137,38 @@
         }
       }
     },
+    "Add a photo and name in Settings › Profile to show them on the card." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a photo and name in Settings › Profile to show them on the card."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在设置 › 个人资料中添加照片和名字，即可显示在卡片上。"
+          }
+        }
+      }
+    },
+    "Add it in Settings › Profile first." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add it in Settings › Profile first."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先在设置 › 个人资料中添加。"
+          }
+        }
+      }
+    },
     "Add Measurement" : {
       "localizations" : {
         "en" : {
@@ -3361,6 +3393,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "日视图"
+          }
+        }
+      }
+    },
+    "Daylight" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daylight"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日光"
           }
         }
       }
@@ -8519,6 +8568,22 @@
         }
       }
     },
+    "Show Avatar" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Avatar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示头像"
+          }
+        }
+      }
+    },
     "Show Awake at Start & End" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8598,6 +8663,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示图标"
+          }
+        }
+      }
+    },
+    "Show Nickname" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Nickname"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示昵称"
           }
         }
       }

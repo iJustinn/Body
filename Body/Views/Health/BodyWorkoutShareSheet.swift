@@ -61,6 +61,14 @@ struct BodyWorkoutShareSheet: View {
         WorkoutShareRouteVisibility.shown.rawValue
     @AppStorage(WorkoutShareIconVisibility.storageKey) private var storedIconVisibility: String =
         WorkoutShareIconVisibility.shown.rawValue
+    @AppStorage(WorkoutShareAvatarVisibility.storageKey) private var storedAvatarVisibility: String =
+        WorkoutShareAvatarVisibility.hidden.rawValue
+    @AppStorage(WorkoutShareNicknameVisibility.storageKey) private var storedNicknameVisibility: String =
+        WorkoutShareNicknameVisibility.hidden.rawValue
+    /// Mirrors `BodyProfileView`'s own storage exactly — same keys, same defaults — so
+    /// the sheet reads whatever Settings › Profile currently has on hand.
+    @AppStorage(BodyAppearancePreference.profileNameKey) private var profileName = ""
+    @AppStorage(BodyAppearancePreference.profileAvatarDataKey) private var profileAvatarData = Data()
     @AppStorage(WorkoutShareFontChoice.storageKey) private var storedFont: String =
         WorkoutShareFontChoice.rounded.rawValue
     @AppStorage(WorkoutShareRouteColorChoice.storageKey) private var storedRouteColor: String =
@@ -155,6 +163,10 @@ struct BodyWorkoutShareSheet: View {
     /// Which of the two things the photo preview's gestures move. Photo comes first: the
     /// backdrop has to be framed before placing the block on it makes sense.
     @State private var photoStep: PhotoAdjustStep = .photo
+    /// The decoded profile avatar, held rather than computed: `cardView()` re-evaluates
+    /// on every drag/pinch frame, and decoding the JPEG that often would be wasted work.
+    /// Seeded in `.task` and kept in sync with `profileAvatarData` via `.onChange`.
+    @State private var profileAvatarImage: UIImage?
 
     /// Computed once from the shared presentation so the card's values never drift
     /// from the detail page and the projection isn't redone on every body pass.
@@ -183,6 +195,7 @@ struct BodyWorkoutShareSheet: View {
     private enum RailOption: Hashable, CaseIterable {
         case font
         case metrics
+        case profile
         case ratio
         case arrange
         case routeColor
@@ -302,9 +315,11 @@ struct BodyWorkoutShareSheet: View {
 
     private var isLongMode: Bool { activeOutputStyle == .longImage }
 
-    /// The gradient the long image paints — the stored background when it's a preset,
-    /// Midnight when it's the map (or a photo/clip is held). The preview ring, the
-    /// export, and the save all read this one value.
+    /// The gradient the long image paints — any stored preset (Midnight, Workout
+    /// Color, or Daylight) shows through untouched even while a photo or clip is held,
+    /// since the long image never draws either; only a stored map falls back to
+    /// Midnight, which the long image also never draws. The preview ring, the export,
+    /// and the save all read this one value.
     private var activeLongPreset: BodyWorkoutSharePreset {
         WorkoutShareBackgroundPolicy.longPreset(storedBackground: storedBackground, hasRoute: hasRoute)
     }
@@ -336,6 +351,29 @@ struct BodyWorkoutShareSheet: View {
     /// visibility it mirrors; only ever consulted on a route-less card.
     private var isIconHidden: Bool {
         WorkoutShareIconVisibility.stored(rawValue: storedIconVisibility) == .hidden
+    }
+
+    /// The Settings profile name, trimmed and nil-if-empty — the same rule the profile
+    /// page itself uses.
+    private var profileDisplayName: String? {
+        BodyUserProfile.displayName(from: profileName)
+    }
+
+    private var isAvatarShown: Bool {
+        WorkoutShareAvatarVisibility.stored(rawValue: storedAvatarVisibility) == .shown
+    }
+
+    private var isNicknameShown: Bool {
+        WorkoutShareNicknameVisibility.stored(rawValue: storedNicknameVisibility) == .shown
+    }
+
+    /// What the card actually draws beside the watermark — a toggle that's on but whose
+    /// backing data has since been deleted in Settings draws nothing for that field.
+    private var activeAttribution: WorkoutShareAttribution {
+        WorkoutShareAttribution(
+            avatar: isAvatarShown ? profileAvatarImage : nil,
+            name: isNicknameShown ? profileDisplayName : nil
+        )
     }
 
     /// The shape the card actually renders at — the stored one only when it's free or
@@ -450,6 +488,17 @@ struct BodyWorkoutShareSheet: View {
         return .preset(.midnight)
     }
 
+    /// Which way the card's ink runs, read from `activeBackground` — never from stored
+    /// state — so a photo, a map snapshot, or a video frame always takes the light ink
+    /// even while a Daylight preset stays selected in the tray. Mirrors the card view's
+    /// own `ink` so the preview's forced colour scheme matches what it draws.
+    private var activeInk: WorkoutShareCardInk {
+        switch activeBackground {
+        case .preset(let preset): return preset.ink
+        case .photo, .map, .video: return .light
+        }
+    }
+
     /// Only the map keeps the classic card. Keyed off `activeSelection`, never
     /// `activeBackground`: while a map snapshot loads, the background reports Midnight,
     /// and deriving from it would flash the centered layout before the map lands. A
@@ -544,7 +593,8 @@ struct BodyWorkoutShareSheet: View {
             infoTransform: activeInfoTransform,
             photoTransform: activePhotoTransform,
             fontDesign: storedFontChoice.design,
-            routeColor: storedRouteColorChoice.color(tint: workout.type.color)
+            routeColor: storedRouteColorChoice.color(tint: workout.type.color),
+            attribution: activeAttribution
         )
     }
 
@@ -657,7 +707,8 @@ struct BodyWorkoutShareSheet: View {
             cadence: cadence,
             strideLength: strideLength,
             groundContact: groundContact,
-            verticalOscillation: verticalOscillation
+            verticalOscillation: verticalOscillation,
+            attribution: activeAttribution
         )
     }
 
@@ -730,6 +781,12 @@ struct BodyWorkoutShareSheet: View {
                     }
                     if expandedOption == .metrics {
                         metricsTray
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    } else if expandedOption == .profile, profileAvatarImage == nil || profileDisplayName == nil {
+                        Text("Add a photo and name in Settings › Profile to show them on the card.")
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundColor(.white.opacity(0.6))
+                            .fixedSize(horizontal: false, vertical: true)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     } else if isMediaMode, !isLongMode {
                         mediaAdjustTray
@@ -916,6 +973,15 @@ struct BodyWorkoutShareSheet: View {
             }
             .task(id: photoItem) { await loadSelectedPhoto() }
             .task(id: videoItem) { await loadSelectedVideo() }
+            // Seeds the decoded avatar once on appear; `cardView()` reads the `@State`
+            // rather than decoding the JPEG itself, since it re-evaluates every gesture
+            // frame.
+            .task {
+                profileAvatarImage = profileAvatarData.isEmpty ? nil : UIImage(data: profileAvatarData)
+            }
+            .onChange(of: profileAvatarData) { _, newValue in
+                profileAvatarImage = newValue.isEmpty ? nil : UIImage(data: newValue)
+            }
             // Everything the clip owns goes with the sheet: the encode nothing can
             // receive any more, the player, and every scratch directory still on disk.
             .onDisappear {
@@ -1005,6 +1071,7 @@ struct BodyWorkoutShareSheet: View {
 
                             cardView()
                                 .frame(width: cardSize.width, height: cardSize.height)
+                                .environment(\.colorScheme, activeInk == .dark ? .light : .dark)
                         }
                         .frame(width: cardSize.width, height: cardSize.height)
                         .scaleEffect(previewScale, anchor: .topLeading)
@@ -1075,6 +1142,7 @@ struct BodyWorkoutShareSheet: View {
                 longCardView()
                     .frame(width: BodyWorkoutShareLongCardView.width)
                     .fixedSize(horizontal: false, vertical: true)
+                    .environment(\.colorScheme, activeLongPreset.ink == .dark ? .light : .dark)
                     // The scaled card doesn't report its scaled height (scaleEffect is a
                     // draw-time transform), so the natural height is measured here and
                     // the container below is sized to `height × scale` — otherwise the
@@ -1260,6 +1328,12 @@ struct BodyWorkoutShareSheet: View {
                 EmptyView()
             }
 
+            // Always present and free — no lock, not gated on `hasRoute`: attribution
+            // is a watermark addition, not a route-drawing option.
+            railRow(.profile, symbol: "at", label: Text("Profile"), trayWidth: trayWidth) {
+                profileTray
+            }
+
             railRow(
                 .background,
                 symbol: "photo.on.rectangle",
@@ -1369,6 +1443,66 @@ struct BodyWorkoutShareSheet: View {
         }
     }
 
+    /// Avatar and nickname, as two independent toggles rather than a radio pair — either,
+    /// both, or neither can be on. Neither tap closes the tray, matching the metric
+    /// chips: flipping one and then checking the other shouldn't require reopening.
+    private var profileTray: some View {
+        optionTiles {
+            avatarTile
+            nicknameTile
+        }
+    }
+
+    private var avatarTile: some View {
+        let isAvailable = profileAvatarImage != nil
+        let isSelected = isAvatarShown
+        return Button {
+            storedAvatarVisibility = isSelected
+                ? WorkoutShareAvatarVisibility.hidden.rawValue
+                : WorkoutShareAvatarVisibility.shown.rawValue
+        } label: {
+            Image(systemName: "person.crop.circle")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: Self.optionTileSize, height: Self.optionTileSize)
+                .background(Color.white.opacity(0.1), in: Circle())
+                .overlay { selectionRing(isSelected: isSelected) }
+        }
+        .buttonStyle(.plain)
+        .opacity(isAvailable ? 1 : 0.4)
+        .disabled(!isAvailable)
+        .accessibilityLabel(Text("Show Avatar"))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityHint(
+            isAvailable ? Text(verbatim: "") : Text("Add it in Settings › Profile first.")
+        )
+    }
+
+    private var nicknameTile: some View {
+        let isAvailable = profileDisplayName != nil
+        let isSelected = isNicknameShown
+        return Button {
+            storedNicknameVisibility = isSelected
+                ? WorkoutShareNicknameVisibility.hidden.rawValue
+                : WorkoutShareNicknameVisibility.shown.rawValue
+        } label: {
+            Image(systemName: "at")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: Self.optionTileSize, height: Self.optionTileSize)
+                .background(Color.white.opacity(0.1), in: Circle())
+                .overlay { selectionRing(isSelected: isSelected) }
+        }
+        .buttonStyle(.plain)
+        .opacity(isAvailable ? 1 : 0.4)
+        .disabled(!isAvailable)
+        .accessibilityLabel(Text("Show Nickname"))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityHint(
+            isAvailable ? Text(verbatim: "") : Text("Add it in Settings › Profile first.")
+        )
+    }
+
     /// Horizontal scroller shared by every tray — seven route colours don't fit beside
     /// the rail on a small phone, and a clipped row would hide options entirely. The
     /// trailing anchor keeps a short row of tiles hugging its icon (a scroll view
@@ -1384,26 +1518,13 @@ struct BodyWorkoutShareSheet: View {
         anchor: UnitPoint = .trailing,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Self.optionRowSpacing) {
-                content()
-            }
-            .padding(.vertical, 2)
+        BodyOptionTileScroller(
+            anchor: anchor,
+            fade: Self.optionTilesFade,
+            spacing: Self.optionRowSpacing
+        ) {
+            content()
         }
-        .contentMargins(.horizontal, Self.optionTilesFade, for: .scrollContent)
-        .defaultScrollAnchor(anchor)
-        // Soft edges so a tile scrolled under the rail's tray budget fades instead of
-        // hard-clipping; the content margin above keeps the tiles at rest (first/last)
-        // clear of the fade so nothing dims until it's actually swiped under it.
-        .mask(
-            HStack(spacing: 0) {
-                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: Self.optionTilesFade)
-                Rectangle().fill(Color.black)
-                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: Self.optionTilesFade)
-            }
-        )
     }
 
     /// The backdrop tiles. In long mode only the gradient presets apply — the long
@@ -1792,10 +1913,10 @@ struct BodyWorkoutShareSheet: View {
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
-    private func selectionRing(isSelected: Bool) -> some View {
+    private func selectionRing(isSelected: Bool, stroke: Color = .white) -> some View {
         Circle()
             .strokeBorder(
-                Color.white.opacity(isSelected ? 0.9 : 0.3),
+                stroke.opacity(isSelected ? 0.9 : 0.3),
                 lineWidth: isSelected ? 2 : 1
             )
     }
@@ -1812,8 +1933,9 @@ struct BodyWorkoutShareSheet: View {
 
     private func presetSwatch(_ preset: BodyWorkoutSharePreset) -> some View {
         // In long mode the ring follows the gradient that actually paints — a stored
-        // map (or a held photo) resolves to Midnight there and must not leave the strip
-        // showing a selection nothing renders.
+        // map resolves to Midnight there (the long image never draws a map, so a held
+        // photo doesn't factor in) and must not leave the strip showing a selection
+        // nothing renders.
         let isSelected = isLongMode ? activeLongPreset == preset : activeSelection == .preset(preset)
         return Button {
             closeTray()
@@ -1829,10 +1951,23 @@ struct BodyWorkoutShareSheet: View {
                     if isSelected {
                         Image(systemName: "checkmark")
                             .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(preset.ink == .dark ? .black : .white)
                     }
                 }
-                .overlay { selectionRing(isSelected: isSelected) }
+                // Daylight's white circle needs its own edge — a white hairline would
+                // be invisible on it, so this one stays dark and permanent, inside the
+                // ring below rather than instead of it.
+                .overlay {
+                    if preset.ink == .dark {
+                        Circle().strokeBorder(Color.black.opacity(0.15))
+                    }
+                }
+                .overlay {
+                    selectionRing(
+                        isSelected: isSelected,
+                        stroke: preset.ink == .dark ? Color.black.opacity(0.6) : .white
+                    )
+                }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(preset.localizedName)
@@ -2227,7 +2362,7 @@ struct BodyWorkoutShareSheet: View {
             content: longCardView()
                 .frame(width: BodyWorkoutShareLongCardView.width)
                 .fixedSize(horizontal: false, vertical: true)
-                .environment(\.colorScheme, .dark)
+                .environment(\.colorScheme, activeLongPreset.ink == .dark ? .light : .dark)
                 .dynamicTypeSize(.large)
                 // `accessibilityReduceMotion` is read-only in `EnvironmentValues`, so
                 // the determinism it would buy is taken here instead: the chart cards
@@ -2254,7 +2389,7 @@ struct BodyWorkoutShareSheet: View {
         let renderer = ImageRenderer(
             content: cardView()
                 .frame(width: cardSize.width, height: cardSize.height)
-                .environment(\.colorScheme, .dark)
+                .environment(\.colorScheme, activeInk == .dark ? .light : .dark)
                 .dynamicTypeSize(.large)
         )
         renderer.scale = 3
@@ -2650,4 +2785,56 @@ private struct BodyShareActivityView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+/// The tray tile scroller with soft edges that only exist where content is actually
+/// hidden: a fade appears on an edge when tiles overflow past it — at rest (or in a
+/// tray whose tiles all fit) both edges stay hard and nothing is dimmed. The width
+/// still carries a matching content margin so a row that *does* scroll comes to rest
+/// with its first/last tile clear of the fade.
+private struct BodyOptionTileScroller<Content: View>: View {
+    let anchor: UnitPoint
+    let fade: CGFloat
+    let spacing: CGFloat
+    @ViewBuilder let content: Content
+
+    /// Which edges hide content right now, from the scroll geometry.
+    private struct EdgeOverflow: Equatable {
+        var leading = false
+        var trailing = false
+    }
+
+    @State private var overflow = EdgeOverflow()
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: spacing) {
+                content
+            }
+            .padding(.vertical, 2)
+        }
+        .contentMargins(.horizontal, fade, for: .scrollContent)
+        .defaultScrollAnchor(anchor)
+        .onScrollGeometryChange(for: EdgeOverflow.self) { geometry in
+            // visibleRect is in content coordinates: anything before its minX or past
+            // its maxX is scrolled under an edge. Half a point of slack keeps rounding
+            // from flickering a fade on a row that exactly fits.
+            EdgeOverflow(
+                leading: geometry.visibleRect.minX > 0.5,
+                trailing: geometry.visibleRect.maxX < geometry.contentSize.width - 0.5
+            )
+        } action: { _, newValue in
+            overflow = newValue
+        }
+        .mask(
+            HStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: overflow.leading ? fade : 0)
+                Rectangle().fill(Color.black)
+                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: overflow.trailing ? fade : 0)
+            }
+            .animation(.easeInOut(duration: 0.15), value: overflow)
+        )
+    }
 }

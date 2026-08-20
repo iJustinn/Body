@@ -598,13 +598,70 @@ enum WorkoutShareRouteProjection {
     }
 }
 
+/// Which way a share export's ink runs — one value the card and the long image both
+/// read instead of hard-coding white text over black scrims. `.light` is every
+/// dark-backed export (the Midnight and Workout Color presets, and every photo, map,
+/// and video background, which are dark-backed by their scrims); `.dark` is the
+/// Daylight preset's white card.
+///
+/// Only the export's *own* chrome reads this. The trace colour, the type tint, and the
+/// branding icon are user/asset colours and stay as they are.
+enum WorkoutShareCardInk {
+    case light
+    case dark
+
+    /// The colour of full-strength text.
+    var primary: Color {
+        switch self {
+        case .light: return .white
+        case .dark: return .black
+        }
+    }
+
+    /// The same ink at one of the card's secondary strengths (`.white.opacity(0.7)` and
+    /// friends), so an opacity site converts without picking a colour of its own.
+    func primary(_ opacity: Double) -> Color {
+        primary.opacity(opacity)
+    }
+
+    /// The base colour of the top/bottom scrim gradients. The gradients keep their own
+    /// opacities; only the colour flips, so a white card darkens nothing.
+    var scrim: Color {
+        switch self {
+        case .light: return .black
+        case .dark: return .white
+        }
+    }
+
+    /// The legibility halo behind text and the 2D trace, for the moments the ink lands
+    /// on a background the scrims don't reach (a bright photo, the tint gradient's
+    /// edge). Slightly stronger on the dark ink: a white halo has less contrast against
+    /// mid-tones than a black one.
+    var legibilityShadow: Color {
+        switch self {
+        case .light: return Color.black.opacity(0.45)
+        case .dark: return Color.white.opacity(0.55)
+        }
+    }
+}
+
 /// Built-in gradient backgrounds for the share card — free, code-defined (no assets).
 /// User photos are a separate, Pro-gated path; see `WorkoutShareBackgroundPolicy`.
 enum BodyWorkoutSharePreset: String, CaseIterable, Identifiable {
     case midnight
     case workoutTint
+    case daylight
 
     var id: String { rawValue }
+
+    /// Which way the ink runs on this preset — the one place the polarity is decided,
+    /// read by the card, the long image, and the sheet's chrome.
+    var ink: WorkoutShareCardInk {
+        switch self {
+        case .midnight, .workoutTint: return .light
+        case .daylight: return .dark
+        }
+    }
 
     func gradient(tint: Color) -> LinearGradient {
         switch self {
@@ -613,6 +670,13 @@ enum BodyWorkoutSharePreset: String, CaseIterable, Identifiable {
             // only so both presets share a return type.
             return LinearGradient(
                 colors: [Color.black, Color.black],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        case .daylight:
+            // Midnight inverted: pure white, flat by design for the same reason.
+            return LinearGradient(
+                colors: [Color.white, Color.white],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -630,6 +694,7 @@ enum BodyWorkoutSharePreset: String, CaseIterable, Identifiable {
         switch self {
         case .midnight: return String(localized: "Midnight")
         case .workoutTint: return String(localized: "Workout Color")
+        case .daylight: return String(localized: "Daylight")
         }
     }
 }
@@ -687,6 +752,54 @@ enum WorkoutShareIconVisibility: String, CaseIterable {
         }
         return visibility
     }
+}
+
+/// Whether the card draws the Settings profile avatar beside the watermark. Stored
+/// across sessions like the route/icon visibility it sits next to, but the default is
+/// **hidden** — the opposite of those — because attribution is opt-in: showing someone's
+/// name and photo on a shared image is a decision the user makes, not a default.
+enum WorkoutShareAvatarVisibility: String, CaseIterable {
+    case shown
+    case hidden
+
+    static let storageKey = "workoutShareAvatarVisibility"
+
+    /// Anything unknown (or nothing stored) hides the avatar.
+    static func stored(rawValue: String?) -> WorkoutShareAvatarVisibility {
+        guard let rawValue, let visibility = WorkoutShareAvatarVisibility(rawValue: rawValue) else {
+            return .hidden
+        }
+        return visibility
+    }
+}
+
+/// Whether the card draws the Settings profile `@name` beside the watermark. Same
+/// shape and default as `WorkoutShareAvatarVisibility` — hidden until the user opts in.
+enum WorkoutShareNicknameVisibility: String, CaseIterable {
+    case shown
+    case hidden
+
+    static let storageKey = "workoutShareNicknameVisibility"
+
+    /// Anything unknown (or nothing stored) hides the nickname.
+    static func stored(rawValue: String?) -> WorkoutShareNicknameVisibility {
+        guard let rawValue, let visibility = WorkoutShareNicknameVisibility(rawValue: rawValue) else {
+            return .hidden
+        }
+        return visibility
+    }
+}
+
+/// What the card actually draws beside the watermark, resolved by the sheet from the
+/// visibility toggles above and whatever the Settings profile currently has on hand —
+/// a `.shown` toggle with a since-deleted photo or name draws nothing for that field.
+struct WorkoutShareAttribution {
+    let avatar: UIImage?
+    let name: String?
+
+    var isEmpty: Bool { avatar == nil && name == nil }
+
+    static let empty = WorkoutShareAttribution(avatar: nil, name: nil)
 }
 
 /// What Share/Save actually produce: the fixed-shape card, or the tall "long image"
