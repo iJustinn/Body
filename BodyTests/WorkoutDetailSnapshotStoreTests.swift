@@ -74,6 +74,46 @@ final class WorkoutDetailSnapshotStoreTests: XCTestCase {
         )
     }
 
+    // MARK: - Split fixtures
+
+    private let splitBase = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private func distanceSample(_ start: TimeInterval, _ end: TimeInterval, _ meters: Double) -> WorkoutDistanceSample {
+        WorkoutDistanceSample(
+            startDate: splitBase.addingTimeInterval(start),
+            endDate: splitBase.addingTimeInterval(end),
+            meters: meters
+        )
+    }
+
+    private func stepSample(_ start: TimeInterval, _ end: TimeInterval, _ count: Double) -> WorkoutStepSample {
+        WorkoutStepSample(
+            startDate: splitBase.addingTimeInterval(start),
+            endDate: splitBase.addingTimeInterval(end),
+            count: count
+        )
+    }
+
+    private func timeSegment(_ start: TimeInterval, _ end: TimeInterval) -> WorkoutTimeSegment {
+        WorkoutTimeSegment(startDate: splitBase.addingTimeInterval(start), endDate: splitBase.addingTimeInterval(end))
+    }
+
+    private func makeSplitData() -> WorkoutSplitData {
+        WorkoutSplitData(
+            distanceSamples: [
+                distanceSample(0, 10, 30),
+                distanceSample(10, 20, 30),
+                distanceSample(20, 30, 30),
+            ],
+            segments: [timeSegment(0, 30)],
+            stepSamples: [
+                stepSample(0, 10, 15),
+                stepSample(10, 20, 15),
+                stepSample(20, 30, 15),
+            ]
+        )
+    }
+
     // MARK: - Round-trip
 
     func testRoundTripPreservesAllFields() throws {
@@ -200,7 +240,7 @@ final class WorkoutDetailSnapshotStoreTests: XCTestCase {
         let snapshot = makeSnapshot(workoutID: workoutID)
         XCTAssertTrue(WorkoutDetailSnapshotStore.save(snapshot, directoryURL: directoryURL))
 
-        WorkoutDetailSnapshotStore.stripMetricSeries(directoryURL: directoryURL)
+        WorkoutDetailSnapshotStore.stripWorkoutMetricsPayloads(directoryURL: directoryURL)
 
         let loaded = try XCTUnwrap(WorkoutDetailSnapshotStore.load(workoutID: workoutID, directoryURL: directoryURL))
         XCTAssertNotNil(loaded.route)
@@ -230,7 +270,7 @@ final class WorkoutDetailSnapshotStoreTests: XCTestCase {
             heartRateRecoveryBPM: nil
         )
         XCTAssertTrue(WorkoutDetailSnapshotStore.save(metricOnlySnapshot, directoryURL: directoryURL))
-        WorkoutDetailSnapshotStore.stripMetricSeries(directoryURL: directoryURL)
+        WorkoutDetailSnapshotStore.stripWorkoutMetricsPayloads(directoryURL: directoryURL)
         XCTAssertNil(WorkoutDetailSnapshotStore.load(workoutID: metricOnlyID, directoryURL: directoryURL))
 
         let hrrOnlyID = UUID()
@@ -243,6 +283,214 @@ final class WorkoutDetailSnapshotStoreTests: XCTestCase {
         XCTAssertTrue(WorkoutDetailSnapshotStore.save(hrrOnlySnapshot, directoryURL: directoryURL))
         WorkoutDetailSnapshotStore.stripHeartRateRecovery(directoryURL: directoryURL)
         XCTAssertNil(WorkoutDetailSnapshotStore.load(workoutID: hrrOnlyID, directoryURL: directoryURL))
+    }
+
+    // MARK: - Splits: round-trip
+
+    func testSplitDataRoundTripPreservesAllSampleKinds() throws {
+        let workoutID = UUID()
+        let model = makeSplitData()
+        let persisted = try XCTUnwrap(PersistedWorkoutSplitData.downsampled(from: model))
+        let snapshot = WorkoutDetailSnapshot(workoutID: workoutID, splitData: persisted)
+
+        XCTAssertTrue(WorkoutDetailSnapshotStore.save(snapshot, directoryURL: directoryURL))
+        let loaded = try XCTUnwrap(WorkoutDetailSnapshotStore.load(workoutID: workoutID, directoryURL: directoryURL))
+        XCTAssertEqual(loaded, snapshot)
+
+        let loadedModel = try XCTUnwrap(loaded.splitData).toModel()
+        XCTAssertEqual(loadedModel, model)
+    }
+
+    // MARK: - Splits: downsampler
+
+    func testDownsamplerReducesCountPreservesTotalsAndOrder() throws {
+        let count = 5_000
+        let distances = (0..<count).map { distanceSample(Double($0), Double($0 + 1), 3.0) }
+        let steps = (0..<count).map { stepSample(Double($0), Double($0 + 1), 2.0) }
+        let model = WorkoutSplitData(distanceSamples: distances, segments: [], stepSamples: steps)
+
+        let persisted = try XCTUnwrap(PersistedWorkoutSplitData.downsampled(from: model))
+
+        XCTAssertLessThanOrEqual(persisted.distanceSamples.count, 1_000)
+        XCTAssertGreaterThan(persisted.distanceSamples.count, 0)
+        XCTAssertEqual(
+            persisted.distanceSamples.reduce(0.0) { $0 + $1.meters },
+            distances.reduce(0.0) { $0 + $1.meters }
+        )
+        XCTAssertEqual(
+            persisted.stepSamples.reduce(0.0) { $0 + $1.count },
+            steps.reduce(0.0) { $0 + $1.count }
+        )
+
+        var previousEnd = Date.distantPast
+        for sample in persisted.distanceSamples {
+            XCTAssertGreaterThanOrEqual(sample.startDate, previousEnd)
+            XCTAssertLessThanOrEqual(sample.meters, 50.0)
+            XCTAssertLessThanOrEqual(sample.endDate.timeIntervalSince(sample.startDate), 120.0)
+            previousEnd = sample.endDate
+        }
+    }
+
+    func testDownsamplerBreaksRunsAcrossGapsOver15Seconds() throws {
+        let firstHalf = (0..<600).map { distanceSample(Double($0), Double($0 + 1), 3.0) }
+        let secondHalf = (0..<600).map { distanceSample(620 + Double($0), 620 + Double($0 + 1), 3.0) }
+        let model = WorkoutSplitData(distanceSamples: firstHalf + secondHalf, segments: [], stepSamples: [])
+
+        let persisted = try XCTUnwrap(PersistedWorkoutSplitData.downsampled(from: model))
+
+        for sample in persisted.distanceSamples {
+            let start = sample.startDate.timeIntervalSince(splitBase)
+            let end = sample.endDate.timeIntervalSince(splitBase)
+            XCTAssertFalse(start < 600 && end > 620, "merged sample \(start)-\(end) spans the 20s gap")
+        }
+    }
+
+    func testDownsamplerBreaksRunsWhenAccumulatedGapExceeds30Seconds() throws {
+        let count = 5_000
+        let distances = (0..<count).map { i -> WorkoutDistanceSample in
+            let start = Double(i) * 11
+            return distanceSample(start, start + 1, 3.0)
+        }
+        let model = WorkoutSplitData(distanceSamples: distances, segments: [], stepSamples: [])
+
+        let persisted = try XCTUnwrap(PersistedWorkoutSplitData.downsampled(from: model))
+
+        for sample in persisted.distanceSamples {
+            let span = sample.endDate.timeIntervalSince(sample.startDate)
+            // Each original sample covers exactly 1s of active time per 3m, so the
+            // merged sample's internal gap is whatever span isn't accounted for by
+            // the active seconds its summed meters imply.
+            let activeSeconds = sample.meters / 3.0
+            let internalGap = span - activeSeconds
+            XCTAssertLessThanOrEqual(internalGap, 30.0 + 0.001)
+        }
+    }
+
+    func testDownsamplerNeverMergesAcrossSegmentBoundaries() throws {
+        let count = 3_000
+        let distances = (0..<count).map { distanceSample(Double($0), Double($0 + 1), 3.0) }
+        let segments = [timeSegment(777, 1_533)]
+        let model = WorkoutSplitData(distanceSamples: distances, segments: segments, stepSamples: [])
+
+        let persisted = try XCTUnwrap(PersistedWorkoutSplitData.downsampled(from: model))
+
+        XCTAssertEqual(persisted.segments.map { $0.toModel() }, segments)
+
+        let boundaries: [TimeInterval] = [777, 1_533]
+        for sample in persisted.distanceSamples {
+            let start = sample.startDate.timeIntervalSince(splitBase)
+            let end = sample.endDate.timeIntervalSince(splitBase)
+            for boundary in boundaries {
+                XCTAssertFalse(start < boundary && boundary < end, "sample \(start)-\(end) straddles boundary \(boundary)")
+            }
+        }
+    }
+
+    func testDownsamplerReturnsNilPastHardCapOrWhenEmpty() throws {
+        // 2,000 samples each separated by a 20s gap: the gap rule forbids merging
+        // any of them, so the output count matches the input count and blows past
+        // the 1,500 hard cap.
+        let distances = (0..<2_000).map { i -> WorkoutDistanceSample in
+            let start = Double(i) * 21
+            return distanceSample(start, start + 1, 3.0)
+        }
+        let model = WorkoutSplitData(distanceSamples: distances, segments: [], stepSamples: [])
+        XCTAssertNil(PersistedWorkoutSplitData.downsampled(from: model))
+
+        let empty = WorkoutSplitData(distanceSamples: [], segments: [], stepSamples: [stepSample(0, 1, 1)])
+        XCTAssertNil(PersistedWorkoutSplitData.downsampled(from: empty))
+    }
+
+    func testDownsamplerPassesThroughSmallInputUnchanged() throws {
+        let distances = (0..<50).map { distanceSample(Double($0) * 2, Double($0) * 2 + 1, 5.0) }
+        let steps = (0..<50).map { stepSample(Double($0) * 2, Double($0) * 2 + 1, 3.0) }
+        let model = WorkoutSplitData(distanceSamples: distances, segments: [], stepSamples: steps)
+
+        let persisted = try XCTUnwrap(PersistedWorkoutSplitData.downsampled(from: model))
+
+        XCTAssertEqual(persisted.distanceSamples.count, 50)
+        XCTAssertEqual(persisted.distanceSamples.map { $0.toModel() }, distances)
+        XCTAssertEqual(persisted.stepSamples.count, 50)
+        XCTAssertEqual(persisted.stepSamples.map { $0.toModel() }, steps)
+    }
+
+    // MARK: - Splits: fidelity regression
+
+    func testDownsampledSplitsMatchOriginalWithinTolerance() throws {
+        let sampleWidth = 0.4
+        let sampleMeters = 4.0
+        let count = 2_500
+        let distances = (0..<count).map { i -> WorkoutDistanceSample in
+            let start = Double(i) * sampleWidth
+            return distanceSample(start, start + sampleWidth, sampleMeters)
+        }
+        let workoutStart = splitBase
+        let workoutEnd = splitBase.addingTimeInterval(Double(count) * sampleWidth)
+        let model = WorkoutSplitData(distanceSamples: distances, segments: [], stepSamples: [])
+
+        let persisted = try XCTUnwrap(PersistedWorkoutSplitData.downsampled(from: model))
+        let downsampledModel = persisted.toModel()
+
+        let originalSplits = WorkoutSplitCalculator.splits(
+            samples: distances,
+            unitMeters: 1_000,
+            workoutStart: workoutStart,
+            workoutEnd: workoutEnd
+        )
+        let downsampledSplits = WorkoutSplitCalculator.splits(
+            samples: downsampledModel.distanceSamples,
+            unitMeters: 1_000,
+            workoutStart: workoutStart,
+            workoutEnd: workoutEnd
+        )
+
+        XCTAssertEqual(originalSplits.count, downsampledSplits.count)
+        XCTAssertEqual(
+            originalSplits.reduce(0.0) { $0 + $1.distanceMeters },
+            downsampledSplits.reduce(0.0) { $0 + $1.distanceMeters },
+            accuracy: 0.001
+        )
+        for (original, downsampled) in zip(originalSplits, downsampledSplits) {
+            XCTAssertEqual(original.durationSeconds, downsampled.durationSeconds, accuracy: 5.0)
+        }
+    }
+
+    // MARK: - Splits: strip
+
+    func testStripWorkoutMetricsPayloadsAlsoRemovesSplitData() throws {
+        let workoutID = UUID()
+        let splitData = try XCTUnwrap(PersistedWorkoutSplitData.downsampled(from: makeSplitData()))
+        let snapshot = WorkoutDetailSnapshot(
+            workoutID: workoutID,
+            route: PersistedWorkoutRoute(model: makeRoute()),
+            splitData: splitData,
+            metricSeries: PersistedWorkoutMetricSeries(model: makeMetricSeries()),
+            heartRateRecoveryBPM: 22.5
+        )
+        XCTAssertTrue(WorkoutDetailSnapshotStore.save(snapshot, directoryURL: directoryURL))
+
+        WorkoutDetailSnapshotStore.stripWorkoutMetricsPayloads(directoryURL: directoryURL)
+
+        let loaded = try XCTUnwrap(WorkoutDetailSnapshotStore.load(workoutID: workoutID, directoryURL: directoryURL))
+        XCTAssertNotNil(loaded.route)
+        XCTAssertNotNil(loaded.heartRateRecoveryBPM)
+        XCTAssertNil(loaded.metricSeries)
+        XCTAssertNil(loaded.splitData)
+    }
+
+    func testStripDeletesFileWhenSplitDataWasTheOnlyPayload() throws {
+        let splitOnlyID = UUID()
+        let splitData = try XCTUnwrap(PersistedWorkoutSplitData.downsampled(from: makeSplitData()))
+        let splitOnlySnapshot = WorkoutDetailSnapshot(
+            workoutID: splitOnlyID,
+            route: nil,
+            splitData: splitData,
+            metricSeries: nil,
+            heartRateRecoveryBPM: nil
+        )
+        XCTAssertTrue(WorkoutDetailSnapshotStore.save(splitOnlySnapshot, directoryURL: directoryURL))
+        WorkoutDetailSnapshotStore.stripWorkoutMetricsPayloads(directoryURL: directoryURL)
+        XCTAssertNil(WorkoutDetailSnapshotStore.load(workoutID: splitOnlyID, directoryURL: directoryURL))
     }
 
     // MARK: - deleteAll + totalDiskSizeBytes

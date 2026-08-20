@@ -74,11 +74,17 @@ enum WorkoutDetailSnapshotStore {
         }
     }
 
-    static func stripMetricSeries(directoryURL: URL? = defaultDirectoryURL) {
+    /// Drops both workout-metric payloads together. Splits are dropped whole
+    /// rather than sample-by-sample: a partially stripped payload still satisfies
+    /// the session cache after the user re-enables permissions, so cadence would
+    /// never refetch. With the whole payload gone, a re-enable simply reloads live
+    /// and re-persists a complete one.
+    static func stripWorkoutMetricsPayloads(directoryURL: URL? = defaultDirectoryURL) {
         strip(directoryURL: directoryURL) { snapshot in
-            guard snapshot.metricSeries != nil else { return nil }
+            guard snapshot.metricSeries != nil || snapshot.splitData != nil else { return nil }
             var stripped = snapshot
             stripped.metricSeries = nil
+            stripped.splitData = nil
             return stripped
         }
     }

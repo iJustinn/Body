@@ -6,7 +6,7 @@
 import Foundation
 
 /// A timestamped distance increment from a workout's distance samples.
-struct WorkoutDistanceSample: Equatable {
+struct WorkoutDistanceSample: Equatable, Sendable {
     let startDate: Date
     let endDate: Date
     let meters: Double
@@ -14,20 +14,20 @@ struct WorkoutDistanceSample: Equatable {
 
 /// A split segment the watch recorded into the workout (an `HKWorkoutEvent`
 /// `.segment`) — the exact per-km/mi windows Apple Fitness shows.
-struct WorkoutTimeSegment: Equatable {
+struct WorkoutTimeSegment: Equatable, Sendable {
     let startDate: Date
     let endDate: Date
 }
 
 /// A timestamped step-count increment from the workout's own step samples.
-struct WorkoutStepSample: Equatable {
+struct WorkoutStepSample: Equatable, Sendable {
     let startDate: Date
     let endDate: Date
     let count: Double
 }
 
 /// Everything the Splits section needs from HealthKit for one workout.
-struct WorkoutSplitData: Equatable {
+struct WorkoutSplitData: Equatable, Sendable {
     let distanceSamples: [WorkoutDistanceSample]
     let segments: [WorkoutTimeSegment]
     let stepSamples: [WorkoutStepSample]

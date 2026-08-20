@@ -437,6 +437,25 @@ final class HealthKitWorkoutStore: ObservableObject {
             }
             startingSnapshot = sanitized
         }
+        // Same rationale one level down, for the per-workout detail files: a strip
+        // enqueued on opt-out may never have run (app killed right after the
+        // toggle), so reconcile what's at rest with the stored selection at launch.
+        // Nothing to enqueue when every relevant permission is on — a launch
+        // shouldn't pay a queue hop for a no-op.
+        if !initialPermissionSelection.includes(.workouts)
+            || !initialPermissionSelection.includes(.workoutMetrics)
+            || !initialPermissionSelection.includes(.heart) {
+            Self.snapshotPersistQueue.async {
+                if !initialPermissionSelection.includes(.workouts) {
+                    WorkoutDetailSnapshotStore.deleteAll()
+                } else if !initialPermissionSelection.includes(.workoutMetrics) {
+                    WorkoutDetailSnapshotStore.stripWorkoutMetricsPayloads()
+                }
+                if !initialPermissionSelection.includes(.heart) {
+                    WorkoutDetailSnapshotStore.stripHeartRateRecovery()
+                }
+            }
+        }
         snapshot = startingSnapshot
         monthSnapshots = [
             BodyWorkoutMonthKey(month: startingSnapshot.month, year: startingSnapshot.year): startingSnapshot
@@ -1428,6 +1447,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return .empty
         }
 
+        await hydrateWorkoutDetailIfNeeded(for: workout)
         if let cached = distanceSampleCache[workout.id] {
             return cached
         }
@@ -1449,6 +1469,17 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
         if !data.distanceSamples.isEmpty {
             distanceSampleCache[workout.id] = data
+            // Splits carry per-split step cadence, so they're only persisted while
+            // Workout Metrics is on: a cadence-less payload written with the toggle
+            // off would satisfy the cache after a re-enable and never be re-read.
+            // The downsample runs inside the persist queue — it can chew through
+            // thousands of samples — and a nil result (an over-cap workout) leaves
+            // any existing field alone rather than clearing it.
+            if permissionSelection.includes(.workouts), permissionSelection.includes(.workoutMetrics) {
+                persistWorkoutDetail(for: workout) {
+                    $0.splitData = PersistedWorkoutSplitData.downsampled(from: data) ?? $0.splitData
+                }
+            }
         } else {
             // Cache a confirmed-empty read only for settled (>24h-old) workouts;
             // a recent one may still be syncing from the watch.
@@ -1575,14 +1606,31 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
 
-        if let route = snapshot?.route, routeCache[workout.id] == nil {
+        // Every seed is gated on the CURRENT selection, not the one the file was
+        // written under: the at-rest strip is queued, so a file can outlive an
+        // opt-out (app killed before the queue drained, or a hydration racing the
+        // toggle). This gate is what guarantees stripped-permission data never
+        // surfaces, whatever state the file is in.
+        if let route = snapshot?.route,
+           routeCache[workout.id] == nil,
+           permissionSelection.includes(.workouts) {
             routeCache[workout.id] = .some(route.toModel())
             routePresenceCache[workout.id] = true
         }
-        if let series = snapshot?.metricSeries, metricSeriesCache[workout.id] == nil {
+        if let series = snapshot?.metricSeries,
+           metricSeriesCache[workout.id] == nil,
+           permissionSelection.includes(.workoutMetrics) {
             metricSeriesCache[workout.id] = series.toModel()
         }
-        if let bpm = snapshot?.heartRateRecoveryBPM, heartRateRecoveryCache[workout.id] == nil {
+        if let splitDTO = snapshot?.splitData,
+           distanceSampleCache[workout.id] == nil,
+           permissionSelection.includes(.workouts),
+           permissionSelection.includes(.workoutMetrics) {
+            distanceSampleCache[workout.id] = splitDTO.toModel()
+        }
+        if let bpm = snapshot?.heartRateRecoveryBPM,
+           heartRateRecoveryCache[workout.id] == nil,
+           permissionSelection.includes(.heart) {
             heartRateRecoveryCache[workout.id] = .some(bpm)
         }
     }
@@ -1983,17 +2031,22 @@ final class HealthKitWorkoutStore: ObservableObject {
         if !isEnabled {
             // The in-memory drop above leaves the persisted detail files intact, and
             // a hydration would seed them straight back. Strip the data at rest on
-            // opt-out too, same rationale as `sanitizeWorkoutSnapshots`.
-            Self.snapshotPersistQueue.async {
-                switch permission {
-                case .workouts:
-                    WorkoutDetailSnapshotStore.deleteAll()
-                case .workoutMetrics:
-                    WorkoutDetailSnapshotStore.stripMetricSeries()
-                case .heart:
-                    WorkoutDetailSnapshotStore.stripHeartRateRecovery()
-                default:
-                    break
+            // opt-out too, same rationale as `sanitizeWorkoutSnapshots`. Awaited on
+            // the serial queue (like the clear-cache flow) so the opt-out only
+            // completes once the strip has actually landed.
+            await withCheckedContinuation { continuation in
+                Self.snapshotPersistQueue.async {
+                    switch permission {
+                    case .workouts:
+                        WorkoutDetailSnapshotStore.deleteAll()
+                    case .workoutMetrics:
+                        WorkoutDetailSnapshotStore.stripWorkoutMetricsPayloads()
+                    case .heart:
+                        WorkoutDetailSnapshotStore.stripHeartRateRecovery()
+                    default:
+                        break
+                    }
+                    continuation.resume()
                 }
             }
         }
