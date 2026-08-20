@@ -1800,6 +1800,23 @@
         }
       }
     },
+    "comparison.noDeltaBadge" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--%"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--%"
+          }
+        }
+      }
+    },
     "Celsius" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3964,6 +3981,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "需要更多数据"
+          }
+        }
+      }
+    },
+    "No 30-day comparison yet" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No 30-day comparison yet"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无30天对比"
           }
         }
       }

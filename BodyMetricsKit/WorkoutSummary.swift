@@ -171,8 +171,9 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     /// in °C. Workout metadata rather than a separate sample type, so it rides the
     /// Workouts permission and isn't cleared by `removingWorkoutMetrics()`.
     let weatherTemperatureCelsius: Double?
-    /// Recorded relative humidity as a percentage (0…100); HealthKit stores it as a
-    /// 0…1 fraction.
+    /// Recorded relative humidity as a percentage (0…100). HealthKit sources usually
+    /// store it as a 0…1 fraction, but some third-party sources write the percent
+    /// number directly; the mapper normalizes both.
     let weatherHumidityPercent: Double?
     /// The recorded sky condition (`HKMetadataKeyWeatherCondition`). Rides the
     /// Workouts permission alongside the other weather metadata, and is `nil` for
@@ -368,7 +369,8 @@ struct WorkoutDetailMetric: Equatable {
 /// A compact comparison badge shown above a metric's unit. `badgeText` is the visual
 /// token (e.g. "↑12%", "↓3%", "≈0%"); `accessibilityLabel` is the spoken VoiceOver form
 /// so the arrow glyph isn't read literally. The "vs 30-day avg" frame lives once in the
-/// section header, not in every badge. `badgeText` may also be a "0%" stand-in — see
+/// section header, not in every badge. `badgeText` may also be a stand-in — "0%" while
+/// the history loads, "--%" once it has settled without a measurement; see
 /// `WorkoutMetricComparisonBuilder.placeholder(for:availability:current:locale:)` — whose
 /// spoken form says why there is no number yet.
 struct WorkoutMetricComparison: Equatable {
@@ -474,39 +476,50 @@ enum WorkoutMetricComparisonBuilder {
         return isComplete || isSettled ? .insufficientHistory : .calculating
     }
 
-    /// The "0%" stand-in for a metric with no measured delta. It is a real badge rather
+    /// The stand-in badge for a metric with no measured delta. It is a real badge rather
     /// than an absence so the digits can roll over in place when the measurement lands —
     /// a badge that appears from nothing can only pop.
     ///
     /// Gated on the same display scalar the baseline uses, so a tile that has no value
-    /// of its own never sprouts a 0% claiming it matched the average.
+    /// of its own never sprouts a badge claiming it matched the average.
     ///
-    /// Only while `.calculating`. The stand-in exists so digits can roll into place when
-    /// a measurement lands — once loading has settled there is no measurement coming, so
-    /// a "0%" would be a synthetic number presented as a result. That applies to both
-    /// settled states: under `.ready` the legend reads "vs 30-day avg" and the zero looks
-    /// measured, and under `.insufficientHistory` there is nothing left to roll into.
+    /// Which stand-in depends on whether a measurement is still coming. While
+    /// `.calculating` it is "0%", whose digits roll into the measurement that replaces
+    /// them. Once loading has settled — `.ready` or `.insufficientHistory` — nothing is
+    /// coming, so it is "--%": a dash is honest about having no data, where a zero would
+    /// claim the metric matched the 30-day average.
     static func placeholder(
         for kind: WorkoutDetailMetric.Kind,
         availability: WorkoutMetricComparisonAvailability?,
         current: WorkoutSummary,
         locale: Locale
     ) -> WorkoutMetricComparison? {
-        guard availability == .calculating, scalar(for: kind, from: current) != nil else {
+        guard let availability, scalar(for: kind, from: current) != nil else {
             return nil
         }
 
-        let accessibilityLabel = String(
-            localized: "Calculating the 30-day comparison",
-            table: "BodyMetricsKit"
-        )
-
-        return WorkoutMetricComparison(
-            // Localized digits, so the stand-in matches the shape of the number that
-            // replaces it (Arabic/Hindi digits included).
-            badgeText: "\(BodyValueFormat.numberText(0, decimals: 0, locale: locale))%",
-            accessibilityLabel: accessibilityLabel
-        )
+        switch availability {
+        case .calculating:
+            return WorkoutMetricComparison(
+                // Localized digits, so the stand-in matches the shape of the number that
+                // replaces it (Arabic/Hindi digits included).
+                badgeText: "\(BodyValueFormat.numberText(0, decimals: 0, locale: locale))%",
+                accessibilityLabel: String(
+                    localized: "Calculating the 30-day comparison",
+                    table: "BodyMetricsKit"
+                )
+            )
+        case .ready, .insufficientHistory:
+            return WorkoutMetricComparison(
+                // Dotted key: "--%" holds no Swift-identifier characters, so Xcode's
+                // symbol generator rejects it as a catalog key.
+                badgeText: String(localized: "comparison.noDeltaBadge", table: "BodyMetricsKit"),
+                accessibilityLabel: String(
+                    localized: "No 30-day comparison yet",
+                    table: "BodyMetricsKit"
+                )
+            )
+        }
     }
 
     // MARK: - Scalars
@@ -1012,8 +1025,9 @@ struct WorkoutDetailPresentation: Equatable {
                     title: metric.title,
                     value: metric.value,
                     // Every comparable tile keeps a badge in every state — a measured
-                    // delta, or the "0%" stand-in — so the number rolls into place when
-                    // the history lands rather than popping in.
+                    // delta, the "0%" stand-in while the history is still loading, or
+                    // the settled "--%" when no delta is coming — so the number rolls
+                    // into place when the history lands rather than popping in.
                     comparison: comparison ?? WorkoutMetricComparisonBuilder.placeholder(
                         for: metric.kind,
                         availability: availability,
