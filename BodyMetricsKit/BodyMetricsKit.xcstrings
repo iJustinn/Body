@@ -3274,6 +3274,23 @@
         }
       }
     },
+    "kJ" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kJ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kJ"
+          }
+        }
+      }
+    },
     "km" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3557,6 +3574,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最高心率"
+          }
+        }
+      }
+    },
+    "Max Power" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Power"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最大功率"
           }
         }
       }
@@ -4267,6 +4301,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "磅"
+          }
+        }
+      }
+    },
+    "Power" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Power"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "功率"
+          }
+        }
+      }
+    },
+    "Power, average %@ %@, maximum %@ %@, total work %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Power, average %@ %@, maximum %@ %@, total work %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "功率，平均 %@ %@，最高 %@ %@，总做功 %@ %@"
           }
         }
       }
@@ -6259,6 +6327,23 @@
         }
       }
     },
+    "Total Work" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total Work"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总做功"
+          }
+        }
+      }
+    },
     "Track And Field" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6576,6 +6661,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "排球"
+          }
+        }
+      }
+    },
+    "W" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "W"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "W"
           }
         }
       }

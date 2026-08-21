@@ -916,6 +916,7 @@ final class WorkoutShareCardTests: XCTestCase {
             splits: true,
             elevation: true,
             cadence: true,
+            power: true,
             strideLength: true,
             groundContact: true,
             verticalOscillation: true
@@ -935,6 +936,9 @@ final class WorkoutShareCardTests: XCTestCase {
                 splits: true,
                 elevation: true,
                 cadence: true,
+                // This fixture's pool has no "power" chip (no averagePowerWatts), so
+                // like stride/GC/VO it always draws — see the no-chip assertion below.
+                power: true,
                 strideLength: true,
                 groundContact: true,
                 verticalOscillation: true
@@ -992,6 +996,9 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertTrue(hidden.strideLength)
         XCTAssertTrue(hidden.groundContact)
         XCTAssertTrue(hidden.verticalOscillation)
+        // Power has a chip only when the workout has an average to show; this fixture
+        // doesn't, so — same as stride/GC/VO — no chip could ever turn it back off.
+        XCTAssertTrue(hidden.power)
         // Elevation *is* named by a chip this pool doesn't offer, so it draws too.
         XCTAssertTrue(hidden.elevation)
 
@@ -1004,6 +1011,26 @@ final class WorkoutShareCardTests: XCTestCase {
             data: everything
         )
         XCTAssertFalse(noElevationChip.elevation, "the elevation chip is in this pool, so it gates the chart")
+
+        // A workout with an average power shows the "power" chip, so — unlike the
+        // no-chip fallback above — it gates the chart like cadence does.
+        let ride = WorkoutSummary(
+            type: .cycling,
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            duration: 1800,
+            distanceMeters: 15000,
+            averageHeartRateBeatsPerMinute: 140,
+            averagePowerWatts: 180
+        )
+        let ridePresentation = presentation(for: ride)
+        let rideOptions = WorkoutShareMetricsBuilder.availableMetrics(for: ridePresentation, type: .cycling)
+        XCTAssertTrue(rideOptions.map(\.id).contains("power"))
+        let noPowerChip = WorkoutShareLongImageSections.sections(
+            available: rideOptions,
+            selectedIDs: ["time"],
+            data: everything
+        )
+        XCTAssertFalse(noPowerChip.power, "the power chip is in this pool, so it gates the chart")
     }
 
     func testResolvedMetricIDsFallBackToDefaultsWithoutPro() {

@@ -4,7 +4,7 @@
 //
 //  Reads every per-bucket input the workout detail's time-series charts need
 //  (pace or speed, cadence, stride length, ground contact time, vertical
-//  oscillation) in ONE pass, so opening a sheet costs one bundle read rather
+//  oscillation, power) in ONE pass, so opening a sheet costs one bundle read rather
 //  than one read per card. Buckets come from HealthKit itself
 //  (`HKStatisticsCollectionQueryDescriptor`), which deduplicates overlapping
 //  iPhone/Watch sources the way a raw sample walk can't. Deliberately separate
@@ -158,6 +158,32 @@ extension HealthKitFetchEngine {
             }
         }
 
+        // Same double-optional contract as the cadence block above: `readMetric`
+        // answers nil when the query threw (→ `hadReadFailure`), while a
+        // successful read with no samples answers `.some(nil)` — series stays nil
+        // and the bundle is still cacheable.
+        var powerWatts: WorkoutMetricSeriesData.NativeSeries?
+        if let source = type.powerSource {
+            let identifier: HKQuantityTypeIdentifier = source == .running ? .runningPower : .cyclingPower
+            let series = try await readMetric(identifier) {
+                try await self.bucketedDiscreteSeries(
+                    identifier: identifier,
+                    unit: .watt(),
+                    workout: workout,
+                    predicate: workoutPredicate,
+                    start: start,
+                    end: end,
+                    bucketSeconds: bucketSeconds,
+                    interval: interval
+                )
+            }
+            if let series {
+                powerWatts = series
+            } else {
+                hadReadFailure = true
+            }
+        }
+
         return WorkoutMetricSeriesData(
             bucketSeconds: TimeInterval(bucketSeconds),
             startDate: start,
@@ -174,6 +200,7 @@ extension HealthKitFetchEngine {
             groundContactTimeMs: groundContactTimeMs,
             verticalOscillationCm: verticalOscillationCm,
             cyclingCadenceRPM: cyclingCadenceRPM,
+            powerWatts: powerWatts,
             hadReadFailure: hadReadFailure
         )
     }

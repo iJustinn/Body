@@ -100,6 +100,13 @@ enum WorkoutHeartRateZones {
 /// draws an icon for. Persisted by name rather than by HealthKit's raw value so a
 /// cached snapshot keeps its meaning if that enum ever renumbers, and optional so
 /// indoor workouts — and summaries cached before this existed — decode `nil`.
+///
+/// Adding a case is a downgrade hazard: the synthesized `Codable` conformance throws
+/// on a raw value it doesn't know, and `WorkoutSnapshotStore` drops the whole month's
+/// cache file on any decode error — so a snapshot written by a newer build blanks a
+/// month on an older one. That is why the thermometer fallback
+/// (`WorkoutSummary.weatherSymbolName`) grades outside this enum rather than adding
+/// cases to it.
 enum WorkoutWeatherCondition: String, Codable, Equatable, Hashable, CaseIterable {
     case clear
     case partlyCloudy
@@ -193,6 +200,39 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     /// otherwise the pre-existing `startDate + duration` approximation.
     var effectiveEndDate: Date {
         endDate ?? startDate.addingTimeInterval(max(0, duration))
+    }
+
+    /// The SF Symbol the detail hero draws beside the temperature: the recorded sky
+    /// condition when the source wrote one, otherwise a thermometer graded by how cold
+    /// or hot the reading was. `HKMetadataKeyWeatherCondition` is optional and commonly
+    /// absent — or written as `.none`, which maps to `nil` — so the graded thermometer,
+    /// not the sky glyph, is what most real workouts show.
+    ///
+    /// Graded on the *rounded* Celsius so the glyph never disagrees with the number
+    /// beside it: `BodyValueFormat.temperatureHeroText` rounds before display, so
+    /// grading the raw value would give two workouts that both read "24°C" different
+    /// thermometers. The bands are cut so the two glyphs that actually read as
+    /// distinct — the snowflake and the sun — cover ordinary cold and hot sessions;
+    /// `.low`/`.medium`/`.high` are the same glyph at three mercury heights, only a
+    /// couple of points apart at this size.
+    var weatherSymbolName: String {
+        if let weatherCondition {
+            return weatherCondition.symbolName
+        }
+
+        guard let celsius = weatherTemperatureCelsius, celsius.isFinite else {
+            return "thermometer.medium"
+        }
+
+        // The `isFinite` guard above is load-bearing: `.nan` matches no range and
+        // would otherwise fall through to the hot case.
+        switch celsius.rounded() {
+        case ..<5: return "thermometer.snowflake"
+        case ..<14: return "thermometer.low"
+        case ..<23: return "thermometer.medium"
+        case ..<28: return "thermometer.high"
+        default: return "thermometer.sun.fill"
+        }
     }
 
     init(

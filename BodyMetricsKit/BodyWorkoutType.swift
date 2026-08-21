@@ -452,6 +452,18 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// Which power quantity (if any) an activity records.
+    enum PowerSource {
+        case running
+        case cycling
+    }
+
+    /// HealthKit-independent: which power quantity (if any) this activity records.
+    var powerSource: PowerSource? {
+        if supportsRunningPower { return .running }
+        return paceStyle == .speed ? .cycling : nil
+    }
+
     /// Activity *types* eligible for an Apple Cardio Fitness (VO₂max) estimate:
     /// walk, run, and hike. Apple only estimates it *outdoors*, but that hinges
     /// on per-workout metadata this type can't see, so the indoor exclusion is

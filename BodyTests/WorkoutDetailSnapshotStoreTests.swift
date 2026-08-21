@@ -61,6 +61,7 @@ final class WorkoutDetailSnapshotStoreTests: XCTestCase {
             groundContactTimeMs: nativeSeries,
             verticalOscillationCm: nativeSeries,
             cyclingCadenceRPM: nativeSeries,
+            powerWatts: nativeSeries,
             hadReadFailure: false
         )
     }
@@ -140,7 +141,13 @@ final class WorkoutDetailSnapshotStoreTests: XCTestCase {
         XCTAssertEqual(series.groundContactTimeMs, expectedSeries.groundContactTimeMs)
         XCTAssertEqual(series.verticalOscillationCm, expectedSeries.verticalOscillationCm)
         XCTAssertEqual(series.cyclingCadenceRPM, expectedSeries.cyclingCadenceRPM)
+        XCTAssertEqual(series.powerWatts, expectedSeries.powerWatts)
         XCTAssertFalse(series.hadReadFailure)
+        XCTAssertEqual(
+            try XCTUnwrap(loaded.metricSeries).seriesVersion,
+            PersistedWorkoutMetricSeries.currentSeriesVersion
+        )
+        XCTAssertEqual(PersistedWorkoutMetricSeries.currentSeriesVersion, 2)
 
         XCTAssertEqual(loaded.heartRateRecoveryBPM, 22.5)
     }
@@ -208,6 +215,27 @@ final class WorkoutDetailSnapshotStoreTests: XCTestCase {
         XCTAssertNil(WorkoutDetailSnapshotStore.load(workoutID: corruptID, directoryURL: directoryURL))
 
         XCTAssertNil(WorkoutDetailSnapshotStore.load(workoutID: UUID(), directoryURL: directoryURL))
+    }
+
+    /// A pre-power (v1) payload predates `seriesVersion`, so it decodes with nil —
+    /// the store's seed gate compares against `currentSeriesVersion` and re-reads
+    /// such a bundle live instead of pinning an incomplete one.
+    func testLegacyMetricSeriesPayloadDecodesWithoutSeriesVersion() throws {
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+
+        let workoutID = UUID()
+        let fileURL = directoryURL.appendingPathComponent("\(workoutID.uuidString).json")
+        let legacyJSON = """
+        {"schemaVersion":1,"workoutID":"\(workoutID.uuidString)","metricSeries":{"bucketSeconds":30,"startDate":0,"endDate":1800,"bucketActiveSeconds":{"0":30},"distanceMeters":{"0":50},"steps":{"0":40},"cyclingCadenceRPM":{"buckets":[{"index":0,"average":80,"minimum":70,"maximum":90}],"sessionAverage":80,"sessionMax":90}}}
+        """
+        try legacyJSON.data(using: .utf8)!.write(to: fileURL)
+
+        let loaded = try XCTUnwrap(WorkoutDetailSnapshotStore.load(workoutID: workoutID, directoryURL: directoryURL))
+        let series = try XCTUnwrap(loaded.metricSeries)
+        XCTAssertNil(series.seriesVersion)
+        XCTAssertNotEqual(series.seriesVersion, PersistedWorkoutMetricSeries.currentSeriesVersion)
+        XCTAssertNil(series.powerWatts)
+        XCTAssertNotNil(series.cyclingCadenceRPM)
     }
 
     // MARK: - Prune

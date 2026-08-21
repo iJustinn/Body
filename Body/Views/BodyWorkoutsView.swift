@@ -99,10 +99,12 @@ struct BodyWorkoutsView: View {
 
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: 12) {
-                            // One slot, one chart. The month `.id` still gives
-                            // the block a fresh identity per month, so a month
-                            // switch cross-fades the whole card exactly as it
-                            // did when these were two separate cards.
+                            // One slot, one chart. The month `.id` sits on the
+                            // calendar alone: its grid is a different month's
+                            // shape, so it cross-fades. The breakdown keeps one
+                            // identity across months instead, so its bars morph
+                            // from one ranking to the next (`WorkoutTypeBreakdownView`)
+                            // rather than the whole card being replaced.
                             Group {
                                 if workoutsChartShowsTypeBreakdown {
                                     workoutTypeSummaryCard(snapshot: displaySnapshot, workouts: matchingWorkouts)
@@ -110,10 +112,9 @@ struct BodyWorkoutsView: View {
                                 } else {
                                     workoutCalendarCard(snapshot: displaySnapshot)
                                         .transition(chartSwitchTransition)
+                                        .id("chart-\(monthIdentity)")
                                 }
                             }
-                            .id("chart-\(monthIdentity)")
-                            .transition(monthSwitchTransition)
 
                             Group {
                                 if visibleWorkouts.isEmpty {
@@ -448,18 +449,23 @@ struct BodyWorkoutsView: View {
         .bodyCardBackground(translucent: true)
     }
 
+    /// The card no longer carries a per-month identity (see the chart slot), so these
+    /// change in place on a month switch: the totals roll their digits and the month
+    /// name crosses over, alongside the bars' own morph.
     private func monthlySummaryHeader(workouts: [WorkoutSummary]) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Total for \(localizedMonthTitle)")
                     .font(.system(.body, design: .rounded))
                     .foregroundColor(.secondary)
+                    .contentTransition(reduceMotion ? .identity : .opacity)
 
                 Text(BodyValueFormat.durationText(for: totalDuration(for: workouts)))
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .fontWeight(.bold)
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
+                    .contentTransition(reduceMotion ? .identity : .numericText())
             }
 
             Spacer()
@@ -472,6 +478,7 @@ struct BodyWorkoutsView: View {
                 Text("\(workouts.count)")
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .fontWeight(.bold)
+                    .contentTransition(reduceMotion ? .identity : .numericText(value: Double(workouts.count)))
             }
         }
     }
@@ -1635,42 +1642,59 @@ struct BodyWorkoutDetailSheet: View {
                 workoutDetailsCard(presentation: presentation)
                 effortCard
                 heartRateSection(presentation: presentation)
+                // Each of these cards exists only once its series (or the route) has
+                // loaded, so they arrive after the page is already on screen —
+                // `bodyCardFadeIn` carries that arrival instead of popping them in
+                // fully drawn.
                 if paceOrSpeed != nil || splits != nil {
                     BodyWorkoutPaceCard(
                         presentation: paceOrSpeed,
                         splits: splits,
                         floatingCallout: chartCallout
                     )
+                    .bodyCardFadeIn()
                 }
                 if let elevationPresentation {
                     BodyWorkoutElevationLineCard(
                         presentation: elevationPresentation,
                         floatingCallout: chartCallout
                     )
+                    .bodyCardFadeIn()
                 }
                 if let cadencePresentation {
                     BodyWorkoutBucketedSeriesCard(
                         presentation: cadencePresentation,
                         floatingCallout: chartCallout
                     )
+                    .bodyCardFadeIn()
+                }
+                if let powerPresentation {
+                    BodyWorkoutBucketedSeriesCard(
+                        presentation: powerPresentation,
+                        floatingCallout: chartCallout
+                    )
+                    .bodyCardFadeIn()
                 }
                 if let strideLengthPresentation {
                     BodyWorkoutBucketedSeriesCard(
                         presentation: strideLengthPresentation,
                         floatingCallout: chartCallout
                     )
+                    .bodyCardFadeIn()
                 }
                 if let groundContactPresentation {
                     BodyWorkoutBucketedSeriesCard(
                         presentation: groundContactPresentation,
                         floatingCallout: chartCallout
                     )
+                    .bodyCardFadeIn()
                 }
                 if let verticalOscillationPresentation {
                     BodyWorkoutBucketedSeriesCard(
                         presentation: verticalOscillationPresentation,
                         floatingCallout: chartCallout
                     )
+                    .bodyCardFadeIn()
                 }
                 sourceFooter(presentation: presentation)
             }
@@ -1842,11 +1866,12 @@ struct BodyWorkoutDetailSheet: View {
                 if temperatureText != nil || humidityText != nil {
                     HStack(spacing: 10) {
                         if let temperatureText {
-                            // The recorded sky condition when the source wrote one; the
-                            // thermometer otherwise, so an indoor or condition-less
-                            // workout still reads as a temperature.
+                            // The recorded sky condition when the source wrote one;
+                            // otherwise a thermometer graded by the reading, so a
+                            // condition-less workout still says something about how
+                            // cold or hot it was rather than drawing one flat glyph.
                             heroContextPair(
-                                systemImage: workout.weatherCondition?.symbolName ?? "thermometer.medium",
+                                systemImage: workout.weatherSymbolName,
                                 text: temperatureText
                             )
                         }
@@ -2302,6 +2327,15 @@ struct BodyWorkoutDetailSheet: View {
         )
     }
 
+    /// Per-bucket running or cycling power bars; nil unless the watch (or a paired
+    /// power meter) recorded power for an activity that reports it.
+    private var powerPresentation: WorkoutBucketedSeriesPresentation? {
+        WorkoutDetailChartPresentations.power(
+            workout: workout,
+            metricSeries: metricSeries
+        )
+    }
+
     /// Per-bucket stride length bars for the current unit preference; nil when the
     /// workout has too little stride data (or isn't a stepping activity), which
     /// hides the card.
@@ -2397,6 +2431,13 @@ enum WorkoutDetailChartPresentations {
             type: workout.type,
             distanceUnitPreference: distanceUnitPreference
         )
+    }
+
+    static func power(
+        workout: WorkoutSummary,
+        metricSeries: WorkoutMetricSeriesData
+    ) -> WorkoutBucketedSeriesPresentation? {
+        WorkoutMetricSeriesCharts.power(workout: workout, data: metricSeries)
     }
 
     static func strideLength(
@@ -2633,7 +2674,8 @@ private struct EffortWedge: Shape {
 /// Segment widths track each band's level count (Easy/Moderate = 3, Hard/All Out = 2),
 /// and the tint fills left-to-right to the exact 1–10 score, so a partly-filled segment
 /// shows the precise level. While editing it overlays the level dots (current one lit).
-private struct BodyWorkoutEffortChart: View {
+/// Not private: the onboarding effort page embeds the real meter.
+struct BodyWorkoutEffortChart: View {
     /// Exact effort 1...10 (nil = no saved effort → an empty triangle).
     let score: Double?
     let tintColor: Color
@@ -2715,7 +2757,8 @@ private struct BodyWorkoutEffortChart: View {
     }
 }
 
-private extension WorkoutEffortIntensity {
+/// Not private: the onboarding effort page tints the same meter.
+extension WorkoutEffortIntensity {
     var tintColor: Color {
         switch self {
         case .easy:
@@ -3400,7 +3443,7 @@ private struct BodyWorkoutBucketedSeriesPlot: View {
 }
 
 /// One card for every bucketed workout series — pace/speed, cadence, stride length,
-/// ground contact time, vertical oscillation. The presentation carries the
+/// ground contact time, vertical oscillation, power. The presentation carries the
 /// strings, axis and bars, so all of them share `BodyWorkoutBucketedSeriesPlot`.
 /// Internal rather than private: the share sheet's long image draws this same card,
 /// value-for-value, so the export can't drift from the detail page.
@@ -3414,17 +3457,34 @@ struct BodyWorkoutBucketedSeriesCard: View {
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .foregroundColor(.primary)
 
-            HStack(alignment: .top, spacing: 12) {
-                bodyWorkoutSeriesStatBlock(
-                    value: presentation.averageText,
-                    unit: presentation.unitText,
-                    caption: presentation.averageCaption
-                )
-                bodyWorkoutSeriesStatBlock(
-                    value: presentation.extremeText,
-                    unit: presentation.unitText,
-                    caption: presentation.extremeCaption
-                )
+            if let extraStat = presentation.extraStat {
+                // Avg and extreme stay where every sibling card puts them; the
+                // third stat joins the row when its natural width fits, and
+                // otherwise drops to its own row instead of squeezing all three.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 12) {
+                        headlineStats
+                        bodyWorkoutSeriesStatBlock(
+                            value: extraStat.valueText,
+                            unit: extraStat.unitText,
+                            caption: extraStat.caption
+                        )
+                    }
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .top, spacing: 12) {
+                            headlineStats
+                        }
+                        bodyWorkoutSeriesStatBlock(
+                            value: extraStat.valueText,
+                            unit: extraStat.unitText,
+                            caption: extraStat.caption
+                        )
+                    }
+                }
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    headlineStats
+                }
             }
 
             BodyWorkoutBucketedSeriesPlot(
@@ -3442,6 +3502,21 @@ struct BodyWorkoutBucketedSeriesCard: View {
         // card, while the plot inside stays reachable as its own adjustable element.
         .accessibilityElement(children: .contain)
         .accessibilityLabel(presentation.accessibilitySummary)
+    }
+
+    /// The Avg + extreme pair shared by every bucketed series card.
+    @ViewBuilder
+    private var headlineStats: some View {
+        bodyWorkoutSeriesStatBlock(
+            value: presentation.averageText,
+            unit: presentation.unitText,
+            caption: presentation.averageCaption
+        )
+        bodyWorkoutSeriesStatBlock(
+            value: presentation.extremeText,
+            unit: presentation.unitText,
+            caption: presentation.extremeCaption
+        )
     }
 }
 

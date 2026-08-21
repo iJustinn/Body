@@ -16,6 +16,7 @@ final class WorkoutDetailTilesTests: XCTestCase {
     private func workout(
         temperatureCelsius: Double? = nil,
         humidityPercent: Double? = nil,
+        condition: WorkoutWeatherCondition? = nil,
         averageMETs: Double? = nil,
         heartRateRecoveryBPM: Double? = nil
     ) -> WorkoutSummary {
@@ -30,6 +31,7 @@ final class WorkoutDetailTilesTests: XCTestCase {
             endDate: Date(timeIntervalSince1970: 1_770_001_800),
             weatherTemperatureCelsius: temperatureCelsius,
             weatherHumidityPercent: humidityPercent,
+            weatherCondition: condition,
             averageMETs: averageMETs,
             heartRateRecoveryBPM: heartRateRecoveryBPM
         )
@@ -153,6 +155,7 @@ final class WorkoutDetailTilesTests: XCTestCase {
         let summary = workout(
             temperatureCelsius: -3.5,
             humidityPercent: 68,
+            condition: .partlyCloudy,
             averageMETs: 8.4,
             heartRateRecoveryBPM: 32
         )
@@ -163,6 +166,8 @@ final class WorkoutDetailTilesTests: XCTestCase {
 
         XCTAssertEqual(decoded.weatherTemperatureCelsius, -3.5)
         XCTAssertEqual(decoded.weatherHumidityPercent, 68)
+        // Persisted by name, so the cached glyph survives a relaunch.
+        XCTAssertEqual(decoded.weatherCondition, .partlyCloudy)
         XCTAssertEqual(decoded.averageMETs, 8.4)
         XCTAssertEqual(decoded.heartRateRecoveryBPM, 32)
     }
@@ -174,12 +179,14 @@ final class WorkoutDetailTilesTests: XCTestCase {
         let stripped = workout(
             temperatureCelsius: -3.5,
             humidityPercent: 68,
+            condition: .partlyCloudy,
             averageMETs: 8.4,
             heartRateRecoveryBPM: 32
         ).removingWorkoutMetrics()
 
         XCTAssertEqual(stripped.weatherTemperatureCelsius, -3.5)
         XCTAssertEqual(stripped.weatherHumidityPercent, 68)
+        XCTAssertEqual(stripped.weatherCondition, .partlyCloudy)
         XCTAssertEqual(stripped.averageMETs, 8.4)
         XCTAssertEqual(stripped.heartRateRecoveryBPM, 32)
     }

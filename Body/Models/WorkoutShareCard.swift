@@ -467,6 +467,7 @@ enum WorkoutShareLongImageSections {
         var splits = false
         var elevation = false
         var cadence = false
+        var power = false
         var strideLength = false
         var groundContact = false
         var verticalOscillation = false
@@ -479,6 +480,7 @@ enum WorkoutShareLongImageSections {
         var splits = false
         var elevation = false
         var cadence = false
+        var power = false
         var strideLength = false
         var groundContact = false
         var verticalOscillation = false
@@ -494,6 +496,10 @@ enum WorkoutShareLongImageSections {
     private static let rateIDs = ["pace", "speed", "swimPace"]
     private static let elevationIDs = ["elevation"]
     private static let cadenceIDs = ["stepCadence", "cyclingCadence"]
+    /// Power has a Details tile chip, unlike stride/GC/VO, but only when the workout
+    /// has an average to show — so `isOn` still falls back to always-on for the (more
+    /// common) case where power data exists only as a series, with no chip offered.
+    private static let powerIDs = ["power"]
 
     static func sections(
         available: [WorkoutShareMetricOption],
@@ -517,6 +523,7 @@ enum WorkoutShareLongImageSections {
             splits: data.splits && rateOn,
             elevation: data.elevation && isOn(elevationIDs),
             cadence: data.cadence && isOn(cadenceIDs),
+            power: data.power && isOn(powerIDs),
             strideLength: data.strideLength,
             groundContact: data.groundContact,
             verticalOscillation: data.verticalOscillation

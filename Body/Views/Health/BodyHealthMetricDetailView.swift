@@ -2011,6 +2011,12 @@ struct BodyHealthMetricDetailView: View {
                 tint: model.symbolColor,
                 floatingCallout: floatingCallout
             )
+            // A warning is detected only once the day's samples have loaded, so the
+            // card's first render lands on a page that is already on screen — with no
+            // ambient animation behind it, the transition below has nothing to run on.
+            // The fade-in covers that arrival; the transition still carries the card
+            // when the day picker moves.
+            .bodyCardFadeIn()
             .transition(dayChartTransition)
         }
         // Warnings appear and disappear as the day picker moves, so the cards fade

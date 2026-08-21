@@ -875,6 +875,7 @@ final class WorkoutShareRenderTests: XCTestCase {
             splits: splits,
             elevation: nil,
             cadence: nil,
+            power: nil,
             strideLength: nil,
             groundContact: nil,
             verticalOscillation: nil,

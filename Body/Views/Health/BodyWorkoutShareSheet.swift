@@ -634,6 +634,10 @@ struct BodyWorkoutShareSheet: View {
         )
     }
 
+    private var longPower: WorkoutBucketedSeriesPresentation? {
+        WorkoutDetailChartPresentations.power(workout: workout, metricSeries: metricSeries)
+    }
+
     private var longStrideLength: WorkoutBucketedSeriesPresentation? {
         WorkoutDetailChartPresentations.strideLength(
             workout: workout, metricSeries: metricSeries, distanceUnitPreference: distanceUnitPreference
@@ -661,6 +665,7 @@ struct BodyWorkoutShareSheet: View {
         let splits = longSplits
         let elevation = longElevation
         let cadence = longCadence
+        let power = longPower
         let strideLength = longStrideLength
         let groundContact = longGroundContact
         let verticalOscillation = longVerticalOscillation
@@ -673,6 +678,7 @@ struct BodyWorkoutShareSheet: View {
                 splits: splits != nil,
                 elevation: elevation != nil,
                 cadence: cadence != nil,
+                power: power != nil,
                 strideLength: strideLength != nil,
                 groundContact: groundContact != nil,
                 verticalOscillation: verticalOscillation != nil
@@ -705,6 +711,7 @@ struct BodyWorkoutShareSheet: View {
             splits: splits,
             elevation: elevation,
             cadence: cadence,
+            power: power,
             strideLength: strideLength,
             groundContact: groundContact,
             verticalOscillation: verticalOscillation,
@@ -2787,24 +2794,49 @@ private struct BodyShareActivityView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
-/// The tray tile scroller with soft edges that only exist where content is actually
-/// hidden: a fade appears on an edge when tiles overflow past it — at rest (or in a
-/// tray whose tiles all fit) both edges stay hard and nothing is dimmed. The width
-/// still carries a matching content margin so a row that *does* scroll comes to rest
-/// with its first/last tile clear of the fade.
+/// The tray tile scroller: a soft fade over each edge, and a content margin of exactly
+/// that width on each end. The two are what make the fade self-correcting — an edge
+/// with nothing hidden behind it has an empty `fade`-wide gutter under the gradient, so
+/// the fade shows only where a tile is actually passing under an edge. Tracking which
+/// edges overflow was the earlier approach, and it left hard-cut tiles wherever the
+/// scroll view had no geometry *change* to report.
 private struct BodyOptionTileScroller<Content: View>: View {
     let anchor: UnitPoint
     let fade: CGFloat
     let spacing: CGFloat
-    @ViewBuilder let content: Content
+    let content: Content
 
-    /// Which edges hide content right now, from the scroll geometry.
-    private struct EdgeOverflow: Equatable {
-        var leading = false
-        var trailing = false
+    init(
+        anchor: UnitPoint,
+        fade: CGFloat,
+        spacing: CGFloat,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.anchor = anchor
+        self.fade = fade
+        self.spacing = spacing
+        self.content = content()
+        _position = State(initialValue: ScrollPosition(edge: anchor.x >= 0.5 ? .trailing : .leading))
     }
 
-    @State private var overflow = EdgeOverflow()
+    /// The row's resting place. `defaultScrollAnchor(_:for: .initialOffset)` decides it
+    /// once, against whatever sizes the first layout pass happened to have — a tray
+    /// whose width lands a pass later (the rail's tray budget arrives with the page
+    /// width, and the tray itself animates in) was left resting at the leading edge,
+    /// with its last tiles cut off behind the rail. Owning the position instead lets
+    /// `pinToAnchor` re-pin once the measured layout settles.
+    @State private var position: ScrollPosition
+    /// Measured widths, watched only as the signal that the layout moved.
+    @State private var viewportWidth: CGFloat = 0
+    @State private var contentWidth: CGFloat = 0
+    /// True once the row has been dragged. From then on it stays where the user left
+    /// it: picking a metric widens its chip (the checkmark appears), and re-pinning on
+    /// that width change threw the row back to its first chip mid-selection.
+    @State private var hasUserScrolled = false
+
+    private var restingEdge: Edge {
+        anchor.x >= 0.5 ? .trailing : .leading
+    }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -2812,29 +2844,77 @@ private struct BodyOptionTileScroller<Content: View>: View {
                 content
             }
             .padding(.vertical, 2)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(key: OptionTileContentWidthKey.self, value: proxy.size.width)
+                }
+            }
         }
         .contentMargins(.horizontal, fade, for: .scrollContent)
-        .defaultScrollAnchor(anchor)
-        .onScrollGeometryChange(for: EdgeOverflow.self) { geometry in
-            // visibleRect is in content coordinates: anything before its minX or past
-            // its maxX is scrolled under an edge. Half a point of slack keeps rounding
-            // from flickering a fade on a row that exactly fits.
-            EdgeOverflow(
-                leading: geometry.visibleRect.minX > 0.5,
-                trailing: geometry.visibleRect.maxX < geometry.contentSize.width - 0.5
-            )
-        } action: { _, newValue in
-            overflow = newValue
+        // Alignment only — where a row too short to scroll sits, hugging the rail. The
+        // initial offset and every re-pin are `position`'s job.
+        .defaultScrollAnchor(anchor, for: .alignment)
+        .scrollPosition($position)
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(key: OptionTileViewportWidthKey.self, value: proxy.size.width)
+            }
+        }
+        .onPreferenceChange(OptionTileContentWidthKey.self) { width in
+            contentWidth = width
+        }
+        .onPreferenceChange(OptionTileViewportWidthKey.self) { width in
+            viewportWidth = width
+        }
+        .onChange(of: contentWidth) { pinToAnchor() }
+        .onChange(of: viewportWidth) { pinToAnchor() }
+        .onScrollPhaseChange { _, phase in
+            // `.animating` is `pinToAnchor`'s own scroll, which must not count as the
+            // user taking the row over.
+            if phase == .tracking || phase == .interacting {
+                hasUserScrolled = true
+            }
         }
         .mask(
             HStack(spacing: 0) {
                 LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: overflow.leading ? fade : 0)
+                    .frame(width: fade)
                 Rectangle().fill(Color.black)
                 LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: overflow.trailing ? fade : 0)
+                    .frame(width: fade)
             }
-            .animation(.easeInOut(duration: 0.15), value: overflow)
         )
+    }
+
+    /// Puts the row back on its anchor after a layout change — unless the user has
+    /// already scrolled it somewhere of their own.
+    private func pinToAnchor() {
+        guard !hasUserScrolled else {
+            return
+        }
+
+        // The tray opens inside `withAnimation(.snappy)`; without this the pin would
+        // inherit it and the row would sweep into place instead of already being there.
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            position.scrollTo(edge: restingEdge)
+        }
+    }
+}
+
+private struct OptionTileContentWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct OptionTileViewportWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

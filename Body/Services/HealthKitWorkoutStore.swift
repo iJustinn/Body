@@ -1534,6 +1534,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 || data.groundContactTimeMs != nil
                 || data.verticalOscillationCm != nil
                 || data.cyclingCadenceRPM != nil
+                || data.powerWatts != nil
             if carriesData, permissionSelection.includes(.workoutMetrics) {
                 let dto = PersistedWorkoutMetricSeries(model: data)
                 persistWorkoutDetail(for: workout) { $0.metricSeries = dto }
@@ -1617,7 +1618,10 @@ final class HealthKitWorkoutStore: ObservableObject {
             routeCache[workout.id] = .some(route.toModel())
             routePresenceCache[workout.id] = true
         }
+        // A payload from before a series joined the bundle is ignored once: the
+        // loader re-reads live and re-persists it at the current version.
         if let series = snapshot?.metricSeries,
+           series.seriesVersion == PersistedWorkoutMetricSeries.currentSeriesVersion,
            metricSeriesCache[workout.id] == nil,
            permissionSelection.includes(.workoutMetrics) {
             metricSeriesCache[workout.id] = series.toModel()

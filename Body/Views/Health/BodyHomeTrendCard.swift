@@ -84,7 +84,7 @@ struct BodyHomeTrendCard: View {
             header
 
             Text(model.presentation.messageText)
-                .font(.system(size: 18, weight: .regular, design: .rounded))
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .foregroundColor(.primary)
                 .fixedSize(horizontal: false, vertical: true)
                 .lineSpacing(2)
@@ -136,7 +136,7 @@ struct BodyHomeTrendCard: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(model.presentation.baselineAverageText)
-                    .font(.system(size: 18, weight: .regular, design: .rounded))
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -152,7 +152,7 @@ struct BodyHomeTrendCard: View {
 
             VStack(alignment: .trailing, spacing: 3) {
                 Text(model.presentation.recentAverageText)
-                    .font(.system(size: 18, weight: .regular, design: .rounded))
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundColor(model.symbolColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)

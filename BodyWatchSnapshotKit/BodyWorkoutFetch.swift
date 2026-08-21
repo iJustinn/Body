@@ -82,10 +82,18 @@ enum BodyWorkoutFetch {
         let type = workoutType(for: workout.workoutActivityType)
 
         #if DEBUG
-        // Distinguishes "HealthKit gave us no weather metadata" from "mapper dropped it".
+        // Distinguishes "HealthKit gave us no weather metadata" from "mapper dropped it",
+        // and — because the hero's graded thermometer only appears when the sky condition
+        // is missing — separately reports a workout that HAS a temperature but no usable
+        // condition, logging the raw value so `.none` (0) is distinguishable from an
+        // absent key. Both are why most workouts draw a thermometer rather than a sky glyph.
         if workout.metadata?[HKMetadataKeyWeatherTemperature] == nil {
             Logger(subsystem: "com.zihengthedeveloper.Body", category: "WorkoutWeather")
                 .debug("No weather metadata: start=\(workout.startDate), source=\(workout.sourceRevision.source.name, privacy: .public), keys=\(workout.metadata?.keys.sorted() ?? [], privacy: .public)")
+        } else if weatherCondition(for: workout) == nil {
+            let rawCondition = (workout.metadata?[HKMetadataKeyWeatherCondition] as? NSNumber)?.intValue
+            Logger(subsystem: "com.zihengthedeveloper.Body", category: "WorkoutWeather")
+                .debug("Temperature but no sky condition: start=\(workout.startDate), source=\(workout.sourceRevision.source.name, privacy: .public), rawCondition=\(rawCondition.map(String.init) ?? "absent", privacy: .public)")
         }
         #endif
 
@@ -347,14 +355,8 @@ enum BodyWorkoutFetch {
     /// Average running/cycling power (W), best-effort from the workout's attached
     /// statistics — present only when the recording source accumulated it.
     private static func averagePowerWatts(for workout: HKWorkout, type: BodyWorkoutType) -> Double? {
-        let identifier: HKQuantityTypeIdentifier
-        if type.supportsRunningPower {
-            identifier = .runningPower
-        } else if type.paceStyle == .speed {
-            identifier = .cyclingPower
-        } else {
-            return nil
-        }
+        guard let source = type.powerSource else { return nil }
+        let identifier: HKQuantityTypeIdentifier = source == .running ? .runningPower : .cyclingPower
         return discreteAverage(for: workout, identifier: identifier, unit: .watt())
     }
 

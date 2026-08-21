@@ -322,6 +322,15 @@ struct PersistedWorkoutMetricSeries: Codable, Equatable, Sendable {
         }
     }
 
+    /// Bumped whenever a new series joins the bundle, so an older payload isn't
+    /// mistaken for a complete one. v1 (encoded as a missing `seriesVersion`) is
+    /// pre-power; the store ignores a stale version once, re-reads live, and
+    /// re-persists at the current version. Deliberately separate from
+    /// `WorkoutDetailSnapshot.currentSchemaVersion`, which would also throw away
+    /// the file's route and splits.
+    static let currentSeriesVersion = 2
+
+    let seriesVersion: Int?
     let bucketSeconds: TimeInterval
     let startDate: Date
     let endDate: Date
@@ -336,8 +345,10 @@ struct PersistedWorkoutMetricSeries: Codable, Equatable, Sendable {
     let groundContactTimeMs: NativeSeries?
     let verticalOscillationCm: NativeSeries?
     let cyclingCadenceRPM: NativeSeries?
+    let powerWatts: NativeSeries?
 
     init(model: WorkoutMetricSeriesData) {
+        seriesVersion = Self.currentSeriesVersion
         bucketSeconds = model.bucketSeconds
         startDate = model.startDate
         endDate = model.endDate
@@ -348,6 +359,7 @@ struct PersistedWorkoutMetricSeries: Codable, Equatable, Sendable {
         groundContactTimeMs = model.groundContactTimeMs.map(NativeSeries.init(model:))
         verticalOscillationCm = model.verticalOscillationCm.map(NativeSeries.init(model:))
         cyclingCadenceRPM = model.cyclingCadenceRPM.map(NativeSeries.init(model:))
+        powerWatts = model.powerWatts.map(NativeSeries.init(model:))
     }
 
     /// `hadReadFailure` is deliberately not persisted — only complete bundles
@@ -364,6 +376,7 @@ struct PersistedWorkoutMetricSeries: Codable, Equatable, Sendable {
             groundContactTimeMs: groundContactTimeMs?.toModel(),
             verticalOscillationCm: verticalOscillationCm?.toModel(),
             cyclingCadenceRPM: cyclingCadenceRPM?.toModel(),
+            powerWatts: powerWatts?.toModel(),
             hadReadFailure: false
         )
     }

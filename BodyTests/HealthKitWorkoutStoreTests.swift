@@ -64,6 +64,7 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
     func testWorkoutMetricsPermissionGatesDetailReadTypes() throws {
         let vo2Max = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .vo2Max))
         let runningPower = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .runningPower))
+        let cyclingPower = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .cyclingPower))
         let cyclingCadence = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .cyclingCadence))
         let swimStrokes = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .swimmingStrokeCount))
         let strideLength = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .runningStrideLength))
@@ -77,6 +78,7 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         )
         XCTAssertTrue(both.contains(vo2Max))
         XCTAssertTrue(both.contains(runningPower))
+        XCTAssertTrue(both.contains(cyclingPower))
         XCTAssertTrue(both.contains(cyclingCadence))
         XCTAssertTrue(both.contains(swimStrokes))
         XCTAssertTrue(both.contains(strideLength))
@@ -93,6 +95,7 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertTrue(workoutsOnly.contains(HKObjectType.workoutType()))
         XCTAssertFalse(workoutsOnly.contains(vo2Max))
         XCTAssertFalse(workoutsOnly.contains(runningPower))
+        XCTAssertFalse(workoutsOnly.contains(cyclingPower))
         XCTAssertFalse(workoutsOnly.contains(swimStrokes))
         XCTAssertFalse(workoutsOnly.contains(strideLength))
         XCTAssertFalse(workoutsOnly.contains(groundContact))

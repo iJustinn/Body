@@ -623,6 +623,13 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(BodyWorkoutType.strengthTraining.paceStyle, .none)
         XCTAssertTrue(BodyWorkoutType.running.supportsRunningPower)
         XCTAssertFalse(BodyWorkoutType.walking.supportsRunningPower)
+        // Power source follows the same split the fetch layer uses: running-power
+        // types first, then any speed-paced (cycling) activity.
+        XCTAssertEqual(BodyWorkoutType.running.powerSource, .running)
+        XCTAssertEqual(BodyWorkoutType.trackAndField.powerSource, .running)
+        XCTAssertEqual(BodyWorkoutType.cycling.powerSource, .cycling)
+        XCTAssertEqual(BodyWorkoutType.handCycling.powerSource, .cycling)
+        XCTAssertNil(BodyWorkoutType.walking.powerSource)
         XCTAssertTrue(BodyWorkoutType.hiking.supportsStepCadence)
         XCTAssertFalse(BodyWorkoutType.wheelchairWalkPace.supportsStepCadence)
         XCTAssertTrue(BodyWorkoutType.running.supportsCardioFitness)

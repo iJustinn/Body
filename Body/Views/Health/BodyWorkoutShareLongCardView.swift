@@ -52,6 +52,7 @@ struct BodyWorkoutShareLongCardView: View {
     let splits: WorkoutSplitsPresentation?
     let elevation: WorkoutElevationLinePresentation?
     let cadence: WorkoutBucketedSeriesPresentation?
+    let power: WorkoutBucketedSeriesPresentation?
     let strideLength: WorkoutBucketedSeriesPresentation?
     let groundContact: WorkoutBucketedSeriesPresentation?
     let verticalOscillation: WorkoutBucketedSeriesPresentation?
@@ -268,6 +269,9 @@ struct BodyWorkoutShareLongCardView: View {
         if sections.cadence, let cadence {
             BodyWorkoutBucketedSeriesCard(presentation: cadence, floatingCallout: nil)
         }
+        if sections.power, let power {
+            BodyWorkoutBucketedSeriesCard(presentation: power, floatingCallout: nil)
+        }
         if sections.strideLength, let strideLength {
             BodyWorkoutBucketedSeriesCard(presentation: strideLength, floatingCallout: nil)
         }
@@ -374,6 +378,7 @@ struct BodyWorkoutShareLongCardView: View {
             splits: nil,
             elevation: nil,
             cadence: nil,
+            power: nil,
             strideLength: nil,
             groundContact: nil,
             verticalOscillation: nil
