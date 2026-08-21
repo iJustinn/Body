@@ -49,6 +49,9 @@ enum BodyAppearancePreference {
     static let combinesHealthDataSourcesByNameKey = "combinesHealthDataSourcesByName"
     static let customHealthSourceGroupsKey = "customHealthSourceGroups"
     static let bodyProIconShowsBackKey = "bodyProIconShowsBack"
+    /// Marketing version the user last completed (or skipped) onboarding on;
+    /// empty until then. See `BodyOnboardingGate`.
+    static let onboardingCompletedVersionKey = "onboardingCompletedVersion"
 
     static func bodyProIconAssetName(showsBack: Bool) -> String {
         showsBack ? "BodyProIconBack" : "BodyProIcon"
@@ -705,5 +708,26 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
 
     static func storedValue(from rawValue: String) -> BodyHealthTrendRange {
         BodyHealthTrendRange(rawValue: rawValue) ?? defaultValue
+    }
+}
+
+/// Decides whether the first-run onboarding cover is shown. Keyed on the app
+/// version the user last completed it on rather than a one-shot flag, so any
+/// install that has not completed it on 1.0.0 or later (including upgrades
+/// from pre-release builds, which recorded nothing) sees it once.
+enum BodyOnboardingGate {
+    /// Completing onboarding on a version below this does not count.
+    static let minimumCompletedVersion = "1.0.0"
+
+    static func shouldPresent(completedVersion: String?) -> Bool {
+        guard let completedVersion, !completedVersion.isEmpty else {
+            return true
+        }
+        return completedVersion.compare(minimumCompletedVersion, options: .numeric) == .orderedAscending
+    }
+
+    /// What to record on completion: the running marketing version.
+    static func currentAppVersion(bundle: Bundle = .main) -> String {
+        (bundle.infoDictionary?["CFBundleShortVersionString"] as? String) ?? minimumCompletedVersion
     }
 }

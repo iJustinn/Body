@@ -132,7 +132,14 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Max Vertical Osc.",
             "cm",
             "in",
-            "Vertical oscillation, average %@ %@, maximum %@ %@"
+            "Vertical oscillation, average %@ %@, maximum %@ %@",
+            "Power",
+            "Avg Power",
+            "Max Power",
+            "Total Work",
+            "W",
+            "kJ",
+            "Power, average %@ %@, maximum %@ %@, total work %@ %@"
         ]
 
         try assertKeysTranslated(keys, in: catalog)
@@ -421,6 +428,86 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Rename Workout",
             "Save",
             "Cancel"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testOnboardingStringsAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            "Onboarding",
+            "onboarding.pageProgress %lld %lld",
+            "onboarding.skip",
+            "onboarding.close",
+            "onboarding.back",
+            "onboarding.continue",
+            "onboarding.getStarted",
+            "onboarding.welcome.title",
+            "onboarding.welcome.subtitle",
+            "onboarding.welcome.load",
+            "Loading data...",
+            "onboarding.health.body",
+            "onboarding.health.loaded",
+            "onboarding.health.finished",
+            "onboarding.readiness.title",
+            "onboarding.readiness.subtitle",
+            "onboarding.readiness.signals",
+            "onboarding.readiness.signals.subtitle",
+            "onboarding.readiness.patterns",
+            "onboarding.readiness.patterns.subtitle",
+            "onboarding.readiness.live",
+            "onboarding.readiness.live.subtitle",
+            "onboarding.trainingLoad.title",
+            "onboarding.trainingLoad.subtitle",
+            "onboarding.trainingLoad.ratio",
+            "onboarding.trainingLoad.ratio.subtitle",
+            "onboarding.trainingLoad.range",
+            "onboarding.trainingLoad.range.subtitle",
+            "onboarding.trainingLoad.direction",
+            "onboarding.trainingLoad.direction.subtitle",
+            "onboarding.effort.title",
+            "onboarding.effort.subtitle",
+            "onboarding.effort.rate",
+            "onboarding.effort.rate.subtitle",
+            "onboarding.effort.suggest",
+            "onboarding.effort.suggest.subtitle",
+            "onboarding.effort.yours",
+            "onboarding.effort.yours.subtitle",
+            "onboarding.calendar.title",
+            "onboarding.calendar.subtitle",
+            "onboarding.calendar.switch",
+            "onboarding.calendar.switch.subtitle",
+            "onboarding.calendar.star",
+            "onboarding.calendar.star.subtitle",
+            "onboarding.calendar.moon",
+            "onboarding.calendar.moon.subtitle",
+            "onboarding.calendar.sun",
+            "onboarding.calendar.sun.subtitle",
+            "onboarding.calendar.flame",
+            "onboarding.calendar.flame.subtitle",
+            "onboarding.calendar.share",
+            "onboarding.calendar.share.subtitle",
+            "onboarding.sleep.title",
+            "onboarding.sleep.subtitle",
+            "onboarding.sleep.stages",
+            "onboarding.sleep.stages.subtitle",
+            "onboarding.sleep.baseline",
+            "onboarding.sleep.baseline.subtitle",
+            "onboarding.sleep.consistency",
+            "onboarding.sleep.consistency.subtitle",
+            "onboarding.sleep.goal",
+            "onboarding.sleep.goalHint",
+            "onboarding.effort.settings",
+            "onboarding.effort.settingsHint",
+            "onboarding.done.title",
+            "onboarding.done.tip1",
+            "onboarding.done.tip1.subtitle",
+            "onboarding.done.tip2",
+            "onboarding.done.tip2.subtitle",
+            "onboarding.done.tip3",
+            "onboarding.done.tip3.subtitle"
         ]
 
         try assertKeysTranslated(keys, in: catalog)

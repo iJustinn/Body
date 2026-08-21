@@ -47,6 +47,7 @@ struct BodySettingsView: View {
     @State private var appIconErrorMessage = ""
     @State private var showingHowToUseBrowser = false
     @State private var showingPrivacyBrowser = false
+    @State private var showingOnboarding = false
 
     private let howToUseURLString = "https://docs.ijustinz.com/body/how-to-use"
     private let privacyPolicyURLString = "https://docs.ijustinz.com/body/privacy"
@@ -100,6 +101,9 @@ struct BodySettingsView: View {
                     SafariView(url: url)
                         .ignoresSafeArea()
                 }
+            }
+            .fullScreenCover(isPresented: $showingOnboarding) {
+                BodyOnboardingView(mode: .revisit)
             }
             .alert("Couldn't Change Icon", isPresented: $showingAppIconError) {
                 Button("OK", role: .cancel) { }
@@ -291,7 +295,7 @@ struct BodySettingsView: View {
                 }
 
                 // Manage Purchases (RevenueCat Customer Center) sits just above "More".
-                if tab == .privacy {
+                if tab == .onboarding {
                     managePurchasesRow
                     settingsDivider
                 }
@@ -323,6 +327,8 @@ struct BodySettingsView: View {
                 showingHowToUseBrowser = true
             case .privacy:
                 showingPrivacyBrowser = true
+            case .onboarding:
+                showingOnboarding = true
             case .version:
                 break
             case .more:
@@ -346,7 +352,7 @@ struct BodySettingsView: View {
         switch tab {
         case .howToUse, .privacy:
             return .externalLink
-        case .more:
+        case .onboarding, .more:
             return .chevron
         case .version:
             return .none
@@ -928,6 +934,7 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
 enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
     case howToUse
     case privacy
+    case onboarding
     case more
     case version
 
@@ -941,6 +948,8 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
             return "How to Use"
         case .privacy:
             return "Privacy"
+        case .onboarding:
+            return "Onboarding"
         case .more:
             return "More"
         case .version:
@@ -954,6 +963,8 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
             return "questionmark.circle.fill"
         case .privacy:
             return "hand.raised.fill"
+        case .onboarding:
+            return "sparkles"
         case .more:
             return "ellipsis.circle.fill"
         case .version:
@@ -973,7 +984,7 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
         switch self {
         case .more:
             return .more
-        case .howToUse, .privacy, .version:
+        case .howToUse, .privacy, .onboarding, .version:
             return nil
         }
     }
@@ -2220,7 +2231,8 @@ private struct BodyEffortSuggestionsSettingsSheet: View {
     }
 }
 
-private struct BodyEffortSuggestionToggleRow: View {
+// Internal (not private) so onboarding can offer the same setting.
+struct BodyEffortSuggestionToggleRow: View {
     @Binding var isEnabled: Bool
 
     var body: some View {
@@ -2343,7 +2355,8 @@ private struct BodyReadinessAIToggleRow: View {
     }
 }
 
-private struct BodyAutoApplyEffortToggleRow: View {
+// Internal (not private) so onboarding can offer the same setting.
+struct BodyAutoApplyEffortToggleRow: View {
     @Binding var isEnabled: Bool
 
     var body: some View {
@@ -3386,7 +3399,7 @@ private struct BodySymbolSelectionTile: View {
     }
 }
 
-private struct BodyAppIconOption: Identifiable, Equatable {
+struct BodyAppIconOption: Identifiable, Equatable {
     let id: String
     let displayName: String
     let descriptor: String
@@ -3459,7 +3472,7 @@ private enum BodySettingsTypography {
     static let sectionTitleFontSize: CGFloat = 25
 }
 
-private struct BodySettingsCardSection<Content: View>: View {
+struct BodySettingsCardSection<Content: View>: View {
     let title: LocalizedStringKey
     private let content: Content
 
@@ -3544,7 +3557,7 @@ private enum BodySettingsRowAccessory {
     case externalLink
 }
 
-private struct BodySettingsIconTile: View {
+struct BodySettingsIconTile: View {
     let iconName: String
     let color: Color
 

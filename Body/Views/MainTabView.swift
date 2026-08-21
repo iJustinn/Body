@@ -40,6 +40,26 @@ struct MainTabView: View {
     @State private var selectedTab: BodyMainTab = .summary
     @State private var summaryReselectCount = 0
     @State private var isFirstLaunchOverlayPresented = false
+    @AppStorage(BodyAppearancePreference.onboardingCompletedVersionKey) private var onboardingCompletedVersion = ""
+
+    /// Shown until onboarding has been completed on 1.0.0 or later
+    /// (`BodyOnboardingGate`); pre-release installs recorded nothing, so they
+    /// see it once after upgrading.
+    private var showsOnboarding: Bool {
+        BodyOnboardingGate.shouldPresent(completedVersion: onboardingCompletedVersion)
+    }
+
+    /// The cover is driven by the stored version rather than a transient
+    /// `@State`, so dismissing it (only ever via `finish()`) records completion.
+    private var isOnboardingPresented: Binding<Bool> {
+        Binding {
+            showsOnboarding
+        } set: { isPresented in
+            if !isPresented {
+                onboardingCompletedVersion = BodyOnboardingGate.currentAppVersion()
+            }
+        }
+    }
 
     /// Wraps the tab selection so re-tapping the already-active Summary tab bumps
     /// `summaryReselectCount`. Both the native tab bar and the custom pill bar route
@@ -58,12 +78,15 @@ struct MainTabView: View {
     var body: some View {
         content
             .environment(\.summaryReselectCount, summaryReselectCount)
-            .accessibilityHidden(isFirstLaunchOverlayPresented)
+            .accessibilityHidden(isFirstLaunchOverlayPresented || showsOnboarding)
             .overlay(alignment: .top) {
-                BodyHealthSyncBadge(isSuppressed: isFirstLaunchOverlayPresented)
+                BodyHealthSyncBadge(isSuppressed: isFirstLaunchOverlayPresented || showsOnboarding)
             }
             .overlay {
                 BodyFirstLaunchLoadOverlay(onPresentationChange: { isFirstLaunchOverlayPresented = $0 })
+            }
+            .fullScreenCover(isPresented: isOnboardingPresented) {
+                BodyOnboardingView(mode: .firstRun)
             }
     }
 
