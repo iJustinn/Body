@@ -15,6 +15,7 @@ final class ProjectConfigurationTests: XCTestCase {
             [
                 "How to Use",
                 "Privacy",
+                "Onboarding",
                 "More",
                 "Version"
             ]
@@ -25,6 +26,46 @@ final class ProjectConfigurationTests: XCTestCase {
                 "More"
             ]
         )
+    }
+
+    func testOnboardingIsWiredIntoLaunchAndSettings() throws {
+        let selections = try text(at: "BodyMetricsKit/BodyHealthSelections.swift")
+        XCTAssertTrue(selections.contains(#"static let onboardingCompletedVersionKey = "onboardingCompletedVersion""#))
+        // Version-gated: nothing recorded (fresh install or pre-release upgrade)
+        // and anything below 1.0.0 present onboarding; 1.0.0+ does not.
+        XCTAssertTrue(BodyOnboardingGate.shouldPresent(completedVersion: nil))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresent(completedVersion: ""))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresent(completedVersion: "0.9.12"))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresent(completedVersion: "1.0.0"))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresent(completedVersion: "1.10.0"))
+        XCTAssertEqual(BodyOnboardingGate.currentAppVersion(), Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)
+
+        let mainTabView = try text(at: "Body/Views/MainTabView.swift")
+        XCTAssertTrue(mainTabView.contains("fullScreenCover"))
+        XCTAssertTrue(mainTabView.contains("BodyOnboardingView(mode: .firstRun)"))
+
+        let settingsView = try text(at: "Body/Views/BodySettingsView.swift")
+        XCTAssertTrue(settingsView.contains("BodyOnboardingView(mode: .revisit)"))
+
+        XCTAssertNil(BodySettingsAboutTab.onboarding.sheet)
+        XCTAssertEqual(BodySettingsAboutTab.onboarding.title, "Onboarding")
+
+        let onboardingView = try text(at: "Body/Views/BodyOnboardingView.swift")
+        XCTAssertFalse(onboardingView.lowercased().contains("connected"))
+        XCTAssertTrue(onboardingView.contains("interactiveDismissDisabled"))
+        // Only the first run loads Health data, it reports progress on the page
+        // rather than on the button, and nothing waits on it.
+        XCTAssertTrue(onboardingView.contains("if mode == .firstRun && step == Self.healthStep && !hasAttemptedHealthLoad {"))
+        XCTAssertTrue(onboardingView.contains("BodySyncStatusBadgeLabel(icon: .spinner, text: \"Loading data...\")"))
+        XCTAssertFalse(onboardingView.contains(".disabled(isLoadingHealth)"))
+        XCTAssertFalse(onboardingView.contains("interactiveDismissDisabled(mode == .firstRun || isLoadingHealth)"))
+        // The Workouts page preview carries the tab's own calendar/breakdown switch.
+        XCTAssertEqual(onboardingView.occurrenceCount(of: "onSwitchChart: toggleWorkoutsPreview"), 2)
+        XCTAssertTrue(onboardingView.contains("WorkoutTypeBreakdownView("))
+        // Calendar first, like the tab itself: only the switch control moves
+        // the preview to the bars.
+        XCTAssertTrue(onboardingView.contains("@State private var showsWorkoutBreakdown = false"))
+        XCTAssertEqual(onboardingView.occurrenceCount(of: "showsWorkoutBreakdown.toggle()"), 1)
     }
 
     func testSettingsAboutDocumentationTabsOpenExternalLinks() throws {
@@ -2200,8 +2241,14 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("@AppStorage(BodyAppearancePreference.workoutsChartShowsTypeBreakdownKey) private var workoutsChartShowsTypeBreakdown = false"))
 
         // One slot, one identity. The per-card ids are gone because the two
-        // cards no longer occupy separate places on the page.
+        // cards no longer occupy separate places on the page — and the month id
+        // now sits on the calendar branch alone, so the breakdown survives a month
+        // switch and morphs its bars instead of cross-fading the whole card.
         XCTAssertTrue(source.contains(".id(\"chart-\\(monthIdentity)\")"))
+        let chartSlot = try XCTUnwrap(source.range(of: "if workoutsChartShowsTypeBreakdown {"))
+        let breakdownBranch = String(source[chartSlot.upperBound...].prefix(180))
+        XCTAssertTrue(breakdownBranch.contains("workoutTypeSummaryCard(snapshot: displaySnapshot"))
+        XCTAssertFalse(breakdownBranch.contains("monthIdentity"))
         XCTAssertFalse(source.contains(".id(\"calendar-\\(monthIdentity)\")"))
         XCTAssertFalse(source.contains(".id(\"summary-\\(monthIdentity)\")"))
 
@@ -2229,6 +2276,39 @@ final class ProjectConfigurationTests: XCTestCase {
         // long activity name is never squeezed to make space for the button.
         XCTAssertTrue(breakdownSource.contains("reservedTrailingWidth: reservedWidth"))
         XCTAssertTrue(breakdownSource.contains("availableWidth - reservedTrailingWidth - detailReserveWidth(for: availableWidth)"))
+    }
+
+    func testWorkoutTypeBreakdownBarsMorphAcrossRankSlots() throws {
+        let breakdownSource = try text(at: "BodyShared/Components/WorkoutTypeBreakdownView.swift")
+
+        // Rows are identified by their rank slot, never by the activity: a re-ranking
+        // has to morph row 1 into the new leader rather than reorder the list.
+        XCTAssertTrue(breakdownSource.contains("ForEach(rows.indices, id: \\.self)"))
+        XCTAssertFalse(breakdownSource.contains("ForEach(Array(displayedBreakdown.enumerated())"))
+
+        // Two snapshots on two clocks: bars/colors under the 0.45 s morph, the in-bar
+        // percentages assigned outside it so the digits roll while the bars travel.
+        XCTAssertTrue(breakdownSource.contains("@State private var displayedBreakdown: [WorkoutTypeBreakdown]?"))
+        XCTAssertTrue(breakdownSource.contains("@State private var displayedTextBreakdown: [WorkoutTypeBreakdown]?"))
+        XCTAssertTrue(breakdownSource.contains("withAnimation(morphs ? .easeInOut(duration: 0.45) : nil)"))
+        let morphBlock = try XCTUnwrap(breakdownSource.range(of: "displayedBreakdown = breakdown"))
+        let textAssignment = try XCTUnwrap(breakdownSource.range(of: "displayedTextBreakdown = breakdown"))
+        XCTAssertLessThan(morphBlock.upperBound, textAssignment.lowerBound)
+
+        // The widgets never run a `.task`, so every read falls back to the snapshot
+        // they were handed — a widget must not render an empty chart.
+        XCTAssertTrue(breakdownSource.contains("displayedBreakdown ?? snapshot.workoutTypeBreakdown"))
+        XCTAssertTrue(breakdownSource.contains("displayedTextBreakdown ?? snapshot.workoutTypeBreakdown"))
+
+        // Digits roll instead of cutting; the activity group cross-fades in its slot.
+        XCTAssertTrue(breakdownSource.contains(".numericText(value: Double(percentage))"))
+        XCTAssertTrue(breakdownSource.contains(".snappy(duration: 0.38, extraBounce: 0), value: percentage"))
+        XCTAssertTrue(breakdownSource.contains(".id(entry.type)"))
+
+        // Reduce Motion kills all three mechanisms, plus the inherited morph.
+        XCTAssertTrue(breakdownSource.contains("&& !reduceMotion"))
+        XCTAssertTrue(breakdownSource.contains("reduceMotion ? .identity : .numericText"))
+        XCTAssertTrue(breakdownSource.contains("transaction.animation = nil"))
     }
 
     func testWorkoutChartsRenderFilteredSnapshotWhileCorpusCacheStaysUnfiltered() throws {
@@ -2451,12 +2531,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 12;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 14;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.0;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 12;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 14;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2491,7 +2571,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 12)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 14)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 13)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 12)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 11)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 10)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 9)**"))
@@ -2502,6 +2584,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(readme.contains("Low Heart Rate"))
         XCTAssertTrue(readme.contains("High Heart Rate"))
         XCTAssertTrue(readme.contains("Low Blood Oxygen"))
+        XCTAssertTrue(readme.contains("Settings › About › Onboarding"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 17)**"))
@@ -2593,6 +2676,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 14)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 14."))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 13)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 13."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 12)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 12."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 11)"))
@@ -3048,7 +3135,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 12)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 14)"))
+        XCTAssertTrue(testPlan.contains("Settings › About › Onboarding"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 13)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 12)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 11)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 10)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 9)"))
@@ -3199,7 +3289,7 @@ final class ProjectConfigurationTests: XCTestCase {
         let xcstrings = try text(at: "Body/Localizable.xcstrings")
 
         XCTAssertTrue(mainTabSource.contains(".overlay(alignment: .top) {"))
-        XCTAssertTrue(mainTabSource.contains("BodyHealthSyncBadge(isSuppressed: isFirstLaunchOverlayPresented)"))
+        XCTAssertTrue(mainTabSource.contains("BodyHealthSyncBadge(isSuppressed: isFirstLaunchOverlayPresented || showsOnboarding)"))
 
         XCTAssertTrue(badgeSource.contains("import Accessibility"))
         XCTAssertTrue(badgeSource.contains("if #available(iOS 26.0, *)"))
@@ -3720,6 +3810,37 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(widgetSource.contains("usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked"))
     }
 
+    func testShareTrayScrollerPinsItsAnchorAndAlwaysFadesBothEdges() throws {
+        let shareSheetSource = try text(at: "Body/Views/Health/BodyWorkoutShareSheet.swift")
+
+        // The resting offset is owned by `ScrollPosition`, not by the initial-offset
+        // anchor: a tray whose width only settles on a later layout pass was left at the
+        // leading edge with its last tiles cut off behind the rail.
+        XCTAssertTrue(shareSheetSource.contains("@State private var position: ScrollPosition"))
+        XCTAssertTrue(shareSheetSource.contains(".scrollPosition($position)"))
+        XCTAssertTrue(shareSheetSource.contains(".defaultScrollAnchor(anchor, for: .alignment)"))
+        XCTAssertTrue(shareSheetSource.contains(".onChange(of: contentWidth) { pinToAnchor() }"))
+        XCTAssertTrue(shareSheetSource.contains(".onChange(of: viewportWidth) { pinToAnchor() }"))
+        XCTAssertTrue(shareSheetSource.contains("struct OptionTileContentWidthKey: PreferenceKey"))
+        XCTAssertTrue(shareSheetSource.contains("struct OptionTileViewportWidthKey: PreferenceKey"))
+        // Pinning must not inherit the tray-open animation.
+        XCTAssertTrue(shareSheetSource.contains("transaction.disablesAnimations = true"))
+
+        // A row the user has scrolled stays put: a metric chip widens when it is picked,
+        // and re-pinning on that width change threw the row back to its first chip.
+        XCTAssertTrue(shareSheetSource.contains("@State private var hasUserScrolled = false"))
+        XCTAssertTrue(shareSheetSource.contains("guard !hasUserScrolled else {"))
+        XCTAssertTrue(shareSheetSource.contains("if phase == .tracking || phase == .interacting {"))
+
+        // Both edges fade unconditionally. The matching content margin means an edge
+        // with nothing behind it fades an empty gutter, so there is no overflow state
+        // to get stuck — which is what left tiles hard-cut before.
+        XCTAssertFalse(shareSheetSource.contains("EdgeOverflow"))
+        XCTAssertFalse(shareSheetSource.contains("onScrollGeometryChange(for: EdgeOverflow.self)"))
+        XCTAssertTrue(shareSheetSource.contains(".contentMargins(.horizontal, fade, for: .scrollContent)"))
+        XCTAssertEqual(shareSheetSource.occurrenceCount(of: ".frame(width: fade)"), 2)
+    }
+
     func testWidgetFamiliesArePinnedPerWidget() throws {
         let widgetSource = try text(at: "BodyWidgetExtension/WorkoutCalendarWidget.swift")
         let breakdownSource = try text(at: "BodyShared/Components/WorkoutTypeBreakdownView.swift")
@@ -3730,7 +3851,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(widgetSource.contains(".padding(14)"))
         XCTAssertTrue(widgetSource.contains("family == .systemMedium ? .widgetMedium : .widgetLarge"))
         XCTAssertTrue(breakdownSource.contains("case .app:"))
-        XCTAssertTrue(breakdownSource.contains("return snapshot.workoutTypeBreakdown.count"))
+        // The app shows every activity. Unbounded rather than the live snapshot's
+        // count, which would truncate the morph's outgoing arrangement for a frame
+        // whenever the incoming month has fewer activity types.
+        XCTAssertTrue(breakdownSource.contains("return .max"))
         XCTAssertTrue(breakdownSource.contains("case .widgetMedium:"))
         XCTAssertTrue(breakdownSource.contains("return 2"))
         XCTAssertTrue(breakdownSource.contains("case .widgetLarge:"))

@@ -1,10 +1,28 @@
 # Version History
 
+## 1.0.0 (build 14)
+
+- **Onboarding no longer waits on the first Apple Health load.** Continue on the Welcome page still opens the permission sheet, but the load then reports itself with the app's floating "Loading data..." badge instead of taking over the button, and Skip, Back, and Continue all stay live while it runs.
+- **The replayed onboarding skips that load entirely.** Opened from Settings › About › Onboarding, the Welcome page drops the load copy, spinner, and outcome row, and Continue goes straight to Readiness without touching HealthKit.
+- **The Workout Calendar page is now Workout Summaries.** Its sample card carries the Workouts tab's own switch control, so the chart button flips the preview to the activity breakdown and the grid button flips it back, with a new row explaining both directions.
+- **Workout detail charts and metric warning cards now fade in.** The Pace/Speed, Elevation, Cadence, Stride Length, Ground Contact Time, and Vertical Oscillation cards, and a metric detail page's threshold warning cards, arrive after their data loads — they now fade into the page instead of appearing all at once. The card claims its space immediately, so nothing below it slides; Reduce Motion still lands them opaque on the first frame.
+- **The Workouts activity breakdown chart now morphs instead of reshuffling.** Switching months — or changing what a month shows with a search, a filter, or a refresh — keeps each bar in its slot: it travels to its new width while its color and the activity beside it cross-fade, and the in-bar percentages roll digit by digit, starting ahead of the bars. The month's total and workout count roll with them. Reduce Motion lands every arrangement instantly, and the workout calendar chart is unchanged.
+- **Share page option trays no longer open with tiles cut off.** On some screen widths a tray opened resting on its first tile, leaving its last ones clipped behind the rail; every tray now reliably opens on its anchor, and a tray the user has scrolled stays put when picking a metric widens its chip. The soft edge fades are now always drawn over both ends, so a tile passing under an edge is never hard-cut.
+- **The workout detail hero's weather icon now varies with the weather.** It still shows the sky condition Apple Health recorded with the workout (sun, cloud, rain, snow…), but that condition is missing from most workouts, so every one of them used to draw the same flat thermometer. The fallback is now graded by the temperature itself — a snowflake on a freezing session, a sun on a hot one — banded on the rounded reading so two workouts showing the same temperature never draw different glyphs, and unaffected by the °F/°C setting.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 14.
+
+## 1.0.0 (build 13)
+
+- **Added a first-run onboarding flow** — Welcome with the Apple Health load, Readiness, Sleep (card, explanation, and nightly goal), Training Load, Workout Effort (each with a live preview; the effort page also carries the Effort Suggestions and Auto Apply switches), Workout Summaries (the tab's calendar and activity breakdown behind the same switch control, plus the marker legend and the Share button), and an All set page — shown once to every install that has not completed it on 1.0.0 or later (fresh installs and pre-release upgrades alike); the Welcome page's Health load runs in the background so the flow never waits on it, and the replay copy skips that load. It can be replayed anytime from Settings › About › Onboarding.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 13.
+
 ## 1.0.0 (build 12)
 
 - **The workout share sheet's font button always shows the "Aa" glyph.** SF Symbols swaps `textformat` for localized text, so the Chinese build drew "格式" (Format) on a button that picks the font; the symbol is now rendered against a fixed English locale in every language.
 - **Reordered the default Summary card layout** — Sleep · Vitals, Training Load · Basics, Heart Rate · HRV, Active Energy · Resting Energy, Resting Heart Rate · Cardio Fitness, Steps · Exercise Minutes, Skin Temp · Blood Oxygen, Respiratory Rate · Time In Daylight, then Activity Rings. Existing custom orders are untouched.
 - **The workout share card can now show your Settings profile avatar and @nickname beside the watermark.** A new free **Profile** rail option (below Metrics) toggles either independently — both hidden by default; each tile stays disabled until the matching field is set in Settings › Profile, and a caption under the preview says so while the tray is open.
+- **The Workouts activity breakdown chart now morphs instead of reshuffling.** When a search, filter, or refresh changes the month's ranking, each bar keeps its slot and travels to its new width while its color and the activity beside it cross-fade; the in-bar percentages roll digit by digit, starting ahead of the bars. Reduce Motion lands every arrangement instantly, and the workout calendar chart is unchanged.
+- **Share page option trays no longer open with tiles cut off.** On some screen widths a tray opened resting on its first tile, leaving its last ones clipped behind the rail; every tray now reliably opens on its anchor. The soft edge fades also appear as soon as a tray opens rather than only after it has been scrolled.
 - Updated the app, widget, watch, and test bundle version to 1.0.0 build 12.
 
 ## 1.0.0 (build 11)
