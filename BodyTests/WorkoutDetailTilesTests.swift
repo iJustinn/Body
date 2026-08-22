@@ -2,9 +2,9 @@
 //  WorkoutDetailTilesTests.swift
 //  BodyTests
 //
-//  The workout-detail context tiles built from workout metadata (humidity,
-//  average METs) plus the heart-rate recovery tile, and the hero line's
-//  temperature text (which replaced the temperature tile).
+//  The workout-detail context tiles built from workout metadata (average METs)
+//  plus the heart-rate recovery tile, and the hero line's temperature text
+//  (which replaced the temperature tile). Humidity is hero-only — no tile.
 //
 
 import XCTest
@@ -96,15 +96,19 @@ final class WorkoutDetailTilesTests: XCTestCase {
 
     // MARK: - Context tiles
 
-    func testHumidityAndMETsTiles() {
+    func testMETsTile() {
         let values = tiles(workout(humidityPercent: 68, averageMETs: 8.4))
-        XCTAssertEqual(values[.humidity], "68 %")
         XCTAssertEqual(values[.averageMETs], "8.4 METs")
+    }
+
+    /// Humidity is shown on the hero's weather line only — a recorded reading
+    /// must not come back as a Details tile.
+    func testRecordedHumidityEmitsNoTile() {
+        XCTAssertNil(tiles(workout(humidityPercent: 68))[.humidity])
     }
 
     func testAbsentAndNonFiniteValuesEmitNoTiles() {
         let empty = tiles(workout())
-        XCTAssertNil(empty[.humidity])
         XCTAssertNil(empty[.averageMETs])
 
         let nonFinite = tiles(workout(
@@ -112,7 +116,6 @@ final class WorkoutDetailTilesTests: XCTestCase {
             humidityPercent: .infinity,
             averageMETs: .nan
         ))
-        XCTAssertNil(nonFinite[.humidity])
         XCTAssertNil(nonFinite[.averageMETs])
 
         // Zero METs reads as "not recorded", like the other >0-gated tiles.
@@ -127,12 +130,11 @@ final class WorkoutDetailTilesTests: XCTestCase {
         XCTAssertEqual(metric.value, BodyValueFormat.heartRateText(beatsPerMinute: 32, locale: locale))
     }
 
-    /// Humidity, METs and HR recovery are all comparable against the 30-day
-    /// history — the tiles carry a badge like the performance ones.
+    /// METs and HR recovery are comparable against the 30-day history — the tiles
+    /// carry a badge like the performance ones.
     func testContextTilesExposeComparisonScalars() {
-        let summary = workout(humidityPercent: 68, averageMETs: 8.4, heartRateRecoveryBPM: 32)
+        let summary = workout(averageMETs: 8.4, heartRateRecoveryBPM: 32)
 
-        XCTAssertEqual(WorkoutMetricComparisonBuilder.scalar(for: .humidity, from: summary), 68)
         XCTAssertEqual(WorkoutMetricComparisonBuilder.scalar(for: .averageMETs, from: summary), 8.4)
         XCTAssertEqual(WorkoutMetricComparisonBuilder.scalar(for: .heartRateRecovery, from: summary), 32)
     }

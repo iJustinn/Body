@@ -1014,16 +1014,10 @@ struct WorkoutDetailPresentation: Equatable {
             ))
         }
 
-        // Session context the watch recorded alongside the workout. Weather and METs
-        // come from workout metadata, so they show whenever the recording source
-        // saved them — no Workout Metrics opt-in involved.
-        if let humidity = workout.weatherHumidityPercent, humidity.isFinite {
-            metrics.append(WorkoutDetailMetric(
-                kind: .humidity,
-                title: String(localized: "Humidity", table: "BodyMetricsKit"),
-                value: BodyValueFormat.numberText(humidity.rounded(), decimals: 0, locale: locale) + " %"
-            ))
-        }
+        // Session context the watch recorded alongside the workout. METs come from
+        // workout metadata, so it shows whenever the recording source saved it —
+        // no Workout Metrics opt-in involved. (Humidity is deliberately not a tile;
+        // it stays on the hero's weather line.)
         if let averageMETs = workout.averageMETs, averageMETs > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .averageMETs,
