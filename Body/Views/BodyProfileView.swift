@@ -15,6 +15,11 @@ struct BodyProfileView: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var cropTarget: BodyProfileCropTarget?
     @State private var showingPhotoPicker = false
+    /// Body Blue until a photo with a usable color is stored, then that photo's own.
+    @State private var avatarGlowColor = BodyProfileView.fallbackGlowColor
+
+    /// The app's own blue, shared with the share card's default route trace.
+    private static let fallbackGlowColor = BodyWorkoutShareCardView.defaultRouteColor
 
     private var avatarImage: UIImage? {
         profileAvatarData.isEmpty ? nil : UIImage(data: profileAvatarData)
@@ -44,6 +49,9 @@ struct BodyProfileView: View {
         // Latest-wins and cancellable: the picker can be re-opened before a slow
         // cloud photo finishes loading, and only the current pick may open the crop.
         .task(id: photoItem) { await loadPickedPhoto() }
+        .task(id: profileAvatarData) {
+            avatarGlowColor = avatarImage.flatMap { BodyProfileImageCodec.glowColor(from: $0) } ?? Self.fallbackGlowColor
+        }
         .fullScreenCover(item: $cropTarget) { target in
             BodyProfilePhotoCropView(
                 image: target.image,
@@ -117,15 +125,15 @@ struct BodyProfileView: View {
             } else {
                 Image(systemName: "person.fill")
                     .font(.system(size: 60, weight: .regular))
-                    .foregroundColor(BodyProPalette.gold)
+                    .foregroundColor(.white)
                     .frame(width: 116, height: 116)
                     .background(
                         RoundedRectangle(cornerRadius: 32, style: .continuous)
-                            .fill(BodyProPalette.gold.opacity(0.14))
+                            .fill(Color.white.opacity(0.14))
                     )
             }
         }
-        .shadow(color: BodyProPalette.gold.opacity(0.22), radius: 22, x: 0, y: 15)
+        .shadow(color: avatarGlowColor.opacity(0.22), radius: 22, x: 0, y: 15)
         .shadow(color: .black.opacity(0.18), radius: 6, x: 4, y: 8)
     }
 
@@ -322,6 +330,62 @@ enum BodyProfileImageCodec {
     /// enough for the 116pt hero on a 3× display without upscaling, still only
     /// tens of KB as JPEG.
     static let avatarMaxDimension: CGFloat = 480
+
+    /// Below this, the average is effectively gray and its hue is just sensor
+    /// noise — a black-and-white or washed-out photo has no color to borrow.
+    static let neutralGlowSaturation: CGFloat = 0.12
+
+    /// The photo's average color, lifted into something that reads as a glow:
+    /// the raw average of a dark or muted picture casts a gray smudge, so the
+    /// hue is kept while saturation and brightness are floored. Nil for a photo
+    /// with no meaningful hue, which leaves the caller on its blue default
+    /// rather than inventing a color out of near-gray noise.
+    static func glowColor(from image: UIImage) -> Color? {
+        guard let cgImage = image.cgImage else {
+            return nil
+        }
+
+        // Averaging is the 1×1 draw itself — Core Graphics resamples the whole
+        // image down to the single pixel we read back.
+        var pixel = [UInt8](repeating: 0, count: 4)
+        guard let context = CGContext(
+            data: &pixel,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+
+        context.interpolationQuality = .medium
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        let average = UIColor(
+            red: CGFloat(pixel[0]) / 255,
+            green: CGFloat(pixel[1]) / 255,
+            blue: CGFloat(pixel[2]) / 255,
+            alpha: 1
+        )
+        guard
+            average.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha),
+            saturation >= neutralGlowSaturation
+        else {
+            return nil
+        }
+
+        return Color(
+            hue: Double(hue),
+            saturation: Double(min(max(saturation * 1.5, 0.45), 0.9)),
+            brightness: Double(max(brightness, 0.55))
+        )
+    }
 
     /// Downscales with EXIF orientation baked in via `CGImageSource` thumbnailing —
     /// safe to call off the main actor so a large cloud photo never stalls the UI.

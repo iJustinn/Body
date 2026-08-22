@@ -138,8 +138,8 @@ struct BodySettingsView: View {
         } label: {
             HStack(spacing: 15) {
                 Group {
-                    if !profileAvatarData.isEmpty, let uiImage = UIImage(data: profileAvatarData) {
-                        Image(uiImage: uiImage)
+                    if let profileAvatarImage {
+                        Image(uiImage: profileAvatarImage)
                             .resizable()
                             .scaledToFill()
                             .frame(width: 58, height: 58)
@@ -163,7 +163,7 @@ struct BodySettingsView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
 
-                    Text("Add a name and photo")
+                    Text(profileCardSubtitle)
                         .font(.system(.subheadline, design: .rounded))
                         .fontWeight(.semibold)
                         .foregroundColor(.secondary)
@@ -187,6 +187,25 @@ struct BodySettingsView: View {
     /// The stored name once set, otherwise the generic card title.
     private var profileCardTitle: String {
         BodyUserProfile.displayName(from: profileName) ?? String(localized: "Your Profile")
+    }
+
+    private var profileAvatarImage: UIImage? {
+        profileAvatarData.isEmpty ? nil : UIImage(data: profileAvatarData)
+    }
+
+    /// Asks only for the piece that is still missing; once both are set the row
+    /// stops asking and carries the day's encouragement instead.
+    private var profileCardSubtitle: LocalizedStringKey {
+        switch (BodyUserProfile.displayName(from: profileName) != nil, profileAvatarImage != nil) {
+        case (true, true):
+            return BodyProfileMotivation.line(for: Date())
+        case (true, false):
+            return "Add a photo"
+        case (false, true):
+            return "Add a name"
+        case (false, false):
+            return "Add a name and photo"
+        }
     }
 
     private var bodyProEntryCard: some View {
@@ -842,6 +861,37 @@ struct BodySettingsView: View {
         }
     }
 
+}
+
+/// Hand-written encouragement for the profile card once a name and photo are
+/// both set. The line is picked from the day's ordinal rather than at random so
+/// it holds still through every re-render and turns over at midnight.
+enum BodyProfileMotivation {
+    static let lines: [LocalizedStringKey] = [
+        "Consistency beats intensity.",
+        "Show up for yourself today.",
+        "Small efforts, stacked.",
+        "Rest is part of the work.",
+        "Progress, not perfection.",
+        "One more day of showing up.",
+        "Strong is built daily.",
+        "Move now, thank yourself later.",
+        "Every session counts.",
+        "Steady beats fast."
+    ]
+
+    static func line(for date: Date, calendar: Calendar = .bodyGregorian) -> LocalizedStringKey {
+        // Whole local days from a fixed reference. (`ordinality(of: .day, in: .era,)`
+        // reads differently at 07:00 and 23:00 of the same day, so the line would
+        // shift mid-day.)
+        let day = calendar.dateComponents(
+            [.day],
+            from: Date(timeIntervalSinceReferenceDate: 0),
+            to: calendar.startOfDay(for: date)
+        ).day ?? 0
+
+        return lines[((day % lines.count) + lines.count) % lines.count]
+    }
 }
 
 enum BodySettingsSheet: String, Identifiable {
@@ -2308,7 +2358,7 @@ private struct BodyReadinessAISettingsSheet: View {
     @ViewBuilder
     private var explanation: some View {
         if isSupported {
-            Text("When on, Apple Intelligence writes a short comment about what's shaping today's readiness score — your heart rate, HRV, sleep, and training signals. Everything runs on your device; your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead.")
+            Text("When on, Apple Intelligence writes a short comment about what's shaping today's readiness score, including your heart rate, HRV, sleep, and training signals. Everything runs on your device, and your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead.")
         } else {
             Text("Apple Intelligence readiness comments need a supported device with Apple Intelligence turned on in Settings. Body's built-in explanation is shown instead.")
         }
@@ -2326,12 +2376,21 @@ private struct BodyReadinessAIToggleRow: View {
             )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Readiness Comment")
-                    .font(.system(.headline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                HStack(spacing: 6) {
+                    Text("Readiness Comment")
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    Text("Beta v2")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(.blue)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(.blue.opacity(0.14), in: Capsule())
+                }
 
                 Text("AI comment on today's score")
                     .font(.system(.subheadline, design: .rounded))

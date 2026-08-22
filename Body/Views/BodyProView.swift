@@ -154,31 +154,42 @@ struct BodyProView: View {
                     .frame(maxWidth: .infinity)
             }
 
-            Button {
-                showRedeemSheet = true
-            } label: {
-                Text("Redeem Pro")
-                    .font(.system(.headline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity, minHeight: 48)
-            }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.roundedRectangle(radius: 16))
-            .tint(BodyProPalette.gold)
-            .disabled(isRestoreOrRedeemDisabled)
+            // Plain text, not buttons: recovery paths that shouldn't compete with
+            // the purchase card above them.
+            HStack(spacing: 8) {
+                Button {
+                    showRedeemSheet = true
+                } label: {
+                    Text("Redeem")
+                        .foregroundColor(BodyProPalette.gold)
+                        // Each label carries its own tap target: text this size is
+                        // well under the 44pt minimum on its own.
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isRestoreOrRedeemDisabled)
 
-            Button {
-                Task { await proStore?.restore() }
-            } label: {
-                Text("Restore Purchases")
-                    .font(.system(.headline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity, minHeight: 48)
+                Text(verbatim: "·")
+                    .foregroundColor(.secondary)
+
+                Button {
+                    Task { await proStore?.restore() }
+                } label: {
+                    Text("Restore")
+                        .foregroundColor(BodyProPalette.gold)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isRestoreOrRedeemDisabled)
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.roundedRectangle(radius: 16))
-            .tint(BodyProPalette.gold)
-            .disabled(isRestoreOrRedeemDisabled)
+            .font(.system(.subheadline, design: .rounded))
+            .fontWeight(.semibold)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .opacity(isRestoreOrRedeemDisabled ? 0.45 : 1)
+            .frame(maxWidth: .infinity)
         }
         .offerCodeRedemption(isPresented: $showRedeemSheet) { _ in
             // Sync with the App Store so RevenueCat ingests the redeemed transaction, then
@@ -549,7 +560,10 @@ private struct BodyProFeature: Identifiable {
     let detail: String
     let iconName: String
 
+    /// Grouped by what they touch — metric depth, data sources, share cards, then
+    /// the rest of the app — so neighbouring rows read as one subject.
     static let defaultFeatures = [
+        // Metric depth: how far back the charts and day views reach.
         BodyProFeature(
             id: "longer-range-charts",
             title: String(localized: "Longer-Range Charts"),
@@ -562,12 +576,8 @@ private struct BodyProFeature: Identifiable {
             detail: String(localized: "Open any past day in the metric and sleep day views, beyond the most recent three."),
             iconName: "calendar"
         ),
-        BodyProFeature(
-            id: "custom-backgrounds",
-            title: String(localized: "Custom Backgrounds"),
-            detail: String(localized: "Personalize the app background with your own color mixes and saved profiles."),
-            iconName: "paintpalette.fill"
-        ),
+
+        // Where the numbers come from.
         BodyProFeature(
             id: "secondary-source",
             title: String(localized: "Secondary Data Source"),
@@ -575,17 +585,13 @@ private struct BodyProFeature: Identifiable {
             iconName: "square.stack.3d.up.fill"
         ),
         BodyProFeature(
-            id: "body-widgets",
-            title: String(localized: "Body Widgets"),
-            detail: String(localized: "Use Body widgets to keep workout and metric context on the Home Screen."),
-            iconName: "square.grid.2x2.fill"
-        ),
-        BodyProFeature(
             id: "custom-sources",
             title: String(localized: "Custom Data Sources"),
             detail: String(localized: "Create your own sources that merge several data sources into one."),
             iconName: "heart.fill"
         ),
+
+        // Workout share cards.
         BodyProFeature(
             id: "photo-share",
             title: String(localized: "Photo Activity Share"),
@@ -615,6 +621,20 @@ private struct BodyProFeature: Identifiable {
             title: String(localized: "Share Card Metrics"),
             detail: String(localized: "Choose which metrics your workout share card shows."),
             iconName: "list.bullet.rectangle.portrait"
+        ),
+
+        // Elsewhere in the app.
+        BodyProFeature(
+            id: "custom-backgrounds",
+            title: String(localized: "Custom Backgrounds"),
+            detail: String(localized: "Personalize the app background with your own color mixes and saved profiles."),
+            iconName: "paintpalette.fill"
+        ),
+        BodyProFeature(
+            id: "body-widgets",
+            title: String(localized: "Body Widgets"),
+            detail: String(localized: "Use Body widgets to keep workout and metric context on the Home Screen."),
+            iconName: "square.grid.2x2.fill"
         )
     ]
 }
