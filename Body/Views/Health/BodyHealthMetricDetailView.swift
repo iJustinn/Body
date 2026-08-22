@@ -874,7 +874,7 @@ struct BodyHealthMetricDetailView: View {
             workouts = ReadinessComputeSupport.wakeCycleWorkouts(
                 from: allCachedWorkouts,
                 now: now,
-                sleepEnd: workoutStore.healthSummary.sleep.stageSnapshot.dateInterval?.end,
+                sleepEnd: workoutStore.healthSummary.sleep.stageSnapshot.wakeCycleEnd,
                 calendar: .bodyGregorian
             )
         } else {

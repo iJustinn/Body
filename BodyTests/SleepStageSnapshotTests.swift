@@ -286,4 +286,84 @@ final class SleepStageSnapshotTests: XCTestCase {
         XCTAssertTrue(snapshot.napsSnapshot.isEmpty)
         XCTAssertEqual(snapshot.napsSnapshot.date, snapshot.date)
     }
+
+    // MARK: wakeCycleEnd
+
+    func testWakeCycleEndIsNightEndWithLaterNap() {
+        let night = SleepStageSegment(stage: .core, startDate: date(day: 9, hour: 23), endDate: date(7))
+        let nap = SleepStageSegment(stage: .core, startDate: date(17), endDate: date(17, 30))
+        let snapshot = SleepStageSnapshot(
+            date: date(0),
+            segments: [night, nap],
+            mainSessionInterval: DateInterval(start: night.startDate, end: night.endDate)
+        )
+
+        XCTAssertEqual(snapshot.wakeCycleEnd, date(7))
+    }
+
+    func testWakeCycleEndIsNightEndEvenWhenNapIsLonger() {
+        // The nap (13:00–17:00, 4h) outlasts the night (02:00–05:00, 3h), but the
+        // night is the earlier session, so it still anchors the wake cycle.
+        let night = SleepStageSegment(stage: .core, startDate: date(2), endDate: date(5))
+        let nap = SleepStageSegment(stage: .core, startDate: date(13), endDate: date(17))
+        let snapshot = SleepStageSnapshot(
+            date: date(0),
+            segments: [night, nap],
+            mainSessionInterval: DateInterval(start: night.startDate, end: night.endDate)
+        )
+
+        XCTAssertEqual(snapshot.wakeCycleEnd, date(5))
+    }
+
+    func testWakeCycleEndUsesFirstSplitSessionOnly() {
+        // A raw-sample gap over 2h (23:00–02:00, then 04:30–07:00) splits the
+        // night in two; the wake cycle ends at the first split, not the second.
+        let firstHalf = SleepStageSegment(stage: .core, startDate: date(day: 9, hour: 23), endDate: date(2))
+        let secondHalf = SleepStageSegment(stage: .core, startDate: date(4, 30), endDate: date(7))
+        let snapshot = SleepStageSnapshot(
+            date: date(0),
+            segments: [firstHalf, secondHalf],
+            mainSessionInterval: DateInterval(start: firstHalf.startDate, end: secondHalf.endDate)
+        )
+
+        XCTAssertEqual(snapshot.wakeCycleEnd, date(2))
+    }
+
+    func testWakeCycleEndChainsANapStartingWithinTheGapOfTheNight() {
+        // The nap starts 90 minutes after the night ends (within the 2h session
+        // gap), so it's part of the same session and the cycle extends to its end.
+        let night = SleepStageSegment(stage: .core, startDate: date(day: 9, hour: 23), endDate: date(7))
+        let chainedNap = SleepStageSegment(stage: .core, startDate: date(8, 30), endDate: date(9))
+        let snapshot = SleepStageSnapshot(
+            date: date(0),
+            segments: [night, chainedNap],
+            mainSessionInterval: DateInterval(start: night.startDate, end: night.endDate)
+        )
+
+        XCTAssertEqual(snapshot.wakeCycleEnd, date(9))
+    }
+
+    func testWakeCycleEndIgnoresMainSessionInterval() {
+        // Same night + nap as the earlier case, but with no session split
+        // detected (old cache / fixture): wakeCycleEnd is derived purely from
+        // the segments, so the answer is unchanged.
+        let night = SleepStageSegment(stage: .core, startDate: date(day: 9, hour: 23), endDate: date(7))
+        let nap = SleepStageSegment(stage: .core, startDate: date(17), endDate: date(17, 30))
+        let snapshot = SleepStageSnapshot(date: date(0), segments: [night, nap])
+
+        XCTAssertNil(snapshot.mainSessionInterval)
+        XCTAssertEqual(snapshot.wakeCycleEnd, date(7))
+    }
+
+    func testWakeCycleEndIsNilWithoutSegmentsAndFallsBackToDateIntervalOtherwise() {
+        XCTAssertNil(SleepStageSnapshot.empty.wakeCycleEnd)
+
+        // No group has real asleep time, so wakeCycleEnd falls back to the
+        // whole-day interval rather than returning nil.
+        let awakeOnly = SleepStageSnapshot(date: date(0), segments: [
+            SleepStageSegment(stage: .awake, startDate: date(0), endDate: date(1))
+        ])
+        XCTAssertEqual(awakeOnly.wakeCycleEnd, awakeOnly.dateInterval?.end)
+        XCTAssertEqual(awakeOnly.wakeCycleEnd, date(1))
+    }
 }

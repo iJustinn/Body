@@ -314,14 +314,47 @@ struct SleepStageSnapshot: Codable, Equatable {
             $0.endDate <= interval.start || $0.startDate >= interval.end
         }
 
-        // Segments are ordered by start (then end) and may overlap, so the gap
-        // is measured from the latest end seen so far rather than the previous
-        // segment's end — otherwise a long aggregate sample followed by a short
-        // detailed one inside it would split one nap in two.
+        // A group needs real asleep time to be a nap: the merged-asleep test
+        // also drops awake-only strays, since only sleep stages count toward it.
+        return Self.sessionGroups(napSegments).compactMap { group in
+            var session = self
+            session.segments = group
+            session.mainSessionInterval = nil
+            guard session.mergedAsleepDuration >= Self.minimumNapAsleepDuration else {
+                return nil
+            }
+            return session
+        }
+    }
+
+    /// End of the first sleep session of the wake day — the readiness wake-cycle
+    /// anchor. Naps must not restart the cycle (they'd drop the morning's workouts
+    /// from the activity drain and shift the morning freeze), and the longest
+    /// session isn't necessarily the night, so the earliest session wins. Derived
+    /// from segments alone so old caches without `mainSessionInterval` behave.
+    var wakeCycleEnd: Date? {
+        for group in Self.sessionGroups(segments) {
+            var session = self
+            session.segments = group
+            session.mainSessionInterval = nil
+            guard session.mergedAsleepDuration >= Self.minimumNapAsleepDuration else {
+                continue
+            }
+            return group.map(\.endDate).max()
+        }
+        return dateInterval?.end
+    }
+
+    /// Groups start-ordered segments into sessions separated by more than 2h of
+    /// raw silence, measuring the gap from the running max end seen so far
+    /// rather than the previous segment's end — otherwise a long aggregate
+    /// sample followed by a short detailed one inside it would split one
+    /// session in two.
+    private static func sessionGroups(_ segments: [SleepStageSegment]) -> [[SleepStageSegment]] {
         var groups: [[SleepStageSegment]] = []
         var currentGroup: [SleepStageSegment] = []
         var runningMaxEnd = Date.distantPast
-        for segment in napSegments {
+        for segment in segments {
             if currentGroup.isEmpty || segment.startDate.timeIntervalSince(runningMaxEnd) <= Self.napSessionGap {
                 currentGroup.append(segment)
                 runningMaxEnd = max(runningMaxEnd, segment.endDate)
@@ -334,18 +367,7 @@ struct SleepStageSnapshot: Codable, Equatable {
         if !currentGroup.isEmpty {
             groups.append(currentGroup)
         }
-
-        // A group needs real asleep time to be a nap: the merged-asleep test
-        // also drops awake-only strays, since only sleep stages count toward it.
-        return groups.compactMap { group in
-            var session = self
-            session.segments = group
-            session.mainSessionInterval = nil
-            guard session.mergedAsleepDuration >= Self.minimumNapAsleepDuration else {
-                return nil
-            }
-            return session
-        }
+        return groups
     }
 
     /// Every nap segment in a single snapshot for the combined nap chart,

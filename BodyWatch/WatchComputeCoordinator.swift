@@ -235,7 +235,7 @@ actor WatchComputeCoordinator {
             // recompute matches the phone's own permission-filtered one.)
             fetchedWorkouts = []
         }
-        let sleepEnd = summary.sleep.stageSnapshot.dateInterval?.end
+        let sleepEnd = summary.sleep.stageSnapshot.wakeCycleEnd
 
         let recomputed = HealthDashboardSnapshot(summary: summary, trends: trends)
             .filteredWithoutReadinessRecompute(by: permission)
