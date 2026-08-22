@@ -1,5 +1,15 @@
 # Version History
 
+## 1.0.0 (build 16)
+
+- **An intro plays before the first-run onboarding.** On a fresh install two waves of perfectly horizontal wordmarks run in about 5 seconds: 60 "oooooooooh" marks of different lengths slide in from past the left edge and out through the right at a steady speed, never stopping on screen, dense enough to cover the display edge to edge; about 1.4 s later a second wave of "my" through "myyyy" streams in behind them, and the Welcome page fades in under the tail of that second wave. Tapping anywhere skips ahead, Reduce Motion skips it entirely, and the replay from Settings › About › Onboarding never shows it. A preview video of the intro lives in the onboarding folder.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 16.
+
+## 1.0.0 (build 15)
+
+- **The app is now named "ohmybody" on the Home Screen.** The iPhone app's display name changed from "Body" to "ohmybody" in both English and Simplified Chinese. Its bundle name, bundle identifier, the Apple Watch app, and the widget extension are unchanged, so the watch app still reads "Body".
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 15.
+
 ## 1.0.0 (build 14)
 
 - **Onboarding no longer waits on the first Apple Health load.** Continue on the Welcome page still opens the permission sheet, but the load then reports itself with the app's floating "Loading data..." badge instead of taking over the button, and Skip, Back, and Continue all stay live while it runs.

@@ -343,7 +343,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Apple Intelligence",
             "Readiness Comment",
             "AI comment on today's score",
-            "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score — your heart rate, HRV, sleep, and training signals. Everything runs on your device; your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead.",
+            "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score, including your heart rate, HRV, sleep, and training signals. Everything runs on your device, and your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead.",
             "Apple Intelligence readiness comments need a supported device with Apple Intelligence turned on in Settings. Body's built-in explanation is shown instead."
         ]
 
@@ -439,18 +439,19 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let keys = [
             "Onboarding",
             "onboarding.pageProgress %lld %lld",
+            "onboarding.intro.skip",
             "onboarding.skip",
             "onboarding.close",
             "onboarding.back",
             "onboarding.continue",
             "onboarding.getStarted",
             "onboarding.welcome.title",
-            "onboarding.welcome.subtitle",
             "onboarding.welcome.load",
             "Loading data...",
             "onboarding.health.body",
             "onboarding.health.loaded",
             "onboarding.health.finished",
+            "onboarding.health.continue",
             "onboarding.readiness.title",
             "onboarding.readiness.subtitle",
             "onboarding.readiness.signals",

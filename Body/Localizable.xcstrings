@@ -1137,6 +1137,22 @@
         }
       }
     },
+    "Add a photo" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加照片"
+          }
+        }
+      }
+    },
     "Add a photo and name in Settings › Profile to show them on the card." : {
       "localizations" : {
         "en" : {
@@ -1799,7 +1815,6 @@
       }
     },
     "Beta v2" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2811,6 +2826,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "在指标图表上对比另一个数据来源。"
+          }
+        }
+      }
+    },
+    "Consistency beats intensity." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consistency beats intensity."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "坚持胜过强度。"
           }
         }
       }
@@ -3985,6 +4016,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "数据充足时：只有包含心率数据的运动才会获得预测；没有心率的运动会留空，交由你评分。"
+          }
+        }
+      }
+    },
+    "Every session counts." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every session counts."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每一次训练都算数。"
           }
         }
       }
@@ -5733,6 +5780,22 @@
         }
       }
     },
+    "Move now, thank yourself later." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move now, thank yourself later."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "现在动起来，以后会感谢自己。"
+          }
+        }
+      }
+    },
     "Move, Exercise, and Stand progress" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7189,6 +7252,23 @@
         }
       }
     },
+    "onboarding.health.continue" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your dashboard is being built in the background. Feel free to continue, it will be ready when you get there."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在后台构建您的仪表盘。您可以继续浏览。"
+          }
+        }
+      }
+    },
     "onboarding.health.finished" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7219,6 +7299,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "健康数据已加载"
+          }
+        }
+      }
+    },
+    "onboarding.intro.skip" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip intro"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跳过片头"
           }
         }
       }
@@ -7716,23 +7813,6 @@
         }
       }
     },
-    "onboarding.welcome.subtitle" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your Apple Health data, turned into a daily picture of how your body is doing."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将您的 Apple 健康数据，转化为每日一目了然的身体状况。"
-          }
-        }
-      }
-    },
     "onboarding.welcome.title" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7746,6 +7826,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "欢迎使用 Body"
+          }
+        }
+      }
+    },
+    "One more day of showing up." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One more day of showing up."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "又坚持了一天。"
           }
         }
       }
@@ -8330,6 +8426,22 @@
         }
       }
     },
+    "Progress, not perfection." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Progress, not perfection."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "进步就好，不必完美。"
+          }
+        }
+      }
+    },
     "Purchase Completed" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8599,6 +8711,22 @@
         }
       }
     },
+    "Redeem" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redeem"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "兑换"
+          }
+        }
+      }
+    },
     "Redeem Pro" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8815,6 +8943,22 @@
         }
       }
     },
+    "Rest is part of the work." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rest is part of the work."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "休息也是训练的一部分。"
+          }
+        }
+      }
+    },
     "Resting beats per minute" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8978,6 +9122,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢复性睡眠是你的深度睡眠和快速眼动睡眠时间的总和，是夜间对身体修复和记忆巩固最有帮助的部分。深度睡眠促进身体恢复，而快速眼动睡眠有助于学习和情绪调节。睡眠阶段明细下方的总计将这两个阶段相加，并显示它们在你卧床时间中所占的比例，让你了解夜间有多少时间真正用于恢复。"
+          }
+        }
+      }
+    },
+    "Restore" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restore"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复购买"
           }
         }
       }
@@ -9873,6 +10033,54 @@
         }
       }
     },
+    "Show Separator" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Separator"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示分隔符"
+          }
+        }
+      }
+    },
+    "Show up for yourself today." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show up for yourself today."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天，为自己而动。"
+          }
+        }
+      }
+    },
+    "Show your avatar or nickname first." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show your avatar or nickname first."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先显示头像或昵称。"
+          }
+        }
+      }
+    },
     "Showing durations" : {
       "localizations" : {
         "en" : {
@@ -10303,6 +10511,22 @@
         }
       }
     },
+    "Small efforts, stacked." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Small efforts, stacked."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "积少成多，日拱一卒。"
+          }
+        }
+      }
+    },
     "Sort by" : {
       "localizations" : {
         "en" : {
@@ -10600,6 +10824,22 @@
         }
       }
     },
+    "Steady beats fast." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Steady beats fast."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "稳比快更重要。"
+          }
+        }
+      }
+    },
     "Step count total" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -10646,6 +10886,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "停止编辑"
+          }
+        }
+      }
+    },
+    "Strong is built daily." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Strong is built daily."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "强壮源于日积月累。"
           }
         }
       }
@@ -11696,19 +11952,19 @@
         }
       }
     },
-    "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score — your heart rate, HRV, sleep, and training signals. Everything runs on your device; your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead." : {
+    "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score, including your heart rate, HRV, sleep, and training signals. Everything runs on your device, and your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score — your heart rate, HRV, sleep, and training signals. Everything runs on your device; your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead."
+            "value" : "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score, including your heart rate, HRV, sleep, and training signals. Everything runs on your device, and your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "开启后，Apple 智能会写下一句简短点评，说明是什么在影响今天的恢复状态分数——你的心率、心率变异性、睡眠和训练信号。全部处理都在你的设备上完成，健康数据不会离开设备。关闭或不可用时，Body 会改为显示自带的说明。"
+            "value" : "开启后，Apple 智能会写下一句简短点评，说明是什么在影响今天的恢复状态分数，包括你的心率、心率变异性、睡眠和训练信号。全部处理都在你的设备上完成，健康数据不会离开设备。关闭或不可用时，Body 会改为显示自带的说明。"
           }
         }
       }

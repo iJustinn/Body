@@ -66,6 +66,29 @@ final class ProjectConfigurationTests: XCTestCase {
         // the preview to the bars.
         XCTAssertTrue(onboardingView.contains("@State private var showsWorkoutBreakdown = false"))
         XCTAssertEqual(onboardingView.occurrenceCount(of: "showsWorkoutBreakdown.toggle()"), 1)
+        // Reduce Motion is read from the environment so a live toggle can
+        // retire the intro without waiting on `init`.
+        XCTAssertTrue(onboardingView.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
+        // The intro field owns the screen until it reveals the pages, frozen
+        // at `introPreviewTime` for previews and render tests.
+        XCTAssertTrue(onboardingView.contains("BodyIntroAnimationView(\n                    previewTime: introPreviewTime"))
+        // The gating modifiers keep the hidden pages truly untappable and
+        // hidden from accessibility, not just faded out.
+        XCTAssertTrue(onboardingView.contains(".allowsHitTesting(introState != .playing)"))
+        XCTAssertTrue(onboardingView.contains(".accessibilityHidden(introState == .playing)"))
+        // Previews and render tests can open straight on the pages, skipping
+        // the intro entirely.
+        XCTAssertTrue(onboardingView.contains("_introState = State(initialValue: mode == .firstRun && !skipsIntro ? .playing : .finished)"))
+
+        let introView = try text(at: "Body/Views/BodyIntroAnimationView.swift")
+        // One clock drives both the drawn field and the reveal/finish
+        // callbacks, so a skip is just a jump on that same clock.
+        XCTAssertTrue(introView.contains("TimelineView("))
+        XCTAssertTrue(introView.contains(".task(id: skipGeneration)"))
+        XCTAssertTrue(introView.contains("\"onboarding.intro.skip\""))
+        // A real button carries the skip, not a tap gesture: VoiceOver and
+        // Switch Control need something they can reach and activate.
+        XCTAssertFalse(introView.contains("onTapGesture"))
     }
 
     func testSettingsAboutDocumentationTabsOpenExternalLinks() throws {
@@ -304,7 +327,9 @@ final class ProjectConfigurationTests: XCTestCase {
             // Exactly one: this sheet used to darken itself twice, which compounded the tint.
             ("Body/Views/Health/SleepScoreSheet.swift", 1, 0),
             // The workout-detail and share backdrops keep their own tint→black gradient.
-            ("Body/Views/BodyWorkoutsView.swift", 1, 1),
+            ("Body/Views/BodyWorkoutsView.swift", 0, 1),
+            // The type filter moved out of the workouts file into its own sheet.
+            ("Body/Views/BodyWorkoutFilterView.swift", 1, 0),
             ("Body/Views/Health/BodyWorkoutShareSheet.swift", 0, 1)
         ]
 
@@ -426,12 +451,16 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(shareSheetSource.contains(#"Text("Pick 1 to 5 metrics.")"#))
         XCTAssertTrue(shareSheetSource.contains(#"Text("Requires Body Pro")"#))
 
-        // Profile attribution: two independent toggles, free, off by default, and a
-        // caption while the tray is open with data missing.
+        // Profile attribution: three independent toggles, free, avatar/nickname off by
+        // default and the separator on, plus a caption while the tray is open with data
+        // missing.
         XCTAssertTrue(shareSheetSource.contains("WorkoutShareAvatarVisibility.storageKey"))
         XCTAssertTrue(shareSheetSource.contains("WorkoutShareNicknameVisibility.storageKey"))
+        XCTAssertTrue(shareSheetSource.contains("WorkoutShareSeparatorVisibility.storageKey"))
         XCTAssertTrue(shareSheetSource.contains(#"Text("Show Avatar")"#))
         XCTAssertTrue(shareSheetSource.contains(#"Text("Show Nickname")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Show Separator")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Show your avatar or nickname first.")"#))
         XCTAssertTrue(shareSheetSource.contains(
             #"Text("Add a photo and name in Settings › Profile to show them on the card.")"#
         ))
@@ -2531,12 +2560,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 14;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 16;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.0;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 14;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 16;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2571,7 +2600,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 14)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 16)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 15)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 14)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 13)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 12)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 11)**"))
@@ -2585,6 +2616,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(readme.contains("High Heart Rate"))
         XCTAssertTrue(readme.contains("Low Blood Oxygen"))
         XCTAssertTrue(readme.contains("Settings › About › Onboarding"))
+        // The first-run intro paragraph.
+        XCTAssertTrue(readme.contains("oooooooooh"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.12 (build 17)**"))
@@ -2676,6 +2709,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 16)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 16."))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 15)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 15."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 14)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 14."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 13)"))
@@ -2963,12 +3000,66 @@ final class ProjectConfigurationTests: XCTestCase {
     func testWorkoutRouteCacheClearsAfterHealthKitAuthorizationGate() throws {
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
 
-        XCTAssertTrue(storeSource.contains("private func requestHealthKitAuthorization() async throws"))
-        XCTAssertTrue(storeSource.contains("try await engine.requestAuthorization()"))
+        XCTAssertTrue(storeSource.contains("private func requestHealthKitAuthorization(allowPrompt: Bool = true) async throws"))
+        XCTAssertTrue(storeSource.contains("try await engine.requestAuthorization("))
         XCTAssertTrue(storeSource.contains("routeCache.removeAll()"))
-        XCTAssertEqual(storeSource.occurrenceCount(of: "try await engine.requestAuthorization()"), 1)
-        XCTAssertTrue(storeSource.contains("try await requestHealthKitAuthorization()"))
+        XCTAssertEqual(storeSource.occurrenceCount(of: "try await engine.requestAuthorization("), 1)
+        XCTAssertTrue(storeSource.contains("try await requestHealthKitAuthorization(allowPrompt:"))
         XCTAssertTrue(storeSource.contains("if permission == .workouts"))
+    }
+
+    func testHealthKitPermissionSheetOnlyOnUserInitiatedEntryPoints() throws {
+        let engineSource = try healthKitFetchEngineText()
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+
+        // `presentAuthorization` is the single place across every engine file
+        // (including +Write) that touches the system `requestAuthorization(`
+        // API, so passive callers can never trigger a second, uncoordinated
+        // sheet.
+        XCTAssertEqual(engineSource.occurrenceCount(of: "healthStore.requestAuthorization("), 1)
+        guard let presentRange = engineSource.range(of: "func presentAuthorization(") else {
+            XCTFail("Expected presentAuthorization(toShare:read:) in the fetch engine")
+            return
+        }
+        let presentBlock = String(engineSource[presentRange.lowerBound...].prefix(400))
+        XCTAssertTrue(presentBlock.contains("healthStore.requestAuthorization("))
+
+        // The write path re-checks the live authorization status after the
+        // sheet closes instead of trusting the sheet's own success flag, so a
+        // silent denial still resolves as denied.
+        guard let writeSource = try? text(at: "Body/Services/HealthKitFetchEngine+Write.swift") else {
+            XCTFail("Expected Body/Services/HealthKitFetchEngine+Write.swift")
+            return
+        }
+        guard let requestRange = writeSource.range(of: "func requestWorkoutEffortWriteAuthorization(") else {
+            XCTFail("Expected requestWorkoutEffortWriteAuthorization() in HealthKitFetchEngine+Write.swift")
+            return
+        }
+        let requestBlock = String(writeSource[requestRange.lowerBound...].prefix(1_500))
+        XCTAssertTrue(requestBlock.contains("== .sharingAuthorized"))
+
+        // Post-write refreshes stay passive, and the two automatic preloads
+        // never allow a prompt.
+        guard let refreshAfterWriteRange = storeSource.range(of: "func refreshAfterWrite(") else {
+            XCTFail("Expected refreshAfterWrite(_:) in HealthKitWorkoutStore.swift")
+            return
+        }
+        let refreshAfterWriteBlock = String(storeSource[refreshAfterWriteRange.lowerBound...].prefix(1_000))
+        XCTAssertTrue(refreshAfterWriteBlock.contains("intent: .passiveResume"))
+
+        guard let ensureComparisonRange = storeSource.range(of: "func ensureComparisonMonthsLoaded(") else {
+            XCTFail("Expected ensureComparisonMonthsLoaded(for:) in HealthKitWorkoutStore.swift")
+            return
+        }
+        let ensureComparisonBlock = String(storeSource[ensureComparisonRange.lowerBound...].prefix(1_500))
+        XCTAssertTrue(ensureComparisonBlock.contains("allowPrompt: false"))
+
+        guard let loadRecentRange = storeSource.range(of: "func loadRecentWorkoutMonthsIfNeeded(") else {
+            XCTFail("Expected loadRecentWorkoutMonthsIfNeeded(date:) in HealthKitWorkoutStore.swift")
+            return
+        }
+        let loadRecentBlock = String(storeSource[loadRecentRange.lowerBound...].prefix(1_500))
+        XCTAssertTrue(loadRecentBlock.contains("allowPrompt: false"))
     }
 
     func testWorkoutDetailPresentsFullScreenPushDragToDismiss() throws {
@@ -3135,8 +3226,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 14)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 16)"))
         XCTAssertTrue(testPlan.contains("Settings › About › Onboarding"))
+        // The first-run intro's automated and manual coverage.
+        XCTAssertTrue(testPlan.contains("BodyIntroAnimationTests"))
+        XCTAssertTrue(testPlan.contains("intro plays"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 15)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 14)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 13)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 12)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 11)"))
@@ -3529,7 +3625,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v1")"#), 2)
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v2")"#), 0)
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v3")"#), 1)
-        XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("Beta v2")"#), 0)
+        // The Readiness AI sheet's toggle row carries the only Beta v2 badge.
+        XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("Beta v2")"#), 1)
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.defaultTrendRangeKey)"))
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey)"))
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey)"))
@@ -3988,6 +4085,7 @@ final class ProjectConfigurationTests: XCTestCase {
             "Body/Services/HealthKitFetchEngine+SourceOptions.swift",
             "Body/Services/HealthKitFetchEngine+Secondary.swift",
             "Body/Services/HealthKitFetchEngine+IntradaySamples.swift",
+            "Body/Services/HealthKitFetchEngine+Write.swift",
             "BodyWatchSnapshotKit/BodyHealthSourceResolver.swift",
             "BodyWatchSnapshotKit/BodyHealthQuantityFetch.swift",
             "BodyWatchSnapshotKit/BodySleepFetch.swift",
