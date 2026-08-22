@@ -656,14 +656,16 @@ final class HealthKitWorkoutStore: ObservableObject {
         defer { finishRefresh() }
 
         do {
-            try await requestHealthKitAuthorization()
+            guard try await requestHealthKitAuthorization(allowPrompt: intent == .userInitiated) else {
+                return
+            }
             await refreshRecentMonths(intent: intent)
         } catch {
             handleRefreshError(error)
         }
     }
 
-    func refreshHealthMetric(_ kind: HealthMetricKind, date: Date = Date()) async {
+    func refreshHealthMetric(_ kind: HealthMetricKind, date: Date = Date(), intent: BodyWorkoutRefreshIntent = .userInitiated) async {
         guard !isRefreshing else {
             return
         }
@@ -682,7 +684,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         let calendar = Calendar.bodyGregorian
 
         do {
-            try await requestHealthKitAuthorization()
+            guard try await requestHealthKitAuthorization(allowPrompt: intent == .userInitiated) else {
+                // Match the anchor reset the normal exit runs below.
+                await engine.setHealthTrendAnchorDate(nil)
+                return
+            }
             if kind == .trainingLoad {
                 // The detail pull is an explicit gesture: drop the per-workout
                 // effort cache so a re-rated workout reconciles into the
@@ -779,7 +785,9 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// next manual refresh.
     private func refreshAfterWrite(_ kind: HealthMetricKind) async {
         await awaitNextRefreshCompletion()
-        await refreshHealthMetric(kind)
+        // A write already raised its own (share) permission sheet; this read-side
+        // refresh must never stack a second one on top of it.
+        await refreshHealthMetric(kind, intent: .passiveResume)
     }
 
     /// Writes a manually-entered weight and/or body-fat measurement to Apple
@@ -1699,8 +1707,21 @@ final class HealthKitWorkoutStore: ObservableObject {
         await engine.userMaxHeartRate()
     }
 
-    private func requestHealthKitAuthorization() async throws {
-        try await engine.requestAuthorization()
+    /// The single authorization gate every load path funnels through. Returns
+    /// `false` when the read-permission sheet would have been needed but
+    /// `allowPrompt` is off — the caller must then abort its whole load and
+    /// leave the cache untouched, because unrequested reads look empty to
+    /// HealthKit and would overwrite good data with nothing.
+    ///
+    /// The sheet therefore appears only on user-initiated actions
+    /// (pull-to-refresh, the first-launch load, the Settings/onboarding
+    /// toggles, a month-picker tap, a metric-detail pull, an effort/weight
+    /// save). Passive foreground resumes, post-write refreshes and automatic
+    /// preloads defer instead and keep showing cached data.
+    private func requestHealthKitAuthorization(allowPrompt: Bool = true) async throws -> Bool {
+        guard try await engine.requestAuthorization(allowPrompt: allowPrompt) == .authorized else {
+            return false
+        }
         routeCache.removeAll()
         routePresenceCache.removeAll()
         distanceSampleCache.removeAll()
@@ -1709,6 +1730,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // Safe to re-hydrate from disk right away: the files hold only positives,
         // so nothing they seed can contradict the fresh authorization.
         detailHydrations = [:]
+        return true
     }
 
     /// Loads the intraday day-sample sidecar (split out of the launch-critical
@@ -1816,7 +1838,10 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         do {
-            try await requestHealthKitAuthorization()
+            // Lazy day-chart fill: never worth a permission sheet.
+            guard try await requestHealthKitAuthorization(allowPrompt: false) else {
+                return
+            }
         } catch {
             return
         }
@@ -1986,7 +2011,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         let calendar = Calendar.bodyGregorian
 
         do {
-            try await requestHealthKitAuthorization()
+            guard try await requestHealthKitAuthorization(allowPrompt: intent == .userInitiated) else {
+                return
+            }
             if intent == .userInitiated {
                 await engine.clearWorkoutEffortCache()
             }
@@ -2854,7 +2881,8 @@ final class HealthKitWorkoutStore: ObservableObject {
     func ensureComparisonMonthsLoaded(for workout: WorkoutSummary) async {
         let keys = comparisonMonthKeys(for: workout, calendar: .bodyGregorian)
         for key in keys where !loadedMonthKeys.contains(key) {
-            await loadMonthIfNeeded(month: key.month, year: key.year)
+            // Automatic preload behind the detail sheet: defer if it would prompt.
+            await loadMonthIfNeeded(month: key.month, year: key.year, allowPrompt: false)
         }
     }
 
@@ -2894,11 +2922,12 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
 
-        await loadMonthKeysIfNeeded(missingKeys)
+        // The Workouts tab's own `.task` preload — never worth a sheet.
+        await loadMonthKeysIfNeeded(missingKeys, allowPrompt: false)
     }
 
     @discardableResult
-    func loadMonthIfNeeded(month: Int, year: Int) async -> Bool {
+    func loadMonthIfNeeded(month: Int, year: Int, allowPrompt: Bool = true) async -> Bool {
         guard !needsInitialHealthDataLoad else {
             return false
         }
@@ -2920,7 +2949,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return true
         }
 
-        await loadMonthKeysIfNeeded([key])
+        await loadMonthKeysIfNeeded([key], allowPrompt: allowPrompt)
         return loadedMonthKeys.contains(key)
     }
 
@@ -3027,7 +3056,10 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         do {
-            try await requestHealthKitAuthorization()
+            // Scroll-driven pagination: defer rather than prompt.
+            guard try await requestHealthKitAuthorization(allowPrompt: false) else {
+                return
+            }
 
             var mergedHistory: ActivityRingHistorySnapshot?
             var emptyProbedKeys: [ActivityRingMonthKey] = []
@@ -3327,7 +3359,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // workout carried past midnight on the 1st), also refresh that month so
         // the activity drain reads fresh prior-month workouts rather than stale,
         // un-refreshed ones.
-        let wakeCycleSleepEnd = healthSummary.sleep.stageSnapshot.dateInterval?.end
+        let wakeCycleSleepEnd = healthSummary.sleep.stageSnapshot.wakeCycleEnd
         let wakeCycleStart = Self.wakeCycleStart(now: date, sleepEnd: wakeCycleSleepEnd, calendar: calendar)
         let wakeCycleCrossesMonth = !calendar.isDate(wakeCycleStart, equalTo: date, toGranularity: .month)
         // Early in a new month the 48h auto-apply window still reaches into the prior
@@ -3718,7 +3750,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         case rings(ActivityRingHistoryFetchResult)
     }
 
-    private func loadMonthKeysIfNeeded(_ keys: Set<BodyWorkoutMonthKey>) async {
+    private func loadMonthKeysIfNeeded(_ keys: Set<BodyWorkoutMonthKey>, allowPrompt: Bool) async {
         guard !keys.isEmpty else {
             return
         }
@@ -3753,7 +3785,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         do {
-            try await requestHealthKitAuthorization()
+            guard try await requestHealthKitAuthorization(allowPrompt: allowPrompt) else {
+                return
+            }
             try await refresh(monthKeys: keysToLoad, calendar: .bodyGregorian)
             guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
                 return
@@ -3947,7 +3981,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // one), and skip entirely when the refreshed metric cannot change any
         // readiness input.
         let now = Date()
-        let sleepEnd = summary.sleep.stageSnapshot.dateInterval?.end
+        let sleepEnd = summary.sleep.stageSnapshot.wakeCycleEnd
         let wakeTime = Self.freezeWakeTime(sleepEnd: sleepEnd, scoringDay: anchorDate, now: now, calendar: calendar)
         let todaysWorkouts = currentWakeCycleWorkouts(now: now, sleepEnd: sleepEnd, calendar: calendar)
         let recordedReadinessContext = readinessRecordContextSignature()
@@ -4065,7 +4099,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
         let now = Date()
-        let sleepEnd = healthSummary.sleep.stageSnapshot.dateInterval?.end
+        let sleepEnd = healthSummary.sleep.stageSnapshot.wakeCycleEnd
         let wakeTime = Self.freezeWakeTime(sleepEnd: sleepEnd, scoringDay: date, now: now, calendar: calendar)
         // Reapply even with no current-cycle workouts: the main recompute may have
         // drained from stale workout snapshots (e.g. a workout was deleted), so the

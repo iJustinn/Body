@@ -21,6 +21,10 @@ actor HealthKitFetchEngine {
     // change the threading model.
     let healthStore = HKHealthStore()
 
+    /// Single FIFO lane for every permission-sheet transaction (reads here,
+    /// writes in HealthKitFetchEngine+Write.swift) so two sheets can't stack.
+    let authorizationCoordinator = HealthKitAuthorizationCoordinator()
+
     var permissionSelection: BodyHealthPermissionSelection
     var healthDataSourceSelection: BodyHealthDataSourceSelection
     var secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection
@@ -323,19 +327,82 @@ actor HealthKitFetchEngine {
 
     // MARK: - Authorization
 
-    func requestAuthorization() async throws {
+    /// Result of an authorization pass.
+    enum AuthorizationOutcome {
+        /// HealthKit has a recorded decision for every requested type; the read
+        /// path may proceed.
+        case authorized
+        /// A permission sheet is required but `allowPrompt` was `false`, so none
+        /// was shown.
+        case promptDeferred
+    }
+
+    /// Ensures the read permissions for the current selection have been requested.
+    ///
+    /// Pass `allowPrompt: false` for passive entry points (background/foreground
+    /// resumes, silent refreshes) that must never put a system sheet on screen
+    /// unprompted. Such a call returns `.promptDeferred` instead of prompting —
+    /// and the caller **must abort its load** on that outcome, because HealthKit
+    /// reports never-requested read types as simply empty, which would otherwise
+    /// be cached as "no data".
+    ///
+    /// The whole transaction (status check → sheet → re-check) runs inside
+    /// `authorizationCoordinator`, so a waiter re-evaluates status after the
+    /// preceding sheet rather than stacking a second one.
+    func requestAuthorization(allowPrompt: Bool = true) async throws -> AuthorizationOutcome {
         let requestedTypes = HealthKitWorkoutStore.readObjectTypes(for: permissionSelection)
         guard !requestedTypes.isEmpty else {
-            return
+            return .authorized
         }
 
-        let status = try await authorizationRequestStatus(readTypes: requestedTypes)
-        guard status != .unnecessary else {
-            return
-        }
+        return try await authorizationCoordinator.run { [self] in
+            let status = try await authorizationRequestStatus(readTypes: requestedTypes)
+            switch status {
+            case .unnecessary:
+                return .authorized
+            case .shouldRequest:
+                guard allowPrompt else {
+                    return .promptDeferred
+                }
+            case .unknown:
+                guard allowPrompt else {
+                    return .promptDeferred
+                }
+                throw HealthKitWorkoutError.authorizationStatusUnknown
+            @unknown default:
+                guard allowPrompt else {
+                    return .promptDeferred
+                }
+                throw HealthKitWorkoutError.authorizationStatusUnknown
+            }
 
+            try await presentAuthorization(toShare: Set<HKSampleType>(), read: requestedTypes)
+
+            let updatedStatus = try await authorizationRequestStatus(readTypes: requestedTypes)
+            switch updatedStatus {
+            case .unnecessary:
+                return .authorized
+            case .shouldRequest:
+                throw HealthKitWorkoutError.authorizationDenied
+            case .unknown:
+                throw HealthKitWorkoutError.authorizationStatusUnknown
+            @unknown default:
+                throw HealthKitWorkoutError.authorizationStatusUnknown
+            }
+        }
+    }
+
+    /// Whether a permission-sheet transaction is enqueued or running.
+    var isAuthorizationPromptInFlight: Bool {
+        get async { await authorizationCoordinator.isBusy }
+    }
+
+    /// The single place the HealthKit request-authorization API is called across
+    /// every engine file — always from inside `authorizationCoordinator.run`, so
+    /// only one sheet can be presented at a time.
+    func presentAuthorization(toShare: Set<HKSampleType>, read: Set<HKObjectType>) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            healthStore.requestAuthorization(toShare: Set<HKSampleType>(), read: requestedTypes) { success, error in
+            healthStore.requestAuthorization(toShare: toShare, read: read) { success, error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else if success {
@@ -344,18 +411,6 @@ actor HealthKitFetchEngine {
                     continuation.resume(throwing: HealthKitWorkoutError.authorizationDenied)
                 }
             }
-        }
-
-        let updatedStatus = try await authorizationRequestStatus(readTypes: requestedTypes)
-        switch updatedStatus {
-        case .unnecessary:
-            return
-        case .shouldRequest:
-            throw HealthKitWorkoutError.authorizationDenied
-        case .unknown:
-            throw HealthKitWorkoutError.authorizationStatusUnknown
-        @unknown default:
-            throw HealthKitWorkoutError.authorizationStatusUnknown
         }
     }
 
