@@ -299,7 +299,7 @@ struct BodyWorkoutShareLongCardView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                     .accessibilityHidden(true)
                 // verbatim: brand wordmark, never localized — see the share card.
-                Text(verbatim: "Body")
+                Text(verbatim: "ohmybody")
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundColor(ink.primary(0.6))
             }
@@ -307,10 +307,12 @@ struct BodyWorkoutShareLongCardView: View {
             .fixedSize()
 
             if !attribution.isEmpty {
-                // verbatim: see the share card's branding.
-                Text(verbatim: "–")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundColor(ink.primary(0.6))
+                if attribution.showsSeparator {
+                    // verbatim: see the share card's branding.
+                    Text(verbatim: "–")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(ink.primary(0.6))
+                }
 
                 if let avatar = attribution.avatar {
                     Image(uiImage: avatar)

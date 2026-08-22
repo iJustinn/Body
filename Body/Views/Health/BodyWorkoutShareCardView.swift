@@ -391,9 +391,9 @@ struct BodyWorkoutShareCardView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                     .accessibilityHidden(true)
                 // verbatim: brand wordmark, never localized — and never extracted
-                // into the catalog (an empty auto-extracted "Body" entry would trip
-                // the catalog-completeness guard).
-                Text(verbatim: "Body")
+                // into the catalog (an empty auto-extracted "ohmybody" entry would
+                // trip the catalog-completeness guard).
+                Text(verbatim: "ohmybody")
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundColor(ink.primary(0.6))
             }
@@ -401,13 +401,15 @@ struct BodyWorkoutShareCardView: View {
             .fixedSize()
 
             if !attribution.isEmpty {
-                // verbatim: a typographic dash between the wordmark and the
-                // attribution, never localized or extracted.
-                Text(verbatim: "–")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundColor(ink.primary(0.6))
-                    .layoutPriority(1)
-                    .fixedSize()
+                if attribution.showsSeparator {
+                    // verbatim: a typographic dash between the wordmark and the
+                    // attribution, never localized or extracted.
+                    Text(verbatim: "–")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(ink.primary(0.6))
+                        .layoutPriority(1)
+                        .fixedSize()
+                }
 
                 if let avatar = attribution.avatar {
                     Image(uiImage: avatar)

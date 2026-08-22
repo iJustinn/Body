@@ -1422,6 +1422,23 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertEqual(WorkoutShareNicknameVisibility.storageKey, "workoutShareNicknameVisibility")
     }
 
+    func testStoredSeparatorVisibilityRoundTripsAndDefaultsToShown() {
+        for visibility in WorkoutShareSeparatorVisibility.allCases {
+            XCTAssertEqual(WorkoutShareSeparatorVisibility.stored(rawValue: visibility.rawValue), visibility)
+        }
+        XCTAssertEqual(WorkoutShareSeparatorVisibility.stored(rawValue: nil), .shown)
+        XCTAssertEqual(WorkoutShareSeparatorVisibility.stored(rawValue: "invisible"), .shown)
+        XCTAssertEqual(WorkoutShareSeparatorVisibility.storageKey, "workoutShareSeparatorVisibility")
+    }
+
+    func testWorkoutShareAttributionShowsSeparatorByDefault() {
+        XCTAssertTrue(WorkoutShareAttribution.empty.showsSeparator)
+        XCTAssertTrue(WorkoutShareAttribution(avatar: nil, name: "Justin").showsSeparator)
+        XCTAssertFalse(
+            WorkoutShareAttribution(avatar: nil, name: "Justin", showsSeparator: false).showsSeparator
+        )
+    }
+
     func testWorkoutShareAttributionIsEmptyOnlyWhenBothFieldsAreNil() {
         XCTAssertTrue(WorkoutShareAttribution.empty.isEmpty)
         XCTAssertTrue(WorkoutShareAttribution(avatar: nil, name: nil).isEmpty)

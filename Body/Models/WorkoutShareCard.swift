@@ -797,12 +797,35 @@ enum WorkoutShareNicknameVisibility: String, CaseIterable {
     }
 }
 
+/// Whether the card draws the dash between the watermark and the attribution. Sits
+/// beside the avatar/nickname toggles but defaults to **shown**: the dash is what the
+/// card has always drawn once attribution is on, so an existing user's card keeps its
+/// look until they turn the separator off. Moot while the attribution is empty — there
+/// is nothing to separate the wordmark from.
+enum WorkoutShareSeparatorVisibility: String, CaseIterable {
+    case shown
+    case hidden
+
+    static let storageKey = "workoutShareSeparatorVisibility"
+
+    /// Anything unknown (or nothing stored) shows the separator.
+    static func stored(rawValue: String?) -> WorkoutShareSeparatorVisibility {
+        guard let rawValue, let visibility = WorkoutShareSeparatorVisibility(rawValue: rawValue) else {
+            return .shown
+        }
+        return visibility
+    }
+}
+
 /// What the card actually draws beside the watermark, resolved by the sheet from the
 /// visibility toggles above and whatever the Settings profile currently has on hand —
 /// a `.shown` toggle with a since-deleted photo or name draws nothing for that field.
 struct WorkoutShareAttribution {
     let avatar: UIImage?
     let name: String?
+    /// Only consulted when the attribution is non-empty; defaulted so the card
+    /// previews and tests that predate the toggle keep the dash they were drawing.
+    var showsSeparator: Bool = true
 
     var isEmpty: Bool { avatar == nil && name == nil }
 

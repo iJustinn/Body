@@ -1133,6 +1133,39 @@ final class WorkoutShareRenderTests: XCTestCase {
         )
     }
 
+    /// Turning the separator off takes the dash out of the branding row and nothing
+    /// else: the same attribution renders, but the row's ink spans fewer pixels. A span
+    /// rather than a fixed probe, because the row is centred — dropping a glyph shifts
+    /// everything left of it, so no single point stays put between the two renders.
+    func testHidingTheSeparatorNarrowsTheBrandingRow() throws {
+        func brandingInkWidth(showsSeparator: Bool) throws -> Int {
+            let cgImage = try XCTUnwrap(
+                makeRenderer(
+                    background: .preset(.daylight),
+                    attribution: WorkoutShareAttribution(
+                        avatar: solidAvatarImage(),
+                        name: "Justin",
+                        showsSeparator: showsSeparator
+                    ),
+                    colorScheme: .light
+                ).uiImage?.cgImage
+            )
+            let band = Self.pixelRect(x: 0, y: 600, width: 360, height: 12, in: cgImage)
+            return try XCTUnwrap(
+                Self.nearBlackInkWidth(in: cgImage, region: band, threshold: 150),
+                "the branding row drew no dark ink"
+            )
+        }
+
+        let withDash = try brandingInkWidth(showsSeparator: true)
+        let withoutDash = try brandingInkWidth(showsSeparator: false)
+
+        XCTAssertLessThan(
+            withoutDash, withDash,
+            "hiding the separator should narrow the branding row by the dash's width"
+        )
+    }
+
     /// Control for the test above: the same render with no attribution leaves the wide
     /// right-of-wordmark band untouched — proving the ink there comes from the
     /// attribution, not from some other element drifting into the probe.
@@ -1392,6 +1425,28 @@ final class WorkoutShareRenderTests: XCTestCase {
         containsPixel(in: cgImage, region: region) { red, green, blue in
             red <= threshold && green <= threshold && blue <= threshold
         }
+    }
+
+    /// How many pixels wide the dark ink in `region` spans, leftmost to rightmost — for
+    /// probes that compare two renders of a centred row, where absolute positions move
+    /// but the total extent is the thing under test. Nil when nothing dark drew.
+    private static func nearBlackInkWidth(in cgImage: CGImage, region: CGRect, threshold: UInt8 = 110) -> Int? {
+        guard let pixels = rgbaPixels(of: cgImage) else { return nil }
+        let bytesPerRow = cgImage.width * 4
+        var minX: Int?
+        var maxX: Int?
+        for y in Int(region.minY)..<Int(region.maxY) {
+            for x in Int(region.minX)..<Int(region.maxX) {
+                let offset = y * bytesPerRow + x * 4
+                guard pixels[offset] <= threshold,
+                      pixels[offset + 1] <= threshold,
+                      pixels[offset + 2] <= threshold else { continue }
+                minX = min(minX ?? x, x)
+                maxX = max(maxX ?? x, x)
+            }
+        }
+        guard let minX, let maxX else { return nil }
+        return maxX - minX + 1
     }
 
     /// The same probe for the light ink — used where a background must keep white text

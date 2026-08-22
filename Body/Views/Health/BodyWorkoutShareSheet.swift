@@ -65,6 +65,8 @@ struct BodyWorkoutShareSheet: View {
         WorkoutShareAvatarVisibility.hidden.rawValue
     @AppStorage(WorkoutShareNicknameVisibility.storageKey) private var storedNicknameVisibility: String =
         WorkoutShareNicknameVisibility.hidden.rawValue
+    @AppStorage(WorkoutShareSeparatorVisibility.storageKey) private var storedSeparatorVisibility: String =
+        WorkoutShareSeparatorVisibility.shown.rawValue
     /// Mirrors `BodyProfileView`'s own storage exactly — same keys, same defaults — so
     /// the sheet reads whatever Settings › Profile currently has on hand.
     @AppStorage(BodyAppearancePreference.profileNameKey) private var profileName = ""
@@ -367,12 +369,17 @@ struct BodyWorkoutShareSheet: View {
         WorkoutShareNicknameVisibility.stored(rawValue: storedNicknameVisibility) == .shown
     }
 
+    private var isSeparatorShown: Bool {
+        WorkoutShareSeparatorVisibility.stored(rawValue: storedSeparatorVisibility) == .shown
+    }
+
     /// What the card actually draws beside the watermark — a toggle that's on but whose
     /// backing data has since been deleted in Settings draws nothing for that field.
     private var activeAttribution: WorkoutShareAttribution {
         WorkoutShareAttribution(
             avatar: isAvatarShown ? profileAvatarImage : nil,
-            name: isNicknameShown ? profileDisplayName : nil
+            name: isNicknameShown ? profileDisplayName : nil,
+            showsSeparator: isSeparatorShown
         )
     }
 
@@ -1450,13 +1457,15 @@ struct BodyWorkoutShareSheet: View {
         }
     }
 
-    /// Avatar and nickname, as two independent toggles rather than a radio pair — either,
-    /// both, or neither can be on. Neither tap closes the tray, matching the metric
-    /// chips: flipping one and then checking the other shouldn't require reopening.
+    /// Avatar, nickname, and the dash between them and the wordmark, as three
+    /// independent toggles rather than a radio pair — any combination can be on. No tap
+    /// closes the tray, matching the metric chips: flipping one and then checking the
+    /// next shouldn't require reopening.
     private var profileTray: some View {
         optionTiles {
             avatarTile
             nicknameTile
+            separatorTile
         }
     }
 
@@ -1507,6 +1516,34 @@ struct BodyWorkoutShareSheet: View {
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .accessibilityHint(
             isAvailable ? Text(verbatim: "") : Text("Add it in Settings › Profile first.")
+        )
+    }
+
+    /// The dash between the wordmark and the attribution. Inert until something is
+    /// actually shown beside the wordmark — with the attribution empty the card draws
+    /// no separator whatever this toggle says, so offering it live would do nothing.
+    private var separatorTile: some View {
+        let isAvailable = !activeAttribution.isEmpty
+        let isSelected = isSeparatorShown
+        return Button {
+            storedSeparatorVisibility = isSelected
+                ? WorkoutShareSeparatorVisibility.hidden.rawValue
+                : WorkoutShareSeparatorVisibility.shown.rawValue
+        } label: {
+            Image(systemName: "minus")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: Self.optionTileSize, height: Self.optionTileSize)
+                .background(Color.white.opacity(0.1), in: Circle())
+                .overlay { selectionRing(isSelected: isSelected) }
+        }
+        .buttonStyle(.plain)
+        .opacity(isAvailable ? 1 : 0.4)
+        .disabled(!isAvailable)
+        .accessibilityLabel(Text("Show Separator"))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityHint(
+            isAvailable ? Text(verbatim: "") : Text("Show your avatar or nickname first.")
         )
     }
 
