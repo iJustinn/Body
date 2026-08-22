@@ -9,16 +9,33 @@ import SwiftUI
 /// `BodyOnboardingGate` in MainTabView) and owns the first Health load
 /// plus the initial sleep-goal setup; `.revisit` is the replayable copy
 /// reachable from Settings › About › Onboarding, which shows a Close button
-/// and skips the Health load the first run already ran.
+/// and skips the Health load the first run already ran. The first run also
+/// opens with `BodyIntroAnimationView`, the word field that streams across the
+/// welcome page (tap to skip, Reduce Motion drops it).
 struct BodyOnboardingView: View {
     enum Mode {
         case firstRun
         case revisit
     }
 
+    /// The intro owns the screen while `.playing`, keeps streaming its last
+    /// words while the pages fade up in `.revealing`, and unmounts at
+    /// `.finished`.
+    enum IntroState {
+        case playing
+        case revealing
+        case finished
+    }
+
     let mode: Mode
 
+    /// Previews and render tests only: freezes the intro and the page reveal at
+    /// one instant. `skipsIntro` is kept for the same reason.
+    private let introPreviewTime: TimeInterval?
+    private let skipsIntro: Bool
+
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @AppStorage(BodyAppearancePreference.onboardingCompletedVersionKey) private var onboardingCompletedVersion = ""
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
@@ -34,26 +51,43 @@ struct BodyOnboardingView: View {
     /// The Workouts page preview mirrors the tab's own two charts; the sample
     /// switch control flips between them exactly like the real one.
     @State private var showsWorkoutBreakdown = false
+    @State private var introState: IntroState
 
     private static let pageCount = 7
     private static let lastStep = pageCount - 1
     /// The welcome page also owns the Health permission prompt and first load.
     private static let healthStep = 0
 
-    /// Previews and render tests only: `initialStep` opens a specific page, and
-    /// the two flags open it in a state the user would otherwise reach by
-    /// tapping (the Health load in flight, the Workouts preview switched over).
+    /// Previews and render tests only: `initialStep` opens a specific page, the
+    /// two flags open it in a state the user would otherwise reach by tapping
+    /// (the Health load in flight, the Workouts preview switched over),
+    /// `skipsIntro` opens straight on the pages, and `introPreviewTime` freezes
+    /// the intro and the reveal at that many seconds in.
     init(
         mode: Mode,
         initialStep: Int = 0,
         previewsHealthLoad: Bool = false,
-        previewsWorkoutBreakdown: Bool = false
+        previewsWorkoutBreakdown: Bool = false,
+        skipsIntro: Bool = false,
+        introPreviewTime: TimeInterval? = nil
     ) {
         self.mode = mode
+        self.skipsIntro = skipsIntro
+        self.introPreviewTime = introPreviewTime
         _step = State(initialValue: min(max(initialStep, 0), Self.lastStep))
         _isLoadingHealth = State(initialValue: previewsHealthLoad)
         _hasAttemptedHealthLoad = State(initialValue: previewsHealthLoad)
         _showsWorkoutBreakdown = State(initialValue: previewsWorkoutBreakdown)
+        _introState = State(initialValue: mode == .firstRun && !skipsIntro ? .playing : .finished)
+    }
+
+    /// The pages are hidden while the field owns the screen. A frozen preview
+    /// reads the reveal off the timeline instead of the live state.
+    private var pagesOpacity: Double {
+        if let introPreviewTime, mode == .firstRun, !skipsIntro {
+            return BodyIntroTimeline.revealProgress(at: introPreviewTime)
+        }
+        return introState == .playing && !reduceMotion ? 0 : 1
     }
 
     var body: some View {
@@ -101,10 +135,39 @@ struct BodyOnboardingView: View {
                 }
             }
             .animation(.snappy(duration: 0.28), value: isLoadingHealth)
+            // Gating sits outside the floating overlays so the Continue button
+            // and the loading badge are hidden and untappable too, not just the
+            // page behind them.
+            .opacity(pagesOpacity)
+            .scaleEffect(0.96 + 0.04 * pagesOpacity)
+            .allowsHitTesting(introState != .playing)
+            .accessibilityHidden(introState == .playing)
+            .animation(.easeOut(duration: BodyIntroTimeline.revealDuration), value: introState)
             .readableContentColumn()
+
+            // The word field streams across the background and hands the
+            // screen to the welcome page under its tail.
+            if introState != .finished && !reduceMotion {
+                BodyIntroAnimationView(
+                    previewTime: introPreviewTime,
+                    onReveal: { introState = .revealing },
+                    onFinished: { introState = .finished }
+                )
+                .ignoresSafeArea()
+                // Once the pages are fading up they take the taps; the field
+                // only keeps drawing its last words out.
+                .allowsHitTesting(introState == .playing)
+            }
         }
         .interactiveDismissDisabled(mode == .firstRun)
         .onChange(of: sleepDurationGoalMinutes) { republishCompanionSnapshotsIfFirstRun() }
+        .onAppear {
+            // `introState` can't read the environment in `init`, and toggling
+            // Reduce Motion later must never start the intro.
+            if reduceMotion && introState == .playing {
+                introState = .finished
+            }
+        }
     }
 
     @ViewBuilder
@@ -234,7 +297,7 @@ struct BodyOnboardingView: View {
     // MARK: - Pages
 
     private var welcomePage: some View {
-        page {
+        page(centersVertically: true) {
             Image(BodyAppIconOption.option(named: UIApplication.shared.alternateIconName).previewAssetName)
                 .resizable()
                 .scaledToFit()
@@ -245,7 +308,7 @@ struct BodyOnboardingView: View {
             pageHeader(
                 iconName: nil,
                 title: "onboarding.welcome.title",
-                subtitle: "onboarding.welcome.subtitle"
+                subtitle: nil
             )
 
             // Only the first run loads Health data; by the time the replay
@@ -257,11 +320,23 @@ struct BodyOnboardingView: View {
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
 
-                    Text("onboarding.health.body")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
+                    // Once the load is underway the permission sentence is
+                    // stale, so it crossfades into the nudge to keep going.
+                    if hasAttemptedHealthLoad {
+                        Text("onboarding.health.continue")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .transition(.opacity)
+                    } else {
+                        Text("onboarding.health.body")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .transition(.opacity)
+                    }
                 }
+                .animation(.easeInOut(duration: 0.4), value: hasAttemptedHealthLoad)
 
                 if hasAttemptedHealthLoad && !isLoadingHealth {
                     if workoutStore.needsInitialHealthDataLoad {
@@ -729,16 +804,25 @@ struct BodyOnboardingView: View {
 
     /// Every page scrolls on its own so the top bar, dots, and buttons stay put
     /// at large Dynamic Type sizes.
-    private func page<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 20) {
-                content()
+    /// `centersVertically` floats short content (the welcome page) in the
+    /// middle of the page instead of pinning it to the top; the page still
+    /// scrolls if it ever outgrows the screen.
+    private func page<Content: View>(
+        centersVertically: Bool = false,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let content = content()
+        return GeometryReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 20) {
+                    content
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+                // Room for the floating buttons + dots at the bottom.
+                .padding(.bottom, 110)
+                .frame(maxWidth: .infinity, minHeight: centersVertically ? proxy.size.height : 0)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 12)
-            // Room for the floating buttons + dots at the bottom.
-            .padding(.bottom, 110)
-            .frame(maxWidth: .infinity)
         }
     }
 
