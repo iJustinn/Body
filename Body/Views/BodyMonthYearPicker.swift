@@ -67,7 +67,7 @@ struct BodyMonthYearPicker: View {
     @State private var dragOffset: CGFloat = 0
     @State private var isSyncingSelectedIndex = false
 
-    private let pickerHeight: CGFloat = 74
+    private let pickerHeight: CGFloat = 62
 
     init(
         selectedMonth: Binding<Int>,
@@ -356,11 +356,11 @@ private struct BodyMonthYearCarouselItem: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(monthName)
-                .font(.system(size: 34 - (14 * clampedDistance), weight: .bold, design: .rounded))
+                .font(.system(size: 30 - (12 * clampedDistance), weight: .bold, design: .rounded))
                 .foregroundColor(.primary.opacity(Double(1 - (0.52 * clampedDistance))))
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
-                .frame(height: 44)
+                .frame(height: 40)
 
             Text(String(monthYear.year))
                 .font(.system(size: 13, weight: .semibold, design: .rounded))

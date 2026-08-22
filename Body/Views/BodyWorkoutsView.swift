@@ -91,7 +91,7 @@ struct BodyWorkoutsView: View {
                         onMonthYearRequested: requestMonthYearSelection
                     )
                     .padding(.horizontal)
-                    .padding(.top, 8)
+                    .padding(.top, 2)
 
                     searchAndControlsRow
                         .padding(.horizontal)
@@ -4434,120 +4434,6 @@ private struct BodyWorkoutElevationLinePlot: View {
         guard presentation.points.indices.contains(accessibilityPointIndex) else { return "" }
         let point = presentation.points[accessibilityPointIndex]
         return "\(point.elapsedText), \(point.valueText) \(presentation.unitText)"
-    }
-}
-
-private struct BodyWorkoutFilterView: View {
-    @Binding var selectedWorkoutTypes: Set<BodyWorkoutType>
-    let workoutTypes: [BodyWorkoutType]
-    @Environment(\.dismiss) private var dismiss
-    @State private var tempSelectedWorkoutTypes: Set<BodyWorkoutType>
-
-    init(selectedWorkoutTypes: Binding<Set<BodyWorkoutType>>, workoutTypes: [BodyWorkoutType]) {
-        self._selectedWorkoutTypes = selectedWorkoutTypes
-        self.workoutTypes = workoutTypes
-        self._tempSelectedWorkoutTypes = State(initialValue: selectedWorkoutTypes.wrappedValue)
-    }
-
-    var body: some View {
-        NavigationStack {
-            VStack {
-                List {
-                    Section {
-                        if workoutTypes.isEmpty {
-                            Text("No workout types for this month")
-                                .font(.system(.title3, design: .rounded))
-                                .fontWeight(.medium)
-                                .foregroundColor(.secondary)
-                        } else {
-                            ForEach(workoutTypes) { workoutType in
-                                HStack {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                            .fill(workoutType.color.opacity(0.16))
-                                            .frame(width: 32, height: 32)
-
-                                        Image(systemName: workoutType.symbolName)
-                                            .foregroundColor(workoutType.color)
-                                            .font(.system(size: 17, weight: .semibold))
-                                    }
-
-                                    Text(workoutType.displayName)
-                                        .font(.system(.title3, design: .rounded))
-                                        .fontWeight(.medium)
-
-                                    Spacer()
-
-                                    if tempSelectedWorkoutTypes.contains(workoutType) {
-                                        Image(systemName: "checkmark")
-                                            .foregroundColor(.accentColor)
-                                    }
-                                }
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    toggleWorkoutType(workoutType)
-                                }
-                                .listRowBackground(Color.clear)
-                            }
-                        }
-                    } header: {
-                        Text("Workout Types")
-                    } footer: {
-                        Text("Select which workout types to display")
-                    }
-
-                    if !workoutTypes.isEmpty {
-                        Section {
-                            HStack(spacing: 12) {
-                                Button {
-                                    tempSelectedWorkoutTypes.formUnion(workoutTypes)
-                                } label: {
-                                    Text("Select All")
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 12)
-                                }
-                                .buttonStyle(.bordered)
-                                .tint(Color(.systemGray))
-
-                                Button {
-                                    tempSelectedWorkoutTypes.subtract(workoutTypes)
-                                } label: {
-                                    Text("Deselect All")
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 12)
-                                }
-                                .buttonStyle(.bordered)
-                                .tint(Color(.systemGray))
-                            }
-                            .listRowBackground(Color.clear)
-                        }
-                    }
-                }
-                .scrollContentBackground(.hidden)
-                .scrollIndicators(.hidden)
-            }
-            .bodySheetBackground()
-            .navigationTitle("Filter")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Apply") {
-                        selectedWorkoutTypes = tempSelectedWorkoutTypes
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
-
-    private func toggleWorkoutType(_ workoutType: BodyWorkoutType) {
-        tempSelectedWorkoutTypes = BodyWorkoutFilterLogic.toggled(workoutType, in: tempSelectedWorkoutTypes)
     }
 }
 
