@@ -71,7 +71,14 @@ final class ReadinessCommentGeneratorTests: XCTestCase {
             XCTAssertTrue(prompt.contains(driver.message), driver.message)
         }
         XCTAssertTrue(prompt.contains("Training verdict: yes."))
-        XCTAssertTrue(prompt.contains("Advice: Train as planned"))
+        // The advice is sent single-use: a bare "Advice:" line made the model say
+        // it twice when the reference already ended in it, while dropping it left
+        // cause-only references (e.g. low + short sleep) without any guidance.
+        XCTAssertTrue(prompt.contains("Advice (give it exactly once; if the reference already says it, keep the reference's wording and do not add this): Train as planned"))
+        XCTAssertTrue(
+            ReadinessCommentPromptBuilder.instructions(locale: englishLocale)
+                .contains("Never give both or restate the advice in a second sentence")
+        )
         XCTAssertTrue(
             ReadinessCommentPromptBuilder.instructions(locale: englishLocale)
                 .contains("Never tell someone whose verdict is \"yes\" to rest")
@@ -134,6 +141,16 @@ final class ReadinessCommentGeneratorTests: XCTestCase {
             for: readiness(score: 64, status: .moderate, drainMorningScore: 80, drainPoints: 16)
         )
         XCTAssertTrue(drained.contains("Training verdict: no."))
+    }
+
+    func testAwaitingSleepIsDetectedOnlyWithoutASleepComponent() {
+        // Past midnight before wake there is no sleep component, and the hero must
+        // say only that sleep is pending — so no AI comment is generated for it.
+        let pending = readiness(score: 31, status: .low, componentScores: [.autonomic: 40])
+        XCTAssertTrue(pending.isAwaitingSleep)
+        XCTAssertTrue(pending.heroExplanation.contains("sleep data isn't in yet"))
+        XCTAssertFalse(readiness().isAwaitingSleep)
+        XCTAssertFalse(ReadinessSummary.unavailable.isAwaitingSleep)
     }
 
     func testPromptOmitsDrainSentenceWithoutADrain() {

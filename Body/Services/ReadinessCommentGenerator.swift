@@ -82,7 +82,10 @@ final class ReadinessCommentGenerator {
         generationEpoch += 1
         isGenerating = false
 
-        guard enabled, isSupported, readiness.score != nil else {
+        // While sleep is pending the only honest line is the authored "sleep data
+        // isn't in yet"; a reworded version kept picking up drivers and workout
+        // drain from the brief and reading as real analysis.
+        guard enabled, isSupported, readiness.score != nil, !readiness.isAwaitingSleep else {
             comment = nil
             currentSignature = nil
             return
@@ -173,7 +176,7 @@ enum ReadinessCommentPromptBuilder {
         Rules:
         - One or two sentences, no more than 30 words.
         - Keep every signal the reference names (for example "HRV is below baseline", "sleep was short", "today's workout"); the "Below usual" list confirms them. Never add a cause it does not name — no guessing at yesterday's workout, stress, illness, or morning movement — and never list what is fine.
-        - Keep the reference's advice. It must agree with the "Training verdict" exactly: a "yes" verdict must encourage training, and only a "no" verdict may suggest rest. Never tell someone whose verdict is "yes" to rest, take it easy, or be careful.
+        - End with one piece of advice, stated once. Use the reference's own advice when it has one; otherwise use the "Advice" line. Never give both or restate the advice in a second sentence. It must agree with the "Training verdict" exactly: a "yes" verdict must encourage training, and only a "no" verdict may suggest rest. Never tell someone whose verdict is "yes" to rest, take it easy, or be careful.
         - No opening cheer or filler ("You're ready to train today!"): go straight to the signal, then the advice.
         - Speak about readiness only. Never mention any number, score, percentage, or points — none, not even the readiness score.
         - Address the reader as "you". Warm and direct, never clinical, in the same tone as the reference.
@@ -216,9 +219,13 @@ enum ReadinessCommentPromptBuilder {
             ? "Below usual: none."
             : "Below usual (most important first; name each one): " + belowUsual.joined(separator: " "))
 
+        // Some references end in the band's advice and some stop at the cause, so
+        // the advice is still sent, but as a single-use directive: a plain "Advice:"
+        // line made the model write both ("Normal training is fine. Train as
+        // planned. A normal session should feel good.").
         let verdict = trainingVerdict(for: readiness.status, meaningfulDrain: meaningfulDrain)
         lines.append("Training verdict: \(verdict.trains ? "yes" : "no").")
-        lines.append("Advice: \(verdict.advice)")
+        lines.append("Advice (give it exactly once; if the reference already says it, keep the reference's wording and do not add this): \(verdict.advice)")
 
         lines.append("Reply with only the reworded comment as one paragraph and nothing else.")
         return lines.joined(separator: "\n")
@@ -330,7 +337,7 @@ enum ReadinessCommentSignature {
         return [
             // Prompt-format version: bumping it invalidates every cached comment
             // written by an older prompt, forcing a regeneration.
-            "v9",
+            "v11",
             dayFormatter.string(from: day),
             readinessIntText(readiness.score, fallback: "-"),
             readiness.status.rawValue,
