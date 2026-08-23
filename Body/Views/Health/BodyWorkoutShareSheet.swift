@@ -1626,7 +1626,8 @@ struct BodyWorkoutShareSheet: View {
         }
     }
 
-    /// The month summary's rail: Font, Metrics, Profile, Chart Style, Background, Ratio.
+    /// The month summary's rail: Font, Chart Style, Metrics, Profile, Background, Ratio
+    /// — the workout rail's order, with Chart Style where Route Style would be.
     /// A separate rail rather than a filtered `optionRail`, because the two disagree
     /// about more than which rows appear — a month has no trace to colour, style, or
     /// arrange; its Ratio tray drops the Long Image tile; and Chart Style exists nowhere
@@ -1651,6 +1652,18 @@ struct BodyWorkoutShareSheet: View {
                 }
             }
 
+            // The one row that exists only here, in the slot the workout rail gives
+            // Route Style — what the card draws comes right after how it's lettered.
+            // Free: the chart *is* the card in summary mode, not an upgrade to it.
+            railRow(
+                .chartStyle,
+                symbol: "chart.bar.doc.horizontal",
+                label: Text("Chart Style"),
+                trayWidth: trayWidth
+            ) {
+                chartStyleTray
+            }
+
             // Pro-only and opening below the preview rather than beside the icon, for
             // the reason the workout card's chips do: a rich month offers seven names,
             // which would run straight under the card's own metric strip. The square
@@ -1671,17 +1684,6 @@ struct BodyWorkoutShareSheet: View {
 
             railRow(.profile, symbol: "at", label: Text("Profile"), trayWidth: trayWidth) {
                 profileTray
-            }
-
-            // The one row that exists only here. Free: the chart *is* the card in
-            // summary mode, not an upgrade to it.
-            railRow(
-                .chartStyle,
-                symbol: "chart.bar.doc.horizontal",
-                label: Text("Chart Style"),
-                trayWidth: trayWidth
-            ) {
-                chartStyleTray
             }
 
             // Presets, Photo, and Video. The tray's Map tile is already behind
@@ -1952,7 +1954,7 @@ struct BodyWorkoutShareSheet: View {
                 }
             }
 
-            Text("Pick 1 to 3 metrics.")
+            Text("Pick up to 3 metrics.")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundColor(.white.opacity(0.6))
                 .fixedSize(horizontal: false, vertical: true)
@@ -1963,14 +1965,13 @@ struct BodyWorkoutShareSheet: View {
     }
 
     /// One pickable month metric. As with the workout chip, a tap doesn't close the
-    /// tray: picking five metrics is five taps, and re-opening between each would make
-    /// the bounds impossible to feel.
+    /// tray. Unlike it there is no floor: the last chip turns off too, and the card
+    /// goes back to the title and the chart.
     private func summaryMetricChip(_ option: WorkoutShareSummaryMetricOption) -> some View {
         let pool = activeSummaryMetricOptions
         let ids = activeSummaryMetricIDs
         let isSelected = ids.contains(option.id)
         let isAtMaximum = ids.count >= WorkoutShareMetricSelection.summaryMaximumCount
-        let isLastSelected = isSelected && ids.count == 1
         return Button {
             let next = WorkoutShareMetricSelection.togglingSummary(option.id, in: ids, available: pool)
             guard next != ids else { return }
@@ -2001,9 +2002,6 @@ struct BodyWorkoutShareSheet: View {
         // sighted users do.
         .accessibilityLabel(Text(verbatim: "\(option.title), \(option.value)"))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-        .accessibilityHint(
-            isLastSelected ? Text("At least one metric stays on the card.") : Text(verbatim: "")
-        )
     }
 
     /// Ring-only selection, no checkmark: the point of the tile is the "Aa" specimen,

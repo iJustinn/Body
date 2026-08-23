@@ -570,7 +570,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(shareSheetSource.contains("if activeAspectRatio != .square {"))
         // Three totals at most on the month card, with its own caption.
         XCTAssertTrue(shareCardSource.contains("static let summaryMaximumCount = 3"))
-        XCTAssertTrue(shareSheetSource.contains(#"Text("Pick 1 to 3 metrics.")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Pick up to 3 metrics.")"#))
         XCTAssertTrue(shareSheetSource.contains("WorkoutShareMetricSelection.summaryMaximumCount"))
         // The calendar keeps square cells: a five-week month must not stretch to the
         // six-row frame.
@@ -654,10 +654,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let backgroundIndex = try XCTUnwrap(railRegion.range(of: #"Text("Background")"#)?.lowerBound)
         let ratioIndex = try XCTUnwrap(railRegion.range(of: #"Text("Ratio")"#)?.lowerBound)
 
-        XCTAssertLessThan(fontIndex, metricsIndex)
+        // The workout rail's order, with Chart Style in Route Style's slot.
+        XCTAssertLessThan(fontIndex, chartStyleIndex)
+        XCTAssertLessThan(chartStyleIndex, metricsIndex)
         XCTAssertLessThan(metricsIndex, profileIndex)
-        XCTAssertLessThan(profileIndex, chartStyleIndex)
-        XCTAssertLessThan(chartStyleIndex, backgroundIndex)
+        XCTAssertLessThan(profileIndex, backgroundIndex)
         XCTAssertLessThan(backgroundIndex, ratioIndex)
 
         XCTAssertFalse(railRegion.contains(#"Text("Route Color")"#))
@@ -2761,12 +2762,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 21;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 22;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.0;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 21;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 22;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2801,7 +2802,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 21)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 22)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 21)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 20)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 19)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 18)**"))
@@ -2915,8 +2917,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
-        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 21)"))
-        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 21."))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 22)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 22."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 20)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 20."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 19)"))
@@ -3489,7 +3491,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 21)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 22)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 21)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 20)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 19)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 18)"))

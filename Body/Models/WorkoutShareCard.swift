@@ -449,10 +449,12 @@ enum WorkoutShareMetricSelection {
     static let summaryMaximumCount = 3
 
     /// The remembered summary pick, or nil when nothing is stored (or the value is
-    /// unreadable — treated as no preference, exactly like `stored(json:type:)`).
+    /// unreadable — treated as no preference, exactly like `stored(json:type:)`). An
+    /// empty array is a real answer here, not an absence: the month card may carry no
+    /// totals at all, and that choice has to survive a relaunch.
     static func storedSummary(json: String?) -> [String]? {
         guard let json, !json.isEmpty, let data = json.data(using: .utf8),
-              let ids = try? JSONDecoder().decode([String].self, from: data), !ids.isEmpty else {
+              let ids = try? JSONDecoder().decode([String].self, from: data) else {
             return nil
         }
         return ids
@@ -478,6 +480,9 @@ enum WorkoutShareMetricSelection {
     ) -> [String] {
         let order = available.map(\.id)
         if let stored {
+            // "None" is a pick of its own; only a pick the month can't honour at all
+            // (every id stale) falls back to the defaults.
+            if stored.isEmpty { return [] }
             let picked = Set(stored)
             let intersection = order.filter { picked.contains($0) }
             if !intersection.isEmpty { return Array(intersection.prefix(summaryMaximumCount)) }
@@ -489,8 +494,9 @@ enum WorkoutShareMetricSelection {
         return Array((defaulted.isEmpty ? Array(order.prefix(1)) : defaulted).prefix(summaryMaximumCount))
     }
 
-    /// One summary chip tap. Same floor as the card's `toggling(_:in:available:)`, a
-    /// lower ceiling (`summaryMaximumCount`), on the month's pool.
+    /// One summary chip tap. No floor — the month card can go without totals — and a
+    /// lower ceiling (`summaryMaximumCount`) than the workout card's, on the month's
+    /// pool.
     static func togglingSummary(
         _ id: String,
         in current: [String],
@@ -499,7 +505,6 @@ enum WorkoutShareMetricSelection {
         let order = available.map(\.id)
         var updated: Set<String>
         if current.contains(id) {
-            guard current.count > 1 else { return current }
             updated = Set(current)
             updated.remove(id)
         } else {
@@ -507,8 +512,7 @@ enum WorkoutShareMetricSelection {
             updated = Set(current)
             updated.insert(id)
         }
-        let ordered = order.filter { updated.contains($0) }
-        return ordered.isEmpty ? current : ordered
+        return order.filter { updated.contains($0) }
     }
 
     private static func decode(_ json: String?) -> [String: [String]] {
@@ -1514,7 +1518,8 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
     private static let titleHeight: CGFloat = 30
     /// Gap under the title, and under the metrics.
     private static let titleGap: CGFloat = 8
-    private static let chartGap: CGFloat = 10
+    /// Tight: the metric blocks carry their own breathing room below the label.
+    private static let chartGap: CGFloat = 4
     /// One `WorkoutTypeBreakdownView` row and the gap under it.
     private static let barRowHeight: CGFloat = 48
     private static let barRowSpacing: CGFloat = 12
@@ -1581,14 +1586,18 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
     /// Both stacked ratios are 360 pt wide, which fits three blocks at a readable size.
     var metricsPerRow: Int { 3 }
 
-    /// The frame the chart view is given. The bar chart fills the region; the calendar
-    /// is square-celled, so whichever axis binds first sets the cell and the frame
+    /// The frame the chart view is given. The bar chart takes its rows' natural height
+    /// across the region's width; the calendar is square-celled, so whichever axis binds first sets the cell and the frame
     /// follows it on both axes — never stretching rows to fill a tall region, never
     /// overflowing a short one — and it is centered in the region it sits in.
     func chartFrame(for style: WorkoutSummaryChartStyle) -> CGSize {
         switch style {
         case .bar:
-            return chartRect.size
+            // Natural height for the rows it may draw, so the bars sit right under
+            // the totals instead of centering themselves down a tall region.
+            let rows = CGFloat(barRowLimit)
+            let natural = rows * Self.barRowHeight + (rows - 1) * Self.barRowSpacing
+            return CGSize(width: chartRect.width, height: min(chartRect.height, natural))
         case .calendar:
             let cellSide = max(
                 0,
@@ -1611,14 +1620,25 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
         return min(Self.maximumBarRows, max(1, rows))
     }
 
+    /// Zero rows for zero metrics, so the chart moves straight up under the title.
     private var metricRowCount: Int {
-        max(1, Int(ceil(Double(max(1, metricCount)) / Double(metricsPerRow))))
+        Int(ceil(Double(max(0, metricCount)) / Double(metricsPerRow)))
     }
 
     private var metricContentHeight: CGFloat {
         let style = metricBlockStyle
         let rows = CGFloat(metricRowCount)
+        guard rows > 0 else { return 0 }
         return rows * style.rowHeight + (rows - 1) * style.rowGap
+    }
+
+    /// How far the stacked title, metrics, and chart slide down together so the group
+    /// sits centered in the content area rather than the chart floating alone at the
+    /// middle of a tall region with the totals stranded above it. Zero for the bar
+    /// chart (which fills its region) and for the chart-only square.
+    func verticalShift(for style: WorkoutSummaryChartStyle) -> CGFloat {
+        guard arrangement == .stacked else { return 0 }
+        return max(0, chartRect.height - chartFrame(for: style).height) / 2
     }
 }
 

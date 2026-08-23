@@ -8446,22 +8446,6 @@
         }
       }
     },
-    "Pick 1 to 3 metrics." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pick 1 to 3 metrics."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择 1 到 3 个指标。"
-          }
-        }
-      }
-    },
     "Pick 1 to 5 metrics." : {
       "localizations" : {
         "en" : {
@@ -8474,6 +8458,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择 1 到 5 个指标。"
+          }
+        }
+      }
+    },
+    "Pick up to 3 metrics." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick up to 3 metrics."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最多选择 3 个指标。"
           }
         }
       }

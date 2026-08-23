@@ -181,7 +181,8 @@ final class WorkoutShareSummaryRenderTests: XCTestCase {
         let image = try XCTUnwrap(
             makeSummaryRenderer(background: .preset(.daylight), colorScheme: .light).uiImage?.cgImage
         )
-        let titleRect = WorkoutShareSummaryCardGeometry(aspectRatio: .portrait9x16, metricCount: 3).titleRect
+        let geometry = WorkoutShareSummaryCardGeometry(aspectRatio: .portrait9x16, metricCount: 3)
+        let titleRect = geometry.titleRect.offsetBy(dx: 0, dy: geometry.verticalShift(for: .calendar))
         XCTAssertTrue(
             Self.containsNearBlackPixel(in: image, region: Self.pixelRect(titleRect, in: image)),
             "Daylight title region had no dark ink"
@@ -193,7 +194,8 @@ final class WorkoutShareSummaryRenderTests: XCTestCase {
         let image = try XCTUnwrap(
             makeSummaryRenderer(background: .preset(.midnight), colorScheme: .dark).uiImage?.cgImage
         )
-        let titleRect = WorkoutShareSummaryCardGeometry(aspectRatio: .portrait9x16, metricCount: 3).titleRect
+        let geometry = WorkoutShareSummaryCardGeometry(aspectRatio: .portrait9x16, metricCount: 3)
+        let titleRect = geometry.titleRect.offsetBy(dx: 0, dy: geometry.verticalShift(for: .calendar))
         XCTAssertTrue(
             Self.containsNearWhitePixel(in: image, region: Self.pixelRect(titleRect, in: image)),
             "Midnight title region had no light ink"

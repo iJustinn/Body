@@ -100,7 +100,7 @@ final class WorkoutShareSummaryCardTests: XCTestCase {
         XCTAssertTrue(ids.contains(WorkoutShareSummaryMetricsBuilder.topActivityID))
     }
 
-    /// The 1-to-5 floor: a month with nothing in it still has three metrics to draw.
+    /// A month with nothing in it still offers the three always-on metrics.
     func testEmptyMonthKeepsTheThreeAlwaysOnMetrics() {
         let options = metrics(emptyMonth)
         XCTAssertEqual(
@@ -174,21 +174,36 @@ final class WorkoutShareSummaryCardTests: XCTestCase {
         let ids = [WorkoutShareSummaryMetricsBuilder.workoutsID, WorkoutShareSummaryMetricsBuilder.distanceID]
         XCTAssertEqual(WorkoutShareMetricSelection.storedSummary(json: WorkoutShareMetricSelection.storingSummary(ids)), ids)
         XCTAssertNil(WorkoutShareMetricSelection.storedSummary(json: ""))
-        XCTAssertNil(WorkoutShareMetricSelection.storedSummary(json: "[]"))
+        // An empty list is a real pick ("no totals"), not an absence.
+        XCTAssertEqual(WorkoutShareMetricSelection.storedSummary(json: "[]"), [])
         XCTAssertNil(WorkoutShareMetricSelection.storedSummary(json: "not json"))
     }
 
-    func testTogglingSummaryHoldsTheFloorAndTheCeiling() {
+    func testTogglingSummaryHasNoFloorAndHoldsTheCeiling() {
         let available = metrics(richMonth)
         let single = [WorkoutShareSummaryMetricsBuilder.workoutsID]
+        // The last chip turns off too: a month card may carry no totals.
         XCTAssertEqual(
             WorkoutShareMetricSelection.togglingSummary(
                 WorkoutShareSummaryMetricsBuilder.workoutsID,
                 in: single,
                 available: available
             ),
-            single
+            []
         )
+        // …and that "none" round-trips through storage as a pick of its own.
+        let none = WorkoutShareMetricSelection.storingSummary([])
+        XCTAssertEqual(WorkoutShareMetricSelection.storedSummary(json: none), [])
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.resolvedSummary(
+                stored: [],
+                available: available,
+                defaults: WorkoutShareSummaryMetricsBuilder.defaultIDs
+            ),
+            []
+        )
+        XCTAssertNil(WorkoutShareMetricSelection.storedSummary(json: ""))
+        XCTAssertEqual(WorkoutShareSummaryCardGeometry(aspectRatio: .portrait9x16, metricCount: 0).metricsRect.height, 0)
 
         let five = Array(available.map(\.id).prefix(WorkoutShareMetricSelection.summaryMaximumCount))
         XCTAssertEqual(

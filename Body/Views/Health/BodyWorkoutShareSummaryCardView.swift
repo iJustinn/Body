@@ -154,6 +154,9 @@ struct BodyWorkoutShareSummaryCardView: View {
         let metricsRect = geometry.metricsRect
         let chartRect = geometry.chartRect
         let chartSize = geometry.chartFrame(for: chartStyle)
+        // The whole group slides down by half the chart's slack, so the totals stay
+        // tight against the chart instead of the chart centering itself away from them.
+        let shift = geometry.verticalShift(for: chartStyle)
 
         return ZStack {
             // The square is the chart alone: no title, no metrics — the geometry hands
@@ -165,16 +168,18 @@ struct BodyWorkoutShareSummaryCardView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: titleRect.width, height: titleRect.height, alignment: .center)
-                .position(x: titleRect.midX, y: titleRect.midY)
+                .position(x: titleRect.midX, y: titleRect.midY + shift)
 
             metricBlocks
                 .frame(width: metricsRect.width, height: metricsRect.height)
-                .position(x: metricsRect.midX, y: metricsRect.midY)
+                .position(x: metricsRect.midX, y: metricsRect.midY + shift)
             }
 
             chart
-                .frame(width: chartSize.width, height: chartSize.height)
-                .position(x: chartRect.midX, y: chartRect.midY)
+                // Top-aligned: the frame is sized for a six-week month, and a five-week
+                // grid centered in it would drift away from the totals above.
+                .frame(width: chartSize.width, height: chartSize.height, alignment: .top)
+                .position(x: chartRect.midX, y: chartRect.minY + shift + chartSize.height / 2)
         }
         .frame(width: size.width, height: size.height)
         // The same halo the workout card's blocks carry, so the ink stays legible when
