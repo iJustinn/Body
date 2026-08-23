@@ -128,20 +128,27 @@ actor WatchDeltaFetcher {
             sourceKind: .wristTemperature, reads: reads,
             start: windowStart, end: now, calendar: calendar
         )
-        // Latest-sample summaries: NO date predicate (the phone's `latestQuantity`
-        // takes the newest reading however old it is), so the value on the card
-        // and its stamped watermark are the sample's own.
+        // Latest-sample summaries: bounded to the daily trend window, matching
+        // the phone's `latestQuantity`, so a local read can never introduce a
+        // reading older than the charts can show. The value on the card and its
+        // stamped watermark are still the sample's own. A reading that ages out
+        // of the window later is cleared at display time by
+        // `WatchMetricsSnapshot.sanitized(asOf:)` — an absent read here only
+        // preserves the seed (see `latestSample`).
         async let heartRateSample = latestSample(
             .heartRate, unit: Self.beatsPerMinute,
-            sourceKind: .heartRate, reads: reads
+            sourceKind: .heartRate, reads: reads,
+            now: now, calendar: calendar
         )
         async let restingHeartRateSample = latestSample(
             .restingHeartRate, unit: Self.beatsPerMinute,
-            sourceKind: .restingHeartRate, reads: reads
+            sourceKind: .restingHeartRate, reads: reads,
+            now: now, calendar: calendar
         )
         async let heartRateVariabilitySample = latestSample(
             .heartRateVariabilitySDNN, unit: .secondUnit(with: .milli),
-            sourceKind: .heartRateVariability, reads: reads
+            sourceKind: .heartRateVariability, reads: reads,
+            now: now, calendar: calendar
         )
         async let sleep = sleepDelta(
             seed: seed, reads: reads,
@@ -211,7 +218,9 @@ actor WatchDeltaFetcher {
         _ identifier: HKQuantityTypeIdentifier,
         unit: HKUnit,
         sourceKind: HealthMetricKind,
-        reads: [HealthMetricKind: WatchSourceRead]
+        reads: [HealthMetricKind: WatchSourceRead],
+        now: Date,
+        calendar: Calendar
     ) async -> WatchDeltaSample? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier),
               case .run(let resolvedSourcePredicate) = reads[sourceKind] else {
@@ -222,6 +231,8 @@ actor WatchDeltaFetcher {
             store: store,
             quantityType: quantityType,
             predicate: BodyHealthSourceResolver.combinedPredicate(
+                startDate: BodyHealthTrendRange.recentTrendWindowStart(anchor: now, calendar: calendar),
+                endDate: now,
                 sourcePredicate: resolvedSourcePredicate
             )
         )

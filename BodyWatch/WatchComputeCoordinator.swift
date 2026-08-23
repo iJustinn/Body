@@ -168,10 +168,14 @@ actor WatchComputeCoordinator {
         // HR / HRV / RHR: `HealthMetricSummary` carries only a value — the seed
         // side has NO watermark to compare the fetched sample's `endDate`
         // against, so fetched-wins stands. It is also the safe direction here:
-        // these come from `latestQuantitySample` with no date predicate, i.e.
-        // the newest sample this watch can see, and a watch that genuinely has
-        // an older newest-sample than the phone (a source it can't see) already
-        // resolves `.skip` through `WatchSourceResolver` and never gets here.
+        // these come from `latestQuantitySample` bounded to the daily trend
+        // window, i.e. the newest in-window sample this watch can see, and a
+        // watch that genuinely has an older newest-sample than the phone (a
+        // source it can't see) already resolves `.skip` through
+        // `WatchSourceResolver` and never gets here. Clearing a value that has
+        // since aged OUT of the window is not this overlay's job — an absent
+        // read is indistinguishable from a failed one here, so it is done at
+        // display time by `WatchMetricsSnapshot.sanitized(asOf:)`.
         if let heartRate = delta.heartRateSample {
             summary.heartRate = HealthMetricSummary(value: heartRate.value, measuredAt: heartRate.measuredAt)
         }

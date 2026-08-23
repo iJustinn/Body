@@ -57,9 +57,11 @@ enum BodyHealthQuantityFetch {
         value <= 1 ? value * 100 : value
     }
 
-    /// The newest sample of a quantity type, with NO date predicate: the
-    /// "latest reading" tiles want the most recent value whenever it was
-    /// recorded, so the query sorts by end date descending and takes one.
+    /// The newest sample of a quantity type matching `predicate`: the query
+    /// sorts by end date descending and takes one. The WINDOW is the caller's —
+    /// both the phone's `latestQuantity` and the watch's `latestSample` bound it
+    /// to the daily trend window so a "latest reading" tile can never outrun its
+    /// own chart. Passing a predicate with no date range searches all history.
     ///
     /// Returns the sample itself (not just its value) so callers can stamp
     /// freshness from the sample's real `endDate` instead of inventing one.

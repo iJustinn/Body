@@ -439,6 +439,17 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
         allCases.map(\.dayCount).max() ?? defaultValue.dayCount
     }
 
+    /// Oldest reading a "latest value" summary will accept — the same boundary
+    /// the daily trend charts are fetched over, so a card can never show a
+    /// value its own chart has no room for. `HealthKitFetchEngine`'s trend
+    /// interval and its latest-sample queries both derive their start here.
+    static func recentTrendWindowStart(anchor: Date, calendar: Calendar) -> Date {
+        let oldestPastOffset = maximumDayCount - 1
+        let currentDayStart = calendar.startOfDay(for: anchor)
+        return calendar.date(byAdding: .day, value: -oldestPastOffset, to: currentDayStart)
+            ?? anchor.addingTimeInterval(-TimeInterval(oldestPastOffset) * 86_400)
+    }
+
     var id: String {
         rawValue
     }

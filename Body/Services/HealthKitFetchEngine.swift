@@ -577,10 +577,7 @@ actor HealthKitFetchEngine {
     ) -> (start: Date, end: Date) {
         let anchorOrDate = anchor ?? date
         let end = anchorOrDate
-        let currentDayStart = calendar.startOfDay(for: anchorOrDate)
-        let oldestPastOffset = BodyHealthTrendRange.maximumDayCount - 1
-        let start = calendar.date(byAdding: .day, value: -oldestPastOffset, to: currentDayStart)
-            ?? end.addingTimeInterval(-TimeInterval(oldestPastOffset) * 86_400)
+        let start = BodyHealthTrendRange.recentTrendWindowStart(anchor: anchorOrDate, calendar: calendar)
         return (start, end)
     }
 
@@ -1322,6 +1319,7 @@ actor HealthKitFetchEngine {
     private func latestQuantity(
         for identifier: HKQuantityTypeIdentifier,
         unit: HKUnit,
+        calendar: Calendar,
         sourceKind: HealthMetricKind? = nil,
         valueTransform: @escaping (Double) -> Double = { $0 }
     ) async -> QueryOutcome<HealthMetricSummary> {
@@ -1332,10 +1330,24 @@ actor HealthKitFetchEngine {
             return .failure
         }
 
-        // No date predicate: the newest sample counts however old it is. The
-        // shared leaf returns the sample itself so callers that need the real
-        // reading time (the watch stamps freshness from it) can use it.
-        let predicate = combinedPredicate(sourceKind: sourceKind)
+        // Bounded to the SAME window the daily trend charts are fetched over,
+        // not the whole HealthKit store: a card whose newest reading predates
+        // the window would otherwise headline a value its own chart has no room
+        // for, at every range including Year. Out-of-window reads therefore
+        // resolve `.success(nil)` — a genuine absence that clears the cached
+        // headline into the card's empty state (see `resolvedSummaryValue`).
+        //
+        // Both ends are bound: the upper end matches the trend interval's, so a
+        // post-anchor or future-dated sample can't headline a card cut off at
+        // the anchor either. The shared leaf returns the sample itself so
+        // callers that need the real reading time (the watch stamps freshness
+        // from it) can use it.
+        let interval = recentHealthTrendInterval(calendar: calendar)
+        let predicate = combinedPredicate(
+            startDate: interval.start,
+            endDate: interval.end,
+            sourceKind: sourceKind
+        )
 
         switch await BodyHealthQuantityFetch.latestQuantitySample(
             store: healthStore,
@@ -2443,6 +2455,7 @@ actor HealthKitFetchEngine {
             await latestQuantity(
                 for: .heartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar,
                 sourceKind: .heartRate
             )
         }
@@ -2456,16 +2469,18 @@ actor HealthKitFetchEngine {
             await latestQuantity(
                 for: .restingHeartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar,
                 sourceKind: .restingHeartRate
             )
         }
         async let bodyMass: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.bodyMass, selection: selection, default: .success(nil)) {
-            await latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
+            await latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), calendar: calendar, sourceKind: .basics)
         }
         async let bodyFatPercentage: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.bodyFatPercentage, selection: selection, default: .success(nil)) {
             await latestQuantity(
                 for: .bodyFatPercentage,
                 unit: .percent(),
+                calendar: calendar,
                 sourceKind: .basics,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
@@ -2474,6 +2489,7 @@ actor HealthKitFetchEngine {
             await latestQuantity(
                 for: .heartRateVariabilitySDNN,
                 unit: .secondUnit(with: .milli),
+                calendar: calendar,
                 sourceKind: .heartRateVariability
             )
         }
@@ -2481,6 +2497,7 @@ actor HealthKitFetchEngine {
             await latestQuantity(
                 for: .respiratoryRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar,
                 sourceKind: .respiratoryRate
             )
         }
@@ -2488,6 +2505,7 @@ actor HealthKitFetchEngine {
             await latestQuantity(
                 for: .oxygenSaturation,
                 unit: .percent(),
+                calendar: calendar,
                 sourceKind: .oxygenSaturation,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
@@ -2496,7 +2514,7 @@ actor HealthKitFetchEngine {
             await fetchTodayMetricWarning(.lowBloodOxygen, calendar: calendar)
         }
         async let bodyMassIndex: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.bodyMassIndex, selection: selection, default: .success(nil)) {
-            await latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
+            await latestQuantity(for: .bodyMassIndex, unit: .count(), calendar: calendar, sourceKind: .basics)
         }
         async let activeEnergy: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.activeEnergy, selection: selection, default: .success(nil)) {
             await dailyCumulativeQuantitySummary(
@@ -2552,11 +2570,11 @@ actor HealthKitFetchEngine {
         }
         async let cardioFitness: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.cardioFitness, selection: selection, default: .success(nil)) {
             // `latestQuantity`, not a daily summary: Apple Watch writes one VO₂max
-            // estimate every few days at best, so the newest reading is the current
-            // value however old it is — a day-scoped summary would read empty most
-            // days. No `sourceKind:` either; cardio fitness is deliberately not
-            // source-selectable.
-            await latestQuantity(for: .vo2Max, unit: HKUnit(from: "ml/kg*min"))
+            // estimate every few days at best, so the newest reading in the trend
+            // window is the current value — a day-scoped summary would read empty
+            // most days. No `sourceKind:` either; cardio fitness is deliberately
+            // not source-selectable.
+            await latestQuantity(for: .vo2Max, unit: HKUnit(from: "ml/kg*min"), calendar: calendar)
         }
         async let cardioFitnessProfileOutcome: QueryOutcome<CardioFitnessProfile> = fetchDashboardMetricIfNeeded(.cardioFitness, selection: selection, default: .success(nil)) {
             await cardioFitnessProfile()
@@ -3138,14 +3156,15 @@ actor HealthKitFetchEngine {
             trends.sleepHistory = fetchedSleepHistory
             trends.sleepHistorySecondary = fetchedSleepHistorySecondary
         case .basics:
-            async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
+            async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), calendar: calendar, sourceKind: .basics)
             async let bodyFatPercentage = latestQuantity(
                 for: .bodyFatPercentage,
                 unit: .percent(),
+                calendar: calendar,
                 sourceKind: .basics,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
-            async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
+            async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count(), calendar: calendar, sourceKind: .basics)
             async let bodyMassTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .bodyMass,
                 unit: .gramUnit(with: .kilo),
@@ -3179,6 +3198,7 @@ actor HealthKitFetchEngine {
             async let heartRate = latestQuantity(
                 for: .heartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar,
                 sourceKind: .heartRate
             )
             async let lowHeartRateWarning = fetchTodayMetricWarning(.lowHeartRate, calendar: calendar)
@@ -3219,6 +3239,7 @@ actor HealthKitFetchEngine {
             async let restingHeartRate = latestQuantity(
                 for: .restingHeartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar,
                 sourceKind: .restingHeartRate
             )
             async let restingHeartRateTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
@@ -3240,7 +3261,7 @@ actor HealthKitFetchEngine {
             trends.restingHeartRate = resolvedTrend(await restingHeartRateTrend, cached: existing.trends.restingHeartRate)
             trends.restingHeartRateSecondary = resolvedTrend(await restingHeartRateSecondaryTrend, cached: existing.trends.restingHeartRateSecondary)
         case .bodyMass:
-            async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
+            async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), calendar: calendar, sourceKind: .basics)
             async let bodyMassTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .bodyMass,
                 unit: .gramUnit(with: .kilo),
@@ -3255,6 +3276,7 @@ actor HealthKitFetchEngine {
             async let bodyFatPercentage = latestQuantity(
                 for: .bodyFatPercentage,
                 unit: .percent(),
+                calendar: calendar,
                 sourceKind: .basics,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
@@ -3273,6 +3295,7 @@ actor HealthKitFetchEngine {
             async let heartRateVariability = latestQuantity(
                 for: .heartRateVariabilitySDNN,
                 unit: .secondUnit(with: .milli),
+                calendar: calendar,
                 sourceKind: .heartRateVariability
             )
             async let heartRateVariabilityPair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDailyQuantityAverageAndRangeSeries(
@@ -3307,6 +3330,7 @@ actor HealthKitFetchEngine {
             async let respiratoryRate = latestQuantity(
                 for: .respiratoryRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar,
                 sourceKind: .respiratoryRate
             )
             async let respiratoryRatePair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDailyQuantityAverageAndRangeSeries(
@@ -3330,6 +3354,7 @@ actor HealthKitFetchEngine {
             async let oxygenSaturation = latestQuantity(
                 for: .oxygenSaturation,
                 unit: .percent(),
+                calendar: calendar,
                 sourceKind: .oxygenSaturation,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
@@ -3370,7 +3395,7 @@ actor HealthKitFetchEngine {
             trends.oxygenSaturationDaySamples = resolvedTrend(await oxygenSaturationDaySamples, cached: existing.trends.oxygenSaturationDaySamples)
             trends.oxygenSaturationDaySamplesSecondary = resolvedTrend(await oxygenSaturationDaySamplesSecondary, cached: existing.trends.oxygenSaturationDaySamplesSecondary)
         case .bodyMassIndex:
-            async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
+            async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count(), calendar: calendar, sourceKind: .basics)
             async let bodyMassIndexTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .bodyMassIndex,
                 unit: .count(),
@@ -3523,10 +3548,10 @@ actor HealthKitFetchEngine {
             trends.stepsDaySamples = resolvedTrend(await stepsDaySamples, cached: existing.trends.stepsDaySamples)
             trends.stepsDaySamplesSecondary = resolvedTrend(await stepsDaySamplesSecondary, cached: existing.trends.stepsDaySamplesSecondary)
         case .cardioFitness:
-            // Latest reading (however old) + the sparse daily series, same shapes
-            // as the dashboard leaves. The demographics ride along so the level
-            // band can classify from a single-metric refresh too.
-            async let cardioFitness = latestQuantity(for: .vo2Max, unit: HKUnit(from: "ml/kg*min"))
+            // Latest reading in the trend window + the sparse daily series, same
+            // shapes as the dashboard leaves. The demographics ride along so the
+            // level band can classify from a single-metric refresh too.
+            async let cardioFitness = latestQuantity(for: .vo2Max, unit: HKUnit(from: "ml/kg*min"), calendar: calendar)
             async let cardioFitnessTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .vo2Max,
                 unit: HKUnit(from: "ml/kg*min"),
