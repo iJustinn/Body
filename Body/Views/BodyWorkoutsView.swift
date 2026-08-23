@@ -33,6 +33,7 @@ struct BodyWorkoutsView: View {
     @State private var selectedWorkoutForDetails: WorkoutSummary?
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
+    @State private var isListScrolledFromTop = false
     @State private var searchCorpusCache = BodyWorkoutSearchCorpusCache()
     @State private var monthSummaryShareRequest: MonthSummaryShareRequest?
     @AppStorage(BodyAppearancePreference.workoutsChartShowsTypeBreakdownKey) private var workoutsChartShowsTypeBreakdown = false
@@ -171,10 +172,18 @@ struct BodyWorkoutsView: View {
                             .transition(monthSwitchTransition)
                         }
                         .padding(.horizontal)
-                        .padding(.top, 32)
+                        .padding(.top, 12)
                         .padding(.bottom, 110)
                     }
                     .scrollDismissesKeyboard(.immediately)
+                    // Boolean, not the raw offset: the fade is either on or off, so
+                    // this only writes state when the list crosses rest, instead of
+                    // rebuilding the page on every scroll frame.
+                    .onScrollGeometryChange(for: Bool.self) { geometry in
+                        geometry.contentOffset.y + geometry.contentInsets.top > 0.5
+                    } action: { _, scrolled in
+                        isListScrolledFromTop = scrolled
+                    }
                     .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
                         Task { await workoutStore.refreshWorkoutMonth(month: selectedMonth, year: selectedYear) }
                     }
@@ -183,8 +192,14 @@ struct BodyWorkoutsView: View {
                     .animation(.easeInOut(duration: 0.2), value: selectedSortOption)
                     .mask(
                         VStack(spacing: 0) {
+                            // The fade is for content sliding under the search row. At
+                            // rest there is nothing to soften, and the gradient would
+                            // just dim the top of the chart card, so cover it with
+                            // opaque black until the list actually moves up.
                             LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
                                 .frame(height: 24)
+                                .overlay(Color.black.opacity(isListScrolledFromTop ? 0 : 1))
+                                .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: isListScrolledFromTop)
                             Rectangle().fill(Color.black)
                         }
                     )
