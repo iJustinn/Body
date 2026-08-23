@@ -76,19 +76,18 @@ struct BodyFirstLaunchLoadOverlay: View {
                             ProgressView()
                                 .progressViewStyle(.circular)
                                 .controlSize(.small)
-                                .tint(Color(.systemBackground))
+                                .tint(.white)
                         }
 
                         Text(primaryButtonTitle)
                             .font(.system(size: 16, weight: .bold, design: .rounded))
                     }
-                    .foregroundColor(Color(.systemBackground))
+                    .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.primary)
-                    )
+                    // Same flat glass chip as the workout type bars and the onboarding
+                    // CTA: translucent fill, thin white rim, no gradient or material.
+                    .background(BodyGlassChip(color: .blue, cornerRadius: 16))
                 }
                 .disabled(isLoading)
 
@@ -104,10 +103,7 @@ struct BodyFirstLaunchLoadOverlay: View {
             }
         }
         .padding(24)
-        .background(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .fill(Color(.systemBackground))
-        )
+        .bodySheetCardBackground(cornerRadius: 30)
         .shadow(color: Color.black.opacity(0.22), radius: 24, x: 0, y: 10)
         .padding(.horizontal, 28)
         .frame(maxWidth: 420)

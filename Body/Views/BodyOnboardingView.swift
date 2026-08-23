@@ -78,13 +78,13 @@ struct BodyOnboardingView: View {
         _isLoadingHealth = State(initialValue: previewsHealthLoad)
         _hasAttemptedHealthLoad = State(initialValue: previewsHealthLoad)
         _showsWorkoutBreakdown = State(initialValue: previewsWorkoutBreakdown)
-        _introState = State(initialValue: mode == .firstRun && !skipsIntro ? .playing : .finished)
+        _introState = State(initialValue: skipsIntro ? .finished : .playing)
     }
 
     /// The pages are hidden while the field owns the screen. A frozen preview
     /// reads the reveal off the timeline instead of the live state.
     private var pagesOpacity: Double {
-        if let introPreviewTime, mode == .firstRun, !skipsIntro {
+        if let introPreviewTime, !skipsIntro {
             return BodyIntroTimeline.revealProgress(at: introPreviewTime)
         }
         return introState == .playing && !reduceMotion ? 0 : 1
@@ -777,17 +777,31 @@ struct BodyOnboardingView: View {
 
             VStack(spacing: 14) {
                 OnboardingFeatureRow(
-                    iconName: "arrow.down.circle.fill",
+                    iconName: "arrow.clockwise.circle.fill",
                     tintColor: .white,
                     title: "onboarding.done.tip1",
                     subtitle: "onboarding.done.tip1.subtitle"
                 )
 
                 OnboardingFeatureRow(
-                    iconName: "square.grid.2x2.fill",
+                    iconName: "hand.draw.fill",
                     tintColor: .white,
                     title: "onboarding.done.tip2",
                     subtitle: "onboarding.done.tip2.subtitle"
+                )
+
+                OnboardingFeatureRow(
+                    iconName: "arrow.left.arrow.right.circle.fill",
+                    tintColor: .white,
+                    title: "onboarding.done.sources",
+                    subtitle: "onboarding.done.sources.subtitle"
+                )
+
+                OnboardingFeatureRow(
+                    iconName: "slider.horizontal.3",
+                    tintColor: .white,
+                    title: "onboarding.done.explore",
+                    subtitle: "onboarding.done.explore.subtitle"
                 )
 
                 OnboardingFeatureRow(

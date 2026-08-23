@@ -8,32 +8,17 @@ import SwiftUI
 /// The word field behind the first run intro: a dense field of perfectly
 /// horizontal wordmarks that stream in from past the left edge, cross the
 /// screen at a constant speed, and carry straight on out through the right
-/// edge without ever stopping. The intro runs the field twice, once for each
-/// `Wave`, so the launch reads "oooh" and then "my". Everything is computed
-/// from a seed and the screen size so the field is identical on every launch,
-/// unit testable, and renderable frame by frame.
+/// edge without ever stopping. The intro runs that field once, so the launch
+/// reads "oooh". Everything is computed from a seed and the screen size so the
+/// field is identical on every launch, unit testable, and renderable frame by
+/// frame.
 struct BodyIntroWordLayout: Equatable {
-    /// The two passes of the intro. Each one builds its own field from its own
-    /// seed, so the second wave never lands on the first wave's geometry.
-    enum Wave: CaseIterable {
-        /// "oooh": "o" repeated 2...12 times, then a closing "h".
-        case oh
-        /// "my": an "m" then "y" repeated 1...4 times.
-        case my
-
-        /// The seeds spell the wave; any other seed gives a different field.
-        var defaultSeed: UInt64 {
-            switch self {
-            case .oh: return 0x6F68
-            case .my: return 0x6D79
-            }
-        }
-    }
+    /// The seed spells the wordmark; any other seed gives a different field.
+    static let defaultSeed: UInt64 = 0x6F68
 
     struct Word: Equatable, Identifiable {
         let id: Int
-        /// The wave's wordmark: "oooh" with a variable run of "o", or "my"
-        /// with a variable run of "y".
+        /// The wordmark: "oooh" with a variable run of "o".
         let text: String
         let fontSize: CGFloat
         /// Stagger inside `BodyIntroTimeline.staggerSpan`, so the words stream
@@ -48,7 +33,12 @@ struct BodyIntroWordLayout: Equatable {
         /// Off screen finish, the mirror of `origin` past the right edge.
         let exit: CGPoint
         let opacity: Double
+        /// Index into `BodyIntroAnimationView.palette`: white plus the three
+        /// blues of the default home background.
+        let colorIndex: Int
     }
+
+    static let paletteCount = 4
 
     let words: [Word]
 
@@ -69,10 +59,10 @@ struct BodyIntroWordLayout: Equatable {
     static let haloRadius: CGFloat = 8
     private static let maximumFontSize: CGFloat = 100
 
-    static func make(in size: CGSize, wave: Wave, seed: UInt64? = nil) -> BodyIntroWordLayout {
+    static func make(in size: CGSize, seed: UInt64 = defaultSeed) -> BodyIntroWordLayout {
         let width = max(size.width, 1)
         let height = max(size.height, 1)
-        var random = BodyIntroRandom(seed: seed ?? wave.defaultSeed)
+        var random = BodyIntroRandom(seed: seed)
 
         let cellHeight = height / CGFloat(rows)
         let scale = min(width, height) / referenceEdge
@@ -86,13 +76,7 @@ struct BodyIntroWordLayout: Equatable {
             let centerness = 1 - abs(Double(row) - farthestRow) / farthestRow
             let rawSize = 44 + 44 * centerness + random.double(in: 0...12)
             let fontSize = min(max(rawSize, minimumFontSize), maximumFontSize) * scale
-            let text: String
-            switch wave {
-            case .oh:
-                text = String(repeating: "o", count: 2 + random.int(in: 0...10)) + "h"
-            case .my:
-                text = "m" + String(repeating: "y", count: 1 + random.int(in: 0...3))
-            }
+            let text = String(repeating: "o", count: 2 + random.int(in: 0...10)) + "h"
 
             // Every word rides one horizontal line: same y at the origin, the
             // centre, and the exit, so nothing tilts, drifts, or settles. The
@@ -117,7 +101,8 @@ struct BodyIntroWordLayout: Equatable {
                 origin: CGPoint(x: centerX - halfTravel, y: lineY),
                 target: CGPoint(x: centerX, y: lineY),
                 exit: CGPoint(x: centerX + halfTravel, y: lineY),
-                opacity: random.double(in: 0.55...1)
+                opacity: random.double(in: 0.7...1),
+                colorIndex: random.int(in: 0...(paletteCount - 1))
             )
         }
 
@@ -157,14 +142,12 @@ private struct BodyIntroRandom {
     }
 }
 
-/// Every timing constant of the intro, and the pure (word, wave, time) to
-/// geometry map the view draws. Keeping the motion in a function of elapsed
-/// seconds means skipping is a clock jump, and a test can assert any instant.
+/// Every timing constant of the intro, and the pure (word, time) to geometry
+/// map the view draws. Keeping the motion in a function of elapsed seconds
+/// means skipping is a clock jump, and a test can assert any instant.
 ///
-/// The two waves overlap: the second is streaming in while the first is still
-/// crossing the screen, so the computed schedule is: the "oooh" wave runs from
-/// 0.35 s to 3.55 s, the "my" wave from 1.75 s to 4.95 s, the pages behind
-/// begin to fade up at 4.25 s, and the overlay can unmount at 4.95 s.
+/// The computed schedule: the wave runs from 0.35 s to 3.55 s, the pages
+/// behind begin to fade up at 2.85 s, and the overlay can unmount at 3.55 s.
 enum BodyIntroTimeline {
     /// Words wait off screen while the cover's own transition settles.
     static let startDelay: TimeInterval = 0.35
@@ -173,33 +156,21 @@ enum BodyIntroTimeline {
     /// How long one word takes to travel from its origin to its exit, linear:
     /// it never speeds up, slows down, or stops.
     static let slideDuration: TimeInterval = 2.0
-    /// The second wave starts streaming in this long after the first, so the
-    /// two fields overlap and the background never shows through.
-    static let waveLead: TimeInterval = 1.4
     /// The pages behind fade up this long before the last word leaves, so the
-    /// reveal lands under the tail of the second wave.
+    /// reveal lands under the tail of the wave.
     static let revealLead: TimeInterval = 0.7
     /// How long the pages behind the field take to fade up, from `revealStart`.
     static let revealDuration: TimeInterval = 0.5
 
-    /// When a wave's first words enter: 0.35 s for `.oh`, 1.75 s for `.my`.
-    static func start(of wave: BodyIntroWordLayout.Wave) -> TimeInterval {
-        switch wave {
-        case .oh: return startDelay
-        case .my: return startDelay + waveLead
-        }
-    }
+    /// When the first words enter, at 0.35 s.
+    static let start: TimeInterval = startDelay
+    /// When the last word has left the right edge, at 3.55 s.
+    static let end: TimeInterval = start + staggerSpan + slideDuration
 
-    /// When a wave's last word has left the right edge: 3.55 s for `.oh`,
-    /// 4.95 s for `.my`.
-    static func end(of wave: BodyIntroWordLayout.Wave) -> TimeInterval {
-        start(of: wave) + staggerSpan + slideDuration
-    }
-
-    /// The pages fade up under the tail of the second wave, at 4.25 s.
-    static let revealStart: TimeInterval = end(of: .my) - revealLead
-    /// The overlay can unmount at 4.95 s.
-    static let totalDuration: TimeInterval = end(of: .my)
+    /// The pages fade up under the tail of the wave, at 2.85 s.
+    static let revealStart: TimeInterval = end - revealLead
+    /// The overlay can unmount at 3.55 s.
+    static let totalDuration: TimeInterval = end
 
     /// `opacity` and `scale` are always 1: the words neither fade nor resize,
     /// they only slide. Both are kept so a caller can apply a frame whole.
@@ -210,14 +181,12 @@ enum BodyIntroTimeline {
     }
 
     /// One straight line at one speed: origin to exit over `slideDuration`,
-    /// linear, passing `target` at the halfway mark. Measured against the
-    /// word's own wave, not the whole intro.
+    /// linear, passing `target` at the halfway mark.
     static func frame(
         for word: BodyIntroWordLayout.Word,
-        in wave: BodyIntroWordLayout.Wave,
         at time: TimeInterval
     ) -> Frame {
-        let progress = clamped((time - start(of: wave) - word.delay) / slideDuration)
+        let progress = clamped((time - start - word.delay) / slideDuration)
         return Frame(
             position: interpolate(from: word.origin, to: word.exit, progress: progress),
             opacity: 1,
@@ -251,6 +220,10 @@ enum BodyIntroTimeline {
 /// Draws the field through `TimelineView(.animation)` instead of animating
 /// state: one clock, so a tap can jump it forward and a preview can freeze it.
 struct BodyIntroAnimationView: View {
+    /// White plus the three blues the default home background is built from,
+    /// so the stream reads as the app's own colors on any background.
+    static let palette: [Color] = [.white] + BodyHomeBackground.defaultColors
+
     /// Fires once when the pages behind should begin to appear.
     let onReveal: () -> Void
     /// Fires once when the last word is gone and the overlay can unmount.
@@ -281,9 +254,7 @@ struct BodyIntroAnimationView: View {
         GeometryReader { proxy in
             // Rebuilt whenever the size changes, so rotation and iPad get a
             // field spaced for the bounds they actually have.
-            let layouts = BodyIntroWordLayout.Wave.allCases.map { wave in
-                (wave: wave, layout: BodyIntroWordLayout.make(in: proxy.size, wave: wave))
-            }
+            let layout = BodyIntroWordLayout.make(in: proxy.size)
 
             ZStack {
                 // A real button, not a tap gesture: VoiceOver and Switch
@@ -298,22 +269,18 @@ struct BodyIntroAnimationView: View {
                 TimelineView(.animation(paused: previewTime != nil)) { context in
                     let time = elapsed(at: context.date)
 
-                    // `allCases` order puts the "oooh" wave below the "my"
-                    // wave, so the second field streams in over the first.
                     ZStack {
-                        ForEach(layouts, id: \.wave) { entry in
-                            ForEach(entry.layout.words) { word in
-                                let frame = BodyIntroTimeline.frame(for: word, in: entry.wave, at: time)
+                        ForEach(layout.words) { word in
+                            let frame = BodyIntroTimeline.frame(for: word, at: time)
 
-                                Text(word.text)
-                                    .font(.system(size: word.fontSize, weight: .black, design: .rounded))
-                                    .foregroundStyle(Color.primary.opacity(word.opacity))
-                                    // The user's own background can sit anywhere
-                                    // in the scheme, so each word carries a soft
-                                    // halo in the scheme's background color.
-                                    .shadow(color: Color(.systemBackground).opacity(0.35), radius: BodyIntroWordLayout.haloRadius)
-                                    .position(frame.position)
-                            }
+                            Text(word.text)
+                                .font(.system(size: word.fontSize, weight: .black, design: .rounded))
+                                .foregroundStyle(Self.palette[word.colorIndex].opacity(word.opacity))
+                                // The user's own background can sit anywhere
+                                // in the scheme, so each word carries a soft
+                                // halo in the scheme's background color.
+                                .shadow(color: Color(.systemBackground).opacity(0.35), radius: BodyIntroWordLayout.haloRadius)
+                                .position(frame.position)
                         }
                     }
                 }
@@ -404,7 +371,7 @@ struct BodyIntroAnimationView: View {
             .ignoresSafeArea()
 
         BodyIntroAnimationView(
-            previewTime: BodyIntroTimeline.start(of: .oh)
+            previewTime: BodyIntroTimeline.start
                 + BodyIntroTimeline.staggerSpan * 0.5
                 + BodyIntroTimeline.slideDuration * 0.5,
             onReveal: {},
