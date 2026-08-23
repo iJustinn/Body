@@ -446,6 +446,8 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "onboarding.continue",
             "onboarding.getStarted",
             "onboarding.welcome.title",
+            "onboarding.welcome.privacy",
+            "onboarding.welcome.privacy.subtitle",
             "onboarding.welcome.load",
             "Loading data...",
             "onboarding.health.body",

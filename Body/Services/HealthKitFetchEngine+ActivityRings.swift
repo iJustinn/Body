@@ -24,8 +24,13 @@ enum ActivityRingOlderHistoryProbe {
 struct ActivityRingHistoryFetchResult {
     let history: ActivityRingHistorySnapshot
     let hadQueryFailure: Bool
+    /// HealthKit refused the read outright (Activity access revoked). The store
+    /// drops its ENTIRE cached ring history on this — not just the requested
+    /// window — so stale backfilled/paged months can't outlive the permission.
+    var authorizationDenied = false
 
     static let empty = ActivityRingHistoryFetchResult(history: .empty, hadQueryFailure: false)
+    static let denied = ActivityRingHistoryFetchResult(history: .empty, hadQueryFailure: false, authorizationDenied: true)
 }
 
 // Activity Rings summary (one day) and history (range of days, plus the
@@ -51,7 +56,8 @@ extension HealthKitFetchEngine {
             return .success(Self.activityRingSummary(from: summary))
         } catch {
             Self.logTrendQueryFailure("activityRings", error: error)
-            return .failure
+            // A denied ring read is a confirmed absence, not a query failure.
+            return Self.isAuthorizationDenial(error) ? .success(nil) : .failure
         }
     }
 
@@ -168,6 +174,13 @@ extension HealthKitFetchEngine {
             )
         } catch {
             Self.logTrendQueryFailure("activityRingBackfill", error: error)
+            // A denied ring read genuinely has no days, so it must not withhold
+            // the freshness TTL. `.denied` carries no loaded month keys either,
+            // so the backfill stays unstamped and reruns once access is granted.
+            if Self.isAuthorizationDenial(error) {
+                return .denied
+            }
+
             return ActivityRingHistoryFetchResult(history: .empty, hadQueryFailure: true)
         }
     }
@@ -235,6 +248,14 @@ extension HealthKitFetchEngine {
             )
         } catch {
             Self.logTrendQueryFailure("activityRingHistory", error: error)
+            // A denied ring read is a genuine empty range, not a failure. The
+            // store wipes every cached ring month on `.denied` — HealthKit is
+            // the source of truth, and access revoked after a backfill must
+            // not leave older months on screen.
+            if Self.isAuthorizationDenial(error) {
+                return .denied
+            }
+
             return ActivityRingHistoryFetchResult(history: .empty, hadQueryFailure: true)
         }
     }

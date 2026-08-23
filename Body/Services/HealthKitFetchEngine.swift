@@ -74,6 +74,21 @@ actor HealthKitFetchEngine {
         )
     }
 
+    /// Whether a HealthKit error means the read permission was denied (or was
+    /// never granted) rather than the query having failed. Sample and statistics
+    /// queries just come back empty when a read is denied, but characteristic
+    /// reads and `HKActivitySummaryQueryDescriptor` throw instead. A denial is a
+    /// confirmed absence for as long as the permission stays off, not a
+    /// transient failure, so it must NOT withhold the freshness TTL or the
+    /// first-load completion — otherwise the first-launch overlay never clears.
+    nonisolated static func isAuthorizationDenial(_ error: Error) -> Bool {
+        guard let code = (error as? HKError)?.code else {
+            return false
+        }
+
+        return code == .errorAuthorizationDenied || code == .errorAuthorizationNotDetermined
+    }
+
     /// Resolves a freshly fetched trend series against the cached one. A `nil`
     /// `fetched` means the HealthKit query itself failed (device locked, store
     /// unavailable, XPC drop) rather than genuinely returning no data, so the
@@ -293,10 +308,11 @@ actor HealthKitFetchEngine {
         do {
             birthComponents = try healthStore.dateOfBirthComponents()
             biologicalSex = try healthStore.biologicalSex().biologicalSex
-        } catch let error as HKError where error.code == .errorNoData {
-            // A characteristic the user never entered is a confirmed absence, not
-            // a failure — reporting `.failure` here would withhold the freshness
-            // TTL on every refresh forever for anyone who left it blank.
+        } catch let error as HKError where error.code == .errorNoData || Self.isAuthorizationDenial(error) {
+            // A characteristic the user never entered — or one whose read
+            // permission is off — is a confirmed absence, not a failure:
+            // reporting `.failure` here would withhold the freshness TTL on
+            // every refresh forever for anyone who left it blank or denied it.
             return .success(nil)
         } catch {
             return .failure

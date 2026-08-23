@@ -3226,6 +3226,14 @@ private struct BodyHealthPermissionsSettingsSheet: View {
                 }
             }
             .bodyCardBackground(translucent: true)
+
+            Text("Each switch controls which Apple Health category Body reads. Turning one on asks Apple Health for access if needed and refreshes the dashboard. Turning one off stops Body from reading that category and removes its data from the app and from the local cache. Body only ever reads, and Apple Health stays in charge: a category that is turned off in the Health app simply shows as empty here, and you can change that under Settings, Health, Data Access and Devices.")
+                .font(.system(.footnote, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+                .padding(.top, 12)
         }
     }
 }

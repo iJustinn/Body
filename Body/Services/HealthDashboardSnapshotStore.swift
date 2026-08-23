@@ -23,6 +23,7 @@ enum HealthDashboardSnapshotStore {
     static let secondarySelectionSignatureKey = "lastHealthDashboardSecondarySelectionSignature"
     static let lastSuccessfulRefreshDateKey = "lastHealthDashboardSuccessfulRefreshDate"
     static let activityRingBackfillCompletedKey = "lastHealthDashboardActivityRingBackfillCompleted"
+    static let initialHealthDataLoadCompletedKey = "lastHealthDashboardInitialLoadCompleted"
     private static let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "HealthDashboardSnapshotStore")
 
     static func saveSecondarySelectionSignature(_ signature: String, defaults: UserDefaults = .standard) {
@@ -49,6 +50,24 @@ enum HealthDashboardSnapshotStore {
 
     static func clearLastSuccessfulRefreshDate(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: lastSuccessfulRefreshDateKey)
+    }
+
+    /// Whether the user has already been through the first-launch Health load.
+    /// Unlike `lastSuccessfulRefreshDate` this is stamped by ANY completed full
+    /// refresh — including a partial one that hit query failures, or one that
+    /// found no data at all — because a user who denied some read permissions
+    /// would otherwise never clear the first-launch overlay or onboarding and
+    /// be stuck on "Try Again" forever.
+    static func saveInitialHealthDataLoadCompleted(defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: initialHealthDataLoadCompletedKey)
+    }
+
+    static func loadInitialHealthDataLoadCompleted(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: initialHealthDataLoadCompletedKey)
+    }
+
+    static func clearInitialHealthDataLoadCompleted(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: initialHealthDataLoadCompletedKey)
     }
 
     /// The phone's discovered source universe per watch-compute kind (see

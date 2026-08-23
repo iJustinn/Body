@@ -3409,6 +3409,23 @@
         }
       }
     },
+    "Each switch controls which Apple Health category Body reads. Turning one on asks Apple Health for access if needed and refreshes the dashboard. Turning one off stops Body from reading that category and removes its data from the app and from the local cache. Body only ever reads, and Apple Health stays in charge: a category that is turned off in the Health app simply shows as empty here, and you can change that under Settings, Health, Data Access and Devices." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Each switch controls which Apple Health category Body reads. Turning one on asks Apple Health for access if needed and refreshes the dashboard. Turning one off stops Body from reading that category and removes its data from the app and from the local cache. Body only ever reads, and Apple Health stays in charge: a category that is turned off in the Health app simply shows as empty here, and you can change that under Settings, Health, Data Access and Devices."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每个开关决定 Body 读取哪一类 Apple Health 数据。打开时，Body 会在需要时向 Apple Health 申请访问权限并刷新仪表盘。关闭时，Body 会停止读取该类别，并把它的数据从应用和本地缓存中移除。Body 只读取数据，权限始终由 Apple Health 掌控：在健康 App 中被关闭的类别在这里只会显示为空，你可以在「设置」、「健康」、「数据访问与设备」中更改。"
+          }
+        }
+      }
+    },
     "Data Refresh" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8114,6 +8131,40 @@
         }
       }
     },
+    "onboarding.welcome.privacy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your data stays on your device"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "您的数据只留在设备上"
+          }
+        }
+      }
+    },
+    "onboarding.welcome.privacy.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body reads Apple Health on device and keeps everything there. There is no account, no server of ours, and no tracking, so your health data is never uploaded anywhere."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 在设备本地读取 Apple 健康数据，并将全部内容保留在本地。没有账户，没有我们的服务器，也没有任何追踪，您的健康数据不会被上传到任何地方。"
+          }
+        }
+      }
+    },
     "onboarding.welcome.title" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12681,6 +12732,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "次运动"
+          }
+        }
+      }
+    },
+    "Weekdays" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weekdays"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "星期"
           }
         }
       }

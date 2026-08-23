@@ -544,16 +544,11 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
 
     @MainActor
     func testNeedsInitialHealthDataLoadReflectsCacheAndRefreshState() throws {
-        // The store reads the persisted refresh timestamp from standard
-        // defaults at init; park it so a previous run on this host cannot
-        // mask the fresh-install state.
-        let preservedRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
-        HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
-        defer {
-            if let preservedRefreshDate {
-                HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(preservedRefreshDate)
-            }
-        }
+        // The store reads the persisted refresh timestamp and the first-load
+        // completion flag from standard defaults at init; park both so a
+        // previous run on this host cannot mask the fresh-install state.
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
 
         let initialSnapshot = WorkoutMonthSnapshot.make(
             month: 5,
@@ -576,14 +571,109 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testPassiveLoadsStayIdleUntilFirstHealthDataLoad() async throws {
+    func testPartialRefreshClearsNeedsInitialHealthDataLoadWithoutArmingFreshnessTTL() throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+
+        let store = emptyHealthDataStore()
+        XCTAssertTrue(store.needsInitialHealthDataLoad)
+
+        // Denied read permissions make some leaves fail on every refresh; the
+        // completed full refresh still counts as the first load.
+        store.markRefreshSucceeded(date: Date(), refreshedVitals: true, hadQueryFailure: true)
+        XCTAssertTrue(store.hasCompletedInitialHealthDataLoad)
+        XCTAssertFalse(store.needsInitialHealthDataLoad)
+        XCTAssertNil(store.lastSuccessfulRefreshDate)
+        XCTAssertFalse(store.hasHealthDataToShow)
+    }
+
+    @MainActor
+    func testNonVitalsRefreshLeavesInitialHealthDataLoadPending() throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+
+        let store = emptyHealthDataStore()
+        store.markRefreshSucceeded(date: Date(), refreshedVitals: false)
+        XCTAssertFalse(store.hasCompletedInitialHealthDataLoad)
+        XCTAssertTrue(store.needsInitialHealthDataLoad)
+    }
+
+    @MainActor
+    func testInitialHealthDataLoadCompletionRestoresFromPersistence() throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+
+        emptyHealthDataStore().markRefreshSucceeded(date: Date(), refreshedVitals: true, hadQueryFailure: true)
+
+        let relaunchedStore = emptyHealthDataStore()
+        XCTAssertTrue(relaunchedStore.hasCompletedInitialHealthDataLoad)
+        XCTAssertFalse(relaunchedStore.needsInitialHealthDataLoad)
+    }
+
+    @MainActor
+    func testClearLocalCacheResetsInitialHealthDataLoadCompletion() async throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+
+        let store = emptyHealthDataStore()
+        store.markRefreshSucceeded(date: Date(), refreshedVitals: true, hadQueryFailure: true)
+        XCTAssertTrue(store.hasCompletedInitialHealthDataLoad)
+
+        await store.clearLocalCache()
+        XCTAssertFalse(store.hasCompletedInitialHealthDataLoad)
+        XCTAssertFalse(HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted())
+        XCTAssertTrue(store.needsInitialHealthDataLoad)
+    }
+
+    @MainActor
+    func testInitialHealthDataLoadCompletedPersistenceRoundTrips() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "HealthDashboardSnapshotStoreTests.initialLoad"))
+        defer { defaults.removePersistentDomain(forName: "HealthDashboardSnapshotStoreTests.initialLoad") }
+
+        XCTAssertFalse(HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted(defaults: defaults))
+        HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted(defaults: defaults)
+        XCTAssertTrue(HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted(defaults: defaults))
+        HealthDashboardSnapshotStore.clearInitialHealthDataLoadCompleted(defaults: defaults)
+        XCTAssertFalse(HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted(defaults: defaults))
+    }
+
+    /// The store reads both first-load defaults from standard defaults at init;
+    /// park them so a previous run on this host cannot mask the fresh-install
+    /// state, and restore them from the returned closure.
+    private func preserveInitialHealthLoadDefaults() -> () -> Void {
         let preservedRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
+        let preservedCompletion = HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted()
         HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
-        defer {
+        HealthDashboardSnapshotStore.clearInitialHealthDataLoadCompleted()
+        return {
             if let preservedRefreshDate {
                 HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(preservedRefreshDate)
             }
+            if preservedCompletion {
+                HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
+            } else {
+                HealthDashboardSnapshotStore.clearInitialHealthDataLoadCompleted()
+            }
         }
+    }
+
+    @MainActor
+    private func emptyHealthDataStore() -> HealthKitWorkoutStore {
+        HealthKitWorkoutStore(
+            initialSnapshot: WorkoutMonthSnapshot.make(
+                month: 5,
+                year: 2026,
+                workouts: [],
+                calendar: .bodyGregorian
+            ),
+            initialHealthDashboardSnapshot: .empty
+        )
+    }
+
+    @MainActor
+    func testPassiveLoadsStayIdleUntilFirstHealthDataLoad() async throws {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
 
         let store = HealthKitWorkoutStore(
             initialSnapshot: WorkoutMonthSnapshot.make(

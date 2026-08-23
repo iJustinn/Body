@@ -335,9 +335,27 @@ struct BodyOnboardingView: View {
                     }
                 }
                 .animation(.easeInOut(duration: 0.4), value: hasAttemptedHealthLoad)
+            }
+
+            // Shown on the replay too: the privacy promise is the reason the
+            // flow asks for Health access in the first place.
+            OnboardingFeatureRow(
+                iconName: "lock.fill",
+                tintColor: .green,
+                title: "onboarding.welcome.privacy",
+                subtitle: "onboarding.welcome.privacy.subtitle"
+            )
+            .padding(.top, 4)
+
+            if mode == .firstRun {
 
                 if hasAttemptedHealthLoad && !isLoadingHealth {
-                    if workoutStore.needsInitialHealthDataLoad {
+                    // The green check means data actually landed. A load that
+                    // completed but brought back nothing (denied permissions,
+                    // an empty Health store) clears
+                    // `needsInitialHealthDataLoad` yet must still show the
+                    // neutral row plus any notice.
+                    if !workoutStore.hasHealthDataToShow {
                         healthOutcomeRow(
                             iconName: "info.circle.fill",
                             tintColor: .secondary,

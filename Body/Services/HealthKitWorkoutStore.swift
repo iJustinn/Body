@@ -150,6 +150,13 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var healthDataNotice: String?
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastSuccessfulRefreshDate: Date?
+    /// Whether a full refresh has ever completed on this install, even a partial
+    /// one. Separate from `lastSuccessfulRefreshDate` (which arms the freshness
+    /// TTL and so requires a clean fetch): a user who denied some Health read
+    /// permissions can hit a query failure on every refresh, and gating the
+    /// first-launch overlay on the TTL stamp alone left them on "Try Again"
+    /// forever.
+    @Published private(set) var hasCompletedInitialHealthDataLoad = false
     /// Count of user-visible refreshes — the three paths that set `isRefreshing`
     /// (foreground/vitals, workout month, single metric) — that completed with a
     /// genuine fetch (no query failure, and at least one HealthKit query actually
@@ -485,6 +492,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // Restore the persisted last-successful-refresh timestamp so the
         // cold-start sync path applies the same tiered TTL as a warm resume.
         lastSuccessfulRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
+        hasCompletedInitialHealthDataLoad = HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted()
         // Restore the compute seed's data watermark from the SAME persisted
         // value: it was written only when a clean full refresh landed — the
         // exact condition under which `lastVitalsRefreshDate` itself advances
@@ -677,9 +685,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         isRefreshing = true
+        defer { finishRefresh() }
         await hydratePersistedDaySamplesIfNeeded()
         await engine.setHealthTrendAnchorDate(date)
-        defer { finishRefresh() }
 
         let calendar = Calendar.bodyGregorian
 
@@ -2774,15 +2782,28 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
-    /// True until the app has any Health data to show: no successful refresh
-    /// recorded by this or any prior session, and nothing restored from the
-    /// snapshot cache. Presents the first-launch load overlay and keeps every
+    /// True until the app has been through its first Health load: no completed
+    /// full refresh recorded by this or any prior session, no successful
+    /// refresh timestamp, and nothing restored from the snapshot cache. The
+    /// completion stamp is what releases a user whose denied read permissions
+    /// make every refresh partial (and so never arm the TTL stamp) — without
+    /// it they stay on "Try Again" forever. Presents the first-launch load
+    /// overlay and keeps every
     /// passive load idle — the app-entry sync, the workout-month lazy loads,
     /// and older ring-history paging — so the first big load (including the
     /// ten-year activity-ring backfill) only runs when the user starts it
     /// from the overlay, a refresh gesture, or the Settings refresh button.
     var needsInitialHealthDataLoad: Bool {
-        lastSuccessfulRefreshDate == nil && HealthDashboardSnapshot(
+        !hasCompletedInitialHealthDataLoad && lastSuccessfulRefreshDate == nil && !hasHealthDataToShow
+    }
+
+    /// Whether Health data actually landed: a non-empty dashboard. A completed
+    /// first load that brought back nothing (denied or empty Health store)
+    /// clears `needsInitialHealthDataLoad` — and may even arm the freshness
+    /// TTL, since denials now read as clean absences — without making this
+    /// true, so the onboarding outcome row can tell the two apart.
+    var hasHealthDataToShow: Bool {
+        !HealthDashboardSnapshot(
             summary: healthSummary,
             trends: healthTrends,
             activityRingHistory: activityRingHistory
@@ -3278,6 +3299,10 @@ final class HealthKitWorkoutStore: ObservableObject {
         customSourceIDsWithDataByKind = [:]
         persistedDaySamplesHydration = nil
         lastSuccessfulRefreshDate = nil
+        // A tombstoned install is back to first launch, so the load overlay
+        // must present again.
+        hasCompletedInitialHealthDataLoad = false
+        HealthDashboardSnapshotStore.clearInitialHealthDataLoadCompleted()
         // Drop the compute-seed watermark + cached Training Load piece too — a
         // tombstoned install must not re-attach a stale seed (built from data
         // this clear just wiped) on the next publish. `dataThrough` (from
@@ -3650,6 +3675,18 @@ final class HealthKitWorkoutStore: ObservableObject {
                     healthTrends = t.replacingMetric(.readiness, with: healthTrends)
                 case .rings(let result):
                     hadQueryFailure = hadQueryFailure || result.hadQueryFailure
+                    if result.authorizationDenied {
+                        // Access was revoked: every cached month is stale, not
+                        // just the refreshed window. `updateHealthDashboardSnapshot`
+                        // re-derives the month-key sets from this empty history.
+                        fetchedActivityRingHistory = .empty
+                        activityRingHistory = .empty
+                        // The ten-year history just got wiped, so the backfill
+                        // must run again once access is restored; otherwise
+                        // only the recent window would ever reload.
+                        HealthDashboardSnapshotStore.clearActivityRingBackfillCompleted()
+                        continue
+                    }
                     let r = result.history
                     // Merge instead of replace — replacing dropped any older
                     // months the user had paged in (and the refresh's final
@@ -4224,6 +4261,16 @@ final class HealthKitWorkoutStore: ObservableObject {
         lastVitalsRefreshDate = Self.nextLastVitalsRefreshDate(
             current: lastVitalsRefreshDate, date: date, refreshedVitals: refreshedVitals, hadQueryFailure: hadQueryFailure
         )
+        // A completed full refresh means the user has been through the first
+        // load — even a partial one (denied read permissions make some leaves
+        // fail on EVERY refresh) or one that found nothing. Deliberately not
+        // gated on `hadQueryFailure`/`ranQueries`, and never stamped from
+        // `handleRefreshError`, so a thrown refresh still re-presents the
+        // first-launch overlay with Try Again.
+        if refreshedVitals, !hasCompletedInitialHealthDataLoad {
+            hasCompletedInitialHealthDataLoad = true
+            HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
+        }
         if refreshedVitals, !hadQueryFailure {
             lastSuccessfulRefreshDate = date
             HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(date)
