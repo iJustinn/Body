@@ -850,7 +850,7 @@ struct BodyWorkoutShareSheet: View {
                             .font(.headline)
                             .foregroundColor(.primary)
 
-                        Text("v3")
+                        Text("v5")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(.blue)
                             .padding(.horizontal, 7)

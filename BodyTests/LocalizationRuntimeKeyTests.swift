@@ -209,7 +209,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let keys = [
             "Share",
             "Share Workout",
-            "v3",
+            "v5",
             "Background",
             "Your Photo",
             "Close",
@@ -507,9 +507,44 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "onboarding.done.tip1.subtitle",
             "onboarding.done.tip2",
             "onboarding.done.tip2.subtitle",
+            "onboarding.done.sources",
+            "onboarding.done.sources.subtitle",
+            "onboarding.done.explore",
+            "onboarding.done.explore.subtitle",
             "onboarding.done.tip3",
             "onboarding.done.tip3.subtitle"
         ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testWorkoutDetailsExplanationKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // The Details explanation sheet is one long literal per metric kind, plus the
+        // title and the two opening paragraphs. Rather than restating each paragraph
+        // here (where a one-character drift would silently ship English to zh-Hans
+        // users), the literals are read back out of the source: the assertion can then
+        // never fall behind an edit to the copy, and a newly added metric explanation
+        // is covered the moment it is written.
+        let source = try String(
+            contentsOf: projectRoot.appendingPathComponent("Body/Views/BodyWorkoutDetailsExplanationSheet.swift"),
+            encoding: .utf8
+        )
+        let pattern = try NSRegularExpression(pattern: #"String\(localized: "((?:[^"\\]|\\.)*)"\)"#)
+        let matches = pattern.matches(in: source, range: NSRange(source.startIndex..., in: source))
+        let keys = matches.compactMap { match -> String? in
+            guard let range = Range(match.range(at: 1), in: source) else { return nil }
+            return String(source[range])
+        }
+
+        // The copy is written without escape sequences, so the captured source text is
+        // the catalog key verbatim. If that ever stops being true this test would look
+        // up a key that cannot exist, so fail loudly here instead.
+        XCTAssertFalse(keys.contains { $0.contains("\\") }, "escaped literal needs unescaping before lookup")
+        // Guards the regex itself: a refactor to a different call style would otherwise
+        // match nothing and pass while checking no keys at all.
+        XCTAssertGreaterThanOrEqual(keys.count, 20, "expected one explanation per metric kind plus the header copy")
 
         try assertKeysTranslated(keys, in: catalog)
     }

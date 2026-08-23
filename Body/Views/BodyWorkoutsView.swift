@@ -91,7 +91,6 @@ struct BodyWorkoutsView: View {
                         onMonthYearRequested: requestMonthYearSelection
                     )
                     .padding(.horizontal)
-                    .padding(.top, 2)
 
                     searchAndControlsRow
                         .padding(.horizontal)
@@ -1076,6 +1075,7 @@ struct BodyWorkoutDetailSheet: View {
     @State private var routeYawState = BodyWorkoutRouteYawState()
     @State private var showsFullScreenRouteMap = false
     @State private var showsShareSheet = false
+    @State private var showsDetailsExplanation = false
     /// Resting screen y of the metrics column's top — the distance text when the
     /// workout has one, the duration otherwise. Measured in the content coordinate
     /// space (which doesn't move with scroll) plus the viewport's top inset, so it
@@ -1119,6 +1119,9 @@ struct BodyWorkoutDetailSheet: View {
     /// Invisible vertical tap slop around the hero title's rename button, so its
     /// ~24 pt text line still meets the 44 pt minimum target without shifting layout.
     private static let titleTapSlop: CGFloat = 10
+    /// Invisible slop on all four sides of the Details card's help button, so its
+    /// 18 pt glyph still meets the 44 pt minimum target without changing the header.
+    private static let detailsHelpTapSlop: CGFloat = 13
 
     private var routeStyle: BodyWorkoutRouteStyle {
         BodyWorkoutRouteStyle(rawValue: workoutRouteStyleRawValue) ?? .defaultValue
@@ -1905,14 +1908,21 @@ struct BodyWorkoutDetailSheet: View {
         }
     }
 
-    private func workoutDetailsCard(presentation: WorkoutDetailPresentation) -> some View {
-        // Heart-rate recovery loads separately when the summary carries none, so it
-        // joins the grid as a trailing tile once it lands — skipped when the summary
-        // already emitted the tile, so the two paths never both show it.
+    /// The tiles the Details grid draws, in order. Heart-rate recovery loads separately
+    /// when the summary carries none, so it joins as a trailing tile once it lands —
+    /// skipped when the summary already emitted the tile, so the two paths never both
+    /// show it. Shared with the explanation sheet so it can never describe a tile the
+    /// grid isn't showing.
+    private func resolvedDetailMetrics(presentation: WorkoutDetailPresentation) -> [WorkoutDetailMetric] {
         var metrics = presentation.detailMetrics
         if let heartRateRecoveryBPM, !metrics.contains(where: { $0.kind == .heartRateRecovery }) {
             metrics.append(WorkoutDetailPresentation.heartRateRecoveryMetric(bpm: heartRateRecoveryBPM))
         }
+        return metrics
+    }
+
+    private func workoutDetailsCard(presentation: WorkoutDetailPresentation) -> some View {
+        let metrics = resolvedDetailMetrics(presentation: presentation)
         return VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("Details")
@@ -1924,6 +1934,22 @@ struct BodyWorkoutDetailSheet: View {
                 }
 
                 Spacer(minLength: 0)
+
+                Button {
+                    showsDetailsExplanation = true
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        // Grows the tap area to the 44 pt minimum without moving the
+                        // glyph or the header's height: the slop is padded in here and
+                        // cancelled out below, like the workout title's.
+                        .padding(Self.detailsHelpTapSlop)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(-Self.detailsHelpTapSlop)
+                .accessibilityLabel(BodyWorkoutDetailsExplanationSheet.sheetTitle)
             }
 
             LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 20) {
@@ -1939,6 +1965,19 @@ struct BodyWorkoutDetailSheet: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 20)
         .bodyCardBackground(cornerRadius: 30, translucent: true)
+        // Presented from the card, not the page body: `compactWorkoutContent` caches the
+        // presentation once per pass precisely because rebuilding it re-runs the 30-day
+        // comparison, and the card already holds that cached value. The closure
+        // re-evaluates while the sheet is up, so a heart-rate-recovery read that lands
+        // after it opened flows in rather than being missing until it's reopened.
+        .sheet(isPresented: $showsDetailsExplanation) {
+            BodyWorkoutDetailsExplanationSheet(
+                metrics: resolvedDetailMetrics(presentation: presentation),
+                showsComparison: presentation.comparisonAvailability != nil
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     /// The effort to display — a rating the user just saved this session (kept on
@@ -2186,7 +2225,10 @@ struct BodyWorkoutDetailSheet: View {
                 withAnimation(.snappy(duration: 0.3)) { isEditingEffort = false }
             } catch {
                 isSavingEffort = false
+                // Append the underlying reason so a field report says which step
+                // failed (denied vs. save vs. relate) instead of a generic message.
                 effortError = String(localized: "Body couldn't save the effort rating to Apple Health. Make sure Body is allowed to update Workouts in Settings › Health › Data Access & Devices.")
+                    + "\n\n" + error.localizedDescription
             }
         }
     }

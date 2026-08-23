@@ -971,6 +971,23 @@
         }
       }
     },
+    "About These Details" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About These Details"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于这些详情"
+          }
+        }
+      }
+    },
     "About your interval" : {
       "localizations" : {
         "en" : {
@@ -1084,6 +1101,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "活动能量"
+          }
+        }
+      }
+    },
+    "Active energy plus the resting energy your body would have used anyway over the same period. When the session recorded no resting energy, this falls back to the active number alone, so the two tiles can read exactly the same." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active energy plus the resting energy your body would have used anyway over the same period. When the session recorded no resting energy, this falls back to the active number alone, so the two tiles can read exactly the same."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "活动消耗加上同一时段内你本来也会消耗的静息能量。当这次训练没有记录静息能量时，它会退回为只显示活动消耗的数值，因此两个图块可能完全相同。"
           }
         }
       }
@@ -1280,6 +1314,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "时长"
+          }
+        }
+      }
+    },
+    "An estimate of your VO₂ max, the maximum amount of oxygen your body can use during exercise. Apple Watch records one only after an outdoor walk, run, or hike on fairly flat ground with a good GPS and heart-rate signal, which is why most workouts show no value here." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An estimate of your VO₂ max, the maximum amount of oxygen your body can use during exercise. Apple Watch records one only after an outdoor walk, run, or hike on fairly flat ground with a good GPS and heart-rate signal, which is why most workouts show no value here."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "对你的最大摄氧量（VO₂ max）的估算，也就是运动时身体能利用的最大氧气量。Apple Watch 只会在地势较平坦的户外步行、跑步或徒步后，且 GPS 与心率信号良好时记录一次，这就是大多数训练在这里没有数值的原因。"
           }
         }
       }
@@ -4749,6 +4800,91 @@
         }
       }
     },
+    "How far you traveled during the session, from GPS where it was available and from motion sensors otherwise. Indoor workouts fall back to motion, so a treadmill distance can differ from the machine's own readout." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How far you traveled during the session, from GPS where it was available and from motion sensors otherwise. Indoor workouts fall back to motion, so a treadmill distance can differ from the machine's own readout."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这次训练中你移动的距离，有 GPS 信号时来自 GPS，否则来自运动传感器。室内训练只能依靠运动传感器，因此跑步机上的距离可能与器械自身显示的数值不同。"
+          }
+        }
+      }
+    },
+    "How far your heart rate fell during the first minute after you stopped. A larger drop generally points to better cardiovascular fitness, and your own usual range tells you more than any single reading." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How far your heart rate fell during the first minute after you stopped. A larger drop generally points to better cardiovascular fitness, and your own usual range tells you more than any single reading."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你停下后第一分钟内心率下降的幅度。下降越多通常说明心血管适能越好，而你自己的常见范围比任何单次读数都更有参考价值。"
+          }
+        }
+      }
+    },
+    "How many pedal revolutions you turned per minute. It needs a device or paired sensor that records cadence, so it will not appear on every ride." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How many pedal revolutions you turned per minute. It needs a device or paired sensor that records cadence, so it will not appear on every ride."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你每分钟踩踏的圈数。它需要能记录踏频的设备或配对的传感器，因此并非每次骑行都会显示。"
+          }
+        }
+      }
+    },
+    "How many steps you took per minute, counting both feet. At a given pace, a higher cadence usually means shorter strides and less impact through each one." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How many steps you took per minute, counting both feet. At a given pace, a higher cadence usually means shorter strides and less impact through each one."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你每分钟迈出的步数，双脚都计算在内。在相同配速下，步频更高通常意味着步幅更短，每一步的冲击也更小。"
+          }
+        }
+      }
+    },
+    "How much moisture was in the air where you worked out. High humidity makes it harder for your body to shed heat, which can raise your heart rate at a pace that normally feels easy." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How much moisture was in the air where you worked out. High humidity makes it harder for your body to shed heat, which can raise your heart rate at a pace that normally feels easy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你训练所在环境空气中的水汽含量。湿度高时身体更难散热，可能让你在平时轻松的配速下心率升高。"
+          }
+        }
+      }
+    },
     "How to Use" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5541,6 +5677,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "地图"
+          }
+        }
+      }
+    },
+    "Metabolic equivalents, a measure of intensity where 1 MET is roughly the energy you use sitting still. An average of 8 METs means the session took about eight times that." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Metabolic equivalents, a measure of intensity where 1 MET is roughly the energy you use sitting still. An average of 8 METs means the session took about eight times that."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代谢当量，一种强度衡量方式，其中 1 MET 大致相当于你静坐时的能量消耗。平均 8 METs 表示这次训练约为静坐时的八倍。"
           }
         }
       }
@@ -6935,13 +7088,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pull to refresh"
+            "value" : "Refreshes on every launch"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "下拉刷新"
+            "value" : "每次启动自动刷新"
           }
         }
       }
@@ -6952,13 +7105,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pull down on Summary to fetch the latest Health data."
+            "value" : "Body syncs your Health data each time it opens. Pull down on Summary whenever you want a manual refresh."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在摘要页下拉即可获取最新的健康数据。"
+            "value" : "每次打开 Body 都会自动同步健康数据。想手动刷新时，在摘要页下拉即可。"
           }
         }
       }
@@ -6969,13 +7122,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Make Summary yours"
+            "value" : "Rearrange your cards"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "定制您的摘要"
+            "value" : "重新排列卡片"
           }
         }
       }
@@ -6986,13 +7139,81 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Choose which cards appear in Settings › Metrics › Summary Cards."
+            "value" : "Touch and hold a Summary card, then drag it to where you want it."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在“设置 › 指标 › 摘要卡片”中选择要显示的卡片。"
+            "value" : "长按摘要页的卡片，然后拖到想要的位置。"
+          }
+        }
+      }
+    },
+    "onboarding.done.sources" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compare data sources"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "对比数据来源"
+          }
+        }
+      }
+    },
+    "onboarding.done.sources.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings › Data › Source lets you pick which Apple Health source each metric uses and overlay a second one for comparison."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在设置›数据›来源中，为每项指标选择所用的 Apple 健康来源，并叠加第二个来源进行对比。"
+          }
+        }
+      }
+    },
+    "onboarding.done.explore" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More to explore in Settings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置中还有更多"
+          }
+        }
+      }
+    },
+    "onboarding.done.explore.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Summary cards, units, appearance, sleep goals, widgets, and more are all waiting in Settings."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "摘要卡片、单位、外观、睡眠目标、小组件等更多选项都在设置中等您探索。"
           }
         }
       }
@@ -7819,13 +8040,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Welcome to Body"
+            "value" : "Welcome to ohmybody (Body)"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "欢迎使用 Body"
+            "value" : "欢迎使用 ohmybody (Body)"
           }
         }
       }
@@ -11024,6 +11245,57 @@
         }
       }
     },
+    "The Comparison Badges" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Comparison Badges"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "对比标记"
+          }
+        }
+      }
+    },
+    "The energy your body used through movement during this session, above what it would have burned at rest. This is the number Apple Health credits toward your Move ring." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The energy your body used through movement during this session, above what it would have burned at rest. This is the number Apple Health credits toward your Move ring."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这次训练中你通过运动消耗的能量，即在静息消耗之上多出的部分。这就是「健康」计入你「活动」圆环的数值。"
+          }
+        }
+      }
+    },
+    "The highest single beats-per-minute reading recorded during the session. A loose watch band or cold skin can produce a brief spike that does not reflect real effort." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The highest single beats-per-minute reading recorded during the session. A loose watch band or cold skin can produce a brief spike that does not reflect real effort."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这次训练中记录到的最高每分钟心跳次数。表带过松或皮肤偏凉都可能产生一次并不反映真实强度的短暂峰值。"
+          }
+        }
+      }
+    },
     "The last refresh failed: %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11070,6 +11342,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你每天的步数"
+          }
+        }
+      }
+    },
+    "The small badge above a tile's unit compares that value against your average for the same workout type over the 30 days before this session. It shows direction only, with no judgment about whether higher is better: an up arrow means this workout was above that average, a down arrow means below, and a value near zero means you were on par. While the history is still loading the badge holds a 0% stand-in and the label beside Details reads Calculating, then the digits roll into the real percentage. Once loading has settled without enough comparable history the badge reads --%, because a zero there would wrongly claim the metric matched your average. Some tiles carry no badge at all, either because the metric has no comparable value or because it arrived after the comparison was built." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The small badge above a tile's unit compares that value against your average for the same workout type over the 30 days before this session. It shows direction only, with no judgment about whether higher is better: an up arrow means this workout was above that average, a down arrow means below, and a value near zero means you were on par. While the history is still loading the badge holds a 0% stand-in and the label beside Details reads Calculating, then the digits roll into the real percentage. Once loading has settled without enough comparable history the badge reads --%, because a zero there would wrongly claim the metric matched your average. Some tiles carry no badge at all, either because the metric has no comparable value or because it arrived after the comparison was built."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图块单位上方的小标记，会将该数值与这次训练之前 30 天内同类型训练的平均值进行对比。它只显示方向，并不判断高低好坏：向上箭头表示这次训练高于该平均值，向下箭头表示低于平均值，接近零则表示与平常持平。历史数据仍在加载时，标记会先显示 0% 占位，「详情」旁的说明显示为正在计算，随后数字会滚动为真实百分比。当加载结束但可对比的历史仍然不足时，标记会显示 --%，因为此时显示零会错误地表示该指标与你的平均值持平。有些图块完全没有标记，可能是该指标没有可对比的数值，也可能是它在对比生成之后才加载进来。"
+          }
+        }
+      }
+    },
+    "The total climbing you did, adding up every uphill section rather than measuring the difference between your start and finish. A barometric altimeter measures this more accurately than GPS alone." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The total climbing you did, adding up every uphill section rather than measuring the difference between your start and finish. A barometric altimeter measures this more accurately than GPS alone."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你累计的爬升高度，把每一段上坡逐一相加，而不是计算起点与终点的高度差。气压高度计测量这一项比仅靠 GPS 更准确。"
+          }
+        }
+      }
+    },
+    "The total number of swim strokes counted across the session, added up over every length you swam." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The total number of swim strokes counted across the session, added up over every length you swam."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这次训练中统计到的划水总次数，按你游过的每一趟累加。"
+          }
+        }
+      }
+    },
+    "These tiles summarize what Apple Health recorded for this workout. Which tiles appear depends on the workout type and on the device that recorded the session, so a workout without heart-rate or GPS data simply shows fewer of them. Most values come straight from Apple Health, and a few, such as pace, speed, and cadence, are worked out by Body from the distance, duration, and counts Apple Health stored." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These tiles summarize what Apple Health recorded for this workout. Which tiles appear depends on the workout type and on the device that recorded the session, so a workout without heart-rate or GPS data simply shows fewer of them. Most values come straight from Apple Health, and a few, such as pace, speed, and cadence, are worked out by Body from the distance, duration, and counts Apple Health stored."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这些图块概括了「健康」为这次训练记录的数据。显示哪些图块取决于训练类型以及记录这次训练的设备，因此没有心率或 GPS 数据的训练只会显示较少的图块。大多数数值直接来自「健康」，少数数值（例如配速、速度和步频）由 Body 根据「健康」存储的距离、时长和计数推算得出。"
           }
         }
       }
@@ -11670,6 +12010,22 @@
         }
       }
     },
+    "v5" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v5"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v5"
+          }
+        }
+      }
+    },
     "Version" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12265,6 +12621,91 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的活动能量"
+          }
+        }
+      }
+    },
+    "Your average beats per minute across the session. Warm-up and cool-down are included, so it usually sits below the effort you felt at your hardest." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your average beats per minute across the session. Warm-up and cool-down are included, so it usually sits below the effort you felt at your hardest."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "整次训练的平均每分钟心跳次数。热身和放松阶段都会计入，因此它通常低于你在最吃力时的实际感受。"
+          }
+        }
+      }
+    },
+    "Your average distance covered per hour, worked out from the total distance and the full elapsed time. Stops at traffic lights and rest periods are included, so this usually reads lower than the speed you held while actually moving." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your average distance covered per hour, worked out from the total distance and the full elapsed time. Stops at traffic lights and rest periods are included, so this usually reads lower than the speed you held while actually moving."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每小时移动的平均距离，由总距离和全部经过时间推算得出。等红灯和休息时间都会计入，因此这个数值通常低于你实际移动时保持的速度。"
+          }
+        }
+      }
+    },
+    "Your average mechanical output in watts, which is how much work you actually did rather than how hard it felt. Unlike heart rate it responds instantly and is not pushed around by heat, caffeine, or fatigue." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your average mechanical output in watts, which is how much work you actually did rather than how hard it felt. Unlike heart rate it responds instantly and is not pushed around by heat, caffeine, or fatigue."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的平均机械输出功率（瓦），它反映你实际做了多少功，而不是你感觉有多吃力。与心率不同，它响应即时，也不会受高温、咖啡因或疲劳影响。"
+          }
+        }
+      }
+    },
+    "Your average time to cover one kilometer or one mile, following your distance unit setting. It is worked out from the total distance and the full elapsed time, so warm-up, slow sections, and any rests are all counted in." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your average time to cover one kilometer or one mile, following your distance unit setting. It is worked out from the total distance and the full elapsed time, so warm-up, slow sections, and any rests are all counted in."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按你的距离单位设置，跑完一公里或一英里所用的平均时间。它由总距离和全部经过时间推算得出，因此热身、慢速路段以及任何休息都会计入其中。"
+          }
+        }
+      }
+    },
+    "Your average time to swim 100 meters or 100 yards, following your distance unit setting. It is based on the total distance and the full elapsed time, so rest between sets is counted in." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your average time to swim 100 meters or 100 yards, following your distance unit setting. It is based on the total distance and the full elapsed time, so rest between sets is counted in."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按你的距离单位设置，游完 100 米或 100 码所用的平均时间。它基于总距离和全部经过时间，因此每组之间的休息也会计入。"
           }
         }
       }
