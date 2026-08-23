@@ -1088,6 +1088,22 @@
         }
       }
     },
+    "Active Days" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active Days"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "活跃天数"
+          }
+        }
+      }
+    },
     "Active Energy" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1794,6 +1810,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "背景"
+          }
+        }
+      }
+    },
+    "Bar Chart" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bar Chart"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "条形图"
           }
         }
       }
@@ -2614,6 +2646,22 @@
         }
       }
     },
+    "Calendar" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calendar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日历"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2677,6 +2725,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更换照片"
+          }
+        }
+      }
+    },
+    "Chart Style" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chart Style"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图表样式"
           }
         }
       }
@@ -5567,6 +5631,22 @@
         }
       }
     },
+    "Longest" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Longest"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最长时长"
+          }
+        }
+      }
+    },
     "Low" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7638,7 +7718,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "基于您自己的基线"
+            "value" : "基于您自己的基准"
           }
         }
       }
@@ -7723,7 +7803,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "基线比单晚更重要"
+            "value" : "基准比单晚更重要"
           }
         }
       }
@@ -7859,7 +7939,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将睡眠时长、阶段与睡眠评分汇于一张卡片，并以您自己的基线为参照。"
+            "value" : "将睡眠时长、阶段与睡眠评分汇于一张卡片，并以您自己的基准为参照。"
           }
         }
       }
@@ -7910,7 +7990,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "负荷快速上升，说明您增加的强度超过了基线能够承受的范围；负荷下降则说明近期训练量有所放缓。"
+            "value" : "负荷快速上升，说明您增加的强度超过了基准能够承受的范围；负荷下降则说明近期训练量有所放缓。"
           }
         }
       }
@@ -7961,7 +8041,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "急性负荷对比慢性负荷"
+            "value" : "短期负荷对比长期负荷"
           }
         }
       }
@@ -7978,7 +8058,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "急性负荷是最近七天运动负荷的指数加权平均值，慢性负荷则是 42 天的加权平均值，代表您已经适应的基线。"
+            "value" : "短期负荷是最近七天运动负荷的指数加权平均值，长期负荷则是 42 天的加权平均值，代表您已经适应的基准。"
           }
         }
       }
@@ -8362,6 +8442,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "照片运动分享"
+          }
+        }
+      }
+    },
+    "Pick 1 to 3 metrics." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick 1 to 3 metrics."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择 1 到 3 个指标。"
           }
         }
       }
@@ -10090,6 +10186,38 @@
         }
       }
     },
+    "Share month summary" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share month summary"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享月度总结"
+          }
+        }
+      }
+    },
+    "Share Summary" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share Summary"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享总结"
+          }
+        }
+      }
+    },
     "Share Workout" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11525,6 +11653,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "今天"
+          }
+        }
+      }
+    },
+    "Top Activity" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Top Activity"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主要活动"
           }
         }
       }
