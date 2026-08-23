@@ -54,9 +54,9 @@ enum WorkoutShareSummaryMetricsBuilder {
     static let longestID = "summaryLongest"
     static let topActivityID = "summaryTopActivity"
 
-    /// The automatic pick — the three a month is usually read by. Every one of them
-    /// is always in the pool, so the defaults never resolve to nothing.
-    static let defaultIDs = [workoutsID, durationID, activeEnergyID]
+    /// The automatic pick — how many times, and on how many days. Both are always in
+    /// the pool, so the defaults never resolve to nothing, not even on an empty month.
+    static let defaultIDs = [workoutsID, activeDaysID]
 
     static func availableMetrics(
         snapshot: WorkoutMonthSnapshot,

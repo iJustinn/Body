@@ -69,6 +69,8 @@ struct BodyWorkoutShareSheet: View {
         WorkoutShareRouteVisibility.shown.rawValue
     @AppStorage(WorkoutShareIconVisibility.storageKey) private var storedIconVisibility: String =
         WorkoutShareIconVisibility.shown.rawValue
+    @AppStorage(WorkoutShareWeekdayVisibility.storageKey) private var storedWeekdayVisibility: String =
+        WorkoutShareWeekdayVisibility.shown.rawValue
     @AppStorage(WorkoutShareAvatarVisibility.storageKey) private var storedAvatarVisibility: String =
         WorkoutShareAvatarVisibility.hidden.rawValue
     @AppStorage(WorkoutShareNicknameVisibility.storageKey) private var storedNicknameVisibility: String =
@@ -381,10 +383,9 @@ struct BodyWorkoutShareSheet: View {
     /// touching what's stored, exactly like the workout card.
     ///
     /// The defaults are intersected with the pool *before* the Pro seam, which hands
-    /// them straight back: an empty month offers no Active Energy, and passing the raw
-    /// default list would leave a free user's card resolving a metric that isn't there.
-    /// The `prefix(1)` keeps the same 1-to-5 floor `resolvedSummary` does, for a pool
-    /// that shares nothing with the defaults at all.
+    /// them straight back; both defaults are always-on metrics today, but the guard
+    /// keeps a free user's card honest should that ever change, and the `prefix(1)`
+    /// is the fallback for a pool that shares nothing with the defaults at all.
     private var activeSummaryMetricIDs: [String] {
         let pool = activeSummaryMetricOptions
         let order = pool.map(\.id)
@@ -461,6 +462,11 @@ struct BodyWorkoutShareSheet: View {
     /// visibility it mirrors; only ever consulted on a route-less card.
     private var isIconHidden: Bool {
         WorkoutShareIconVisibility.stored(rawValue: storedIconVisibility) == .hidden
+    }
+
+    /// The summary calendar's weekday letters. Stored, like the icon toggle.
+    private var isWeekdayHeaderHidden: Bool {
+        WorkoutShareWeekdayVisibility.stored(rawValue: storedWeekdayVisibility) == .hidden
     }
 
     /// The Settings profile name, trimmed and nil-if-empty — the same rule the profile
@@ -701,6 +707,7 @@ struct BodyWorkoutShareSheet: View {
         return BodyWorkoutShareSummaryCardView(
             summary: summary,
             chartStyle: summaryChartStyle,
+            showsWeekdayHeader: !isWeekdayHeaderHidden,
             // Pool order, so the card's strip reads the way the chips are laid out.
             metrics: ids.compactMap { id in pool.first { $0.id == id } },
             background: activeBackground,
@@ -2134,7 +2141,32 @@ struct BodyWorkoutShareSheet: View {
             ForEach(WorkoutSummaryChartStyle.allCases) { style in
                 chartStyleTile(style)
             }
+            // Only the calendar has weekday letters to show or hide, so the toggle
+            // joins the tray with it and leaves with it.
+            if summaryChartStyle == .calendar {
+                weekdayTile
+            }
         }
+    }
+
+    /// Toggles the calendar's S M T W T F S row. Ringed while the letters show, so the
+    /// tile reads as "on" the way the style tiles do; the tap flips the stored pick.
+    private var weekdayTile: some View {
+        let isSelected = !isWeekdayHeaderHidden
+        return Button {
+            closeTray()
+            storedWeekdayVisibility = (isSelected ? WorkoutShareWeekdayVisibility.hidden : .shown).rawValue
+        } label: {
+            Image(systemName: "abc")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: Self.optionTileSize, height: Self.optionTileSize)
+                .background(Color.white.opacity(0.1), in: Circle())
+                .overlay { selectionRing(isSelected: isSelected) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Weekdays"))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
     /// Ring-only selection over the same glyph the Workouts page's own chart switch

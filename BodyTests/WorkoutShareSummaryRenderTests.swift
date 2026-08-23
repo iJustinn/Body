@@ -86,6 +86,7 @@ final class WorkoutShareSummaryRenderTests: XCTestCase {
 
     private func makeSummaryRenderer(
         chartStyle: WorkoutSummaryChartStyle = .calendar,
+        showsWeekdayHeader: Bool = true,
         aspectRatio: WorkoutShareAspectRatio = .portrait9x16,
         background: WorkoutShareCardBackground = .preset(.midnight),
         metricCount: Int = 3,
@@ -101,6 +102,7 @@ final class WorkoutShareSummaryRenderTests: XCTestCase {
         let card = BodyWorkoutShareSummaryCardView(
             summary: WorkoutShareMonthSummary(snapshot: snapshot, initialChartStyle: chartStyle),
             chartStyle: chartStyle,
+            showsWeekdayHeader: showsWeekdayHeader,
             metrics: fixtureMetrics(count: metricCount),
             background: background,
             aspectRatio: aspectRatio,
@@ -296,6 +298,7 @@ final class WorkoutShareSummaryRenderTests: XCTestCase {
                     for preset in [BodyWorkoutSharePreset.midnight, .daylight] {
                         let renderer = makeSummaryRenderer(
                             chartStyle: chartStyle,
+                            showsWeekdayHeader: true,
                             aspectRatio: aspectRatio,
                             background: .preset(preset),
                             metricCount: metricCount,
@@ -314,6 +317,12 @@ final class WorkoutShareSummaryRenderTests: XCTestCase {
                 }
             }
         }
+
+        // One calendar without its weekday letters, so the toggle can be eyeballed too.
+        let hidden = try XCTUnwrap(
+            makeSummaryRenderer(chartStyle: .calendar, showsWeekdayHeader: false, metricCount: 2).uiImage?.pngData()
+        )
+        try hidden.write(to: directory.appendingPathComponent("2_9x16_calendar_midnight_noweekdays_summary.png"))
     }
 
     // MARK: - Pixel probes

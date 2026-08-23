@@ -159,15 +159,16 @@ final class WorkoutShareSummaryCardTests: XCTestCase {
         )
     }
 
-    func testResolvedSummaryOnAnEmptyMonthDropsTheMissingDefault() {
+    func testResolvedSummaryOnAnEmptyMonthKeepsBothDefaults() {
         XCTAssertEqual(
             WorkoutShareMetricSelection.resolvedSummary(
                 stored: nil,
                 available: metrics(emptyMonth),
                 defaults: WorkoutShareSummaryMetricsBuilder.defaultIDs
             ),
-            [WorkoutShareSummaryMetricsBuilder.workoutsID, WorkoutShareSummaryMetricsBuilder.durationID]
+            [WorkoutShareSummaryMetricsBuilder.workoutsID, WorkoutShareSummaryMetricsBuilder.activeDaysID]
         )
+        XCTAssertEqual(WorkoutShareSummaryMetricsBuilder.defaultIDs, [WorkoutShareSummaryMetricsBuilder.workoutsID, WorkoutShareSummaryMetricsBuilder.activeDaysID])
     }
 
     func testStoredSummaryRoundTripsAndRejectsJunk() {
@@ -336,6 +337,17 @@ final class WorkoutShareSummaryCardTests: XCTestCase {
             WorkoutShareBackgroundPolicy.resolvedAspectRatio(.square, isProUnlocked: true, supportsLandscape: false),
             .square
         )
+    }
+
+    /// Hiding the weekday letters hands their 28 pt back to the grid's cells.
+    func testHidingWeekdaysShortensTheCalendarFrame() {
+        let shown = geometry(.portrait9x16).chartFrame(for: .calendar)
+        let hidden = WorkoutShareSummaryCardGeometry(aspectRatio: .portrait9x16, showsWeekdayHeader: false)
+            .chartFrame(for: .calendar)
+        XCTAssertEqual(hidden.height, shown.height - 28, accuracy: 0.01)
+        XCTAssertEqual(hidden.width, shown.width, accuracy: 0.01)
+        XCTAssertEqual(WorkoutShareWeekdayVisibility.stored(rawValue: nil), .shown)
+        XCTAssertEqual(WorkoutShareWeekdayVisibility.stored(rawValue: "hidden"), .hidden)
     }
 
     func testMetricBlocksCompactWhenTheyHaveTo() {

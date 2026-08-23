@@ -24,6 +24,8 @@ struct BodyWorkoutShareSummaryCardView: View {
     /// Which chart the card draws. Session state on the sheet — changing it here never
     /// moves the Workouts page's own toggle.
     let chartStyle: WorkoutSummaryChartStyle
+    /// Whether the calendar carries its weekday letters. Ignored by the bar chart.
+    let showsWeekdayHeader: Bool
     /// Already resolved through the Pro gate by the sheet; the card never re-checks it.
     let metrics: [WorkoutShareSummaryMetricOption]
     /// `.map` never reaches this card — a month has no route — but the case is handled
@@ -44,7 +46,7 @@ struct BodyWorkoutShareSummaryCardView: View {
     /// Every frame the card draws with, recomputed per access — a value type derived
     /// from two inputs is cheaper than caching it.
     private var geometry: WorkoutShareSummaryCardGeometry {
-        WorkoutShareSummaryCardGeometry(aspectRatio: aspectRatio, metricCount: metrics.count)
+        WorkoutShareSummaryCardGeometry(aspectRatio: aspectRatio, metricCount: metrics.count, showsWeekdayHeader: showsWeekdayHeader)
     }
 
     /// The workout card's geometry for this ratio, read only for the scrim heights and
@@ -259,6 +261,7 @@ struct BodyWorkoutShareSummaryCardView: View {
                 style: .widgetLarge,
                 fillsAvailableHeight: false,
                 scalesGlyphsToFit: true,
+                showsWeekdayHeader: showsWeekdayHeader,
                 referenceDate: referenceDate,
                 onSelectDay: nil,
                 onSwitchChart: nil
@@ -303,6 +306,7 @@ private func previewSummaryCard(
     return BodyWorkoutShareSummaryCardView(
         summary: WorkoutShareMonthSummary(snapshot: snapshot, initialChartStyle: chartStyle),
         chartStyle: chartStyle,
+        showsWeekdayHeader: true,
         metrics: Array(options.prefix(metricCount)),
         background: .preset(preset),
         aspectRatio: aspectRatio,

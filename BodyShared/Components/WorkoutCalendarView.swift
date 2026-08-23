@@ -88,6 +88,9 @@ struct WorkoutCalendarView: View {
     /// reference side instead of letting them overflow. Off for the app and widgets,
     /// whose cells never drop that far.
     let scalesGlyphsToFit: Bool
+    /// The row of weekday letters above the grid. Always on in the app and widgets;
+    /// the share card lets the user drop it.
+    let showsWeekdayHeader: Bool
     let referenceDate: Date
     let onSelectDay: ((WorkoutDaySummary) -> Void)?
     /// Nil in the widgets, which have no second chart to switch to — and which
@@ -99,6 +102,7 @@ struct WorkoutCalendarView: View {
         style: WorkoutCalendarDisplayStyle = .app,
         fillsAvailableHeight: Bool = true,
         scalesGlyphsToFit: Bool = false,
+        showsWeekdayHeader: Bool = true,
         referenceDate: Date = Date(),
         onSelectDay: ((WorkoutDaySummary) -> Void)? = nil,
         onSwitchChart: (() -> Void)? = nil
@@ -107,6 +111,7 @@ struct WorkoutCalendarView: View {
         self.style = style
         self.fillsAvailableHeight = fillsAvailableHeight
         self.scalesGlyphsToFit = scalesGlyphsToFit
+        self.showsWeekdayHeader = showsWeekdayHeader
         self.referenceDate = referenceDate
         self.onSelectDay = onSelectDay
         self.onSwitchChart = onSwitchChart
@@ -120,7 +125,9 @@ struct WorkoutCalendarView: View {
         let columns = Array(repeating: GridItem(.flexible(), spacing: columnSpacing), count: 7)
 
         VStack(spacing: weekdaySpacing) {
-            weekdayHeader(columnSpacing: columnSpacing, height: weekdayHeight)
+            if showsWeekdayHeader {
+                weekdayHeader(columnSpacing: columnSpacing, height: weekdayHeight)
+            }
 
             LazyVGrid(columns: columns, spacing: rowSpacing) {
                 ForEach(calendarCells.indices, id: \.self) { index in

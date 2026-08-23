@@ -836,6 +836,23 @@ enum WorkoutShareIconVisibility: String, CaseIterable {
     }
 }
 
+/// Whether the month-summary card's calendar carries its row of weekday letters.
+/// Stored across sessions like the icon visibility it mirrors; shown by default.
+enum WorkoutShareWeekdayVisibility: String, CaseIterable {
+    case shown
+    case hidden
+
+    static let storageKey = "workoutShareWeekdayVisibility"
+
+    /// Anything unknown (or nothing stored) shows the letters.
+    static func stored(rawValue: String?) -> WorkoutShareWeekdayVisibility {
+        guard let rawValue, let visibility = WorkoutShareWeekdayVisibility(rawValue: rawValue) else {
+            return .shown
+        }
+        return visibility
+    }
+}
+
 /// Whether the card draws the Settings profile avatar beside the watermark. Stored
 /// across sessions like the route/icon visibility it sits next to, but the default is
 /// **hidden** — the opposite of those — because attribution is opt-in: showing someone's
@@ -1501,13 +1518,18 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
     /// How many metric blocks the card actually draws — the rows they need come out
     /// of the chart's height. Ignored by the chart-only square.
     let metricCount: Int
+    /// Whether the calendar draws its weekday letters — 28 pt the grid gets back when
+    /// they're hidden.
+    let showsWeekdayHeader: Bool
 
     init(
         aspectRatio: WorkoutShareAspectRatio,
-        metricCount: Int = WorkoutShareMetricSelection.defaultCount
+        metricCount: Int = WorkoutShareMetricSelection.defaultCount,
+        showsWeekdayHeader: Bool = true
     ) {
         self.aspectRatio = aspectRatio
         self.metricCount = metricCount
+        self.showsWeekdayHeader = showsWeekdayHeader
     }
 
     var size: CGSize { aspectRatio.cardSize }
@@ -1518,8 +1540,11 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
     private static let titleHeight: CGFloat = 30
     /// Gap under the title, and under the metrics.
     private static let titleGap: CGFloat = 8
-    /// Tight: the metric blocks carry their own breathing room below the label.
-    private static let chartGap: CGFloat = 4
+    /// Reads as the same air the title has above the totals: the title's glyphs carry
+    /// leading the metric labels don't, so the number is larger than `titleGap`.
+    private static let chartGap: CGFloat = 14
+    /// The bars take less than the full width — at 320 pt the rows read oversized.
+    private static let barWidthFraction: CGFloat = 0.86
     /// One `WorkoutTypeBreakdownView` row and the gap under it.
     private static let barRowHeight: CGFloat = 48
     private static let barRowSpacing: CGFloat = 12
@@ -1597,18 +1622,19 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
             // the totals instead of centering themselves down a tall region.
             let rows = CGFloat(barRowLimit)
             let natural = rows * Self.barRowHeight + (rows - 1) * Self.barRowSpacing
-            return CGSize(width: chartRect.width, height: min(chartRect.height, natural))
+            return CGSize(width: chartRect.width * Self.barWidthFraction, height: min(chartRect.height, natural))
         case .calendar:
+            let headerHeight = showsWeekdayHeader ? Self.calendarHeaderHeight : 0
             let cellSide = max(
                 0,
                 min(
-                    (chartRect.height - Self.calendarHeaderHeight - Self.calendarSpacing) / Self.calendarRowCount,
+                    (chartRect.height - headerHeight - Self.calendarSpacing) / Self.calendarRowCount,
                     (chartRect.width - Self.calendarColumnSpacing) / Self.calendarColumnCount
                 )
             )
             return CGSize(
                 width: cellSide * Self.calendarColumnCount + Self.calendarColumnSpacing,
-                height: cellSide * Self.calendarRowCount + Self.calendarHeaderHeight + Self.calendarSpacing
+                height: cellSide * Self.calendarRowCount + headerHeight + Self.calendarSpacing
             )
         }
     }
