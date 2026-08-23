@@ -46,6 +46,9 @@ struct BodyOnboardingView: View {
     /// in-flight batch (same contract as the Settings sheet).
     @State private var autoApplyTask: Task<Void, Never>?
     @State private var step = 0
+    /// Set before every step change so the page slide matches the direction:
+    /// Continue brings the next page in from the right, Back from the left.
+    @State private var isMovingBack = false
     @State private var isLoadingHealth = false
     @State private var hasAttemptedHealthLoad = false
     /// The Workouts page preview mirrors the tab's own two charts; the sample
@@ -104,10 +107,7 @@ struct BodyOnboardingView: View {
                 ZStack {
                     currentPage
                         .id(step)
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .trailing).combined(with: .opacity),
-                            removal: .move(edge: .leading).combined(with: .opacity)
-                        ))
+                        .transition(pageTransition)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
@@ -249,9 +249,7 @@ struct BodyOnboardingView: View {
             HStack(spacing: spacing) {
                 if step >= 1 {
                     Button {
-                        withAnimation {
-                            step -= 1
-                        }
+                        move(to: step - 1)
                     } label: {
                         Text("onboarding.back")
                             .font(.system(size: 16, weight: .bold, design: .rounded))
@@ -1002,9 +1000,30 @@ struct BodyOnboardingView: View {
             return
         }
 
-        withAnimation {
-            step += 1
+        move(to: step + 1)
+    }
+
+    /// The outgoing page keeps the transition it was last rendered with, so the
+    /// direction has to land in a render of its own before the step changes;
+    /// flipping both in one update would slide the old page out the wrong way.
+    private func move(to newStep: Int) {
+        isMovingBack = newStep < step
+        DispatchQueue.main.async {
+            withAnimation {
+                step = newStep
+            }
         }
+    }
+
+    /// The page slides the way the user is travelling; both ends fade so the
+    /// outgoing and incoming pages don't overlap harshly mid-slide.
+    private var pageTransition: AnyTransition {
+        let incoming: Edge = isMovingBack ? .leading : .trailing
+        let outgoing: Edge = isMovingBack ? .trailing : .leading
+        return .asymmetric(
+            insertion: .move(edge: incoming).combined(with: .opacity),
+            removal: .move(edge: outgoing).combined(with: .opacity)
+        )
     }
 
     /// Mirrors `BodyFirstLaunchLoadOverlay.loadData()`: the authorization sheet
