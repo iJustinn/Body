@@ -381,6 +381,21 @@ struct BodyOnboardingView: View {
             }
             .frame(height: 300)
             .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            // The backdrop melts into the flat grouped background, which is a
+            // touch lighter than the page gradient, so a hard clip leaves a pale
+            // rim around the lower corners. Fading the card out over its last
+            // third lets it dissolve into the page instead.
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: 0.62),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
             .allowsHitTesting(false)
             .accessibilityHidden(true)
 
@@ -884,7 +899,7 @@ struct BodyOnboardingView: View {
     /// trend points, built the same way `BodyHomeView.readinessMetric` builds the
     /// live one.
     private static let sampleReadiness = ReadinessSummary(
-        score: 78,
+        score: 88,
         status: .high,
         confidence: .high,
         // A sleep component keeps the hero on its normal band explanation
