@@ -382,61 +382,7 @@ struct BodyWorkoutShareCardView: View {
 
     /// Shared by both layouts so the wordmark can't drift between them.
     private var branding: some View {
-        HStack(spacing: 6) {
-            HStack(spacing: 6) {
-                Image("BodyIcon01")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 15, height: 15)
-                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                    .accessibilityHidden(true)
-                // verbatim: brand wordmark, never localized — and never extracted
-                // into the catalog (an empty auto-extracted "ohmybody" entry would
-                // trip the catalog-completeness guard).
-                Text(verbatim: "ohmybody")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundColor(ink.primary(0.6))
-            }
-            .layoutPriority(1)
-            .fixedSize()
-
-            if !attribution.isEmpty {
-                if attribution.showsSeparator {
-                    // verbatim: a typographic dash between the wordmark and the
-                    // attribution, never localized or extracted.
-                    Text(verbatim: "–")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundColor(ink.primary(0.6))
-                        .layoutPriority(1)
-                        .fixedSize()
-                }
-
-                if let avatar = attribution.avatar {
-                    Image(uiImage: avatar)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 15, height: 15)
-                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .strokeBorder(ink.primary(0.3), lineWidth: 1)
-                        )
-                        .accessibilityHidden(true)
-                        .layoutPriority(1)
-                        .fixedSize()
-                }
-
-                if let name = attribution.name {
-                    // verbatim: the "@" prefix is typographic, not localized text.
-                    Text(verbatim: "@" + name)
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundColor(ink.primary(0.6))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .minimumScaleFactor(0.8)
-                }
-            }
-        }
+        WorkoutShareBrandingRow(ink: ink, attribution: attribution)
     }
 
     // MARK: - Centered layout (gradient presets and photos)
@@ -743,6 +689,73 @@ struct BodyWorkoutShareCardView: View {
         }
         .lineLimit(1)
         .minimumScaleFactor(minimumScale)
+    }
+}
+
+/// The pinned brand wordmark, plus whatever attribution the sheet resolved beside
+/// it. Its own view rather than a method on the card, because the month-summary
+/// card draws exactly the same strip from a completely different layout — two
+/// copies would be one tweak away from disagreeing about the mark.
+struct WorkoutShareBrandingRow: View {
+    let ink: WorkoutShareCardInk
+    let attribution: WorkoutShareAttribution
+
+    var body: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Image("BodyIcon01")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 15, height: 15)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .accessibilityHidden(true)
+                // verbatim: brand wordmark, never localized — and never extracted
+                // into the catalog (an empty auto-extracted "ohmybody" entry would
+                // trip the catalog-completeness guard).
+                Text(verbatim: "ohmybody")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(ink.primary(0.6))
+            }
+            .layoutPriority(1)
+            .fixedSize()
+
+            if !attribution.isEmpty {
+                if attribution.showsSeparator {
+                    // verbatim: a typographic dash between the wordmark and the
+                    // attribution, never localized or extracted.
+                    Text(verbatim: "–")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(ink.primary(0.6))
+                        .layoutPriority(1)
+                        .fixedSize()
+                }
+
+                if let avatar = attribution.avatar {
+                    Image(uiImage: avatar)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 15, height: 15)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .strokeBorder(ink.primary(0.3), lineWidth: 1)
+                        )
+                        .accessibilityHidden(true)
+                        .layoutPriority(1)
+                        .fixedSize()
+                }
+
+                if let name = attribution.name {
+                    // verbatim: the "@" prefix is typographic, not localized text.
+                    Text(verbatim: "@" + name)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(ink.primary(0.6))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .minimumScaleFactor(0.8)
+                }
+            }
+        }
     }
 }
 

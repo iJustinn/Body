@@ -24,8 +24,10 @@ struct BodyWorkoutsView: View {
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
     @State private var searchCorpusCache = BodyWorkoutSearchCorpusCache()
+    @State private var monthSummaryShareRequest: MonthSummaryShareRequest?
     @AppStorage(BodyAppearancePreference.workoutsChartShowsTypeBreakdownKey) private var workoutsChartShowsTypeBreakdown = false
     @Namespace private var workoutZoom
+    @FocusState private var isSearchFocused: Bool
 
     private var monthSwitchTransition: AnyTransition {
         .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -92,7 +94,7 @@ struct BodyWorkoutsView: View {
                     )
                     .padding(.horizontal)
 
-                    searchAndControlsRow
+                    searchAndControlsRow(snapshot: displaySnapshot)
                         .padding(.horizontal)
                         .padding(.top, 8)
 
@@ -162,6 +164,7 @@ struct BodyWorkoutsView: View {
                         .padding(.top, 32)
                         .padding(.bottom, 110)
                     }
+                    .scrollDismissesKeyboard(.immediately)
                     .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
                         Task { await workoutStore.refreshWorkoutMonth(month: selectedMonth, year: selectedYear) }
                     }
@@ -195,6 +198,9 @@ struct BodyWorkoutsView: View {
                     workoutTypes: availableWorkoutTypes
                 )
                 .presentationDetents([.medium, .large])
+            }
+            .fullScreenCover(item: $monthSummaryShareRequest) { request in
+                BodyWorkoutShareSheet(monthSummary: request.summary)
             }
             .navigationDestination(item: $selectedWorkoutForDetails) { workout in
                 BodyWorkoutDetailSheet(workout: workout)
@@ -337,26 +343,36 @@ struct BodyWorkoutsView: View {
         return BodyDateFormatterCache.formatter(template: "MMMM").string(from: date)
     }
 
-    private var searchAndControlsRow: some View {
-        HStack(spacing: 10) {
-            Menu {
-                Picker("Sort by", selection: $selectedSortOption) {
-                    ForEach(BodyWorkoutListSortOption.allCases) { option in
-                        Text(option.displayName).tag(option)
+    /// The four icon buttons only exist while the search field isn't focused:
+    /// they fade out under `.transition(.opacity)` so the field's
+    /// `.frame(maxWidth: .infinity)` claims the whole row, then fade back once
+    /// focus ends. `snapshot` is the already-filtered `displaySnapshot` from
+    /// `body`, not `selectedSnapshot` — the share card must reflect the same
+    /// month the rest of the page is showing.
+    private func searchAndControlsRow(snapshot: WorkoutMonthSnapshot) -> some View {
+        HStack(spacing: 8) {
+            if !isSearchFocused {
+                Menu {
+                    Picker("Sort by", selection: $selectedSortOption) {
+                        ForEach(BodyWorkoutListSortOption.allCases) { option in
+                            Text(option.displayName).tag(option)
+                        }
                     }
+                } label: {
+                    searchControlCard(iconName: "arrow.up.arrow.down", size: 18)
                 }
-            } label: {
-                searchControlCard(iconName: "arrow.up.arrow.down", size: 18)
-            }
-            .accessibilityLabel("Sort workouts")
+                .accessibilityLabel("Sort workouts")
+                .transition(.opacity)
 
-            Button {
-                showingFilterSheet = true
-            } label: {
-                searchControlCard(iconName: "line.3.horizontal.decrease", size: 19)
+                Button {
+                    showingFilterSheet = true
+                } label: {
+                    searchControlCard(iconName: "line.3.horizontal.decrease", size: 19)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Filter workouts")
+                .transition(.opacity)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Filter workouts")
 
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
@@ -366,6 +382,9 @@ struct BodyWorkoutsView: View {
                 TextField("Search workouts", text: $searchText)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .focused($isSearchFocused)
+                    .submitLabel(.done)
+                    .onSubmit { isSearchFocused = false }
 
                 if !searchText.isEmpty {
                     Button {
@@ -382,25 +401,43 @@ struct BodyWorkoutsView: View {
             .frame(maxWidth: .infinity, minHeight: 46)
             .bodyWorkoutsToolbarCardBackground()
 
-            Button {
-                showingMonthPicker = true
-            } label: {
-                searchControlCard(iconName: "calendar", size: 18)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Jump to month")
-            .popover(isPresented: $showingMonthPicker) {
-                BodyWorkoutMonthPicker(
-                    selectedMonth: selectedMonth,
-                    selectedYear: selectedYear,
-                    onSelect: { monthYear in
-                        _ = requestMonthYearSelection(monthYear)
-                    }
-                )
-                .presentationCompactAdaptation(.popover)
+            if !isSearchFocused {
+                Button {
+                    showingMonthPicker = true
+                } label: {
+                    searchControlCard(iconName: "calendar", size: 18)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Jump to month")
+                .popover(isPresented: $showingMonthPicker) {
+                    BodyWorkoutMonthPicker(
+                        selectedMonth: selectedMonth,
+                        selectedYear: selectedYear,
+                        onSelect: { monthYear in
+                            _ = requestMonthYearSelection(monthYear)
+                        }
+                    )
+                    .presentationCompactAdaptation(.popover)
+                }
+                .transition(.opacity)
+
+                Button {
+                    monthSummaryShareRequest = MonthSummaryShareRequest(
+                        summary: WorkoutShareMonthSummary(
+                            snapshot: snapshot,
+                            initialChartStyle: workoutsChartShowsTypeBreakdown ? .bar : .calendar
+                        )
+                    )
+                } label: {
+                    searchControlCard(iconName: "square.and.arrow.up", size: 18)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Share month summary")
+                .transition(.opacity)
             }
         }
         .frame(height: 46)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: isSearchFocused)
     }
 
     private func workoutCalendarCard(snapshot: WorkoutMonthSnapshot) -> some View {
@@ -764,6 +801,14 @@ enum BodyWorkoutFilterLogic {
             }
         )
     }
+}
+
+/// Wraps a `WorkoutShareMonthSummary` with a fresh identity per share tap, so
+/// `.fullScreenCover(item:)` always presents the snapshot from the tap that
+/// triggered it rather than reusing a stale one across dismiss/re-present.
+private struct MonthSummaryShareRequest: Identifiable {
+    let id = UUID()
+    let summary: WorkoutShareMonthSummary
 }
 
 private enum BodyWorkoutListSortOption: String, CaseIterable, Identifiable {

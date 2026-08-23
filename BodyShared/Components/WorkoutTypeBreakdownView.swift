@@ -28,6 +28,10 @@ struct WorkoutTypeBreakdownView: View {
     /// Nil in the widgets, which have no second chart to switch to — and which
     /// therefore lay out exactly as they did before this control existed.
     let onSwitchChart: (() -> Void)?
+    /// A caller-imposed ceiling on the rows drawn, *below* the style's own — the
+    /// share card knows how tall its chart region is and can't afford five rows on a
+    /// 360 pt-tall ratio. Nil everywhere else, which leaves the style in charge.
+    let rowLimit: Int?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -44,11 +48,13 @@ struct WorkoutTypeBreakdownView: View {
     init(
         snapshot: WorkoutMonthSnapshot,
         style: WorkoutTypeBreakdownDisplayStyle = .app,
+        rowLimit: Int? = nil,
         onSelectType: ((BodyWorkoutType) -> Void)? = nil,
         onSwitchChart: (() -> Void)? = nil
     ) {
         self.snapshot = snapshot
         self.style = style
+        self.rowLimit = rowLimit
         self.onSelectType = onSelectType
         self.onSwitchChart = onSwitchChart
     }
@@ -435,7 +441,13 @@ struct WorkoutTypeBreakdownView: View {
         style.isWidget ? .semibold : .bold
     }
 
+    /// The caller's ceiling can only ever tighten the style's — a widget asking for
+    /// ten rows still draws the five it was designed for.
     private var displayLimit: Int {
+        min(rowLimit ?? styleLimit, styleLimit)
+    }
+
+    private var styleLimit: Int {
         switch style {
         case .app:
             return .max

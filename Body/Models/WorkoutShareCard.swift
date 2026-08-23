@@ -440,6 +440,77 @@ enum WorkoutShareMetricSelection {
         return ordered.isEmpty ? current : ordered
     }
 
+    /// The month-summary card's own pick, under its own key. A month has no single
+    /// workout type to file the pick under, so this one is a plain JSON `[String]`
+    /// rather than the per-type blob the workout card stores.
+    static let summaryStorageKey = "workoutShareSummaryMetricSelections"
+    /// The month card's own ceiling: three blocks in one row above the chart, so the
+    /// chart keeps its height on the 3:4 card.
+    static let summaryMaximumCount = 3
+
+    /// The remembered summary pick, or nil when nothing is stored (or the value is
+    /// unreadable — treated as no preference, exactly like `stored(json:type:)`).
+    static func storedSummary(json: String?) -> [String]? {
+        guard let json, !json.isEmpty, let data = json.data(using: .utf8),
+              let ids = try? JSONDecoder().decode([String].self, from: data), !ids.isEmpty else {
+            return nil
+        }
+        return ids
+    }
+
+    /// The pick as it goes back to `@AppStorage`. An unencodable value stores nothing
+    /// rather than failing the write.
+    static func storingSummary(_ ids: [String]) -> String {
+        guard let data = try? JSONEncoder().encode(ids), let encoded = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return encoded
+    }
+
+    /// What the summary card actually shows for a Pro user: the stored pick narrowed
+    /// to the metrics this month has, in pool order, capped at `summaryMaximumCount`.
+    /// Nothing left → the automatic defaults, themselves narrowed to the pool; an
+    /// empty month (which offers no energy) resolves those to Workouts and Time.
+    static func resolvedSummary(
+        stored: [String]?,
+        available: [WorkoutShareSummaryMetricOption],
+        defaults: [String]
+    ) -> [String] {
+        let order = available.map(\.id)
+        if let stored {
+            let picked = Set(stored)
+            let intersection = order.filter { picked.contains($0) }
+            if !intersection.isEmpty { return Array(intersection.prefix(summaryMaximumCount)) }
+        }
+        let fallback = Set(defaults)
+        let defaulted = order.filter { fallback.contains($0) }
+        // A pool that shares nothing with the defaults still owes the card one
+        // metric — the 1-to-5 floor is what the layouts are built on.
+        return Array((defaulted.isEmpty ? Array(order.prefix(1)) : defaulted).prefix(summaryMaximumCount))
+    }
+
+    /// One summary chip tap. Same floor as the card's `toggling(_:in:available:)`, a
+    /// lower ceiling (`summaryMaximumCount`), on the month's pool.
+    static func togglingSummary(
+        _ id: String,
+        in current: [String],
+        available: [WorkoutShareSummaryMetricOption]
+    ) -> [String] {
+        let order = available.map(\.id)
+        var updated: Set<String>
+        if current.contains(id) {
+            guard current.count > 1 else { return current }
+            updated = Set(current)
+            updated.remove(id)
+        } else {
+            guard order.contains(id), current.count < summaryMaximumCount else { return current }
+            updated = Set(current)
+            updated.insert(id)
+        }
+        let ordered = order.filter { updated.contains($0) }
+        return ordered.isEmpty ? current : ordered
+    }
+
     private static func decode(_ json: String?) -> [String: [String]] {
         guard let json, !json.isEmpty, let data = json.data(using: .utf8),
               let selections = try? JSONDecoder().decode([String: [String]].self, from: data) else {
@@ -1401,6 +1472,156 @@ struct WorkoutShareCardGeometry: Equatable {
     var centeredMetricsTopY: CGFloat { metricsFrame.minY }
 }
 
+/// Every layout number the *month summary* card draws with. Same contract as
+/// `WorkoutShareCardGeometry` — one value the card, the sheet's preview and the render
+/// tests all read — for a different composition: a month title, one to five metric
+/// blocks, and a chart region, with no route square anywhere.
+///
+/// Only three shapes exist here: the two portrait ratios stack title, metrics, and
+/// chart; the square is the chart alone. Landscape never reaches this geometry — a
+/// month's grid or bars have no good home beside a title at 360 pt tall, so the sheet
+/// doesn't offer those tiles in summary mode (`supportedAspectRatios`).
+struct WorkoutShareSummaryCardGeometry: Equatable {
+    /// How the card composes its pieces.
+    enum Arrangement {
+        /// The portrait ratios: title, metrics, then the chart taking the rest.
+        case stacked
+        /// The square: the chart fills the content area and nothing else is drawn.
+        case chartOnly
+    }
+
+    /// The ratios the summary card is offered at, in the tray's order.
+    static let supportedAspectRatios: [WorkoutShareAspectRatio] = [.portrait9x16, .portrait3x4, .square]
+
+    let aspectRatio: WorkoutShareAspectRatio
+    /// How many metric blocks the card actually draws — the rows they need come out
+    /// of the chart's height. Ignored by the chart-only square.
+    let metricCount: Int
+
+    init(
+        aspectRatio: WorkoutShareAspectRatio,
+        metricCount: Int = WorkoutShareMetricSelection.defaultCount
+    ) {
+        self.aspectRatio = aspectRatio
+        self.metricCount = metricCount
+    }
+
+    var size: CGSize { aspectRatio.cardSize }
+
+    /// Margin between the card's edge and everything it draws.
+    private static let inset: CGFloat = 20
+    /// The month title's single line.
+    private static let titleHeight: CGFloat = 30
+    /// Gap under the title, and under the metrics.
+    private static let titleGap: CGFloat = 8
+    private static let chartGap: CGFloat = 10
+    /// One `WorkoutTypeBreakdownView` row and the gap under it.
+    private static let barRowHeight: CGFloat = 48
+    private static let barRowSpacing: CGFloat = 12
+    /// `.widgetLarge`'s own ceiling — asking for more rows than the view will ever
+    /// draw would only make the limit meaningless.
+    private static let maximumBarRows = 5
+    /// The calendar grid's fixed furniture: the weekday band (18 pt of type plus its
+    /// 10 pt of padding), the five 7 pt gaps between its six rows, and the six 7 pt
+    /// gaps between its seven columns.
+    private static let calendarHeaderHeight: CGFloat = 28
+    private static let calendarSpacing: CGFloat = 35
+    private static let calendarColumnSpacing: CGFloat = 42
+    private static let calendarRowCount: CGFloat = 6
+    private static let calendarColumnCount: CGFloat = 7
+
+    var arrangement: Arrangement {
+        aspectRatio == .square ? .chartOnly : .stacked
+    }
+
+    /// Everything the card may draw in: inset on three sides, and stopping short of
+    /// the branding zone `WorkoutShareCardGeometry` already reserves at the bottom.
+    private var contentRect: CGRect {
+        CGRect(
+            x: Self.inset,
+            y: Self.inset,
+            width: size.width - Self.inset * 2,
+            height: size.height - Self.inset - WorkoutShareCardGeometry.brandingZoneHeight
+        )
+    }
+
+    /// Empty on the chart-only square, so a caller positioning by it draws nothing.
+    var titleRect: CGRect {
+        guard arrangement == .stacked else { return .zero }
+        return CGRect(x: contentRect.minX, y: contentRect.minY, width: contentRect.width, height: Self.titleHeight)
+    }
+
+    /// Empty on the chart-only square, like `titleRect`.
+    var metricsRect: CGRect {
+        guard arrangement == .stacked else { return .zero }
+        return CGRect(
+            x: contentRect.minX,
+            y: titleRect.maxY + Self.titleGap,
+            width: contentRect.width,
+            height: metricContentHeight
+        )
+    }
+
+    var chartRect: CGRect {
+        switch arrangement {
+        case .stacked:
+            let top = metricsRect.maxY + Self.chartGap
+            return CGRect(x: contentRect.minX, y: top, width: contentRect.width, height: contentRect.maxY - top)
+        case .chartOnly:
+            return contentRect
+        }
+    }
+
+    /// More than three blocks only fit once they shrink — and the 3:4 card shrinks its
+    /// three as well, which is exactly what gives its grid the 9:16 card's cell size.
+    var metricBlockStyle: WorkoutShareCardGeometry.MetricBlockStyle {
+        metricCount > WorkoutShareMetricSelection.defaultCount || aspectRatio == .portrait3x4 ? .compact : .regular
+    }
+
+    /// Both stacked ratios are 360 pt wide, which fits three blocks at a readable size.
+    var metricsPerRow: Int { 3 }
+
+    /// The frame the chart view is given. The bar chart fills the region; the calendar
+    /// is square-celled, so whichever axis binds first sets the cell and the frame
+    /// follows it on both axes — never stretching rows to fill a tall region, never
+    /// overflowing a short one — and it is centered in the region it sits in.
+    func chartFrame(for style: WorkoutSummaryChartStyle) -> CGSize {
+        switch style {
+        case .bar:
+            return chartRect.size
+        case .calendar:
+            let cellSide = max(
+                0,
+                min(
+                    (chartRect.height - Self.calendarHeaderHeight - Self.calendarSpacing) / Self.calendarRowCount,
+                    (chartRect.width - Self.calendarColumnSpacing) / Self.calendarColumnCount
+                )
+            )
+            return CGSize(
+                width: cellSide * Self.calendarColumnCount + Self.calendarColumnSpacing,
+                height: cellSide * Self.calendarRowCount + Self.calendarHeaderHeight + Self.calendarSpacing
+            )
+        }
+    }
+
+    /// How many activity rows the breakdown chart may draw here — five on the portrait
+    /// cards, four on the square, where the chart region is 284 pt tall.
+    var barRowLimit: Int {
+        let rows = Int((chartRect.height + Self.barRowSpacing) / (Self.barRowHeight + Self.barRowSpacing))
+        return min(Self.maximumBarRows, max(1, rows))
+    }
+
+    private var metricRowCount: Int {
+        max(1, Int(ceil(Double(max(1, metricCount)) / Double(metricsPerRow))))
+    }
+
+    private var metricContentHeight: CGFloat {
+        let style = metricBlockStyle
+        let rows = CGFloat(metricRowCount)
+        return rows * style.rowHeight + (rows - 1) * style.rowGap
+    }
+}
+
 /// Where the centered card's info block (route trace + metric stack) sits, relative to
 /// its default placement — the user drags and pinches it over a photo background, and
 /// both the preview and the export read the same value so what's shared is what was
@@ -1529,10 +1750,16 @@ enum WorkoutShareBackgroundPolicy {
     /// The ratio the card may actually render at: everything but 9:16 is Pro. Never
     /// rewrites the stored key, exactly like `resolvedDimension` — a lapsed Pro user
     /// shares at 9:16 for the session and gets their 16:9 back when they resubscribe.
+    ///
+    /// - Parameter supportsLandscape: Whether this share has landscape shapes at all.
+    ///   The month summary offers only the portrait ratios and the square, so a 16:9
+    ///   or 4:3 remembered from a workout share falls back to 9:16 for the session.
     static func resolvedAspectRatio(
         _ ratio: WorkoutShareAspectRatio,
-        isProUnlocked: Bool
+        isProUnlocked: Bool,
+        supportsLandscape: Bool = true
     ) -> WorkoutShareAspectRatio {
+        guard supportsLandscape || !ratio.isLandscape else { return .portrait9x16 }
         guard ratio.isProGated, !isProUnlocked else { return ratio }
         return .portrait9x16
     }
@@ -1540,11 +1767,16 @@ enum WorkoutShareBackgroundPolicy {
     /// The output style the sheet may actually use: the long image is Pro. Same
     /// session-only fallback as the ratio — a lapsed subscriber shares the card and
     /// gets the long image back on resubscribe, with the stored key untouched.
+    ///
+    /// - Parameter supportsLongImage: Whether this share has a long image at all. The
+    ///   month summary has no per-workout charts to stack, so it passes `false` and
+    ///   the stored style resolves to the card without its key being rewritten.
     static func resolvedOutputStyle(
         _ style: WorkoutShareOutputStyle,
-        isProUnlocked: Bool
+        isProUnlocked: Bool,
+        supportsLongImage: Bool = true
     ) -> WorkoutShareOutputStyle {
-        style == .longImage && isProUnlocked ? .longImage : .card
+        style == .longImage && isProUnlocked && supportsLongImage ? .longImage : .card
     }
 
     /// What one Share/Save tap produces. The long image wins over a held clip: forcing

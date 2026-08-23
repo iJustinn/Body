@@ -84,6 +84,10 @@ struct WorkoutCalendarView: View {
     let snapshot: WorkoutMonthSnapshot
     let style: WorkoutCalendarDisplayStyle
     let fillsAvailableHeight: Bool
+    /// Shrinks the icons, markers, and numbers along with cells smaller than the
+    /// reference side instead of letting them overflow. Off for the app and widgets,
+    /// whose cells never drop that far.
+    let scalesGlyphsToFit: Bool
     let referenceDate: Date
     let onSelectDay: ((WorkoutDaySummary) -> Void)?
     /// Nil in the widgets, which have no second chart to switch to — and which
@@ -94,6 +98,7 @@ struct WorkoutCalendarView: View {
         snapshot: WorkoutMonthSnapshot,
         style: WorkoutCalendarDisplayStyle = .app,
         fillsAvailableHeight: Bool = true,
+        scalesGlyphsToFit: Bool = false,
         referenceDate: Date = Date(),
         onSelectDay: ((WorkoutDaySummary) -> Void)? = nil,
         onSwitchChart: (() -> Void)? = nil
@@ -101,6 +106,7 @@ struct WorkoutCalendarView: View {
         self.snapshot = snapshot
         self.style = style
         self.fillsAvailableHeight = fillsAvailableHeight
+        self.scalesGlyphsToFit = scalesGlyphsToFit
         self.referenceDate = referenceDate
         self.onSelectDay = onSelectDay
         self.onSwitchChart = onSwitchChart
@@ -336,7 +342,10 @@ struct WorkoutCalendarView: View {
     private static let referenceCellSide: CGFloat = 50
 
     private func glyphScale(forCellSide side: CGFloat) -> CGFloat {
-        guard side > Self.referenceCellSide else { return 1 }
+        // Below the reference the glyphs hold their size, so a narrow cell overflows
+        // into a pill — only the share card, whose grid can be 30-odd points a cell,
+        // asks for them to shrink with it.
+        guard side > Self.referenceCellSide || scalesGlyphsToFit else { return 1 }
         return side / Self.referenceCellSide
     }
 }

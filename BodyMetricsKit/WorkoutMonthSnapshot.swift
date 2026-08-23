@@ -92,6 +92,10 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
         days.reduce(0) { $0 + $1.totalEnergyKilocalories }
     }
 
+    var totalDistanceMeters: Double {
+        days.reduce(0) { $0 + $1.totalDistanceMeters }
+    }
+
     var workoutTypeBreakdown: [WorkoutTypeBreakdown] {
         var totals: [BodyWorkoutType: (duration: TimeInterval, count: Int)] = [:]
 
@@ -115,6 +119,13 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
             }
             .sorted {
                 if $0.duration == $1.duration {
+                    // The raw value is the last resort: two types with the same
+                    // duration *and* the same priority would otherwise come out in
+                    // dictionary order, and the leading entry picks the summary
+                    // card's tint and its "Top Activity".
+                    if $0.type.displayPriority == $1.type.displayPriority {
+                        return $0.type.rawValue < $1.type.rawValue
+                    }
                     return $0.type.displayPriority > $1.type.displayPriority
                 }
                 return $0.duration > $1.duration

@@ -48,6 +48,14 @@ struct BodyWorkoutShareSheet: View {
     /// Loads separately from the workout's own statistics, so it can arrive after the
     /// sheet is already up — the pool and the tile list are rebuilt when it does.
     let heartRateRecoveryBPM: Double?
+    /// The month this sheet is sharing *instead of* a workout — `nil` for every caller
+    /// that came from a detail page, which is what keeps the workout flow untouched.
+    /// Its presence is the single switch summary mode turns on (`isSummaryMode`).
+    let monthSummary: WorkoutShareMonthSummary?
+    /// "Today" for the summary card's calendar, captured once when the sheet is built.
+    /// The preview and the export are two separate renders; reading `Date()` inside each
+    /// would let a midnight crossing between them ship an image the user never saw.
+    let summaryReferenceDate: Date
 
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @Environment(\.dismiss) private var dismiss
@@ -86,6 +94,10 @@ struct BodyWorkoutShareSheet: View {
     /// The long image's own pick, under its own key — it has no five-metric ceiling and
     /// defaults to every metric, so it can't share the card's blob.
     @AppStorage(WorkoutShareMetricSelection.longStorageKey) private var storedLongMetricSelections: String = ""
+    /// The month-summary card's pick, under its own key again: a month has no single
+    /// workout type to file a selection under, so this one is a plain JSON `[String]`
+    /// rather than the per-type blob above.
+    @AppStorage(WorkoutShareMetricSelection.summaryStorageKey) private var storedSummaryMetricSelections: String = ""
     /// Card or long image. Pro-gated through `resolvedOutputStyle`, so a lapse falls
     /// back to the card for the session without rewriting the key.
     @AppStorage(WorkoutShareOutputStyle.storageKey) private var storedOutputStyle: String =
@@ -95,6 +107,10 @@ struct BodyWorkoutShareSheet: View {
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue =
         BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
+    /// The month summary's Active Energy metric is unit-sensitive the same way the long
+    /// image's distances are, and has to read whatever Settings currently says.
+    @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue =
+        BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
 
     /// The session-only backdrop, as one value so photo and video can't both be held:
     /// picking either replaces the other, and the two accessors below keep every
@@ -169,6 +185,12 @@ struct BodyWorkoutShareSheet: View {
     /// on every drag/pinch frame, and decoding the JPEG that often would be wasted work.
     /// Seeded in `.task` and kept in sync with `profileAvatarData` via `.onChange`.
     @State private var profileAvatarImage: UIImage?
+    /// Which chart the summary card draws. Seeded once from whatever the Workouts page
+    /// had on when Share was tapped and never written back: switching the card's chart
+    /// must not move the page underneath the sheet. `@State` survives the cover's
+    /// re-evaluation (see the initializer's note below), so the pick holds for the
+    /// session — and only for the session.
+    @State private var summaryChartStyle: WorkoutSummaryChartStyle
 
     /// Computed once from the shared presentation so the card's values never drift
     /// from the detail page and the projection isn't redone on every body pass.
@@ -203,6 +225,8 @@ struct BodyWorkoutShareSheet: View {
         case routeColor
         case background
         case dimension
+        /// Summary mode only: a month can be drawn two ways, a workout only one.
+        case chartStyle
     }
 
     /// A cached map snapshot's identity: the dimension decides what is composited and
@@ -237,6 +261,11 @@ struct BodyWorkoutShareSheet: View {
         self.metricSeries = metricSeries
         self.maxHeartRate = maxHeartRate
         self.heartRateRecoveryBPM = heartRateRecoveryBPM
+        // The workout entry point is never the summary one: no month, and the chart
+        // style is seeded to a value nothing here ever reads.
+        self.monthSummary = nil
+        self.summaryReferenceDate = Date()
+        _summaryChartStyle = State(initialValue: .calendar)
 
         var options = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: workout.type)
         var tiles = presentation.detailMetrics
@@ -261,6 +290,36 @@ struct BodyWorkoutShareSheet: View {
         )
         self.routePoints = route.flatMap { WorkoutShareRouteProjection.normalizedPoints(for: $0.coordinates) }
         self.route3D = route.flatMap { WorkoutRoute3DProjection.projected(for: $0.coordinates) }
+    }
+
+    /// The month-summary entry point, from the Workouts page's search row. Everything
+    /// the workout flow feeds off is empty here — no route, no splits, no series, no
+    /// metric pool, no Details tiles — because the summary card reads none of it; the
+    /// month's own metric pool is built from the snapshot on demand instead.
+    ///
+    /// `workout` stays non-optional and takes the summary's *synthetic* zero-duration
+    /// stand-in. Some thirty reads of `workout` across this file (the backdrop gradient,
+    /// the preset swatches, the icon tile, the map tint) would each need a branch
+    /// otherwise — and putting a real workout there would paint a second activity's
+    /// colour onto a card meant to carry exactly one.
+    init(monthSummary: WorkoutShareMonthSummary) {
+        let workout = monthSummary.syntheticWorkout
+        self.workout = workout
+        self.route = nil
+        self.presentation = WorkoutDetailPresentation(workout: workout)
+        self.splitData = .empty
+        self.metricSeries = .empty
+        self.maxHeartRate = nil
+        self.heartRateRecoveryBPM = nil
+        self.monthSummary = monthSummary
+        self.summaryReferenceDate = Date()
+        self.availableMetricOptions = []
+        self.defaultMetricIDs = []
+        self.longTilePool = []
+        self.routePoints = nil
+        self.route3D = nil
+        // The page's own chart toggle, copied once — see `summaryChartStyle`.
+        _summaryChartStyle = State(initialValue: monthSummary.initialChartStyle)
     }
 
     private var isProUnlocked: Bool { proStore?.isPro == true }
@@ -306,12 +365,52 @@ struct BodyWorkoutShareSheet: View {
         )
     }
 
+    /// The month's metric pool, in card order. Empty outside summary mode — nothing
+    /// reads it there, and there is no snapshot to build it from.
+    private var activeSummaryMetricOptions: [WorkoutShareSummaryMetricOption] {
+        guard let monthSummary else { return [] }
+        return WorkoutShareSummaryMetricsBuilder.availableMetrics(
+            snapshot: monthSummary.snapshot,
+            distanceUnitPreference: distanceUnitPreference,
+            energyUnitPreference: energyUnitPreference
+        )
+    }
+
+    /// What the summary card is showing: the remembered pick narrowed to this month's
+    /// pool, or the automatic defaults — and always the defaults without Pro, without
+    /// touching what's stored, exactly like the workout card.
+    ///
+    /// The defaults are intersected with the pool *before* the Pro seam, which hands
+    /// them straight back: an empty month offers no Active Energy, and passing the raw
+    /// default list would leave a free user's card resolving a metric that isn't there.
+    /// The `prefix(1)` keeps the same 1-to-5 floor `resolvedSummary` does, for a pool
+    /// that shares nothing with the defaults at all.
+    private var activeSummaryMetricIDs: [String] {
+        let pool = activeSummaryMetricOptions
+        let order = pool.map(\.id)
+        let wanted = Set(WorkoutShareSummaryMetricsBuilder.defaultIDs)
+        let poolDefaults = order.filter { wanted.contains($0) }
+        return WorkoutShareBackgroundPolicy.resolvedMetricIDs(
+            WorkoutShareMetricSelection.resolvedSummary(
+                stored: WorkoutShareMetricSelection.storedSummary(json: storedSummaryMetricSelections),
+                available: pool,
+                defaults: WorkoutShareSummaryMetricsBuilder.defaultIDs
+            ),
+            defaults: poolDefaults.isEmpty ? Array(order.prefix(1)) : poolDefaults,
+            isProUnlocked: isProUnlocked
+        )
+    }
+
     /// What Share and Save actually produce. Pro-gated, session-only: a lapse renders
-    /// the card without rewriting the stored style.
+    /// the card without rewriting the stored style. A month summary has no long image
+    /// at all — no Details tiles, no charts to stack — so a stored `.longImage` left
+    /// over from a workout share resolves back to the card here rather than rendering
+    /// a page that doesn't exist.
     private var activeOutputStyle: WorkoutShareOutputStyle {
         WorkoutShareBackgroundPolicy.resolvedOutputStyle(
             WorkoutShareOutputStyle.stored(rawValue: storedOutputStyle),
-            isProUnlocked: isProUnlocked
+            isProUnlocked: isProUnlocked,
+            supportsLongImage: !isSummaryMode
         )
     }
 
@@ -327,6 +426,15 @@ struct BodyWorkoutShareSheet: View {
     }
 
     private var hasRoute: Bool { route != nil }
+
+    /// The one switch between the two things this sheet can share.
+    private var isSummaryMode: Bool { monthSummary != nil }
+
+    /// The activity whose colour the whole page is tinted by — the month's leading type
+    /// in summary mode, the workout's own everywhere else. Read by the backdrop, the
+    /// preset swatches, and the route-colour tiles so exactly one activity's colour is
+    /// ever on screen; the synthetic workout carries the same type, so the two agree.
+    private var activeTintType: BodyWorkoutType { monthSummary?.tintType ?? workout.type }
 
     /// The route carries enough altitude for a ribbon. Without it the 3D row is shown
     /// greyed out and untappable rather than hidden, so the option stays discoverable.
@@ -389,7 +497,10 @@ struct BodyWorkoutShareSheet: View {
     private var activeAspectRatio: WorkoutShareAspectRatio {
         WorkoutShareBackgroundPolicy.resolvedAspectRatio(
             WorkoutShareAspectRatio.stored(rawValue: storedAspectRatio),
-            isProUnlocked: isProUnlocked
+            isProUnlocked: isProUnlocked,
+            // The summary never offers a landscape tile, so a remembered one can't
+            // render a shape the tray doesn't show.
+            supportsLandscape: !isSummaryMode
         )
     }
 
@@ -568,7 +679,41 @@ struct BodyWorkoutShareSheet: View {
         )
     }
 
-    private func cardView() -> BodyWorkoutShareCardView {
+    /// The one seam the two kinds of card meet at: the preview, the export's
+    /// rasterization, and — through that rasterization — the video overlay all draw
+    /// whatever this returns, so summary mode reaches every output through one branch.
+    @ViewBuilder
+    private func cardView() -> some View {
+        if let monthSummary {
+            summaryCardView(monthSummary)
+        } else {
+            workoutCardView()
+        }
+    }
+
+    /// The month's card. Same background, ratio, transforms, font, and attribution as
+    /// the workout card — only the content inside the info block differs.
+    private func summaryCardView(_ summary: WorkoutShareMonthSummary) -> BodyWorkoutShareSummaryCardView {
+        // Resolved once per card, not once per lookup: this runs on every gesture frame,
+        // and each read rebuilds the pool and decodes the stored JSON.
+        let pool = activeSummaryMetricOptions
+        let ids = activeSummaryMetricIDs
+        return BodyWorkoutShareSummaryCardView(
+            summary: summary,
+            chartStyle: summaryChartStyle,
+            // Pool order, so the card's strip reads the way the chips are laid out.
+            metrics: ids.compactMap { id in pool.first { $0.id == id } },
+            background: activeBackground,
+            aspectRatio: activeAspectRatio,
+            infoTransform: activeInfoTransform,
+            photoTransform: activePhotoTransform,
+            fontDesign: storedFontChoice.design,
+            attribution: activeAttribution,
+            referenceDate: summaryReferenceDate
+        )
+    }
+
+    private func workoutCardView() -> BodyWorkoutShareCardView {
         // Resolved once per card, not once per array: this runs on every gesture frame,
         // and each read of `activeMetricIDs` decodes the stored JSON.
         let ids = activeMetricIDs
@@ -611,6 +756,15 @@ struct BodyWorkoutShareSheet: View {
         followsSystemUnits
             ? BodyValueFormat.DistanceUnitPreference.systemValue(locale: .current)
             : BodyValueFormat.DistanceUnitPreference.storedValue(from: selectedDistanceUnitRawValue)
+    }
+
+    /// The unit the month summary's Active Energy is drawn in. Same shape as the
+    /// distance preference above — the "follows system" switch covers energy too, and
+    /// the card has to read whatever the Workouts page just showed the user.
+    private var energyUnitPreference: BodyValueFormat.EnergyUnitPreference {
+        followsSystemUnits
+            ? BodyValueFormat.EnergyUnitPreference.systemValue(locale: .current)
+            : BodyValueFormat.EnergyUnitPreference.storedValue(from: selectedEnergyUnitRawValue)
     }
 
     /// Built through the same pure functions the detail page's cards read, so a long
@@ -794,8 +948,16 @@ struct BodyWorkoutShareSheet: View {
                         cardPreview
                     }
                     if expandedOption == .metrics {
-                        metricsTray
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        // Two pools, two trays: the month's chips toggle a plain list
+                        // under its own key, the workout's a per-type blob.
+                        Group {
+                            if isSummaryMode {
+                                summaryMetricsTray
+                            } else {
+                                metricsTray
+                            }
+                        }
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     } else if expandedOption == .profile, profileAvatarImage == nil || profileDisplayName == nil {
                         Text("Add a photo and name in Settings › Profile to show them on the card.")
                             .font(.system(size: 13, weight: .medium, design: .rounded))
@@ -816,8 +978,15 @@ struct BodyWorkoutShareSheet: View {
                 // The reader is only here for the tray's width budget; it draws nothing
                 // itself, so the empty area around the rail stays untouchable.
                 GeometryReader { proxy in
-                    optionRail(availableWidth: proxy.size.width)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    // Two rails rather than one filtered rail: they disagree about more
+                    // than which rows show — see `summaryOptionRail`.
+                    if isSummaryMode {
+                        summaryOptionRail(availableWidth: proxy.size.width)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    } else {
+                        optionRail(availableWidth: proxy.size.width)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    }
                 }
 
             }
@@ -886,7 +1055,7 @@ struct BodyWorkoutShareSheet: View {
                         .modifier(ShareToolbarIconChrome())
                     }
                     .disabled(isBusy)
-                    .accessibilityLabel(Text("Share Workout"))
+                    .accessibilityLabel(isSummaryMode ? Text("Share Summary") : Text("Share Workout"))
                 }
 
                 // Separates the two trailing actions into their own glass circles;
@@ -1037,7 +1206,7 @@ struct BodyWorkoutShareSheet: View {
                 .ignoresSafeArea()
         }
         LinearGradient(
-            colors: [workout.type.color.opacity(0.45), Color.black],
+            colors: [activeTintType.color.opacity(0.45), Color.black],
             startPoint: .top,
             endPoint: UnitPoint(x: 0.5, y: 0.5)
         )
@@ -1457,6 +1626,87 @@ struct BodyWorkoutShareSheet: View {
         }
     }
 
+    /// The month summary's rail: Font, Metrics, Profile, Chart Style, Background, Ratio.
+    /// A separate rail rather than a filtered `optionRail`, because the two disagree
+    /// about more than which rows appear — a month has no trace to colour, style, or
+    /// arrange; its Ratio tray drops the Long Image tile; and Chart Style exists nowhere
+    /// else. (The workout rail is also scanned verbatim by a source guard that pins its
+    /// row order, so it stays a straight-line list of rows.)
+    private func summaryOptionRail(availableWidth: CGFloat) -> some View {
+        // Same budget as the workout rail: what's left of the page beside the icons, so
+        // an open tray can never run under the trailing edge.
+        let trayWidth = max(
+            Self.optionTileSize,
+            availableWidth - Self.railPadding * 2 - Self.railIconSize - Self.railTrayGap
+        )
+
+        return VStack(alignment: .trailing, spacing: 22) {
+            // Same pinned Latin "Aa" glyph as the workout rail: `textformat` localizes
+            // itself into "格式" (Format), which names the wrong thing.
+            railRow(.font, icon: Self.fontRailIcon, label: Text("Font"), trayWidth: trayWidth) {
+                optionTiles {
+                    ForEach(WorkoutShareFontChoice.allCases) { choice in
+                        fontTile(choice)
+                    }
+                }
+            }
+
+            // Pro-only and opening below the preview rather than beside the icon, for
+            // the reason the workout card's chips do: a rich month offers seven names,
+            // which would run straight under the card's own metric strip. The square
+            // card is the chart alone, so the row goes away with it rather than
+            // editing a pick nothing draws.
+            if activeAspectRatio != .square {
+                railRow(
+                    .metrics,
+                    symbol: "list.bullet.rectangle.portrait",
+                    label: Text("Metrics"),
+                    trayWidth: trayWidth,
+                    isLocked: !isProUnlocked,
+                    inlineTray: false
+                ) {
+                    EmptyView()
+                }
+            }
+
+            railRow(.profile, symbol: "at", label: Text("Profile"), trayWidth: trayWidth) {
+                profileTray
+            }
+
+            // The one row that exists only here. Free: the chart *is* the card in
+            // summary mode, not an upgrade to it.
+            railRow(
+                .chartStyle,
+                symbol: "chart.bar.doc.horizontal",
+                label: Text("Chart Style"),
+                trayWidth: trayWidth
+            ) {
+                chartStyleTray
+            }
+
+            // Presets, Photo, and Video. The tray's Map tile is already behind
+            // `if hasRoute`, and a month never has one, so it drops out on its own.
+            railRow(
+                .background,
+                symbol: "photo.on.rectangle",
+                label: Text("Background"),
+                trayWidth: trayWidth
+            ) {
+                backgroundTray
+            }
+
+            railRow(.ratio, symbol: "aspectratio", label: Text("Ratio"), trayWidth: trayWidth) {
+                summaryRatioTray
+            }
+        }
+        .padding(.trailing, Self.railPadding)
+        // Same reason as the workout rail: a Pro lapse while the chips are open would
+        // leave them editing a pick the card no longer honours.
+        .onChange(of: isProUnlocked) {
+            if !isProUnlocked, expandedOption == .metrics { closeTray() }
+        }
+    }
+
     /// Avatar, nickname, and the dash between them and the wordmark, as three
     /// independent toggles rather than a radio pair — any combination can be on. No tap
     /// closes the tray, matching the metric chips: flipping one and then checking the
@@ -1691,6 +1941,71 @@ struct BodyWorkoutShareSheet: View {
         )
     }
 
+    /// The month's chips. Same strip, same bounds, same caption as the workout card's —
+    /// only the pool differs, so anyone who has shared a workout already reads this.
+    /// There is no long-image branch here: summary mode has no long image.
+    private var summaryMetricsTray: some View {
+        VStack(alignment: .center, spacing: 6) {
+            optionTiles(anchor: .leading) {
+                ForEach(activeSummaryMetricOptions) { option in
+                    summaryMetricChip(option)
+                }
+            }
+
+            Text("Pick 1 to 3 metrics.")
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundColor(.white.opacity(0.6))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        // Full-width strip under the card, like the workout tray: the scroller isn't
+        // sized by the rail's budget, and a tap between chips reaches nothing behind it.
+        .frame(maxWidth: .infinity)
+    }
+
+    /// One pickable month metric. As with the workout chip, a tap doesn't close the
+    /// tray: picking five metrics is five taps, and re-opening between each would make
+    /// the bounds impossible to feel.
+    private func summaryMetricChip(_ option: WorkoutShareSummaryMetricOption) -> some View {
+        let pool = activeSummaryMetricOptions
+        let ids = activeSummaryMetricIDs
+        let isSelected = ids.contains(option.id)
+        let isAtMaximum = ids.count >= WorkoutShareMetricSelection.summaryMaximumCount
+        let isLastSelected = isSelected && ids.count == 1
+        return Button {
+            let next = WorkoutShareMetricSelection.togglingSummary(option.id, in: ids, available: pool)
+            guard next != ids else { return }
+            storedSummaryMetricSelections = WorkoutShareMetricSelection.storingSummary(next)
+        } label: {
+            HStack(spacing: 4) {
+                if isSelected {
+                    // The `.isSelected` trait below already says this to VoiceOver.
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .accessibilityHidden(true)
+                }
+
+                Text(option.title)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.white.opacity(isSelected ? 0.28 : 0.1), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        // Dimmed rather than hidden at the cap, so the user can see what they'd have to
+        // give up to add one more.
+        .opacity(!isSelected && isAtMaximum ? 0.4 : 1)
+        .disabled(!isSelected && isAtMaximum)
+        // Name plus what it currently reads, so VoiceOver users pick by value the way
+        // sighted users do.
+        .accessibilityLabel(Text(verbatim: "\(option.title), \(option.value)"))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityHint(
+            isLastSelected ? Text("At least one metric stays on the card.") : Text(verbatim: "")
+        )
+    }
+
     /// Ring-only selection, no checkmark: the point of the tile is the "Aa" specimen,
     /// and a glyph on top of it would hide the very thing being picked.
     private func fontTile(_ choice: WorkoutShareFontChoice) -> some View {
@@ -1782,6 +2097,17 @@ struct BodyWorkoutShareSheet: View {
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
+    /// The month summary's Ratio tray: the five shapes and nothing else. The long image
+    /// is the detail page's tiles and charts stacked, and a month has neither, so the
+    /// sixth tile isn't offered here at all.
+    private var summaryRatioTray: some View {
+        optionTiles {
+            ForEach(WorkoutShareSummaryCardGeometry.supportedAspectRatios) { ratio in
+                ratioTile(ratio)
+            }
+        }
+    }
+
     /// How a landscape card splits route from metrics. Free — the ratio that reveals
     /// this row is what carries the Pro gate.
     private func arrangementTile(_ arrangement: WorkoutShareLandscapeArrangement) -> some View {
@@ -1799,6 +2125,38 @@ struct BodyWorkoutShareSheet: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(arrangement.localizedName)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    /// Calendar grid or activity bars. Two tiles rather than a switch, so the row reads
+    /// like every other tray on the rail — and free, since the chart is the card's whole
+    /// content here rather than an upgrade to it.
+    private var chartStyleTray: some View {
+        optionTiles {
+            ForEach(WorkoutSummaryChartStyle.allCases) { style in
+                chartStyleTile(style)
+            }
+        }
+    }
+
+    /// Ring-only selection over the same glyph the Workouts page's own chart switch
+    /// uses, so the two read as the same control. Session-only: the tap moves
+    /// `summaryChartStyle` and never the page's stored toggle.
+    private func chartStyleTile(_ style: WorkoutSummaryChartStyle) -> some View {
+        let isSelected = summaryChartStyle == style
+        return Button {
+            closeTray()
+            withAnimation(reduceMotion ? nil : .snappy) { summaryChartStyle = style }
+        } label: {
+            Image(systemName: style.symbolName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: Self.optionTileSize, height: Self.optionTileSize)
+                .background(Color.white.opacity(0.1), in: Circle())
+                .overlay { selectionRing(isSelected: isSelected) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(verbatim: style.localizedName))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
@@ -1947,7 +2305,7 @@ struct BodyWorkoutShareSheet: View {
             storedRouteColor = choice.rawValue
         } label: {
             Circle()
-                .fill(choice.color(tint: workout.type.color))
+                .fill(choice.color(tint: activeTintType.color))
                 .frame(width: Self.optionTileSize, height: Self.optionTileSize)
                 // Ring only, again: a checkmark would vanish on White and swamp Black.
                 .overlay { selectionRing(isSelected: isSelected) }
@@ -1989,7 +2347,7 @@ struct BodyWorkoutShareSheet: View {
             replaceMedia(with: nil)
         } label: {
             Circle()
-                .fill(preset.gradient(tint: workout.type.color))
+                .fill(preset.gradient(tint: activeTintType.color))
                 .frame(width: Self.optionTileSize, height: Self.optionTileSize)
                 .overlay {
                     if isSelected {
