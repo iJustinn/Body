@@ -1,5 +1,11 @@
 # Version History
 
+## 1.0.0 (build 21)
+
+- **Share a month.** A Share button at the end of the Workouts search row opens the share composer with the month's summary chart — the calendar or the activity breakdown, whichever the page is showing — with the month title and up to three totals on the card, the same fonts, profile attribution, and gradient/photo/video backgrounds as a workout card, three ratios (9:16, 3:4, and a chart-only 1:1), plus a Chart Style switch.
+- **The search field gets out of its own way.** Tapping into Search workouts expands it across the whole row, fading the Sort, Filter, Jump-to-month, and Share buttons out; Done or scrolling the list brings them back.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 21.
+
 ## 1.0.0 (build 20)
 
 - **The Details card explains itself.** A `questionmark.circle` button at the trailing edge of the **Details** heading opens an **About These Details** sheet at full height: what the tiles are, which values Body derives itself rather than reading straight from Apple Health, what the 30-day comparison badges mean in each of their states, and a one or two sentence explanation of every tile that workout actually shows, so a swim reads about swim pace and strokes and never cycling cadence. A heart-rate-recovery read that lands while the sheet is open flows into it.
