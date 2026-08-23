@@ -14,6 +14,17 @@ private let workoutEffortWriteLogger = Logger(
     category: "WorkoutEffortWrite"
 )
 
+/// A workout-effort write failure tagged with the stage that failed, so the
+/// detail screen's alert can name it (field reports can't pull Console logs).
+struct WorkoutEffortWriteError: LocalizedError {
+    let stage: String
+    let underlying: Error
+
+    var errorDescription: String? {
+        "\(underlying.localizedDescription) [\(stage)]"
+    }
+}
+
 // The app is otherwise read-only against HealthKit (see `requestAuthorization(allowPrompt:)`
 // in HealthKitFetchEngine.swift, which always passes an empty `toShare` set).
 // This is the only place Body *writes* samples: the manual weight / body-fat
@@ -112,12 +123,12 @@ extension HealthKitFetchEngine {
     /// Ensures Body may write workout effort, presenting the HealthKit *write*
     /// permission sheet only when no decision has been recorded yet.
     ///
-    /// The gate is `authorizationStatus(for:)`, not just the request status: an
-    /// already-denied share must fail fast without a sheet, and after a sheet
-    /// HealthKit's `success` flag only means the sheet completed — so the share
-    /// status is re-read and a still-unauthorized type throws
-    /// `authorizationDenied`. Runs inside `authorizationCoordinator` so it can't
-    /// stack a sheet on top of the read-permission flow. (The iOS Simulator does
+    /// `authorizationStatus(for:)` is consulted only as a shortcut: `.sharingAuthorized`
+    /// skips the sheet entirely. It is deliberately NOT a fail-fast gate — devices
+    /// have reported `.sharingDenied` while the Health app showed Full Access — so
+    /// every other status goes through the request-status check (no sheet once a
+    /// decision is recorded) and the save itself is the arbiter. Runs inside
+    /// `authorizationCoordinator` so it can't stack a sheet on the read flow. (The iOS Simulator does
     /// not persist HealthKit authorization reliably and may re-prompt across
     /// rebuilds regardless; a real device asks only once.)
     func requestWorkoutEffortWriteAuthorization() async throws {
@@ -130,10 +141,12 @@ extension HealthKitFetchEngine {
             switch Self.effortWriteDecision(for: store.authorizationStatus(for: effortType)) {
             case .authorized:
                 return
-            case .denied:
-                throw HealthKitWorkoutError.authorizationDenied
-            case .prompt:
-                break
+            case .denied, .prompt:
+                // `.sharingDenied` is NOT a fail-fast signal: devices have reported it
+                // while the Health app shows Full Access (stale per-process status after
+                // access was re-enabled in Settings). Fall through and let `save` be the
+                // arbiter — a real denial surfaces as HealthKit's own error.
+                workoutEffortWriteLogger.notice("effort write: \("share status not authorized; checking request status", privacy: .public)")
             }
 
             let shareTypes: Set<HKSampleType> = [effortType]
@@ -142,12 +155,14 @@ extension HealthKitFetchEngine {
                 read: Set<HKObjectType>()
             )
             if requestStatus != .unnecessary {
-                try await presentAuthorization(toShare: shareTypes, read: Set<HKObjectType>())
+                do {
+                    try await presentAuthorization(toShare: shareTypes, read: Set<HKObjectType>())
+                } catch {
+                    throw WorkoutEffortWriteError(stage: "permission-sheet", underlying: error)
+                }
             }
 
-            guard store.authorizationStatus(for: effortType) == .sharingAuthorized else {
-                throw HealthKitWorkoutError.authorizationDenied
-            }
+            // No status check after the sheet either (see above) — `save` decides.
         }
     }
 
@@ -174,9 +189,15 @@ extension HealthKitFetchEngine {
         }
 
         workoutEffortWriteLogger.debug("effort write: \("fetching workout", privacy: .public)")
-        guard let workout = try await fetchWorkout(id: workoutID) else {
-            workoutEffortWriteLogger.error("effort write: \("workoutNotFound", privacy: .public)")
-            throw HealthKitWorkoutError.workoutNotFound
+        let workout: HKWorkout
+        do {
+            guard let found = try await fetchWorkout(id: workoutID) else {
+                workoutEffortWriteLogger.error("effort write: \("workoutNotFound", privacy: .public)")
+                throw HealthKitWorkoutError.workoutNotFound
+            }
+            workout = found
+        } catch {
+            throw WorkoutEffortWriteError(stage: "lookup", underlying: error)
         }
 
         // Capture Body's prior ratings before writing anything; they're deleted
@@ -208,21 +229,21 @@ extension HealthKitFetchEngine {
                 }
             }
         } catch {
-            workoutEffortWriteLogger.error("effort write: \("save failed", privacy: .public)")
-            throw error
+            workoutEffortWriteLogger.error("effort write: save failed \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public)")
+            throw WorkoutEffortWriteError(stage: "save", underlying: error)
         }
 
         workoutEffortWriteLogger.debug("effort write: \("relating sample", privacy: .public)")
         do {
             try await healthStore.relateWorkoutEffortSample(sample, with: workout, activity: nil)
         } catch {
-            workoutEffortWriteLogger.error("effort write: \("relate failed", privacy: .public)")
+            workoutEffortWriteLogger.error("effort write: relate failed \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public)")
             // The sample saved but couldn't be related to the workout. Cleanup
             // only ever queries *related* effort samples, so an unrelated sample
             // would never be reclaimed — delete it now so a failed edit doesn't
             // leave orphaned effort data in HealthKit, then surface the failure.
             await deleteEffortSamples([sample])
-            throw error
+            throw WorkoutEffortWriteError(stage: "relate", underlying: error)
         }
 
         workoutEffortWriteLogger.debug("effort write: \("cleaning up prior samples", privacy: .public)")
