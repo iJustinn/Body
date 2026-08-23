@@ -6,6 +6,16 @@
 import SwiftUI
 import UIKit
 
+/// Where the route hero centers its trace: midway between the top safe area and the
+/// metrics column's top, derived from the latest inset and measurement so callback
+/// order can't bake a stale inset in. Internal so it can be unit-tested.
+enum BodyWorkoutRouteHeroAnchor {
+    static func targetCenterY(topInset: CGFloat, contentMinY: CGFloat?, fallbackContentMinY: CGFloat) -> CGFloat {
+        let contentTop = topInset + (contentMinY ?? fallbackContentMinY)
+        return (topInset + contentTop) / 2
+    }
+}
+
 struct BodyWorkoutsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1121,11 +1131,17 @@ struct BodyWorkoutDetailSheet: View {
     @State private var showsFullScreenRouteMap = false
     @State private var showsShareSheet = false
     @State private var showsDetailsExplanation = false
-    /// Resting screen y of the metrics column's top — the distance text when the
-    /// workout has one, the duration otherwise. Measured in the content coordinate
-    /// space (which doesn't move with scroll) plus the viewport's top inset, so it
-    /// settles on layout instead of per scroll frame. Nil until measured.
-    @State private var heroContentTop: CGFloat?
+    /// Resting content-space y of the metrics column's top — the distance text when
+    /// the workout has one, the duration otherwise. Measured in the content coordinate
+    /// space (which doesn't move with scroll), so it settles on layout instead of per
+    /// scroll frame. Nil until measured.
+    ///
+    /// Stored without the top safe-area inset folded in on purpose: that inset arrives
+    /// from its own `.onGeometryChange` and the two callbacks can fire in either order.
+    /// Baking a possibly-still-zero inset in here would persist a too-high anchor for
+    /// the rest of the sheet's lifetime, since this value only changes on layout.
+    /// `BodyWorkoutRouteHeroAnchor` combines this with the latest inset at read time instead.
+    @State private var heroContentMinY: CGFloat?
     /// The sheet's own top safe-area inset — where the ScrollView viewport begins,
     /// while the hero starts at the sheet's top edge.
     @State private var topSafeAreaInset: CGFloat = 0
@@ -1240,9 +1256,16 @@ struct BodyWorkoutDetailSheet: View {
     /// that column is measured, fall back to where the fixed layout puts it — the tap
     /// gap plus the content's top padding, below the safe area — so the first frame
     /// is already close and the map's re-snapshot isn't visible.
+    ///
+    /// Computed at read time from the latest inset and content measurement rather than
+    /// cached, so it can't bake in whichever of the two `.onGeometryChange` callbacks
+    /// happened to fire first.
     private var routeTargetCenterY: CGFloat {
-        let contentTop = heroContentTop ?? (topSafeAreaInset + mapHeight - contentTopOverlap + 24)
-        return (topSafeAreaInset + contentTop) / 2
+        BodyWorkoutRouteHeroAnchor.targetCenterY(
+            topInset: topSafeAreaInset,
+            contentMinY: heroContentMinY,
+            fallbackContentMinY: mapHeight - contentTopOverlap + 24
+        )
     }
 
     var body: some View {
@@ -1531,7 +1554,7 @@ struct BodyWorkoutDetailSheet: View {
             // measurements, and clearing here could race the geometry callback that
             // just measured the reserved layout and lose its value for good.
             if !reservesHero {
-                heroContentTop = nil
+                heroContentMinY = nil
             }
         }
     }
@@ -1769,9 +1792,8 @@ struct BodyWorkoutDetailSheet: View {
             return
         }
 
-        let screenY = topSafeAreaInset + contentMinY
-        if heroContentTop != screenY {
-            heroContentTop = screenY
+        if heroContentMinY != contentMinY {
+            heroContentMinY = contentMinY
         }
     }
 
@@ -1878,7 +1900,7 @@ struct BodyWorkoutDetailSheet: View {
     ///
     /// The locality half is held open for the whole routed layout, invisible until the
     /// reverse geocode lands. The row sits in the hero's leading column while the metrics
-    /// column opposite is what `heroContentTop` measures, so letting it appear late would
+    /// column opposite is what `heroContentMinY` measures, so letting it appear late would
     /// nudge that anchor, re-frame every hero, and re-fire the map snapshotter part-way
     /// through the route's draw.
     @ViewBuilder
