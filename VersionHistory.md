@@ -1,5 +1,13 @@
 # Version History
 
+## 1.0.0 (build 23)
+
+- **The first load finishes even with permissions turned off.** Previously, denying some Apple Health read permissions (Date of Birth / Sex for Cardio Fitness, or Activity rings) made every first load end back at "Try Again" and kept the app's passive syncs idle; those reads now count as empty rather than failed, and the one-time load overlay dismisses once a full load completes even if a category couldn't be read.
+- Onboarding's Health page now distinguishes a load that finished with no readable data from one that loaded data.
+- **Weekdays on the shared calendar.** The month summary share page's Chart Style tray gains a Weekdays tile that hides or shows the calendar's S M T W T F S row; the choice is remembered, and the tile is absent while Bar Chart is selected.
+- Settings > Data > Permissions gained a footer that explains how the permission switches work: Body only reads, turning a category on asks Apple Health for access and refreshes, turning it off stops reading and clears its data locally, and the Health app stays in charge of real access.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 23.
+
 ## 1.0.0 (build 22)
 
 - **Share a month.** A Share button at the end of the Workouts search row opens the share composer with the month's summary chart — the calendar or the activity breakdown, whichever the page is showing — with the month title and up to three totals on the card (or none), the same fonts, profile attribution, and gradient/photo/video backgrounds as a workout card, three ratios (9:16, 3:4, and a chart-only 1:1), plus a Chart Style switch.

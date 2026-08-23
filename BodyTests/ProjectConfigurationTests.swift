@@ -580,6 +580,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(summaryCardSource.contains("scalesGlyphsToFit: true,"))
         let calendarViewSource = try text(at: "BodyShared/Components/WorkoutCalendarView.swift")
         XCTAssertTrue(calendarViewSource.contains("scalesGlyphsToFit: Bool = false,"))
+        // The weekday letters are a stored toggle in the Chart Style tray.
+        XCTAssertTrue(calendarViewSource.contains("showsWeekdayHeader: Bool = true,"))
+        XCTAssertTrue(shareCardSource.contains("enum WorkoutShareWeekdayVisibility"))
+        XCTAssertTrue(shareSheetSource.contains("WorkoutShareWeekdayVisibility.storageKey"))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Weekdays")"#))
         XCTAssertTrue(shareCardSource.contains("supportsLongImage: Bool = true"))
 
         // Widget row cap now takes an override so the summary card's bar chart can
@@ -2762,12 +2767,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 22;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 23;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.0;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 22;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 23;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2802,7 +2807,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 22)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 23)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 22)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 21)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 20)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 19)**"))
@@ -2917,6 +2923,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 23)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 23."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 22)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 22."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 20)"))
@@ -3491,7 +3499,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 22)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 23)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 22)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 21)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 20)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 19)"))
