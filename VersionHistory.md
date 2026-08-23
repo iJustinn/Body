@@ -1,8 +1,34 @@
 # Version History
 
+## 1.0.0 (build 20)
+
+- **The Details card explains itself.** A `questionmark.circle` button at the trailing edge of the **Details** heading opens an **About These Details** sheet at full height: what the tiles are, which values Body derives itself rather than reading straight from Apple Health, what the 30-day comparison badges mean in each of their states, and a one or two sentence explanation of every tile that workout actually shows, so a swim reads about swim pace and strokes and never cycling cadence. A heart-rate-recovery read that lands while the sheet is open flows into it.
+- Corrected the README and TestPlan, which still said a settled workout with too little history carries no comparison badge; each comparable tile shows a `--%` badge instead.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 20.
+
+## 1.0.0 (build 19)
+
+- **Rating a workout's effort no longer re-asks for Apple Health permission.** Every HealthKit permission sheet now runs through one serialized lane, so the effort write sheet can never stack on a read-permission sheet; passive foreground resumes, post-save refreshes, and automatic preloads never show a permission sheet at all (they keep cached data and skip instead), and the sheet appears only on explicit actions such as pull-to-refresh, a month-picker tap, a Settings toggle, or a save.
+- **"Couldn't Save" now says why.** The effort save alert names the failing step in brackets (e.g. `[save]`, `[relate]`) with Apple Health's own reason, and the save no longer fails fast on HealthKit's per-app share status, which devices have reported as denied while the Health app showed Full Access.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 19.
+
+## 1.0.0 (build 18)
+
+- **The intro is a single "oooh" wave.** The "my" wave is gone: 60 "oooooooooh" wordmarks stream across once, in about 3.6 seconds, before the Welcome page fades in.
+- **The Welcome page greets "ohmybody (Body)".** The title reads "Welcome to ohmybody (Body)" in English and "欢迎使用 ohmybody (Body)" in Simplified Chinese.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 18.
+
+## 1.0.0 (build 17)
+
+- **The intro now plays on the Settings replay too.** Settings › About › Onboarding opens with the same word stream before its Welcome page; tap to skip and Reduce Motion behave exactly as on the first run.
+- **The intro words come in four colors.** Each wordmark is drawn in white or one of the three blues the default home background is built from, at slightly varied opacity, instead of plain white.
+- **The Welcome page is centered.** The app icon and the welcome title sit in the middle of the page, and the "daily picture of how your body is doing" line is gone.
+- **Starting the Health load explains that you can keep going.** Once Continue starts the load, the permission sentence crossfades into a note that the dashboard is being built in the background and the flow can continue.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 17.
+
 ## 1.0.0 (build 16)
 
-- **An intro plays before the first-run onboarding.** On a fresh install two waves of perfectly horizontal wordmarks run in about 5 seconds: 60 "oooooooooh" marks of different lengths slide in from past the left edge and out through the right at a steady speed, never stopping on screen, dense enough to cover the display edge to edge; about 1.4 s later a second wave of "my" through "myyyy" streams in behind them, and the Welcome page fades in under the tail of that second wave. Tapping anywhere skips ahead, Reduce Motion skips it entirely, and the replay from Settings › About › Onboarding never shows it. A preview video of the intro lives in the onboarding folder.
+- **An intro plays before onboarding.** On a fresh install (and on the Settings replay) two waves of perfectly horizontal wordmarks run in about 5 seconds: 60 "oooooooooh" marks of different lengths slide in from past the left edge and out through the right at a steady speed, never stopping on screen, dense enough to cover the display edge to edge; about 1.4 s later a second wave of "my" through "myyyy" streams in behind them, and the Welcome page fades in under the tail of that second wave. Tapping anywhere skips ahead, Reduce Motion skips it entirely, and the replay from Settings › About › Onboarding plays it too; the words are drawn in white and the three blues of the default home background. A preview video of the intro lives in the onboarding folder.
 - Updated the app, widget, watch, and test bundle version to 1.0.0 build 16.
 
 ## 1.0.0 (build 15)

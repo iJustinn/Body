@@ -78,7 +78,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(onboardingView.contains(".accessibilityHidden(introState == .playing)"))
         // Previews and render tests can open straight on the pages, skipping
         // the intro entirely.
-        XCTAssertTrue(onboardingView.contains("_introState = State(initialValue: mode == .firstRun && !skipsIntro ? .playing : .finished)"))
+        // The intro plays on the first run and on the Settings replay alike; only
+        // the render hooks skip it.
+        XCTAssertTrue(onboardingView.contains("_introState = State(initialValue: skipsIntro ? .finished : .playing)"))
 
         let introView = try text(at: "Body/Views/BodyIntroAnimationView.swift")
         // One clock drives both the drawn field and the reveal/finish
@@ -330,6 +332,9 @@ final class ProjectConfigurationTests: XCTestCase {
             ("Body/Views/BodyWorkoutsView.swift", 0, 1),
             // The type filter moved out of the workouts file into its own sheet.
             ("Body/Views/BodyWorkoutFilterView.swift", 1, 0),
+            // The Details explanation sheet likewise lives in its own file, so the
+            // workouts file above can keep its own backdrop and a count of zero.
+            ("Body/Views/BodyWorkoutDetailsExplanationSheet.swift", 1, 0),
             ("Body/Views/Health/BodyWorkoutShareSheet.swift", 0, 1)
         ]
 
@@ -369,8 +374,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let shareSheetSource = try text(at: "Body/Views/Health/BodyWorkoutShareSheet.swift")
         XCTAssertTrue(shareSheetSource.contains("placement: .topBarLeading"))
         XCTAssertTrue(shareSheetSource.contains("\"xmark\""))
-        // The badge beside the "Share" title reads "v3" — the reworked share card.
-        XCTAssertTrue(shareSheetSource.contains(#"Text("v3")"#))
+        // The badge beside the "Share" title reads "v5" — the reworked share card.
+        XCTAssertTrue(shareSheetSource.contains(#"Text("v5")"#))
+        XCTAssertFalse(shareSheetSource.contains(#"Text("v3")"#))
         XCTAssertFalse(shareSheetSource.contains(#"Text("Beta v2")"#))
         XCTAssertTrue(shareSheetSource.contains("\"square.and.arrow.up\""))
         XCTAssertTrue(shareSheetSource.contains("\"square.and.arrow.down\""))
@@ -1569,6 +1575,46 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(updateBlock.contains("dismiss()"))
     }
 
+    /// The "latest reading" queries must run inside the same window the daily
+    /// trend charts are fetched over. An unbounded one is what let a card
+    /// headline a value its own chart had no room for, at every range including
+    /// Year — and it reads as a deliberate choice in source, so guard the shape
+    /// rather than trusting a comment. Behavior itself is covered by
+    /// `RecentTrendWindowTests`.
+    func testLatestReadingQueriesAreBoundedToTheTrendWindow() throws {
+        let engineSource = try healthKitFetchEngineText()
+        let latestQuantityStart = try XCTUnwrap(
+            engineSource.range(of: "private func latestQuantity(")?.lowerBound
+        )
+        let latestQuantityEnd = try XCTUnwrap(
+            engineSource[latestQuantityStart...].range(of: "func fetchQuantitySampleSeries(")?.lowerBound
+        )
+        let latestQuantityBlock = String(engineSource[latestQuantityStart..<latestQuantityEnd])
+
+        // Both ends bound: an unbounded upper end would let a post-anchor sample
+        // headline a card whose chart is cut off at the anchor.
+        XCTAssertTrue(latestQuantityBlock.contains("recentHealthTrendInterval(calendar: calendar)"))
+        XCTAssertTrue(latestQuantityBlock.contains("startDate: interval.start"))
+        XCTAssertTrue(latestQuantityBlock.contains("endDate: interval.end"))
+
+        // The one derivation both the trend interval and the watch read from.
+        XCTAssertTrue(
+            engineSource.contains("BodyHealthTrendRange.recentTrendWindowStart(anchor: anchorOrDate, calendar: calendar)")
+        )
+
+        // The watch bounds its own local read the same way, so a recompute can
+        // never reintroduce a reading older than the charts can show.
+        let watchSource = try text(at: "BodyWatch/WatchDeltaFetcher.swift")
+        XCTAssertTrue(watchSource.contains("BodyHealthTrendRange.recentTrendWindowStart(anchor: now, calendar: calendar)"))
+
+        // ...and clears one that ages out afterwards at display time, because
+        // `WatchComputeMerge` deliberately preserves a good local value when an
+        // incoming push is blank.
+        let snapshotSource = try text(at: "BodyWatchShared/Models/WatchMetricsSnapshot.swift")
+        XCTAssertTrue(snapshotSource.contains("private func isOutOfTrendWindow("))
+        XCTAssertTrue(snapshotSource.contains("static func recentTrendWindowStart(asOf now: Date) -> Date"))
+    }
+
     func testHealthKitFetchesApplySourcePreferencesToRequestedMetrics() throws {
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
         let engineSource = try healthKitFetchEngineText()
@@ -2560,12 +2606,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 16;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 20;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.0;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 16;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 20;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2600,7 +2646,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 16)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 20)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 19)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 18)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 17)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 16)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 15)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 14)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 13)**"))
@@ -2709,6 +2759,14 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 20)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 20."))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 19)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 19."))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 18)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 18."))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 17)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 17."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 16)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 16."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 15)"))
@@ -3035,8 +3093,11 @@ final class ProjectConfigurationTests: XCTestCase {
             XCTFail("Expected requestWorkoutEffortWriteAuthorization() in HealthKitFetchEngine+Write.swift")
             return
         }
-        let requestBlock = String(writeSource[requestRange.lowerBound...].prefix(1_500))
-        XCTAssertTrue(requestBlock.contains("== .sharingAuthorized"))
+        let requestBlock = String(writeSource[requestRange.lowerBound...].prefix(2_500))
+        // `.sharingDenied` must never fail fast here — devices report it while the
+        // Health app shows Full Access — so the save stays the arbiter.
+        XCTAssertTrue(requestBlock.contains("case .denied, .prompt:"))
+        XCTAssertFalse(requestBlock.contains("underlying: HealthKitWorkoutError.authorizationDenied"))
 
         // Post-write refreshes stay passive, and the two automatic preloads
         // never allow a prompt.
@@ -3146,6 +3207,50 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(workoutsSource.contains("comparisonMonthsSettled = true"))
     }
 
+    func testWorkoutDetailsCardExplainsItsMetricsInASheet() throws {
+        let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
+        let sheetSource = try text(at: "Body/Views/BodyWorkoutDetailsExplanationSheet.swift")
+
+        // A question-mark button sits at the trailing edge of the Details heading and
+        // opens the explanation sheet at full height.
+        XCTAssertTrue(workoutsSource.contains(#"Image(systemName: "questionmark.circle")"#))
+        XCTAssertTrue(workoutsSource.contains("showsDetailsExplanation = true"))
+        XCTAssertTrue(workoutsSource.contains(".sheet(isPresented: $showsDetailsExplanation)"))
+        XCTAssertTrue(workoutsSource.contains(".presentationDetents([.large])"))
+
+        // The 18 pt glyph is padded out to the 44 pt minimum target and the padding is
+        // cancelled again, so the header's height and the "Details" baseline don't move.
+        XCTAssertTrue(workoutsSource.contains("private static let detailsHelpTapSlop: CGFloat = 13"))
+        XCTAssertTrue(workoutsSource.contains(".padding(Self.detailsHelpTapSlop)"))
+        XCTAssertTrue(workoutsSource.contains(".padding(-Self.detailsHelpTapSlop)"))
+
+        // The card and the sheet read one shared list, so the sheet can never describe
+        // a tile the grid isn't showing (including the lazily appended HR Recovery).
+        XCTAssertTrue(workoutsSource.contains("private func resolvedDetailMetrics(presentation: WorkoutDetailPresentation) -> [WorkoutDetailMetric]"))
+        XCTAssertTrue(workoutsSource.contains("let metrics = resolvedDetailMetrics(presentation: presentation)"))
+        XCTAssertTrue(workoutsSource.contains("metrics: resolvedDetailMetrics(presentation: presentation)"))
+
+        // Row headings reuse each tile's own localized, unit-correct title rather than
+        // a second copy of the metric names.
+        XCTAssertTrue(sheetSource.contains("title: metric.title"))
+        // Explanations are keyed on Kind, so "Avg Pace" can mean per km/mi for a run and
+        // per 100 m/yd for a swim without the two sharing one string.
+        XCTAssertTrue(sheetSource.contains("static func explanation(for kind: WorkoutDetailMetric.Kind) -> String"))
+        XCTAssertTrue(sheetSource.contains("case .swimPace:"))
+        // The comparison paragraph is dropped when the card shows no badges to explain.
+        XCTAssertTrue(sheetSource.contains("if showsComparison {"))
+        // The user-facing copy deliberately avoids dashes used as punctuation. Scoped to
+        // the localized literals: the file's own comments keep the house em-dash style.
+        let copyLines = sheetSource
+            .components(separatedBy: "\n")
+            .filter { $0.contains("String(localized:") }
+        XCTAssertGreaterThanOrEqual(copyLines.count, 20, "expected one explanation per metric kind plus the header copy")
+        for line in copyLines {
+            XCTAssertFalse(line.contains("—"), "em dash in explanation copy: \(line.trimmingCharacters(in: .whitespaces).prefix(60))")
+            XCTAssertFalse(line.contains("–"), "en dash in explanation copy: \(line.trimmingCharacters(in: .whitespaces).prefix(60))")
+        }
+    }
+
     func testWorkoutListSheetRowsOpenFullScreenDetail() throws {
         let source = try text(at: "Body/Views/BodyWorkoutListSheet.swift")
 
@@ -3226,11 +3331,15 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 16)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 20)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 19)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 18)"))
         XCTAssertTrue(testPlan.contains("Settings › About › Onboarding"))
         // The first-run intro's automated and manual coverage.
         XCTAssertTrue(testPlan.contains("BodyIntroAnimationTests"))
         XCTAssertTrue(testPlan.contains("intro plays"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 17)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 16)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 15)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 14)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 13)"))
