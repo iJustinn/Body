@@ -1,12 +1,24 @@
 # Version History
 
-## 1.0.0 (build 23)
+## 1.0.0 (build 25)
 
-- **The first load finishes even with permissions turned off.** Previously, denying some Apple Health read permissions (Date of Birth / Sex for Cardio Fitness, or Activity rings) made every first load end back at "Try Again" and kept the app's passive syncs idle; those reads now count as empty rather than failed, and the one-time load overlay dismisses once a full load completes even if a category couldn't be read.
+- **Dragging a Summary card somewhere it can't go no longer crashes the app.** Releasing a card over the hero, the empty space below the grid, or the tab bar cancelled the drag, and iOS then animated the card back to a view the app had already thrown away — the grid rebuilt its rows on every reorder that ran while the drag was still in flight, and the card being dragged was rebuilt with them. The grid now keeps one view per card wherever it moves, so a cancelled drop returns the card to the grid, and reordering slides the cards to their new places instead of rebuilding the rows underneath them.
+- **Every permission row now says where its access stands.** Settings > Data > Permissions shows a status line under each switch: off, needs its parent category on as well, not used by any dashboard card right now, checking, Body has data for this category, or no data yet. The three that want attention are tinted orange. The line is derived from data Body already holds, sampled once when the page opens, so viewing it never starts an Apple Health query. It deliberately never claims Apple Health granted or denied anything: iOS does not disclose whether a read permission was allowed, and cached values can outlive the read that produced them, so the copy reports what Body holds rather than what Health is doing.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 25.
+
+## 1.0.0 (build 24)
+
+- **Denied Apple Health permissions no longer fail the first load.** Previously, denying some Apple Health read permissions (Date of Birth / Sex for Cardio Fitness, or Activity rings) made every first load end back at "Try Again" and kept the app's passive syncs idle; those reads now count as empty rather than failed, and the one-time load overlay dismisses once a full load completes even if a category couldn't be read. On its own that did not stop a slow Apple Health query from holding the load open, which is what the next entries fix.
+- **The first Health load could hang forever, and no longer can.** Activity Ring history used to be fetched inside the dashboard refresh's task group, so the refresh could not finish until a single ten year activity summary query returned. If that query was slow or never came back, the "Loading Health Data…" overlay button and the "Loading data..." sync badge spun forever, nothing was persisted, and quitting and reopening the app repeated it. Ring history now loads out of band, after the refresh completes, so it can never hold the refresh open.
+- **Ring history loads in the background, newest first.** The ten year backfill walks in twelve month chunks and publishes each chunk as it lands, so on a first launch the Activity Rings calendar fills in progressively instead of arriving all at once.
+- **Every Activity Ring read is now bounded.** The backfill chunks, the recent window, and the older-history probe all run as stoppable queries with a 20 second timeout, so a stalled read is cancelled rather than waited on forever.
+- **Every user-facing refresh now has a 120 second deadline.** If a refresh exceeds it the app stops the spinners, keeps whatever data already landed, saves it, and shows a notice that loading Apple Health data is taking longer than expected and to try again. It deliberately does not mark the refresh successful, so the freshness timer is not armed and the next pull to refresh runs for real.
+- **The ten year ring backfill remembers its progress.** It records itself completed, pending with a resume point, or suppressed when Activity access is denied, and resumes from where it stopped instead of restarting. Installs that already completed the backfill are unaffected.
+- **Cards no longer fake a loading state.** Summary cards that show a "waiting for data" skeleton (the Sleep vitals rings preview and the Cardio Fitness level rows) now tell "still loading" apart from "no data available": the skeleton shows only while a refresh is actually running, and otherwise the card settles into a calm empty state at the same height. Cardio Fitness keeps showing its VO₂ max number when only the level classification is unavailable.
 - Onboarding's Health page now distinguishes a load that finished with no readable data from one that loaded data.
 - **Weekdays on the shared calendar.** The month summary share page's Chart Style tray gains a Weekdays tile that hides or shows the calendar's S M T W T F S row; the choice is remembered, and the tile is absent while Bar Chart is selected.
 - Settings > Data > Permissions gained a footer that explains how the permission switches work: Body only reads, turning a category on asks Apple Health for access and refreshes, turning it off stops reading and clears its data locally, and the Health app stays in charge of real access.
-- Updated the app, widget, watch, and test bundle version to 1.0.0 build 23.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 24.
 
 ## 1.0.0 (build 22)
 
