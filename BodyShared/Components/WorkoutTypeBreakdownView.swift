@@ -28,29 +28,56 @@ struct WorkoutTypeBreakdownView: View {
     /// Nil in the widgets, which have no second chart to switch to — and which
     /// therefore lay out exactly as they did before this control existed.
     let onSwitchChart: (() -> Void)?
+    /// A caller-imposed ceiling on the rows drawn, *below* the style's own — the
+    /// share card knows how tall its chart region is and can't afford five rows on a
+    /// 360 pt-tall ratio. Nil everywhere else, which leaves the style in charge.
+    let rowLimit: Int?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The rank-slot morph's chart snapshot: it drives the sort order, the bar widths
+    /// and the bar colors, and is assigned inside a 0.45 s ease-in-out. Because the
+    /// rows are keyed on their rank rather than on the activity, a re-ranking reads as
+    /// bars traveling and colors morphing in place instead of the list reshuffling.
+    @State private var displayedBreakdown: [WorkoutTypeBreakdown]?
+    /// The same data on a second clock, feeding only the in-bar percentages. Assigned
+    /// *outside* the animation above so the digits start rolling immediately while the
+    /// bars are still on their way.
+    @State private var displayedTextBreakdown: [WorkoutTypeBreakdown]?
 
     init(
         snapshot: WorkoutMonthSnapshot,
         style: WorkoutTypeBreakdownDisplayStyle = .app,
+        rowLimit: Int? = nil,
         onSelectType: ((BodyWorkoutType) -> Void)? = nil,
         onSwitchChart: (() -> Void)? = nil
     ) {
         self.snapshot = snapshot
         self.style = style
+        self.rowLimit = rowLimit
         self.onSelectType = onSelectType
         self.onSwitchChart = onSwitchChart
     }
 
-    private var displayedBreakdown: [WorkoutTypeBreakdown] {
-        Array(snapshot.workoutTypeBreakdown.prefix(displayLimit))
+    /// Both morph snapshots stay nil until the first `.task` pass, and the widgets
+    /// never run one — every read falls back to the live snapshot, so a widget renders
+    /// exactly the data it was handed.
+    private var chartBreakdown: [WorkoutTypeBreakdown] {
+        Array((displayedBreakdown ?? snapshot.workoutTypeBreakdown).prefix(displayLimit))
     }
 
+    private var textBreakdown: [WorkoutTypeBreakdown] {
+        displayedTextBreakdown ?? snapshot.workoutTypeBreakdown
+    }
+
+    /// Percentages are taken against the sum of what the text snapshot holds, so the
+    /// visible rows always add up to ~100%.
     private var distributionTotal: TimeInterval {
-        snapshot.workoutTypeBreakdown.reduce(0) { $0 + $1.duration }
+        textBreakdown.reduce(0) { $0 + $1.duration }
     }
 
     private var maxDuration: TimeInterval {
-        displayedBreakdown.map(\.duration).max() ?? 0
+        chartBreakdown.map(\.duration).max() ?? 0
     }
 
     var body: some View {
@@ -62,6 +89,23 @@ struct WorkoutTypeBreakdownView: View {
             maxHeight: style.isWidget ? .infinity : nil,
             alignment: .topLeading
         )
+        .task(id: snapshot.workoutTypeBreakdown) {
+            publishBreakdown(snapshot.workoutTypeBreakdown)
+        }
+    }
+
+    /// Hands the new arrangement to the two snapshots. The first fill and any hop in or
+    /// out of the empty state land unanimated: there is no previous arrangement to morph
+    /// from, and an intro sweep on appear is exactly what the rank-slot morph exists to
+    /// avoid — a month switch already cross-fades the whole card.
+    private func publishBreakdown(_ breakdown: [WorkoutTypeBreakdown]) {
+        let hasPreviousArrangement = !(displayedBreakdown ?? []).isEmpty
+        let morphs = hasPreviousArrangement && !breakdown.isEmpty && !reduceMotion
+
+        withAnimation(morphs ? .easeInOut(duration: 0.45) : nil) {
+            displayedBreakdown = breakdown
+        }
+        displayedTextBreakdown = breakdown
     }
 
     private var emptyState: some View {
@@ -88,8 +132,10 @@ struct WorkoutTypeBreakdownView: View {
     }
 
     private var rowStack: some View {
-        VStack(alignment: .leading, spacing: rowSpacing) {
-            if displayedBreakdown.isEmpty {
+        let rows = chartBreakdown
+
+        return VStack(alignment: .leading, spacing: rowSpacing) {
+            if rows.isEmpty {
                 emptyState
 
                 // No last bar row to sit on, so the control keeps a row of its
@@ -102,11 +148,15 @@ struct WorkoutTypeBreakdownView: View {
                     }
                 }
             } else {
-                ForEach(Array(displayedBreakdown.enumerated()), id: \.element.id) { index, entry in
+                // Keyed on the rank slot, never on the activity: row 1 stays row 1 and
+                // its contents morph in place when the rankings change.
+                ForEach(rows.indices, id: \.self) { index in
                     workoutTypeDistributionRow(
-                        entry,
-                        switchAction: index == displayedBreakdown.count - 1 ? onSwitchChart : nil
+                        rows[index],
+                        rank: index,
+                        switchAction: index == rows.count - 1 ? onSwitchChart : nil
                     )
+                    .transition(.opacity)
                 }
             }
         }
@@ -136,6 +186,7 @@ struct WorkoutTypeBreakdownView: View {
 
     private func workoutTypeDistributionRow(
         _ entry: WorkoutTypeBreakdown,
+        rank: Int,
         switchAction: (() -> Void)? = nil
     ) -> some View {
         GeometryReader { geometry in
@@ -151,11 +202,16 @@ struct WorkoutTypeBreakdownView: View {
 
             HStack(spacing: rowHorizontalSpacing) {
                 HStack(spacing: rowHorizontalSpacing) {
-                    percentageBar(entry)
+                    percentageBar(entry, rank: rank)
                         .frame(width: barWidth, height: rowHeight)
 
                     workoutTypeDetails(entry)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        // Identity is the activity, so when a different one takes this
+                        // slot the whole icon + name + duration group cross-fades old to
+                        // new rather than swapping through a blank frame.
+                        .id(entry.type)
+                        .transition(.opacity)
                 }
                 // Scoped to the bar and label rather than the whole row, so the
                 // control never doubles as this row's drill-down.
@@ -173,16 +229,32 @@ struct WorkoutTypeBreakdownView: View {
         .frame(height: rowHeight)
     }
 
-    private func percentageBar(_ entry: WorkoutTypeBreakdown) -> some View {
-        ZStack(alignment: .leading) {
+    private func percentageBar(_ entry: WorkoutTypeBreakdown, rank: Int) -> some View {
+        let percentage = percentage(atRank: rank)
+
+        return ZStack(alignment: .leading) {
             BodyGlassChip(color: entry.type.color, cornerRadius: barCornerRadius)
 
-            Text(percentageText(for: entry.duration))
+            // Verbatim: an interpolated `Text` would register `%lld%%` as a
+            // localizable key, and the percentage is the same in every language.
+            Text(verbatim: "\(percentage)%")
                 .font(.system(size: percentageFontSize, weight: .bold, design: .rounded))
                 .foregroundColor(.black.opacity(0.82))
+                .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(style.isWidget ? 0.68 : 0.75)
                 .padding(.horizontal, 16)
+                .contentTransition(reduceMotion ? .identity : .numericText(value: Double(percentage)))
+                .animation(reduceMotion ? nil : .snappy(duration: 0.38, extraBounce: 0), value: percentage)
+                // The label rides inside a bar that is traveling under the 0.45 s morph.
+                // Under Reduce Motion nothing may move, so the inherited animation is
+                // dropped here too — `.animation(nil, value:)` above only governs the
+                // label's own change.
+                .transaction { transaction in
+                    if reduceMotion {
+                        transaction.animation = nil
+                    }
+                }
         }
     }
 
@@ -212,11 +284,14 @@ struct WorkoutTypeBreakdownView: View {
         }
     }
 
-    private func percentageText(for duration: TimeInterval) -> String {
-        guard distributionTotal > 0 else { return "0%" }
+    /// Read at the rank slot rather than from the row's own entry: the number comes
+    /// from the text snapshot, which is already showing the new arrangement while the
+    /// bar under it is still traveling to its new width.
+    private func percentage(atRank rank: Int) -> Int {
+        let breakdown = textBreakdown
+        guard distributionTotal > 0, rank < breakdown.count else { return 0 }
 
-        let percentage = Int(((duration / distributionTotal) * 100).rounded())
-        return "\(percentage)%"
+        return Int(((breakdown[rank].duration / distributionTotal) * 100).rounded())
     }
 
     private func detailReserveWidth(for availableWidth: CGFloat) -> CGFloat {
@@ -366,10 +441,16 @@ struct WorkoutTypeBreakdownView: View {
         style.isWidget ? .semibold : .bold
     }
 
+    /// The caller's ceiling can only ever tighten the style's — a widget asking for
+    /// ten rows still draws the five it was designed for.
     private var displayLimit: Int {
+        min(rowLimit ?? styleLimit, styleLimit)
+    }
+
+    private var styleLimit: Int {
         switch style {
         case .app:
-            return snapshot.workoutTypeBreakdown.count
+            return .max
         case .widgetMedium:
             return 2
         case .widgetLarge:

@@ -64,6 +64,7 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
     func testWorkoutMetricsPermissionGatesDetailReadTypes() throws {
         let vo2Max = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .vo2Max))
         let runningPower = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .runningPower))
+        let cyclingPower = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .cyclingPower))
         let cyclingCadence = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .cyclingCadence))
         let swimStrokes = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .swimmingStrokeCount))
         let strideLength = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .runningStrideLength))
@@ -77,6 +78,7 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         )
         XCTAssertTrue(both.contains(vo2Max))
         XCTAssertTrue(both.contains(runningPower))
+        XCTAssertTrue(both.contains(cyclingPower))
         XCTAssertTrue(both.contains(cyclingCadence))
         XCTAssertTrue(both.contains(swimStrokes))
         XCTAssertTrue(both.contains(strideLength))
@@ -93,6 +95,7 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertTrue(workoutsOnly.contains(HKObjectType.workoutType()))
         XCTAssertFalse(workoutsOnly.contains(vo2Max))
         XCTAssertFalse(workoutsOnly.contains(runningPower))
+        XCTAssertFalse(workoutsOnly.contains(cyclingPower))
         XCTAssertFalse(workoutsOnly.contains(swimStrokes))
         XCTAssertFalse(workoutsOnly.contains(strideLength))
         XCTAssertFalse(workoutsOnly.contains(groundContact))
@@ -500,6 +503,215 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         )
     }
 
+    /// A backfill walk may never claim a month newer than its own `walkEnd`.
+    ///
+    /// This one property is what all three shipped instances of this bug
+    /// violated: a chunk claiming months out to the walk end instead of its own
+    /// window, a resume re-claiming the checkpoint month, and an empty resumed
+    /// walk claiming the RECENT months it never scanned. Each was a hand
+    /// computed month set that reached past what was actually read, and because
+    /// `replacingLoadedMonths` REPLACES every claimed month, each one deleted
+    /// days that were already on disk.
+    ///
+    /// Asserted over every branch of the key computation rather than over one
+    /// scenario, so a fourth instance fails here instead of being found by a
+    /// user missing days from their calendar.
+    func testBackfillNeverClaimsMonthsNewerThanTheWalkItPerformed() throws {
+        let calendar = Calendar.bodyGregorian
+        let today = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 23)))
+        let resumeFrom = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let scannedStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2025, month: 5, day: 1)))
+        let dayWithData = try XCTUnwrap(calendar.date(from: DateComponents(year: 2025, month: 7, day: 9)))
+
+        let freshEnd = try XCTUnwrap(
+            HealthKitFetchEngine.activityRingBackfillWalkEnd(
+                date: today, resumeFrom: nil, calendar: calendar
+            )
+        )
+        let resumedEnd = try XCTUnwrap(
+            HealthKitFetchEngine.activityRingBackfillWalkEnd(
+                date: today, resumeFrom: resumeFrom, calendar: calendar
+            )
+        )
+
+        let cases: [(name: String, earliest: Date?, scanned: Date?, resume: Date?, walkEnd: Date)] = [
+            ("fresh walk with data", dayWithData, scannedStart, nil, freshEnd),
+            ("fresh walk with no data anywhere", nil, scannedStart, nil, freshEnd),
+            ("fresh walk that landed nothing", nil, nil, nil, freshEnd),
+            ("resumed walk with data", dayWithData, scannedStart, resumeFrom, resumedEnd),
+            ("resumed walk that found no days", nil, scannedStart, resumeFrom, resumedEnd),
+            ("resumed walk that landed nothing", nil, nil, resumeFrom, resumedEnd)
+        ]
+
+        for scenario in cases {
+            let keys = HealthKitFetchEngine.activityRingBackfillLoadedMonthKeys(
+                earliestDayWithData: scenario.earliest,
+                oldestScannedStart: scenario.scanned,
+                walkEnd: scenario.walkEnd,
+                resumeFrom: scenario.resume,
+                date: today,
+                calendar: calendar
+            )
+            let endKey = ActivityRingMonthKey(date: scenario.walkEnd, calendar: calendar)
+            let overreaching = keys.filter { ($0.year, $0.month) > (endKey.year, endKey.month) }
+            XCTAssertTrue(
+                overreaching.isEmpty,
+                "\(scenario.name): claims \(overreaching.map { "\($0.year)-\($0.month)" }) newer than its walk end \(endKey.year)-\(endKey.month), so applying it would delete days it never read"
+            )
+        }
+    }
+
+    /// Walks the real backfill chunk boundaries and asserts no month is ever
+    /// claimed by two chunks, and that together they cover the whole span.
+    ///
+    /// This is the invariant that makes a whole class of silent data loss
+    /// unreachable. A landed chunk marks whole months as loaded, and
+    /// `replacingLoadedMonths` REPLACES the days of every month an incoming
+    /// chunk claims — so if two chunks ever shared a month, the older one
+    /// would wipe days the newer one had already published, producing a
+    /// plausible-looking calendar that is quietly missing data. An earlier cut
+    /// of the chunk walk did exactly that. Month alignment is the only thing
+    /// keeping the windows disjoint, so pin it here rather than trusting it.
+    func testActivityRingBackfillChunksNeverShareAMonth() throws {
+        let calendar = Calendar.bodyGregorian
+        let end = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 23)))
+        let historyStart = try XCTUnwrap(
+            HealthKitFetchEngine.activityRingBackfillStartDate(date: end, calendar: calendar)
+        )
+
+        var monthsByChunk: [Set<ActivityRingMonthKey>] = []
+        var chunkEnd = end
+        // Bounded well above the ten year span so a non-terminating walk fails
+        // here instead of hanging the suite.
+        for _ in 0..<240 {
+            let chunkStart = HealthKitFetchEngine.activityRingBackfillChunkStart(
+                endingAt: chunkEnd,
+                notBefore: historyStart,
+                calendar: calendar
+            )
+            monthsByChunk.append(
+                Set(HealthKitFetchEngine.activityRingMonthKeySpan(from: chunkStart, to: chunkEnd, calendar: calendar))
+            )
+
+            guard chunkStart > historyStart else {
+                break
+            }
+            chunkEnd = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: chunkStart))
+        }
+
+        XCTAssertGreaterThan(monthsByChunk.count, 1, "The ten year span must take more than one chunk")
+
+        var seen: Set<ActivityRingMonthKey> = []
+        for (index, months) in monthsByChunk.enumerated() {
+            let overlap = seen.intersection(months)
+            XCTAssertTrue(
+                overlap.isEmpty,
+                "Chunk \(index) re-claims month(s) \(overlap.sorted { ($0.year, $0.month) < ($1.year, $1.month) }) already loaded by an earlier chunk, so applying it would wipe days that chunk published"
+            )
+            seen.formUnion(months)
+        }
+
+        // Disjoint is only half the contract: the chunks must also leave no gap.
+        XCTAssertEqual(
+            seen,
+            Set(HealthKitFetchEngine.activityRingMonthKeySpan(from: historyStart, to: end, calendar: calendar)),
+            "The chunk walk must cover every month from the history start through today"
+        )
+    }
+
+    func testActivityRingDaysClampDropsBoundaryDaysOutsideTheChunkWindow() throws {
+        let calendar = Calendar.bodyGregorian
+        let summary = ActivityRingSummary(
+            move: ActivityRingMetric(value: 500, goal: 500),
+            exercise: ActivityRingMetric(value: 30, goal: 30),
+            stand: ActivityRingMetric(value: 12, goal: 12)
+        )
+        // A month aligned chunk, exactly what `activityRingBackfillChunkStart`
+        // produces: February 1 through April 30.
+        let chunkStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 2, day: 1)))
+        let chunkEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 30)))
+        let dayBefore = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 31)))
+        let dayAfter = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let inWindow = try [
+            DateComponents(year: 2026, month: 2, day: 1),
+            DateComponents(year: 2026, month: 3, day: 14),
+            DateComponents(year: 2026, month: 4, day: 30)
+        ].map { try XCTUnwrap(calendar.date(from: $0)) }
+
+        let fetched = ([dayBefore] + inWindow + [dayAfter]).map {
+            ActivityRingDaySummary(date: $0, summary: summary)
+        }
+        let clamped = HealthKitFetchEngine.activityRingDays(
+            fetched,
+            from: chunkStart,
+            through: chunkEnd,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(
+            clamped.map(\.date),
+            inWindow,
+            "A components-predicated ring query can return boundary days outside the requested window; they must not enter the chunk"
+        )
+
+        // The claimed month span is derived from the oldest day, so an unclamped
+        // boundary day is what lets a chunk claim a neighbouring chunk's month —
+        // and `replacingLoadedMonths` REPLACES those months rather than merging.
+        let clampedMonths = try HealthKitFetchEngine.activityRingMonthKeySpan(
+            from: XCTUnwrap(clamped.first).date,
+            to: chunkEnd,
+            calendar: calendar
+        )
+        XCTAssertEqual(
+            Set(clampedMonths),
+            Set(HealthKitFetchEngine.activityRingMonthKeySpan(from: chunkStart, to: chunkEnd, calendar: calendar)),
+            "The clamped chunk must claim exactly the months its own window covers"
+        )
+        XCTAssertFalse(
+            clampedMonths.contains(ActivityRingMonthKey(month: 1, year: 2026)),
+            "A January boundary day must not make a February chunk claim — and so wipe — January"
+        )
+
+        let unclampedMonths = HealthKitFetchEngine.activityRingMonthKeySpan(
+            from: dayBefore,
+            to: chunkEnd,
+            calendar: calendar
+        )
+        XCTAssertTrue(
+            unclampedMonths.contains(ActivityRingMonthKey(month: 1, year: 2026)),
+            "Guard that the unclamped span really would have reached the neighbouring month"
+        )
+    }
+
+    func testActivityRingDaysClampLeavesDaysAlreadyInsideTheWindowUnchanged() throws {
+        let calendar = Calendar.bodyGregorian
+        let summary = ActivityRingSummary(
+            move: ActivityRingMetric(value: 500, goal: 500),
+            exercise: ActivityRingMetric(value: 30, goal: 30),
+            stand: ActivityRingMetric(value: 12, goal: 12)
+        )
+        let chunkStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 2, day: 1)))
+        let chunkEnd = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 30)))
+        // A mid-day timestamp still belongs to its day: the window is compared
+        // at day granularity, not instant granularity.
+        let days = try [
+            DateComponents(year: 2026, month: 2, day: 1, hour: 23, minute: 59),
+            DateComponents(year: 2026, month: 3, day: 14),
+            DateComponents(year: 2026, month: 4, day: 30, hour: 13)
+        ].map { ActivityRingDaySummary(date: try XCTUnwrap(calendar.date(from: $0)), summary: summary) }
+
+        XCTAssertEqual(
+            HealthKitFetchEngine.activityRingDays(
+                days,
+                from: chunkStart,
+                through: chunkEnd,
+                calendar: calendar
+            ),
+            days,
+            "Clamping must be a no-op when every fetched day already falls inside the requested window"
+        )
+    }
+
     func testActivityRingMonthKeySpanIsInclusiveOnBothEnds() throws {
         let calendar = Calendar.bodyGregorian
         let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2024, month: 11, day: 20)))
@@ -523,34 +735,175 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertTrue(HealthKitFetchEngine.activityRingMonthKeySpan(from: end, to: start, calendar: calendar).isEmpty)
     }
 
-    func testActivityRingBackfillCompletedFlagPersistsAndClears() throws {
+    func testActivityRingBackfillStatePersistsEveryCaseAndClears() throws {
         let suiteName = "BodyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        XCTAssertFalse(HealthDashboardSnapshotStore.loadActivityRingBackfillCompleted(defaults: defaults))
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadActivityRingBackfillState(defaults: defaults),
+            .pending(resumeFrom: nil)
+        )
 
-        HealthDashboardSnapshotStore.saveActivityRingBackfillCompleted(defaults: defaults)
-        XCTAssertTrue(HealthDashboardSnapshotStore.loadActivityRingBackfillCompleted(defaults: defaults))
+        // The resume checkpoint round-trips, so an interrupted walk continues
+        // instead of restarting at today.
+        let resumeFrom = Date(timeIntervalSince1970: 1_700_000_000)
+        HealthDashboardSnapshotStore.saveActivityRingBackfillState(.pending(resumeFrom: resumeFrom), defaults: defaults)
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadActivityRingBackfillState(defaults: defaults),
+            .pending(resumeFrom: resumeFrom)
+        )
 
-        HealthDashboardSnapshotStore.clearActivityRingBackfillCompleted(defaults: defaults)
-        XCTAssertFalse(HealthDashboardSnapshotStore.loadActivityRingBackfillCompleted(defaults: defaults))
+        let lastProbe = Date(timeIntervalSince1970: 1_710_000_000)
+        HealthDashboardSnapshotStore.saveActivityRingBackfillState(.suppressed(lastProbe: lastProbe), defaults: defaults)
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadActivityRingBackfillState(defaults: defaults),
+            .suppressed(lastProbe: lastProbe)
+        )
+
+        HealthDashboardSnapshotStore.saveActivityRingBackfillState(.completed, defaults: defaults)
+        XCTAssertEqual(HealthDashboardSnapshotStore.loadActivityRingBackfillState(defaults: defaults), .completed)
+
+        HealthDashboardSnapshotStore.clearActivityRingBackfillState(defaults: defaults)
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadActivityRingBackfillState(defaults: defaults),
+            .pending(resumeFrom: nil)
+        )
+    }
+
+    func testActivityRingBackfillStateMigratesTheLegacyCompletedFlag() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        // An install that finished the ten-year scan under the old Boolean
+        // marker must not be made to redo it.
+        defaults.set(true, forKey: HealthDashboardSnapshotStore.activityRingBackfillCompletedKey)
+        XCTAssertEqual(HealthDashboardSnapshotStore.loadActivityRingBackfillState(defaults: defaults), .completed)
+
+        // And moving off `.completed` clears the legacy key with it.
+        HealthDashboardSnapshotStore.saveActivityRingBackfillState(.pending(resumeFrom: nil), defaults: defaults)
+        XCTAssertFalse(defaults.bool(forKey: HealthDashboardSnapshotStore.activityRingBackfillCompletedKey))
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadActivityRingBackfillState(defaults: defaults),
+            .pending(resumeFrom: nil)
+        )
+    }
+
+    func testActivityRingBackfillCompletesOnlyWhenTheWalkReachesHistoryStart() {
+        let now = Date(timeIntervalSince1970: 1_760_000_000)
+        let checkpoint = Date(timeIntervalSince1970: 1_700_000_000)
+
+        // A partial chunk that carried days is NOT a finished ten-year history:
+        // it keeps the walk pending, at the checkpoint it got to.
+        XCTAssertEqual(
+            HealthKitWorkoutStore.nextActivityRingBackfillState(
+                current: .pending(resumeFrom: nil),
+                authorizationDenied: false,
+                reachedHistoryStart: false,
+                nextChunkEndDate: checkpoint,
+                foundDays: true,
+                now: now
+            ),
+            .pending(resumeFrom: checkpoint)
+        )
+
+        XCTAssertEqual(
+            HealthKitWorkoutStore.nextActivityRingBackfillState(
+                current: .pending(resumeFrom: checkpoint),
+                authorizationDenied: false,
+                reachedHistoryStart: true,
+                nextChunkEndDate: nil,
+                foundDays: true,
+                now: now
+            ),
+            .completed
+        )
+
+        // A failed walk reports no new checkpoint; the old one stands so the
+        // retry doesn't start over at today.
+        XCTAssertEqual(
+            HealthKitWorkoutStore.nextActivityRingBackfillState(
+                current: .pending(resumeFrom: checkpoint),
+                authorizationDenied: false,
+                reachedHistoryStart: false,
+                nextChunkEndDate: nil,
+                foundDays: false,
+                now: now
+            ),
+            .pending(resumeFrom: checkpoint)
+        )
+
+        // A finished backfill's recent-window reads don't un-finish it.
+        XCTAssertEqual(
+            HealthKitWorkoutStore.nextActivityRingBackfillState(
+                current: .completed,
+                authorizationDenied: false,
+                reachedHistoryStart: false,
+                nextChunkEndDate: nil,
+                foundDays: true,
+                now: now
+            ),
+            .completed
+        )
+    }
+
+    func testDeniedActivityRingReadSuppressesBackfillUntilAReadFindsDaysAgain() {
+        let now = Date(timeIntervalSince1970: 1_760_000_000)
+        let checkpoint = Date(timeIntervalSince1970: 1_700_000_000)
+
+        // Denial parks the heavy scan instead of clearing the marker, which used
+        // to re-issue the whole ten-year query on every single refresh.
+        XCTAssertEqual(
+            HealthKitWorkoutStore.nextActivityRingBackfillState(
+                current: .pending(resumeFrom: checkpoint),
+                authorizationDenied: true,
+                reachedHistoryStart: false,
+                nextChunkEndDate: nil,
+                foundDays: false,
+                now: now
+            ),
+            .suppressed(lastProbe: now)
+        )
+
+        // A cheap probe that still finds nothing leaves it parked…
+        XCTAssertEqual(
+            HealthKitWorkoutStore.nextActivityRingBackfillState(
+                current: .suppressed(lastProbe: now),
+                authorizationDenied: false,
+                reachedHistoryStart: false,
+                nextChunkEndDate: nil,
+                foundDays: false,
+                now: now
+            ),
+            .suppressed(lastProbe: now)
+        )
+
+        // …and one that comes back with days re-arms it.
+        XCTAssertEqual(
+            HealthKitWorkoutStore.nextActivityRingBackfillState(
+                current: .suppressed(lastProbe: now),
+                authorizationDenied: false,
+                reachedHistoryStart: false,
+                nextChunkEndDate: nil,
+                foundDays: true,
+                now: now
+            ),
+            .pending(resumeFrom: nil)
+        )
     }
 
     @MainActor
     func testNeedsInitialHealthDataLoadReflectsCacheAndRefreshState() throws {
-        // The store reads the persisted refresh timestamp from standard
-        // defaults at init; park it so a previous run on this host cannot
-        // mask the fresh-install state.
-        let preservedRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
-        HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
-        defer {
-            if let preservedRefreshDate {
-                HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(preservedRefreshDate)
-            }
-        }
+        // The store reads the persisted refresh timestamp and the first-load
+        // completion flag from standard defaults at init; park both so a
+        // previous run on this host cannot mask the fresh-install state.
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
 
         let initialSnapshot = WorkoutMonthSnapshot.make(
             month: 5,
@@ -573,14 +926,838 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testPassiveLoadsStayIdleUntilFirstHealthDataLoad() async throws {
+    func testPartialRefreshClearsNeedsInitialHealthDataLoadWithoutArmingFreshnessTTL() throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+
+        let store = emptyHealthDataStore()
+        XCTAssertTrue(store.needsInitialHealthDataLoad)
+
+        // Denied read permissions make some leaves fail on every refresh; the
+        // completed full refresh still counts as the first load.
+        store.markRefreshSucceeded(date: Date(), refreshedVitals: true, hadQueryFailure: true)
+        XCTAssertTrue(store.hasCompletedInitialHealthDataLoad)
+        XCTAssertFalse(store.needsInitialHealthDataLoad)
+        XCTAssertNil(store.lastSuccessfulRefreshDate)
+        XCTAssertFalse(store.hasHealthDataToShow)
+    }
+
+    @MainActor
+    func testNonVitalsRefreshLeavesInitialHealthDataLoadPending() throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+
+        let store = emptyHealthDataStore()
+        store.markRefreshSucceeded(date: Date(), refreshedVitals: false)
+        XCTAssertFalse(store.hasCompletedInitialHealthDataLoad)
+        XCTAssertTrue(store.needsInitialHealthDataLoad)
+    }
+
+    @MainActor
+    func testInitialHealthDataLoadCompletionRestoresFromPersistence() throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+
+        emptyHealthDataStore().markRefreshSucceeded(date: Date(), refreshedVitals: true, hadQueryFailure: true)
+
+        let relaunchedStore = emptyHealthDataStore()
+        XCTAssertTrue(relaunchedStore.hasCompletedInitialHealthDataLoad)
+        XCTAssertFalse(relaunchedStore.needsInitialHealthDataLoad)
+    }
+
+    @MainActor
+    func testClearLocalCacheResetsInitialHealthDataLoadCompletion() async throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+
+        let store = emptyHealthDataStore()
+        store.markRefreshSucceeded(date: Date(), refreshedVitals: true, hadQueryFailure: true)
+        XCTAssertTrue(store.hasCompletedInitialHealthDataLoad)
+
+        await store.clearLocalCache()
+        XCTAssertFalse(store.hasCompletedInitialHealthDataLoad)
+        XCTAssertFalse(HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted())
+        XCTAssertTrue(store.needsInitialHealthDataLoad)
+    }
+
+    @MainActor
+    func testInitialHealthDataLoadCompletedPersistenceRoundTrips() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "HealthDashboardSnapshotStoreTests.initialLoad"))
+        defer { defaults.removePersistentDomain(forName: "HealthDashboardSnapshotStoreTests.initialLoad") }
+
+        XCTAssertFalse(HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted(defaults: defaults))
+        HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted(defaults: defaults)
+        XCTAssertTrue(HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted(defaults: defaults))
+        HealthDashboardSnapshotStore.clearInitialHealthDataLoadCompleted(defaults: defaults)
+        XCTAssertFalse(HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted(defaults: defaults))
+    }
+
+    /// The store reads both first-load defaults from standard defaults at init;
+    /// park them so a previous run on this host cannot mask the fresh-install
+    /// state, and restore them from the returned closure.
+    private func preserveInitialHealthLoadDefaults() -> () -> Void {
         let preservedRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
+        let preservedCompletion = HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted()
         HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
-        defer {
+        HealthDashboardSnapshotStore.clearInitialHealthDataLoadCompleted()
+        return {
             if let preservedRefreshDate {
                 HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(preservedRefreshDate)
             }
+            if preservedCompletion {
+                HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
+            } else {
+                HealthDashboardSnapshotStore.clearInitialHealthDataLoadCompleted()
+            }
         }
+    }
+
+    @MainActor
+    private func emptyHealthDataStore() -> HealthKitWorkoutStore {
+        HealthKitWorkoutStore(
+            initialSnapshot: WorkoutMonthSnapshot.make(
+                month: 5,
+                year: 2026,
+                workouts: [],
+                calendar: .bodyGregorian
+            ),
+            initialHealthDashboardSnapshot: .empty
+        )
+    }
+
+    /// Ring chunks only apply while Activity Rings is on in Body's own
+    /// selection, so a store used to drive them must say so explicitly rather
+    /// than inherit whatever this host has stored.
+    @MainActor
+    private func activityRingsEnabledStore() -> HealthKitWorkoutStore {
+        HealthKitWorkoutStore(
+            initialSnapshot: WorkoutMonthSnapshot.make(
+                month: 5,
+                year: 2026,
+                workouts: [],
+                calendar: .bodyGregorian
+            ),
+            initialHealthDashboardSnapshot: .empty,
+            initialPermissionSelection: BodyHealthPermissionSelection(enabledPermissions: [.activityRings])
+        )
+    }
+
+    private func activityRingChunk(
+        days: [Date],
+        loadedMonthKeys: [ActivityRingMonthKey]
+    ) -> ActivityRingHistorySnapshot {
+        let summary = ActivityRingSummary(
+            move: ActivityRingMetric(value: 500, goal: 500),
+            exercise: ActivityRingMetric(value: 30, goal: 30),
+            stand: ActivityRingMetric(value: 12, goal: 12)
+        )
+        return ActivityRingHistorySnapshot(
+            days: days.map { ActivityRingDaySummary(date: $0, summary: summary) },
+            loadedMonthKeys: loadedMonthKeys
+        )
+    }
+
+    /// One chunk shaped the way the newest-first backfill walk hands them over:
+    /// only that chunk's days, plus the checkpoint to resume from. A `nil`
+    /// checkpoint is the chunk that reached history start.
+    private func activityRingBackfillChunk(
+        days: [Date],
+        loadedMonthKeys: [ActivityRingMonthKey],
+        nextChunkEndDate: Date?
+    ) -> ActivityRingHistoryFetchResult {
+        ActivityRingHistoryFetchResult(
+            history: activityRingChunk(days: days, loadedMonthKeys: loadedMonthKeys),
+            hadQueryFailure: false,
+            reachedHistoryStart: nextChunkEndDate == nil,
+            nextChunkEndDate: nextChunkEndDate
+        )
+    }
+
+    /// The backfill checkpoint lives in standard defaults; park it so a previous
+    /// run on this host can't mask a fresh walk, and restore it afterwards.
+    private func preserveActivityRingBackfillState() -> () -> Void {
+        let preserved = HealthDashboardSnapshotStore.loadActivityRingBackfillState()
+        HealthDashboardSnapshotStore.clearActivityRingBackfillState()
+        return {
+            HealthDashboardSnapshotStore.saveActivityRingBackfillState(preserved)
+        }
+    }
+
+    /// Ring history now arrives in chunks AFTER the refresh has finished, so the
+    /// chunks have to accumulate: a later, older chunk merges underneath the
+    /// months already on screen instead of replacing them.
+    @MainActor
+    func testActivityRingHistoryChunksAccumulateThroughTheApplyFunnel() throws {
+        let calendar = Calendar.bodyGregorian
+        let store = activityRingsEnabledStore()
+        let january7 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 7)))
+        let march5 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 5)))
+        let januaryKey = ActivityRingMonthKey(month: 1, year: 2026)
+        let februaryKey = ActivityRingMonthKey(month: 2, year: 2026)
+        let marchKey = ActivityRingMonthKey(month: 3, year: 2026)
+
+        XCTAssertTrue(
+            store.applyActivityRingHistoryChunk(
+                activityRingChunk(days: [march5], loadedMonthKeys: [marchKey]),
+                capturedEpoch: 0
+            )
+        )
+        XCTAssertEqual(store.activityRingHistory.loadedMonthKeys, [marchKey])
+        XCTAssertEqual(store.cacheStatus.activityRingMonthCount, 1)
+
+        // The newest-first walk hands back the older span second.
+        XCTAssertTrue(
+            store.applyActivityRingHistoryChunk(
+                activityRingChunk(days: [january7], loadedMonthKeys: [januaryKey, februaryKey]),
+                capturedEpoch: 0
+            )
+        )
+        XCTAssertEqual(store.activityRingHistory.days.map(\.date), [january7, march5])
+        XCTAssertEqual(store.activityRingHistory.loadedMonthKeys, [januaryKey, februaryKey, marchKey])
+        XCTAssertEqual(store.cacheStatus.activityRingMonthCount, 3)
+    }
+
+    @MainActor
+    func testActivityRingHistoryChunkFromBeforeAClearCacheIsDropped() async throws {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+
+        let calendar = Calendar.bodyGregorian
+        let store = activityRingsEnabledStore()
+        let march5 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 5)))
+        let marchKey = ActivityRingMonthKey(month: 3, year: 2026)
+        let chunk = activityRingChunk(days: [march5], loadedMonthKeys: [marchKey])
+
+        XCTAssertTrue(store.applyActivityRingHistoryChunk(chunk, capturedEpoch: 0))
+
+        // The walk was requested under the pre-wipe epoch, so its next chunk
+        // must not resurrect the history the wipe just dropped.
+        await store.clearLocalCache()
+        XCTAssertFalse(store.applyActivityRingHistoryChunk(chunk, capturedEpoch: 0))
+        XCTAssertTrue(store.activityRingHistory.days.isEmpty)
+        XCTAssertEqual(store.cacheStatus.activityRingMonthCount, 0)
+    }
+
+    /// The ten-year walk runs for minutes, so every chunk has to be on screen
+    /// AND on disk the moment it lands — not accumulated and applied once at the
+    /// end, which is what made the calendar appear in a single step.
+    @MainActor
+    func testActivityRingBackfillChunksLandAndCheckpointAsTheyArrive() throws {
+        let restoreBackfillState = preserveActivityRingBackfillState()
+        defer { restoreBackfillState() }
+
+        let calendar = Calendar.bodyGregorian
+        let store = emptyHealthDataStore()
+        let january20 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 20)))
+        let february10 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 2, day: 10)))
+        let march5 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 5)))
+        let februaryStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 2, day: 1)))
+        let marchStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 1)))
+        let januaryKey = ActivityRingMonthKey(month: 1, year: 2026)
+        let februaryKey = ActivityRingMonthKey(month: 2, year: 2026)
+        let marchKey = ActivityRingMonthKey(month: 3, year: 2026)
+
+        // Chunk one: the newest month is on screen and checkpointed while the
+        // rest of the walk is still querying.
+        XCTAssertTrue(
+            store.landActivityRingBackfillChunk(
+                activityRingBackfillChunk(
+                    days: [march5],
+                    loadedMonthKeys: [marchKey],
+                    nextChunkEndDate: marchStart
+                ),
+                capturedEpoch: 0
+            )
+        )
+        XCTAssertEqual(store.activityRingHistory.days.map(\.date), [march5])
+        XCTAssertEqual(store.activityRingHistory.loadedMonthKeys, [marchKey])
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            .pending(resumeFrom: marchStart)
+        )
+
+        // Chunk two merges underneath it and moves the checkpoint back with it.
+        // It claims only the months its own window covered, so the merge cannot
+        // replace the month chunk one already published.
+        XCTAssertTrue(
+            store.landActivityRingBackfillChunk(
+                activityRingBackfillChunk(
+                    days: [february10],
+                    loadedMonthKeys: [februaryKey],
+                    nextChunkEndDate: februaryStart
+                ),
+                capturedEpoch: 0
+            )
+        )
+        XCTAssertEqual(store.activityRingHistory.days.map(\.date), [february10, march5])
+        XCTAssertEqual(store.activityRingHistory.loadedMonthKeys, [februaryKey, marchKey])
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            .pending(resumeFrom: februaryStart)
+        )
+
+        // The chunk that reached history start carries no checkpoint of its own:
+        // whether the walk `completed` is the terminal state's call, so this
+        // must not rewrite the resume point to something bogus.
+        XCTAssertTrue(
+            store.landActivityRingBackfillChunk(
+                activityRingBackfillChunk(
+                    days: [january20],
+                    loadedMonthKeys: [januaryKey],
+                    nextChunkEndDate: nil
+                ),
+                capturedEpoch: 0
+            )
+        )
+        XCTAssertEqual(store.activityRingHistory.days.map(\.date), [january20, february10, march5])
+        XCTAssertEqual(store.activityRingHistory.loadedMonthKeys, [januaryKey, februaryKey, marchKey])
+        XCTAssertEqual(store.cacheStatus.activityRingMonthCount, 3)
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            .pending(resumeFrom: februaryStart)
+        )
+    }
+
+    /// A walk killed part way through (quit, cancellation) keeps what landed and
+    /// resumes at that chunk's boundary. Applying only at the end threw every
+    /// landed month away and restarted the whole scan at today.
+    @MainActor
+    func testInterruptedActivityRingBackfillKeepsLandedChunksAndResumesFromTheirBoundary() throws {
+        let restoreBackfillState = preserveActivityRingBackfillState()
+        defer { restoreBackfillState() }
+
+        let calendar = Calendar.bodyGregorian
+        let store = emptyHealthDataStore()
+        let february10 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 2, day: 10)))
+        let march5 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 5)))
+        let februaryStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 2, day: 1)))
+        let marchStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 1)))
+        let februaryKey = ActivityRingMonthKey(month: 2, year: 2026)
+        let marchKey = ActivityRingMonthKey(month: 3, year: 2026)
+
+        XCTAssertTrue(
+            store.landActivityRingBackfillChunk(
+                activityRingBackfillChunk(
+                    days: [march5],
+                    loadedMonthKeys: [marchKey],
+                    nextChunkEndDate: marchStart
+                ),
+                capturedEpoch: 0
+            )
+        )
+        XCTAssertTrue(
+            store.landActivityRingBackfillChunk(
+                activityRingBackfillChunk(
+                    days: [february10],
+                    loadedMonthKeys: [februaryKey],
+                    nextChunkEndDate: februaryStart
+                ),
+                capturedEpoch: 0
+            )
+        )
+
+        // …and the walk dies here, with older chunks still unqueried.
+        XCTAssertEqual(store.activityRingHistory.days.map(\.date), [february10, march5])
+        XCTAssertEqual(store.activityRingHistory.loadedMonthKeys, [februaryKey, marchKey])
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            .pending(resumeFrom: februaryStart)
+        )
+        XCTAssertNotEqual(
+            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            .pending(resumeFrom: nil)
+        )
+    }
+
+    /// The refusal that stops the walk: once a Clear Cache has bumped the epoch,
+    /// the chunk is dropped and the checkpoint stays at the wiped state rather
+    /// than being pushed back to a resume point for history that no longer
+    /// exists.
+    @MainActor
+    func testActivityRingBackfillChunkFromBeforeAClearCacheStopsTheWalk() async throws {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+        let restoreBackfillState = preserveActivityRingBackfillState()
+        defer { restoreBackfillState() }
+
+        let calendar = Calendar.bodyGregorian
+        let store = emptyHealthDataStore()
+        let february10 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 2, day: 10)))
+        let march5 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 5)))
+        let februaryStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 2, day: 1)))
+        let marchStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 1)))
+        let februaryKey = ActivityRingMonthKey(month: 2, year: 2026)
+        let marchKey = ActivityRingMonthKey(month: 3, year: 2026)
+
+        XCTAssertTrue(
+            store.landActivityRingBackfillChunk(
+                activityRingBackfillChunk(
+                    days: [march5],
+                    loadedMonthKeys: [marchKey],
+                    nextChunkEndDate: marchStart
+                ),
+                capturedEpoch: 0
+            )
+        )
+
+        await store.clearLocalCache()
+
+        XCTAssertFalse(
+            store.landActivityRingBackfillChunk(
+                activityRingBackfillChunk(
+                    days: [february10],
+                    loadedMonthKeys: [februaryKey],
+                    nextChunkEndDate: februaryStart
+                ),
+                capturedEpoch: 0
+            )
+        )
+        XCTAssertTrue(store.activityRingHistory.days.isEmpty)
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            .pending(resumeFrom: nil)
+        )
+    }
+
+    /// Ring history is out of the refresh's completion barrier: the refresh
+    /// stamps success with no ring history at all, and chunks landing afterwards
+    /// don't touch anything the refresh owns.
+    @MainActor
+    func testRefreshStampsSuccessWhileRingHistoryIsStillOutstanding() throws {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+
+        let calendar = Calendar.bodyGregorian
+        let store = activityRingsEnabledStore()
+        let refreshDate = Date(timeIntervalSince1970: 1_760_000_000)
+
+        store.markRefreshSucceeded(
+            date: refreshDate,
+            refreshedVitals: true,
+            publishesWatch: false,
+            advancesSyncBadge: true
+        )
+
+        XCTAssertEqual(store.lastSuccessfulRefreshDate, refreshDate)
+        XCTAssertTrue(store.hasCompletedInitialHealthDataLoad)
+        XCTAssertFalse(store.needsInitialHealthDataLoad)
+        XCTAssertTrue(store.activityRingHistory.days.isEmpty)
+
+        let badgeCountAfterRefresh = store.syncBadgeSuccessCount
+        let march5 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 5)))
+        XCTAssertTrue(
+            store.applyActivityRingHistoryChunk(
+                activityRingChunk(days: [march5], loadedMonthKeys: [ActivityRingMonthKey(month: 3, year: 2026)]),
+                capturedEpoch: 0
+            )
+        )
+
+        XCTAssertEqual(store.activityRingHistory.days.map(\.date), [march5])
+        XCTAssertEqual(store.lastSuccessfulRefreshDate, refreshDate)
+        XCTAssertEqual(store.syncBadgeSuccessCount, badgeCountAfterRefresh)
+    }
+
+    @MainActor
+    func testRefreshWithinTheDeadlineCompletesAndStampsSuccess() async {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+
+        let store = emptyHealthDataStore()
+        let refreshDate = Date(timeIntervalSince1970: 1_760_000_000)
+
+        let completed = await store.runRefreshWithDeadline(.seconds(30)) {
+            store.markRefreshSucceeded(date: refreshDate, refreshedVitals: true, publishesWatch: false)
+        }
+
+        XCTAssertTrue(completed)
+        XCTAssertEqual(store.lastSuccessfulRefreshDate, refreshDate)
+        XCTAssertTrue(store.hasCompletedInitialHealthDataLoad)
+        XCTAssertNil(store.healthDataNotice)
+    }
+
+    @MainActor
+    func testRefreshDeadlineAbandonsTheBodyWithoutStampingSuccess() async {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+
+        let store = emptyHealthDataStore()
+        let lateFinisher = expectation(description: "abandoned refresh body finished")
+
+        let completed = await store.runRefreshWithDeadline(.milliseconds(50)) {
+            try? await Task.sleep(for: .seconds(30))
+            // The abandoned body keeps running and tries to finish the refresh
+            // it no longer speaks for.
+            store.markRefreshSucceeded(
+                date: Date(),
+                refreshedVitals: true,
+                publishesWatch: false,
+                advancesSyncBadge: true
+            )
+            lateFinisher.fulfill()
+        }
+
+        XCTAssertFalse(completed)
+        XCTAssertFalse(store.isRefreshing)
+        XCTAssertEqual(
+            store.healthDataNotice,
+            String(localized: "Loading Apple Health data is taking longer than expected. Please try again.")
+        )
+        XCTAssertNil(store.lastSuccessfulRefreshDate)
+        XCTAssertFalse(store.hasCompletedInitialHealthDataLoad)
+
+        await fulfillment(of: [lateFinisher], timeout: 5)
+
+        XCTAssertNil(store.lastSuccessfulRefreshDate)
+        XCTAssertFalse(store.hasCompletedInitialHealthDataLoad)
+        XCTAssertEqual(store.syncBadgeSuccessCount, 0)
+        XCTAssertFalse(HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted())
+    }
+
+    /// A backfill checkpoint is EXCLUSIVE, so the resumed walk starts one day
+    /// older and never re-claims the checkpoint's month. `replacingLoadedMonths`
+    /// REPLACES every month an incoming chunk claims, so a resumed chunk that
+    /// claimed August while carrying only August 1 would delete August 2 to 31
+    /// from the cache.
+    @MainActor
+    func testResumedBackfillWalkStartsOlderThanTheCheckpointAndKeepsItsMonth() throws {
+        let restoreBackfillState = preserveActivityRingBackfillState()
+        defer { restoreBackfillState() }
+
+        let calendar = Calendar.bodyGregorian
+        let store = activityRingsEnabledStore()
+        let augustKey = ActivityRingMonthKey(month: 8, year: 2025)
+        let julyKey = ActivityRingMonthKey(month: 7, year: 2025)
+        let augustDays = try (1...31).map { day in
+            try XCTUnwrap(calendar.date(from: DateComponents(year: 2025, month: 8, day: day)))
+        }
+        // What the engine hands back for a chunk covering August: month aligned,
+        // checkpointed at its own `chunkStart`.
+        let checkpoint = try XCTUnwrap(augustDays.first)
+
+        XCTAssertTrue(
+            store.landActivityRingBackfillChunk(
+                activityRingBackfillChunk(
+                    days: augustDays,
+                    loadedMonthKeys: [augustKey],
+                    nextChunkEndDate: checkpoint
+                ),
+                capturedEpoch: 0
+            )
+        )
+        XCTAssertEqual(store.activityRingHistory.days.count, 31)
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            .pending(resumeFrom: checkpoint)
+        )
+
+        // The resumption converts that exclusive checkpoint to July 31…
+        let resumedWalkEnd = try XCTUnwrap(
+            HealthKitFetchEngine.activityRingBackfillWalkEnd(
+                date: try XCTUnwrap(calendar.date(from: DateComponents(year: 2025, month: 9, day: 15))),
+                resumeFrom: checkpoint,
+                calendar: calendar
+            )
+        )
+        XCTAssertEqual(
+            resumedWalkEnd,
+            try XCTUnwrap(calendar.date(from: DateComponents(year: 2025, month: 7, day: 31)))
+        )
+
+        // …so the chunk it produces claims July, not August, and August survives.
+        let july20 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2025, month: 7, day: 20)))
+        XCTAssertTrue(
+            store.landActivityRingBackfillChunk(
+                activityRingBackfillChunk(
+                    days: [july20],
+                    loadedMonthKeys: [julyKey],
+                    nextChunkEndDate: try XCTUnwrap(calendar.date(from: DateComponents(year: 2025, month: 7, day: 1)))
+                ),
+                capturedEpoch: 0
+            )
+        )
+
+        let survivingAugustDays = store.activityRingHistory.days
+            .filter { ActivityRingMonthKey(date: $0.date, calendar: calendar) == augustKey }
+        XCTAssertEqual(survivingAugustDays.map(\.date), augustDays)
+        XCTAssertEqual(store.activityRingHistory.loadedMonthKeys, [julyKey, augustKey])
+    }
+
+    /// A resumed walk that scans OLDER history and correctly finds nothing
+    /// there must claim only the stretch it scanned. The recent-window fallback
+    /// is for an account with no ring data anywhere; firing it here would claim
+    /// months this walk never looked at, and `replacingLoadedMonths` REPLACES
+    /// every claimed month — deleting the recent days the interrupted first run
+    /// had already saved.
+    @MainActor
+    func testResumedBackfillFindingNoDaysKeepsTheRecentMonthsAlreadySaved() throws {
+        let restoreBackfillState = preserveActivityRingBackfillState()
+        defer { restoreBackfillState() }
+
+        let calendar = Calendar.bodyGregorian
+        let store = activityRingsEnabledStore()
+        let now = Date()
+        // What the interrupted first run saved: the newest chunk, checkpointed
+        // at its own month-aligned start.
+        let recentDay = calendar.startOfDay(for: now)
+        let recentKey = ActivityRingMonthKey(date: recentDay, calendar: calendar)
+        let checkpoint = try XCTUnwrap(calendar.dateInterval(of: .month, for: recentDay)?.start)
+
+        XCTAssertTrue(
+            store.landActivityRingBackfillChunk(
+                activityRingBackfillChunk(
+                    days: [recentDay],
+                    loadedMonthKeys: [recentKey],
+                    nextChunkEndDate: checkpoint
+                ),
+                capturedEpoch: 0
+            )
+        )
+        XCTAssertEqual(store.activityRingHistory.days.map(\.date), [recentDay])
+
+        // The resumed walk reads older history and lands chunks that hold no
+        // ring days at all.
+        let walkEnd = try XCTUnwrap(
+            HealthKitFetchEngine.activityRingBackfillWalkEnd(date: now, resumeFrom: checkpoint, calendar: calendar)
+        )
+        let historyStart = try XCTUnwrap(
+            HealthKitFetchEngine.activityRingBackfillStartDate(date: now, calendar: calendar)
+        )
+        let scannedStart = HealthKitFetchEngine.activityRingBackfillChunkStart(
+            endingAt: walkEnd,
+            notBefore: historyStart,
+            calendar: calendar
+        )
+        let emptyWalkKeys = HealthKitFetchEngine.activityRingBackfillLoadedMonthKeys(
+            earliestDayWithData: nil,
+            oldestScannedStart: scannedStart,
+            walkEnd: walkEnd,
+            resumeFrom: checkpoint,
+            date: now,
+            calendar: calendar
+        )
+
+        // The recent-window fallback — what this used to resolve to — always
+        // names the current month, so landing it would have replaced the month
+        // holding `recentDay` with nothing.
+        XCTAssertTrue(
+            HealthKitFetchEngine.recentActivityRingMonthKeys(
+                count: HealthKitWorkoutStore.recentChartMonthCount,
+                from: now,
+                calendar: calendar
+            ).contains(recentKey)
+        )
+        XCTAssertFalse(emptyWalkKeys.contains(recentKey))
+        XCTAssertTrue(
+            store.applyActivityRingHistoryChunk(
+                ActivityRingHistorySnapshot(days: [], loadedMonthKeys: emptyWalkKeys),
+                capturedEpoch: 0
+            )
+        )
+        XCTAssertEqual(store.activityRingHistory.days.map(\.date), [recentDay])
+        XCTAssertTrue(store.activityRingHistory.loadedMonthKeys.contains(recentKey))
+    }
+
+    /// The same terminal decision on a FRESH walk still claims the recent
+    /// window, so an account with no ring data anywhere renders empty grids.
+    func testFreshBackfillFindingNoDaysStillClaimsTheRecentWindow() throws {
+        let calendar = Calendar.bodyGregorian
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 20)))
+        let historyStart = try XCTUnwrap(
+            HealthKitFetchEngine.activityRingBackfillStartDate(date: now, calendar: calendar)
+        )
+
+        XCTAssertEqual(
+            HealthKitFetchEngine.activityRingBackfillLoadedMonthKeys(
+                earliestDayWithData: nil,
+                oldestScannedStart: HealthKitFetchEngine.activityRingBackfillChunkStart(
+                    endingAt: now,
+                    notBefore: historyStart,
+                    calendar: calendar
+                ),
+                walkEnd: now,
+                resumeFrom: nil,
+                date: now,
+                calendar: calendar
+            ),
+            HealthKitFetchEngine.recentActivityRingMonthKeys(
+                count: HealthKitWorkoutStore.recentChartMonthCount,
+                from: now,
+                calendar: calendar
+            )
+        )
+    }
+
+    func testBackfillWalkEndResumesAtTodayWhenNoChunkEverLanded() throws {
+        let calendar = Calendar.bodyGregorian
+        let today = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 20)))
+
+        // A fresh walk starts at today.
+        XCTAssertEqual(
+            HealthKitFetchEngine.activityRingBackfillWalkEnd(date: today, resumeFrom: nil, calendar: calendar),
+            today
+        )
+
+        // A walk that landed nothing checkpoints at `end + 1 day`, so the same
+        // exclusive conversion resumes at today rather than skipping a day.
+        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: today))
+        XCTAssertEqual(
+            HealthKitFetchEngine.activityRingBackfillWalkEnd(date: today, resumeFrom: tomorrow, calendar: calendar),
+            today
+        )
+    }
+
+    /// Switching Activity Rings off purges the cached history and the backfill
+    /// progress, but the walk can already have a chunk in flight — cancellation
+    /// cannot catch that one, so it is refused at the point of application.
+    @MainActor
+    func testActivityRingChunkIsRefusedAfterRingsAreSwitchedOff() throws {
+        let restoreBackfillState = preserveActivityRingBackfillState()
+        defer { restoreBackfillState() }
+
+        let calendar = Calendar.bodyGregorian
+        let store = HealthKitWorkoutStore(
+            initialSnapshot: WorkoutMonthSnapshot.make(
+                month: 5,
+                year: 2026,
+                workouts: [],
+                calendar: .bodyGregorian
+            ),
+            initialHealthDashboardSnapshot: .empty,
+            initialPermissionSelection: BodyHealthPermissionSelection(enabledPermissions: [.steps])
+        )
+        let march5 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 5)))
+        let march1 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 1)))
+
+        XCTAssertFalse(
+            store.landActivityRingBackfillChunk(
+                activityRingBackfillChunk(
+                    days: [march5],
+                    loadedMonthKeys: [ActivityRingMonthKey(month: 3, year: 2026)],
+                    nextChunkEndDate: march1
+                ),
+                capturedEpoch: 0
+            )
+        )
+
+        XCTAssertTrue(store.activityRingHistory.days.isEmpty)
+        XCTAssertEqual(store.cacheStatus.activityRingMonthCount, 0)
+        // And the refused chunk must not push the reset progress back to a
+        // checkpoint the user has opted out of.
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            .pending(resumeFrom: nil)
+        )
+    }
+
+    /// The per-workout heart-rate reads are continuation based, so
+    /// `fetchWorkouts` can return normally minutes after the deadline fired —
+    /// long enough for a newer retry to have published the same months.
+    @MainActor
+    func testAbandonedRefreshCannotPublishMonthSnapshots() async {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+
+        let store = emptyHealthDataStore()
+        XCTAssertTrue(store.mayPublishMonthSnapshot(capturedEpoch: 0))
+
+        let lateMonthWrite = expectation(description: "abandoned workout fetch returned")
+        let completed = await store.runRefreshWithDeadline(.milliseconds(50)) {
+            try? await Task.sleep(for: .seconds(30))
+            XCTAssertFalse(store.mayPublishMonthSnapshot(capturedEpoch: 0))
+            lateMonthWrite.fulfill()
+        }
+
+        XCTAssertFalse(completed)
+        await fulfillment(of: [lateMonthWrite], timeout: 5)
+        // A newer refresh's own month writes are unaffected.
+        XCTAssertTrue(store.mayPublishMonthSnapshot(capturedEpoch: 0))
+    }
+
+    /// Same deadline contract on the single-metric pull (the metric detail
+    /// screen's own spinner), whose success stamp is the sync badge rather than
+    /// the freshness TTL: `refreshHealthMetric` runs its fetch/publish half
+    /// through the same wrapper, so a stuck metric query can't strand that
+    /// spinner either.
+    @MainActor
+    func testMetricRefreshDeadlineAbandonsTheBodyWithoutStampingSuccess() async {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+
+        let store = emptyHealthDataStore()
+        let lateFinisher = expectation(description: "abandoned metric refresh body finished")
+
+        let completed = await store.runRefreshWithDeadline(.milliseconds(50)) {
+            try? await Task.sleep(for: .seconds(30))
+            store.markRefreshSucceeded(
+                date: Date(),
+                refreshedVitals: false,
+                publishesWatch: false,
+                advancesSyncBadge: true
+            )
+            lateFinisher.fulfill()
+        }
+
+        XCTAssertFalse(completed)
+        XCTAssertFalse(store.isRefreshing)
+        XCTAssertEqual(
+            store.healthDataNotice,
+            String(localized: "Loading Apple Health data is taking longer than expected. Please try again.")
+        )
+
+        await fulfillment(of: [lateFinisher], timeout: 5)
+
+        XCTAssertEqual(store.syncBadgeSuccessCount, 0)
+        XCTAssertNil(store.lastSuccessfulRefreshDate)
+        XCTAssertFalse(store.hasCompletedInitialHealthDataLoad)
+    }
+
+    @MainActor
+    func testRefreshCompletionWaiterResumesOnCancellationInsteadOfLeaking() async {
+        let waiters = HealthKitWorkoutStore.RefreshCompletionWaiters()
+        let parked = Task { @MainActor in await waiters.park() }
+
+        var spins = 0
+        while waiters.isEmpty, spins < 1_000 {
+            await Task.yield()
+            spins += 1
+        }
+        XCTAssertFalse(waiters.isEmpty)
+
+        // Nothing but `finishRefresh` used to resume these, so a cancelled
+        // waiter parked its continuation forever.
+        parked.cancel()
+        await parked.value
+        XCTAssertTrue(waiters.isEmpty)
+
+        // And the drain that follows must not resume the same waiter twice.
+        waiters.resumeAll()
+    }
+
+    @MainActor
+    func testRefreshCompletionWaitersResumeWhenTheRefreshFinishes() async {
+        let waiters = HealthKitWorkoutStore.RefreshCompletionWaiters()
+        let resumed = expectation(description: "waiter resumed")
+        Task { @MainActor in
+            await waiters.park()
+            resumed.fulfill()
+        }
+
+        var spins = 0
+        while waiters.isEmpty, spins < 1_000 {
+            await Task.yield()
+            spins += 1
+        }
+        XCTAssertFalse(waiters.isEmpty)
+
+        waiters.resumeAll()
+        await fulfillment(of: [resumed], timeout: 5)
+        XCTAssertTrue(waiters.isEmpty)
+    }
+
+    @MainActor
+    func testPassiveLoadsStayIdleUntilFirstHealthDataLoad() async throws {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
 
         let store = HealthKitWorkoutStore(
             initialSnapshot: WorkoutMonthSnapshot.make(
@@ -2174,6 +3351,248 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         let date = Date()
         store.markRefreshSucceeded(date: date, refreshedVitals: true, publishesWatch: false, hadQueryFailure: false, advancesSyncBadge: true)
         XCTAssertEqual(store.lastSuccessfulRefreshDate, date)
+    }
+
+    // MARK: - Custom workout names
+
+    @MainActor
+    private func customNameStore(defaults: UserDefaults) -> HealthKitWorkoutStore {
+        HealthKitWorkoutStore(
+            initialSnapshot: WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian),
+            customNameDefaults: defaults
+        )
+    }
+
+    @MainActor
+    func testCustomWorkoutNameSetAndClear() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = customNameStore(defaults: defaults)
+        let workoutID = UUID()
+
+        XCTAssertNil(store.workoutCustomNames[workoutID])
+
+        store.setCustomName("Morning Tempo", workoutID: workoutID)
+        XCTAssertEqual(store.workoutCustomNames[workoutID], "Morning Tempo")
+
+        // Whitespace-only reads as "no name" and removes the stored rename.
+        store.setCustomName("   ", workoutID: workoutID)
+        XCTAssertNil(store.workoutCustomNames[workoutID])
+        XCTAssertNil(
+            (defaults.dictionary(forKey: HealthKitWorkoutStore.workoutCustomNamesKey) as? [String: String])?[workoutID.uuidString]
+        )
+    }
+
+    @MainActor
+    func testCustomWorkoutNameSurvivesRelaunch() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let workoutID = UUID()
+
+        customNameStore(defaults: defaults).setCustomName("Easy Spin", workoutID: workoutID)
+
+        XCTAssertEqual(customNameStore(defaults: defaults).workoutCustomNames[workoutID], "Easy Spin")
+    }
+
+    @MainActor
+    func testCustomWorkoutNameIsTrimmedAndCapped() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = customNameStore(defaults: defaults)
+        let workoutID = UUID()
+
+        store.setCustomName("  " + String(repeating: "a", count: 70) + "  ", workoutID: workoutID)
+
+        XCTAssertEqual(store.workoutCustomNames[workoutID], String(repeating: "a", count: 60))
+    }
+
+    // MARK: - Permissions sheet access states
+
+    @MainActor
+    private func accessStateStore(
+        ringHistory: ActivityRingHistorySnapshot,
+        permissionSelection: BodyHealthPermissionSelection = .defaultValue
+    ) -> HealthKitWorkoutStore {
+        HealthKitWorkoutStore(
+            initialSnapshot: WorkoutMonthSnapshot.make(
+                month: 1,
+                year: 2026,
+                workouts: [],
+                calendar: .bodyGregorian
+            ),
+            initialHealthDashboardSnapshot: HealthDashboardSnapshot(
+                summary: .empty,
+                trends: .empty,
+                activityRingHistory: ringHistory
+            ),
+            initialPermissionSelection: permissionSelection
+        )
+    }
+
+    private func ringDay(month: Int, day: Int) throws -> ActivityRingDaySummary {
+        let date = try XCTUnwrap(
+            Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: month, day: day))
+        )
+        return ActivityRingDaySummary(
+            date: date,
+            summary: ActivityRingSummary(
+                move: ActivityRingMetric(value: 500, goal: 500),
+                exercise: ActivityRingMetric(value: 30, goal: 30),
+                stand: ActivityRingMetric(value: 12, goal: 12)
+            )
+        )
+    }
+
+    /// Regression: the backfill deliberately retains `loadedMonthKeys` for months
+    /// that hold no days. A presence check built on "did filtering change
+    /// anything" saw those keys disappear and reported data where there is none.
+    /// Asking the snapshot's own `isEmpty` counts days, which is the real question.
+    @MainActor
+    func testCoveredButEmptyRingMonthsReportNoDataRatherThanData() throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+        HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
+
+        let store = accessStateStore(
+            ringHistory: ActivityRingHistorySnapshot(
+                days: [],
+                loadedMonthKeys: [
+                    ActivityRingMonthKey(month: 1, year: 2026),
+                    ActivityRingMonthKey(month: 2, year: 2026)
+                ]
+            )
+        )
+
+        let states = store.healthPermissionAccessStates(dashboardFetchSelection: .defaultValue)
+        XCTAssertEqual(states[.activityRings], .noData)
+    }
+
+    @MainActor
+    func testRingDaysReportHasData() throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+        HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
+
+        let store = accessStateStore(
+            ringHistory: ActivityRingHistorySnapshot(
+                days: [try ringDay(month: 1, day: 5)],
+                loadedMonthKeys: [ActivityRingMonthKey(month: 1, year: 2026)]
+            )
+        )
+
+        let states = store.healthPermissionAccessStates(dashboardFetchSelection: .defaultValue)
+        XCTAssertEqual(states[.activityRings], .hasData)
+    }
+
+    /// Regression: `BodyDashboardFetchSelection` is built from the Home-card
+    /// layout, not from permissions, and a metric it excludes is never queried at
+    /// all. Hiding a card must not be reported as Apple Health withholding data.
+    @MainActor
+    func testHiddenDashboardCardsReportNotUsedByDashboardRatherThanNoData() throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+        HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
+
+        let store = accessStateStore(ringHistory: .empty)
+        let noCards = BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection(selectedCards: []),
+            trendCards: BodyHomeTrendCardSelection(selectedCards: [])
+        )
+
+        let states = store.healthPermissionAccessStates(dashboardFetchSelection: noCards)
+        XCTAssertEqual(states[.activityRings], .notUsedByDashboard)
+        XCTAssertEqual(states[.heart], .notUsedByDashboard)
+        XCTAssertEqual(states[.steps], .notUsedByDashboard)
+    }
+
+    /// A switch the user turned off must never be reported as missing data, even
+    /// while the cache still holds values read before the opt out.
+    @MainActor
+    func testDisabledPermissionReportsOffEvenWithCachedData() throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+        HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
+
+        let store = accessStateStore(
+            ringHistory: ActivityRingHistorySnapshot(days: [try ringDay(month: 1, day: 5)]),
+            permissionSelection: BodyHealthPermissionSelection(
+                enabledPermissions: Set(BodyHealthPermission.allCases).subtracting([.activityRings])
+            )
+        )
+
+        let states = store.healthPermissionAccessStates(dashboardFetchSelection: .defaultValue)
+        XCTAssertEqual(states[.activityRings], .off)
+    }
+
+    /// Opening the Permissions sheet must be free: it reads published state only,
+    /// so it can never kick off a HealthKit read or disturb refresh bookkeeping.
+    @MainActor
+    func testAccessStatesReadPublishedStateWithoutStartingWork() throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+        HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
+
+        let store = accessStateStore(ringHistory: .empty)
+        let refreshDateBefore = store.lastSuccessfulRefreshDate
+
+        let states = store.healthPermissionAccessStates(dashboardFetchSelection: .defaultValue)
+
+        XCTAssertEqual(states.count, BodyHealthPermission.allCases.count)
+        XCTAssertFalse(store.isRefreshing)
+        XCTAssertEqual(store.lastSuccessfulRefreshDate, refreshDateBefore)
+    }
+
+    /// Regression: readiness is derived, deliberately survives every permission
+    /// filter, and is counted by both `isEmpty`s — so one cached readiness score
+    /// made every category read "Body has data" even when that category was
+    /// empty. The presence probe must strip readiness before asking.
+    @MainActor
+    func testCachedReadinessAloneDoesNotMakeCategoriesReportData() throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+        HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
+
+        var summary = HealthSummarySnapshot.empty
+        summary.readiness.score = 80
+        var trends = HealthTrendSnapshot.empty
+        trends.recordedReadiness = [
+            RecordedReadinessEntry(date: Date(timeIntervalSince1970: 1_770_000_000), score: 80)
+        ]
+
+        let store = HealthKitWorkoutStore(
+            initialSnapshot: WorkoutMonthSnapshot.make(
+                month: 1,
+                year: 2026,
+                workouts: [],
+                calendar: .bodyGregorian
+            ),
+            initialHealthDashboardSnapshot: HealthDashboardSnapshot(
+                summary: summary,
+                trends: trends,
+                activityRingHistory: .empty
+            )
+        )
+
+        let states = store.healthPermissionAccessStates(dashboardFetchSelection: .defaultValue)
+        XCTAssertEqual(states[.bloodOxygen], .noData)
+        XCTAssertEqual(states[.activityRings], .noData)
+        XCTAssertEqual(states[.heart], .noData)
+        XCTAssertEqual(states[.sleep], .noData)
+    }
+
+    /// Every row must resolve to something. A missing entry would render a row
+    /// with no footer at all, which reads as a layout bug rather than a state.
+    @MainActor
+    func testEveryPermissionResolvesToAState() throws {
+        let store = accessStateStore(ringHistory: .empty)
+        let states = store.healthPermissionAccessStates(dashboardFetchSelection: .defaultValue)
+
+        for permission in BodyHealthPermission.allCases {
+            XCTAssertNotNil(states[permission], "\(permission) has no access state")
+        }
     }
 
     private struct LegacyHealthDashboardSnapshot: Codable {

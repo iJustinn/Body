@@ -3,8 +3,8 @@
 //  BodyMetricsKit
 //
 //  Raw per-bucket inputs for the workout detail's time-series charts (pace or
-//  speed, cadence, stride length, ground contact time, vertical oscillation), as
-//  read from HealthKit in one pass by
+//  speed, cadence, stride length, ground contact time, vertical oscillation,
+//  power), as read from HealthKit in one pass by
 //  `HealthKitFetchEngine.workoutMetricSeriesData(workoutID:)`. Buckets are fixed
 //  `bucketSeconds`-wide wall-clock windows anchored at `startDate`; `index` is
 //  0-based from the workout start. Every quantity is in its canonical HealthKit
@@ -59,6 +59,8 @@ struct WorkoutMetricSeriesData: Equatable {
     let verticalOscillationCm: NativeSeries?
     /// `cyclingCadence`, revolutions per minute (cycling only).
     let cyclingCadenceRPM: NativeSeries?
+    /// `runningPower` or `cyclingPower`, watts (see `BodyWorkoutType.powerSource`).
+    let powerWatts: NativeSeries?
     /// True when at least one metric's read failed (that metric is nil, the
     /// others are still valid). The store must not cache such a bundle.
     let hadReadFailure: Bool
@@ -74,6 +76,7 @@ struct WorkoutMetricSeriesData: Equatable {
         groundContactTimeMs: nil,
         verticalOscillationCm: nil,
         cyclingCadenceRPM: nil,
+        powerWatts: nil,
         hadReadFailure: false
     )
 }

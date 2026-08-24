@@ -301,7 +301,7 @@ final class WatchComputeParityTests: XCTestCase {
         let rawSnapshot = HealthDashboardSnapshot(summary: fixture.summary, trends: fixture.trends)
         let filtered = rawSnapshot.filteredWithoutReadinessRecompute(by: permission)
 
-        let sleepEnd = fixture.summary.sleep.stageSnapshot.dateInterval?.end
+        let sleepEnd = fixture.summary.sleep.stageSnapshot.wakeCycleEnd
         let wakeTime = ReadinessComputeSupport.freezeWakeTime(
             sleepEnd: sleepEnd, scoringDay: now, now: now, calendar: calendar
         )
@@ -431,7 +431,7 @@ final class WatchComputeParityTests: XCTestCase {
         }
 
         let idealSleepDuration = TimeInterval(seed.settings.idealSleepDurationMinutes * 60)
-        let sleepEnd = summary.sleep.stageSnapshot.dateInterval?.end
+        let sleepEnd = summary.sleep.stageSnapshot.wakeCycleEnd
 
         let recomputed = HealthDashboardSnapshot(summary: summary, trends: trends)
             .filteredWithoutReadinessRecompute(by: permission)

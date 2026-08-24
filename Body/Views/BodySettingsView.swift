@@ -36,6 +36,9 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsWorkoutRouteOnLoad = true
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
+    @AppStorage(BodyAppearancePreference.profileNameKey) private var profileName = ""
+    // Empty `Data` is "no photo" — `@AppStorage` has no optional-Data overload.
+    @AppStorage(BodyAppearancePreference.profileAvatarDataKey) private var profileAvatarData = Data()
     @State private var activeSheet: BodySettingsSheet?
     @State private var showBodyProPaywall = false
     @State private var showCustomerCenter = false
@@ -44,6 +47,7 @@ struct BodySettingsView: View {
     @State private var appIconErrorMessage = ""
     @State private var showingHowToUseBrowser = false
     @State private var showingPrivacyBrowser = false
+    @State private var showingOnboarding = false
 
     private let howToUseURLString = "https://docs.ijustinz.com/body/how-to-use"
     private let privacyPolicyURLString = "https://docs.ijustinz.com/body/privacy"
@@ -56,6 +60,7 @@ struct BodySettingsView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 22) {
+                        profileEntryCard
                         appearanceSection
                         metricsSection
                         workoutsSection
@@ -97,6 +102,9 @@ struct BodySettingsView: View {
                         .ignoresSafeArea()
                 }
             }
+            .fullScreenCover(isPresented: $showingOnboarding) {
+                BodyOnboardingView(mode: .revisit)
+            }
             .alert("Couldn't Change Icon", isPresented: $showingAppIconError) {
                 Button("OK", role: .cancel) { }
             } message: {
@@ -121,6 +129,82 @@ struct BodySettingsView: View {
             .onChange(of: showSleepScore) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedEnergyUnitRawValue) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedWeightUnitRawValue) { workoutStore.republishCompanionSnapshots() }
+        }
+    }
+
+    private var profileEntryCard: some View {
+        NavigationLink {
+            BodyProfileView()
+        } label: {
+            HStack(spacing: 15) {
+                Group {
+                    if let profileAvatarImage {
+                        Image(uiImage: profileAvatarImage)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 58, height: 58)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    } else {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 28, weight: .regular))
+                            .foregroundColor(.white)
+                            .frame(width: 58, height: 58)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(Color.white.opacity(0.14))
+                            )
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(profileCardTitle)
+                        .font(.system(size: 23, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+
+                    Text(profileCardSubtitle)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(.caption, weight: .bold))
+                    .foregroundColor(.secondary.opacity(0.7))
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+            .bodyCardBackground(cornerRadius: 26, translucent: true)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The stored name once set, otherwise the generic card title.
+    private var profileCardTitle: String {
+        BodyUserProfile.displayName(from: profileName) ?? String(localized: "Your Profile")
+    }
+
+    private var profileAvatarImage: UIImage? {
+        profileAvatarData.isEmpty ? nil : UIImage(data: profileAvatarData)
+    }
+
+    /// Asks only for the piece that is still missing; once both are set the row
+    /// stops asking and carries the day's encouragement instead.
+    private var profileCardSubtitle: LocalizedStringKey {
+        switch (BodyUserProfile.displayName(from: profileName) != nil, profileAvatarImage != nil) {
+        case (true, true):
+            return BodyProfileMotivation.line(for: Date())
+        case (true, false):
+            return "Add a photo"
+        case (false, true):
+            return "Add a name"
+        case (false, false):
+            return "Add a name and photo"
         }
     }
 
@@ -230,7 +314,7 @@ struct BodySettingsView: View {
                 }
 
                 // Manage Purchases (RevenueCat Customer Center) sits just above "More".
-                if tab == .privacy {
+                if tab == .onboarding {
                     managePurchasesRow
                     settingsDivider
                 }
@@ -262,6 +346,8 @@ struct BodySettingsView: View {
                 showingHowToUseBrowser = true
             case .privacy:
                 showingPrivacyBrowser = true
+            case .onboarding:
+                showingOnboarding = true
             case .version:
                 break
             case .more:
@@ -285,7 +371,7 @@ struct BodySettingsView: View {
         switch tab {
         case .howToUse, .privacy:
             return .externalLink
-        case .more:
+        case .onboarding, .more:
             return .chevron
         case .version:
             return .none
@@ -777,6 +863,37 @@ struct BodySettingsView: View {
 
 }
 
+/// Hand-written encouragement for the profile card once a name and photo are
+/// both set. The line is picked from the day's ordinal rather than at random so
+/// it holds still through every re-render and turns over at midnight.
+enum BodyProfileMotivation {
+    static let lines: [LocalizedStringKey] = [
+        "Consistency beats intensity.",
+        "Show up for yourself today.",
+        "Small efforts, stacked.",
+        "Rest is part of the work.",
+        "Progress, not perfection.",
+        "One more day of showing up.",
+        "Strong is built daily.",
+        "Move now, thank yourself later.",
+        "Every session counts.",
+        "Steady beats fast."
+    ]
+
+    static func line(for date: Date, calendar: Calendar = .bodyGregorian) -> LocalizedStringKey {
+        // Whole local days from a fixed reference. (`ordinality(of: .day, in: .era,)`
+        // reads differently at 07:00 and 23:00 of the same day, so the line would
+        // shift mid-day.)
+        let day = calendar.dateComponents(
+            [.day],
+            from: Date(timeIntervalSinceReferenceDate: 0),
+            to: calendar.startOfDay(for: date)
+        ).day ?? 0
+
+        return lines[((day % lines.count) + lines.count) % lines.count]
+    }
+}
+
 enum BodySettingsSheet: String, Identifiable {
     case homeBackground
     case appIcon
@@ -867,6 +984,7 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
 enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
     case howToUse
     case privacy
+    case onboarding
     case more
     case version
 
@@ -880,6 +998,8 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
             return "How to Use"
         case .privacy:
             return "Privacy"
+        case .onboarding:
+            return "Onboarding"
         case .more:
             return "More"
         case .version:
@@ -893,6 +1013,8 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
             return "questionmark.circle.fill"
         case .privacy:
             return "hand.raised.fill"
+        case .onboarding:
+            return "sparkles"
         case .more:
             return "ellipsis.circle.fill"
         case .version:
@@ -912,7 +1034,7 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
         switch self {
         case .more:
             return .more
-        case .howToUse, .privacy, .version:
+        case .howToUse, .privacy, .onboarding, .version:
             return nil
         }
     }
@@ -2159,7 +2281,8 @@ private struct BodyEffortSuggestionsSettingsSheet: View {
     }
 }
 
-private struct BodyEffortSuggestionToggleRow: View {
+// Internal (not private) so onboarding can offer the same setting.
+struct BodyEffortSuggestionToggleRow: View {
     @Binding var isEnabled: Bool
 
     var body: some View {
@@ -2235,7 +2358,7 @@ private struct BodyReadinessAISettingsSheet: View {
     @ViewBuilder
     private var explanation: some View {
         if isSupported {
-            Text("When on, Apple Intelligence writes a short comment about what's shaping today's readiness score — your heart rate, HRV, sleep, and training signals. Everything runs on your device; your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead.")
+            Text("When on, Apple Intelligence writes a short comment about what's shaping today's readiness score, including your heart rate, HRV, sleep, and training signals. Everything runs on your device, and your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead.")
         } else {
             Text("Apple Intelligence readiness comments need a supported device with Apple Intelligence turned on in Settings. Body's built-in explanation is shown instead.")
         }
@@ -2253,12 +2376,21 @@ private struct BodyReadinessAIToggleRow: View {
             )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Readiness Comment")
-                    .font(.system(.headline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                HStack(spacing: 6) {
+                    Text("Readiness Comment")
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    Text("Beta v2")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(.blue)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(.blue.opacity(0.14), in: Capsule())
+                }
 
                 Text("AI comment on today's score")
                     .font(.system(.subheadline, design: .rounded))
@@ -2282,7 +2414,8 @@ private struct BodyReadinessAIToggleRow: View {
     }
 }
 
-private struct BodyAutoApplyEffortToggleRow: View {
+// Internal (not private) so onboarding can offer the same setting.
+struct BodyAutoApplyEffortToggleRow: View {
     @Binding var isEnabled: Bool
 
     var body: some View {
@@ -3070,6 +3203,10 @@ private struct BodySourceSettingsSheet: View {
 
 private struct BodyHealthPermissionsSettingsSheet: View {
     @ObservedObject var workoutStore: HealthKitWorkoutStore
+    /// Sampled when the sheet appears (and again after a toggle settles) rather
+    /// than observed, so the footers stay put instead of flickering through
+    /// intermediate values while a refresh publishes.
+    @State private var accessStates: [BodyHealthPermission: BodyHealthPermissionAccessState] = [:]
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Permissions") {
@@ -3077,11 +3214,13 @@ private struct BodyHealthPermissionsSettingsSheet: View {
                 ForEach(BodyHealthPermission.allCases) { permission in
                     BodyHealthPermissionToggleRow(
                         permission: permission,
+                        accessState: accessStates[permission],
                         isEnabled: Binding {
                             workoutStore.permissionSelection.includes(permission)
                         } set: { isEnabled in
                             Task {
                                 await workoutStore.updateHealthPermission(permission, isEnabled: isEnabled)
+                                accessStates = workoutStore.healthPermissionAccessStates()
                             }
                         }
                     )
@@ -3093,12 +3232,24 @@ private struct BodyHealthPermissionsSettingsSheet: View {
                 }
             }
             .bodyCardBackground(translucent: true)
+            .onAppear {
+                accessStates = workoutStore.healthPermissionAccessStates()
+            }
+
+            Text("Each switch controls which Apple Health category Body reads. Turning one on asks Apple Health for access if needed and refreshes the dashboard. Turning one off stops Body from reading that category and removes its data from the app and from the local cache. Body only ever reads, and Apple Health stays in charge: a category that is turned off in the Health app simply shows as empty here, and you can change that under Settings, Health, Data Access and Devices.")
+                .font(.system(.footnote, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+                .padding(.top, 12)
         }
     }
 }
 
 private struct BodyHealthPermissionToggleRow: View {
     let permission: BodyHealthPermission
+    let accessState: BodyHealthPermissionAccessState?
     @Binding var isEnabled: Bool
 
     var body: some View {
@@ -3119,6 +3270,15 @@ private struct BodyHealthPermissionToggleRow: View {
                     .foregroundColor(.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if let accessState {
+                    Text(accessState.footerText)
+                        .font(.system(.caption, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(accessState.wantsAttention ? .orange : .secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Spacer(minLength: 12)
@@ -3130,8 +3290,10 @@ private struct BodyHealthPermissionToggleRow: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(accessState?.footerText ?? "")
     }
 }
 
@@ -3325,7 +3487,7 @@ private struct BodySymbolSelectionTile: View {
     }
 }
 
-private struct BodyAppIconOption: Identifiable, Equatable {
+struct BodyAppIconOption: Identifiable, Equatable {
     let id: String
     let displayName: String
     let descriptor: String
@@ -3398,7 +3560,7 @@ private enum BodySettingsTypography {
     static let sectionTitleFontSize: CGFloat = 25
 }
 
-private struct BodySettingsCardSection<Content: View>: View {
+struct BodySettingsCardSection<Content: View>: View {
     let title: LocalizedStringKey
     private let content: Content
 
@@ -3483,7 +3645,7 @@ private enum BodySettingsRowAccessory {
     case externalLink
 }
 
-private struct BodySettingsIconTile: View {
+struct BodySettingsIconTile: View {
     let iconName: String
     let color: Color
 

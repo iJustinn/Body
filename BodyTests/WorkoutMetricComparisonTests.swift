@@ -386,15 +386,19 @@ final class WorkoutMetricComparisonTests: XCTestCase {
         XCTAssertEqual(energy?.badgeText, "0%")
         XCTAssertEqual(energy?.accessibilityLabel, "Calculating the 30-day comparison")
 
-        // A metric this workout has no value for never sprouts a badge.
-        XCTAssertNil(
-            WorkoutMetricComparisonBuilder.placeholder(
-                for: .elevation,
-                availability: .calculating,
-                current: current,
-                locale: enUS
+        // A metric this workout has no value for never sprouts a badge — in any
+        // availability, stand-in or settled dash alike.
+        for availability in [WorkoutMetricComparisonAvailability.calculating, .ready, .insufficientHistory] {
+            XCTAssertNil(
+                WorkoutMetricComparisonBuilder.placeholder(
+                    for: .elevation,
+                    availability: availability,
+                    current: current,
+                    locale: enUS
+                ),
+                "\(availability) must not badge a valueless tile"
             )
-        )
+        }
 
         // Feature off — previews and the share card stay badge-free.
         XCTAssertNil(
@@ -407,23 +411,37 @@ final class WorkoutMetricComparisonTests: XCTestCase {
         )
     }
 
-    /// The stand-in only makes sense while a measurement is still coming. Once
-    /// loading has settled there is nothing to roll into, and a "0%" would be a
-    /// synthetic number presented as a result — under `.ready` the legend reads
-    /// "vs 30-day avg" so it looks measured, and under `.insufficientHistory`
-    /// there is no comparison at all.
-    func testPlaceholderIsWithheldOnceLoadingHasSettled() {
+    /// Once loading has settled there is no measurement left to roll into, so the
+    /// "0%" gives way to "--%" rather than to a blank slot: a dash is honest about
+    /// having no data, where a zero would read as "matched the 30-day average".
+    /// Both settled states get it — under `.insufficientHistory` there is no
+    /// comparison at all, and under `.ready` the call site only consults the
+    /// placeholder for tiles that have no measured comparison of their own.
+    func testPlaceholderShowsDashOnceLoadingHasSettled() {
         for availability in [WorkoutMetricComparisonAvailability.ready, .insufficientHistory] {
-            XCTAssertNil(
-                WorkoutMetricComparisonBuilder.placeholder(
-                    for: .activeEnergy,
-                    availability: availability,
-                    current: workout(activeEnergy: 300),
-                    locale: enUS
-                ),
-                "\(availability) must not show a stand-in"
+            let placeholder = WorkoutMetricComparisonBuilder.placeholder(
+                for: .activeEnergy,
+                availability: availability,
+                current: workout(activeEnergy: 300),
+                locale: enUS
+            )
+            XCTAssertEqual(placeholder?.badgeText, "--%", "\(availability) badge")
+            XCTAssertEqual(
+                placeholder?.accessibilityLabel,
+                "No 30-day comparison yet",
+                "\(availability) label"
             )
         }
+
+        // Feature off — previews and the share card stay badge-free.
+        XCTAssertNil(
+            WorkoutMetricComparisonBuilder.placeholder(
+                for: .activeEnergy,
+                availability: nil,
+                current: workout(activeEnergy: 300),
+                locale: enUS
+            )
+        )
     }
 
     func testPlaceholderDigitsAreLocalizedLikeTheRealBadge() {

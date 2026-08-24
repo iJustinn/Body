@@ -79,7 +79,13 @@ final class WorkoutShareRenderTests: XCTestCase {
         fontDesign: Font.Design = .rounded,
         routeColor: Color = BodyWorkoutShareCardView.defaultRouteColor,
         aspectRatio: WorkoutShareAspectRatio = .portrait9x16,
-        arrangement: WorkoutShareLandscapeArrangement = .stacked
+        arrangement: WorkoutShareLandscapeArrangement = .stacked,
+        centeredMetrics: [WorkoutShareMetric]? = nil,
+        iconHidden: Bool = false,
+        attribution: WorkoutShareAttribution = .empty,
+        /// What the sheet's exporter picks from the resolved ink: `.dark` for the
+        /// dark-backed backgrounds every existing sweep uses, `.light` for Daylight.
+        colorScheme: ColorScheme = .dark
     ) -> ImageRenderer<some View> {
         let workout = fixtureWorkout()
         let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
@@ -88,12 +94,13 @@ final class WorkoutShareRenderTests: XCTestCase {
         let card = BodyWorkoutShareCardView(
             presentation: presentation,
             metrics: isRouteless ? [] : WorkoutShareMetricsBuilder.metrics(for: presentation, type: workout.type),
-            centeredMetrics: isRouteless
+            centeredMetrics: centeredMetrics ?? (isRouteless
                 ? WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: workout.type)
-                : WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type),
+                : WorkoutShareMetricsBuilder.centeredMetrics(for: presentation, type: workout.type)),
             routePoints: withRoute ? WorkoutShareRouteProjection.normalizedPoints(for: routeCoordinates) : nil,
             route3D: withRoute ? WorkoutRoute3DProjection.projected(for: routeCoordinates) : nil,
             dimension: dimension,
+            iconHidden: iconHidden,
             locality: "Cupertino",
             type: workout.type,
             background: background,
@@ -103,12 +110,13 @@ final class WorkoutShareRenderTests: XCTestCase {
             infoTransform: infoTransform,
             photoTransform: photoTransform,
             fontDesign: fontDesign,
-            routeColor: routeColor
+            routeColor: routeColor,
+            attribution: attribution
         )
         let renderer = ImageRenderer(
             content: card
                 .frame(width: aspectRatio.cardSize.width, height: aspectRatio.cardSize.height)
-                .environment(\.colorScheme, .dark)
+                .environment(\.colorScheme, colorScheme)
                 .dynamicTypeSize(.large)
         )
         renderer.scale = 3
@@ -179,6 +187,50 @@ final class WorkoutShareRenderTests: XCTestCase {
         )
     }
 
+    /// Same premise as `testRoutelessGlyphAreaRasterizesOverDarkPreset`, `iconHidden:
+    /// true`: the block recenters around the same point, so hiding the glyph only
+    /// reclaims the top half of the space it and its gap used (the block's center is
+    /// fixed, so the bottom half of that space is exactly where the metrics now start).
+    /// That reclaimed band — strictly between the shown block's old top and the hidden
+    /// block's new top — must be empty over Midnight.
+    func testRoutelessGlyphAreaIsEmptyWhenIconHidden() throws {
+        let renderer = makeRenderer(layout: .routeless, withRoute: false, iconHidden: true)
+        let image = try XCTUnwrap(renderer.uiImage)
+        let cgImage = try XCTUnwrap(image.cgImage)
+
+        let workout = fixtureWorkout()
+        let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
+        let metricCount = WorkoutShareMetricsBuilder.routelessMetrics(for: presentation, type: workout.type).count
+        let geo = WorkoutShareCardGeometry(
+            aspectRatio: .portrait9x16, layout: .routeless, arrangement: .stacked, metricCount: metricCount
+        )
+        // 9:16 keeps the route-less block on the card's own vertical center (the axis
+        // is `.vertical` there — see `testRoutelessRowsWrapOnlyOnTheNarrowCards`).
+        let centerY = geo.size.height / 2
+        let shownTop = centerY - (Self.routelessGlyphHeight + Self.routelessGlyphGap + geo.metricContentHeight) / 2
+        let hiddenTop = centerY - geo.metricContentHeight / 2
+        let vacatedHeight = hiddenTop - shownTop
+        XCTAssertGreaterThan(vacatedHeight, 4, "test's own geometry math left no band to sample")
+
+        let region = Self.pixelRect(
+            x: 100, y: shownTop + 2, width: 160, height: vacatedHeight - 4, in: cgImage
+        )
+        XCTAssertFalse(
+            Self.containsNonBlackPixel(in: cgImage, region: region),
+            "Vacated glyph band had non-black pixels with the icon hidden"
+        )
+
+        // A hidden glyph shrinks the block but doesn't move it off-screen: the metrics
+        // starting at the new top, and the pinned branding strip below them, still draw.
+        let belowVacatedBand = Self.pixelRect(
+            x: 0, y: hiddenTop, width: 360, height: geo.size.height - hiddenTop, in: cgImage
+        )
+        XCTAssertTrue(
+            Self.containsNonBlackPixel(in: cgImage, region: belowVacatedBand),
+            "Metrics/branding didn't draw below the vacated glyph band"
+        )
+    }
+
     func testRouteAreaRasterizesOverDarkPreset() throws {
         let renderer = makeRenderer()
         let image = try XCTUnwrap(renderer.uiImage)
@@ -238,6 +290,27 @@ final class WorkoutShareRenderTests: XCTestCase {
         XCTAssertFalse(
             Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 0, y: 60, width: 360, height: 200, in: cgImage)),
             "Route still drew in its unanchored, vertically centered position"
+        )
+    }
+
+    // MARK: - Branding watermark
+
+    /// No probe existed for the branding strip before the watermark shrank (18/15 →
+    /// 15/13 pt icon/wordmark) — every other render test deliberately stops above it
+    /// (see the comment above). This proves the shrunk mark still draws: a broad
+    /// bottom-center band spanning the whole 56 pt branding zone must not be all
+    /// background over the flat Midnight preset.
+    func testBrandingWatermarkRasterizesInTheZone() throws {
+        let renderer = makeRenderer()
+        let image = try XCTUnwrap(renderer.uiImage)
+        let cgImage = try XCTUnwrap(image.cgImage)
+
+        // Card points: x 108–252 is the middle 40% of the 360 pt card's width, y
+        // 584–640 is the full 56 pt branding zone at the card's bottom edge.
+        let region = Self.pixelRect(x: 108, y: 584, width: 144, height: 56, in: cgImage)
+        XCTAssertTrue(
+            Self.containsNonBlackPixel(in: cgImage, region: region),
+            "Branding zone had no non-background pixels — the shrunk watermark did not rasterize"
         )
     }
 
@@ -488,9 +561,742 @@ final class WorkoutShareRenderTests: XCTestCase {
         XCTAssertEqual(cgImage.height, 1_080)
     }
 
+    // MARK: - Five metrics
+
+    /// A deliberate five-metric pick with the widest values the card realistically
+    /// carries — a pace with a foot mark and a quote, and an hours-long clock — so the
+    /// rows are exercised at the point where the blocks have to shrink to fit.
+    private func fiveMetrics() -> [WorkoutShareMetric] {
+        [
+            WorkoutShareMetric(title: "Distance", value: "8.20 km"),
+            WorkoutShareMetric(title: "Pace", value: "7'48\"/km"),
+            WorkoutShareMetric(title: "Time", value: "1:23:45"),
+            WorkoutShareMetric(title: "Active kcal", value: "412 kcal"),
+            WorkoutShareMetric(title: "Avg HR", value: "154 bpm")
+        ]
+    }
+
+    /// The route-less card stacks its 30 pt type glyph over the blocks with a 20 pt gap;
+    /// the glyph's line box is estimated rather than pinned, which is why the probe bands
+    /// below only cover the middle half of each row.
+    private static let routelessGlyphHeight: CGFloat = 36
+    private static let routelessGlyphGap: CGFloat = 20
+
+    /// Where the first metric row's top edge lands, in card points — the one number the
+    /// per-row probes need that the geometry doesn't state outright, because each of the
+    /// card's four block sites anchors the grid differently (top-anchored in the column,
+    /// exactly frame-sized over a row, centred in the side-by-side frame, and centred on
+    /// a point with no trace above it).
+    private func metricRowsTop(_ geometry: WorkoutShareCardGeometry, showsTrace: Bool) -> CGFloat {
+        let brandingZone = WorkoutShareCardGeometry.brandingZoneHeight
+        if geometry.layout == .routeless {
+            let center = geometry.routelessMetricsAxis == .vertical
+                ? geometry.size.height / 2
+                : (geometry.size.height - brandingZone) / 2
+            let block = Self.routelessGlyphHeight + Self.routelessGlyphGap + geometry.metricContentHeight
+            return center - block / 2 + Self.routelessGlyphHeight + Self.routelessGlyphGap
+        }
+        guard showsTrace else {
+            let center = geometry.centeredMode == .column
+                ? geometry.size.height / 2
+                : (geometry.size.height - brandingZone) / 2
+            return center - geometry.metricContentHeight / 2
+        }
+        switch geometry.centeredMode {
+        case .column, .routeOverRow:
+            return geometry.metricsFrame.minY
+        case .sideBySide:
+            // The grid is centred in a frame that runs the card's full usable height.
+            return geometry.metricsFrame.minY + (geometry.metricsFrame.height - geometry.metricContentHeight) / 2
+        }
+    }
+
+    /// The middle half of each metric row, full card width — deliberately loose, since
+    /// the exact glyph metrics of a row are the renderer's business and only "the row
+    /// drew something here" is being asserted.
+    private func metricRowBands(_ geometry: WorkoutShareCardGeometry, showsTrace: Bool) -> [CGRect] {
+        let style = geometry.metricBlockStyle
+        let top = metricRowsTop(geometry, showsTrace: showsTrace)
+        return geometry.metricRowSizes.indices.map { index in
+            let rowTop = top + CGFloat(index) * (style.rowHeight + style.rowGap)
+            return CGRect(
+                x: 12,
+                y: rowTop + style.rowHeight * 0.25,
+                width: geometry.size.width - 24,
+                height: style.rowHeight * 0.5
+            )
+        }
+    }
+
+    /// Every shape a five-metric pick can land on: the card still rasterizes at its exact
+    /// export size, every wrapped row actually draws, and the strip between the last row
+    /// and the branding zone stays empty — the failure mode the row/grid logic exists to
+    /// prevent is a block bleeding into the wordmark.
+    func testFiveMetricCardsDrawEveryRowClearOfTheBranding() throws {
+        let cases: [(
+            name: String,
+            ratio: WorkoutShareAspectRatio,
+            arrangement: WorkoutShareLandscapeArrangement,
+            layout: WorkoutShareCardLayout,
+            withRoute: Bool,
+            font: Font.Design
+        )] = [
+            // Compact two-row grid over a shrunken route square, in the widest type the
+            // card offers — the min-scale path.
+            ("square centered", .square, .stacked, .centered, true, .monospaced),
+            ("9:16 column", .portrait9x16, .stacked, .centered, true, .rounded),
+            ("4:3 side by side", .landscape4x3, .sideBySide, .centered, true, .rounded),
+            ("16:9 stacked", .landscape16x9, .stacked, .centered, true, .rounded),
+            ("square route-less", .square, .stacked, .routeless, false, .rounded),
+            // A route that projects to nothing: centered layout, no trace, blocks only.
+            ("square traceless centered", .square, .stacked, .centered, false, .rounded)
+        ]
+
+        for testCase in cases {
+            let geometry = WorkoutShareCardGeometry(
+                aspectRatio: testCase.ratio,
+                layout: testCase.layout,
+                arrangement: testCase.arrangement,
+                metricCount: 5
+            )
+            let cgImage = try XCTUnwrap(
+                makeRenderer(
+                    layout: testCase.layout,
+                    withRoute: testCase.withRoute,
+                    fontDesign: testCase.font,
+                    aspectRatio: testCase.ratio,
+                    arrangement: testCase.arrangement,
+                    centeredMetrics: fiveMetrics()
+                ).uiImage?.cgImage,
+                "no image for \(testCase.name)"
+            )
+
+            XCTAssertEqual(cgImage.width, Int(testCase.ratio.cardSize.width * 3), "\(testCase.name) width")
+            XCTAssertEqual(cgImage.height, Int(testCase.ratio.cardSize.height * 3), "\(testCase.name) height")
+
+            let showsTrace = testCase.withRoute && testCase.layout != .routeless
+            let bands = metricRowBands(geometry, showsTrace: showsTrace)
+            XCTAssertEqual(bands.count, geometry.metricRowSizes.count)
+            for (index, band) in bands.enumerated() {
+                XCTAssertTrue(
+                    Self.containsNonBlackPixel(
+                        in: cgImage,
+                        region: Self.pixelRect(x: band.minX, y: band.minY, width: band.width, height: band.height, in: cgImage)
+                    ),
+                    "\(testCase.name) row \(index) (\(geometry.metricRowSizes[index]) blocks) drew nothing at \(band)"
+                )
+            }
+
+            // 4 pt of slack for the rows' real glyph metrics, then everything down to the
+            // branding zone has to be bare background.
+            let contentBottom = metricRowsTop(geometry, showsTrace: showsTrace) + geometry.metricContentHeight + 4
+            let brandingTop = geometry.size.height - WorkoutShareCardGeometry.brandingZoneHeight
+            if brandingTop - contentBottom >= 4 {
+                XCTAssertFalse(
+                    Self.containsNonBlackPixel(
+                        in: cgImage,
+                        region: Self.pixelRect(
+                            x: 0,
+                            y: contentBottom,
+                            width: geometry.size.width,
+                            height: brandingTop - contentBottom,
+                            in: cgImage
+                        )
+                    ),
+                    "\(testCase.name) drew into the strip above the branding zone"
+                )
+            }
+        }
+    }
+
+    /// With five blocks the route square gives up height to the rows, so the trace has to
+    /// follow it — it must still rasterize inside the (smaller) region the geometry moved
+    /// it to, and never below the metrics' top edge.
+    func testFiveMetricRouteStaysAboveTheMetricRows() throws {
+        for ratio in [WorkoutShareAspectRatio.square, .portrait9x16, .landscape16x9] {
+            let geometry = WorkoutShareCardGeometry(
+                aspectRatio: ratio,
+                layout: .centered,
+                arrangement: .stacked,
+                metricCount: 5
+            )
+            let cgImage = try XCTUnwrap(
+                makeRenderer(aspectRatio: ratio, centeredMetrics: fiveMetrics()).uiImage?.cgImage,
+                "no image for \(ratio.rawValue)"
+            )
+            let route = geometry.centeredRouteRect
+            XCTAssertLessThanOrEqual(
+                route.maxY - WorkoutShareCardGeometry.routeInset,
+                geometry.centeredMetricsTopY,
+                "\(ratio.rawValue) route region overlaps the metric rows"
+            )
+            XCTAssertTrue(
+                Self.containsRouteBluePixel(
+                    in: cgImage,
+                    region: Self.pixelRect(x: route.minX, y: route.minY, width: route.width, height: route.height, in: cgImage)
+                ),
+                "\(ratio.rawValue) drew no trace in its five-metric route region"
+            )
+            XCTAssertFalse(
+                Self.containsRouteBluePixel(
+                    in: cgImage,
+                    region: Self.pixelRect(
+                        x: 0,
+                        y: geometry.centeredMetricsTopY,
+                        width: geometry.size.width,
+                        height: geometry.metricContentHeight,
+                        in: cgImage
+                    )
+                ),
+                "\(ratio.rawValue) route bled into the metric rows"
+            )
+        }
+    }
+
+    /// Side by side splits the card at the midline whatever the metric count is: five
+    /// blocks wrap into three rows in the right half and never reach the trace.
+    func testFiveMetricSideBySideKeepsTheRouteInTheLeftHalf() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(
+                aspectRatio: .landscape4x3,
+                arrangement: .sideBySide,
+                centeredMetrics: fiveMetrics()
+            ).uiImage?.cgImage
+        )
+        let geometry = WorkoutShareCardGeometry(
+            aspectRatio: .landscape4x3,
+            layout: .centered,
+            arrangement: .sideBySide,
+            metricCount: 5
+        )
+        XCTAssertEqual(geometry.metricRowSizes, [2, 2, 1])
+
+        XCTAssertTrue(
+            Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 0, y: 0, width: 240, height: 360, in: cgImage)),
+            "Five-metric side-by-side route did not draw in the left half"
+        )
+        XCTAssertFalse(
+            Self.containsRouteBluePixel(in: cgImage, region: Self.pixelRect(x: 240, y: 0, width: 240, height: 360, in: cgImage)),
+            "Five-metric side-by-side route leaked into the metrics half"
+        )
+    }
+
     /// Card points × the renderer's scale 3, clamped to the rendered image's actual pixel
     /// bounds — not a fixed 1080×1920 literal, since the card can now render at any of the
     /// five aspect ratios.
+    // MARK: - Long image
+
+    /// Heart-rate samples across the fixture workout, so the long image's heart-rate
+    /// section has something to draw.
+    private func fixtureHeartRateSamples(count: Int = 40) -> [WorkoutHeartRateSample] {
+        let workout = fixtureWorkout()
+        return (0..<count).map { index in
+            WorkoutHeartRateSample(
+                date: workout.startDate.addingTimeInterval(Double(index) / Double(count) * workout.duration),
+                beatsPerMinute: 130 + Double(index % 20)
+            )
+        }
+    }
+
+    /// One distance sample every 10 s at a steady 3 m/s, for `unitCount` kilometres —
+    /// the input the splits table is built from. 40 km is the tall-output stress case.
+    private func fixtureSplitData(kilometers: Int) -> WorkoutSplitData {
+        let start = fixtureWorkout().startDate
+        let seconds = Double(kilometers) * 1_000 / 3
+        let stepCount = Int(seconds / 10)
+        let samples = (0..<stepCount).map { index in
+            WorkoutDistanceSample(
+                startDate: start.addingTimeInterval(Double(index) * 10),
+                endDate: start.addingTimeInterval(Double(index + 1) * 10),
+                meters: 30
+            )
+        }
+        return WorkoutSplitData(distanceSamples: samples, segments: [], stepSamples: [])
+    }
+
+    /// The long image at scale 1 — the size pass the sheet's exporter also takes before
+    /// it decides how far it can upscale.
+    private func makeLongRenderer(
+        selectedIDs: [String]? = nil,
+        splitKilometers: Int = 5,
+        heartRateSampleCount: Int = 40,
+        withRoute: Bool = true,
+        preset: BodyWorkoutSharePreset = .midnight,
+        attribution: WorkoutShareAttribution = .empty,
+        /// The exporter's scheme, which follows the preset's ink: the long image's chart
+        /// cards are `colorScheme`-adaptive, so a Daylight export has to render `.light`
+        /// or its tiles would stay dark-on-white.
+        colorScheme: ColorScheme = .dark
+    ) -> ImageRenderer<some View> {
+        let workout = WorkoutSummary(
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            duration: Double(splitKilometers) * 1_000 / 3,
+            activeEnergyKilocalories: 412,
+            distanceMeters: Double(splitKilometers) * 1_000,
+            averageHeartRateBeatsPerMinute: 154,
+            heartRateSamples: fixtureHeartRateSamples(count: heartRateSampleCount)
+        )
+        let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: workout.type)
+        let ids = selectedIDs ?? available.map(\.id)
+        let splits = WorkoutDetailChartPresentations.splits(
+            workout: workout,
+            splitData: fixtureSplitData(kilometers: splitKilometers),
+            distanceUnitPreference: .kilometers
+        )
+        let sections = WorkoutShareLongImageSections.sections(
+            available: available,
+            selectedIDs: ids,
+            data: WorkoutShareLongImageSections.Availability(
+                heartRate: !presentation.heartRateSamples.isEmpty,
+                splits: splits != nil
+            )
+        )
+        let coordinates = fixtureCoordinates()
+        let card = BodyWorkoutShareLongCardView(
+            presentation: presentation,
+            tiles: ids.compactMap { id in
+                presentation.detailMetrics.first { WorkoutShareMetricOption.key(for: $0.kind) == id }
+            },
+            routePoints: withRoute ? WorkoutShareRouteProjection.normalizedPoints(for: coordinates) : nil,
+            route3D: withRoute ? WorkoutRoute3DProjection.projected(for: coordinates) : nil,
+            dimension: .twoD,
+            iconHidden: false,
+            locality: "Cupertino",
+            type: workout.type,
+            preset: preset,
+            fontDesign: .rounded,
+            routeColor: BodyWorkoutShareCardView.defaultRouteColor,
+            sections: sections,
+            heartRateSamples: presentation.heartRateSamples,
+            maxHeartRate: 190,
+            paceOrSpeed: nil,
+            splits: splits,
+            elevation: nil,
+            cadence: nil,
+            power: nil,
+            strideLength: nil,
+            groundContact: nil,
+            verticalOscillation: nil,
+            attribution: attribution
+        )
+        let renderer = ImageRenderer(
+            content: card
+                .frame(width: BodyWorkoutShareLongCardView.width)
+                .fixedSize(horizontal: false, vertical: true)
+                .environment(\.colorScheme, colorScheme)
+                .dynamicTypeSize(.large)
+                .transaction { $0.disablesAnimations = true }
+        )
+        renderer.proposedSize = ProposedViewSize(width: BodyWorkoutShareLongCardView.width, height: nil)
+        renderer.scale = 1
+        return renderer
+    }
+
+    /// The long image is exactly the card's width and taller than any card ratio, and
+    /// its wordmark is the last thing on it.
+    func testLongImageRendersAtCardWidthAndNaturalHeight() throws {
+        let renderer = makeLongRenderer()
+        let image = try XCTUnwrap(renderer.uiImage, "ImageRenderer produced no long image")
+        let cgImage = try XCTUnwrap(image.cgImage)
+
+        XCTAssertEqual(cgImage.width, Int(BodyWorkoutShareLongCardView.width))
+        XCTAssertGreaterThan(
+            cgImage.height,
+            Int(WorkoutShareAspectRatio.portrait9x16.cardSize.height),
+            "the long image should be taller than the tallest card"
+        )
+
+        // The wordmark sits in the branding zone at the very bottom, centred — the only
+        // ink down there over Midnight's flat black.
+        let brandingBand = CGRect(
+            x: 0.3 * CGFloat(cgImage.width),
+            y: CGFloat(cgImage.height) - WorkoutShareCardGeometry.brandingZoneHeight,
+            width: 0.4 * CGFloat(cgImage.width),
+            height: WorkoutShareCardGeometry.brandingZoneHeight
+        )
+        XCTAssertTrue(
+            Self.containsNonBlackPixel(in: cgImage, region: brandingBand),
+            "the branding strip at the bottom of the long image had no ink"
+        )
+    }
+
+    /// The long image's branding row has no metrics sharing it, so attribution only
+    /// needs to prove it renders without breaking the natural-height layout.
+    func testLongImageWithAttributionRendersAtCardWidth() throws {
+        let renderer = makeLongRenderer(
+            attribution: WorkoutShareAttribution(avatar: solidAvatarImage(), name: "Justin")
+        )
+        let cgImage = try XCTUnwrap(renderer.uiImage?.cgImage, "ImageRenderer produced no long image")
+
+        XCTAssertEqual(cgImage.width, Int(BodyWorkoutShareLongCardView.width))
+    }
+
+    /// A deselected chip takes its whole section off the image: the policy says so, and
+    /// the raster gets shorter by more than a rounding error because of it.
+    func testDeselectingAChipRemovesItsLongImageSection() throws {
+        let workout = fixtureWorkout()
+        let presentation = WorkoutDetailPresentation(workout: workout, locale: Locale(identifier: "en_US"))
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: workout.type)
+        let withoutHeartRate = available.map(\.id).filter { $0 != "avgHeartRate" && $0 != "maxHeartRate" }
+
+        // The policy's answer first — the raster only confirms it took effect.
+        let sections = WorkoutShareLongImageSections.sections(
+            available: available,
+            selectedIDs: withoutHeartRate,
+            data: WorkoutShareLongImageSections.Availability(heartRate: true, splits: true)
+        )
+        XCTAssertFalse(sections.heartRate)
+        XCTAssertTrue(sections.splits)
+
+        let full = try XCTUnwrap(makeLongRenderer().uiImage?.cgImage)
+        let trimmed = try XCTUnwrap(makeLongRenderer(selectedIDs: withoutHeartRate).uiImage?.cgImage)
+
+        XCTAssertEqual(trimmed.width, full.width)
+        XCTAssertLessThan(
+            trimmed.height,
+            full.height - 200,
+            "dropping the heart-rate chip should remove the whole heart-rate card, not just a tile"
+        )
+    }
+
+    /// A workout with dozens of splits produces an image thousands of points tall. The
+    /// exporter backs its scale off so the bitmap stays bounded, and only refuses — into
+    /// the "Couldn't Create Image" alert — when even 1x wouldn't fit.
+    func testTallLongImageClampsItsExportScale() throws {
+        // The rule itself, at the heights that matter.
+        XCTAssertEqual(BodyWorkoutShareSheet.longExportScale(forHeight: 640), 3)
+        XCTAssertEqual(BodyWorkoutShareSheet.longExportScale(forHeight: 4_000), 3)
+        XCTAssertEqual(try XCTUnwrap(BodyWorkoutShareSheet.longExportScale(forHeight: 6_000)), 2, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(BodyWorkoutShareSheet.longExportScale(forHeight: 12_000)), 1, accuracy: 0.0001)
+        XCTAssertNil(
+            BodyWorkoutShareSheet.longExportScale(forHeight: 20_000),
+            "an image too tall to rasterize even at 1x must refuse rather than allocate"
+        )
+        XCTAssertNil(BodyWorkoutShareSheet.longExportScale(forHeight: 0))
+
+        // And a real 40-split workout: very tall, still exportable, and its clamped
+        // output stays inside the budget.
+        let renderer = makeLongRenderer(splitKilometers: 40)
+        let image = try XCTUnwrap(renderer.uiImage)
+        let heightPoints = image.size.height
+        XCTAssertGreaterThan(heightPoints, 1_500, "40 splits should produce a very tall image")
+
+        let scale = try XCTUnwrap(BodyWorkoutShareSheet.longExportScale(forHeight: heightPoints))
+        XCTAssertLessThanOrEqual(heightPoints * scale, 12_000)
+    }
+
+    // MARK: - Daylight ink polarity
+    //
+    // Every sweep above stays pinned to Midnight, whose "empty band is black"
+    // assertions are the inverse of what a white card produces. These are targeted
+    // probes instead: the Daylight card must be near-white where nothing drew, and
+    // carry near-black ink where the light presets carry white.
+
+    /// A flat, single-colour 360×640 backdrop — a "photo" whose every pixel is known,
+    /// so a probe can tell the card's own ink apart from the picture behind it.
+    private func flatImage(_ color: UIColor) -> UIImage {
+        let size = CGSize(width: 360, height: 640)
+        return UIGraphicsImageRenderer(size: size).image { context in
+            color.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+    }
+
+    /// The Daylight 9:16 card: white where nothing drew, black ink in the metric stack,
+    /// and the route still in its own colour (the trace is the user's pick, not ink).
+    func testDaylightCardDrawsDarkInkOnAWhiteCard() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(background: .preset(.daylight), colorScheme: .light).uiImage?.cgImage
+        )
+
+        // A corner the card never draws in: Daylight's flat white, scrim included.
+        let corner = Self.averageColor(in: cgImage, region: Self.pixelRect(x: 0, y: 0, width: 20, height: 20, in: cgImage))
+        XCTAssertGreaterThan(corner.red, 240, "the Daylight card's corner was not near-white")
+        XCTAssertGreaterThan(corner.green, 240)
+        XCTAssertGreaterThan(corner.blue, 240)
+
+        XCTAssertTrue(
+            Self.containsNearBlackPixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 30, y: 335, width: 300, height: 225, in: cgImage)
+            ),
+            "the Daylight card's metric stack had no dark ink — the text is still white on white"
+        )
+
+        XCTAssertTrue(
+            Self.containsRouteBluePixel(in: cgImage, region: Self.centeredRouteRegionInPixels(of: cgImage)),
+            "the route trace did not draw on the Daylight card"
+        )
+    }
+
+    /// The route-less tree (type glyph + stack, no trace) flips too — its glyph is the
+    /// card's only identity, so a white one on a white card would erase it.
+    func testDaylightRoutelessCardDrawsDarkInk() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(
+                layout: .routeless,
+                withRoute: false,
+                background: .preset(.daylight),
+                colorScheme: .light
+            ).uiImage?.cgImage
+        )
+
+        // The same band `testRoutelessGlyphAreaRasterizesOverDarkPreset` samples, read
+        // the other way round: dark ink on white rather than any ink on black.
+        XCTAssertTrue(
+            Self.containsNearBlackPixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 150, y: 100, width: 60, height: 160, in: cgImage)
+            ),
+            "the Daylight route-less card's type glyph did not draw in dark ink"
+        )
+
+        let corner = Self.averageColor(in: cgImage, region: Self.pixelRect(x: 0, y: 0, width: 20, height: 20, in: cgImage))
+        XCTAssertGreaterThan(corner.red, 240, "the Daylight route-less card's corner was not near-white")
+    }
+
+    /// Five metrics take the grid path (uniform block sizing plus the grid's own
+    /// shadow), which is a different set of colour literals from the three-block stack.
+    func testDaylightFiveMetricCardDrawsDarkInk() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(
+                background: .preset(.daylight),
+                centeredMetrics: fiveMetrics(),
+                colorScheme: .light
+            ).uiImage?.cgImage
+        )
+
+        // Five compact rows on 9:16 run from card y 238 to 572 (the geometry shrinks the
+        // route square to make room); sample well inside that.
+        XCTAssertTrue(
+            Self.containsNearBlackPixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 30, y: 250, width: 300, height: 310, in: cgImage)
+            ),
+            "the Daylight five-metric grid had no dark ink"
+        )
+    }
+
+    /// The wordmark alone, not the whole branding strip: `BodyIcon01` is a colourful
+    /// asset that draws the same on either ink, so a broad band probe would pass even
+    /// with an invisible white-on-white "Body".
+    func testDaylightWordmarkDrawsDarkInk() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(background: .preset(.daylight), colorScheme: .light).uiImage?.cgImage
+        )
+
+        // Card points: the branding HStack is centred on x 180 and its bottom edge sits
+        // `brandingBottomPadding` (26) above the card's, so x 180–202 is inside the
+        // wordmark and clear of the icon to its left.
+        XCTAssertTrue(
+            Self.containsNearBlackPixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 180, y: 600, width: 22, height: 12, in: cgImage),
+                threshold: 150
+            ),
+            "the Daylight wordmark did not draw in dark ink"
+        )
+    }
+
+    /// A small solid-colour square, standing in for a decoded profile photo — its exact
+    /// pixels don't matter, only that something opaque and dark-edged lands where the
+    /// avatar chip is drawn.
+    private func solidAvatarImage(_ color: UIColor = .black) -> UIImage {
+        let size = CGSize(width: 60, height: 60)
+        return UIGraphicsImageRenderer(size: size).image { context in
+            color.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+    }
+
+    /// With attribution set, the branding strip grows past the wordmark: a wide band to
+    /// its right — background-only with no attribution (`testDaylightWordmarkAbsentAttributionLeavesBandBlank`
+    /// below) — now carries the dash, avatar, and `@name`.
+    func testDaylightAttributionDrawsDarkInkRightOfWordmark() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(
+                background: .preset(.daylight),
+                attribution: WorkoutShareAttribution(avatar: solidAvatarImage(), name: "Justin"),
+                colorScheme: .light
+            ).uiImage?.cgImage
+        )
+
+        XCTAssertTrue(
+            Self.containsNearBlackPixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 250, y: 600, width: 80, height: 12, in: cgImage),
+                threshold: 150
+            ),
+            "the attribution did not draw in dark ink beside the wordmark"
+        )
+    }
+
+    /// Turning the separator off takes the dash out of the branding row and nothing
+    /// else: the same attribution renders, but the row's ink spans fewer pixels. A span
+    /// rather than a fixed probe, because the row is centred — dropping a glyph shifts
+    /// everything left of it, so no single point stays put between the two renders.
+    func testHidingTheSeparatorNarrowsTheBrandingRow() throws {
+        func brandingInkWidth(showsSeparator: Bool) throws -> Int {
+            let cgImage = try XCTUnwrap(
+                makeRenderer(
+                    background: .preset(.daylight),
+                    attribution: WorkoutShareAttribution(
+                        avatar: solidAvatarImage(),
+                        name: "Justin",
+                        showsSeparator: showsSeparator
+                    ),
+                    colorScheme: .light
+                ).uiImage?.cgImage
+            )
+            let band = Self.pixelRect(x: 0, y: 600, width: 360, height: 12, in: cgImage)
+            return try XCTUnwrap(
+                Self.nearBlackInkWidth(in: cgImage, region: band, threshold: 150),
+                "the branding row drew no dark ink"
+            )
+        }
+
+        let withDash = try brandingInkWidth(showsSeparator: true)
+        let withoutDash = try brandingInkWidth(showsSeparator: false)
+
+        XCTAssertLessThan(
+            withoutDash, withDash,
+            "hiding the separator should narrow the branding row by the dash's width"
+        )
+    }
+
+    /// Control for the test above: the same render with no attribution leaves the wide
+    /// right-of-wordmark band untouched — proving the ink there comes from the
+    /// attribution, not from some other element drifting into the probe.
+    func testDaylightWordmarkAbsentAttributionLeavesBandBlank() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(background: .preset(.daylight), attribution: .empty, colorScheme: .light).uiImage?.cgImage
+        )
+
+        XCTAssertFalse(
+            Self.containsNearBlackPixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 250, y: 600, width: 80, height: 12, in: cgImage),
+                threshold: 150
+            ),
+            "the branding band right of the wordmark should be empty with no attribution"
+        )
+    }
+
+    /// Ink follows the background that actually renders, never the stored preference: a
+    /// photo is dark-backed by its scrims, so it keeps the light ink and the black
+    /// legibility halo even when the tray still says Daylight. The block is moved off
+    /// its default slot to prove the rule holds wherever it lands.
+    func testBrightPhotoKeepsLightInkAndItsBlackShadow() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(
+                infoTransform: WorkoutShareInfoTransform(offset: CGSize(width: 20, height: 30), scale: 1),
+                withRoute: false,
+                background: .photo(flatImage(.white)),
+                colorScheme: .dark
+            ).uiImage?.cgImage
+        )
+
+        // The moved metric stack, entirely inside the clear band between the scrims.
+        let block = Self.pixelRect(x: 44, y: 250, width: 296, height: 200, in: cgImage)
+
+        XCTAssertFalse(
+            Self.containsNearBlackPixel(in: cgImage, region: block, threshold: 100),
+            "the metrics over a white photo drew in dark ink — the background did not win"
+        )
+        // White text on a white photo is only visible through its halo, so a region that
+        // is *uniformly* white means the black shadow stopped being drawn.
+        XCTAssertTrue(
+            Self.containsPixel(in: cgImage, region: block) { red, green, blue in
+                red < 235 && green < 235 && blue < 235
+            },
+            "the black legibility shadow did not draw over a white photo"
+        )
+    }
+
+    /// The map's composited snapshot is dark-backed by the classic layout's heavier
+    /// scrims, so its header keeps white ink whatever preset is stored.
+    func testMapBackgroundKeepsLightInk() throws {
+        let cgImage = try XCTUnwrap(
+            makeRenderer(layout: .classic, background: .map(flatImage(.white))).uiImage?.cgImage
+        )
+
+        XCTAssertTrue(
+            Self.containsNearWhitePixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 24, y: 88, width: 256, height: 24, in: cgImage)
+            ),
+            "the map card's title lost its white ink"
+        )
+    }
+
+    /// The video overlay draws no background of its own — the frames come from under it
+    /// — so it is light ink by the same rule, over transparency.
+    func testVideoOverlayKeepsLightInk() throws {
+        let cgImage = try XCTUnwrap(makeRenderer(background: .video).uiImage?.cgImage)
+
+        XCTAssertTrue(
+            Self.containsNearWhitePixel(
+                in: cgImage,
+                region: Self.pixelRect(x: 30, y: 335, width: 300, height: 225, in: cgImage)
+            ),
+            "the video overlay's metrics lost their white ink"
+        )
+    }
+
+    /// The Daylight long image: near-white background, dark ink in the header band.
+    func testDaylightLongImageDrawsDarkInkOnWhite() throws {
+        let cgImage = try XCTUnwrap(
+            makeLongRenderer(preset: .daylight, colorScheme: .light).uiImage?.cgImage
+        )
+
+        // Scale 1 here, so these are image pixels directly. The top-left corner is
+        // inside the 24 pt margin — nothing but the preset's white.
+        let corner = Self.averageColor(in: cgImage, region: CGRect(x: 0, y: 0, width: 12, height: 12))
+        XCTAssertGreaterThan(corner.red, 240, "the Daylight long image's corner was not near-white")
+
+        // The title, right of the 46 pt type chip and below the 28 pt top padding.
+        XCTAssertTrue(
+            Self.containsNearBlackPixel(in: cgImage, region: CGRect(x: 84, y: 30, width: 250, height: 26)),
+            "the Daylight long image's header had no dark ink"
+        )
+    }
+
+    /// The trace's legibility halo is a 2D-only contract: the flat polyline is stroked
+    /// through a shadow filter, and the 3D ribbon deliberately draws bare (a halo on its
+    /// filled quads would smear rather than outline). Both are rendered over the same
+    /// flat mid-grey photo, where a black halo is measurable, and the band just below
+    /// the shared bottom-anchored ground line is compared.
+    func testFlatTraceIsHaloedAndTheThreeDRibbonIsNot() throws {
+        let photo = flatImage(UIColor(white: 0.5, alpha: 1))
+        let twoD = try XCTUnwrap(
+            makeRenderer(coordinates: flatFixtureCoordinates(), background: .photo(photo)).uiImage?.cgImage
+        )
+        let threeD = try XCTUnwrap(
+            makeRenderer(
+                coordinates: flatFixtureCoordinates(),
+                dimension: .threeD,
+                background: .photo(photo)
+            ).uiImage?.cgImage
+        )
+
+        // Just under the ground line at card y 288 (stroke half-width 2.5), still inside
+        // the route Canvas, and above the metric stack at y 330.
+        let band = Self.pixelRect(x: 100, y: 294, width: 160, height: 5, in: twoD)
+        let flat = Self.averageColor(in: twoD, region: band)
+        let ribbon = Self.averageColor(in: threeD, region: band)
+
+        XCTAssertLessThan(
+            flat.red, ribbon.red - 3,
+            "the 2D trace drew no shadow below its stroke"
+        )
+        XCTAssertEqual(
+            ribbon.red, 127.5, accuracy: 3,
+            "the 3D ribbon grew a shadow — it draws bare by design; see WorkoutShareRouteTrace"
+        )
+    }
+
     private static func pixelRect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, in cgImage: CGImage) -> CGRect {
         let scale: CGFloat = 3
         return CGRect(x: x * scale, y: y * scale, width: width * scale, height: height * scale)
@@ -611,6 +1417,46 @@ final class WorkoutShareRenderTests: XCTestCase {
         return pixels
     }
 
+    /// The mirror of `containsNonBlackPixel` for the Daylight card: any pixel dark on
+    /// every channel, i.e. the dark ink actually landed somewhere in `region`. A
+    /// threshold rather than an exact match, because text is antialiased and the
+    /// secondary strengths (`ink.primary(0.6)`) are greys, not black.
+    private static func containsNearBlackPixel(in cgImage: CGImage, region: CGRect, threshold: UInt8 = 110) -> Bool {
+        containsPixel(in: cgImage, region: region) { red, green, blue in
+            red <= threshold && green <= threshold && blue <= threshold
+        }
+    }
+
+    /// How many pixels wide the dark ink in `region` spans, leftmost to rightmost — for
+    /// probes that compare two renders of a centred row, where absolute positions move
+    /// but the total extent is the thing under test. Nil when nothing dark drew.
+    private static func nearBlackInkWidth(in cgImage: CGImage, region: CGRect, threshold: UInt8 = 110) -> Int? {
+        guard let pixels = rgbaPixels(of: cgImage) else { return nil }
+        let bytesPerRow = cgImage.width * 4
+        var minX: Int?
+        var maxX: Int?
+        for y in Int(region.minY)..<Int(region.maxY) {
+            for x in Int(region.minX)..<Int(region.maxX) {
+                let offset = y * bytesPerRow + x * 4
+                guard pixels[offset] <= threshold,
+                      pixels[offset + 1] <= threshold,
+                      pixels[offset + 2] <= threshold else { continue }
+                minX = min(minX ?? x, x)
+                maxX = max(maxX ?? x, x)
+            }
+        }
+        guard let minX, let maxX else { return nil }
+        return maxX - minX + 1
+    }
+
+    /// The same probe for the light ink — used where a background must keep white text
+    /// even though a Daylight preset is stored.
+    private static func containsNearWhitePixel(in cgImage: CGImage, region: CGRect, threshold: UInt8 = 200) -> Bool {
+        containsPixel(in: cgImage, region: region) { red, green, blue in
+            red >= threshold && green >= threshold && blue >= threshold
+        }
+    }
+
     /// Draws the CGImage into an RGBA8 buffer and scans `region` for any pixel that
     /// isn't Midnight's flat black background — a loose check for "something drew here"
     /// rather than a match on any particular color.
@@ -644,3 +1490,4 @@ final class WorkoutShareRenderTests: XCTestCase {
         return false
     }
 }
+

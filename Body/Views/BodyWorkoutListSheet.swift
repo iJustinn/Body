@@ -105,7 +105,10 @@ struct BodyWorkoutListSheet: View {
                             Button {
                                 selectedWorkout = workout
                             } label: {
-                                BodyWorkoutRecordRow(workout: workout)
+                                BodyWorkoutRecordRow(
+                                    workout: workout,
+                                    customName: workoutStore.workoutCustomNames[workout.id]
+                                )
                                     .matchedTransitionSource(id: workout.id, in: workoutZoom) {
                                         $0.clipShape(.rect(cornerRadius: 30, style: .continuous))
                                     }
@@ -196,6 +199,7 @@ private struct BodyWorkoutRecordRow: View {
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     let workout: WorkoutSummary
+    var customName: String? = nil
 
     var body: some View {
         HStack(spacing: 16) {
@@ -208,7 +212,7 @@ private struct BodyWorkoutRecordRow: View {
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(workout.type.displayName)
+                Text(customName ?? workout.type.displayName)
                     .font(.system(.headline, design: .rounded))
                     .fontWeight(.bold)
                     .foregroundColor(.primary)

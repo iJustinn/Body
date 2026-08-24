@@ -20,9 +20,15 @@ final class WorkoutShareCardTests: XCTestCase {
     private func geometry(
         _ ratio: WorkoutShareAspectRatio,
         layout: WorkoutShareCardLayout = .centered,
-        arrangement: WorkoutShareLandscapeArrangement = .stacked
+        arrangement: WorkoutShareLandscapeArrangement = .stacked,
+        metricCount: Int = WorkoutShareMetricSelection.defaultCount
     ) -> WorkoutShareCardGeometry {
-        WorkoutShareCardGeometry(aspectRatio: ratio, layout: layout, arrangement: arrangement)
+        WorkoutShareCardGeometry(
+            aspectRatio: ratio,
+            layout: layout,
+            arrangement: arrangement,
+            metricCount: metricCount
+        )
     }
 
     private func workout(
@@ -351,6 +357,18 @@ final class WorkoutShareCardTests: XCTestCase {
             metrics.map(\.title),
             [String(localized: "Distance"), String(localized: "Pace"), String(localized: "Time")]
         )
+        // Raising the deliberate-pick ceiling to five must not move the automatic card:
+        // the defaults stop at three even though five candidates qualify.
+        XCTAssertEqual(WorkoutShareMetricSelection.maximumCount, 5)
+        XCTAssertEqual(WorkoutShareMetricSelection.defaultCount, 3)
+        XCTAssertEqual(
+            WorkoutShareMetricsBuilder.defaultMetricIDs(for: presentation, type: .hiking, hasRoute: true).count,
+            WorkoutShareMetricSelection.defaultCount
+        )
+        XCTAssertGreaterThan(
+            WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: .hiking).count,
+            WorkoutShareMetricSelection.defaultCount
+        )
     }
 
     func testCenteredUsesDistanceTileWhenNotPromoted() throws {
@@ -451,6 +469,13 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertEqual(metrics[2].value, energyTile.value)
         XCTAssertFalse(metrics.contains { $0.title == elevationTile.title })
         XCTAssertFalse(metrics.contains { $0.value == heartRateText })
+        // Five is the ceiling of a deliberate pick, never of the automatic route-less
+        // stack — which stays at three even with six candidates in the pool.
+        XCTAssertEqual(WorkoutShareMetricSelection.maximumCount, 5)
+        XCTAssertLessThanOrEqual(
+            WorkoutShareMetricsBuilder.defaultMetricIDs(for: presentation, type: .downhillSkiing, hasRoute: false).count,
+            WorkoutShareMetricSelection.defaultCount
+        )
     }
 
     func testRoutelessEnergyTitleMatchesTheActiveEnergyTile() throws {
@@ -668,13 +693,14 @@ final class WorkoutShareCardTests: XCTestCase {
             ),
             ["pace", "avgHeartRate"]
         )
+        // Five stored ids all survive now that the ceiling is five — still pool-ordered.
         XCTAssertEqual(
             WorkoutShareMetricSelection.resolved(
                 stored: ["avgHeartRate", "activeEnergy", "time", "distance", "pace"],
                 available: available,
                 defaults: defaults
             ),
-            ["distance", "pace", "time"]
+            ["distance", "pace", "time", "activeEnergy", "avgHeartRate"]
         )
         // Nothing stored, or nothing that survives, falls back to the automatic pick.
         XCTAssertEqual(WorkoutShareMetricSelection.resolved(stored: nil, available: available, defaults: defaults), defaults)
@@ -682,9 +708,25 @@ final class WorkoutShareCardTests: XCTestCase {
             WorkoutShareMetricSelection.resolved(stored: ["elevation", "power"], available: available, defaults: defaults),
             defaults
         )
+
+        // A workout with more candidates than the ceiling truncates to the first five in
+        // pool order rather than showing a sixth block.
+        let hike = presentation(for: workout(type: .hiking, duration: 5400, distance: 9000, activeEnergy: 600, avgHR: 128, elevation: 540))
+        let hikeOptions = WorkoutShareMetricsBuilder.availableMetrics(for: hike, type: .hiking)
+        let hikeDefaults = WorkoutShareMetricsBuilder.defaultMetricIDs(for: hike, type: .hiking, hasRoute: true)
+        let poolIDs = hikeOptions.map(\.id)
+        XCTAssertGreaterThan(poolIDs.count, WorkoutShareMetricSelection.maximumCount)
+
+        let everything = WorkoutShareMetricSelection.resolved(
+            stored: poolIDs.reversed(),
+            available: hikeOptions,
+            defaults: hikeDefaults
+        )
+        XCTAssertEqual(everything, Array(poolIDs.prefix(WorkoutShareMetricSelection.maximumCount)))
+        XCTAssertEqual(everything.count, 5)
     }
 
-    func testTogglingRespectsTheOneToThreeBoundsAndPoolOrder() {
+    func testTogglingRespectsTheOneToFiveBoundsAndPoolOrder() {
         let run = presentation(for: workout(type: .running, distance: 5000, activeEnergy: 320, avgHR: 145))
         let available = WorkoutShareMetricsBuilder.availableMetrics(for: run, type: .running)
         let defaults = WorkoutShareMetricsBuilder.defaultMetricIDs(for: run, type: .running, hasRoute: true)
@@ -699,15 +741,296 @@ final class WorkoutShareCardTests: XCTestCase {
             WorkoutShareMetricSelection.toggling("distance", in: ["avgHeartRate"], available: available),
             ["distance", "avgHeartRate"]
         )
-        // Already three picked: another tap is a no-op.
-        XCTAssertEqual(
-            WorkoutShareMetricSelection.toggling("avgHeartRate", in: defaults, available: available),
-            defaults
-        )
+        // Three picked is no longer the ceiling: a fourth and a fifth still land, in
+        // pool order.
+        let four = WorkoutShareMetricSelection.toggling("avgHeartRate", in: defaults, available: available)
+        XCTAssertEqual(four, ["distance", "pace", "time", "avgHeartRate"])
+        let five = WorkoutShareMetricSelection.toggling("activeEnergy", in: four, available: available)
+        XCTAssertEqual(five, ["distance", "pace", "time", "activeEnergy", "avgHeartRate"])
+        XCTAssertEqual(five.count, WorkoutShareMetricSelection.maximumCount)
         // The last one standing can't be removed.
         XCTAssertEqual(WorkoutShareMetricSelection.toggling("pace", in: ["pace"], available: available), ["pace"])
         // An id this workout doesn't have can't be added.
         XCTAssertEqual(WorkoutShareMetricSelection.toggling("elevation", in: ["pace"], available: available), ["pace"])
+        // ...and one that is already picked still comes off.
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.toggling("time", in: five, available: available),
+            ["distance", "pace", "activeEnergy", "avgHeartRate"]
+        )
+
+        // A hike has more than five candidates, which is what makes the upper bound
+        // observable: with five picked, the sixth chip is a no-op.
+        let hike = presentation(for: workout(type: .hiking, duration: 5400, distance: 9000, activeEnergy: 600, avgHR: 128, elevation: 540))
+        let hikeOptions = WorkoutShareMetricsBuilder.availableMetrics(for: hike, type: .hiking)
+        let poolIDs = hikeOptions.map(\.id)
+        XCTAssertGreaterThan(poolIDs.count, WorkoutShareMetricSelection.maximumCount)
+
+        let picked = Array(poolIDs.prefix(WorkoutShareMetricSelection.maximumCount))
+        let sixth = poolIDs[WorkoutShareMetricSelection.maximumCount]
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.toggling(sixth, in: picked, available: hikeOptions),
+            picked,
+            "a sixth pick must be a no-op, not an eviction"
+        )
+        // One off, one on: the same tap now fits, and lands in pool order.
+        let withRoom = WorkoutShareMetricSelection.toggling(picked[1], in: picked, available: hikeOptions)
+        XCTAssertEqual(withRoom.count, 4)
+        let refilled = WorkoutShareMetricSelection.toggling(sixth, in: withRoom, available: hikeOptions)
+        XCTAssertEqual(refilled, poolIDs.filter { Set(withRoom + [sixth]).contains($0) })
+        XCTAssertEqual(refilled.count, 5)
+    }
+
+    // MARK: - Long image
+
+    func testStoredOutputStyleRoundTripsAndDefaultsToCard() {
+        for style in WorkoutShareOutputStyle.allCases {
+            XCTAssertEqual(WorkoutShareOutputStyle.stored(rawValue: style.rawValue), style)
+        }
+        XCTAssertEqual(WorkoutShareOutputStyle.stored(rawValue: nil), .card)
+        XCTAssertEqual(WorkoutShareOutputStyle.stored(rawValue: ""), .card)
+        XCTAssertEqual(WorkoutShareOutputStyle.stored(rawValue: "poster"), .card)
+        XCTAssertEqual(WorkoutShareOutputStyle.storageKey, "workoutShareOutputStyle")
+        XCTAssertEqual(WorkoutShareMetricSelection.longStorageKey, "workoutShareLongMetricSelections")
+    }
+
+    func testResolvedOutputStyleIsProGated() {
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.resolvedOutputStyle(.longImage, isProUnlocked: true),
+            .longImage
+        )
+        // Session-only fallback — nothing here rewrites the stored key.
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.resolvedOutputStyle(.longImage, isProUnlocked: false),
+            .card
+        )
+        for isPro in [true, false] {
+            XCTAssertEqual(WorkoutShareBackgroundPolicy.resolvedOutputStyle(.card, isProUnlocked: isPro), .card)
+        }
+    }
+
+    /// The export branch: a clip picked before switching to the long image is still
+    /// held (forcing the background selection doesn't nil it out), and must not turn
+    /// Share into an MP4 of a card the user isn't looking at.
+    func testResolvedOutputPrefersTheLongImageOverAHeldClip() {
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.resolvedOutput(style: .longImage, hasRenderableVideo: true),
+            .longImage
+        )
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.resolvedOutput(style: .longImage, hasRenderableVideo: false),
+            .longImage
+        )
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.resolvedOutput(style: .card, hasRenderableVideo: true),
+            .video
+        )
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.resolvedOutput(style: .card, hasRenderableVideo: false),
+            .cardImage
+        )
+    }
+
+    /// A stored Map background doesn't leak into the long image, which always paints a
+    /// gradient — and a stored preset still does.
+    func testLongPresetFallsBackToMidnightForNonPresetBackgrounds() {
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.longPreset(storedBackground: "map", hasRoute: true),
+            .midnight
+        )
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.longPreset(storedBackground: "map", hasRoute: false),
+            .midnight
+        )
+        XCTAssertEqual(WorkoutShareBackgroundPolicy.longPreset(storedBackground: nil, hasRoute: true), .midnight)
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.longPreset(
+                storedBackground: BodyWorkoutSharePreset.workoutTint.rawValue,
+                hasRoute: true
+            ),
+            .workoutTint
+        )
+    }
+
+    func testResolvedLongDefaultsToEveryMetricInPoolOrder() {
+        let hike = presentation(for: workout(type: .hiking, duration: 5400, distance: 9000, activeEnergy: 600, avgHR: 128, elevation: 540))
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: hike, type: .hiking)
+        let poolIDs = available.map(\.id)
+        XCTAssertGreaterThan(poolIDs.count, WorkoutShareMetricSelection.maximumCount)
+
+        // Nothing stored, an empty pick, and a pick made on some other workout's tiles
+        // all mean the same thing: show everything.
+        XCTAssertEqual(WorkoutShareMetricSelection.resolvedLong(stored: nil, available: available), poolIDs)
+        XCTAssertEqual(WorkoutShareMetricSelection.resolvedLong(stored: [], available: available), poolIDs)
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.resolvedLong(stored: ["strokeCount", "power"], available: available),
+            poolIDs
+        )
+        // A surviving pick comes back in pool order, uncapped — six ids stay six.
+        let stored = Array(poolIDs.reversed().prefix(6))
+        let resolved = WorkoutShareMetricSelection.resolvedLong(stored: stored, available: available)
+        XCTAssertEqual(resolved, poolIDs.filter { Set(stored).contains($0) })
+        XCTAssertEqual(resolved.count, 6)
+        XCTAssertGreaterThan(resolved.count, WorkoutShareMetricSelection.maximumCount)
+    }
+
+    func testTogglingLongHasAFloorButNoCeiling() {
+        let hike = presentation(for: workout(type: .hiking, duration: 5400, distance: 9000, activeEnergy: 600, avgHR: 128, elevation: 540))
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: hike, type: .hiking)
+        let poolIDs = available.map(\.id)
+
+        // Every metric on, minus one, plus it again — no ceiling anywhere in that loop.
+        let allButLast = Array(poolIDs.dropLast())
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.togglingLong(poolIDs[poolIDs.count - 1], in: allButLast, available: available),
+            poolIDs
+        )
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.togglingLong(poolIDs[1], in: poolIDs, available: available),
+            poolIDs.filter { $0 != poolIDs[1] }
+        )
+        // The last one standing stays on, and an id this workout doesn't have can't be
+        // added.
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.togglingLong("time", in: ["time"], available: available),
+            ["time"]
+        )
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.togglingLong("strokeCount", in: ["time"], available: available),
+            ["time"]
+        )
+    }
+
+    /// The whole section policy as one table: what data exists × which chips are on.
+    func testLongImageSectionPolicy() {
+        let run = presentation(for: workout(type: .running, distance: 5000, activeEnergy: 320, avgHR: 145))
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: run, type: .running)
+        let poolIDs = available.map(\.id)
+        // The fixture's pool is what makes the chip gates observable.
+        XCTAssertTrue(poolIDs.contains("pace"))
+        XCTAssertTrue(poolIDs.contains("avgHeartRate"))
+        XCTAssertFalse(poolIDs.contains("elevation"))
+
+        let everything = WorkoutShareLongImageSections.Availability(
+            heartRate: true,
+            pace: true,
+            splits: true,
+            elevation: true,
+            cadence: true,
+            power: true,
+            strideLength: true,
+            groundContact: true,
+            verticalOscillation: true
+        )
+
+        // Every chip on: every section this workout has data for draws.
+        let all = WorkoutShareLongImageSections.sections(
+            available: available,
+            selectedIDs: poolIDs,
+            data: everything
+        )
+        XCTAssertEqual(
+            all,
+            WorkoutShareLongImageSections.Visibility(
+                heartRate: true,
+                pace: true,
+                splits: true,
+                elevation: true,
+                cadence: true,
+                // This fixture's pool has no "power" chip (no averagePowerWatts), so
+                // like stride/GC/VO it always draws — see the no-chip assertion below.
+                power: true,
+                strideLength: true,
+                groundContact: true,
+                verticalOscillation: true
+            )
+        )
+        XCTAssertTrue(all.showsPaceCard)
+
+        // The rate chip off takes the pace bars *and* the splits with it — they're one
+        // card on the detail page, and the chip names what both of them show.
+        let noRate = WorkoutShareLongImageSections.sections(
+            available: available,
+            selectedIDs: poolIDs.filter { $0 != "pace" },
+            data: everything
+        )
+        XCTAssertFalse(noRate.pace)
+        XCTAssertFalse(noRate.splits)
+        XCTAssertFalse(noRate.showsPaceCard)
+        // ...and nothing else moves.
+        XCTAssertTrue(noRate.heartRate)
+        XCTAssertTrue(noRate.cadence)
+
+        // Either heart-rate chip keeps the HR chart; both off drops it.
+        for kept in ["avgHeartRate", "maxHeartRate"] where poolIDs.contains(kept) {
+            let sections = WorkoutShareLongImageSections.sections(
+                available: available,
+                selectedIDs: [kept],
+                data: everything
+            )
+            XCTAssertTrue(sections.heartRate, "\(kept) should keep the heart-rate chart")
+        }
+        let noHeartRate = WorkoutShareLongImageSections.sections(
+            available: available,
+            selectedIDs: poolIDs.filter { $0 != "avgHeartRate" && $0 != "maxHeartRate" },
+            data: everything
+        )
+        XCTAssertFalse(noHeartRate.heartRate)
+
+        // Sections with no data never draw, whatever is picked.
+        let nothing = WorkoutShareLongImageSections.sections(
+            available: available,
+            selectedIDs: poolIDs,
+            data: WorkoutShareLongImageSections.Availability()
+        )
+        XCTAssertEqual(nothing, WorkoutShareLongImageSections.Visibility())
+        XCTAssertFalse(nothing.showsPaceCard)
+
+        // Stride length, ground contact and vertical oscillation have no Details tile,
+        // so no chip could ever turn them back on — they always draw. Same rule keeps
+        // the splits on a type whose pool carries no rate tile.
+        let hidden = WorkoutShareLongImageSections.sections(
+            available: available,
+            selectedIDs: ["time"],
+            data: everything
+        )
+        XCTAssertTrue(hidden.strideLength)
+        XCTAssertTrue(hidden.groundContact)
+        XCTAssertTrue(hidden.verticalOscillation)
+        // Power has a chip only when the workout has an average to show; this fixture
+        // doesn't, so — same as stride/GC/VO — no chip could ever turn it back off.
+        XCTAssertTrue(hidden.power)
+        // Elevation *is* named by a chip this pool doesn't offer, so it draws too.
+        XCTAssertTrue(hidden.elevation)
+
+        let hike = presentation(for: workout(type: .hiking, duration: 5400, distance: 9000, activeEnergy: 600, avgHR: 128, elevation: 540))
+        let hikeOptions = WorkoutShareMetricsBuilder.availableMetrics(for: hike, type: .hiking)
+        XCTAssertTrue(hikeOptions.map(\.id).contains("elevation"))
+        let noElevationChip = WorkoutShareLongImageSections.sections(
+            available: hikeOptions,
+            selectedIDs: ["time"],
+            data: everything
+        )
+        XCTAssertFalse(noElevationChip.elevation, "the elevation chip is in this pool, so it gates the chart")
+
+        // A workout with an average power shows the "power" chip, so — unlike the
+        // no-chip fallback above — it gates the chart like cadence does.
+        let ride = WorkoutSummary(
+            type: .cycling,
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            duration: 1800,
+            distanceMeters: 15000,
+            averageHeartRateBeatsPerMinute: 140,
+            averagePowerWatts: 180
+        )
+        let ridePresentation = presentation(for: ride)
+        let rideOptions = WorkoutShareMetricsBuilder.availableMetrics(for: ridePresentation, type: .cycling)
+        XCTAssertTrue(rideOptions.map(\.id).contains("power"))
+        let noPowerChip = WorkoutShareLongImageSections.sections(
+            available: rideOptions,
+            selectedIDs: ["time"],
+            data: everything
+        )
+        XCTAssertFalse(noPowerChip.power, "the power chip is in this pool, so it gates the chart")
     }
 
     func testResolvedMetricIDsFallBackToDefaultsWithoutPro() {
@@ -1000,6 +1323,52 @@ final class WorkoutShareCardTests: XCTestCase {
         }
     }
 
+    // MARK: - Ink polarity
+
+    /// Daylight is the only preset that inverts the card's ink; the two dark presets
+    /// keep the light ink the card has always drawn with.
+    func testPresetInkPolarity() {
+        XCTAssertEqual(BodyWorkoutSharePreset.midnight.ink, .light)
+        XCTAssertEqual(BodyWorkoutSharePreset.workoutTint.ink, .light)
+        XCTAssertEqual(BodyWorkoutSharePreset.daylight.ink, .dark)
+    }
+
+    /// The new preset has to survive the same @AppStorage round trip the others do —
+    /// `stored` maps unknown raw values to Midnight, so a typo'd raw value would
+    /// silently degrade rather than fail.
+    func testDaylightPresetRoundTripsThroughStoredBackground() {
+        XCTAssertEqual(BodyWorkoutSharePreset.daylight.rawValue, "daylight")
+        XCTAssertEqual(
+            BodyWorkoutShareBackgroundChoice.stored(rawValue: "daylight", hasRoute: true),
+            .preset(.daylight)
+        )
+        XCTAssertEqual(
+            BodyWorkoutShareBackgroundChoice.stored(rawValue: "daylight", hasRoute: false),
+            .preset(.daylight)
+        )
+    }
+
+    /// The long image paints whatever preset is stored, Daylight included — only a
+    /// non-preset background (the map) falls back to Midnight.
+    func testLongPresetPassesDaylightThrough() {
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.longPreset(storedBackground: "daylight", hasRoute: true),
+            .daylight
+        )
+        XCTAssertEqual(
+            WorkoutShareBackgroundPolicy.longPreset(storedBackground: "daylight", hasRoute: false),
+            .daylight
+        )
+    }
+
+    /// Every preset names itself, and no two share a name — a missing `case` in
+    /// `localizedName` would be a compile error, but a copy-pasted one wouldn't.
+    func testEveryPresetHasADistinctName() {
+        let names = BodyWorkoutSharePreset.allCases.map(\.localizedName)
+        XCTAssertEqual(Set(names).count, BodyWorkoutSharePreset.allCases.count)
+        XCTAssertFalse(names.contains(where: \.isEmpty))
+    }
+
     func testResolvedPhotoReturnsNilForNonProEvenWithAPhoto() {
         let photo = UIImage()
         XCTAssertNil(WorkoutShareBackgroundPolicy.resolvedPhoto(photo, isProUnlocked: false))
@@ -1016,6 +1385,67 @@ final class WorkoutShareCardTests: XCTestCase {
     }
 
     // MARK: - Route dimension
+
+    func testStoredRouteVisibilityRoundTripsAndDefaultsToShown() {
+        for visibility in WorkoutShareRouteVisibility.allCases {
+            XCTAssertEqual(WorkoutShareRouteVisibility.stored(rawValue: visibility.rawValue), visibility)
+        }
+        XCTAssertEqual(WorkoutShareRouteVisibility.stored(rawValue: nil), .shown)
+        XCTAssertEqual(WorkoutShareRouteVisibility.stored(rawValue: "invisible"), .shown)
+        XCTAssertEqual(WorkoutShareRouteVisibility.storageKey, "workoutShareRouteVisibility")
+    }
+
+    func testStoredIconVisibilityRoundTripsAndDefaultsToShown() {
+        for visibility in WorkoutShareIconVisibility.allCases {
+            XCTAssertEqual(WorkoutShareIconVisibility.stored(rawValue: visibility.rawValue), visibility)
+        }
+        XCTAssertEqual(WorkoutShareIconVisibility.stored(rawValue: nil), .shown)
+        XCTAssertEqual(WorkoutShareIconVisibility.stored(rawValue: "invisible"), .shown)
+        XCTAssertEqual(WorkoutShareIconVisibility.storageKey, "workoutShareIconVisibility")
+    }
+
+    func testStoredAvatarVisibilityRoundTripsAndDefaultsToHidden() {
+        for visibility in WorkoutShareAvatarVisibility.allCases {
+            XCTAssertEqual(WorkoutShareAvatarVisibility.stored(rawValue: visibility.rawValue), visibility)
+        }
+        XCTAssertEqual(WorkoutShareAvatarVisibility.stored(rawValue: nil), .hidden)
+        XCTAssertEqual(WorkoutShareAvatarVisibility.stored(rawValue: "invisible"), .hidden)
+        XCTAssertEqual(WorkoutShareAvatarVisibility.storageKey, "workoutShareAvatarVisibility")
+    }
+
+    func testStoredNicknameVisibilityRoundTripsAndDefaultsToHidden() {
+        for visibility in WorkoutShareNicknameVisibility.allCases {
+            XCTAssertEqual(WorkoutShareNicknameVisibility.stored(rawValue: visibility.rawValue), visibility)
+        }
+        XCTAssertEqual(WorkoutShareNicknameVisibility.stored(rawValue: nil), .hidden)
+        XCTAssertEqual(WorkoutShareNicknameVisibility.stored(rawValue: "invisible"), .hidden)
+        XCTAssertEqual(WorkoutShareNicknameVisibility.storageKey, "workoutShareNicknameVisibility")
+    }
+
+    func testStoredSeparatorVisibilityRoundTripsAndDefaultsToShown() {
+        for visibility in WorkoutShareSeparatorVisibility.allCases {
+            XCTAssertEqual(WorkoutShareSeparatorVisibility.stored(rawValue: visibility.rawValue), visibility)
+        }
+        XCTAssertEqual(WorkoutShareSeparatorVisibility.stored(rawValue: nil), .shown)
+        XCTAssertEqual(WorkoutShareSeparatorVisibility.stored(rawValue: "invisible"), .shown)
+        XCTAssertEqual(WorkoutShareSeparatorVisibility.storageKey, "workoutShareSeparatorVisibility")
+    }
+
+    func testWorkoutShareAttributionShowsSeparatorByDefault() {
+        XCTAssertTrue(WorkoutShareAttribution.empty.showsSeparator)
+        XCTAssertTrue(WorkoutShareAttribution(avatar: nil, name: "Justin").showsSeparator)
+        XCTAssertFalse(
+            WorkoutShareAttribution(avatar: nil, name: "Justin", showsSeparator: false).showsSeparator
+        )
+    }
+
+    func testWorkoutShareAttributionIsEmptyOnlyWhenBothFieldsAreNil() {
+        XCTAssertTrue(WorkoutShareAttribution.empty.isEmpty)
+        XCTAssertTrue(WorkoutShareAttribution(avatar: nil, name: nil).isEmpty)
+        XCTAssertFalse(WorkoutShareAttribution(avatar: UIImage(), name: nil).isEmpty)
+        XCTAssertFalse(WorkoutShareAttribution(avatar: nil, name: "Justin").isEmpty)
+        XCTAssertFalse(WorkoutShareAttribution(avatar: UIImage(), name: "Justin").isEmpty)
+    }
 
     func testStoredDimensionRoundTripsEveryCase() {
         for dimension in WorkoutShareRouteDimension.allCases {
@@ -1422,12 +1852,255 @@ final class WorkoutShareCardTests: XCTestCase {
     func testRoutelessRowsWrapOnlyOnTheNarrowCards() {
         for ratio in WorkoutShareAspectRatio.allCases {
             let geo = geometry(ratio, layout: .routeless)
-            // Four metric blocks need ~140 pt each; only 480/640-wide cards fit a line.
-            XCTAssertEqual(geo.routelessWrapsMetricRows, geo.size.width < 400, "\(ratio.rawValue) wrapped wrongly")
             XCTAssertEqual(geo.routelessMetricsAxis, ratio == .portrait9x16 ? .vertical : .horizontal)
+            guard geo.routelessMetricsAxis == .horizontal else {
+                // 9:16 keeps the original one-per-line stack.
+                XCTAssertEqual(geo.metricRowSizes, [1, 1, 1], "\(ratio.rawValue) lost its vertical stack")
+                continue
+            }
+            // Three metric blocks need ~140 pt each; only 480/640-wide cards fit a line,
+            // so a 360 pt card wraps them into 2 + a centred remainder.
+            XCTAssertEqual(
+                geo.metricRowSizes.count > 1,
+                geo.size.width < 400,
+                "\(ratio.rawValue) wrapped wrongly"
+            )
         }
-        XCTAssertTrue(geometry(.square, layout: .routeless).routelessWrapsMetricRows)
-        XCTAssertFalse(geometry(.landscape4x3, layout: .routeless).routelessWrapsMetricRows)
+        XCTAssertEqual(geometry(.square, layout: .routeless).metricRowSizes, [2, 1])
+        XCTAssertEqual(geometry(.portrait3x4, layout: .routeless).metricRowSizes, [2, 1])
+        XCTAssertEqual(geometry(.landscape4x3, layout: .routeless).metricRowSizes, [3])
+        XCTAssertEqual(geometry(.landscape16x9, layout: .routeless).metricRowSizes, [3])
+    }
+
+    // MARK: - Metric rows at four and five
+
+    /// The route-less card stacks its type glyph over the blocks with a fixed gap; the
+    /// glyph's own height is a 30 pt SF Symbol's line box, so the bound below uses a
+    /// slightly generous estimate rather than pinning the font metric.
+    private static let routelessGlyphHeight: CGFloat = 36
+    private static let routelessGlyphGap: CGFloat = 20
+
+    /// The route-less block's flowing height: glyph + gap only count when the glyph is
+    /// actually drawn (`WorkoutShareIconVisibility.shown`) — a hidden glyph leaves the
+    /// metrics alone in the block, per `BodyWorkoutShareCardView.routelessBlock`.
+    private static func routelessBlockHeight(showsGlyph: Bool, metricContentHeight: CGFloat) -> CGFloat {
+        (showsGlyph ? routelessGlyphHeight + routelessGlyphGap : 0) + metricContentHeight
+    }
+
+    /// Mirrors `BodyWorkoutShareCardView.routelessCenterY`: the original column keeps
+    /// the card's own centre, every other shape centers above the branding.
+    private func routelessCenterY(_ geo: WorkoutShareCardGeometry) -> CGFloat {
+        geo.routelessMetricsAxis == .vertical
+            ? geo.size.height / 2
+            : (geo.size.height - WorkoutShareCardGeometry.brandingZoneHeight) / 2
+    }
+
+    /// The exact rows, block style, and route side every shape gives a five-metric pick.
+    /// A regression here is a card that either crowds the branding or shrinks type that
+    /// didn't need to.
+    func testFiveMetricsRowsStyleAndRouteSidePerShape() {
+        let expectations: [(
+            ratio: WorkoutShareAspectRatio,
+            arrangement: WorkoutShareLandscapeArrangement,
+            rows: [Int],
+            style: WorkoutShareCardGeometry.MetricBlockStyle,
+            routeSide: CGFloat
+        )] = [
+            // The 9:16 column stays one block per line: five compact blocks (334 pt) take the square down to 180.
+            (.portrait9x16, .stacked, [1, 1, 1, 1, 1], .compact, 180),
+            (.portrait9x16, .sideBySide, [1, 1, 1, 1, 1], .compact, 180),
+            // Tall enough for two regular rows; the square pays for them.
+            (.portrait3x4, .stacked, [3, 2], .regular, 214),
+            // 360 pt tall: the rows go compact and the square shrinks as far as it can.
+            (.square, .stacked, [3, 2], .compact, 126),
+            (.landscape4x3, .stacked, [3, 2], .compact, 126),
+            // 640 wide fits all five on one line, so nothing has to give.
+            (.landscape16x9, .stacked, [5], .regular, 182),
+            // Side by side never compacts: three regular rows fit its 280 pt column.
+            (.landscape16x9, .sideBySide, [2, 2, 1], .regular, 280),
+            (.landscape4x3, .sideBySide, [2, 2, 1], .regular, 216)
+        ]
+
+        for expectation in expectations {
+            let geo = geometry(expectation.ratio, arrangement: expectation.arrangement, metricCount: 5)
+            let label = "\(expectation.ratio.rawValue)/\(expectation.arrangement.rawValue)"
+            XCTAssertEqual(geo.metricRowSizes, expectation.rows, "\(label) rows")
+            XCTAssertEqual(geo.metricBlockStyle, expectation.style, "\(label) block style")
+            XCTAssertEqual(geo.centeredRouteRect.width, expectation.routeSide, accuracy: 1e-9, "\(label) route side")
+            XCTAssertEqual(geo.centeredRouteRect.height, expectation.routeSide, accuracy: 1e-9, "\(label) route side")
+        }
+    }
+
+    func testFiveMetricsRowsAndStylePerShapeWhenRouteless() {
+        let expectations: [(
+            ratio: WorkoutShareAspectRatio,
+            rows: [Int],
+            style: WorkoutShareCardGeometry.MetricBlockStyle
+        )] = [
+            (.portrait9x16, [1, 1, 1, 1, 1], .compact),
+            // The narrow cards keep their two-per-line rule, so five is 2 + 2 + 1.
+            (.portrait3x4, [2, 2, 1], .regular),
+            (.square, [2, 2, 1], .compact),
+            (.landscape4x3, [3, 2], .compact),
+            (.landscape16x9, [5], .regular)
+        ]
+
+        for expectation in expectations {
+            let geo = geometry(expectation.ratio, layout: .routeless, metricCount: 5)
+            XCTAssertEqual(geo.metricRowSizes, expectation.rows, "\(expectation.ratio.rawValue) rows")
+            XCTAssertEqual(geo.metricBlockStyle, expectation.style, "\(expectation.ratio.rawValue) block style")
+        }
+    }
+
+    /// The invariants every shape, arrangement, layout, and count has to hold at once:
+    /// the rows carry exactly the picked blocks, the block's real extent stays out of the
+    /// branding zone, and the route's ink never reaches the metrics below it.
+    func testEveryShapeKeepsFourAndFiveMetricRowsClearOfTheBranding() {
+        for ratio in WorkoutShareAspectRatio.allCases {
+            for arrangement in WorkoutShareLandscapeArrangement.allCases {
+                for layout in [WorkoutShareCardLayout.centered, .routeless] {
+                    for count in [1, 3, 4, 5] {
+                        let geo = geometry(ratio, layout: layout, arrangement: arrangement, metricCount: count)
+                        let label = "\(ratio.rawValue)/\(arrangement.rawValue)/\(layout)/\(count)"
+
+                        XCTAssertEqual(geo.metricRowSizes.reduce(0, +), count, "\(label) rows don't carry every block")
+                        XCTAssertFalse(geo.metricRowSizes.contains { $0 < 1 }, "\(label) has an empty row")
+                        XCTAssertGreaterThan(geo.metricContentHeight, 0, "\(label) has no block extent")
+
+                        let bottomLimit = geo.size.height - WorkoutShareCardGeometry.brandingZoneHeight
+
+                        guard layout != .routeless else {
+                            // Glyph + rows are one flowing block centred above the branding.
+                            let block = Self.routelessBlockHeight(
+                                showsGlyph: true,
+                                metricContentHeight: geo.metricContentHeight
+                            )
+                            let center = routelessCenterY(geo)
+                            XCTAssertGreaterThanOrEqual(center - block / 2, 0, "\(label) route-less block runs off the top")
+                            XCTAssertLessThanOrEqual(center + block / 2, bottomLimit, "\(label) route-less block enters the branding")
+                            continue
+                        }
+
+                        XCTAssertLessThanOrEqual(
+                            geo.metricsFrame.minY + geo.metricContentHeight,
+                            bottomLimit,
+                            "\(label) metric blocks enter the branding zone"
+                        )
+                        XCTAssertGreaterThan(geo.centeredRouteRect.width, 0, "\(label) route square collapsed")
+
+                        if geo.centeredMode == .sideBySide {
+                            // Split across the midline instead of vertically.
+                            XCTAssertLessThanOrEqual(geo.centeredRouteRect.maxX, geo.size.width / 2, "\(label) route crosses the midline")
+                            XCTAssertGreaterThanOrEqual(geo.metricsFrame.minX, geo.size.width / 2, "\(label) metrics cross the midline")
+                        } else {
+                            XCTAssertLessThanOrEqual(
+                                geo.centeredRouteRect.maxY - WorkoutShareCardGeometry.routeInset,
+                                geo.metricsFrame.minY,
+                                "\(label) route ink reaches the metric blocks"
+                            )
+                        }
+
+                        let anchor = geo.blockAnchor
+                        XCTAssertTrue((0...1).contains(anchor.x) && (0...1).contains(anchor.y), "\(label) anchor \(anchor) escapes the card")
+                    }
+                }
+            }
+        }
+    }
+
+    /// The same clearance check as above, route-less only, with the glyph hidden — the
+    /// block shrinks by `routelessGlyphHeight + routelessGlyphGap`, and every shape must
+    /// still keep it clear of the top and the branding zone.
+    func testRoutelessBlockStaysClearOfBrandingWhenIconHidden() {
+        for ratio in WorkoutShareAspectRatio.allCases {
+            for count in [1, 3, 4, 5] {
+                let geo = geometry(ratio, layout: .routeless, metricCount: count)
+                let label = "\(ratio.rawValue)/\(count)"
+                let bottomLimit = geo.size.height - WorkoutShareCardGeometry.brandingZoneHeight
+
+                let block = Self.routelessBlockHeight(showsGlyph: false, metricContentHeight: geo.metricContentHeight)
+                let center = routelessCenterY(geo)
+                XCTAssertGreaterThanOrEqual(center - block / 2, 0, "\(label) hidden-icon block runs off the top")
+                XCTAssertLessThanOrEqual(center + block / 2, bottomLimit, "\(label) hidden-icon block enters the branding")
+
+                // Hiding the glyph only ever shrinks the block, never grows it past what
+                // the glyph-shown case already cleared.
+                let shownBlock = Self.routelessBlockHeight(showsGlyph: true, metricContentHeight: geo.metricContentHeight)
+                XCTAssertLessThan(block, shownBlock, "\(label) hiding the icon didn't shrink the block")
+            }
+        }
+    }
+
+    /// One to three blocks must render exactly as they always have: same rows, same
+    /// regular type, same route square and metric frame as the count-less geometry the
+    /// rest of the app constructs.
+    func testUpToThreeMetricsReproduceTodaysGeometryOnEveryShape() {
+        for ratio in WorkoutShareAspectRatio.allCases {
+            for arrangement in WorkoutShareLandscapeArrangement.allCases {
+                for count in 1...WorkoutShareMetricSelection.defaultCount {
+                    let geo = geometry(ratio, arrangement: arrangement, metricCount: count)
+                    let today = geometry(ratio, arrangement: arrangement)
+                    let label = "\(ratio.rawValue)/\(arrangement.rawValue)/\(count)"
+
+                    XCTAssertEqual(geo.metricBlockStyle, .regular, "\(label) shrank type it didn't need to")
+                    XCTAssertEqual(geo.centeredRouteRect, today.centeredRouteRect, "\(label) moved the route square")
+                    XCTAssertEqual(geo.metricsFrame, today.metricsFrame, "\(label) moved the metric frame")
+                    XCTAssertEqual(geo.centeredMetricsTopY, today.centeredMetricsTopY, "\(label) moved the metric top")
+                    XCTAssertEqual(geo.blockAnchor, today.blockAnchor, "\(label) moved the pinch anchor")
+
+                    switch geo.centeredMode {
+                    case .column, .sideBySide:
+                        // The original one-per-line stack.
+                        XCTAssertEqual(geo.metricRowSizes, Array(repeating: 1, count: count), "\(label) wrapped a stack")
+                    case .routeOverRow:
+                        XCTAssertEqual(geo.metricRowSizes, [count], "\(label) wrapped a single row")
+                        XCTAssertEqual(geo.metricsFrame.height, 68, accuracy: 1e-9, "\(label) resized the single row")
+                    }
+                }
+            }
+        }
+
+        // The literals the original card shipped with, unchanged at every count ≤ 3.
+        for count in 1...WorkoutShareMetricSelection.defaultCount {
+            let geo = geometry(.portrait9x16, metricCount: count)
+            XCTAssertEqual(geo.centeredRouteRect, CGRect(x: 50, y: 40, width: 260, height: 260))
+            XCTAssertEqual(geo.metricsFrame, CGRect(x: 24, y: 330, width: 312, height: 310))
+            XCTAssertEqual(geo.blockAnchor.y, 305 / 640, accuracy: 1e-9)
+            XCTAssertEqual(geo.metricContentHeight, CGFloat(count) * 68 + CGFloat(count - 1) * 20, accuracy: 1e-9)
+        }
+        XCTAssertEqual(geometry(.portrait3x4, metricCount: 3).centeredRouteRect.width, 260, accuracy: 1e-9)
+        XCTAssertEqual(geometry(.square, metricCount: 3).centeredRouteRect.width, 182, accuracy: 1e-9)
+        XCTAssertEqual(geometry(.landscape16x9, metricCount: 3).centeredRouteRect.width, 182, accuracy: 1e-9)
+        XCTAssertEqual(geometry(.landscape4x3, metricCount: 3).centeredRouteRect.width, 182, accuracy: 1e-9)
+    }
+
+    /// The 9:16 column keeps its 305 pt anchor for one to three blocks; four and five
+    /// wrap into shorter rows, so the anchor comes from the block's real extent — the
+    /// midpoint of the route region's top and the last row's bottom, ≈ 263.
+    func testNineBySixteenColumnShrinksTheRouteAtFourAndFive() {
+        let geo = geometry(.portrait9x16, metricCount: 5)
+
+        XCTAssertEqual(geo.metricRowSizes, [1, 1, 1, 1, 1])
+        XCTAssertEqual(geo.metricBlockStyle, .compact)
+        XCTAssertEqual(geo.metricContentHeight, 334, accuracy: 1e-9)
+        // 640 − 40 (route top) − 30 (gap) − 334 − 56 (branding) = 180.
+        XCTAssertEqual(geo.centeredRouteRect, CGRect(x: 90, y: 40, width: 180, height: 180))
+        // Follows the ink: 40 + 180 − 12 + 30.
+        XCTAssertEqual(geo.centeredMetricsTopY, 238, accuracy: 1e-9)
+        XCTAssertEqual(geo.metricsFrame, CGRect(x: 24, y: 238, width: 312, height: 334))
+        XCTAssertEqual(geo.blockAnchor.x, 0.5, accuracy: 1e-9)
+        // union(route 40…220, blocks 238…572).midY = 306
+        XCTAssertEqual(geo.blockAnchor.y, 306 / 640, accuracy: 1e-9)
+        XCTAssertEqual(geo.blockAnchor(showsTrace: false), .center)
+
+        // Four compact blocks (264): 640 − 40 − 30 − 264 − 56 = 250.
+        let four = geometry(.portrait9x16, metricCount: 4)
+        XCTAssertEqual(four.metricRowSizes, [1, 1, 1, 1])
+        XCTAssertEqual(four.metricBlockStyle, .compact)
+        XCTAssertEqual(four.centeredRouteRect, CGRect(x: 55, y: 40, width: 250, height: 250))
+        XCTAssertEqual(four.centeredMetricsTopY, 308, accuracy: 1e-9)
+        // union(route 40…290, blocks 308…572).midY = 306
+        XCTAssertEqual(four.blockAnchor.y, 306 / 640, accuracy: 1e-9)
     }
 
     // MARK: - Transforms on a landscape card

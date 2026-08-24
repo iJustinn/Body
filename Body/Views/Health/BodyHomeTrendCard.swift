@@ -41,7 +41,7 @@ struct BodyHomeTrendsSection: View {
             if canToggleAll {
                 Button(action: toggleAll) {
                     Text(showsAllTrends ? "Show Fewer Trends" : "Show All Trends")
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundColor(.accentColor)
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .background(
@@ -84,7 +84,7 @@ struct BodyHomeTrendCard: View {
             header
 
             Text(model.presentation.messageText)
-                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .foregroundColor(.primary)
                 .fixedSize(horizontal: false, vertical: true)
                 .lineSpacing(2)
@@ -125,7 +125,7 @@ struct BodyHomeTrendCard: View {
 
             if showsNavigationIndicator {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.secondary.opacity(0.55))
                     .accessibilityHidden(true)
             }
@@ -136,7 +136,7 @@ struct BodyHomeTrendCard: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(model.presentation.baselineAverageText)
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -152,7 +152,7 @@ struct BodyHomeTrendCard: View {
 
             VStack(alignment: .trailing, spacing: 3) {
                 Text(model.presentation.recentAverageText)
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundColor(model.symbolColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)

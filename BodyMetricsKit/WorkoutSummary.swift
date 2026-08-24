@@ -95,6 +95,55 @@ enum WorkoutHeartRateZones {
     }
 }
 
+/// The sky condition the recording device wrote with the workout
+/// (`HKMetadataKeyWeatherCondition`), collapsed to the buckets the detail hero
+/// draws an icon for. Persisted by name rather than by HealthKit's raw value so a
+/// cached snapshot keeps its meaning if that enum ever renumbers, and optional so
+/// indoor workouts — and summaries cached before this existed — decode `nil`.
+///
+/// Adding a case is a downgrade hazard: the synthesized `Codable` conformance throws
+/// on a raw value it doesn't know, and `WorkoutSnapshotStore` drops the whole month's
+/// cache file on any decode error — so a snapshot written by a newer build blanks a
+/// month on an older one. That is why the thermometer fallback
+/// (`WorkoutSummary.weatherSymbolName`) grades outside this enum rather than adding
+/// cases to it.
+enum WorkoutWeatherCondition: String, Codable, Equatable, Hashable, CaseIterable {
+    case clear
+    case partlyCloudy
+    case cloudy
+    case fog
+    case haze
+    case wind
+    case drizzle
+    case rain
+    case showers
+    case thunderstorms
+    case snow
+    case sleet
+    case hail
+    case tropicalStorm
+
+    /// The SF Symbol the hero shows in place of the thermometer.
+    var symbolName: String {
+        switch self {
+        case .clear: return "sun.max.fill"
+        case .partlyCloudy: return "cloud.sun.fill"
+        case .cloudy: return "cloud.fill"
+        case .fog: return "cloud.fog.fill"
+        case .haze: return "sun.haze.fill"
+        case .wind: return "wind"
+        case .drizzle: return "cloud.drizzle.fill"
+        case .rain: return "cloud.rain.fill"
+        case .showers: return "cloud.heavyrain.fill"
+        case .thunderstorms: return "cloud.bolt.rain.fill"
+        case .snow: return "cloud.snow.fill"
+        case .sleet: return "cloud.sleet.fill"
+        case .hail: return "cloud.hail.fill"
+        case .tropicalStorm: return "tropicalstorm"
+        }
+    }
+}
+
 struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     let id: UUID
     let type: BodyWorkoutType
@@ -129,9 +178,14 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     /// in °C. Workout metadata rather than a separate sample type, so it rides the
     /// Workouts permission and isn't cleared by `removingWorkoutMetrics()`.
     let weatherTemperatureCelsius: Double?
-    /// Recorded relative humidity as a percentage (0…100); HealthKit stores it as a
-    /// 0…1 fraction.
+    /// Recorded relative humidity as a percentage (0…100). HealthKit sources usually
+    /// store it as a 0…1 fraction, but some third-party sources write the percent
+    /// number directly; the mapper normalizes both.
     let weatherHumidityPercent: Double?
+    /// The recorded sky condition (`HKMetadataKeyWeatherCondition`). Rides the
+    /// Workouts permission alongside the other weather metadata, and is `nil` for
+    /// indoor workouts and for sources that don't write it.
+    let weatherCondition: WorkoutWeatherCondition?
     /// `HKMetadataKeyAverageMETs` in kcal/(kg·hr) — the workout's average metabolic
     /// equivalent.
     let averageMETs: Double?
@@ -146,6 +200,39 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     /// otherwise the pre-existing `startDate + duration` approximation.
     var effectiveEndDate: Date {
         endDate ?? startDate.addingTimeInterval(max(0, duration))
+    }
+
+    /// The SF Symbol the detail hero draws beside the temperature: the recorded sky
+    /// condition when the source wrote one, otherwise a thermometer graded by how cold
+    /// or hot the reading was. `HKMetadataKeyWeatherCondition` is optional and commonly
+    /// absent — or written as `.none`, which maps to `nil` — so the graded thermometer,
+    /// not the sky glyph, is what most real workouts show.
+    ///
+    /// Graded on the *rounded* Celsius so the glyph never disagrees with the number
+    /// beside it: `BodyValueFormat.temperatureHeroText` rounds before display, so
+    /// grading the raw value would give two workouts that both read "24°C" different
+    /// thermometers. The bands are cut so the two glyphs that actually read as
+    /// distinct — the snowflake and the sun — cover ordinary cold and hot sessions;
+    /// `.low`/`.medium`/`.high` are the same glyph at three mercury heights, only a
+    /// couple of points apart at this size.
+    var weatherSymbolName: String {
+        if let weatherCondition {
+            return weatherCondition.symbolName
+        }
+
+        guard let celsius = weatherTemperatureCelsius, celsius.isFinite else {
+            return "thermometer.medium"
+        }
+
+        // The `isFinite` guard above is load-bearing: `.nan` matches no range and
+        // would otherwise fall through to the hot case.
+        switch celsius.rounded() {
+        case ..<5: return "thermometer.snowflake"
+        case ..<14: return "thermometer.low"
+        case ..<23: return "thermometer.medium"
+        case ..<28: return "thermometer.high"
+        default: return "thermometer.sun.fill"
+        }
     }
 
     init(
@@ -171,6 +258,7 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         endDate: Date? = nil,
         weatherTemperatureCelsius: Double? = nil,
         weatherHumidityPercent: Double? = nil,
+        weatherCondition: WorkoutWeatherCondition? = nil,
         averageMETs: Double? = nil,
         heartRateRecoveryBPM: Double? = nil
     ) {
@@ -196,6 +284,7 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         self.endDate = endDate
         self.weatherTemperatureCelsius = weatherTemperatureCelsius
         self.weatherHumidityPercent = weatherHumidityPercent
+        self.weatherCondition = weatherCondition
         self.averageMETs = averageMETs
         self.heartRateRecoveryBPM = heartRateRecoveryBPM
     }
@@ -231,6 +320,7 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
             // they ride the Workouts permission and survive the opt-out.
             weatherTemperatureCelsius: weatherTemperatureCelsius,
             weatherHumidityPercent: weatherHumidityPercent,
+            weatherCondition: weatherCondition,
             averageMETs: averageMETs,
             // Heart-rate recovery rides the Heart permission, not Workout Metrics.
             heartRateRecoveryBPM: heartRateRecoveryBPM
@@ -264,9 +354,21 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
             endDate: endDate,
             weatherTemperatureCelsius: weatherTemperatureCelsius,
             weatherHumidityPercent: weatherHumidityPercent,
+            weatherCondition: weatherCondition,
             averageMETs: averageMETs,
             heartRateRecoveryBPM: nil
         )
+    }
+
+    /// Normalizes a device-local user rename: trims surrounding whitespace and
+    /// newlines and caps the result at 60 characters. Returns nil when nothing
+    /// is left, which means "no custom name" — fall back to the workout type.
+    static func normalizedCustomName(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return String(trimmed.prefix(60))
     }
 }
 
@@ -307,7 +409,8 @@ struct WorkoutDetailMetric: Equatable {
 /// A compact comparison badge shown above a metric's unit. `badgeText` is the visual
 /// token (e.g. "↑12%", "↓3%", "≈0%"); `accessibilityLabel` is the spoken VoiceOver form
 /// so the arrow glyph isn't read literally. The "vs 30-day avg" frame lives once in the
-/// section header, not in every badge. `badgeText` may also be a "0%" stand-in — see
+/// section header, not in every badge. `badgeText` may also be a stand-in — "0%" while
+/// the history loads, "--%" once it has settled without a measurement; see
 /// `WorkoutMetricComparisonBuilder.placeholder(for:availability:current:locale:)` — whose
 /// spoken form says why there is no number yet.
 struct WorkoutMetricComparison: Equatable {
@@ -413,39 +516,50 @@ enum WorkoutMetricComparisonBuilder {
         return isComplete || isSettled ? .insufficientHistory : .calculating
     }
 
-    /// The "0%" stand-in for a metric with no measured delta. It is a real badge rather
+    /// The stand-in badge for a metric with no measured delta. It is a real badge rather
     /// than an absence so the digits can roll over in place when the measurement lands —
     /// a badge that appears from nothing can only pop.
     ///
     /// Gated on the same display scalar the baseline uses, so a tile that has no value
-    /// of its own never sprouts a 0% claiming it matched the average.
+    /// of its own never sprouts a badge claiming it matched the average.
     ///
-    /// Only while `.calculating`. The stand-in exists so digits can roll into place when
-    /// a measurement lands — once loading has settled there is no measurement coming, so
-    /// a "0%" would be a synthetic number presented as a result. That applies to both
-    /// settled states: under `.ready` the legend reads "vs 30-day avg" and the zero looks
-    /// measured, and under `.insufficientHistory` there is nothing left to roll into.
+    /// Which stand-in depends on whether a measurement is still coming. While
+    /// `.calculating` it is "0%", whose digits roll into the measurement that replaces
+    /// them. Once loading has settled — `.ready` or `.insufficientHistory` — nothing is
+    /// coming, so it is "--%": a dash is honest about having no data, where a zero would
+    /// claim the metric matched the 30-day average.
     static func placeholder(
         for kind: WorkoutDetailMetric.Kind,
         availability: WorkoutMetricComparisonAvailability?,
         current: WorkoutSummary,
         locale: Locale
     ) -> WorkoutMetricComparison? {
-        guard availability == .calculating, scalar(for: kind, from: current) != nil else {
+        guard let availability, scalar(for: kind, from: current) != nil else {
             return nil
         }
 
-        let accessibilityLabel = String(
-            localized: "Calculating the 30-day comparison",
-            table: "BodyMetricsKit"
-        )
-
-        return WorkoutMetricComparison(
-            // Localized digits, so the stand-in matches the shape of the number that
-            // replaces it (Arabic/Hindi digits included).
-            badgeText: "\(BodyValueFormat.numberText(0, decimals: 0, locale: locale))%",
-            accessibilityLabel: accessibilityLabel
-        )
+        switch availability {
+        case .calculating:
+            return WorkoutMetricComparison(
+                // Localized digits, so the stand-in matches the shape of the number that
+                // replaces it (Arabic/Hindi digits included).
+                badgeText: "\(BodyValueFormat.numberText(0, decimals: 0, locale: locale))%",
+                accessibilityLabel: String(
+                    localized: "Calculating the 30-day comparison",
+                    table: "BodyMetricsKit"
+                )
+            )
+        case .ready, .insufficientHistory:
+            return WorkoutMetricComparison(
+                // Dotted key: "--%" holds no Swift-identifier characters, so Xcode's
+                // symbol generator rejects it as a catalog key.
+                badgeText: String(localized: "comparison.noDeltaBadge", table: "BodyMetricsKit"),
+                accessibilityLabel: String(
+                    localized: "No 30-day comparison yet",
+                    table: "BodyMetricsKit"
+                )
+            )
+        }
     }
 
     // MARK: - Scalars
@@ -639,6 +753,8 @@ struct WorkoutEffortPresentation: Equatable {
 }
 
 struct WorkoutDetailPresentation: Equatable {
+    /// The user's device-local rename when there is one, otherwise the workout
+    /// type's display name.
     let title: String
     let dateTitle: String
     /// The start time alone — what the detail page's header shows.
@@ -676,11 +792,12 @@ struct WorkoutDetailPresentation: Equatable {
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories,
         comparisonWorkouts: [WorkoutSummary]? = nil,
         comparisonDataComplete: Bool = true,
-        comparisonLoadSettled: Bool = true
+        comparisonLoadSettled: Bool = true,
+        customName: String? = nil
     ) {
         let endDate = workout.startDate.addingTimeInterval(max(0, workout.duration))
 
-        title = workout.type.displayName
+        title = WorkoutSummary.normalizedCustomName(customName) ?? workout.type.displayName
         dateTitle = Self.formattedDate(
             workout.startDate,
             template: "EEEMMMd",
@@ -699,13 +816,6 @@ struct WorkoutDetailPresentation: Equatable {
             Self.formattedDate(
                 workout.startDate,
                 template: "MMMd",
-                calendar: calendar,
-                locale: locale,
-                timeZone: timeZone
-            ),
-            Self.formattedDate(
-                workout.startDate,
-                template: "EEE",
                 calendar: calendar,
                 locale: locale,
                 timeZone: timeZone
@@ -904,16 +1014,10 @@ struct WorkoutDetailPresentation: Equatable {
             ))
         }
 
-        // Session context the watch recorded alongside the workout. Weather and METs
-        // come from workout metadata, so they show whenever the recording source
-        // saved them — no Workout Metrics opt-in involved.
-        if let humidity = workout.weatherHumidityPercent, humidity.isFinite {
-            metrics.append(WorkoutDetailMetric(
-                kind: .humidity,
-                title: String(localized: "Humidity", table: "BodyMetricsKit"),
-                value: BodyValueFormat.numberText(humidity.rounded(), decimals: 0, locale: locale) + " %"
-            ))
-        }
+        // Session context the watch recorded alongside the workout. METs come from
+        // workout metadata, so it shows whenever the recording source saved it —
+        // no Workout Metrics opt-in involved. (Humidity is deliberately not a tile;
+        // it stays on the hero's weather line.)
         if let averageMETs = workout.averageMETs, averageMETs > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .averageMETs,
@@ -955,8 +1059,9 @@ struct WorkoutDetailPresentation: Equatable {
                     title: metric.title,
                     value: metric.value,
                     // Every comparable tile keeps a badge in every state — a measured
-                    // delta, or the "0%" stand-in — so the number rolls into place when
-                    // the history lands rather than popping in.
+                    // delta, the "0%" stand-in while the history is still loading, or
+                    // the settled "--%" when no delta is coming — so the number rolls
+                    // into place when the history lands rather than popping in.
                     comparison: comparison ?? WorkoutMetricComparisonBuilder.placeholder(
                         for: metric.kind,
                         availability: availability,

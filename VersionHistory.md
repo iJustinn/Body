@@ -1,5 +1,127 @@
 # Version History
 
+## 1.0.0 (build 25)
+
+- **Dragging a Summary card somewhere it can't go no longer crashes the app.** Releasing a card over the hero, the empty space below the grid, or the tab bar cancelled the drag, and iOS then animated the card back to a view the app had already thrown away — the grid rebuilt its rows on every reorder that ran while the drag was still in flight, and the card being dragged was rebuilt with them. The grid now keeps one view per card wherever it moves, so a cancelled drop returns the card to the grid, and reordering slides the cards to their new places instead of rebuilding the rows underneath them.
+- **Every permission row now says where its access stands.** Settings > Data > Permissions shows a status line under each switch: off, needs its parent category on as well, not used by any dashboard card right now, checking, Body has data for this category, or no data yet. The three that want attention are tinted orange. The line is derived from data Body already holds, sampled once when the page opens, so viewing it never starts an Apple Health query. It deliberately never claims Apple Health granted or denied anything: iOS does not disclose whether a read permission was allowed, and cached values can outlive the read that produced them, so the copy reports what Body holds rather than what Health is doing.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 25.
+
+## 1.0.0 (build 24)
+
+- **Denied Apple Health permissions no longer fail the first load.** Previously, denying some Apple Health read permissions (Date of Birth / Sex for Cardio Fitness, or Activity rings) made every first load end back at "Try Again" and kept the app's passive syncs idle; those reads now count as empty rather than failed, and the one-time load overlay dismisses once a full load completes even if a category couldn't be read. On its own that did not stop a slow Apple Health query from holding the load open, which is what the next entries fix.
+- **The first Health load could hang forever, and no longer can.** Activity Ring history used to be fetched inside the dashboard refresh's task group, so the refresh could not finish until a single ten year activity summary query returned. If that query was slow or never came back, the "Loading Health Data…" overlay button and the "Loading data..." sync badge spun forever, nothing was persisted, and quitting and reopening the app repeated it. Ring history now loads out of band, after the refresh completes, so it can never hold the refresh open.
+- **Ring history loads in the background, newest first.** The ten year backfill walks in twelve month chunks and publishes each chunk as it lands, so on a first launch the Activity Rings calendar fills in progressively instead of arriving all at once.
+- **Every Activity Ring read is now bounded.** The backfill chunks, the recent window, and the older-history probe all run as stoppable queries with a 20 second timeout, so a stalled read is cancelled rather than waited on forever.
+- **Every user-facing refresh now has a 120 second deadline.** If a refresh exceeds it the app stops the spinners, keeps whatever data already landed, saves it, and shows a notice that loading Apple Health data is taking longer than expected and to try again. It deliberately does not mark the refresh successful, so the freshness timer is not armed and the next pull to refresh runs for real.
+- **The ten year ring backfill remembers its progress.** It records itself completed, pending with a resume point, or suppressed when Activity access is denied, and resumes from where it stopped instead of restarting. Installs that already completed the backfill are unaffected.
+- **Cards no longer fake a loading state.** Summary cards that show a "waiting for data" skeleton (the Sleep vitals rings preview and the Cardio Fitness level rows) now tell "still loading" apart from "no data available": the skeleton shows only while a refresh is actually running, and otherwise the card settles into a calm empty state at the same height. Cardio Fitness keeps showing its VO₂ max number when only the level classification is unavailable.
+- Onboarding's Health page now distinguishes a load that finished with no readable data from one that loaded data.
+- **Weekdays on the shared calendar.** The month summary share page's Chart Style tray gains a Weekdays tile that hides or shows the calendar's S M T W T F S row; the choice is remembered, and the tile is absent while Bar Chart is selected.
+- Settings > Data > Permissions gained a footer that explains how the permission switches work: Body only reads, turning a category on asks Apple Health for access and refreshes, turning it off stops reading and clears its data locally, and the Health app stays in charge of real access.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 24.
+
+## 1.0.0 (build 22)
+
+- **Share a month.** A Share button at the end of the Workouts search row opens the share composer with the month's summary chart — the calendar or the activity breakdown, whichever the page is showing — with the month title and up to three totals on the card (or none), the same fonts, profile attribution, and gradient/photo/video backgrounds as a workout card, three ratios (9:16, 3:4, and a chart-only 1:1), plus a Chart Style switch.
+- **The search field gets out of its own way.** Tapping into Search workouts expands it across the whole row, fading the Sort, Filter, Jump-to-month, and Share buttons out; Done or scrolling the list brings them back.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 22.
+
+## 1.0.0 (build 20)
+
+- **The Details card explains itself.** A `questionmark.circle` button at the trailing edge of the **Details** heading opens an **About These Details** sheet at full height: what the tiles are, which values Body derives itself rather than reading straight from Apple Health, what the 30-day comparison badges mean in each of their states, and a one or two sentence explanation of every tile that workout actually shows, so a swim reads about swim pace and strokes and never cycling cadence. A heart-rate-recovery read that lands while the sheet is open flows into it.
+- Corrected the README and TestPlan, which still said a settled workout with too little history carries no comparison badge; each comparable tile shows a `--%` badge instead.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 20.
+
+## 1.0.0 (build 19)
+
+- **Rating a workout's effort no longer re-asks for Apple Health permission.** Every HealthKit permission sheet now runs through one serialized lane, so the effort write sheet can never stack on a read-permission sheet; passive foreground resumes, post-save refreshes, and automatic preloads never show a permission sheet at all (they keep cached data and skip instead), and the sheet appears only on explicit actions such as pull-to-refresh, a month-picker tap, a Settings toggle, or a save.
+- **"Couldn't Save" now says why.** The effort save alert names the failing step in brackets (e.g. `[save]`, `[relate]`) with Apple Health's own reason, and the save no longer fails fast on HealthKit's per-app share status, which devices have reported as denied while the Health app showed Full Access.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 19.
+
+## 1.0.0 (build 18)
+
+- **The intro is a single "oooh" wave.** The "my" wave is gone: 60 "oooooooooh" wordmarks stream across once, in about 3.6 seconds, before the Welcome page fades in.
+- **The Welcome page greets "ohmybody (Body)".** The title reads "Welcome to ohmybody (Body)" in English and "欢迎使用 ohmybody (Body)" in Simplified Chinese.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 18.
+
+## 1.0.0 (build 17)
+
+- **The intro now plays on the Settings replay too.** Settings › About › Onboarding opens with the same word stream before its Welcome page; tap to skip and Reduce Motion behave exactly as on the first run.
+- **The intro words come in four colors.** Each wordmark is drawn in white or one of the three blues the default home background is built from, at slightly varied opacity, instead of plain white.
+- **The Welcome page is centered.** The app icon and the welcome title sit in the middle of the page, and the "daily picture of how your body is doing" line is gone.
+- **Starting the Health load explains that you can keep going.** Once Continue starts the load, the permission sentence crossfades into a note that the dashboard is being built in the background and the flow can continue.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 17.
+
+## 1.0.0 (build 16)
+
+- **An intro plays before onboarding.** On a fresh install (and on the Settings replay) two waves of perfectly horizontal wordmarks run in about 5 seconds: 60 "oooooooooh" marks of different lengths slide in from past the left edge and out through the right at a steady speed, never stopping on screen, dense enough to cover the display edge to edge; about 1.4 s later a second wave of "my" through "myyyy" streams in behind them, and the Welcome page fades in under the tail of that second wave. Tapping anywhere skips ahead, Reduce Motion skips it entirely, and the replay from Settings › About › Onboarding plays it too; the words are drawn in white and the three blues of the default home background. A preview video of the intro lives in the onboarding folder.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 16.
+
+## 1.0.0 (build 15)
+
+- **The app is now named "ohmybody" on the Home Screen.** The iPhone app's display name changed from "Body" to "ohmybody" in both English and Simplified Chinese. Its bundle name, bundle identifier, the Apple Watch app, and the widget extension are unchanged, so the watch app still reads "Body".
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 15.
+
+## 1.0.0 (build 14)
+
+- **Onboarding no longer waits on the first Apple Health load.** Continue on the Welcome page still opens the permission sheet, but the load then reports itself with the app's floating "Loading data..." badge instead of taking over the button, and Skip, Back, and Continue all stay live while it runs.
+- **The replayed onboarding skips that load entirely.** Opened from Settings › About › Onboarding, the Welcome page drops the load copy, spinner, and outcome row, and Continue goes straight to Readiness without touching HealthKit.
+- **The Workout Calendar page is now Workout Summaries.** Its sample card carries the Workouts tab's own switch control, so the chart button flips the preview to the activity breakdown and the grid button flips it back, with a new row explaining both directions.
+- **Workout detail charts and metric warning cards now fade in.** The Pace/Speed, Elevation, Cadence, Stride Length, Ground Contact Time, and Vertical Oscillation cards, and a metric detail page's threshold warning cards, arrive after their data loads — they now fade into the page instead of appearing all at once. The card claims its space immediately, so nothing below it slides; Reduce Motion still lands them opaque on the first frame.
+- **The Workouts activity breakdown chart now morphs instead of reshuffling.** Switching months — or changing what a month shows with a search, a filter, or a refresh — keeps each bar in its slot: it travels to its new width while its color and the activity beside it cross-fade, and the in-bar percentages roll digit by digit, starting ahead of the bars. The month's total and workout count roll with them. Reduce Motion lands every arrangement instantly, and the workout calendar chart is unchanged.
+- **Share page option trays no longer open with tiles cut off.** On some screen widths a tray opened resting on its first tile, leaving its last ones clipped behind the rail; every tray now reliably opens on its anchor, and a tray the user has scrolled stays put when picking a metric widens its chip. The soft edge fades are now always drawn over both ends, so a tile passing under an edge is never hard-cut.
+- **The workout detail hero's weather icon now varies with the weather.** It still shows the sky condition Apple Health recorded with the workout (sun, cloud, rain, snow…), but that condition is missing from most workouts, so every one of them used to draw the same flat thermometer. The fallback is now graded by the temperature itself — a snowflake on a freezing session, a sun on a hot one — banded on the rounded reading so two workouts showing the same temperature never draw different glyphs, and unaffected by the °F/°C setting.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 14.
+
+## 1.0.0 (build 13)
+
+- **Added a first-run onboarding flow** — Welcome with the Apple Health load, Readiness, Sleep (card, explanation, and nightly goal), Training Load, Workout Effort (each with a live preview; the effort page also carries the Effort Suggestions and Auto Apply switches), Workout Summaries (the tab's calendar and activity breakdown behind the same switch control, plus the marker legend and the Share button), and an All set page — shown once to every install that has not completed it on 1.0.0 or later (fresh installs and pre-release upgrades alike); the Welcome page's Health load runs in the background so the flow never waits on it, and the replay copy skips that load. It can be replayed anytime from Settings › About › Onboarding.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 13.
+
+## 1.0.0 (build 12)
+
+- **The workout share sheet's font button always shows the "Aa" glyph.** SF Symbols swaps `textformat` for localized text, so the Chinese build drew "格式" (Format) on a button that picks the font; the symbol is now rendered against a fixed English locale in every language.
+- **Reordered the default Summary card layout** — Sleep · Vitals, Training Load · Basics, Heart Rate · HRV, Active Energy · Resting Energy, Resting Heart Rate · Cardio Fitness, Steps · Exercise Minutes, Skin Temp · Blood Oxygen, Respiratory Rate · Time In Daylight, then Activity Rings. Existing custom orders are untouched.
+- **The workout share card can now show your Settings profile avatar and @nickname beside the watermark.** A new free **Profile** rail option (below Metrics) toggles either independently — both hidden by default; each tile stays disabled until the matching field is set in Settings › Profile, and a caption under the preview says so while the tray is open.
+- **The Workouts activity breakdown chart now morphs instead of reshuffling.** When a search, filter, or refresh changes the month's ranking, each bar keeps its slot and travels to its new width while its color and the activity beside it cross-fade; the in-bar percentages roll digit by digit, starting ahead of the bars. Reduce Motion lands every arrangement instantly, and the workout calendar chart is unchanged.
+- **Share page option trays no longer open with tiles cut off.** On some screen widths a tray opened resting on its first tile, leaving its last ones clipped behind the rail; every tray now reliably opens on its anchor. The soft edge fades also appear as soon as a tray opens rather than only after it has been scrolled.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 12.
+
+## 1.0.0 (build 11)
+
+- **The workout share card's type icon can now be hidden on route-less workouts.** A free **Icon** row appears in the Route Style slot for route-less cards, with **Show**/**Hide** tiles; hiding it centers the metrics alone and the choice is remembered across sessions.
+- **The share card's watermark is smaller** — a more subtle wordmark and icon in the bottom branding strip, on every card.
+- **Share videos now export up to 60 seconds** instead of 15, both in the looping preview and the exported MP4.
+- **A new Long Image export joins the Ratio tray.** Body Pro's **Long Image** tile renders a tall, scrollable export of the whole workout — header, route or type icon, the selected metric tiles, and the matching detail charts — on a flat gradient background (Map, photo, and video backgrounds are disabled while it's active). The metric chips have no 1–5 cap in this mode, and a deselected chip hides both its tile and its chart section.
+- The tray tile scrollers (Ratio, Metrics, and the new Long Image chip strip) now fade softly at their scrolled edges, matching the workout list's month scroller.
+- **New Daylight share background** — a third gradient tile alongside Midnight and Workout Color: a pure-white card with dark text and branding, free like the other two. Applies to the card (every ratio) and the Long Image export; the page still opens on Midnight by default.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 11.
+
+## 1.0.0 (build 10)
+
+- **The workout share card now supports a video background.** A Body Pro user can tap the new **Your Video** background tile to pick a clip from their library; the preview plays it muted, looping the first 15 seconds behind the card, with the same drag/pinch/double-tap pan-and-zoom framing as a photo across matching **Video | Layout** steps. Share and Save export an **MP4** with the card overlay composited onto every frame — first 15 seconds only, original audio kept, 30 fps SDR, at the ratio's pixel size. The clip is session-only: picking a preset, Map, or photo drops it, and a Pro lapse drops it for the session too.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 10.
+
+## 1.0.0 (build 9)
+
+- The share page's title badge now reads **v2**, marking the reworked share card (5-metric picks, the 9:16 column, and Hide Route).
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 9.
+
+## 1.0.0 (build 8)
+
+- **The workout share card's Body Pro metric picker cap rises from 3 to 5 metrics.** The automatic default pick still holds at 3, and the classic Map-background card's bottom row still caps at 2 extras beyond the header's Distance/Duration, but a deliberate Pro pick of 4 or 5 now re-lays the card's other layouts: 9:16 keeps a single top-to-bottom column of compact blocks with the route square shrinking to make room, landscape ratios arrange side-by-side rows of 2, and the shorter shapes (3:4, 1:1, and stacked 16:9/4:3) wrap to two rows and shrink the route square to make room — 1:1 and stacked landscape fall back to smaller compact metric blocks, while 16:9 Stacked keeps a single row of all 5.
+- **The share card's route can now be hidden.** The 3D tray on the share page leads with a free **Hide Route** tile: on a gradient or photo background the card drops its trace and shows the metrics alone, the choice is remembered across sessions, and picking 2D or 3D brings the route back. On the Map background the tile is greyed out, because the map's route is part of its snapshot.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 8.
+
+## 1.0.0 (build 7)
+
+- **A profile card now sits at the top of Settings.** It shows your chosen photo (or a placeholder icon) and your name once set, otherwise "Your Profile" with an "Add a name and photo" subtitle. Tapping it pushes a new **Profile** page where you set a name (up to 24 characters) and a photo — Choose Photo / Change Photo opens a pinch-to-zoom, drag-to-position rounded-square crop before applying, and Delete Photo reverts to the placeholder. The name and photo are stored locally in `UserDefaults` and never uploaded.
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 7.
+
+## 1.0.0 (build 6)
+
+- Updated the app, widget, watch, and test bundle version to 1.0.0 build 6.
+
 ## 0.9.12 (build 17)
 
 - **Workout routes now open as the 3D elevation ribbon by default.** Settings > Workouts > Route Style starts on **3D** instead of **Map** on a fresh install, with **Draw Route** on as before — so a new install sees the ribbon stroke itself in rather than a map snapshot. An existing pick is untouched.

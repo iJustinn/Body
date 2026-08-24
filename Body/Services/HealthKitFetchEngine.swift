@@ -21,6 +21,10 @@ actor HealthKitFetchEngine {
     // change the threading model.
     let healthStore = HKHealthStore()
 
+    /// Single FIFO lane for every permission-sheet transaction (reads here,
+    /// writes in HealthKitFetchEngine+Write.swift) so two sheets can't stack.
+    let authorizationCoordinator = HealthKitAuthorizationCoordinator()
+
     var permissionSelection: BodyHealthPermissionSelection
     var healthDataSourceSelection: BodyHealthDataSourceSelection
     var secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection
@@ -68,6 +72,22 @@ actor HealthKitFetchEngine {
         logger.error(
             "HealthKit trend query failed (\(context, privacy: .public)); keeping cached series. \(error?.localizedDescription ?? "no error object", privacy: .public)"
         )
+    }
+
+    /// Whether a HealthKit error means the read permission was denied (or was
+    /// never granted) rather than the query having failed. Sample and statistics
+    /// queries just come back empty when a read is denied, but characteristic
+    /// reads throw and activity-summary queries hand the error to their results
+    /// callback instead. A denial is a confirmed absence for as long as the
+    /// permission stays off, not a transient failure, so it must NOT withhold
+    /// the freshness TTL or the first-load completion — otherwise the
+    /// first-launch overlay never clears.
+    nonisolated static func isAuthorizationDenial(_ error: Error) -> Bool {
+        guard let code = (error as? HKError)?.code else {
+            return false
+        }
+
+        return code == .errorAuthorizationDenied || code == .errorAuthorizationNotDetermined
     }
 
     /// Resolves a freshly fetched trend series against the cached one. A `nil`
@@ -289,10 +309,11 @@ actor HealthKitFetchEngine {
         do {
             birthComponents = try healthStore.dateOfBirthComponents()
             biologicalSex = try healthStore.biologicalSex().biologicalSex
-        } catch let error as HKError where error.code == .errorNoData {
-            // A characteristic the user never entered is a confirmed absence, not
-            // a failure — reporting `.failure` here would withhold the freshness
-            // TTL on every refresh forever for anyone who left it blank.
+        } catch let error as HKError where error.code == .errorNoData || Self.isAuthorizationDenial(error) {
+            // A characteristic the user never entered — or one whose read
+            // permission is off — is a confirmed absence, not a failure:
+            // reporting `.failure` here would withhold the freshness TTL on
+            // every refresh forever for anyone who left it blank or denied it.
             return .success(nil)
         } catch {
             return .failure
@@ -323,19 +344,82 @@ actor HealthKitFetchEngine {
 
     // MARK: - Authorization
 
-    func requestAuthorization() async throws {
+    /// Result of an authorization pass.
+    enum AuthorizationOutcome {
+        /// HealthKit has a recorded decision for every requested type; the read
+        /// path may proceed.
+        case authorized
+        /// A permission sheet is required but `allowPrompt` was `false`, so none
+        /// was shown.
+        case promptDeferred
+    }
+
+    /// Ensures the read permissions for the current selection have been requested.
+    ///
+    /// Pass `allowPrompt: false` for passive entry points (background/foreground
+    /// resumes, silent refreshes) that must never put a system sheet on screen
+    /// unprompted. Such a call returns `.promptDeferred` instead of prompting —
+    /// and the caller **must abort its load** on that outcome, because HealthKit
+    /// reports never-requested read types as simply empty, which would otherwise
+    /// be cached as "no data".
+    ///
+    /// The whole transaction (status check → sheet → re-check) runs inside
+    /// `authorizationCoordinator`, so a waiter re-evaluates status after the
+    /// preceding sheet rather than stacking a second one.
+    func requestAuthorization(allowPrompt: Bool = true) async throws -> AuthorizationOutcome {
         let requestedTypes = HealthKitWorkoutStore.readObjectTypes(for: permissionSelection)
         guard !requestedTypes.isEmpty else {
-            return
+            return .authorized
         }
 
-        let status = try await authorizationRequestStatus(readTypes: requestedTypes)
-        guard status != .unnecessary else {
-            return
-        }
+        return try await authorizationCoordinator.run { [self] in
+            let status = try await authorizationRequestStatus(readTypes: requestedTypes)
+            switch status {
+            case .unnecessary:
+                return .authorized
+            case .shouldRequest:
+                guard allowPrompt else {
+                    return .promptDeferred
+                }
+            case .unknown:
+                guard allowPrompt else {
+                    return .promptDeferred
+                }
+                throw HealthKitWorkoutError.authorizationStatusUnknown
+            @unknown default:
+                guard allowPrompt else {
+                    return .promptDeferred
+                }
+                throw HealthKitWorkoutError.authorizationStatusUnknown
+            }
 
+            try await presentAuthorization(toShare: Set<HKSampleType>(), read: requestedTypes)
+
+            let updatedStatus = try await authorizationRequestStatus(readTypes: requestedTypes)
+            switch updatedStatus {
+            case .unnecessary:
+                return .authorized
+            case .shouldRequest:
+                throw HealthKitWorkoutError.authorizationDenied
+            case .unknown:
+                throw HealthKitWorkoutError.authorizationStatusUnknown
+            @unknown default:
+                throw HealthKitWorkoutError.authorizationStatusUnknown
+            }
+        }
+    }
+
+    /// Whether a permission-sheet transaction is enqueued or running.
+    var isAuthorizationPromptInFlight: Bool {
+        get async { await authorizationCoordinator.isBusy }
+    }
+
+    /// The single place the HealthKit request-authorization API is called across
+    /// every engine file — always from inside `authorizationCoordinator.run`, so
+    /// only one sheet can be presented at a time.
+    func presentAuthorization(toShare: Set<HKSampleType>, read: Set<HKObjectType>) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            healthStore.requestAuthorization(toShare: Set<HKSampleType>(), read: requestedTypes) { success, error in
+            healthStore.requestAuthorization(toShare: toShare, read: read) { success, error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else if success {
@@ -344,18 +428,6 @@ actor HealthKitFetchEngine {
                     continuation.resume(throwing: HealthKitWorkoutError.authorizationDenied)
                 }
             }
-        }
-
-        let updatedStatus = try await authorizationRequestStatus(readTypes: requestedTypes)
-        switch updatedStatus {
-        case .unnecessary:
-            return
-        case .shouldRequest:
-            throw HealthKitWorkoutError.authorizationDenied
-        case .unknown:
-            throw HealthKitWorkoutError.authorizationStatusUnknown
-        @unknown default:
-            throw HealthKitWorkoutError.authorizationStatusUnknown
         }
     }
 
@@ -522,10 +594,7 @@ actor HealthKitFetchEngine {
     ) -> (start: Date, end: Date) {
         let anchorOrDate = anchor ?? date
         let end = anchorOrDate
-        let currentDayStart = calendar.startOfDay(for: anchorOrDate)
-        let oldestPastOffset = BodyHealthTrendRange.maximumDayCount - 1
-        let start = calendar.date(byAdding: .day, value: -oldestPastOffset, to: currentDayStart)
-            ?? end.addingTimeInterval(-TimeInterval(oldestPastOffset) * 86_400)
+        let start = BodyHealthTrendRange.recentTrendWindowStart(anchor: anchorOrDate, calendar: calendar)
         return (start, end)
     }
 
@@ -1267,6 +1336,7 @@ actor HealthKitFetchEngine {
     private func latestQuantity(
         for identifier: HKQuantityTypeIdentifier,
         unit: HKUnit,
+        calendar: Calendar,
         sourceKind: HealthMetricKind? = nil,
         valueTransform: @escaping (Double) -> Double = { $0 }
     ) async -> QueryOutcome<HealthMetricSummary> {
@@ -1277,10 +1347,24 @@ actor HealthKitFetchEngine {
             return .failure
         }
 
-        // No date predicate: the newest sample counts however old it is. The
-        // shared leaf returns the sample itself so callers that need the real
-        // reading time (the watch stamps freshness from it) can use it.
-        let predicate = combinedPredicate(sourceKind: sourceKind)
+        // Bounded to the SAME window the daily trend charts are fetched over,
+        // not the whole HealthKit store: a card whose newest reading predates
+        // the window would otherwise headline a value its own chart has no room
+        // for, at every range including Year. Out-of-window reads therefore
+        // resolve `.success(nil)` — a genuine absence that clears the cached
+        // headline into the card's empty state (see `resolvedSummaryValue`).
+        //
+        // Both ends are bound: the upper end matches the trend interval's, so a
+        // post-anchor or future-dated sample can't headline a card cut off at
+        // the anchor either. The shared leaf returns the sample itself so
+        // callers that need the real reading time (the watch stamps freshness
+        // from it) can use it.
+        let interval = recentHealthTrendInterval(calendar: calendar)
+        let predicate = combinedPredicate(
+            startDate: interval.start,
+            endDate: interval.end,
+            sourceKind: sourceKind
+        )
 
         switch await BodyHealthQuantityFetch.latestQuantitySample(
             store: healthStore,
@@ -2388,6 +2472,7 @@ actor HealthKitFetchEngine {
             await latestQuantity(
                 for: .heartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar,
                 sourceKind: .heartRate
             )
         }
@@ -2401,16 +2486,18 @@ actor HealthKitFetchEngine {
             await latestQuantity(
                 for: .restingHeartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar,
                 sourceKind: .restingHeartRate
             )
         }
         async let bodyMass: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.bodyMass, selection: selection, default: .success(nil)) {
-            await latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
+            await latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), calendar: calendar, sourceKind: .basics)
         }
         async let bodyFatPercentage: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.bodyFatPercentage, selection: selection, default: .success(nil)) {
             await latestQuantity(
                 for: .bodyFatPercentage,
                 unit: .percent(),
+                calendar: calendar,
                 sourceKind: .basics,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
@@ -2419,6 +2506,7 @@ actor HealthKitFetchEngine {
             await latestQuantity(
                 for: .heartRateVariabilitySDNN,
                 unit: .secondUnit(with: .milli),
+                calendar: calendar,
                 sourceKind: .heartRateVariability
             )
         }
@@ -2426,6 +2514,7 @@ actor HealthKitFetchEngine {
             await latestQuantity(
                 for: .respiratoryRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar,
                 sourceKind: .respiratoryRate
             )
         }
@@ -2433,6 +2522,7 @@ actor HealthKitFetchEngine {
             await latestQuantity(
                 for: .oxygenSaturation,
                 unit: .percent(),
+                calendar: calendar,
                 sourceKind: .oxygenSaturation,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
@@ -2441,7 +2531,7 @@ actor HealthKitFetchEngine {
             await fetchTodayMetricWarning(.lowBloodOxygen, calendar: calendar)
         }
         async let bodyMassIndex: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.bodyMassIndex, selection: selection, default: .success(nil)) {
-            await latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
+            await latestQuantity(for: .bodyMassIndex, unit: .count(), calendar: calendar, sourceKind: .basics)
         }
         async let activeEnergy: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.activeEnergy, selection: selection, default: .success(nil)) {
             await dailyCumulativeQuantitySummary(
@@ -2497,11 +2587,11 @@ actor HealthKitFetchEngine {
         }
         async let cardioFitness: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.cardioFitness, selection: selection, default: .success(nil)) {
             // `latestQuantity`, not a daily summary: Apple Watch writes one VO₂max
-            // estimate every few days at best, so the newest reading is the current
-            // value however old it is — a day-scoped summary would read empty most
-            // days. No `sourceKind:` either; cardio fitness is deliberately not
-            // source-selectable.
-            await latestQuantity(for: .vo2Max, unit: HKUnit(from: "ml/kg*min"))
+            // estimate every few days at best, so the newest reading in the trend
+            // window is the current value — a day-scoped summary would read empty
+            // most days. No `sourceKind:` either; cardio fitness is deliberately
+            // not source-selectable.
+            await latestQuantity(for: .vo2Max, unit: HKUnit(from: "ml/kg*min"), calendar: calendar)
         }
         async let cardioFitnessProfileOutcome: QueryOutcome<CardioFitnessProfile> = fetchDashboardMetricIfNeeded(.cardioFitness, selection: selection, default: .success(nil)) {
             await cardioFitnessProfile()
@@ -3083,14 +3173,15 @@ actor HealthKitFetchEngine {
             trends.sleepHistory = fetchedSleepHistory
             trends.sleepHistorySecondary = fetchedSleepHistorySecondary
         case .basics:
-            async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
+            async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), calendar: calendar, sourceKind: .basics)
             async let bodyFatPercentage = latestQuantity(
                 for: .bodyFatPercentage,
                 unit: .percent(),
+                calendar: calendar,
                 sourceKind: .basics,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
-            async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
+            async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count(), calendar: calendar, sourceKind: .basics)
             async let bodyMassTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .bodyMass,
                 unit: .gramUnit(with: .kilo),
@@ -3124,6 +3215,7 @@ actor HealthKitFetchEngine {
             async let heartRate = latestQuantity(
                 for: .heartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar,
                 sourceKind: .heartRate
             )
             async let lowHeartRateWarning = fetchTodayMetricWarning(.lowHeartRate, calendar: calendar)
@@ -3164,6 +3256,7 @@ actor HealthKitFetchEngine {
             async let restingHeartRate = latestQuantity(
                 for: .restingHeartRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar,
                 sourceKind: .restingHeartRate
             )
             async let restingHeartRateTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
@@ -3185,7 +3278,7 @@ actor HealthKitFetchEngine {
             trends.restingHeartRate = resolvedTrend(await restingHeartRateTrend, cached: existing.trends.restingHeartRate)
             trends.restingHeartRateSecondary = resolvedTrend(await restingHeartRateSecondaryTrend, cached: existing.trends.restingHeartRateSecondary)
         case .bodyMass:
-            async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), sourceKind: .basics)
+            async let bodyMass = latestQuantity(for: .bodyMass, unit: .gramUnit(with: .kilo), calendar: calendar, sourceKind: .basics)
             async let bodyMassTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .bodyMass,
                 unit: .gramUnit(with: .kilo),
@@ -3200,6 +3293,7 @@ actor HealthKitFetchEngine {
             async let bodyFatPercentage = latestQuantity(
                 for: .bodyFatPercentage,
                 unit: .percent(),
+                calendar: calendar,
                 sourceKind: .basics,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
@@ -3218,6 +3312,7 @@ actor HealthKitFetchEngine {
             async let heartRateVariability = latestQuantity(
                 for: .heartRateVariabilitySDNN,
                 unit: .secondUnit(with: .milli),
+                calendar: calendar,
                 sourceKind: .heartRateVariability
             )
             async let heartRateVariabilityPair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDailyQuantityAverageAndRangeSeries(
@@ -3252,6 +3347,7 @@ actor HealthKitFetchEngine {
             async let respiratoryRate = latestQuantity(
                 for: .respiratoryRate,
                 unit: HKUnit.count().unitDivided(by: .minute()),
+                calendar: calendar,
                 sourceKind: .respiratoryRate
             )
             async let respiratoryRatePair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDailyQuantityAverageAndRangeSeries(
@@ -3275,6 +3371,7 @@ actor HealthKitFetchEngine {
             async let oxygenSaturation = latestQuantity(
                 for: .oxygenSaturation,
                 unit: .percent(),
+                calendar: calendar,
                 sourceKind: .oxygenSaturation,
                 valueTransform: Self.normalizedPercentDisplayValue
             )
@@ -3315,7 +3412,7 @@ actor HealthKitFetchEngine {
             trends.oxygenSaturationDaySamples = resolvedTrend(await oxygenSaturationDaySamples, cached: existing.trends.oxygenSaturationDaySamples)
             trends.oxygenSaturationDaySamplesSecondary = resolvedTrend(await oxygenSaturationDaySamplesSecondary, cached: existing.trends.oxygenSaturationDaySamplesSecondary)
         case .bodyMassIndex:
-            async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count(), sourceKind: .basics)
+            async let bodyMassIndex = latestQuantity(for: .bodyMassIndex, unit: .count(), calendar: calendar, sourceKind: .basics)
             async let bodyMassIndexTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .bodyMassIndex,
                 unit: .count(),
@@ -3468,10 +3565,10 @@ actor HealthKitFetchEngine {
             trends.stepsDaySamples = resolvedTrend(await stepsDaySamples, cached: existing.trends.stepsDaySamples)
             trends.stepsDaySamplesSecondary = resolvedTrend(await stepsDaySamplesSecondary, cached: existing.trends.stepsDaySamplesSecondary)
         case .cardioFitness:
-            // Latest reading (however old) + the sparse daily series, same shapes
-            // as the dashboard leaves. The demographics ride along so the level
-            // band can classify from a single-metric refresh too.
-            async let cardioFitness = latestQuantity(for: .vo2Max, unit: HKUnit(from: "ml/kg*min"))
+            // Latest reading in the trend window + the sparse daily series, same
+            // shapes as the dashboard leaves. The demographics ride along so the
+            // level band can classify from a single-metric refresh too.
+            async let cardioFitness = latestQuantity(for: .vo2Max, unit: HKUnit(from: "ml/kg*min"), calendar: calendar)
             async let cardioFitnessTrend: HealthTrendSeries? = fetchDailyQuantitySeries(
                 for: .vo2Max,
                 unit: HKUnit(from: "ml/kg*min"),

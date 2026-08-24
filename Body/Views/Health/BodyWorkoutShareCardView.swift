@@ -17,19 +17,27 @@
 //  photos) drops the header for label-over-value blocks under (or beside) the trace;
 //  `.routeless` (a workout with no GPS route) has no trace to show, so the workout
 //  type's symbol stands in as the card's only identity above those same blocks.
-//  On photo backgrounds the centered layout's info block (trace + metrics, never the
-//  pinned branding) is repositionable and resizable: the placement arrives as an
-//  `infoTransform` the sheet's gestures drive, and is `.identity` everywhere else.
+//  On photo and video backgrounds the centered layout's info block (trace + metrics,
+//  never the pinned branding) is repositionable and resizable: the placement arrives as
+//  an `infoTransform` the sheet's gestures drive, and is `.identity` everywhere else.
+//  A `.video` background draws nothing of its own — the card becomes a transparent
+//  overlay the sheet holds over a player layer (preview) or composites onto every
+//  frame of the exported MP4.
 //
 
 import SwiftUI
+import UIKit
 
 /// What fills the card behind the content. `.map` is a pre-composited route-map
-/// snapshot, so the card skips its own Canvas trace for that case.
+/// snapshot, so the card skips its own Canvas trace for that case. `.video` draws
+/// *nothing*: the moving frames come from a player layer the sheet puts under the
+/// card in the preview, and from the video composition on export — either way the
+/// card is the transparent overlay held over them, scrims and all.
 enum WorkoutShareCardBackground {
     case preset(BodyWorkoutSharePreset)
     case photo(UIImage)
     case map(UIImage)
+    case video
 }
 
 /// Which arrangement the card draws. Passed in rather than derived from `background`:
@@ -60,6 +68,9 @@ struct BodyWorkoutShareCardView: View {
     /// Already resolved through `WorkoutShareBackgroundPolicy.resolvedDimension` — the
     /// card never re-checks the Pro entitlement.
     let dimension: WorkoutShareRouteDimension
+    /// Whether the route-less layout's type glyph is drawn. Every other layout ignores
+    /// it — there's no glyph to hide once a trace or header carries the card's identity.
+    let iconHidden: Bool
     let locality: String?
     let type: BodyWorkoutType
     let background: WorkoutShareCardBackground
@@ -80,6 +91,10 @@ struct BodyWorkoutShareCardView: View {
     /// The card-drawn trace's colour (2D polyline and 3D ribbon). The map background's
     /// composited route ignores it and keeps its pace colouring.
     let routeColor: Color
+    /// The Settings profile avatar/name drawn beside the watermark, resolved by the
+    /// sheet from the visibility toggles and whatever the profile currently has.
+    /// Defaulted so existing call sites (tests, previews) compile unchanged.
+    var attribution: WorkoutShareAttribution = .empty
 
     /// #0128F4 — `WorkoutShareRouteColorChoice.bodyBlue`, the default trace colour.
     static let defaultRouteColor = Color(red: 1 / 255, green: 40 / 255, blue: 244 / 255)
@@ -87,7 +102,23 @@ struct BodyWorkoutShareCardView: View {
     /// Every frame the card draws with. A value type derived from the three inputs
     /// above, so recomputing it per access is cheaper than caching it.
     private var geometry: WorkoutShareCardGeometry {
-        WorkoutShareCardGeometry(aspectRatio: aspectRatio, layout: layout, arrangement: arrangement)
+        WorkoutShareCardGeometry(
+            aspectRatio: aspectRatio,
+            layout: layout,
+            arrangement: arrangement,
+            metricCount: centeredMetrics.count
+        )
+    }
+
+    /// Which way this card's ink runs, read from the background that is *actually*
+    /// drawn rather than from any stored preference: a photo, a map snapshot, or a video
+    /// frame is dark-backed by the scrims and always takes the light ink, even while a
+    /// Daylight preset stays selected in the tray.
+    private var ink: WorkoutShareCardInk {
+        switch background {
+        case .preset(let preset): return preset.ink
+        case .photo, .map, .video: return .light
+        }
     }
 
     /// `.routeless` never traces, whatever it's handed: making that a property of the
@@ -155,20 +186,29 @@ struct BodyWorkoutShareCardView: View {
                 .scaledToFill()
                 .frame(width: size.width, height: size.height)
                 .clipped()
+        case .video:
+            // Deliberately empty, sized so the ZStack still gets the card's frame from
+            // its background layer. `ImageRenderer.isOpaque` is false, so the rendered
+            // overlay keeps this transparency and the clip shows through it.
+            Color.clear
+                .frame(width: size.width, height: size.height)
         }
     }
 
-    /// Unconditional top + bottom scrims so white text stays legible over any photo
+    /// Unconditional top + bottom scrims so the card's text stays legible over any photo
     /// or map tiles, including a near-white tint. Map tiles carry bright labels and
     /// roads right behind the text, so they get taller, darker shades. The heights are
-    /// fractions of the card's height, so a short landscape card isn't swallowed.
+    /// fractions of the card's height, so a short landscape card isn't swallowed. The
+    /// scrim colour follows the ink — a white card lightens its edges rather than
+    /// darkening them — while the opacities stay the same on both polarities.
     private var scrims: some View {
         let isMap: Bool
         if case .map = background { isMap = true } else { isMap = false }
+        let scrim = ink.scrim
 
         return VStack(spacing: 0) {
             LinearGradient(
-                colors: [Color.black.opacity(isMap ? 0.85 : 0.45), Color.black.opacity(0)],
+                colors: [scrim.opacity(isMap ? 0.85 : 0.45), scrim.opacity(0)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -177,7 +217,7 @@ struct BodyWorkoutShareCardView: View {
             Spacer(minLength: 0)
 
             LinearGradient(
-                colors: [Color.black.opacity(0), Color.black.opacity(isMap ? 0.85 : 0.5)],
+                colors: [scrim.opacity(0), scrim.opacity(isMap ? 0.85 : 0.5)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -212,7 +252,9 @@ struct BodyWorkoutShareCardView: View {
                 .font(.system(size: 20, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 // White symbol on a stronger tint chip: the detail page's tinted-symbol
-                // treatment disappears against the card's dark/photo backgrounds.
+                // treatment disappears against the card's dark/photo backgrounds. Stays
+                // white on both inks — the chip behind it is the workout's colour, not
+                // the card's background, and this layout is map-only (a dark backdrop).
                 .foregroundStyle(.white)
                 .frame(width: 46, height: 46)
                 .background(type.color.opacity(0.45))
@@ -223,7 +265,7 @@ struct BodyWorkoutShareCardView: View {
                 // would otherwise push the header past its (shorter) scrim.
                 Text(presentation.title)
                     .font(.system(size: 24, weight: .bold, design: fontDesign))
-                    .foregroundColor(.white)
+                    .foregroundColor(ink.primary)
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
 
@@ -235,12 +277,12 @@ struct BodyWorkoutShareCardView: View {
                             .font(.system(size: 14, weight: .medium, design: fontDesign))
                             .lineLimit(1)
                     }
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundColor(ink.primary(0.7))
                 }
 
                 Text("\(presentation.dateTitle) - \(presentation.timeRangeText)")
                     .font(.system(size: 14, weight: .medium, design: fontDesign))
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundColor(ink.primary(0.7))
                     .lineLimit(1)
             }
         }
@@ -253,28 +295,28 @@ struct BodyWorkoutShareCardView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text(heroValue)
                             .font(.system(size: 40, weight: .bold, design: fontDesign))
-                            .foregroundColor(.white)
+                            .foregroundColor(ink.primary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
                         Text(heroUnit)
                             .font(.system(size: 17, weight: .semibold, design: fontDesign))
-                            .foregroundColor(.white.opacity(0.85))
+                            .foregroundColor(ink.primary(0.85))
                     }
                     Text("Distance")
                         .font(.system(size: 12, weight: .semibold, design: fontDesign))
-                        .foregroundColor(.white.opacity(0.6))
+                        .foregroundColor(ink.primary(0.6))
                 }
             }
 
             VStack(alignment: .trailing, spacing: 1) {
                 Text(presentation.durationClockText)
                     .font(.system(size: 40, weight: .bold, design: fontDesign))
-                    .foregroundColor(.white)
+                    .foregroundColor(ink.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                 Text("Duration")
                     .font(.system(size: 12, weight: .semibold, design: fontDesign))
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(ink.primary(0.6))
             }
         }
     }
@@ -292,102 +334,55 @@ struct BodyWorkoutShareCardView: View {
     ///   3D ribbon's lifted line rises into free space); the classic layout keeps the
     ///   trace centered on the map's own geometry.
     private func routeHero(bottomAnchored: Bool) -> some View {
-        Canvas { context, size in
-            let inset = WorkoutShareCardGeometry.routeInset
-            let rect = CGRect(
-                x: inset,
-                y: inset,
-                width: size.width - inset * 2,
-                height: size.height - inset * 2
-            )
-
-            if let ribbon {
-                let top = Self.mapped(ribbon.top, in: rect)
-                let base = Self.mapped(ribbon.base, in: rect)
-                // The ground trace is the ribbon's lowest line by construction, so it
-                // alone decides the anchor.
-                let shift = bottomAnchored ? Self.bottomAnchorShift(for: base, in: rect) : 0
-                BodyWorkoutRoute3DHero.drawRibbon(
-                    top: Self.shifted(top, by: shift),
-                    base: Self.shifted(base, by: shift),
-                    tint: routeColor,
-                    in: &context
-                )
-                return
-            }
-
-            guard let routePoints, routePoints.count >= 2 else { return }
-            let mapped = Self.mapped(routePoints, in: rect)
-            let shift = bottomAnchored ? Self.bottomAnchorShift(for: mapped, in: rect) : 0
-
-            var path = Path()
-            path.addLines(Self.shifted(mapped, by: shift))
-
-            var strokeContext = context
-            strokeContext.addFilter(.shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5))
-            strokeContext.stroke(
-                path,
-                with: .color(routeColor),
-                style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
-            )
-        }
-    }
-
-    /// Projection space (unit square for the flat trace, the ribbon's own camera space
-    /// for 3D) into the drawing rect. The rect is square, so one scale serves both axes
-    /// and neither drawing is distorted.
-    private static func mapped(_ points: [CGPoint], in rect: CGRect) -> [CGPoint] {
-        points.map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) }
-    }
-
-    private static func shifted(_ points: [CGPoint], by shift: CGFloat) -> [CGPoint] {
-        shift == 0 ? points : points.map { CGPoint(x: $0.x, y: $0.y + shift) }
-    }
-
-    private static func bottomAnchorShift(for points: [CGPoint], in rect: CGRect) -> CGFloat {
-        guard let lowest = points.map(\.y).max() else { return 0 }
-        return rect.maxY - lowest
+        WorkoutShareRouteTrace(
+            routePoints: routePoints,
+            ribbon: ribbon,
+            routeColor: routeColor,
+            bottomAnchored: bottomAnchored,
+            shadowColor: ink.legibilityShadow
+        )
     }
 
     // MARK: - Bottom bar (metrics leading, branding trailing)
 
     private var bottomBar: some View {
-        HStack(alignment: .bottom, spacing: 24) {
-            ForEach(Array(metrics.enumerated()), id: \.offset) { _, metric in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(metric.value)
-                        .font(.system(size: 21, weight: .bold, design: fontDesign))
-                        .foregroundColor(.white)
-                    Text(metric.title)
-                        .font(.system(size: 10, weight: .semibold, design: fontDesign))
-                        .foregroundColor(.white.opacity(0.7))
+        // The metrics-and-wordmark row is already full on a 360 pt card (~6 pt of
+        // slack), so the attribution can't sit beside the wordmark here the way it
+        // does on the roomier layouts — it would only trade legibility between the
+        // name and the metric values. With attribution on, the whole branding row
+        // drops onto its own full-width line instead, trailing-aligned where the
+        // wordmark alone used to sit.
+        VStack(alignment: .trailing, spacing: 8) {
+            HStack(alignment: .bottom, spacing: 24) {
+                ForEach(Array(metrics.enumerated()), id: \.offset) { _, metric in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(metric.value)
+                            .font(.system(size: 21, weight: .bold, design: fontDesign))
+                            .foregroundColor(ink.primary)
+                        Text(metric.title)
+                            .font(.system(size: 10, weight: .semibold, design: fontDesign))
+                            .foregroundColor(ink.primary(0.7))
+                    }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                 }
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+
+                Spacer(minLength: 12)
+
+                if attribution.isEmpty {
+                    branding
+                }
             }
 
-            Spacer(minLength: 12)
-
-            branding
+            if !attribution.isEmpty {
+                branding
+            }
         }
     }
 
     /// Shared by both layouts so the wordmark can't drift between them.
     private var branding: some View {
-        HStack(spacing: 6) {
-            Image("BodyIcon01")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 18, height: 18)
-                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                .accessibilityHidden(true)
-            // verbatim: brand wordmark, never localized — and never extracted
-            // into the catalog (an empty auto-extracted "Body" entry would trip
-            // the catalog-completeness guard).
-            Text(verbatim: "Body")
-                .font(.system(size: 15, weight: .bold, design: .rounded))
-                .foregroundColor(.white.opacity(0.6))
-        }
+        WorkoutShareBrandingRow(ink: ink, attribution: attribution)
     }
 
     // MARK: - Centered layout (gradient presets and photos)
@@ -425,9 +420,15 @@ struct BodyWorkoutShareCardView: View {
                 // Traceless cards have nothing above the metrics, so the stack centers
                 // in the space the branding leaves — the same fallback the classic
                 // layout's metrics take.
-                centeredMetricsStack
-                    .frame(width: geometry.size.width - 48)
-                    .position(x: geometry.size.width / 2, y: metricsOnlyCenterY)
+                Group {
+                    if usesMetricGrid {
+                        metricGrid
+                    } else {
+                        centeredMetricsStack
+                    }
+                }
+                .frame(width: geometry.size.width - 48)
+                .position(x: geometry.size.width / 2, y: metricsOnlyCenterY)
             }
         }
     }
@@ -444,7 +445,11 @@ struct BodyWorkoutShareCardView: View {
             // edge, so pinning the stack's top edge is what keeps the gap between
             // them constant no matter how many metrics the stack carries.
             VStack(spacing: 0) {
-                centeredMetricsStack
+                if usesMetricGrid {
+                    metricGrid
+                } else {
+                    centeredMetricsStack
+                }
                 Spacer(minLength: 0)
             }
             .frame(width: metricsRect.width, height: metricsRect.height)
@@ -452,15 +457,28 @@ struct BodyWorkoutShareCardView: View {
         case .routeOverRow:
             routeRegion
             // A short card can't afford a column under the trace, so the blocks go
-            // wide in a single row sized to sit clear of the branding.
-            centeredMetricsRow
-                .frame(width: metricsRect.width, height: metricsRect.height)
-                .position(x: metricsRect.midX, y: metricsRect.midY)
+            // wide in a single row sized to sit clear of the branding — or, at four
+            // and five, in the rows the geometry wrapped them into.
+            Group {
+                if usesMetricGrid {
+                    metricGrid
+                } else {
+                    centeredMetricsRow
+                }
+            }
+            .frame(width: metricsRect.width, height: metricsRect.height)
+            .position(x: metricsRect.midX, y: metricsRect.midY)
         case .sideBySide:
             routeRegion
-            centeredMetricsStack
-                .frame(width: metricsRect.width, height: metricsRect.height)
-                .position(x: metricsRect.midX, y: metricsRect.midY)
+            Group {
+                if usesMetricGrid {
+                    metricGrid
+                } else {
+                    centeredMetricsStack
+                }
+            }
+            .frame(width: metricsRect.width, height: metricsRect.height)
+            .position(x: metricsRect.midX, y: metricsRect.midY)
         }
     }
 
@@ -474,22 +492,38 @@ struct BodyWorkoutShareCardView: View {
     }
 
     /// Glyph and metrics are one flowing block, not two absolute slots: the metric
-    /// count varies from one to three here, and the pair stays visually centered
+    /// count varies from one to five here, and the pair stays visually centered
     /// together at any of them.
+    ///
+    /// A hidden glyph leaves the block as the card's only VoiceOver identity — no
+    /// chip, no title — so the block itself carries `type.displayName` then. Shown,
+    /// the glyph keeps its own label and the block adds nothing, so there's no
+    /// duplicate.
+    @ViewBuilder
     private var routelessBlock: some View {
-        VStack(spacing: 20) {
-            typeGlyph
+        let block = VStack(spacing: 20) {
+            if !iconHidden {
+                typeGlyph
+            }
             routelessMetrics
         }
         .frame(width: geometry.size.width - 48)
         .position(x: geometry.size.width / 2, y: routelessCenterY)
+
+        if iconHidden {
+            block.accessibilityLabel(Text(type.displayName))
+        } else {
+            block
+        }
     }
 
     @ViewBuilder
     private var routelessMetrics: some View {
-        if geometry.routelessMetricsAxis == .vertical {
+        if usesMetricGrid {
+            metricGrid
+        } else if geometry.routelessMetricsAxis == .vertical {
             centeredMetricsStack
-        } else if geometry.routelessWrapsMetricRows {
+        } else if geometry.metricRowSizes.count > 1 {
             // Three blocks won't read on one line of a 360 pt card, so they wrap into
             // rows of two — which centers the odd one under the pair.
             VStack(spacing: 20) {
@@ -498,7 +532,7 @@ struct BodyWorkoutShareCardView: View {
                 }
             }
             .multilineTextAlignment(.center)
-            .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+            .shadow(color: ink.legibilityShadow, radius: 5, x: 0, y: 1.5)
         } else {
             centeredMetricsRow
         }
@@ -521,7 +555,7 @@ struct BodyWorkoutShareCardView: View {
 
     /// Branding baseline + wordmark height + breathing room — the strip at the bottom
     /// of the card nothing else may enter.
-    private static let brandingZoneHeight: CGFloat = WorkoutShareCardGeometry.brandingBottomPadding + 18 + 12
+    private static let brandingZoneHeight: CGFloat = WorkoutShareCardGeometry.brandingZoneHeight
 
     /// The route-less card's only identity — no chip, no title, no date — so it keeps
     /// its accessibility label rather than being decorative like the classic layout's
@@ -530,8 +564,8 @@ struct BodyWorkoutShareCardView: View {
         Image(systemName: type.symbolName)
             .font(.system(size: 30, weight: .semibold))
             .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+            .foregroundStyle(ink.primary)
+            .shadow(color: ink.legibilityShadow, radius: 5, x: 0, y: 1.5)
             .accessibilityLabel(Text(type.displayName))
     }
 
@@ -544,7 +578,7 @@ struct BodyWorkoutShareCardView: View {
         .multilineTextAlignment(.center)
         // The route trace's shadow, so the metrics stay legible when the block is
         // dragged into a bright photo area the scrims don't reach.
-        .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+        .shadow(color: ink.legibilityShadow, radius: 5, x: 0, y: 1.5)
     }
 
     /// The same blocks the stack draws, laid out along the card's width — what a card
@@ -552,7 +586,7 @@ struct BodyWorkoutShareCardView: View {
     private var centeredMetricsRow: some View {
         metricsRow(centeredMetrics)
             .multilineTextAlignment(.center)
-            .shadow(color: .black.opacity(0.45), radius: 5, x: 0, y: 1.5)
+            .shadow(color: ink.legibilityShadow, radius: 5, x: 0, y: 1.5)
     }
 
     private func metricsRow(_ items: [WorkoutShareMetric]) -> some View {
@@ -566,17 +600,251 @@ struct BodyWorkoutShareCardView: View {
         }
     }
 
-    private func metricBlock(_ metric: WorkoutShareMetric, minimumScale: CGFloat = 0.6) -> some View {
+    /// One to three blocks keep the stack or the single row they have always had; only
+    /// a four- or five-metric pick takes the wrapped grid.
+    private var usesMetricGrid: Bool {
+        centeredMetrics.count > WorkoutShareMetricSelection.defaultCount
+    }
+
+    /// The blocks in the rows `WorkoutShareCardGeometry.metricRowSizes` wrapped them
+    /// into — and, on the short cards, in the compact type that keeps those rows clear
+    /// of the branding.
+    private var metricGrid: some View {
+        let style = geometry.metricBlockStyle
+        let valueSize = gridValueSize
+        return VStack(spacing: style.rowGap) {
+            ForEach(Array(metricGridRows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 24) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, metric in
+                        metricBlock(metric, style: style, valueSize: valueSize, minimumScale: 0.45)
+                            // Equal columns, and a row height that stays the geometry's
+                            // whatever size the values landed at.
+                            .frame(maxWidth: .infinity)
+                            .frame(height: style.rowHeight)
+                    }
+                }
+            }
+        }
+        .multilineTextAlignment(.center)
+        .shadow(color: ink.legibilityShadow, radius: 5, x: 0, y: 1.5)
+    }
+
+    /// One value size for the whole grid, not one per block: `minimumScaleFactor`
+    /// shrinks each text on its own, so a three-wide row would land smaller than the
+    /// two-wide row under it. The widest value is measured against the narrowest
+    /// column, and every block takes that size (never above the style's own, never
+    /// below its 0.45 floor — the per-text scale stays as the backstop).
+    private var gridValueSize: CGFloat {
+        let style = geometry.metricBlockStyle
+        let columns = CGFloat(geometry.metricRowSizes.max() ?? 1)
+        let rowWidth = layout == .centered && showsTrace ? geometry.metricsFrame.width : geometry.size.width - 48
+        let columnWidth = (rowWidth - 24 * (columns - 1)) / columns
+        let widest = centeredMetrics
+            .map { Self.measuredWidth($0.value, size: style.valueSize, design: fontDesign) }
+            .max() ?? 0
+        guard widest > columnWidth, widest > 0 else { return style.valueSize }
+        return max(style.valueSize * 0.45, style.valueSize * columnWidth / widest)
+    }
+
+    /// Width of `text` in the card's bold value face — the same system design the
+    /// SwiftUI font uses, so the fit is measured in the face that's drawn.
+    private static func measuredWidth(_ text: String, size: CGFloat, design: Font.Design) -> CGFloat {
+        let systemDesign: UIFontDescriptor.SystemDesign
+        switch design {
+        case .rounded: systemDesign = .rounded
+        case .serif: systemDesign = .serif
+        case .monospaced: systemDesign = .monospaced
+        default: systemDesign = .default
+        }
+        var descriptor = UIFont.systemFont(ofSize: size, weight: .bold).fontDescriptor
+        if let designed = descriptor.withDesign(systemDesign) { descriptor = designed }
+        let font = UIFont(descriptor: descriptor, size: size)
+        return (text as NSString).size(withAttributes: [.font: font]).width
+    }
+
+    private var metricGridRows: [[WorkoutShareMetric]] {
+        var rows: [[WorkoutShareMetric]] = []
+        var start = 0
+        for size in geometry.metricRowSizes where start < centeredMetrics.count {
+            let end = min(start + size, centeredMetrics.count)
+            rows.append(Array(centeredMetrics[start..<end]))
+            start = end
+        }
+        return rows
+    }
+
+    private func metricBlock(
+        _ metric: WorkoutShareMetric,
+        style: WorkoutShareCardGeometry.MetricBlockStyle = .regular,
+        valueSize: CGFloat? = nil,
+        minimumScale: CGFloat = 0.6
+    ) -> some View {
         VStack(spacing: 2) {
             Text(metric.title)
-                .font(.system(size: 15, weight: .semibold, design: fontDesign))
-                .foregroundColor(.white.opacity(0.7))
+                .font(.system(size: style.labelSize, weight: .semibold, design: fontDesign))
+                .foregroundColor(ink.primary(0.7))
             Text(metric.value)
-                .font(.system(size: 40, weight: .bold, design: fontDesign))
-                .foregroundColor(.white)
+                .font(.system(size: valueSize ?? style.valueSize, weight: .bold, design: fontDesign))
+                .foregroundColor(ink.primary)
         }
         .lineLimit(1)
         .minimumScaleFactor(minimumScale)
+    }
+}
+
+/// The pinned brand wordmark, plus whatever attribution the sheet resolved beside
+/// it. Its own view rather than a method on the card, because the month-summary
+/// card draws exactly the same strip from a completely different layout — two
+/// copies would be one tweak away from disagreeing about the mark.
+struct WorkoutShareBrandingRow: View {
+    let ink: WorkoutShareCardInk
+    let attribution: WorkoutShareAttribution
+
+    var body: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Image("BodyIcon01")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 15, height: 15)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .accessibilityHidden(true)
+                // verbatim: brand wordmark, never localized — and never extracted
+                // into the catalog (an empty auto-extracted "ohmybody" entry would
+                // trip the catalog-completeness guard).
+                Text(verbatim: "ohmybody")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(ink.primary(0.6))
+            }
+            .layoutPriority(1)
+            .fixedSize()
+
+            if !attribution.isEmpty {
+                if attribution.showsSeparator {
+                    // verbatim: a typographic dash between the wordmark and the
+                    // attribution, never localized or extracted.
+                    Text(verbatim: "–")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(ink.primary(0.6))
+                        .layoutPriority(1)
+                        .fixedSize()
+                }
+
+                if let avatar = attribution.avatar {
+                    Image(uiImage: avatar)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 15, height: 15)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .strokeBorder(ink.primary(0.3), lineWidth: 1)
+                        )
+                        .accessibilityHidden(true)
+                        .layoutPriority(1)
+                        .fixedSize()
+                }
+
+                if let name = attribution.name {
+                    // verbatim: the "@" prefix is typographic, not localized text.
+                    Text(verbatim: "@" + name)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(ink.primary(0.6))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .minimumScaleFactor(0.8)
+                }
+            }
+        }
+    }
+}
+
+/// The route trace both share exports paint: the flat polyline, or the oblique
+/// elevation ribbon in 3D, drawn through the centered, inset rect of whatever frame
+/// it's given so the stroke never clips. No start/end markers — only the map
+/// background's composited route carries those.
+///
+/// Its own view rather than a method on the card, because the long image draws the
+/// same trace from a completely different layout; two Canvases with the same
+/// projection maths in them would be one bug fix away from disagreeing.
+struct WorkoutShareRouteTrace: View {
+    /// Already normalized to the unit square by `WorkoutShareRouteProjection`.
+    let routePoints: [CGPoint]?
+    /// Drawn instead of the flat polyline when non-nil — already gated on the resolved
+    /// dimension by the caller.
+    let ribbon: WorkoutRoute3DProjection.Projected3D?
+    let routeColor: Color
+    /// Translates the finished drawing so its lowest point lands on the rect's bottom
+    /// edge, so the gap to whatever sits below is the same for a tall route and a wide
+    /// one (and the 3D ribbon's lifted line rises into free space). The classic layout
+    /// keeps the trace centered on the map's own geometry instead.
+    let bottomAnchored: Bool
+    /// The 2D polyline's legibility halo — `WorkoutShareCardInk.legibilityShadow` from
+    /// whichever export is drawing. Defaults to the light ink's black halo so a caller
+    /// that has no ink of its own keeps today's drawing exactly.
+    ///
+    /// Deliberately 2D-only: the 3D ribbon draws **unshadowed**, and has since it
+    /// shipped. Its filled quads would smear a halo across the whole ribbon rather than
+    /// outline a stroke, so the contract here is "flat trace haloed, ribbon bare" —
+    /// `WorkoutShareRenderTests` pins it.
+    var shadowColor: Color = Color.black.opacity(0.45)
+
+    var body: some View {
+        Canvas { context, size in
+            let inset = WorkoutShareCardGeometry.routeInset
+            let rect = CGRect(
+                x: inset,
+                y: inset,
+                width: size.width - inset * 2,
+                height: size.height - inset * 2
+            )
+
+            if let ribbon {
+                let top = Self.mapped(ribbon.top, in: rect)
+                let base = Self.mapped(ribbon.base, in: rect)
+                // The ground trace is the ribbon's lowest line by construction, so it
+                // alone decides the anchor.
+                let shift = bottomAnchored ? Self.bottomAnchorShift(for: base, in: rect) : 0
+                BodyWorkoutRoute3DHero.drawRibbon(
+                    top: Self.shifted(top, by: shift),
+                    base: Self.shifted(base, by: shift),
+                    tint: routeColor,
+                    in: &context
+                )
+                return
+            }
+
+            guard let routePoints, routePoints.count >= 2 else { return }
+            let mapped = Self.mapped(routePoints, in: rect)
+            let shift = bottomAnchored ? Self.bottomAnchorShift(for: mapped, in: rect) : 0
+
+            var path = Path()
+            path.addLines(Self.shifted(mapped, by: shift))
+
+            var strokeContext = context
+            strokeContext.addFilter(.shadow(color: shadowColor, radius: 5, x: 0, y: 1.5))
+            strokeContext.stroke(
+                path,
+                with: .color(routeColor),
+                style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
+            )
+        }
+    }
+
+    /// Projection space (unit square for the flat trace, the ribbon's own camera space
+    /// for 3D) into the drawing rect. The rect is square, so one scale serves both axes
+    /// and neither drawing is distorted.
+    private static func mapped(_ points: [CGPoint], in rect: CGRect) -> [CGPoint] {
+        points.map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) }
+    }
+
+    private static func shifted(_ points: [CGPoint], by shift: CGFloat) -> [CGPoint] {
+        shift == 0 ? points : points.map { CGPoint(x: $0.x, y: $0.y + shift) }
+    }
+
+    private static func bottomAnchorShift(for points: [CGPoint], in rect: CGRect) -> CGFloat {
+        guard let lowest = points.map(\.y).max() else { return 0 }
+        return rect.maxY - lowest
     }
 }
 
@@ -619,6 +887,7 @@ private func previewCard(
         routePoints: withRoute ? WorkoutShareRouteProjection.normalizedPoints(for: coordinates) : nil,
         route3D: withRoute ? WorkoutRoute3DProjection.projected(for: coordinates) : nil,
         dimension: dimension,
+        iconHidden: false,
         locality: "Cupertino",
         type: .running,
         background: .preset(.midnight),

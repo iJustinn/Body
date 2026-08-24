@@ -42,7 +42,8 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
         stride: WorkoutMetricSeriesData.NativeSeries? = nil,
         groundContact: WorkoutMetricSeriesData.NativeSeries? = nil,
         verticalOscillation: WorkoutMetricSeriesData.NativeSeries? = nil,
-        cyclingCadence: WorkoutMetricSeriesData.NativeSeries? = nil
+        cyclingCadence: WorkoutMetricSeriesData.NativeSeries? = nil,
+        power: WorkoutMetricSeriesData.NativeSeries? = nil
     ) -> WorkoutMetricSeriesData {
         WorkoutMetricSeriesData(
             bucketSeconds: bucketSeconds,
@@ -55,6 +56,7 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
             groundContactTimeMs: groundContact,
             verticalOscillationCm: verticalOscillation,
             cyclingCadenceRPM: cyclingCadence,
+            powerWatts: power,
             hadReadFailure: false
         )
     }
@@ -671,6 +673,133 @@ final class WorkoutBucketedSeriesTests: XCTestCase {
 
     func testCyclingCadenceIsNilWithoutANativeSeries() {
         XCTAssertNil(cadence(data(activeSeconds: [0: 60], steps: [0: 160]), type: .cycling))
+    }
+
+    // MARK: - Power
+
+    private func power(
+        _ input: WorkoutMetricSeriesData,
+        type: BodyWorkoutType = .running
+    ) -> WorkoutBucketedSeriesPresentation? {
+        WorkoutMetricSeriesCharts.power(
+            workout: WorkoutSummary(
+                type: type,
+                startDate: Date(timeIntervalSince1970: base),
+                duration: 600
+            ),
+            data: input,
+            locale: enUS
+        )
+    }
+
+    func testRunningPowerHeadlinesAverageTotalWorkAndMaximum() throws {
+        let presentation = try XCTUnwrap(power(data(
+            activeSeconds: [0: 60, 1: 60, 2: 60],
+            power: series(
+                [native(0, 200), native(1, 250), native(2, 230)],
+                sessionAverage: 225,
+                sessionMax: 300
+            )
+        )))
+
+        XCTAssertEqual(presentation.source, .native)
+        XCTAssertEqual(presentation.title, "Power")
+        XCTAssertEqual(presentation.averageCaption, "Avg Power")
+        XCTAssertEqual(presentation.extremeCaption, "Max Power")
+        XCTAssertEqual(presentation.unitText, "W")
+        XCTAssertEqual(presentation.averageText, "225")
+        XCTAssertEqual(presentation.extremeText, "300")
+        // (200 + 250 + 230) W × 60 s = 40.8 kJ.
+        let extra = try XCTUnwrap(presentation.extraStat)
+        XCTAssertEqual(extra.valueText, "41")
+        XCTAssertEqual(extra.unitText, "kJ")
+        XCTAssertEqual(extra.caption, "Total Work")
+        XCTAssertEqual(
+            presentation.accessibilitySummary,
+            "Power, average 225 W, maximum 300 W, total work 41 kJ"
+        )
+    }
+
+    func testCyclingPowerUsesTheSameChart() throws {
+        let presentation = try XCTUnwrap(power(
+            data(
+                activeSeconds: [0: 60, 1: 60, 2: 60],
+                power: series([native(0, 150), native(1, 160), native(2, 170)])
+            ),
+            type: .cycling
+        ))
+
+        XCTAssertEqual(presentation.title, "Power")
+        XCTAssertEqual(presentation.unitText, "W")
+        XCTAssertEqual(presentation.bars.map(\.id), [0, 1, 2])
+    }
+
+    func testPowerIsNotBuiltForActivitiesThatDoNotRecordIt() {
+        let input = data(
+            activeSeconds: [0: 60, 1: 60, 2: 60],
+            power: series([native(0, 200), native(1, 250), native(2, 230)])
+        )
+
+        XCTAssertNil(power(input, type: .walking))
+        XCTAssertNil(power(input, type: .hiking))
+    }
+
+    func testPowerIsNilWithoutANativeSeriesOrWithTooFewBuckets() {
+        XCTAssertNil(power(data(activeSeconds: [0: 60])))
+        XCTAssertNil(power(data(
+            activeSeconds: [0: 60, 1: 60],
+            power: series([native(0, 200), native(1, 250)])
+        )))
+    }
+
+    func testPowerDropsImplausibleBuckets() throws {
+        let presentation = try XCTUnwrap(power(data(power: series([
+            native(0, 200),
+            native(1, 0),
+            native(2, 3_000),
+            native(3, 250),
+            native(4, 230)
+        ]))))
+
+        XCTAssertEqual(presentation.bars.map(\.id), [0, 3, 4])
+    }
+
+    func testTotalWorkCountsOnlyTheBucketsTheChartDraws() throws {
+        let presentation = try XCTUnwrap(power(data(
+            // Index 4 was paused through, so it has no active-seconds entry;
+            // index 5 was paused halfway; index 12 lies past the workout's end.
+            activeSeconds: [0: 60, 1: 60, 2: 60, 3: 60, 5: 30, 12: 60],
+            power: series([
+                native(0, 200),
+                native(1, 250),
+                native(2, 3_000),
+                native(3, 0),
+                native(4, 100),
+                native(5, 300),
+                native(12, 400)
+            ])
+        )))
+
+        XCTAssertEqual(presentation.bars.map(\.id), [0, 1, 4, 5])
+        // 200×60 + 250×60 + 100×0 + 300×30 = 36 kJ.
+        XCTAssertEqual(try XCTUnwrap(presentation.extraStat).valueText, "36")
+    }
+
+    func testOtherMetricsHaveNoExtraStat() throws {
+        let cadencePresentation = try XCTUnwrap(cadence(
+            data(cyclingCadence: series([native(0, 80), native(1, 90), native(2, 85)])),
+            type: .cycling
+        ))
+        let stridePresentation = try XCTUnwrap(stride(data(
+            stride: series([native(0, 1.0), native(1, 1.1), native(2, 1.2)])
+        )))
+
+        XCTAssertNil(cadencePresentation.extraStat)
+        XCTAssertNil(stridePresentation.extraStat)
+        XCTAssertEqual(
+            cadencePresentation.accessibilitySummary,
+            "Cycling cadence, average 85 rpm, maximum 90 rpm"
+        )
     }
 
     // MARK: - Ground contact time

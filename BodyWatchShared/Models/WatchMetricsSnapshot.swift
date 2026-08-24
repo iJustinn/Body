@@ -331,15 +331,60 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// the watch app and complications never show yesterday's sleep as today's.
     /// A blanked legacy snapshot is corrected on the next phone push (at most
     /// one sync away), which we prefer over presenting a night we can't verify.
+    ///
+    /// Second, independent rule: a latest-sample metric whose reading has aged
+    /// out of the daily trend window is cleared too, so the watch and its
+    /// complications never headline a value the phone's charts can no longer
+    /// show. See `isOutOfTrendWindow`.
     func sanitized(asOf now: Date = Date()) -> WatchMetricsSnapshot {
-        // Sleep is the only date-bound metric; nothing to do if it's absent or
-        // still belongs to today.
-        guard metric(forKind: WatchMetricKindKey.sleep) != nil,
-              !isSleepNightCurrent(asOf: now) else { return self }
+        let clearsSleep = metric(forKind: WatchMetricKindKey.sleep) != nil
+            && !isSleepNightCurrent(asOf: now)
+        let windowStart = Self.recentTrendWindowStart(asOf: now)
+        let clearsStale = metrics.contains { isOutOfTrendWindow($0, windowStart: windowStart) }
+        guard clearsSleep || clearsStale else { return self }
+
         var copy = self
-        copy.metrics = metrics.map { $0.kind == WatchMetricKindKey.sleep ? $0.cleared() : $0 }
+        copy.metrics = metrics.map { metric in
+            if clearsSleep, metric.kind == WatchMetricKindKey.sleep { return metric.cleared() }
+            return isOutOfTrendWindow(metric, windowStart: windowStart) ? metric.cleared() : metric
+        }
         return copy
     }
+
+    /// A latest-sample metric whose reading predates the daily trend window the
+    /// phone fetches over. Mirrors the phone's bounded `latestQuantity`: a
+    /// persisted snapshot (App Group cache) can outlive the window its value was
+    /// fetched in, and the compute merge deliberately PRESERVES a good local
+    /// value when an incoming push is blank, so neither a re-push nor an on-watch
+    /// recompute would clear it. Doing it at display time covers the watch app
+    /// and its complications in one place.
+    ///
+    /// Gated on a non-nil `measuredAt`, which the shared builder stamps only for
+    /// the latest-sample metrics (HR / Resting HR / HRV / Sleep). Computed
+    /// metrics carry `computedAt` instead and must NOT be cleared by this rule —
+    /// unlike Sleep's own "unknown night ⇒ clear" guard, a nil watermark here
+    /// means "not a latest-sample metric", not "unverifiable".
+    private func isOutOfTrendWindow(_ metric: WatchMetric, windowStart: Date) -> Bool {
+        guard let measuredAt = metric.measuredAt, metric.hasValue else { return false }
+        return measuredAt < windowStart
+    }
+
+    /// Oldest reading the watch will display, matching
+    /// `BodyHealthTrendRange.recentTrendWindowStart` on the phone.
+    /// `BodyMetricsKit` isn't linked into the watch widget target (same
+    /// constraint as `Calendar.bodyGregorian` below), so the day count is
+    /// duplicated here and pinned to the phone's by a test.
+    static func recentTrendWindowStart(asOf now: Date) -> Date {
+        let calendar = Calendar(identifier: .gregorian)
+        let oldestPastOffset = recentTrendWindowDayCount - 1
+        let currentDayStart = calendar.startOfDay(for: now)
+        return calendar.date(byAdding: .day, value: -oldestPastOffset, to: currentDayStart)
+            ?? now.addingTimeInterval(-TimeInterval(oldestPastOffset) * 86_400)
+    }
+
+    /// Kept equal to `BodyHealthTrendRange.maximumDayCount` by
+    /// `RecentTrendWindowTests`.
+    static let recentTrendWindowDayCount = 365
 
     private func isSleepNightCurrent(asOf now: Date) -> Bool {
         guard let sleepNight else { return false }

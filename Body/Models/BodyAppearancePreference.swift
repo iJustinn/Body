@@ -297,6 +297,27 @@ extension BodyAppearancePreference {
     /// selections are stored independently, so a user who customized one but not
     /// the other must still be migrated for both.
     static let homeTrendCardCardioFitnessMigratedKey = "homeTrendCardCardioFitnessMigrated"
+
+    /// The user's on-device display name shown on the Settings profile card.
+    static let profileNameKey = "profileName"
+
+    /// The user's on-device avatar, stored as a small JPEG. Empty `Data` means none.
+    static let profileAvatarDataKey = "profileAvatarData"
+}
+
+/// The local-only user profile shown at the top of Settings. Nothing here is
+/// uploaded; it only personalizes how the app looks for the person using it.
+enum BodyUserProfile {
+    /// Names longer than this are hard-truncated as they're typed — the card
+    /// title has to stay on one line.
+    static let maximumNameLength = 24
+
+    /// The name to show, or `nil` when the user hasn't set one (so callers can
+    /// fall back to the generic card title).
+    static func displayName(from raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }
 
 struct BodySummaryCardSelection: Equatable {
@@ -1057,20 +1078,20 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     static let defaultOrder: [BodyHomeCardKind] = [
         .sleep,
         .vitals,
+        .trainingLoad,
         .basics,
         .heartRate,
         .heartRateVariability,
-        .trainingLoad,
         .readiness,
         .activeEnergy,
         .restingEnergy,
-        .wristTemperature,
         .restingHeartRate,
         .cardioFitness,
+        .steps,
+        .exerciseMinutes,
+        .wristTemperature,
         .oxygenSaturation,
         .respiratoryRate,
-        .exerciseMinutes,
-        .steps,
         .timeInDaylight,
         .activityRings
     ]
@@ -1366,43 +1387,21 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         from order: [BodyHomeCardKind],
         visibleIn selection: BodySummaryCardSelection = .defaultValue
     ) -> [BodyHomeCardLayoutRow] {
-        var rows: [BodyHomeCardLayoutRow] = []
-        var currentCards: [BodyHomeCardKind] = []
-        var currentSlots = 0
+        let cards = repairedOrder(order).filter { selection.includes($0) }
 
-        for card in repairedOrder(order) where selection.includes(card) {
-            if card.slotCount >= 2 {
-                if !currentCards.isEmpty {
-                    rows.append(BodyHomeCardLayoutRow(cards: currentCards))
-                    currentCards = []
-                    currentSlots = 0
-                }
-
-                rows.append(BodyHomeCardLayoutRow(cards: [card]))
-                continue
-            }
-
-            if currentSlots + card.slotCount > 2 {
-                rows.append(BodyHomeCardLayoutRow(cards: currentCards))
-                currentCards = []
-                currentSlots = 0
-            }
-
-            currentCards.append(card)
-            currentSlots += card.slotCount
-
-            if currentSlots == 2 {
-                rows.append(BodyHomeCardLayoutRow(cards: currentCards))
-                currentCards = []
-                currentSlots = 0
-            }
+        return BodyHomeCardGridPacking.rows(slotCounts: cards.map(\.slotCount)).map { indices in
+            BodyHomeCardLayoutRow(cards: indices.map { cards[$0] })
         }
+    }
 
-        if !currentCards.isEmpty {
-            rows.append(BodyHomeCardLayoutRow(cards: currentCards))
-        }
-
-        return rows
+    /// The grid's visible cards in their stored order, flattened. The Home grid renders
+    /// from this rather than from `layoutRows` so every card keeps one identity across a
+    /// reorder — see `BodyHomeCardGridLayout`.
+    static func visibleOrder(
+        from order: [BodyHomeCardKind],
+        visibleIn selection: BodySummaryCardSelection = .defaultValue
+    ) -> [BodyHomeCardKind] {
+        repairedOrder(order).filter { selection.includes($0) }
     }
 
     private static func repairedOrder(_ order: [BodyHomeCardKind]) -> [BodyHomeCardKind] {
@@ -1426,6 +1425,56 @@ struct BodyHomeCardLayoutRow: Equatable, Identifiable {
 
     var slotCount: Int {
         cards.reduce(0) { $0 + $1.slotCount }
+    }
+}
+
+/// The single rule the Home card grid packs by: two slots per row, and a card that needs
+/// both slots owns its row. `BodyHomeCardKind.layoutRows` and the on-screen
+/// `BodyHomeCardGridLayout` both pack through here so the model and the layout cannot drift.
+enum BodyHomeCardGridPacking {
+    static let slotsPerRow = 2
+
+    /// Groups consecutive item indices into rows holding at most `slotsPerRow` slots.
+    static func rows(slotCounts: [Int]) -> [[Int]] {
+        var rows: [[Int]] = []
+        var currentRow: [Int] = []
+        var currentSlots = 0
+
+        for (index, rawSlots) in slotCounts.enumerated() {
+            let slots = max(1, rawSlots)
+
+            if slots >= slotsPerRow {
+                if !currentRow.isEmpty {
+                    rows.append(currentRow)
+                    currentRow = []
+                    currentSlots = 0
+                }
+
+                rows.append([index])
+                continue
+            }
+
+            if currentSlots + slots > slotsPerRow {
+                rows.append(currentRow)
+                currentRow = []
+                currentSlots = 0
+            }
+
+            currentRow.append(index)
+            currentSlots += slots
+
+            if currentSlots == slotsPerRow {
+                rows.append(currentRow)
+                currentRow = []
+                currentSlots = 0
+            }
+        }
+
+        if !currentRow.isEmpty {
+            rows.append(currentRow)
+        }
+
+        return rows
     }
 }
 

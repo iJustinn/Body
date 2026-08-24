@@ -93,7 +93,8 @@ struct BodyHealthSyncBadge: View {
 
 /// The badge's visual: a small leading spinner or checkmark plus a short
 /// status label in the shared capsule chrome. Also used by the Workouts
-/// month-load indicator so every loading pill shares one design.
+/// month-load indicator and the share sheet's media import so every loading
+/// pill shares one design.
 struct BodySyncStatusBadgeLabel: View {
     enum Icon { case spinner, checkmark }
 

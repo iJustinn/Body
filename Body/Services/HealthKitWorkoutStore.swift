@@ -115,6 +115,10 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// `[String]` capped at `suggestionAcceptedEffortIDsCap` (oldest dropped first).
     @Published private(set) var suggestionAcceptedEffortWorkoutIDs: Set<UUID> =
         HealthKitWorkoutStore.loadSuggestionAcceptedEffortIDs()
+    /// Device-local user renames keyed by HealthKit workout UUID. Persisted in
+    /// `UserDefaults` as a `[String: String]` (UUID string → name); nothing is
+    /// written back to HealthKit.
+    @Published private(set) var workoutCustomNames: [UUID: String]
     @Published private(set) var healthSummary: HealthSummarySnapshot = .empty
     /// Primary-source + permission signature captured when `healthSummary` was
     /// last published by a full dashboard refresh. A failed summary leaf reuses
@@ -146,6 +150,13 @@ final class HealthKitWorkoutStore: ObservableObject {
     @Published private(set) var healthDataNotice: String?
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastSuccessfulRefreshDate: Date?
+    /// Whether a full refresh has ever completed on this install, even a partial
+    /// one. Separate from `lastSuccessfulRefreshDate` (which arms the freshness
+    /// TTL and so requires a clean fetch): a user who denied some Health read
+    /// permissions can hit a query failure on every refresh, and gating the
+    /// first-launch overlay on the TTL stamp alone left them on "Try Again"
+    /// forever.
+    @Published private(set) var hasCompletedInitialHealthDataLoad = false
     /// Count of user-visible refreshes — the three paths that set `isRefreshing`
     /// (foreground/vitals, workout month, single metric) — that completed with a
     /// genuine fetch (no query failure, and at least one HealthKit query actually
@@ -243,6 +254,9 @@ final class HealthKitWorkoutStore: ObservableObject {
     nonisolated static let maximumCachedMonthSnapshots = 12
 
     private let engine: HealthKitFetchEngine
+    /// Backing store for `workoutCustomNames` — injectable so tests can use an
+    /// isolated suite.
+    private let customNameDefaults: UserDefaults
     /// Session cache of resolved workout routes keyed by workout UUID. A cached
     /// `.some(nil)` means "confirmed no readable route", so non-route workouts
     /// aren't re-queried and the city label isn't re-geocoded when a detail
@@ -281,6 +295,14 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// the watch writes the recovery sample a minute after the workout ends, so a
     /// just-finished workout must be re-read on the next sheet open.
     private var heartRateRecoveryCache: [UUID: Double?] = [:]
+    /// In-flight (or finished) disk hydrations of the persisted per-workout detail
+    /// snapshot, keyed by workout UUID. A task map rather than a "done" flag Set
+    /// because the detail sheet fires the route probe, the route load, the series
+    /// load and the recovery load concurrently: a flag written only on completion
+    /// would let three of them hydrate in parallel, and a flag written up front
+    /// would let them skip past a hydration that hasn't read the file yet. Awaiting
+    /// the shared task gives every entry point the seeded caches exactly once.
+    private var detailHydrations: [UUID: Task<WorkoutDetailSnapshot?, Never>] = [:]
     private var loadedMonthKeys: Set<BodyWorkoutMonthKey> = []
     private var monthLoadOrder: [BodyWorkoutMonthKey] = []
     private var loadedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
@@ -289,7 +311,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// whenever a refresh applies fresh dashboard ring history.
     private var exhaustedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
     private var lastAppEntrySyncDate: Date?
-    private var refreshCompletionContinuations: [CheckedContinuation<Void, Never>] = []
+    private let refreshCompletionWaiters = RefreshCompletionWaiters()
     private var monthLoadContinuations: [BodyWorkoutMonthKey: [CheckedContinuation<Void, Never>]] = [:]
     private var persistedDaySamplesHydration: Task<HealthTrendDaySampleSnapshot?, Never>?
     /// Retains the Body Pro entitlement observer so secondary-source gating (which this
@@ -297,22 +319,223 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// when the entitlement flips.
     private var proEntitlementObserver: NSObjectProtocol?
 
+    /// Tasks parked on "the in-flight refresh finished", keyed by a per-call ID
+    /// rather than pushed onto a bare array: `finishRefresh` used to be the only
+    /// thing that ever resumed them, so a waiter whose task was cancelled while
+    /// parked leaked its continuation forever (nothing else drained the list).
+    /// The ID lets the cancellation handler take back exactly its own waiter —
+    /// and take it back exactly once, since resuming a continuation twice traps.
+    ///
+    /// Internal so the cancellation path is testable: `park()` only ever runs
+    /// under a live refresh, which a test can't stage without HealthKit.
+    @MainActor
+    final class RefreshCompletionWaiters {
+        private var continuations: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+        var isEmpty: Bool {
+            continuations.isEmpty
+        }
+
+        func resumeAll() {
+            let toResume = continuations
+            continuations.removeAll()
+            for continuation in toResume.values {
+                continuation.resume()
+            }
+        }
+
+        func park() async {
+            let waiterID = UUID()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    continuations[waiterID] = continuation
+                }
+            } onCancel: {
+                // `onCancel` runs on the cancelling thread, so it has to hop
+                // back here to touch the map. That hop can only run once this
+                // actor is free — i.e. after the registration above completed —
+                // so a cancellation racing the park can't miss the waiter it
+                // needs to take back. A nil `removeValue` means `resumeAll`
+                // already drained it, and the resume must not happen twice.
+                Task { @MainActor [weak self] in
+                    guard let continuation = self?.continuations.removeValue(forKey: waiterID) else {
+                        return
+                    }
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
     private func finishRefresh() {
         isRefreshing = false
-        let toResume = refreshCompletionContinuations
-        refreshCompletionContinuations.removeAll()
-        for continuation in toResume {
-            continuation.resume()
-        }
+        refreshCompletionWaiters.resumeAll()
     }
 
     private func awaitNextRefreshCompletion() async {
         guard isRefreshing, !Task.isCancelled else {
             return
         }
-        await withCheckedContinuation { continuation in
-            refreshCompletionContinuations.append(continuation)
+        await refreshCompletionWaiters.park()
+    }
+
+    /// Hard ceiling on one user-facing refresh. Nothing in the app used to time
+    /// out: a single HealthKit query that never returned kept `isRefreshing` —
+    /// and the first-launch "Loading Health Data…" overlay — up until the user
+    /// killed the app, and every relaunch repeated it. Generous on purpose: a
+    /// legitimately large first load must be allowed to finish.
+    nonisolated static let healthRefreshDeadline: Duration = .seconds(120)
+
+    /// Generation of the newest user-facing refresh. Bumped when one is
+    /// ABANDONED at `healthRefreshDeadline` — cancellation is cooperative, so
+    /// the body keeps running and would otherwise publish, persist, stamp
+    /// success, or clear a newer refresh's spinner long after the user was told
+    /// the load timed out.
+    private var refreshGeneration = 0
+
+    /// The generation the running refresh body was started under, carried down
+    /// the task tree so every publish/persist/stamp point can check it without
+    /// threading a parameter through the whole refresh call graph. `nil`
+    /// outside a deadline-guarded refresh (lazy month/ring loads, single-metric
+    /// pulls), which always may apply.
+    @TaskLocal private static var runningRefreshGeneration: Int?
+
+    /// Whether the code running right now still speaks for the current refresh.
+    private var mayApplyRefreshResults: Bool {
+        Self.runningRefreshGeneration.map { $0 == refreshGeneration } ?? true
+    }
+
+    /// Runs one user-facing refresh `body` under `deadline` and ABANDONS it if
+    /// it overruns, returning whether it finished in time.
+    ///
+    /// Deliberately an unstructured task rather than a `withThrowingTaskGroup`
+    /// race: cancellation is cooperative, so a group would still sit waiting for
+    /// a loser stuck inside a HealthKit query that never resumes — exactly the
+    /// hang this guards against. The caller starts the clock only after the
+    /// authorization sheet has returned, so user decision time is never counted.
+    @discardableResult
+    func runRefreshWithDeadline(
+        _ deadline: Duration = HealthKitWorkoutStore.healthRefreshDeadline,
+        body: @escaping @MainActor () async -> Void
+    ) async -> Bool {
+        let generation = refreshGeneration
+        let bodyTask = Task { @MainActor in
+            await Self.$runningRefreshGeneration.withValue(generation) {
+                await body()
+            }
         }
+
+        var timeoutTask: Task<Void, Never>?
+        let completed = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let waiter = RefreshDeadlineWaiter(continuation)
+            Task { @MainActor in
+                await bodyTask.value
+                waiter.finish(completed: true)
+            }
+            timeoutTask = Task { @MainActor in
+                try? await Task.sleep(for: deadline, clock: ContinuousClock())
+                waiter.finish(completed: false)
+            }
+        }
+        timeoutTask?.cancel()
+
+        guard !completed else {
+            return true
+        }
+
+        // Retire the abandoned body's generation before it can run another
+        // line, then ask it to stop (leaves that DO check cancellation exit
+        // early; the stuck one is why the generation guard exists at all).
+        refreshGeneration &+= 1
+        bodyTask.cancel()
+        healthDataNotice = String(localized: "Loading Apple Health data is taking longer than expected. Please try again.")
+        // The abandoned body owns the engine's trend anchor (and the memoized
+        // training-load fetch keyed off it) and its own reset is gated out now,
+        // so release them here.
+        await engine.setHealthTrendAnchorDate(nil)
+        // Make whatever landed before the deadline durable, and only then let
+        // the caller's `finishRefresh()` drop the spinner — a relaunch after a
+        // timeout must not be back to zero.
+        await persistPublishedDashboardSnapshot()
+        // A workout month that already landed in `monthSnapshots` before the
+        // deadline fired lives only in memory otherwise: the normal
+        // `updateCurrentMonthSnapshot` call further down the abandoned body
+        // never runs once its generation is retired above. Persist it through
+        // the same save path a completed refresh uses (current + previous
+        // month, widget reload, detail-file prune) — no new HealthKit fetch,
+        // just durability for what's already in memory.
+        updateCurrentMonthSnapshot(date: Date(), calendar: .bodyGregorian)
+        publishWatchSnapshot()
+        return false
+    }
+
+    /// One-shot resume for the deadline race: whichever of the refresh body and
+    /// the deadline sleep finishes first resumes the waiter, and the other's
+    /// call is a no-op (resuming a continuation twice traps). MainActor-isolated
+    /// so the two racers can never both see an unresumed continuation.
+    @MainActor
+    private final class RefreshDeadlineWaiter {
+        private var continuation: CheckedContinuation<Bool, Never>?
+
+        init(_ continuation: CheckedContinuation<Bool, Never>) {
+            self.continuation = continuation
+        }
+
+        func finish(completed: Bool) {
+            guard let continuation else {
+                return
+            }
+            self.continuation = nil
+            continuation.resume(returning: completed)
+        }
+    }
+
+    /// Persists what the refresh had already published when the deadline fired.
+    /// Goes through the same signature-aware save path as a normal refresh so
+    /// the day-sample sidecar and the summary-context signature stay in step
+    /// with the main file.
+    private func persistPublishedDashboardSnapshot() async {
+        let epoch = cacheEpoch
+        // `HealthDashboardSnapshotStore.save` rewrites the day-sample sidecar
+        // from the trends it is handed, so this must run AFTER hydration —
+        // persisting the pre-hydration placeholder would overwrite a good
+        // sidecar file with nothing.
+        await hydratePersistedDaySamplesIfNeeded()
+        // A Clear Cache landed while the sidecar loaded: don't write the state
+        // it just wiped back to disk.
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
+            return
+        }
+
+        let snapshotToSave = HealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: healthTrends,
+            activityRingHistory: activityRingHistory
+        )
+        let hydratedDaySamples = await persistedDaySamplesHydration?.value
+        // Nothing landed at all, or the trends are still the empty placeholder
+        // while a real sidecar sits on disk — either way the write can only
+        // lose data.
+        guard !snapshotToSave.isEmpty,
+              !healthTrends.isEmpty || (hydratedDaySamples?.isEmpty ?? true) else {
+            return
+        }
+
+        let daySampleSignatures = currentDaySampleSignatures()
+        let secondarySignature = currentSecondarySelectionSignature()
+        let summaryContextSignature = healthSummaryPrimarySignature
+        await withCheckedContinuation { continuation in
+            Self.snapshotPersistQueue.async {
+                HealthDashboardSnapshotStore.save(
+                    snapshotToSave,
+                    daySampleSignatures: daySampleSignatures,
+                    summaryContextSignature: summaryContextSignature
+                )
+                HealthDashboardSnapshotStore.saveSecondarySelectionSignature(secondarySignature)
+                continuation.resume()
+            }
+        }
+        await refreshCacheDiskSize()
     }
 
     /// Drains the per-month continuation list for each key after the in-flight
@@ -347,8 +570,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         initialSecondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection = BodyHealthSecondaryDataSourceSelection.load(),
         initialCombinesHealthDataSourcesByName: Bool = UserDefaults.standard.bool(forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey),
         initialCustomHealthSourceGroups: [BodyCustomHealthSourceGroup] = HealthKitWorkoutStore.loadCustomHealthSourceGroups(),
+        customNameDefaults: UserDefaults = .standard,
         date: Date = Date()
     ) {
+        self.customNameDefaults = customNameDefaults
+        workoutCustomNames = Self.loadWorkoutCustomNames(from: customNameDefaults)
         permissionSelection = initialPermissionSelection
         healthDataSourceSelection = initialHealthDataSourceSelection
         secondaryHealthDataSourceSelection = initialSecondaryHealthDataSourceSelection
@@ -419,6 +645,25 @@ final class HealthKitWorkoutStore: ObservableObject {
             }
             startingSnapshot = sanitized
         }
+        // Same rationale one level down, for the per-workout detail files: a strip
+        // enqueued on opt-out may never have run (app killed right after the
+        // toggle), so reconcile what's at rest with the stored selection at launch.
+        // Nothing to enqueue when every relevant permission is on — a launch
+        // shouldn't pay a queue hop for a no-op.
+        if !initialPermissionSelection.includes(.workouts)
+            || !initialPermissionSelection.includes(.workoutMetrics)
+            || !initialPermissionSelection.includes(.heart) {
+            Self.snapshotPersistQueue.async {
+                if !initialPermissionSelection.includes(.workouts) {
+                    WorkoutDetailSnapshotStore.deleteAll()
+                } else if !initialPermissionSelection.includes(.workoutMetrics) {
+                    WorkoutDetailSnapshotStore.stripWorkoutMetricsPayloads()
+                }
+                if !initialPermissionSelection.includes(.heart) {
+                    WorkoutDetailSnapshotStore.stripHeartRateRecovery()
+                }
+            }
+        }
         snapshot = startingSnapshot
         monthSnapshots = [
             BodyWorkoutMonthKey(month: startingSnapshot.month, year: startingSnapshot.year): startingSnapshot
@@ -448,6 +693,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // Restore the persisted last-successful-refresh timestamp so the
         // cold-start sync path applies the same tiered TTL as a warm resume.
         lastSuccessfulRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
+        hasCompletedInitialHealthDataLoad = HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted()
         // Restore the compute seed's data watermark from the SAME persisted
         // value: it was written only when a clean full refresh landed — the
         // exact condition under which `lastVitalsRefreshDate` itself advances
@@ -591,6 +837,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             WorkoutSnapshotStore.totalDiskSizeBytes
                 + HealthDashboardSnapshotStore.totalDiskSizeBytes
                 + HealthWidgetSnapshotStore.totalDiskSizeBytes
+                + WorkoutDetailSnapshotStore.totalDiskSizeBytes()
         }.value
         cacheDiskSizeBytes = size
     }
@@ -618,14 +865,18 @@ final class HealthKitWorkoutStore: ObservableObject {
         defer { finishRefresh() }
 
         do {
-            try await requestHealthKitAuthorization()
-            await refreshRecentMonths(intent: intent)
+            guard try await requestHealthKitAuthorization(allowPrompt: intent == .userInitiated) else {
+                return
+            }
+            // Clock starts here, after the authorization sheet has returned, so
+            // the deadline never counts the user's decision time.
+            await runRefreshWithDeadline { await self.refreshRecentMonths(intent: intent) }
         } catch {
             handleRefreshError(error)
         }
     }
 
-    func refreshHealthMetric(_ kind: HealthMetricKind, date: Date = Date()) async {
+    func refreshHealthMetric(_ kind: HealthMetricKind, date: Date = Date(), intent: BodyWorkoutRefreshIntent = .userInitiated) async {
         guard !isRefreshing else {
             return
         }
@@ -637,101 +888,133 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         isRefreshing = true
+        defer { finishRefresh() }
         await hydratePersistedDaySamplesIfNeeded()
         await engine.setHealthTrendAnchorDate(date)
-        defer { finishRefresh() }
 
         let calendar = Calendar.bodyGregorian
 
         do {
-            try await requestHealthKitAuthorization()
-            if kind == .trainingLoad {
-                // The detail pull is an explicit gesture: drop the per-workout
-                // effort cache so a re-rated workout reconciles into the
-                // training-load fetch.
-                await engine.clearWorkoutEffortCache()
+            guard try await requestHealthKitAuthorization(allowPrompt: intent == .userInitiated) else {
+                // Match the anchor reset the normal exit runs below.
+                await engine.setHealthTrendAnchorDate(nil)
+                return
             }
-            await fetchHealthDataSourceOptions(calendar: calendar)
-            let existing = HealthDashboardSnapshot(
-                summary: healthSummary,
-                trends: healthTrends,
-                activityRingHistory: activityRingHistory
-            )
-            let capturedDaySampleSignatures = currentDaySampleSignatures()
-            let metricFetch = await engine.fetchHealthDashboardSnapshot(
-                for: kind,
-                calendar: calendar,
-                existing: existing,
-                idealSleepDuration: Self.storedIdealSleepDuration()
-            )
-            let nextSummary = healthSummary.replacingMetric(kind, with: metricFetch.snapshot.summary)
-            // The day-sample fetches inside the engine are incremental: they merge
-            // onto the `existing` cache captured above. The source mutators push the
-            // new selection into the engine BEFORE they wait out this refresh (see
-            // `updateSecondaryHealthDataSource`), so a switch landing mid-fetch would
-            // have the engine query the NEW source and merge it onto the OLD source's
-            // cached points — and `updateHealthDashboardSnapshot` would persist that
-            // mixed series stamped with the NEW signature, which `scopedForHydration`
-            // then accepts forever. Drop the fetched day samples in that case; the
-            // mutator clears and refetches them right after this refresh releases.
-            let fetchedTrends = currentDaySampleSignatures() == capturedDaySampleSignatures
-                ? metricFetch.snapshot.trends
-                : metricFetch.snapshot.trends.strippingDaySamples()
-            let nextTrends = healthTrends.replacingMetric(kind, with: fetchedTrends)
-            await updateHealthDashboardSnapshot(
-                summary: nextSummary,
-                trends: nextTrends,
-                activityRingHistory: activityRingHistory,
-                recomputesReadiness: Self.readinessInputMetricKinds.contains(kind)
-            )
-            authorizationState = .authorized
-            if !metricFetch.hadQueryFailure, metricFetch.ranQueries {
-                // A clean metric-only pull genuinely re-derived readiness (any
-                // readiness-input kind triggers the recompute above) and — for
-                // Training Load — the trend/summary themselves. Advance the
-                // watch watermarks BEFORE `markRefreshSucceeded` publishes, or
-                // the freshly recomputed phone result ships under the OLD
-                // stamps and a watch compute that ran since would beat it.
-                // (`ranQueries` false means the permission is off and nothing
-                // was actually re-derived — nothing to re-stamp.)
-                if Self.readinessInputMetricKinds.contains(kind) {
-                    lastReadinessComputeDate = date
-                }
-                // A watch-displayed vitals kind pulled directly gets its own
-                // per-kind stamp too, so the freshly fetched value doesn't
-                // publish under the stale full-refresh date and lose to an
-                // older watch-computed value in the per-metric merge.
-                if Self.watchVitalsPullKinds.contains(kind) {
-                    lastMetricPullDates[kind.rawValue] = date
-                }
-                if kind == .trainingLoad {
-                    lastTrainingLoadComputeDate = date
-                    // The effort-edit path (`refreshAfterWrite(.trainingLoad)`)
-                    // lands here too: rebuild the seeded daily loads from the
-                    // fetch this pull just memoized, so the watch replays the
-                    // post-edit efforts instead of the pre-edit array.
-                    if let seed = await engine.trainingLoadDailyLoadSeed(calendar: calendar) {
-                        setCachedComputeTrainingLoadSeed(startDay: seed.startDay, loads: seed.loads, through: date)
-                    }
-                }
-            }
-            // A metric pull whose query failed preserved the cached values
-            // (nothing fetched), so pass the real outcome — the badge must not
-            // confirm "updated" on a failed fetch. `ranQueries` is false when the
-            // metric's permission is disabled (or a readiness recompute), so a
-            // pull that never queried HealthKit doesn't confirm either.
-            markRefreshSucceeded(
-                date: date,
-                refreshedVitals: false,
-                hadQueryFailure: metricFetch.hadQueryFailure,
-                advancesSyncBadge: true,
-                ranQueries: metricFetch.ranQueries
-            )
-            updateHealthDataNotice()
         } catch {
             handleRefreshError(error)
+            await engine.setHealthTrendAnchorDate(nil)
+            return
+        }
+
+        // Clock starts here, after the authorization sheet has returned, so the
+        // deadline never counts the user's decision time — same shape as the
+        // other refresh entry points.
+        await runRefreshWithDeadline {
+            await self.performHealthMetricRefresh(kind, date: date, calendar: calendar)
         }
         await engine.setHealthTrendAnchorDate(nil)
+    }
+
+    /// The fetch/publish half of `refreshHealthMetric`, split out so it can run
+    /// under `runRefreshWithDeadline` with the clock starting AFTER the
+    /// authorization sheet rather than before it. Expects the caller to have set
+    /// `isRefreshing` (and to call `finishRefresh()` when done), to have
+    /// hydrated the day samples, set the trend anchor, and been granted
+    /// authorization; the caller resets the anchor on every exit.
+    private func performHealthMetricRefresh(
+        _ kind: HealthMetricKind,
+        date: Date,
+        calendar: Calendar
+    ) async {
+        if kind == .trainingLoad {
+            // The detail pull is an explicit gesture: drop the per-workout
+            // effort cache so a re-rated workout reconciles into the
+            // training-load fetch.
+            await engine.clearWorkoutEffortCache()
+        }
+        await fetchHealthDataSourceOptions(calendar: calendar)
+        let existing = HealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: healthTrends,
+            activityRingHistory: activityRingHistory
+        )
+        let capturedDaySampleSignatures = currentDaySampleSignatures()
+        let metricFetch = await engine.fetchHealthDashboardSnapshot(
+            for: kind,
+            calendar: calendar,
+            existing: existing,
+            idealSleepDuration: Self.storedIdealSleepDuration()
+        )
+        // A pull abandoned at `healthRefreshDeadline` keeps running; nothing
+        // below may publish, persist, or stamp watermarks for a load the user
+        // was already told had timed out.
+        guard mayApplyRefreshResults else {
+            return
+        }
+        let nextSummary = healthSummary.replacingMetric(kind, with: metricFetch.snapshot.summary)
+        // The day-sample fetches inside the engine are incremental: they merge
+        // onto the `existing` cache captured above. The source mutators push the
+        // new selection into the engine BEFORE they wait out this refresh (see
+        // `updateSecondaryHealthDataSource`), so a switch landing mid-fetch would
+        // have the engine query the NEW source and merge it onto the OLD source's
+        // cached points — and `updateHealthDashboardSnapshot` would persist that
+        // mixed series stamped with the NEW signature, which `scopedForHydration`
+        // then accepts forever. Drop the fetched day samples in that case; the
+        // mutator clears and refetches them right after this refresh releases.
+        let fetchedTrends = currentDaySampleSignatures() == capturedDaySampleSignatures
+            ? metricFetch.snapshot.trends
+            : metricFetch.snapshot.trends.strippingDaySamples()
+        let nextTrends = healthTrends.replacingMetric(kind, with: fetchedTrends)
+        await updateHealthDashboardSnapshot(
+            summary: nextSummary,
+            trends: nextTrends,
+            activityRingHistory: activityRingHistory,
+            recomputesReadiness: Self.readinessInputMetricKinds.contains(kind)
+        )
+        authorizationState = .authorized
+        if !metricFetch.hadQueryFailure, metricFetch.ranQueries {
+            // A clean metric-only pull genuinely re-derived readiness (any
+            // readiness-input kind triggers the recompute above) and — for
+            // Training Load — the trend/summary themselves. Advance the
+            // watch watermarks BEFORE `markRefreshSucceeded` publishes, or
+            // the freshly recomputed phone result ships under the OLD
+            // stamps and a watch compute that ran since would beat it.
+            // (`ranQueries` false means the permission is off and nothing
+            // was actually re-derived — nothing to re-stamp.)
+            if Self.readinessInputMetricKinds.contains(kind) {
+                lastReadinessComputeDate = date
+            }
+            // A watch-displayed vitals kind pulled directly gets its own
+            // per-kind stamp too, so the freshly fetched value doesn't
+            // publish under the stale full-refresh date and lose to an
+            // older watch-computed value in the per-metric merge.
+            if Self.watchVitalsPullKinds.contains(kind) {
+                lastMetricPullDates[kind.rawValue] = date
+            }
+            if kind == .trainingLoad {
+                lastTrainingLoadComputeDate = date
+                // The effort-edit path (`refreshAfterWrite(.trainingLoad)`)
+                // lands here too: rebuild the seeded daily loads from the
+                // fetch this pull just memoized, so the watch replays the
+                // post-edit efforts instead of the pre-edit array.
+                if let seed = await engine.trainingLoadDailyLoadSeed(calendar: calendar) {
+                    setCachedComputeTrainingLoadSeed(startDay: seed.startDay, loads: seed.loads, through: date)
+                }
+            }
+        }
+        // A metric pull whose query failed preserved the cached values
+        // (nothing fetched), so pass the real outcome — the badge must not
+        // confirm "updated" on a failed fetch. `ranQueries` is false when the
+        // metric's permission is disabled (or a readiness recompute), so a
+        // pull that never queried HealthKit doesn't confirm either.
+        markRefreshSucceeded(
+            date: date,
+            refreshedVitals: false,
+            hadQueryFailure: metricFetch.hadQueryFailure,
+            advancesSyncBadge: true,
+            ranQueries: metricFetch.ranQueries
+        )
+        updateHealthDataNotice()
     }
 
     /// Runs a post-write refresh for `kind`, first waiting for any in-flight
@@ -741,7 +1024,9 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// next manual refresh.
     private func refreshAfterWrite(_ kind: HealthMetricKind) async {
         await awaitNextRefreshCompletion()
-        await refreshHealthMetric(kind)
+        // A write already raised its own (share) permission sheet; this read-side
+        // refresh must never stack a second one on top of it.
+        await refreshHealthMetric(kind, intent: .passiveResume)
     }
 
     /// Writes a manually-entered weight and/or body-fat measurement to Apple
@@ -797,6 +1082,31 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
         UserDefaults.standard.set(stored, forKey: Self.suggestionAcceptedEffortIDsKey)
         suggestionAcceptedEffortWorkoutIDs = Set(stored.compactMap(UUID.init(uuidString:)))
+    }
+
+    // MARK: - Custom workout names
+
+    nonisolated static let workoutCustomNamesKey = "workoutCustomNames"
+
+    nonisolated static func loadWorkoutCustomNames(from defaults: UserDefaults) -> [UUID: String] {
+        let stored = defaults.dictionary(forKey: workoutCustomNamesKey) as? [String: String] ?? [:]
+        return stored.reduce(into: [UUID: String]()) { result, entry in
+            guard let id = UUID(uuidString: entry.key) else { return }
+            result[id] = entry.value
+        }
+    }
+
+    /// Renames a workout for this device only. A nil or blank name clears the
+    /// rename so the workout falls back to its type's display name.
+    func setCustomName(_ name: String?, workoutID: UUID) {
+        var stored = customNameDefaults.dictionary(forKey: Self.workoutCustomNamesKey) as? [String: String] ?? [:]
+        if let normalized = WorkoutSummary.normalizedCustomName(name) {
+            stored[workoutID.uuidString] = normalized
+        } else {
+            stored.removeValue(forKey: workoutID.uuidString)
+        }
+        customNameDefaults.set(stored, forKey: Self.workoutCustomNamesKey)
+        workoutCustomNames = Self.loadWorkoutCustomNames(from: customNameDefaults)
     }
 
     // MARK: - Auto-apply predicted effort
@@ -1226,6 +1536,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// Caching matches `loadWorkoutRoute`'s original contract exactly: a confirmed
     /// no-route is cached, a cancelled or failed read is not.
     func loadWorkoutRouteCoordinates(for workout: WorkoutSummary) async -> WorkoutRoute? {
+        await hydrateWorkoutDetailIfNeeded(for: workout)
         if let cached = routeCache[workout.id] {
             return cached
         }
@@ -1260,14 +1571,17 @@ final class HealthKitWorkoutStore: ObservableObject {
         // available the moment GPS resolves; the city label is a follow-up that
         // folds back into the cache. The detail sheet awaits this stage on its own to
         // render the route without blocking on the geocode.
-        routeCache[workout.id] = .some(
-            WorkoutRoute(
-                coordinates: routeData.coordinates,
-                locality: nil,
-                elevationProfile: routeData.elevationProfile
-            )
+        let route = WorkoutRoute(
+            coordinates: routeData.coordinates,
+            locality: nil,
+            elevationProfile: routeData.elevationProfile
         )
+        routeCache[workout.id] = .some(route)
         routePresenceCache[workout.id] = true
+        if permissionSelection.includes(.workouts) {
+            let dto = PersistedWorkoutRoute(model: route)
+            persistWorkoutDetail(for: workout) { $0.route = dto }
+        }
         return routeCache[workout.id] ?? nil
     }
 
@@ -1280,6 +1594,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// failed or cancelled probe answers `.unknown` and is never cached, so the page
     /// simply behaves as it did before the probe existed and reopening retries.
     func workoutRoutePresence(for workout: WorkoutSummary) async -> BodyWorkoutRoutePresence {
+        await hydrateWorkoutDetailIfNeeded(for: workout)
         let cached = cachedWorkoutRoutePresence(for: workout)
         guard cached == .unknown else {
             return cached
@@ -1359,6 +1674,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             elevationProfile: route.elevationProfile
         )
         routeCache[workout.id] = .some(resolved)
+        // Persist the localized route over the coordinates-only one written by the
+        // load: the label costs a CLGeocoder round trip that a later cold open
+        // would otherwise repeat.
+        if permissionSelection.includes(.workouts) {
+            let dto = PersistedWorkoutRoute(model: resolved)
+            persistWorkoutDetail(for: workout) { $0.route = dto }
+        }
         return resolved
     }
 
@@ -1372,6 +1694,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return .empty
         }
 
+        await hydrateWorkoutDetailIfNeeded(for: workout)
         if let cached = distanceSampleCache[workout.id] {
             return cached
         }
@@ -1393,6 +1716,17 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
         if !data.distanceSamples.isEmpty {
             distanceSampleCache[workout.id] = data
+            // Splits carry per-split step cadence, so they're only persisted while
+            // Workout Metrics is on: a cadence-less payload written with the toggle
+            // off would satisfy the cache after a re-enable and never be re-read.
+            // The downsample runs inside the persist queue — it can chew through
+            // thousands of samples — and a nil result (an over-cap workout) leaves
+            // any existing field alone rather than clearing it.
+            if permissionSelection.includes(.workouts), permissionSelection.includes(.workoutMetrics) {
+                persistWorkoutDetail(for: workout) {
+                    $0.splitData = PersistedWorkoutSplitData.downsampled(from: data) ?? $0.splitData
+                }
+            }
         } else {
             // Cache a confirmed-empty read only for settled (>24h-old) workouts;
             // a recent one may still be syncing from the watch.
@@ -1416,6 +1750,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return .empty
         }
 
+        await hydrateWorkoutDetailIfNeeded(for: workout)
         if let cached = metricSeriesCache[workout.id] {
             return cached
         }
@@ -1437,6 +1772,20 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
         if Date().timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60, !data.hadReadFailure {
             metricSeriesCache[workout.id] = data
+            // Persist only a bundle that actually carries a series. A denied
+            // Workout Metrics read surfaces as an empty (non-throwing) bundle, and
+            // writing that would freeze the negative on disk past the session wipes.
+            let carriesData = !data.distanceMeters.isEmpty
+                || !data.steps.isEmpty
+                || data.strideLengthMeters != nil
+                || data.groundContactTimeMs != nil
+                || data.verticalOscillationCm != nil
+                || data.cyclingCadenceRPM != nil
+                || data.powerWatts != nil
+            if carriesData, permissionSelection.includes(.workoutMetrics) {
+                let dto = PersistedWorkoutMetricSeries(model: data)
+                persistWorkoutDetail(for: workout) { $0.metricSeries = dto }
+            }
         }
         return data
     }
@@ -1445,6 +1794,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// when the Heart permission is off, no recovery reading exists, or the read
     /// failed. Not gated on pace style — every activity type can have one.
     func loadWorkoutHeartRateRecovery(for workout: WorkoutSummary) async -> Double? {
+        await hydrateWorkoutDetailIfNeeded(for: workout)
         if let cached = heartRateRecoveryCache[workout.id] {
             return cached
         }
@@ -1466,8 +1816,127 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
         if Date().timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60 {
             heartRateRecoveryCache[workout.id] = recovery
+            // The confirmed-absent `nil` above stays session-only: a Heart read the
+            // user has denied also answers nil, so persisting it would outlive the
+            // permission change that a session cache can't survive.
+            if let bpm = recovery, bpm > 0, permissionSelection.includes(.heart) {
+                persistWorkoutDetail(for: workout) { $0.heartRateRecoveryBPM = bpm }
+            }
         }
         return recovery
+    }
+
+    /// Seeds the per-workout detail session caches from the workout's persisted
+    /// snapshot, so reopening a settled workout after a cold launch paints its map,
+    /// charts and recovery tile without re-scanning HealthKit. Idempotent;
+    /// concurrent callers share one file read.
+    ///
+    /// Only *missing* entries are seeded — a value this session already read from
+    /// HealthKit is always the fresher one. Nothing on disk is a negative (the store
+    /// is written positive-only), so a seed can never pin a "no route" / "no
+    /// recovery" answer.
+    private func hydrateWorkoutDetailIfNeeded(for workout: WorkoutSummary) async {
+        if let existing = detailHydrations[workout.id] {
+            _ = await existing.value
+            return
+        }
+
+        let epoch = cacheEpoch
+        let task = Task.detached(priority: .userInitiated) {
+            WorkoutDetailSnapshotStore.load(workoutID: workout.id)
+        }
+        detailHydrations[workout.id] = task
+        let snapshot = await task.value
+
+        // A cache clear landed while the file read was in flight — the workout this
+        // describes is gone, so don't re-seed the wiped caches (H7).
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
+            return
+        }
+
+        // Every seed is gated on the CURRENT selection, not the one the file was
+        // written under: the at-rest strip is queued, so a file can outlive an
+        // opt-out (app killed before the queue drained, or a hydration racing the
+        // toggle). This gate is what guarantees stripped-permission data never
+        // surfaces, whatever state the file is in.
+        if let route = snapshot?.route,
+           routeCache[workout.id] == nil,
+           permissionSelection.includes(.workouts) {
+            routeCache[workout.id] = .some(route.toModel())
+            routePresenceCache[workout.id] = true
+        }
+        // A payload from before a series joined the bundle is ignored once: the
+        // loader re-reads live and re-persists it at the current version.
+        if let series = snapshot?.metricSeries,
+           series.seriesVersion == PersistedWorkoutMetricSeries.currentSeriesVersion,
+           metricSeriesCache[workout.id] == nil,
+           permissionSelection.includes(.workoutMetrics) {
+            metricSeriesCache[workout.id] = series.toModel()
+        }
+        if let splitDTO = snapshot?.splitData,
+           distanceSampleCache[workout.id] == nil,
+           permissionSelection.includes(.workouts),
+           permissionSelection.includes(.workoutMetrics) {
+            distanceSampleCache[workout.id] = splitDTO.toModel()
+        }
+        if let bpm = snapshot?.heartRateRecoveryBPM,
+           heartRateRecoveryCache[workout.id] == nil,
+           permissionSelection.includes(.heart) {
+            heartRateRecoveryCache[workout.id] = .some(bpm)
+        }
+    }
+
+    /// Whether a workout's details are worth keeping on disk: it has settled (the
+    /// same >24 h rule the loaders admit results to the session caches under, so a
+    /// still-syncing watch workout is never pinned), and it falls inside the two
+    /// months the persisted workout list itself covers — details for a workout the
+    /// list can't show would only be pruned again.
+    nonisolated static func isWorkoutDetailPersistable(
+        workout: WorkoutSummary,
+        now: Date,
+        calendar: Calendar
+    ) -> Bool {
+        guard now.timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60 else {
+            return false
+        }
+
+        let currentKey = BodyWorkoutMonthKey(date: now, calendar: calendar)
+        let workoutKey = BodyWorkoutMonthKey(date: workout.startDate, calendar: calendar)
+        if workoutKey == currentKey {
+            return true
+        }
+        guard let previousMonthStart = calendar.date(byAdding: .month, value: -1, to: now) else {
+            return false
+        }
+        return workoutKey == BodyWorkoutMonthKey(date: previousMonthStart, calendar: calendar)
+    }
+
+    /// Read-modify-writes the workout's on-disk detail snapshot through `mutate`,
+    /// on the shared persist queue so the store (which carries no lock of its own)
+    /// only ever sees one mutation at a time. `mutate` must capture DTOs built on
+    /// the main actor — nothing else here is Sendable.
+    private func persistWorkoutDetail(
+        for workout: WorkoutSummary,
+        mutate: @escaping @Sendable (inout WorkoutDetailSnapshot) -> Void
+    ) {
+        guard Self.isWorkoutDetailPersistable(
+            workout: workout,
+            now: Date(),
+            calendar: .bodyGregorian
+        ) else {
+            return
+        }
+
+        let workoutID = workout.id
+        Self.snapshotPersistQueue.async {
+            var snapshot = WorkoutDetailSnapshotStore.load(workoutID: workoutID)
+                ?? WorkoutDetailSnapshot(workoutID: workoutID)
+            mutate(&snapshot)
+            guard !snapshot.isEmpty, WorkoutDetailSnapshotStore.save(snapshot) else {
+                return
+            }
+            Task { @MainActor in await self.refreshCacheDiskSize() }
+        }
     }
 
     /// Estimated max heart rate (220 − age) from Apple Health, anchoring the
@@ -1477,13 +1946,30 @@ final class HealthKitWorkoutStore: ObservableObject {
         await engine.userMaxHeartRate()
     }
 
-    private func requestHealthKitAuthorization() async throws {
-        try await engine.requestAuthorization()
+    /// The single authorization gate every load path funnels through. Returns
+    /// `false` when the read-permission sheet would have been needed but
+    /// `allowPrompt` is off — the caller must then abort its whole load and
+    /// leave the cache untouched, because unrequested reads look empty to
+    /// HealthKit and would overwrite good data with nothing.
+    ///
+    /// The sheet therefore appears only on user-initiated actions
+    /// (pull-to-refresh, the first-launch load, the Settings/onboarding
+    /// toggles, a month-picker tap, a metric-detail pull, an effort/weight
+    /// save). Passive foreground resumes, post-write refreshes and automatic
+    /// preloads defer instead and keep showing cached data.
+    private func requestHealthKitAuthorization(allowPrompt: Bool = true) async throws -> Bool {
+        guard try await engine.requestAuthorization(allowPrompt: allowPrompt) == .authorized else {
+            return false
+        }
         routeCache.removeAll()
         routePresenceCache.removeAll()
         distanceSampleCache.removeAll()
         metricSeriesCache.removeAll()
         heartRateRecoveryCache.removeAll()
+        // Safe to re-hydrate from disk right away: the files hold only positives,
+        // so nothing they seed can contradict the fresh authorization.
+        detailHydrations = [:]
+        return true
     }
 
     /// Loads the intraday day-sample sidecar (split out of the launch-critical
@@ -1591,7 +2077,10 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         do {
-            try await requestHealthKitAuthorization()
+            // Lazy day-chart fill: never worth a permission sheet.
+            guard try await requestHealthKitAuthorization(allowPrompt: false) else {
+                return
+            }
         } catch {
             return
         }
@@ -1761,17 +2250,22 @@ final class HealthKitWorkoutStore: ObservableObject {
         let calendar = Calendar.bodyGregorian
 
         do {
-            try await requestHealthKitAuthorization()
+            guard try await requestHealthKitAuthorization(allowPrompt: intent == .userInitiated) else {
+                return
+            }
             if intent == .userInitiated {
                 await engine.clearWorkoutEffortCache()
             }
-            await refresh(
-                month: month,
-                year: year,
-                calendar: calendar,
-                updatesHealthSummary: false,
-                reusesCachedWorkoutHeartRate: intent == .passiveResume
-            )
+            // Clock starts after the authorization sheet, as above.
+            await runRefreshWithDeadline {
+                await self.refresh(
+                    month: month,
+                    year: year,
+                    calendar: calendar,
+                    updatesHealthSummary: false,
+                    reusesCachedWorkoutHeartRate: intent == .passiveResume
+                )
+            }
         } catch {
             handleRefreshError(error)
         }
@@ -1792,10 +2286,12 @@ final class HealthKitWorkoutStore: ObservableObject {
             distanceSampleCache.removeAll()
                 metricSeriesCache.removeAll()
             heartRateRecoveryCache.removeAll()
+            detailHydrations = [:]
         } else if permission == .heart {
             // Heart-rate recovery rides the Heart toggle; drop it rather than
             // serving a toggle change a result read under the old selection.
             heartRateRecoveryCache.removeAll()
+            detailHydrations = [:]
         } else if permission == .workoutMetrics {
             // Cached split data carries per-split step cadence, and stride length is
             // gated the same way — both ride on the Workout Metrics permission, so
@@ -1803,6 +2299,29 @@ final class HealthKitWorkoutStore: ObservableObject {
             // read taken under the previous selection.
             distanceSampleCache.removeAll()
                 metricSeriesCache.removeAll()
+            detailHydrations = [:]
+        }
+        if !isEnabled {
+            // The in-memory drop above leaves the persisted detail files intact, and
+            // a hydration would seed them straight back. Strip the data at rest on
+            // opt-out too, same rationale as `sanitizeWorkoutSnapshots`. Awaited on
+            // the serial queue (like the clear-cache flow) so the opt-out only
+            // completes once the strip has actually landed.
+            await withCheckedContinuation { continuation in
+                Self.snapshotPersistQueue.async {
+                    switch permission {
+                    case .workouts:
+                        WorkoutDetailSnapshotStore.deleteAll()
+                    case .workoutMetrics:
+                        WorkoutDetailSnapshotStore.stripWorkoutMetricsPayloads()
+                    case .heart:
+                        WorkoutDetailSnapshotStore.stripHeartRateRecovery()
+                    default:
+                        break
+                    }
+                    continuation.resume()
+                }
+            }
         }
         await applyPermissionSelectionToCachedData()
 
@@ -2497,19 +3016,161 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
-    /// True until the app has any Health data to show: no successful refresh
-    /// recorded by this or any prior session, and nothing restored from the
-    /// snapshot cache. Presents the first-launch load overlay and keeps every
+    /// True until the app has been through its first Health load: no completed
+    /// full refresh recorded by this or any prior session, no successful
+    /// refresh timestamp, and nothing restored from the snapshot cache. The
+    /// completion stamp is what releases a user whose denied read permissions
+    /// make every refresh partial (and so never arm the TTL stamp) — without
+    /// it they stay on "Try Again" forever. Presents the first-launch load
+    /// overlay and keeps every
     /// passive load idle — the app-entry sync, the workout-month lazy loads,
     /// and older ring-history paging — so the first big load (including the
     /// ten-year activity-ring backfill) only runs when the user starts it
     /// from the overlay, a refresh gesture, or the Settings refresh button.
     var needsInitialHealthDataLoad: Bool {
-        lastSuccessfulRefreshDate == nil && HealthDashboardSnapshot(
+        !hasCompletedInitialHealthDataLoad && lastSuccessfulRefreshDate == nil && !hasHealthDataToShow
+    }
+
+    /// Whether Health data actually landed: a non-empty dashboard. A completed
+    /// first load that brought back nothing (denied or empty Health store)
+    /// clears `needsInitialHealthDataLoad` — and may even arm the freshness
+    /// TTL, since denials now read as clean absences — without making this
+    /// true, so the onboarding outcome row can tell the two apart.
+    var hasHealthDataToShow: Bool {
+        !HealthDashboardSnapshot(
             summary: healthSummary,
             trends: healthTrends,
             activityRingHistory: activityRingHistory
         ).isEmpty
+    }
+
+    /// The one-line status the Permissions sheet shows under each toggle.
+    ///
+    /// A pure read of already-published state: it dispatches no HealthKit query
+    /// and starts no refresh, so opening the sheet costs nothing. The sheet
+    /// evaluates this once when it appears rather than observing it, so the
+    /// footers can't flicker while a refresh is in flight.
+    func healthPermissionAccessStates(
+        dashboardFetchSelection: BodyDashboardFetchSelection = .load()
+    ) -> [BodyHealthPermission: BodyHealthPermissionAccessState] {
+        let dashboard = HealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: healthTrends,
+            activityRingHistory: activityRingHistory
+        )
+
+        return BodyHealthPermission.allCases.reduce(into: [:]) { states, permission in
+            states[permission] = BodyHealthPermissionAccessState.resolve(
+                permission: permission,
+                selection: permissionSelection,
+                isFetchedForDashboard: isFetchedForDashboard(permission, selection: dashboardFetchSelection),
+                hasCompletedInitialLoad: hasCompletedInitialHealthDataLoad,
+                isLoadInFlight: isHealthPermissionLoadInFlight(permission),
+                presence: healthPermissionDataPresence(permission, in: dashboard)
+            )
+        }
+    }
+
+    /// Whether the current Home-card layout actually fetches this category.
+    ///
+    /// `BodyDashboardFetchSelection` is built from the selected Summary and Trend
+    /// cards plus the starred metric, NOT from the permission selection, and a
+    /// metric it excludes returns empty defaults without ever querying HealthKit.
+    /// Absence there reflects the dashboard layout, not Apple Health, so a hidden
+    /// card must never be reported as missing data.
+    private func isFetchedForDashboard(
+        _ permission: BodyHealthPermission,
+        selection: BodyDashboardFetchSelection
+    ) -> Bool {
+        switch permission {
+        case .activityRings:
+            return selection.includesActivityRings
+        case .workouts,
+             .workoutMetrics,
+             .dateOfBirth:
+            // Fetched on the workout path, which the Home-card layout doesn't gate.
+            return true
+        default:
+            return HealthMetricKind.allCases.contains {
+                HealthKitFetchEngine.healthPermission(forMetric: $0) == permission
+                    && selection.includes($0)
+            }
+        }
+    }
+
+    /// Whether Body currently holds data for this category.
+    private func healthPermissionDataPresence(
+        _ permission: BodyHealthPermission,
+        in dashboard: HealthDashboardSnapshot
+    ) -> BodyHealthPermissionDataPresence {
+        switch permission {
+        case .dateOfBirth:
+            // A characteristic read that anchors workout HR zones. It never lands
+            // in the dashboard snapshot, so answering would need a fresh read.
+            return .unobservable
+        case .workouts:
+            return monthSnapshots.values.contains { $0.workoutCount > 0 } ? .present : .absent
+        case .workoutMetrics:
+            // Not "read on demand": the monthly refresh eagerly fills these
+            // summary fields when the permission is on, so they're real evidence.
+            return hasCachedWorkoutMetrics ? .present : .absent
+        default:
+            // Filter the dashboard down to THIS permission, then ask the
+            // snapshot's own `isEmpty`.
+            //
+            // Deliberately NOT a diff of filtered-with against filtered-without:
+            // that measures "the filter changed something", which is a different
+            // question and claims data where there is none. Ring
+            // `loadedMonthKeys` survive months that hold no days, and
+            // `cardioFitnessProfile` carries age and sex with no VO₂ max reading.
+            // `isEmpty` already excludes exactly that metadata, and compares
+            // against nil rather than by float equality, so NaN never arises.
+            var onlyThisPermission = dashboard.filteredWithoutReadinessRecompute(
+                by: BodyHealthPermissionSelection(enabledPermissions: [permission])
+            )
+            // Readiness is DERIVED and survives every permission filter (no
+            // `filtered(by:)` branch clears it, on purpose — it's recomputed,
+            // not category data), yet both `isEmpty`s count it. Left in, one
+            // cached readiness score would make every category read as having
+            // data. Strip it before asking.
+            onlyThisPermission.summary.readiness = .unavailable
+            onlyThisPermission.trends.readiness = .empty
+            onlyThisPermission.trends.recordedReadiness = []
+            return onlyThisPermission.isEmpty ? .absent : .present
+        }
+    }
+
+    private var hasCachedWorkoutMetrics: Bool {
+        monthSnapshots.values.contains { snapshot in
+            snapshot.days.contains { day in
+                day.workouts.contains { workout in
+                    workout.averagePowerWatts != nil
+                        || workout.averageStepCadenceSPM != nil
+                        || workout.averageCyclingCadenceRPM != nil
+                        || workout.swimmingStrokeCount != nil
+                        || workout.cardioFitnessVO2Max != nil
+                }
+            }
+        }
+    }
+
+    /// Ring history is started as a deliberately unjoined task that lands only
+    /// after the refresh completes, so a status read taken right after a toggle
+    /// would catch `.activityRings` empty and then sit on that until the sheet is
+    /// reopened. Report it as still checking instead. Three signals feed this:
+    /// `isRefreshing` (any in-flight refresh), `loadingActivityRingMonthKeys`
+    /// (detail-page pagination), and `activityRingHistoryTask` (the unjoined
+    /// background backfill, which can still be running after `isRefreshing`
+    /// has already gone false).
+    private func isHealthPermissionLoadInFlight(_ permission: BodyHealthPermission) -> Bool {
+        if isRefreshing {
+            return true
+        }
+
+        guard permission == .activityRings else {
+            return false
+        }
+        return !loadingActivityRingMonthKeys.isEmpty || activityRingHistoryTask != nil
     }
 
     func syncWhenAppBecomesActive(date: Date = Date()) async {
@@ -2604,7 +3265,8 @@ final class HealthKitWorkoutStore: ObservableObject {
     func ensureComparisonMonthsLoaded(for workout: WorkoutSummary) async {
         let keys = comparisonMonthKeys(for: workout, calendar: .bodyGregorian)
         for key in keys where !loadedMonthKeys.contains(key) {
-            await loadMonthIfNeeded(month: key.month, year: key.year)
+            // Automatic preload behind the detail sheet: defer if it would prompt.
+            await loadMonthIfNeeded(month: key.month, year: key.year, allowPrompt: false)
         }
     }
 
@@ -2644,11 +3306,12 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
 
-        await loadMonthKeysIfNeeded(missingKeys)
+        // The Workouts tab's own `.task` preload — never worth a sheet.
+        await loadMonthKeysIfNeeded(missingKeys, allowPrompt: false)
     }
 
     @discardableResult
-    func loadMonthIfNeeded(month: Int, year: Int) async -> Bool {
+    func loadMonthIfNeeded(month: Int, year: Int, allowPrompt: Bool = true) async -> Bool {
         guard !needsInitialHealthDataLoad else {
             return false
         }
@@ -2670,7 +3333,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return true
         }
 
-        await loadMonthKeysIfNeeded([key])
+        await loadMonthKeysIfNeeded([key], allowPrompt: allowPrompt)
         return loadedMonthKeys.contains(key)
     }
 
@@ -2777,7 +3440,10 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         do {
-            try await requestHealthKitAuthorization()
+            // Scroll-driven pagination: defer rather than prompt.
+            guard try await requestHealthKitAuthorization(allowPrompt: false) else {
+                return
+            }
 
             var mergedHistory: ActivityRingHistorySnapshot?
             var emptyProbedKeys: [ActivityRingMonthKey] = []
@@ -2937,7 +3603,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         let calendar = Calendar.bodyGregorian
         let month = calendar.component(.month, from: date)
         let year = calendar.component(.year, from: date)
-        await refresh(month: month, year: year, calendar: calendar, updatesHealthSummary: true)
+        await runRefreshWithDeadline {
+            await self.refresh(month: month, year: year, calendar: calendar, updatesHealthSummary: true)
+        }
     }
 
     func clearLocalCache(date: Date = Date()) async {
@@ -2978,6 +3646,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         distanceSampleCache.removeAll()
         metricSeriesCache.removeAll()
         heartRateRecoveryCache.removeAll()
+        detailHydrations = [:]
         healthSummary = .empty
         // Drop the summary-reuse signature so a post-clear failed leaf resolves
         // to empty rather than reusing anything against the wiped summary.
@@ -2991,10 +3660,19 @@ final class HealthKitWorkoutStore: ObservableObject {
         hasMoreActivityRingHistory = true
         loadingMonthKeys.removeAll()
         loadingActivityRingMonthKeys.removeAll()
+        // The epoch bump above already stops the out-of-band ring load from
+        // republishing; cancelling saves it from finishing a ten-year walk whose
+        // result is now guaranteed to be dropped. The handle clears itself when
+        // that task returns, so no new one starts on top of it.
+        activityRingHistoryTask?.cancel()
         healthDataSourceOptionsByKind = [:]
         customSourceIDsWithDataByKind = [:]
         persistedDaySamplesHydration = nil
         lastSuccessfulRefreshDate = nil
+        // A tombstoned install is back to first launch, so the load overlay
+        // must present again.
+        hasCompletedInitialHealthDataLoad = false
+        HealthDashboardSnapshotStore.clearInitialHealthDataLoadCompleted()
         // Drop the compute-seed watermark + cached Training Load piece too — a
         // tombstoned install must not re-attach a stale seed (built from data
         // this clear just wiped) on the next publish. `dataThrough` (from
@@ -3031,8 +3709,9 @@ final class HealthKitWorkoutStore: ObservableObject {
                 HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
                 HealthDashboardSnapshotStore.clearWatchExpectedSourceIDs()
                 HealthDashboardSnapshotStore.clearWatchTrainingLoadSeed()
-                HealthDashboardSnapshotStore.clearActivityRingBackfillCompleted()
+                HealthDashboardSnapshotStore.clearActivityRingBackfillState()
                 HealthWidgetSnapshotStore.delete()
+                WorkoutDetailSnapshotStore.deleteAll()
                 continuation.resume()
             }
         }
@@ -3075,7 +3754,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // workout carried past midnight on the 1st), also refresh that month so
         // the activity drain reads fresh prior-month workouts rather than stale,
         // un-refreshed ones.
-        let wakeCycleSleepEnd = healthSummary.sleep.stageSnapshot.dateInterval?.end
+        let wakeCycleSleepEnd = healthSummary.sleep.stageSnapshot.wakeCycleEnd
         let wakeCycleStart = Self.wakeCycleStart(now: date, sleepEnd: wakeCycleSleepEnd, calendar: calendar)
         let wakeCycleCrossesMonth = !calendar.isDate(wakeCycleStart, equalTo: date, toGranularity: .month)
         // Early in a new month the 48h auto-apply window still reaches into the prior
@@ -3124,16 +3803,19 @@ final class HealthKitWorkoutStore: ObservableObject {
             // would silently fetch all-source data for custom-source users.
             await fetchHealthDataSourceOptions(calendar: calendar)
 
-            let (fetchedHealthSummary, fetchedHealthTrends, fetchedActivityRingHistory, hadQueryFailure) =
+            let (fetchedHealthSummary, fetchedHealthTrends, hadQueryFailure) =
                 await fetchDashboardSnapshotProgressively(
                     calendar: calendar,
                     selection: dashboardFetchSelection
                 )
 
+            // Ring history is whatever the out-of-band ring load has published
+            // so far; passing the live value keeps the save from dropping the
+            // months already merged into it.
             await updateHealthDashboardSnapshot(
                 summary: fetchedHealthSummary,
                 trends: fetchedHealthTrends,
-                activityRingHistory: fetchedActivityRingHistory
+                activityRingHistory: activityRingHistory
             )
 
             // Join the workout fetch. Its success gates the freshness timestamp:
@@ -3141,6 +3823,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             // activation instead of being skipped by the 5-minute warm-resume
             // shortcut, so don't `markRefreshSucceeded` unless workouts landed.
             try await workoutRefresh
+            // Everything past the join publishes, persists, or writes back to
+            // HealthKit (`autoApplyPredictedEffortIfNeeded`). An abandoned
+            // refresh's workout fetch can land here minutes late, so it stops
+            // at the generation check instead.
+            guard mayApplyRefreshResults else {
+                return
+            }
             authorizationState = .authorized
             // Dashboard vitals + workouts have both just landed together (this
             // path always refreshes the dashboard) — the one point to refresh
@@ -3172,7 +3861,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         } catch {
             handleRefreshError(error)
         }
-        await engine.setHealthTrendAnchorDate(nil)
+        // A body abandoned at the refresh deadline must not clear the anchor a
+        // NEWER refresh has since set; that path resets it itself.
+        if mayApplyRefreshResults {
+            await engine.setHealthTrendAnchorDate(nil)
+        }
     }
 
     /// Expects the caller to have set `isRefreshing` (and to call
@@ -3221,20 +3914,26 @@ final class HealthKitWorkoutStore: ObservableObject {
             if updatesHealthSummary {
                 await fetchHealthDataSourceOptions(calendar: calendar)
 
-                let (fetchedHealthSummary, fetchedHealthTrends, fetchedActivityRingHistory, leafFailure) =
+                let (fetchedHealthSummary, fetchedHealthTrends, leafFailure) =
                     await fetchDashboardSnapshotProgressively(
                         calendar: calendar,
                         selection: dashboardFetchSelection
                     )
                 hadQueryFailure = leafFailure
 
+                // Live ring history, for the reason in `refreshRecentMonths`.
                 await updateHealthDashboardSnapshot(
                     summary: fetchedHealthSummary,
                     trends: fetchedHealthTrends,
-                    activityRingHistory: fetchedActivityRingHistory
+                    activityRingHistory: activityRingHistory
                 )
             }
             try await workoutRefresh
+            // Same deadline rule as `refreshRecentMonths`: nothing past the
+            // join may publish, persist, or write back for an abandoned pass.
+            guard mayApplyRefreshResults else {
+                return
+            }
             authorizationState = .authorized
             // Only when this call actually refreshed the dashboard (mirrors
             // `refreshedVitals: updatesHealthSummary` below) have summary,
@@ -3273,35 +3972,41 @@ final class HealthKitWorkoutStore: ObservableObject {
         } catch {
             handleRefreshError(error)
         }
-        if updatesHealthSummary {
+        // Same deadline rule as `refreshRecentMonths`.
+        if updatesHealthSummary, mayApplyRefreshResults {
             await engine.setHealthTrendAnchorDate(nil)
         }
     }
 
-    /// Fetch the dashboard summary, trend snapshot, and activity-ring history
-    /// concurrently and publish each bucket to `@Published` state as soon as it
-    /// completes. Users see metric values, ring values, then trend charts fill in
-    /// progressively instead of one large update at the very end of the refresh.
+    /// Fetch the dashboard summary and trend snapshot concurrently and publish
+    /// each bucket to `@Published` state as soon as it completes. Users see
+    /// metric values, then trend charts fill in progressively instead of one
+    /// large update at the very end of the refresh.
     /// Readiness is preserved at its cached value during the stream — the final
     /// `updateHealthDashboardSnapshot` recomputes it once everything has landed.
+    ///
+    /// Ring HISTORY is deliberately not one of these children (see
+    /// `startActivityRingHistoryLoadIfNeeded`); the Activity Rings card's today
+    /// values ride the summary leaf, so nothing on screen waits for it.
     private func fetchDashboardSnapshotProgressively(
         calendar: Calendar,
         selection: BodyDashboardFetchSelection
     ) async -> (
         summary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
-        activityRingHistory: ActivityRingHistorySnapshot,
         hadQueryFailure: Bool
     ) {
         let cachedTrendsAtStart = healthTrends
         var fetchedSummary = healthSummary
         var fetchedTrends = healthTrends
-        var fetchedActivityRingHistory = activityRingHistory
-        // ORs every dashboard leaf's failure — summary, trends (primary +
-        // secondary + sleep-vitals), and ring history/backfill — so any failed
-        // query withholds the freshness TTL and the next resume retries (H2c).
+        // ORs every dashboard leaf's failure — summary and trends (primary +
+        // secondary + sleep-vitals) — so any failed query withholds the
+        // freshness TTL and the next resume retries (H2c). Ring history no
+        // longer contributes: it runs outside this barrier, so a ring failure
+        // must not withhold a TTL for data that did land.
         var hadQueryFailure = false
-        let needsActivityRingBackfill = !HealthDashboardSnapshotStore.loadActivityRingBackfillCompleted()
+
+        startActivityRingHistoryLoadIfNeeded(calendar: calendar, selection: selection)
 
         // Reuse the cached summary for failed leaves only while the current
         // selection still matches the one it was published under; a source /
@@ -3334,18 +4039,13 @@ final class HealthKitWorkoutStore: ObservableObject {
                     )
                 )
             }
-            group.addTask {
-                let signpostState = BodyPerformanceSignposts.signposter.beginInterval("DashboardRings")
-                defer { BodyPerformanceSignposts.signposter.endInterval("DashboardRings", signpostState) }
-                if needsActivityRingBackfill {
-                    return .rings(
-                        await engine.fetchDashboardActivityRingBackfillHistory(calendar: calendar, selection: selection)
-                    )
-                }
-                return .rings(await engine.fetchDashboardActivityRingHistory(calendar: calendar, selection: selection))
-            }
 
             for await unit in group {
+                // A body abandoned at the refresh deadline keeps running; its
+                // late units must not publish over a newer refresh's.
+                guard mayApplyRefreshResults else {
+                    continue
+                }
                 switch unit {
                 case .summary(let result):
                     fetchedSummary = result.summary
@@ -3364,27 +4064,272 @@ final class HealthKitWorkoutStore: ObservableObject {
                     // animate from old values to new instead of dropping to
                     // empty and reappearing.
                     healthTrends = t.replacingMetric(.readiness, with: healthTrends)
-                case .rings(let result):
-                    hadQueryFailure = hadQueryFailure || result.hadQueryFailure
-                    let r = result.history
-                    // Merge instead of replace — replacing dropped any older
-                    // months the user had paged in (and the refresh's final
-                    // save then persisted that loss).
-                    let mergedRings = activityRingHistory.replacingLoadedMonths(with: r, calendar: calendar)
-                    fetchedActivityRingHistory = mergedRings
-                    activityRingHistory = mergedRings
-                    loadedActivityRingMonthKeys = Set(mergedRings.loadedMonthKeySet(calendar: calendar))
-                    if needsActivityRingBackfill, !r.loadedMonthKeys.isEmpty {
-                        // Success always echoes month keys; an empty result
-                        // means the fetch errored or rings are excluded, so
-                        // the backfill stays pending for a later refresh.
-                        HealthDashboardSnapshotStore.saveActivityRingBackfillCompleted()
-                    }
                 }
             }
         }
 
-        return (fetchedSummary, fetchedTrends, fetchedActivityRingHistory, hadQueryFailure)
+        return (fetchedSummary, fetchedTrends, hadQueryFailure)
+    }
+
+    /// The out-of-band activity-ring history load, and the one at a time
+    /// guarantee for it.
+    ///
+    /// Ring history is NOT a child of `fetchDashboardSnapshotProgressively`'s
+    /// task group: `for await unit in group` cannot return until every child has
+    /// produced a unit, so the first-load ten-year backfill held the whole
+    /// refresh — `isRefreshing`, the first-launch "Loading Health Data…"
+    /// overlay, the snapshot save that only runs after the group, and the
+    /// success stamps — hostage to a scan that can run for minutes or hang
+    /// outright. Users who granted only a couple of Health types watched that
+    /// spinner forever, and because nothing was ever persisted, every relaunch
+    /// started from zero.
+    // `internal`, not `private`: BodyTests sets this directly (via @testable
+    // import) to simulate an in-flight background ring backfill deterministically,
+    // without racing the real HealthKit-backed chunk walk.
+    var activityRingHistoryTask: Task<Void, Never>?
+
+    private func startActivityRingHistoryLoadIfNeeded(
+        calendar: Calendar,
+        selection: BodyDashboardFetchSelection,
+        date: Date = Date()
+    ) {
+        // A refresh arriving while a chunk walk is still running joins it rather
+        // than stacking a second ten-year scan on top.
+        guard activityRingHistoryTask == nil else {
+            return
+        }
+
+        let epoch = cacheEpoch
+        activityRingHistoryTask = Task { @MainActor [weak self] in
+            await self?.loadActivityRingHistory(
+                calendar: calendar,
+                selection: selection,
+                epoch: epoch,
+                date: date
+            )
+            self?.activityRingHistoryTask = nil
+        }
+    }
+
+    private func loadActivityRingHistory(
+        calendar: Calendar,
+        selection: BodyDashboardFetchSelection,
+        epoch: Int,
+        date: Date
+    ) async {
+        // Same reason the ring-pagination path hydrates first: the save below
+        // rewrites the day-sample sidecar from `healthTrends`.
+        await hydratePersistedDaySamplesIfNeeded()
+
+        let backfillState = HealthDashboardSnapshotStore.loadActivityRingBackfillState()
+        let result: ActivityRingHistoryFetchResult
+        switch backfillState {
+        case .pending(let resumeFrom):
+            // Resume where the last chunk walk stopped instead of restarting at
+            // today; `nil` means nothing has been walked yet. The checkpoint is
+            // EXCLUSIVE and goes in as `resumeFrom`, never as `date` — the
+            // engine converts it (`activityRingBackfillWalkEnd`), and `date`
+            // stays today so the ten-year span stays anchored. Every chunk
+            // lands as it arrives rather than at the end of the walk — see
+            // `landActivityRingBackfillChunk`.
+            result = await engine.fetchDashboardActivityRingBackfillHistory(
+                calendar: calendar,
+                selection: selection,
+                date: date,
+                resumeFrom: resumeFrom
+            ) { [weak self] chunk in
+                await self?.landActivityRingBackfillChunk(
+                    chunk,
+                    capturedEpoch: epoch,
+                    calendar: calendar
+                ) ?? false
+            }
+        case .completed, .suppressed:
+            // A suppressed (denied) backfill still runs the cheap recent-window
+            // read — that read IS the probe that notices access came back.
+            result = await engine.fetchDashboardActivityRingHistory(calendar: calendar, selection: selection)
+        }
+
+        // A Clear Cache landed while the walk ran — don't publish or persist
+        // onto the wiped state.
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
+            return
+        }
+        // Rings were switched off in Body's own selection while the walk ran:
+        // `applyPermissionSelectionToCachedData` has already purged the history
+        // and reset the backfill progress, and neither may be written back by a
+        // walk the user has opted out of.
+        guard permissionSelection.includes(.activityRings) else {
+            return
+        }
+
+        let nextBackfillState = Self.nextActivityRingBackfillState(
+            current: backfillState,
+            authorizationDenied: result.authorizationDenied,
+            reachedHistoryStart: result.reachedHistoryStart,
+            nextChunkEndDate: result.nextChunkEndDate,
+            foundDays: !result.history.days.isEmpty,
+            now: date
+        )
+        if nextBackfillState != backfillState {
+            HealthDashboardSnapshotStore.saveActivityRingBackfillState(nextBackfillState)
+        }
+
+        if result.authorizationDenied {
+            // Access was revoked: every cached month is stale, not just the
+            // refreshed window.
+            activityRingHistory = .empty
+            loadedActivityRingMonthKeys.removeAll()
+            exhaustedActivityRingMonthKeys.removeAll()
+        } else {
+            // A union merge of what the chunks already published, so this is a
+            // no-op for the backfill walk — except in the one case the chunks
+            // can't express: a covered span with no ring data anywhere, which
+            // resolves to the recent window's month keys so the calendar shows
+            // empty grids instead of nothing.
+            guard applyActivityRingHistoryChunk(result.history, capturedEpoch: epoch, calendar: calendar) else {
+                return
+            }
+        }
+        // `result.hadQueryFailure` is deliberately dropped: this load no longer
+        // gates the refresh, so a transient ring failure must not withhold the
+        // freshness TTL for summary/trend data that landed cleanly.
+        persistActivityRingHistory()
+    }
+
+    /// Lands ONE chunk of a running backfill walk: applies it through the
+    /// shared funnel, makes the grown history durable, and moves the resume
+    /// checkpoint onto disk. Returns whether the walk may continue — `false`
+    /// once a Clear Cache has invalidated the epoch the walk started under, so
+    /// the engine stops querying for a store that no longer wants the answer.
+    ///
+    /// Per chunk rather than once at the end is the whole point. The ten-year
+    /// walk runs for minutes: applying only at the end made the ring calendar
+    /// appear in a single step, and a quit mid-walk threw every landed month
+    /// away and restarted at today, because no checkpoint had been written yet.
+    ///
+    /// Internal for the same reason as `applyActivityRingHistoryChunk`: this is
+    /// the seam where a test can drive the chunked arrival the production walk
+    /// produces.
+    @discardableResult
+    func landActivityRingBackfillChunk(
+        _ chunk: ActivityRingHistoryFetchResult,
+        capturedEpoch: Int,
+        calendar: Calendar = .bodyGregorian
+    ) -> Bool {
+        guard applyActivityRingHistoryChunk(chunk.history, capturedEpoch: capturedEpoch, calendar: calendar) else {
+            return false
+        }
+        persistActivityRingHistory()
+
+        // The chunk that reached history start carries no checkpoint: whether
+        // the walk `completed` is the terminal state's call, so nothing here
+        // can push a finished backfill back to pending.
+        if let nextChunkEndDate = chunk.nextChunkEndDate {
+            HealthDashboardSnapshotStore.saveActivityRingBackfillState(.pending(resumeFrom: nextChunkEndDate))
+        }
+        return true
+    }
+
+    /// Applies ONE landed chunk of ring history to the live store: the merge,
+    /// the loaded-key sync, and the pagination reset, all under the cache-epoch
+    /// guard. Returns whether it applied (a Clear Cache since `capturedEpoch`
+    /// drops the chunk).
+    ///
+    /// Internal rather than private on purpose. Ring history now grows in
+    /// several chunks that land AFTER the refresh has completed, and every other
+    /// mutator of `activityRingHistory` is private, async into HealthKit, or
+    /// `init` — so this is the only seam where that chunked arrival is
+    /// observable. It is the same funnel the background load uses, guards
+    /// included, so a test driving chunks through it exercises the production
+    /// path rather than a parallel setter.
+    @discardableResult
+    func applyActivityRingHistoryChunk(
+        _ chunk: ActivityRingHistorySnapshot,
+        capturedEpoch: Int,
+        calendar: Calendar = .bodyGregorian
+    ) -> Bool {
+        // A Clear Cache landed since the chunk was requested — don't republish
+        // onto the wiped history. Rings being switched off is the same story:
+        // cancelling the walk can't help a chunk that is already mid-flight, so
+        // the opt-out is enforced here, at the point of application.
+        guard Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: cacheEpoch),
+              permissionSelection.includes(.activityRings) else {
+            return false
+        }
+
+        // Merge instead of replace — replacing dropped any older months the
+        // user had paged in (and the next save then persisted that loss).
+        let mergedRings = activityRingHistory.replacingLoadedMonths(with: chunk, calendar: calendar)
+        activityRingHistory = mergedRings
+        loadedActivityRingMonthKeys = Set(mergedRings.loadedMonthKeySet(calendar: calendar))
+        // Fresh ring data may include backfilled months; let older-month
+        // pagination re-probe instead of staying pinned at a previously
+        // detected history start.
+        exhaustedActivityRingMonthKeys.removeAll()
+        hasMoreActivityRingHistory = true
+        return true
+    }
+
+    /// Makes each ring chunk durable as it lands, so a walk interrupted by a
+    /// quit resumes from what's on disk instead of starting over. Same
+    /// signature-carrying save as the older-month pagination path.
+    private func persistActivityRingHistory() {
+        let snapshotToSave = HealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: healthTrends,
+            activityRingHistory: activityRingHistory
+        )
+        let daySampleSignatures = currentDaySampleSignatures()
+        let summaryContextSignature = healthSummaryPrimarySignature
+        Self.snapshotPersistQueue.async {
+            HealthDashboardSnapshotStore.save(
+                snapshotToSave,
+                daySampleSignatures: daySampleSignatures,
+                summaryContextSignature: summaryContextSignature
+            )
+        }
+    }
+
+    /// The persisted backfill state a ring fetch result moves to. Pure — and
+    /// taking the result's fields rather than the result — so the tri-state
+    /// rules are unit-testable without HealthKit.
+    nonisolated static func nextActivityRingBackfillState(
+        current: HealthDashboardSnapshotStore.ActivityRingBackfillState,
+        authorizationDenied: Bool,
+        reachedHistoryStart: Bool,
+        nextChunkEndDate: Date?,
+        foundDays: Bool,
+        now: Date
+    ) -> HealthDashboardSnapshotStore.ActivityRingBackfillState {
+        if authorizationDenied {
+            // Park the ten-year scan rather than re-issuing it on every refresh
+            // for as long as the permission stays off.
+            return .suppressed(lastProbe: now)
+        }
+        // Only a walk that covered the whole span is done. The old marker was
+        // stamped as soon as ONE result carried month keys, which called a
+        // single partial chunk a finished ten-year history.
+        if reachedHistoryStart {
+            return .completed
+        }
+
+        switch current {
+        case .completed:
+            return .completed
+        case .suppressed:
+            // A read that came back with days means access is back: re-arm the
+            // backfill from the top (the suppressed stretch was wiped).
+            return foundDays ? .pending(resumeFrom: nil) : current
+        case .pending:
+            // Keep the existing checkpoint when the walk reported no new one (a
+            // failed fetch, or rings excluded from the selection), so a
+            // transient error doesn't restart the walk at today.
+            guard let nextChunkEndDate else {
+                return current
+            }
+            return .pending(resumeFrom: nextChunkEndDate)
+        }
     }
 
     /// Primary-source + permission signature the summary reuse is scoped to.
@@ -3463,10 +4408,9 @@ final class HealthKitWorkoutStore: ObservableObject {
     private enum DashboardFetchUnit {
         case summary(HealthKitFetchEngine.HealthSummaryFetchResult)
         case trends(HealthKitFetchEngine.HealthTrendFetchResult)
-        case rings(ActivityRingHistoryFetchResult)
     }
 
-    private func loadMonthKeysIfNeeded(_ keys: Set<BodyWorkoutMonthKey>) async {
+    private func loadMonthKeysIfNeeded(_ keys: Set<BodyWorkoutMonthKey>, allowPrompt: Bool) async {
         guard !keys.isEmpty else {
             return
         }
@@ -3501,7 +4445,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         do {
-            try await requestHealthKitAuthorization()
+            guard try await requestHealthKitAuthorization(allowPrompt: allowPrompt) else {
+                return
+            }
             try await refresh(monthKeys: keysToLoad, calendar: .bodyGregorian)
             guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
                 return
@@ -3567,9 +4513,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             // Publish each month's snapshot as it returns so the Workouts tab
             // populates progressively instead of waiting for the slowest month.
             for try await (key, workouts) in group {
-                // A cache clear landed mid-load — drop the remaining month writes
-                // instead of resurrecting them onto the wiped snapshots.
-                guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
+                guard mayPublishMonthSnapshot(capturedEpoch: epoch) else {
                     continue
                 }
                 monthSnapshots[key] = WorkoutMonthSnapshot.make(
@@ -3582,6 +4526,22 @@ final class HealthKitWorkoutStore: ObservableObject {
                 noteMonthSnapshotStored(key)
             }
         }
+    }
+
+    /// Whether a month snapshot produced by an in-flight load may still be
+    /// published.
+    ///
+    /// Two ways it may not: a Clear Cache landed mid-load (only possible from
+    /// the lazy, non-`isRefreshing` month loads), or the refresh this load
+    /// belongs to was ABANDONED at `healthRefreshDeadline`. The per-workout
+    /// heart-rate / VO₂ reads are continuation based, so `fetchWorkouts` can
+    /// return normally minutes after the deadline fired — long enough for a
+    /// newer retry to have published these same months.
+    ///
+    /// Internal so a test can drive the decision the progressive month writes
+    /// actually make, rather than a copy of it.
+    func mayPublishMonthSnapshot(capturedEpoch: Int) -> Bool {
+        Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: cacheEpoch) && mayApplyRefreshResults
     }
 
     private func noteMonthSnapshotStored(_ key: BodyWorkoutMonthKey, date: Date = Date()) {
@@ -3695,7 +4655,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // one), and skip entirely when the refreshed metric cannot change any
         // readiness input.
         let now = Date()
-        let sleepEnd = summary.sleep.stageSnapshot.dateInterval?.end
+        let sleepEnd = summary.sleep.stageSnapshot.wakeCycleEnd
         let wakeTime = Self.freezeWakeTime(sleepEnd: sleepEnd, scoringDay: anchorDate, now: now, calendar: calendar)
         let todaysWorkouts = currentWakeCycleWorkouts(now: now, sleepEnd: sleepEnd, calendar: calendar)
         let recordedReadinessContext = readinessRecordContextSignature()
@@ -3720,7 +4680,9 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         // A Clear Cache that landed while the off-actor recompute ran must win:
         // don't publish or persist the recomputed snapshot onto the wiped state.
-        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
+        // A refresh abandoned at `healthRefreshDeadline` loses the same way: its
+        // late snapshot must not overwrite a newer refresh's.
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch), mayApplyRefreshResults else {
             return
         }
 
@@ -3813,7 +4775,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
         let now = Date()
-        let sleepEnd = healthSummary.sleep.stageSnapshot.dateInterval?.end
+        let sleepEnd = healthSummary.sleep.stageSnapshot.wakeCycleEnd
         let wakeTime = Self.freezeWakeTime(sleepEnd: sleepEnd, scoringDay: date, now: now, calendar: calendar)
         // Reapply even with no current-cycle workouts: the main recompute may have
         // drained from stale workout snapshots (e.g. a workout was deleted), so the
@@ -3904,6 +4866,12 @@ final class HealthKitWorkoutStore: ObservableObject {
         advancesSyncBadge: Bool = false,
         ranQueries: Bool = true
     ) {
+        // A refresh abandoned at `healthRefreshDeadline` keeps running: it must
+        // not stamp success — the freshness TTL, the first-load completion, the
+        // badge — for a load the user was already told had timed out.
+        guard mayApplyRefreshResults else {
+            return
+        }
         // Only a user-visible refresh (one of the three paths that hold
         // `isRefreshing`) that genuinely fetched — no query failure, and at
         // least one HealthKit query actually ran — advances the sync-badge
@@ -3938,6 +4906,16 @@ final class HealthKitWorkoutStore: ObservableObject {
         lastVitalsRefreshDate = Self.nextLastVitalsRefreshDate(
             current: lastVitalsRefreshDate, date: date, refreshedVitals: refreshedVitals, hadQueryFailure: hadQueryFailure
         )
+        // A completed full refresh means the user has been through the first
+        // load — even a partial one (denied read permissions make some leaves
+        // fail on EVERY refresh) or one that found nothing. Deliberately not
+        // gated on `hadQueryFailure`/`ranQueries`, and never stamped from
+        // `handleRefreshError`, so a thrown refresh still re-presents the
+        // first-launch overlay with Try Again.
+        if refreshedVitals, !hasCompletedInitialHealthDataLoad {
+            hasCompletedInitialHealthDataLoad = true
+            HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
+        }
         if refreshedVitals, !hadQueryFailure {
             lastSuccessfulRefreshDate = date
             HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(date)
@@ -4482,11 +5460,22 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         if !permissionSelection.includes(.activityRings) {
+            // Stop the in-flight walk from querying more months for a user who
+            // just opted out. Cancellation alone isn't enough — a chunk can be
+            // mid-flight already — so `applyActivityRingHistoryChunk` and
+            // `loadActivityRingHistory` refuse to apply anything while rings
+            // are off.
+            activityRingHistoryTask?.cancel()
             // The filtered save below purges the cached ring history, so the
-            // one-shot backfill marker must fall with it — otherwise
-            // re-enabling rings resumes recent-months-only fetches and the
-            // ten-year history never rebuilds.
-            HealthDashboardSnapshotStore.clearActivityRingBackfillCompleted()
+            // backfill progress must fall with it — otherwise re-enabling rings
+            // resumes recent-months-only fetches and the ten-year history never
+            // rebuilds.
+            HealthDashboardSnapshotStore.clearActivityRingBackfillState()
+        } else if case .suppressed = HealthDashboardSnapshotStore.loadActivityRingBackfillState() {
+            // Rings are back on in Body's own selection, so the denial that
+            // parked the backfill may be gone: re-arm it and let the next ring
+            // load find out.
+            HealthDashboardSnapshotStore.saveActivityRingBackfillState(.pending(resumeFrom: nil))
         }
 
         let daySampleSignatures = currentDaySampleSignatures()
@@ -4596,6 +5585,15 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
+    // Test-only override for where `updateCurrentMonthSnapshot` saves the
+    // current/previous month files. nil (the default, and the only value any
+    // production call site ever sees) means "use the real App Group location"
+    // via the no-argument `WorkoutSnapshotStore.save`/`savePrevious` overloads.
+    // BodyTests sets this because the unsigned test target has no App Group
+    // container (`WorkoutSnapshotStore.sharedContainerURL` is nil there), so
+    // asserting persistence needs a real, test-owned file.
+    static var testCurrentMonthSnapshotFileURLOverride: URL?
+
     private func updateCurrentMonthSnapshot(date: Date, calendar: Calendar) {
         let currentKey = BodyWorkoutMonthKey(date: date, calendar: calendar)
         guard let currentSnapshot = monthSnapshots[currentKey] else {
@@ -4611,24 +5609,55 @@ final class HealthKitWorkoutStore: ObservableObject {
             let previousKey = BodyWorkoutMonthKey(date: previousMonthStart, calendar: calendar)
             return monthSnapshots[previousKey]
         }()
+        let currentFileURLOverride = Self.testCurrentMonthSnapshotFileURLOverride
 
         // Route through the shared persist queue (not a bare `Task.detached`) so
         // two successive refreshes' month saves keep FIFO enqueue order — an
         // earlier save must never land after a later one and stale the widget.
         Self.snapshotPersistQueue.async {
-            var widgetReloadNeeded = WorkoutSnapshotStore.save(snapshotToSave)
+            var widgetReloadNeeded = currentFileURLOverride.map {
+                WorkoutSnapshotStore.save(snapshotToSave, fileURL: $0)
+            } ?? WorkoutSnapshotStore.save(snapshotToSave)
             if let previousSnapshotToSave,
+               currentFileURLOverride == nil,
                WorkoutSnapshotStore.savePrevious(previousSnapshotToSave) {
                 widgetReloadNeeded = true
             }
             if widgetReloadNeeded {
                 Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
             }
+
+            // Drop detail files for workouts the persisted list no longer carries.
+            // The keep-set is read back from the two ON-DISK month files, not from
+            // `monthSnapshots`: the previous month isn't seeded into memory at
+            // launch, so an in-memory keep-set would delete every previous-month
+            // detail on the first refresh. For the same reason, a missing file means
+            // "unknown", not "empty" — skip the prune entirely rather than guess.
+            if let current = WorkoutSnapshotStore.load(),
+               current.workoutCount > 0,
+               let previous = WorkoutSnapshotStore.loadPrevious() {
+                var keeping: Set<UUID> = []
+                for month in [current, previous] {
+                    for day in month.days {
+                        for workout in day.workouts {
+                            keeping.insert(workout.id)
+                        }
+                    }
+                }
+                WorkoutDetailSnapshotStore.prune(keeping: keeping)
+            }
+
             Task { @MainActor in await self.refreshCacheDiskSize() }
         }
     }
 
     private func updateHealthDataNotice() {
+        // An abandoned (deadline-expired) refresh must not clear the timeout
+        // notice that deadline just set, nor speak for a newer refresh.
+        guard mayApplyRefreshResults else {
+            return
+        }
+
         guard !permissionSelection.enabledPermissions.isEmpty else {
             healthDataNotice = String(localized: "All Apple Health data permissions are turned off in Settings.")
             return
@@ -4646,6 +5675,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         // A cancelled refresh is not a failure: keep cached data and the current
         // authorization state, and don't surface a health-data notice.
         if error is CancellationError { return }
+        // Same for an abandoned refresh's late failure — the deadline already
+        // told the user what happened.
+        guard mayApplyRefreshResults else { return }
         if case HealthKitWorkoutError.authorizationDenied = error {
             authorizationState = .denied
         } else {

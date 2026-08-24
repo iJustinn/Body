@@ -17,6 +17,7 @@
 
 import Foundation
 import HealthKit
+import os
 
 enum BodyWorkoutFetch {
     // MARK: - Query
@@ -80,6 +81,22 @@ enum BodyWorkoutFetch {
         let averageHeartRate = averageHeartRate(from: heartRateSamples)
         let type = workoutType(for: workout.workoutActivityType)
 
+        #if DEBUG
+        // Distinguishes "HealthKit gave us no weather metadata" from "mapper dropped it",
+        // and — because the hero's graded thermometer only appears when the sky condition
+        // is missing — separately reports a workout that HAS a temperature but no usable
+        // condition, logging the raw value so `.none` (0) is distinguishable from an
+        // absent key. Both are why most workouts draw a thermometer rather than a sky glyph.
+        if workout.metadata?[HKMetadataKeyWeatherTemperature] == nil {
+            Logger(subsystem: "com.zihengthedeveloper.Body", category: "WorkoutWeather")
+                .debug("No weather metadata: start=\(workout.startDate), source=\(workout.sourceRevision.source.name, privacy: .public), keys=\(workout.metadata?.keys.sorted() ?? [], privacy: .public)")
+        } else if weatherCondition(for: workout) == nil {
+            let rawCondition = (workout.metadata?[HKMetadataKeyWeatherCondition] as? NSNumber)?.intValue
+            Logger(subsystem: "com.zihengthedeveloper.Body", category: "WorkoutWeather")
+                .debug("Temperature but no sky condition: start=\(workout.startDate), source=\(workout.sourceRevision.source.name, privacy: .public), rawCondition=\(rawCondition.map(String.init) ?? "absent", privacy: .public)")
+        }
+        #endif
+
         return WorkoutSummary(
             id: workout.uuid,
             type: type,
@@ -103,6 +120,7 @@ enum BodyWorkoutFetch {
             endDate: workout.endDate,
             weatherTemperatureCelsius: weatherTemperatureCelsius(for: workout),
             weatherHumidityPercent: weatherHumidityPercent(for: workout),
+            weatherCondition: weatherCondition(for: workout),
             averageMETs: averageMETs(for: workout),
             heartRateRecoveryBPM: includesHeartMetrics ? heartRateRecoveryBPM(for: workout) : nil
         )
@@ -151,6 +169,7 @@ enum BodyWorkoutFetch {
             endDate: workout.endDate,
             weatherTemperatureCelsius: weatherTemperatureCelsius(for: workout),
             weatherHumidityPercent: weatherHumidityPercent(for: workout),
+            weatherCondition: weatherCondition(for: workout),
             averageMETs: averageMETs(for: workout),
             heartRateRecoveryBPM: includesHeartMetrics ? heartRateRecoveryBPM(for: workout) : nil
         )
@@ -202,17 +221,65 @@ enum BodyWorkoutFetch {
             .doubleValue(for: .degreeCelsius()))
     }
 
-    /// Recorded relative humidity as a percentage. HealthKit stores it as a 0…1
-    /// fraction, so it's scaled here; anything outside 0…100 after scaling is a
-    /// malformed reading and dropped.
+    /// The recorded sky condition, collapsed from HealthKit's 28 cases to the
+    /// buckets the detail hero has an icon for. `.none` and anything unrecognized
+    /// map to `nil`, which leaves the hero on its thermometer glyph.
+    private static func weatherCondition(for workout: HKWorkout) -> WorkoutWeatherCondition? {
+        guard let rawValue = workout.metadata?[HKMetadataKeyWeatherCondition] as? NSNumber,
+              let condition = HKWeatherCondition(rawValue: rawValue.intValue) else {
+            return nil
+        }
+
+        switch condition {
+        case .none: return nil
+        case .clear, .fair: return .clear
+        case .partlyCloudy: return .partlyCloudy
+        case .mostlyCloudy, .cloudy: return .cloudy
+        case .foggy: return .fog
+        case .haze, .smoky, .dust: return .haze
+        case .windy, .blustery: return .wind
+        case .drizzle: return .drizzle
+        case .showers, .scatteredShowers: return .showers
+        case .thunderstorms: return .thunderstorms
+        case .snow, .mixedRainAndSnow, .mixedSnowAndSleet: return .snow
+        case .sleet, .freezingDrizzle, .freezingRain, .mixedRainAndSleet: return .sleet
+        case .hail, .mixedRainAndHail: return .hail
+        case .tropicalStorm, .hurricane, .tornado: return .tropicalStorm
+        @unknown default: return nil
+        }
+    }
+
+    /// Recorded relative humidity as a percentage. Apple Watch writes humidity as
+    /// a 0…1 fraction under `.percent()`, but some third-party sources store the
+    /// percent number itself (e.g. 55), so both are accepted; out-of-range
+    /// readings are malformed and dropped.
     private static func weatherHumidityPercent(for workout: HKWorkout) -> Double? {
-        guard let fraction = finite((workout.metadata?[HKMetadataKeyWeatherHumidity] as? HKQuantity)?
+        guard let raw = finite((workout.metadata?[HKMetadataKeyWeatherHumidity] as? HKQuantity)?
             .doubleValue(for: .percent())) else {
             return nil
         }
 
-        let percent = fraction * 100
-        return (0...100).contains(percent) ? percent : nil
+        return normalizedHumidityPercent(fromPercentUnitValue: raw)
+    }
+
+    /// Scales a `.percent()`-unit humidity reading to 0…100, accepting either a
+    /// 0…1 fraction (Apple Watch's convention) or an already-scaled percent
+    /// (some third-party sources): `raw` in 0...1 is treated as a fraction and
+    /// multiplied by 100; `raw` in 1...100 is treated as already a percent.
+    /// The 1.0 boundary resolves to 100 (fraction semantics win). Non-finite or
+    /// out-of-range values are malformed and return `nil`.
+    static func normalizedHumidityPercent(fromPercentUnitValue raw: Double) -> Double? {
+        guard raw.isFinite else {
+            return nil
+        }
+
+        if (0...1).contains(raw) {
+            return raw * 100
+        }
+        if (1...100).contains(raw) {
+            return raw
+        }
+        return nil
     }
 
     /// The 1-minute heart-rate recovery from the statistics HealthKit already
@@ -288,14 +355,8 @@ enum BodyWorkoutFetch {
     /// Average running/cycling power (W), best-effort from the workout's attached
     /// statistics — present only when the recording source accumulated it.
     private static func averagePowerWatts(for workout: HKWorkout, type: BodyWorkoutType) -> Double? {
-        let identifier: HKQuantityTypeIdentifier
-        if type.supportsRunningPower {
-            identifier = .runningPower
-        } else if type.paceStyle == .speed {
-            identifier = .cyclingPower
-        } else {
-            return nil
-        }
+        guard let source = type.powerSource else { return nil }
+        let identifier: HKQuantityTypeIdentifier = source == .running ? .runningPower : .cyclingPower
         return discreteAverage(for: workout, identifier: identifier, unit: .watt())
     }
 

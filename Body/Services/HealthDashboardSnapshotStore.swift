@@ -23,6 +23,7 @@ enum HealthDashboardSnapshotStore {
     static let secondarySelectionSignatureKey = "lastHealthDashboardSecondarySelectionSignature"
     static let lastSuccessfulRefreshDateKey = "lastHealthDashboardSuccessfulRefreshDate"
     static let activityRingBackfillCompletedKey = "lastHealthDashboardActivityRingBackfillCompleted"
+    static let initialHealthDataLoadCompletedKey = "lastHealthDashboardInitialLoadCompleted"
     private static let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "HealthDashboardSnapshotStore")
 
     static func saveSecondarySelectionSignature(_ signature: String, defaults: UserDefaults = .standard) {
@@ -49,6 +50,24 @@ enum HealthDashboardSnapshotStore {
 
     static func clearLastSuccessfulRefreshDate(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: lastSuccessfulRefreshDateKey)
+    }
+
+    /// Whether the user has already been through the first-launch Health load.
+    /// Unlike `lastSuccessfulRefreshDate` this is stamped by ANY completed full
+    /// refresh — including a partial one that hit query failures, or one that
+    /// found no data at all — because a user who denied some read permissions
+    /// would otherwise never clear the first-launch overlay or onboarding and
+    /// be stuck on "Try Again" forever.
+    static func saveInitialHealthDataLoadCompleted(defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: initialHealthDataLoadCompletedKey)
+    }
+
+    static func loadInitialHealthDataLoadCompleted(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: initialHealthDataLoadCompletedKey)
+    }
+
+    static func clearInitialHealthDataLoadCompleted(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: initialHealthDataLoadCompletedKey)
     }
 
     /// The phone's discovered source universe per watch-compute kind (see
@@ -106,21 +125,73 @@ enum HealthDashboardSnapshotStore {
         defaults.removeObject(forKey: watchTrainingLoadSeedKey)
     }
 
-    /// One-shot marker for the first-load activity-ring backfill (up to ten
-    /// years in one scan). While unset, the dashboard refresh fetches the
-    /// full backfill window instead of the recent chart months; set only
-    /// once that fetch succeeds. Cleared with the cache so a wiped snapshot
-    /// gets backfilled again.
-    static func saveActivityRingBackfillCompleted(defaults: UserDefaults = .standard) {
-        defaults.set(true, forKey: activityRingBackfillCompletedKey)
+    /// Progress of the first-load activity-ring backfill (up to ten years,
+    /// walked newest-first in chunks). A Boolean "completed" flag could only
+    /// say "done" or "start over": a walk cut short by a deadline or by a quit
+    /// restarted from today every time, and a HealthKit denial re-issued the
+    /// whole ten-year scan on every single refresh forever.
+    ///
+    /// - `pending` carries the checkpoint the next chunk resumes from (`nil`
+    ///   → start at today).
+    /// - `completed` is stamped ONLY when the walk genuinely reached the start
+    ///   of history, never because one partial chunk came back with data.
+    /// - `suppressed` records a denied read so the heavy scan stays parked
+    ///   until a later cheap read (or the user re-enabling Activity in Body's
+    ///   own permission selection) proves access is back.
+    enum ActivityRingBackfillState: Equatable {
+        case pending(resumeFrom: Date?)
+        case completed
+        case suppressed(lastProbe: Date)
     }
 
-    static func loadActivityRingBackfillCompleted(defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: activityRingBackfillCompletedKey)
+    /// The resume checkpoint and the suppression stamp live in their own keys
+    /// so `activityRingBackfillCompletedKey` keeps its pre-tri-state meaning:
+    /// an install that already finished the ten-year scan reads back as
+    /// `.completed` and never redoes it.
+    static let activityRingBackfillResumeDateKey = "lastHealthDashboardActivityRingBackfillResumeDate"
+    static let activityRingBackfillSuppressedDateKey = "lastHealthDashboardActivityRingBackfillSuppressedDate"
+
+    static func saveActivityRingBackfillState(
+        _ state: ActivityRingBackfillState,
+        defaults: UserDefaults = .standard
+    ) {
+        switch state {
+        case .completed:
+            defaults.set(true, forKey: activityRingBackfillCompletedKey)
+            defaults.removeObject(forKey: activityRingBackfillResumeDateKey)
+            defaults.removeObject(forKey: activityRingBackfillSuppressedDateKey)
+        case .pending(let resumeFrom):
+            defaults.removeObject(forKey: activityRingBackfillCompletedKey)
+            defaults.removeObject(forKey: activityRingBackfillSuppressedDateKey)
+            if let resumeFrom {
+                defaults.set(resumeFrom, forKey: activityRingBackfillResumeDateKey)
+            } else {
+                defaults.removeObject(forKey: activityRingBackfillResumeDateKey)
+            }
+        case .suppressed(let lastProbe):
+            defaults.removeObject(forKey: activityRingBackfillCompletedKey)
+            defaults.removeObject(forKey: activityRingBackfillResumeDateKey)
+            defaults.set(lastProbe, forKey: activityRingBackfillSuppressedDateKey)
+        }
     }
 
-    static func clearActivityRingBackfillCompleted(defaults: UserDefaults = .standard) {
+    static func loadActivityRingBackfillState(defaults: UserDefaults = .standard) -> ActivityRingBackfillState {
+        if defaults.bool(forKey: activityRingBackfillCompletedKey) {
+            return .completed
+        }
+        if let lastProbe = defaults.object(forKey: activityRingBackfillSuppressedDateKey) as? Date {
+            return .suppressed(lastProbe: lastProbe)
+        }
+        return .pending(resumeFrom: defaults.object(forKey: activityRingBackfillResumeDateKey) as? Date)
+    }
+
+    /// Back to `.pending(resumeFrom: nil)`. Cleared with the cache, and
+    /// whenever the cached ring history is purged, so a wiped snapshot gets
+    /// backfilled again from today.
+    static func clearActivityRingBackfillState(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: activityRingBackfillCompletedKey)
+        defaults.removeObject(forKey: activityRingBackfillResumeDateKey)
+        defaults.removeObject(forKey: activityRingBackfillSuppressedDateKey)
     }
 
     static var snapshotFileURL: URL? {

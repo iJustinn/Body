@@ -64,7 +64,14 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let keys = [
             "Humidity",
             "Avg METs",
-            "HR Recovery"
+            "HR Recovery",
+            // Comparison-badge stand-in shown on every comparable tile once the
+            // 30-day window settles without a measured delta
+            // (WorkoutMetricComparisonBuilder.placeholder). The badge itself is a
+            // dotted key — "--%" has no Swift-identifier characters, so Xcode's
+            // symbol generator rejects it as a key.
+            "comparison.noDeltaBadge",
+            "No 30-day comparison yet"
         ]
 
         try assertKeysTranslated(keys, in: catalog)
@@ -125,7 +132,14 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Max Vertical Osc.",
             "cm",
             "in",
-            "Vertical oscillation, average %@ %@, maximum %@ %@"
+            "Vertical oscillation, average %@ %@, maximum %@ %@",
+            "Power",
+            "Avg Power",
+            "Max Power",
+            "Total Work",
+            "W",
+            "kJ",
+            "Power, average %@ %@, maximum %@ %@, total work %@ %@"
         ]
 
         try assertKeysTranslated(keys, in: catalog)
@@ -195,12 +209,13 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let keys = [
             "Share",
             "Share Workout",
-            "v1",
+            "v5",
             "Background",
             "Your Photo",
             "Close",
             "Midnight",
             "Workout Color",
+            "Daylight",
             "Map",
             "Save",
             "Save to Photos",
@@ -216,20 +231,43 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Couldn't Create Image",
             "Couldn't Save Image",
             "Body needs permission to add photos. Allow it in Settings › Body › Photos, then try again.",
-            // Background dimension rows and the explainer under a route that can't
-            // carry a ribbon.
+            // Route Style rail icon, its Hide tile and Map-dimming hint, the dimension
+            // tiles, and the explainer under a route that can't carry a ribbon.
+            "Route Style",
+            "Hide Route",
+            "Hiding the route doesn't apply to the Map background.",
             "2D",
             "3D",
             "3D needs a route with elevation data.",
-            // Photo adjust steps: the two captions, the segmented picker, Next, and the
-            // VoiceOver reset actions.
+            // Icon visibility rail row (route-less workouts) and its tray tile names.
+            "Icon",
+            "Show Icon",
+            "Hide Icon",
+            // Photo adjust steps: the two chip-strip captions, the step chip labels, the
+            // progression accessibility hint, and the VoiceOver reset actions.
             "Drag to move the photo. Pinch to zoom. Double-tap to reset.",
             "Drag to move. Pinch to resize. Double-tap to reset.",
             "Photo",
             "Layout",
-            "Next",
+            "Adjust the media, then choose Layout to move the workout info.",
             "Reset Photo",
             "Reset Layout",
+            // Media import busy state, shown as a floating sync badge while a photo or
+            // video import is in flight.
+            "Importing media...",
+            // Workout detail Share button's disabled-state VoiceOver hint while the
+            // route fetch is in flight.
+            "Loading workout data.",
+            // Video background: tile, captions, adjust step, and error alerts.
+            "Your Video",
+            "Video",
+            "Reset Video",
+            "Couldn't Load Video",
+            "Couldn't Create Video",
+            "Couldn't Save Video",
+            "Drag to move the video. Pinch to zoom. Double-tap to reset.",
+            "Video Activity Share",
+            "Use your own videos as the background of workout share cards.",
             // Font row label and the option names, built via String(localized:) in
             // WorkoutShareFontChoice.localizedName.
             "Font",
@@ -257,7 +295,11 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Landscape 4:3",
             "Square",
             "Share Card Sizes",
-            "Export workout share cards as 16:9, 3:4, 4:3, or square, portrait or landscape.",
+            "Export workout share cards as 16:9, 3:4, 4:3, or square — or as a long image of the whole workout.",
+            // Long Image tray tile, its metrics caption, and the disabled-background hint.
+            "Long Image",
+            "Pick the metrics for the long image.",
+            "The long image uses a gradient background.",
             // Landscape arrangement rail icon, tray tile names, and the Map-dimming
             // hint from WorkoutShareLandscapeArrangement.localizedName.
             "Arrange",
@@ -268,10 +310,17 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             // and the Pro feature entry from BodyProView.
             "Metrics",
             "Requires Body Pro",
-            "Pick 1 to 3 metrics.",
+            "Pick 1 to 5 metrics.",
             "At least one metric stays on the card.",
             "Share Card Metrics",
-            "Choose which metrics your workout share card shows."
+            "Choose which metrics your workout share card shows.",
+            // Profile attribution rail icon, its tray tile names and disabled-tile
+            // hint, and the missing-data caption shown while the tray is open.
+            "Profile",
+            "Show Avatar",
+            "Show Nickname",
+            "Add it in Settings › Profile first.",
+            "Add a photo and name in Settings › Profile to show them on the card."
         ]
 
         try assertKeysTranslated(keys, in: catalog)
@@ -294,7 +343,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Apple Intelligence",
             "Readiness Comment",
             "AI comment on today's score",
-            "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score — your heart rate, HRV, sleep, and training signals. Everything runs on your device; your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead.",
+            "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score, including your heart rate, HRV, sleep, and training signals. Everything runs on your device, and your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead.",
             "Apple Intelligence readiness comments need a supported device with Apple Intelligence turned on in Settings. Body's built-in explanation is shown instead."
         ]
 
@@ -368,6 +417,188 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         ]
 
         try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testWorkoutRenameKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // The workout detail hero's title button opens the rename alert; its
+        // Save/Cancel buttons reuse keys the catalog already carries.
+        let keys = [
+            "Rename Workout",
+            "Save",
+            "Cancel"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testOnboardingStringsAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            "Onboarding",
+            "onboarding.pageProgress %lld %lld",
+            "onboarding.intro.skip",
+            "onboarding.skip",
+            "onboarding.close",
+            "onboarding.back",
+            "onboarding.continue",
+            "onboarding.getStarted",
+            "onboarding.welcome.title",
+            "onboarding.welcome.privacy",
+            "onboarding.welcome.privacy.subtitle",
+            "onboarding.welcome.load",
+            "Loading data...",
+            "onboarding.health.body",
+            "onboarding.health.loaded",
+            "onboarding.health.finished",
+            "onboarding.health.continue",
+            "onboarding.health.allowAll",
+            "onboarding.readiness.title",
+            "onboarding.readiness.subtitle",
+            "onboarding.readiness.signals",
+            "onboarding.readiness.signals.subtitle",
+            "onboarding.readiness.patterns",
+            "onboarding.readiness.patterns.subtitle",
+            "onboarding.readiness.live",
+            "onboarding.readiness.live.subtitle",
+            "onboarding.trainingLoad.title",
+            "onboarding.trainingLoad.subtitle",
+            "onboarding.trainingLoad.ratio",
+            "onboarding.trainingLoad.ratio.subtitle",
+            "onboarding.trainingLoad.range",
+            "onboarding.trainingLoad.range.subtitle",
+            "onboarding.trainingLoad.direction",
+            "onboarding.trainingLoad.direction.subtitle",
+            "onboarding.effort.title",
+            "onboarding.effort.subtitle",
+            "onboarding.effort.rate",
+            "onboarding.effort.rate.subtitle",
+            "onboarding.effort.suggest",
+            "onboarding.effort.suggest.subtitle",
+            "onboarding.effort.yours",
+            "onboarding.effort.yours.subtitle",
+            "onboarding.calendar.title",
+            "onboarding.calendar.subtitle",
+            "onboarding.calendar.switch",
+            "onboarding.calendar.switch.subtitle",
+            "onboarding.calendar.star",
+            "onboarding.calendar.star.subtitle",
+            "onboarding.calendar.moon",
+            "onboarding.calendar.moon.subtitle",
+            "onboarding.calendar.sun",
+            "onboarding.calendar.sun.subtitle",
+            "onboarding.calendar.flame",
+            "onboarding.calendar.flame.subtitle",
+            "onboarding.calendar.share",
+            "onboarding.calendar.share.subtitle",
+            "onboarding.sleep.title",
+            "onboarding.sleep.subtitle",
+            "onboarding.sleep.stages",
+            "onboarding.sleep.stages.subtitle",
+            "onboarding.sleep.baseline",
+            "onboarding.sleep.baseline.subtitle",
+            "onboarding.sleep.consistency",
+            "onboarding.sleep.consistency.subtitle",
+            "onboarding.sleep.goal",
+            "onboarding.sleep.goalHint",
+            "onboarding.effort.settings",
+            "onboarding.effort.settingsHint",
+            "onboarding.done.title",
+            "onboarding.done.tip1",
+            "onboarding.done.tip1.subtitle",
+            "onboarding.done.tip2",
+            "onboarding.done.tip2.subtitle",
+            "onboarding.done.sources",
+            "onboarding.done.sources.subtitle",
+            "onboarding.done.explore",
+            "onboarding.done.explore.subtitle",
+            "onboarding.done.tip3",
+            "onboarding.done.tip3.subtitle"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testWorkoutDetailsExplanationKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // The Details explanation sheet is one long literal per metric kind, plus the
+        // title and the two opening paragraphs. Rather than restating each paragraph
+        // here (where a one-character drift would silently ship English to zh-Hans
+        // users), the literals are read back out of the source: the assertion can then
+        // never fall behind an edit to the copy, and a newly added metric explanation
+        // is covered the moment it is written.
+        let source = try String(
+            contentsOf: projectRoot.appendingPathComponent("Body/Views/BodyWorkoutDetailsExplanationSheet.swift"),
+            encoding: .utf8
+        )
+        let pattern = try NSRegularExpression(pattern: #"String\(localized: "((?:[^"\\]|\\.)*)"\)"#)
+        let matches = pattern.matches(in: source, range: NSRange(source.startIndex..., in: source))
+        let keys = matches.compactMap { match -> String? in
+            guard let range = Range(match.range(at: 1), in: source) else { return nil }
+            return String(source[range])
+        }
+
+        // The copy is written without escape sequences, so the captured source text is
+        // the catalog key verbatim. If that ever stops being true this test would look
+        // up a key that cannot exist, so fail loudly here instead.
+        XCTAssertFalse(keys.contains { $0.contains("\\") }, "escaped literal needs unescaping before lookup")
+        // Guards the regex itself: a refactor to a different call style would otherwise
+        // match nothing and pass while checking no keys at all.
+        XCTAssertGreaterThanOrEqual(keys.count, 20, "expected one explanation per metric kind plus the header copy")
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testReadinessImpactExplanationKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // Same shape as the Details sheet's guard above: the literals are read back out
+        // of the source rather than restated here, so the assertion can never fall
+        // behind an edit to the copy and a newly added card is covered as it is written.
+        let source = try String(
+            contentsOf: projectRoot.appendingPathComponent("Body/Views/Health/BodyReadinessImpactExplanationSheet.swift"),
+            encoding: .utf8
+        )
+        let pattern = try NSRegularExpression(pattern: #"String\(localized: "((?:[^"\\]|\\.)*)"\)"#)
+        let matches = pattern.matches(in: source, range: NSRange(source.startIndex..., in: source))
+        let keys = matches.compactMap { match -> String? in
+            guard let range = Range(match.range(at: 1), in: source) else { return nil }
+            return String(source[range])
+        }
+
+        XCTAssertFalse(keys.contains { $0.contains("\\") }, "escaped literal needs unescaping before lookup")
+        // Guards the regex itself: the sheet is a title plus five titled cards.
+        XCTAssertGreaterThanOrEqual(keys.count, 10, "expected the sheet title plus a title and body per card")
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    /// The Permissions sheet footers. Enumerating the states and reading their
+    /// resolved English text keeps a newly added state covered as it is written:
+    /// under English the resolved sentence IS the catalog key.
+    func testPermissionAccessStateFootersResolveInBodyMetricsKitCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+
+        let literalStates: [BodyHealthPermissionAccessState] = [
+            .off, .notUsedByDashboard, .checking, .hasData, .noData, .readOnDemand
+        ]
+        try assertKeysTranslated(literalStates.map(\.footerText), in: catalog)
+
+        // `.needsParent` interpolates the parent's title, so its catalog key
+        // carries the placeholder rather than the resolved sentence.
+        let needsParentKey = "On, but it needs %@ on as well."
+        try assertKeysTranslated([needsParentKey], in: catalog)
+        XCTAssertEqual(
+            BodyHealthPermissionAccessState.needsParent(.heart).footerText,
+            "On, but it needs Heart on as well."
+        )
+        // Dropping the placeholder in translation would silently lose the parent
+        // name and leave a sentence naming no permission at all.
+        let translated = try value(of: needsParentKey, language: "zh-Hans", in: catalog)
+        XCTAssertTrue(translated.contains("%@"), "zh-Hans lost the parent placeholder: \(translated)")
     }
 
     private func assertKeysTranslated(_ keys: [String], in catalog: [String: Any]) throws {

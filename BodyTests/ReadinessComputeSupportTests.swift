@@ -138,4 +138,87 @@ final class ReadinessComputeSupportTests: XCTestCase {
         )
         XCTAssertEqual(keptWithNoWake.map(\.id), [afterMidnight.id])
     }
+
+    /// Regression for the nap-day activity-drain bug (3% shown as 32%): an
+    /// afternoon nap must NOT reset the wake cycle and drop the morning's
+    /// workouts from the drain. `dateInterval?.end` (the whole day's last
+    /// asleep moment, i.e. the nap's end) used to be passed as `sleepEnd`
+    /// here; `wakeCycleEnd` (the first sleep session's end) is the fix.
+    func testWakeCycleWorkoutsUsesFirstSleepSessionEndNotNapEnd() throws {
+        let calendar = Calendar.bodyGregorian
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let night = SleepStageSegment(
+            stage: .core,
+            startDate: day.addingTimeInterval(-1 * 3_600), // yesterday 23:00
+            endDate: day.addingTimeInterval(7 * 3_600) // 07:00
+        )
+        let nap = SleepStageSegment(
+            stage: .core,
+            startDate: day.addingTimeInterval(17 * 3_600), // 17:00
+            endDate: day.addingTimeInterval(17.5 * 3_600) // 17:30
+        )
+        let snapshot = SleepStageSnapshot(
+            date: day,
+            segments: [night, nap],
+            mainSessionInterval: DateInterval(start: night.startDate, end: night.endDate)
+        )
+
+        let now = day.addingTimeInterval(18 * 3_600) // 18:00
+        let morningWorkouts = [
+            workout(day.addingTimeInterval(7.5 * 3_600)), // 07:30
+            workout(day.addingTimeInterval(8.5 * 3_600)), // 08:30
+            workout(day.addingTimeInterval(9.5 * 3_600)) // 09:30
+        ]
+
+        // Fixed behavior: anchored on the first sleep session's end, all three
+        // morning workouts stay in the drain.
+        let kept = ReadinessComputeSupport.wakeCycleWorkouts(
+            from: morningWorkouts,
+            now: now,
+            sleepEnd: snapshot.wakeCycleEnd,
+            calendar: calendar
+        )
+        XCTAssertEqual(Set(kept.map(\.id)), Set(morningWorkouts.map(\.id)))
+
+        // The bug this replaces: anchoring on the whole day's last asleep
+        // moment (the nap's end) drops every morning workout, since the wake
+        // cycle then only reaches back to 17:30.
+        let keptWithOldBug = ReadinessComputeSupport.wakeCycleWorkouts(
+            from: morningWorkouts,
+            now: now,
+            sleepEnd: snapshot.dateInterval?.end,
+            calendar: calendar
+        )
+        XCTAssertTrue(keptWithOldBug.isEmpty)
+    }
+
+    /// Companion to the drain regression above: the morning freeze anchors on
+    /// the same first-sleep-session end, not the nap.
+    func testFreezeWakeTimeUsesFirstSleepSessionEndNotNapEnd() throws {
+        let calendar = Calendar.bodyGregorian
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let night = SleepStageSegment(
+            stage: .core,
+            startDate: day.addingTimeInterval(-1 * 3_600), // yesterday 23:00
+            endDate: day.addingTimeInterval(7 * 3_600) // 07:00
+        )
+        let nap = SleepStageSegment(
+            stage: .core,
+            startDate: day.addingTimeInterval(17 * 3_600), // 17:00
+            endDate: day.addingTimeInterval(17.5 * 3_600) // 17:30
+        )
+        let snapshot = SleepStageSnapshot(
+            date: day,
+            segments: [night, nap],
+            mainSessionInterval: DateInterval(start: night.startDate, end: night.endDate)
+        )
+
+        let now = day.addingTimeInterval(18 * 3_600) // 18:00
+        XCTAssertEqual(
+            ReadinessComputeSupport.freezeWakeTime(
+                sleepEnd: snapshot.wakeCycleEnd, scoringDay: day, now: now, calendar: calendar
+            ),
+            day.addingTimeInterval(7 * 3_600)
+        )
+    }
 }

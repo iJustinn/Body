@@ -6,6 +6,16 @@
 import SwiftUI
 import UIKit
 
+/// Where the route hero centers its trace: midway between the top safe area and the
+/// metrics column's top, derived from the latest inset and measurement so callback
+/// order can't bake a stale inset in. Internal so it can be unit-tested.
+enum BodyWorkoutRouteHeroAnchor {
+    static func targetCenterY(topInset: CGFloat, contentMinY: CGFloat?, fallbackContentMinY: CGFloat) -> CGFloat {
+        let contentTop = topInset + (contentMinY ?? fallbackContentMinY)
+        return (topInset + contentTop) / 2
+    }
+}
+
 struct BodyWorkoutsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -23,9 +33,12 @@ struct BodyWorkoutsView: View {
     @State private var selectedWorkoutForDetails: WorkoutSummary?
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
+    @State private var isListScrolledFromTop = false
     @State private var searchCorpusCache = BodyWorkoutSearchCorpusCache()
+    @State private var monthSummaryShareRequest: MonthSummaryShareRequest?
     @AppStorage(BodyAppearancePreference.workoutsChartShowsTypeBreakdownKey) private var workoutsChartShowsTypeBreakdown = false
     @Namespace private var workoutZoom
+    @FocusState private var isSearchFocused: Bool
 
     private var monthSwitchTransition: AnyTransition {
         .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -91,18 +104,19 @@ struct BodyWorkoutsView: View {
                         onMonthYearRequested: requestMonthYearSelection
                     )
                     .padding(.horizontal)
-                    .padding(.top, 8)
 
-                    searchAndControlsRow
+                    searchAndControlsRow(snapshot: displaySnapshot)
                         .padding(.horizontal)
                         .padding(.top, 8)
 
                     ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 16) {
-                            // One slot, one chart. The month `.id` still gives
-                            // the block a fresh identity per month, so a month
-                            // switch cross-fades the whole card exactly as it
-                            // did when these were two separate cards.
+                        VStack(spacing: 12) {
+                            // One slot, one chart. The month `.id` sits on the
+                            // calendar alone: its grid is a different month's
+                            // shape, so it cross-fades. The breakdown keeps one
+                            // identity across months instead, so its bars morph
+                            // from one ranking to the next (`WorkoutTypeBreakdownView`)
+                            // rather than the whole card being replaced.
                             Group {
                                 if workoutsChartShowsTypeBreakdown {
                                     workoutTypeSummaryCard(snapshot: displaySnapshot, workouts: matchingWorkouts)
@@ -110,10 +124,9 @@ struct BodyWorkoutsView: View {
                                 } else {
                                     workoutCalendarCard(snapshot: displaySnapshot)
                                         .transition(chartSwitchTransition)
+                                        .id("chart-\(monthIdentity)")
                                 }
                             }
-                            .id("chart-\(monthIdentity)")
-                            .transition(monthSwitchTransition)
 
                             Group {
                                 if visibleWorkouts.isEmpty {
@@ -128,9 +141,10 @@ struct BodyWorkoutsView: View {
                                             } label: {
                                                 BodyWorkoutExpenseStyleRow(
                                                     workout: workout,
-                                                    titleFontSize: 23,
-                                                    metadataFontSize: 15,
-                                                    amountFontSize: 26
+                                                    titleFontSize: 20,
+                                                    metadataFontSize: 13,
+                                                    amountFontSize: 25,
+                                                    customName: workoutStore.workoutCustomNames[workout.id]
                                                 )
                                                 .matchedTransitionSource(id: workout.id, in: workoutZoom) {
                                                     $0.clipShape(.rect(cornerRadius: 30, style: .continuous))
@@ -158,8 +172,17 @@ struct BodyWorkoutsView: View {
                             .transition(monthSwitchTransition)
                         }
                         .padding(.horizontal)
-                        .padding(.top, 32)
+                        .padding(.top, 12)
                         .padding(.bottom, 110)
+                    }
+                    .scrollDismissesKeyboard(.immediately)
+                    // Boolean, not the raw offset: the fade is either on or off, so
+                    // this only writes state when the list crosses rest, instead of
+                    // rebuilding the page on every scroll frame.
+                    .onScrollGeometryChange(for: Bool.self) { geometry in
+                        geometry.contentOffset.y + geometry.contentInsets.top > 0.5
+                    } action: { _, scrolled in
+                        isListScrolledFromTop = scrolled
                     }
                     .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
                         Task { await workoutStore.refreshWorkoutMonth(month: selectedMonth, year: selectedYear) }
@@ -169,8 +192,14 @@ struct BodyWorkoutsView: View {
                     .animation(.easeInOut(duration: 0.2), value: selectedSortOption)
                     .mask(
                         VStack(spacing: 0) {
+                            // The fade is for content sliding under the search row. At
+                            // rest there is nothing to soften, and the gradient would
+                            // just dim the top of the chart card, so cover it with
+                            // opaque black until the list actually moves up.
                             LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
                                 .frame(height: 24)
+                                .overlay(Color.black.opacity(isListScrolledFromTop ? 0 : 1))
+                                .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: isListScrolledFromTop)
                             Rectangle().fill(Color.black)
                         }
                     )
@@ -194,6 +223,9 @@ struct BodyWorkoutsView: View {
                     workoutTypes: availableWorkoutTypes
                 )
                 .presentationDetents([.medium, .large])
+            }
+            .fullScreenCover(item: $monthSummaryShareRequest) { request in
+                BodyWorkoutShareSheet(monthSummary: request.summary)
             }
             .navigationDestination(item: $selectedWorkoutForDetails) { workout in
                 BodyWorkoutDetailSheet(workout: workout)
@@ -294,15 +326,20 @@ struct BodyWorkoutsView: View {
                 return false
             }
 
+            // The custom name is matched outside the corpus: renames don't change the
+            // snapshot identity the cache is keyed on, so baking it in would serve a
+            // stale name. The type name stays a searchable alias either way.
             guard let corpusEntry = corpus[workout.id] else {
                 return workout.type.displayName.lowercased().contains(normalizedSearchText)
                     || workout.sourceName.lowercased().contains(normalizedSearchText)
                     || dateSearchText(for: workout.startDate).contains(normalizedSearchText)
+                    || (workoutStore.workoutCustomNames[workout.id]?.lowercased().contains(normalizedSearchText) ?? false)
             }
 
             return corpusEntry.typeText.contains(normalizedSearchText)
                 || corpusEntry.sourceText.contains(normalizedSearchText)
                 || corpusEntry.dateText.contains(normalizedSearchText)
+                || (workoutStore.workoutCustomNames[workout.id]?.lowercased().contains(normalizedSearchText) ?? false)
         }
     }
 
@@ -331,26 +368,36 @@ struct BodyWorkoutsView: View {
         return BodyDateFormatterCache.formatter(template: "MMMM").string(from: date)
     }
 
-    private var searchAndControlsRow: some View {
-        HStack(spacing: 10) {
-            Menu {
-                Picker("Sort by", selection: $selectedSortOption) {
-                    ForEach(BodyWorkoutListSortOption.allCases) { option in
-                        Text(option.displayName).tag(option)
+    /// The four icon buttons only exist while the search field isn't focused:
+    /// they fade out under `.transition(.opacity)` so the field's
+    /// `.frame(maxWidth: .infinity)` claims the whole row, then fade back once
+    /// focus ends. `snapshot` is the already-filtered `displaySnapshot` from
+    /// `body`, not `selectedSnapshot` — the share card must reflect the same
+    /// month the rest of the page is showing.
+    private func searchAndControlsRow(snapshot: WorkoutMonthSnapshot) -> some View {
+        HStack(spacing: 8) {
+            if !isSearchFocused {
+                Menu {
+                    Picker("Sort by", selection: $selectedSortOption) {
+                        ForEach(BodyWorkoutListSortOption.allCases) { option in
+                            Text(option.displayName).tag(option)
+                        }
                     }
+                } label: {
+                    searchControlCard(iconName: "arrow.up.arrow.down", size: 18)
                 }
-            } label: {
-                searchControlCard(iconName: "arrow.up.arrow.down", size: 18)
-            }
-            .accessibilityLabel("Sort workouts")
+                .accessibilityLabel("Sort workouts")
+                .transition(.opacity)
 
-            Button {
-                showingFilterSheet = true
-            } label: {
-                searchControlCard(iconName: "line.3.horizontal.decrease", size: 19)
+                Button {
+                    showingFilterSheet = true
+                } label: {
+                    searchControlCard(iconName: "line.3.horizontal.decrease", size: 19)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Filter workouts")
+                .transition(.opacity)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Filter workouts")
 
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
@@ -360,6 +407,9 @@ struct BodyWorkoutsView: View {
                 TextField("Search workouts", text: $searchText)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .focused($isSearchFocused)
+                    .submitLabel(.done)
+                    .onSubmit { isSearchFocused = false }
 
                 if !searchText.isEmpty {
                     Button {
@@ -376,25 +426,43 @@ struct BodyWorkoutsView: View {
             .frame(maxWidth: .infinity, minHeight: 46)
             .bodyWorkoutsToolbarCardBackground()
 
-            Button {
-                showingMonthPicker = true
-            } label: {
-                searchControlCard(iconName: "calendar", size: 18)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Jump to month")
-            .popover(isPresented: $showingMonthPicker) {
-                BodyWorkoutMonthPicker(
-                    selectedMonth: selectedMonth,
-                    selectedYear: selectedYear,
-                    onSelect: { monthYear in
-                        _ = requestMonthYearSelection(monthYear)
-                    }
-                )
-                .presentationCompactAdaptation(.popover)
+            if !isSearchFocused {
+                Button {
+                    showingMonthPicker = true
+                } label: {
+                    searchControlCard(iconName: "calendar", size: 18)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Jump to month")
+                .popover(isPresented: $showingMonthPicker) {
+                    BodyWorkoutMonthPicker(
+                        selectedMonth: selectedMonth,
+                        selectedYear: selectedYear,
+                        onSelect: { monthYear in
+                            _ = requestMonthYearSelection(monthYear)
+                        }
+                    )
+                    .presentationCompactAdaptation(.popover)
+                }
+                .transition(.opacity)
+
+                Button {
+                    monthSummaryShareRequest = MonthSummaryShareRequest(
+                        summary: WorkoutShareMonthSummary(
+                            snapshot: snapshot,
+                            initialChartStyle: workoutsChartShowsTypeBreakdown ? .bar : .calendar
+                        )
+                    )
+                } label: {
+                    searchControlCard(iconName: "square.and.arrow.up", size: 18)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Share month summary")
+                .transition(.opacity)
             }
         }
         .frame(height: 46)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: isSearchFocused)
     }
 
     private func workoutCalendarCard(snapshot: WorkoutMonthSnapshot) -> some View {
@@ -442,18 +510,23 @@ struct BodyWorkoutsView: View {
         .bodyCardBackground(translucent: true)
     }
 
+    /// The card no longer carries a per-month identity (see the chart slot), so these
+    /// change in place on a month switch: the totals roll their digits and the month
+    /// name crosses over, alongside the bars' own morph.
     private func monthlySummaryHeader(workouts: [WorkoutSummary]) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Total for \(localizedMonthTitle)")
                     .font(.system(.body, design: .rounded))
                     .foregroundColor(.secondary)
+                    .contentTransition(reduceMotion ? .identity : .opacity)
 
                 Text(BodyValueFormat.durationText(for: totalDuration(for: workouts)))
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .fontWeight(.bold)
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
+                    .contentTransition(reduceMotion ? .identity : .numericText())
             }
 
             Spacer()
@@ -466,6 +539,7 @@ struct BodyWorkoutsView: View {
                 Text("\(workouts.count)")
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .fontWeight(.bold)
+                    .contentTransition(reduceMotion ? .identity : .numericText(value: Double(workouts.count)))
             }
         }
     }
@@ -754,6 +828,14 @@ enum BodyWorkoutFilterLogic {
     }
 }
 
+/// Wraps a `WorkoutShareMonthSummary` with a fresh identity per share tap, so
+/// `.fullScreenCover(item:)` always presents the snapshot from the tap that
+/// triggered it rather than reusing a stale one across dismiss/re-present.
+private struct MonthSummaryShareRequest: Identifiable {
+    let id = UUID()
+    let summary: WorkoutShareMonthSummary
+}
+
 private enum BodyWorkoutListSortOption: String, CaseIterable, Identifiable {
     case dateDescending
     case dateAscending
@@ -843,6 +925,7 @@ private struct BodyWorkoutExpenseStyleRow: View {
     let titleFontSize: CGFloat
     let metadataFontSize: CGFloat
     let amountFontSize: CGFloat
+    var customName: String? = nil
 
     var body: some View {
         HStack(spacing: 16) {
@@ -850,12 +933,12 @@ private struct BodyWorkoutExpenseStyleRow: View {
                 .font(.system(size: 30, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(workout.type.color)
-                .frame(width: 58, height: 58)
+                .frame(width: 56, height: 56)
                 .background(workout.type.color.opacity(0.14))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(workout.type.displayName)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(customName ?? workout.type.displayName)
                     .font(.system(size: titleFontSize, weight: .bold))
                     .fontWeight(.bold)
                     .lineLimit(1)
@@ -883,7 +966,7 @@ private struct BodyWorkoutExpenseStyleRow: View {
 
             Spacer(minLength: 12)
 
-            VStack(alignment: .trailing, spacing: 7) {
+            VStack(alignment: .trailing, spacing: 5) {
                 Text(BodyValueFormat.durationText(for: workout.duration))
                     .font(.system(size: amountFontSize, weight: .bold, design: .rounded))
                     .fontWeight(.bold)
@@ -902,8 +985,8 @@ private struct BodyWorkoutExpenseStyleRow: View {
             .layoutPriority(3)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 18)
-        .frame(maxWidth: .infinity, minHeight: 104)
+        .padding(.vertical, 13)
+        .frame(maxWidth: .infinity, minHeight: 78)
         .bodyCardBackground(translucent: true)
     }
 
@@ -1012,6 +1095,8 @@ struct BodyWorkoutDetailSheet: View {
     @State private var editingScore = 5
     @State private var isSavingEffort = false
     @State private var effortError: String?
+    @State private var isRenamingWorkout = false
+    @State private var renameDraft = ""
     /// The current effort prediction, shown persistently as "Body's prediction: N" on
     /// every workout — rated or not, editing or not. Cached in @State so it isn't
     /// rebuilt on each scroll frame; refreshed when the workout, max HR, comparison
@@ -1036,7 +1121,8 @@ struct BodyWorkoutDetailSheet: View {
     @State private var editorAwaitingPrediction = false
     @State private var route: WorkoutRoute?
     /// True once `loadWorkoutRoute` has returned — route or nil — so the Share
-    /// button never appears mid-load.
+    /// button stays dimmed and disabled until it can hand the sheet the route it
+    /// found, then enables in place.
     @State private var routeLoadSettled = false
     /// What the cheap `HKWorkoutRoute` probe knows before the fixes land. `.present`
     /// reserves the hero band up front, so the content never drops ~324 pt part-way
@@ -1059,11 +1145,18 @@ struct BodyWorkoutDetailSheet: View {
     @State private var routeYawState = BodyWorkoutRouteYawState()
     @State private var showsFullScreenRouteMap = false
     @State private var showsShareSheet = false
-    /// Resting screen y of the metrics column's top — the distance text when the
-    /// workout has one, the duration otherwise. Measured in the content coordinate
-    /// space (which doesn't move with scroll) plus the viewport's top inset, so it
-    /// settles on layout instead of per scroll frame. Nil until measured.
-    @State private var heroContentTop: CGFloat?
+    @State private var showsDetailsExplanation = false
+    /// Resting content-space y of the metrics column's top — the distance text when
+    /// the workout has one, the duration otherwise. Measured in the content coordinate
+    /// space (which doesn't move with scroll), so it settles on layout instead of per
+    /// scroll frame. Nil until measured.
+    ///
+    /// Stored without the top safe-area inset folded in on purpose: that inset arrives
+    /// from its own `.onGeometryChange` and the two callbacks can fire in either order.
+    /// Baking a possibly-still-zero inset in here would persist a too-high anchor for
+    /// the rest of the sheet's lifetime, since this value only changes on layout.
+    /// `BodyWorkoutRouteHeroAnchor` combines this with the latest inset at read time instead.
+    @State private var heroContentMinY: CGFloat?
     /// The sheet's own top safe-area inset — where the ScrollView viewport begins,
     /// while the hero starts at the sheet's top edge.
     @State private var topSafeAreaInset: CGFloat = 0
@@ -1099,6 +1192,12 @@ struct BodyWorkoutDetailSheet: View {
     /// the capsule's bounding box, which the capsule shape doesn't cover — opened
     /// the map instead of the share sheet.
     private static let shareButtonTapSlop: CGFloat = 12
+    /// Invisible vertical tap slop around the hero title's rename button, so its
+    /// ~24 pt text line still meets the 44 pt minimum target without shifting layout.
+    private static let titleTapSlop: CGFloat = 10
+    /// Invisible slop on all four sides of the Details card's help button, so its
+    /// 18 pt glyph still meets the 44 pt minimum target without changing the header.
+    private static let detailsHelpTapSlop: CGFloat = 13
 
     private var routeStyle: BodyWorkoutRouteStyle {
         BodyWorkoutRouteStyle(rawValue: workoutRouteStyleRawValue) ?? .defaultValue
@@ -1172,9 +1271,16 @@ struct BodyWorkoutDetailSheet: View {
     /// that column is measured, fall back to where the fixed layout puts it — the tap
     /// gap plus the content's top padding, below the safe area — so the first frame
     /// is already close and the map's re-snapshot isn't visible.
+    ///
+    /// Computed at read time from the latest inset and content measurement rather than
+    /// cached, so it can't bake in whichever of the two `.onGeometryChange` callbacks
+    /// happened to fire first.
     private var routeTargetCenterY: CGFloat {
-        let contentTop = heroContentTop ?? (topSafeAreaInset + mapHeight - contentTopOverlap + 24)
-        return (topSafeAreaInset + contentTop) / 2
+        BodyWorkoutRouteHeroAnchor.targetCenterY(
+            topInset: topSafeAreaInset,
+            contentMinY: heroContentMinY,
+            fallbackContentMinY: mapHeight - contentTopOverlap + 24
+        )
     }
 
     var body: some View {
@@ -1296,40 +1402,45 @@ struct BodyWorkoutDetailSheet: View {
         .overlay(alignment: .topTrailing) {
             // The ZStack keeps its safe-area insets, so the button clears the
             // status bar / Dynamic Island even though the map extends under them
-            // (same trick as the full-screen map's close button). The animation
-            // is scoped to this subtree so the button fades in once the route fetch
-            // settles, for routed and routeless workouts alike, without animating the
-            // sheet's own layout swap.
+            // (same trick as the full-screen map's close button). The capsule is
+            // there from the first frame — dimmed and inert while the route fetch
+            // is in flight — and the animation, scoped to this subtree, is what
+            // makes the label brighten in place once it settles, for routed and
+            // routeless workouts alike, without animating the sheet's own layout
+            // swap.
             ZStack {
-                if routeLoadSettled {
-                    Button {
-                        showsShareSheet = true
-                    } label: {
-                        Text("Share")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .padding(.horizontal, 18)
-                            .frame(height: 44)
-                            .modifier(BodyWorkoutShareButtonBackground())
-                            // Grows the hit area without moving the capsule: the
-                            // trailing page padding below absorbs the sideways slop.
-                            // Nothing on top — the capsule already sits at the top of
-                            // the safe area, and expanding past it wouldn't hit-test.
-                            .padding(
-                                EdgeInsets(
-                                    top: 0,
-                                    leading: Self.shareButtonTapSlop,
-                                    bottom: Self.shareButtonTapSlop,
-                                    trailing: Self.shareButtonTapSlop
-                                )
+                Button {
+                    showsShareSheet = true
+                } label: {
+                    Text("Share")
+                        .font(.system(size: 15, weight: .semibold))
+                        // Only the label dims: the glass capsule behind it is chrome,
+                        // and greying that too would read as a broken control rather
+                        // than a busy one.
+                        .foregroundStyle(routeLoadSettled ? HierarchicalShapeStyle.primary : .secondary)
+                        .opacity(routeLoadSettled ? 1 : 0.5)
+                        .padding(.horizontal, 18)
+                        .frame(height: 44)
+                        .modifier(BodyWorkoutShareButtonBackground())
+                        // Grows the hit area without moving the capsule: the
+                        // trailing page padding below absorbs the sideways slop.
+                        // Nothing on top — the capsule already sits at the top of
+                        // the safe area, and expanding past it wouldn't hit-test.
+                        .padding(
+                            EdgeInsets(
+                                top: 0,
+                                leading: Self.shareButtonTapSlop,
+                                bottom: Self.shareButtonTapSlop,
+                                trailing: Self.shareButtonTapSlop
                             )
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 20 - Self.shareButtonTapSlop)
-                    .accessibilityLabel("Share Workout")
-                    .transition(.opacity)
+                        )
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .disabled(!routeLoadSettled)
+                .padding(.trailing, 20 - Self.shareButtonTapSlop)
+                .accessibilityLabel("Share Workout")
+                .accessibilityHint(routeLoadSettled ? Text(verbatim: "") : Text("Loading workout data."))
             }
             .animation(.easeInOut(duration: 0.25), value: routeLoadSettled)
         }
@@ -1342,7 +1453,28 @@ struct BodyWorkoutDetailSheet: View {
             chartCallout.callout = nil
         }
         .fullScreenCover(isPresented: $showsShareSheet) {
-            BodyWorkoutShareSheet(workout: workout, route: displayedRoute, presentation: presentation)
+            // Everything the long image's charts need, handed over rather than
+            // refetched: a workout under 24 h old would re-query HealthKit for series
+            // this page already holds. The closure re-evaluates while the cover is up,
+            // so a split/series/HR-recovery load that lands after it opened flows in.
+            BodyWorkoutShareSheet(
+                workout: workout,
+                route: displayedRoute,
+                presentation: presentation,
+                splitData: splitData,
+                metricSeries: metricSeries,
+                maxHeartRate: resolvedMaxHeartRate,
+                heartRateRecoveryBPM: heartRateRecoveryBPM
+            )
+        }
+        .alert("Rename Workout", isPresented: $isRenamingWorkout) {
+            TextField(workout.type.displayName, text: $renameDraft)
+
+            Button("Save") {
+                workoutStore.setCustomName(renameDraft, workoutID: workout.id)
+            }
+
+            Button("Cancel", role: .cancel) {}
         }
         .fullScreenCover(isPresented: $showsFullScreenRouteMap) {
             if let route = displayedRoute {
@@ -1437,7 +1569,7 @@ struct BodyWorkoutDetailSheet: View {
             // measurements, and clearing here could race the geometry callback that
             // just measured the reserved layout and lose its value for good.
             if !reservesHero {
-                heroContentTop = nil
+                heroContentMinY = nil
             }
         }
     }
@@ -1596,42 +1728,59 @@ struct BodyWorkoutDetailSheet: View {
                 workoutDetailsCard(presentation: presentation)
                 effortCard
                 heartRateSection(presentation: presentation)
+                // Each of these cards exists only once its series (or the route) has
+                // loaded, so they arrive after the page is already on screen —
+                // `bodyCardFadeIn` carries that arrival instead of popping them in
+                // fully drawn.
                 if paceOrSpeed != nil || splits != nil {
                     BodyWorkoutPaceCard(
                         presentation: paceOrSpeed,
                         splits: splits,
                         floatingCallout: chartCallout
                     )
+                    .bodyCardFadeIn()
                 }
                 if let elevationPresentation {
                     BodyWorkoutElevationLineCard(
                         presentation: elevationPresentation,
                         floatingCallout: chartCallout
                     )
+                    .bodyCardFadeIn()
                 }
                 if let cadencePresentation {
                     BodyWorkoutBucketedSeriesCard(
                         presentation: cadencePresentation,
                         floatingCallout: chartCallout
                     )
+                    .bodyCardFadeIn()
+                }
+                if let powerPresentation {
+                    BodyWorkoutBucketedSeriesCard(
+                        presentation: powerPresentation,
+                        floatingCallout: chartCallout
+                    )
+                    .bodyCardFadeIn()
                 }
                 if let strideLengthPresentation {
                     BodyWorkoutBucketedSeriesCard(
                         presentation: strideLengthPresentation,
                         floatingCallout: chartCallout
                     )
+                    .bodyCardFadeIn()
                 }
                 if let groundContactPresentation {
                     BodyWorkoutBucketedSeriesCard(
                         presentation: groundContactPresentation,
                         floatingCallout: chartCallout
                     )
+                    .bodyCardFadeIn()
                 }
                 if let verticalOscillationPresentation {
                     BodyWorkoutBucketedSeriesCard(
                         presentation: verticalOscillationPresentation,
                         floatingCallout: chartCallout
                     )
+                    .bodyCardFadeIn()
                 }
                 sourceFooter(presentation: presentation)
             }
@@ -1658,9 +1807,8 @@ struct BodyWorkoutDetailSheet: View {
             return
         }
 
-        let screenY = topSafeAreaInset + contentMinY
-        if heroContentTop != screenY {
-            heroContentTop = screenY
+        if heroContentMinY != contentMinY {
+            heroContentMinY = contentMinY
         }
     }
 
@@ -1676,16 +1824,38 @@ struct BodyWorkoutDetailSheet: View {
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(presentation.title)
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                        .foregroundColor(.primary)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.7)
+                    Button {
+                        renameDraft = workoutStore.workoutCustomNames[workout.id] ?? ""
+                        isRenamingWorkout = true
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(presentation.title)
+                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                .foregroundColor(.primary)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.7)
+
+                            Image(systemName: "pencil")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        // Grows the tap area to a 44 pt minimum without moving the
+                        // title: the vertical slop is padded in here and cancelled
+                        // out below, like the Share capsule's slop. It stays as wide
+                        // as the title only — the map/route surface behind this
+                        // column must remain hittable.
+                        .padding(.vertical, Self.titleTapSlop)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, -Self.titleTapSlop)
+                    .accessibilityLabel(presentation.title)
+                    .accessibilityHint("Rename Workout")
 
                     heroContextRow
 
                     Text(presentation.heroDateLineText)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
@@ -1702,30 +1872,30 @@ struct BodyWorkoutDetailSheet: View {
                         // scale together under one minimumScaleFactor within the fixed-width column.
                         (
                             Text(value)
-                                .font(.system(size: 48, weight: .bold))
+                                .font(.system(size: 40, weight: .bold))
                                 .foregroundColor(.primary)
                             + Text(" \(unit)")
-                                .font(.system(size: 20, weight: .semibold))
+                                .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.secondary)
                         )
                         .lineLimit(1)
                         .minimumScaleFactor(0.45)
 
                         Text("Distance")
-                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
                             .foregroundColor(.secondary)
                     }
                 }
 
                 VStack(alignment: .trailing, spacing: -2) {
                     Text(presentation.durationClockText)
-                        .font(.system(size: 48, weight: .bold))
+                        .font(.system(size: 40, weight: .bold))
                         .foregroundColor(.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.45)
 
                     Text("Duration")
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundColor(.secondary)
                 }
             }
@@ -1740,12 +1910,12 @@ struct BodyWorkoutDetailSheet: View {
         }
     }
 
-    /// Locality and weather temperature, side by side when they fit and stacked when
-    /// they don't. Either half is dropped when its value is missing.
+    /// Locality above weather, each on its own line. Either line is dropped when its
+    /// value is missing.
     ///
     /// The locality half is held open for the whole routed layout, invisible until the
     /// reverse geocode lands. The row sits in the hero's leading column while the metrics
-    /// column opposite is what `heroContentTop` measures, so letting it appear late would
+    /// column opposite is what `heroContentMinY` measures, so letting it appear late would
     /// nudge that anchor, re-frame every hero, and re-fire the map snapshotter part-way
     /// through the route's draw.
     @ViewBuilder
@@ -1758,46 +1928,52 @@ struct BodyWorkoutDetailSheet: View {
                 temperatureUnitPreference: selectedTemperatureUnitPreference
             )
         }
+        // Whole percent with no space before the sign, matching the temperature's
+        // tight hero formatting rather than the Details tile's "64 %".
+        let humidityText = workout.weatherHumidityPercent.flatMap { humidity -> String? in
+            guard humidity.isFinite else {
+                return nil
+            }
 
-        if localityText != nil || temperatureText != nil {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) {
-                    heroContextPairs(
-                        localityText: localityText,
-                        localityVisible: locality != nil,
-                        temperatureText: temperatureText
-                    )
+            return "\(BodyValueFormat.numberText(humidity.rounded(), decimals: 0))%"
+        }
+        if localityText != nil || temperatureText != nil || humidityText != nil {
+            VStack(alignment: .leading, spacing: 4) {
+                if let localityText {
+                    heroContextPair(systemImage: "location.fill", text: localityText)
+                        .opacity(locality != nil ? 1 : 0)
+                        .animation(
+                            reduceMotion ? nil : .easeInOut(duration: 0.28),
+                            value: displayedRoute?.locality
+                        )
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    heroContextPairs(
-                        localityText: localityText,
-                        localityVisible: locality != nil,
-                        temperatureText: temperatureText
-                    )
+                if temperatureText != nil || humidityText != nil {
+                    HStack(spacing: 10) {
+                        if let temperatureText {
+                            // The recorded sky condition when the source wrote one;
+                            // otherwise a thermometer graded by the reading, so a
+                            // condition-less workout still says something about how
+                            // cold or hot it was rather than drawing one flat glyph.
+                            heroContextPair(
+                                systemImage: workout.weatherSymbolName,
+                                text: temperatureText
+                            )
+                        }
+
+                        if let humidityText {
+                            heroContextPair(systemImage: "humidity.fill", text: humidityText)
+                        }
+                    }
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private func heroContextPairs(
-        localityText: String?,
-        localityVisible: Bool,
-        temperatureText: String?
-    ) -> some View {
-        if let localityText {
-            heroContextPair(systemImage: "location.fill", text: localityText)
-                .opacity(localityVisible ? 1 : 0)
-                .animation(
-                    reduceMotion ? nil : .easeInOut(duration: 0.28),
-                    value: displayedRoute?.locality
-                )
-                .layoutPriority(1)
-        }
-
-        if let temperatureText {
-            heroContextPair(systemImage: "thermometer.medium", text: temperatureText)
+            // Both rows shrink themselves to fit (`minimumScaleFactor`), which lets the
+            // hero's HStack propose them less width than they'd like and hand the slack
+            // to the metrics column — the rows then render below their real point size
+            // while the date line beside them stays full size. The priority makes them
+            // claim their ideal width first, so the scale factor only engages for a
+            // locality long enough to genuinely need it.
+            .layoutPriority(1)
         }
     }
 
@@ -1807,25 +1983,32 @@ struct BodyWorkoutDetailSheet: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(workout.type.color)
             Text(text)
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
     }
 
-    private func workoutDetailsCard(presentation: WorkoutDetailPresentation) -> some View {
-        // Heart-rate recovery loads separately when the summary carries none, so it
-        // joins the grid as a trailing tile once it lands — skipped when the summary
-        // already emitted the tile, so the two paths never both show it.
+    /// The tiles the Details grid draws, in order. Heart-rate recovery loads separately
+    /// when the summary carries none, so it joins as a trailing tile once it lands —
+    /// skipped when the summary already emitted the tile, so the two paths never both
+    /// show it. Shared with the explanation sheet so it can never describe a tile the
+    /// grid isn't showing.
+    private func resolvedDetailMetrics(presentation: WorkoutDetailPresentation) -> [WorkoutDetailMetric] {
         var metrics = presentation.detailMetrics
         if let heartRateRecoveryBPM, !metrics.contains(where: { $0.kind == .heartRateRecovery }) {
             metrics.append(WorkoutDetailPresentation.heartRateRecoveryMetric(bpm: heartRateRecoveryBPM))
         }
+        return metrics
+    }
+
+    private func workoutDetailsCard(presentation: WorkoutDetailPresentation) -> some View {
+        let metrics = resolvedDetailMetrics(presentation: presentation)
         return VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("Details")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
 
                 if let availability = presentation.comparisonAvailability {
@@ -1833,9 +2016,25 @@ struct BodyWorkoutDetailSheet: View {
                 }
 
                 Spacer(minLength: 0)
+
+                Button {
+                    showsDetailsExplanation = true
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        // Grows the tap area to the 44 pt minimum without moving the
+                        // glyph or the header's height: the slop is padded in here and
+                        // cancelled out below, like the workout title's.
+                        .padding(Self.detailsHelpTapSlop)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(-Self.detailsHelpTapSlop)
+                .accessibilityLabel(BodyWorkoutDetailsExplanationSheet.sheetTitle)
             }
 
-            LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 18) {
+            LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 20) {
                 ForEach(metrics, id: \.kind) { metric in
                     BodyWorkoutDetailMetricTile(
                         title: metric.title,
@@ -1848,6 +2047,21 @@ struct BodyWorkoutDetailSheet: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 20)
         .bodyCardBackground(cornerRadius: 30, translucent: true)
+        // Presented from the card, not the page body: `compactWorkoutContent` caches the
+        // presentation once per pass precisely because rebuilding it re-runs the 30-day
+        // comparison, and the card already holds that cached value. The closure
+        // re-evaluates while the sheet is up, so a heart-rate-recovery read that lands
+        // after it opened flows in rather than being missing until it's reopened.
+        .sheet(isPresented: $showsDetailsExplanation) {
+            BodyWorkoutDetailsExplanationSheet(
+                metrics: resolvedDetailMetrics(presentation: presentation),
+                showsComparison: presentation.comparisonAvailability != nil
+            )
+            // Opens at half height, draggable to full; the grabber is the only
+            // way out, as elsewhere in the app.
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     /// The effort to display — a rating the user just saved this session (kept on
@@ -2095,7 +2309,10 @@ struct BodyWorkoutDetailSheet: View {
                 withAnimation(.snappy(duration: 0.3)) { isEditingEffort = false }
             } catch {
                 isSavingEffort = false
+                // Append the underlying reason so a field report says which step
+                // failed (denied vs. save vs. relate) instead of a generic message.
                 effortError = String(localized: "Body couldn't save the effort rating to Apple Health. Make sure Body is allowed to update Workouts in Settings › Health › Data Access & Devices.")
+                    + "\n\n" + error.localizedDescription
             }
         }
     }
@@ -2165,7 +2382,8 @@ struct BodyWorkoutDetailSheet: View {
             energyUnitPreference: selectedEnergyUnitPreference,
             comparisonWorkouts: comparison.priorWorkouts,
             comparisonDataComplete: comparison.isComplete,
-            comparisonLoadSettled: comparisonMonthsSettled
+            comparisonLoadSettled: comparisonMonthsSettled,
+            customName: workoutStore.workoutCustomNames[workout.id]
         )
     }
 
@@ -2197,7 +2415,97 @@ struct BodyWorkoutDetailSheet: View {
     /// workout has no usable distance samples or isn't a pace/speed activity.
     /// Recomputes on unit toggle without refetching (boundaries are unit-derived).
     private var splitsPresentation: WorkoutSplitsPresentation? {
-        let unitMeters = selectedDistanceUnitPreference == .miles ? 1_609.344 : 1_000.0
+        WorkoutDetailChartPresentations.splits(
+            workout: workout,
+            splitData: splitData,
+            distanceUnitPreference: selectedDistanceUnitPreference
+        )
+    }
+
+    /// The route's elevation profile for the current unit preference; nil when the
+    /// workout has no route, too few altitude samples, or a flat course — which
+    /// hides the card.
+    private var elevationPresentation: WorkoutElevationLinePresentation? {
+        WorkoutDetailChartPresentations.elevation(
+            workout: workout,
+            profile: displayedRoute?.elevationProfile ?? [],
+            distanceUnitPreference: selectedDistanceUnitPreference
+        )
+    }
+
+    /// Per-bucket pace (walk/run/hike) or speed (cycling) bars; nil when the workout
+    /// has too little distance data or isn't a pace/speed activity.
+    private var paceOrSpeedPresentation: WorkoutBucketedSeriesPresentation? {
+        WorkoutDetailChartPresentations.paceOrSpeed(
+            workout: workout,
+            metricSeries: metricSeries,
+            distanceUnitPreference: selectedDistanceUnitPreference
+        )
+    }
+
+    /// Per-bucket step cadence (walk/run/hike) or cycling cadence bars; nil when the
+    /// workout has too little data.
+    private var cadencePresentation: WorkoutBucketedSeriesPresentation? {
+        WorkoutDetailChartPresentations.cadence(
+            workout: workout,
+            metricSeries: metricSeries,
+            distanceUnitPreference: selectedDistanceUnitPreference
+        )
+    }
+
+    /// Per-bucket running or cycling power bars; nil unless the watch (or a paired
+    /// power meter) recorded power for an activity that reports it.
+    private var powerPresentation: WorkoutBucketedSeriesPresentation? {
+        WorkoutDetailChartPresentations.power(
+            workout: workout,
+            metricSeries: metricSeries
+        )
+    }
+
+    /// Per-bucket stride length bars for the current unit preference; nil when the
+    /// workout has too little stride data (or isn't a stepping activity), which
+    /// hides the card.
+    private var strideLengthPresentation: WorkoutBucketedSeriesPresentation? {
+        WorkoutDetailChartPresentations.strideLength(
+            workout: workout,
+            metricSeries: metricSeries,
+            distanceUnitPreference: selectedDistanceUnitPreference
+        )
+    }
+
+    /// Per-bucket ground contact time bars; nil unless the watch recorded the
+    /// running-form metric.
+    private var groundContactPresentation: WorkoutBucketedSeriesPresentation? {
+        WorkoutDetailChartPresentations.groundContact(
+            workout: workout,
+            metricSeries: metricSeries,
+            distanceUnitPreference: selectedDistanceUnitPreference
+        )
+    }
+
+    /// Per-bucket vertical oscillation bars; nil unless the watch recorded the
+    /// running-form metric.
+    private var verticalOscillationPresentation: WorkoutBucketedSeriesPresentation? {
+        WorkoutDetailChartPresentations.verticalOscillation(
+            workout: workout,
+            metricSeries: metricSeries,
+            distanceUnitPreference: selectedDistanceUnitPreference
+        )
+    }
+}
+
+/// Every chart presentation the workout detail page builds, as pure value-in functions.
+/// Extracted from the detail sheet's computed properties so the share sheet's long
+/// image can build the *same* presentations from the same inputs — a long image whose
+/// splits or elevation were derived a second, slightly different way would be a
+/// screenshot of a page that doesn't exist.
+enum WorkoutDetailChartPresentations {
+    static func splits(
+        workout: WorkoutSummary,
+        splitData: WorkoutSplitData,
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+    ) -> WorkoutSplitsPresentation? {
+        let unitMeters = distanceUnitPreference == .miles ? 1_609.344 : 1_000.0
         let splits = WorkoutSplitCalculator.splits(
             samples: splitData.distanceSamples,
             unitMeters: unitMeters,
@@ -2208,72 +2516,89 @@ struct BodyWorkoutDetailSheet: View {
         return WorkoutSplitsPresentation(
             splits: splits,
             paceStyle: workout.type.paceStyle,
-            distanceUnitPreference: selectedDistanceUnitPreference,
+            distanceUnitPreference: distanceUnitPreference,
             heartRateSamples: workout.heartRateSamples ?? [],
             stepSamples: splitData.stepSamples
         )
     }
 
-    /// The route's elevation profile for the current unit preference; nil when the
-    /// workout has no route, too few altitude samples, or a flat course — which
-    /// hides the card.
-    private var elevationPresentation: WorkoutElevationLinePresentation? {
+    static func elevation(
+        workout: WorkoutSummary,
+        profile: [WorkoutElevationSample],
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+    ) -> WorkoutElevationLinePresentation? {
         WorkoutElevationLinePresentation(
-            profile: displayedRoute?.elevationProfile ?? [],
+            profile: profile,
             workoutDuration: workout.effectiveEndDate.timeIntervalSince(workout.startDate),
             ascentMeters: workout.elevationAscendedMeters,
-            distanceUnitPreference: selectedDistanceUnitPreference
+            distanceUnitPreference: distanceUnitPreference
         )
     }
 
-    /// Per-bucket pace (walk/run/hike) or speed (cycling) bars; nil when the workout
-    /// has too little distance data or isn't a pace/speed activity.
-    private var paceOrSpeedPresentation: WorkoutBucketedSeriesPresentation? {
+    static func paceOrSpeed(
+        workout: WorkoutSummary,
+        metricSeries: WorkoutMetricSeriesData,
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+    ) -> WorkoutBucketedSeriesPresentation? {
         WorkoutMetricSeriesCharts.paceOrSpeed(
             data: metricSeries,
             type: workout.type,
-            distanceUnitPreference: selectedDistanceUnitPreference
+            distanceUnitPreference: distanceUnitPreference
         )
     }
 
-    /// Per-bucket step cadence (walk/run/hike) or cycling cadence bars; nil when the
-    /// workout has too little data.
-    private var cadencePresentation: WorkoutBucketedSeriesPresentation? {
+    static func cadence(
+        workout: WorkoutSummary,
+        metricSeries: WorkoutMetricSeriesData,
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+    ) -> WorkoutBucketedSeriesPresentation? {
         WorkoutMetricSeriesCharts.cadence(
             data: metricSeries,
             type: workout.type,
-            distanceUnitPreference: selectedDistanceUnitPreference
+            distanceUnitPreference: distanceUnitPreference
         )
     }
 
-    /// Per-bucket stride length bars for the current unit preference; nil when the
-    /// workout has too little stride data (or isn't a stepping activity), which
-    /// hides the card.
-    private var strideLengthPresentation: WorkoutBucketedSeriesPresentation? {
+    static func power(
+        workout: WorkoutSummary,
+        metricSeries: WorkoutMetricSeriesData
+    ) -> WorkoutBucketedSeriesPresentation? {
+        WorkoutMetricSeriesCharts.power(workout: workout, data: metricSeries)
+    }
+
+    static func strideLength(
+        workout: WorkoutSummary,
+        metricSeries: WorkoutMetricSeriesData,
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+    ) -> WorkoutBucketedSeriesPresentation? {
         WorkoutMetricSeriesCharts.strideLength(
             data: metricSeries,
             type: workout.type,
-            distanceUnitPreference: selectedDistanceUnitPreference
+            distanceUnitPreference: distanceUnitPreference
         )
     }
 
-    /// Per-bucket ground contact time bars; nil unless the watch recorded the
-    /// running-form metric.
-    private var groundContactPresentation: WorkoutBucketedSeriesPresentation? {
+    static func groundContact(
+        workout: WorkoutSummary,
+        metricSeries: WorkoutMetricSeriesData,
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+    ) -> WorkoutBucketedSeriesPresentation? {
         WorkoutMetricSeriesCharts.groundContactTime(
             data: metricSeries,
             type: workout.type,
-            distanceUnitPreference: selectedDistanceUnitPreference
+            distanceUnitPreference: distanceUnitPreference
         )
     }
 
-    /// Per-bucket vertical oscillation bars; nil unless the watch recorded the
-    /// running-form metric.
-    private var verticalOscillationPresentation: WorkoutBucketedSeriesPresentation? {
+    static func verticalOscillation(
+        workout: WorkoutSummary,
+        metricSeries: WorkoutMetricSeriesData,
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+    ) -> WorkoutBucketedSeriesPresentation? {
         WorkoutMetricSeriesCharts.verticalOscillation(
             data: metricSeries,
             type: workout.type,
-            distanceUnitPreference: selectedDistanceUnitPreference
+            distanceUnitPreference: distanceUnitPreference
         )
     }
 }
@@ -2323,7 +2648,7 @@ private struct BodyWorkoutComparisonLegend: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 15, weight: .semibold, design: .rounded))
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
             .foregroundColor(.secondary)
             .lineLimit(1)
             // The two placeholder states are markedly longer than "vs 30-day avg", so
@@ -2369,7 +2694,9 @@ private struct BodyWorkoutEffortPredictionLine: View {
     }
 }
 
-private struct BodyWorkoutDetailMetricTile: View {
+/// Internal rather than private: the share sheet's long image draws this same card,
+/// value-for-value, so the export can't drift from the detail page.
+struct BodyWorkoutDetailMetricTile: View {
     let title: String
     let value: String
     let comparison: WorkoutMetricComparison?
@@ -2398,16 +2725,16 @@ private struct BodyWorkoutDetailMetricTile: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .foregroundColor(.primary)
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
 
             HStack(alignment: .lastTextBaseline, spacing: 4) {
                 Text(valueParts.number)
-                    .font(.system(size: 33, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
@@ -2416,17 +2743,18 @@ private struct BodyWorkoutDetailMetricTile: View {
                     VStack(alignment: .leading, spacing: -2) {
                         if let comparison {
                             Text(comparison.badgeText)
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.7)
                                 // The "0%" stand-in holds this slot until the history
-                                // lands, so the real percentage rolls in from it.
+                                // lands, so the real percentage rolls in from it; once
+                                // it has settled without a delta, "--%" holds it instead.
                                 .bodyLegendNumberFlip(value: comparison.badgeText)
                         }
                         if !valueParts.unit.isEmpty {
                             Text(valueParts.unit)
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.7)
@@ -2435,7 +2763,7 @@ private struct BodyWorkoutDetailMetricTile: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(metricAccessibilityLabel)
     }
@@ -2472,7 +2800,8 @@ private struct EffortWedge: Shape {
 /// Segment widths track each band's level count (Easy/Moderate = 3, Hard/All Out = 2),
 /// and the tint fills left-to-right to the exact 1–10 score, so a partly-filled segment
 /// shows the precise level. While editing it overlays the level dots (current one lit).
-private struct BodyWorkoutEffortChart: View {
+/// Not private: the onboarding effort page embeds the real meter.
+struct BodyWorkoutEffortChart: View {
     /// Exact effort 1...10 (nil = no saved effort → an empty triangle).
     let score: Double?
     let tintColor: Color
@@ -2554,7 +2883,8 @@ private struct BodyWorkoutEffortChart: View {
     }
 }
 
-private extension WorkoutEffortIntensity {
+/// Not private: the onboarding effort page tints the same meter.
+extension WorkoutEffortIntensity {
     var tintColor: Color {
         switch self {
         case .easy:
@@ -2682,7 +3012,9 @@ private struct BodyWorkoutHeartRateZoneChart: View {
 /// Pace/Speed and its per-km/mi splits in one card, the way the Heart Rate card
 /// carries the zone breakdown under its chart. Either half can be absent: a workout
 /// can have splits but too few buckets for the plot, or the reverse.
-private struct BodyWorkoutPaceCard: View {
+/// Internal rather than private: the share sheet's long image draws this same card,
+/// value-for-value, so the export can't drift from the detail page.
+struct BodyWorkoutPaceCard: View {
     let presentation: WorkoutBucketedSeriesPresentation?
     let splits: WorkoutSplitsPresentation?
     var floatingCallout: BodyChartFloatingCalloutState?
@@ -3237,9 +3569,11 @@ private struct BodyWorkoutBucketedSeriesPlot: View {
 }
 
 /// One card for every bucketed workout series — pace/speed, cadence, stride length,
-/// ground contact time, vertical oscillation. The presentation carries the
+/// ground contact time, vertical oscillation, power. The presentation carries the
 /// strings, axis and bars, so all of them share `BodyWorkoutBucketedSeriesPlot`.
-private struct BodyWorkoutBucketedSeriesCard: View {
+/// Internal rather than private: the share sheet's long image draws this same card,
+/// value-for-value, so the export can't drift from the detail page.
+struct BodyWorkoutBucketedSeriesCard: View {
     let presentation: WorkoutBucketedSeriesPresentation
     var floatingCallout: BodyChartFloatingCalloutState?
 
@@ -3249,17 +3583,34 @@ private struct BodyWorkoutBucketedSeriesCard: View {
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .foregroundColor(.primary)
 
-            HStack(alignment: .top, spacing: 12) {
-                bodyWorkoutSeriesStatBlock(
-                    value: presentation.averageText,
-                    unit: presentation.unitText,
-                    caption: presentation.averageCaption
-                )
-                bodyWorkoutSeriesStatBlock(
-                    value: presentation.extremeText,
-                    unit: presentation.unitText,
-                    caption: presentation.extremeCaption
-                )
+            if let extraStat = presentation.extraStat {
+                // Avg and extreme stay where every sibling card puts them; the
+                // third stat joins the row when its natural width fits, and
+                // otherwise drops to its own row instead of squeezing all three.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 12) {
+                        headlineStats
+                        bodyWorkoutSeriesStatBlock(
+                            value: extraStat.valueText,
+                            unit: extraStat.unitText,
+                            caption: extraStat.caption
+                        )
+                    }
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .top, spacing: 12) {
+                            headlineStats
+                        }
+                        bodyWorkoutSeriesStatBlock(
+                            value: extraStat.valueText,
+                            unit: extraStat.unitText,
+                            caption: extraStat.caption
+                        )
+                    }
+                }
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    headlineStats
+                }
             }
 
             BodyWorkoutBucketedSeriesPlot(
@@ -3277,6 +3628,21 @@ private struct BodyWorkoutBucketedSeriesCard: View {
         // card, while the plot inside stays reachable as its own adjustable element.
         .accessibilityElement(children: .contain)
         .accessibilityLabel(presentation.accessibilitySummary)
+    }
+
+    /// The Avg + extreme pair shared by every bucketed series card.
+    @ViewBuilder
+    private var headlineStats: some View {
+        bodyWorkoutSeriesStatBlock(
+            value: presentation.averageText,
+            unit: presentation.unitText,
+            caption: presentation.averageCaption
+        )
+        bodyWorkoutSeriesStatBlock(
+            value: presentation.extremeText,
+            unit: presentation.unitText,
+            caption: presentation.extremeCaption
+        )
     }
 }
 
@@ -3301,7 +3667,9 @@ private func bodyWorkoutSeriesStatBlock(value: String, unit: String, caption: St
     .frame(maxWidth: .infinity, alignment: .leading)
 }
 
-private struct BodyWorkoutHeartRateChartCard: View {
+/// Internal rather than private: the share sheet's long image draws this same card,
+/// value-for-value, so the export can't drift from the detail page.
+struct BodyWorkoutHeartRateChartCard: View {
     let samples: [WorkoutHeartRateSample]
     /// Anchors the zone bands (% of this value); nil hides the zone breakdown.
     var maxHeartRate: Double?
@@ -3899,7 +4267,9 @@ private struct BodyWorkoutHeartRateTimeMark: Identifiable {
 /// The Elevation card: the route's smoothed altitude profile drawn in the heart-rate
 /// chart's line style, but with no average/extreme reference lines — the terrain has
 /// no meaningful "average", so the right-hand gutter carries the axis' own ticks.
-private struct BodyWorkoutElevationLineCard: View {
+/// Internal rather than private: the share sheet's long image draws this same card,
+/// value-for-value, so the export can't drift from the detail page.
+struct BodyWorkoutElevationLineCard: View {
     let presentation: WorkoutElevationLinePresentation
     var floatingCallout: BodyChartFloatingCalloutState?
 
@@ -4190,120 +4560,6 @@ private struct BodyWorkoutElevationLinePlot: View {
         guard presentation.points.indices.contains(accessibilityPointIndex) else { return "" }
         let point = presentation.points[accessibilityPointIndex]
         return "\(point.elapsedText), \(point.valueText) \(presentation.unitText)"
-    }
-}
-
-private struct BodyWorkoutFilterView: View {
-    @Binding var selectedWorkoutTypes: Set<BodyWorkoutType>
-    let workoutTypes: [BodyWorkoutType]
-    @Environment(\.dismiss) private var dismiss
-    @State private var tempSelectedWorkoutTypes: Set<BodyWorkoutType>
-
-    init(selectedWorkoutTypes: Binding<Set<BodyWorkoutType>>, workoutTypes: [BodyWorkoutType]) {
-        self._selectedWorkoutTypes = selectedWorkoutTypes
-        self.workoutTypes = workoutTypes
-        self._tempSelectedWorkoutTypes = State(initialValue: selectedWorkoutTypes.wrappedValue)
-    }
-
-    var body: some View {
-        NavigationStack {
-            VStack {
-                List {
-                    Section {
-                        if workoutTypes.isEmpty {
-                            Text("No workout types for this month")
-                                .font(.system(.title3, design: .rounded))
-                                .fontWeight(.medium)
-                                .foregroundColor(.secondary)
-                        } else {
-                            ForEach(workoutTypes) { workoutType in
-                                HStack {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                            .fill(workoutType.color.opacity(0.16))
-                                            .frame(width: 32, height: 32)
-
-                                        Image(systemName: workoutType.symbolName)
-                                            .foregroundColor(workoutType.color)
-                                            .font(.system(size: 17, weight: .semibold))
-                                    }
-
-                                    Text(workoutType.displayName)
-                                        .font(.system(.title3, design: .rounded))
-                                        .fontWeight(.medium)
-
-                                    Spacer()
-
-                                    if tempSelectedWorkoutTypes.contains(workoutType) {
-                                        Image(systemName: "checkmark")
-                                            .foregroundColor(.accentColor)
-                                    }
-                                }
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    toggleWorkoutType(workoutType)
-                                }
-                                .listRowBackground(Color.clear)
-                            }
-                        }
-                    } header: {
-                        Text("Workout Types")
-                    } footer: {
-                        Text("Select which workout types to display")
-                    }
-
-                    if !workoutTypes.isEmpty {
-                        Section {
-                            HStack(spacing: 12) {
-                                Button {
-                                    tempSelectedWorkoutTypes.formUnion(workoutTypes)
-                                } label: {
-                                    Text("Select All")
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 12)
-                                }
-                                .buttonStyle(.bordered)
-                                .tint(Color(.systemGray))
-
-                                Button {
-                                    tempSelectedWorkoutTypes.subtract(workoutTypes)
-                                } label: {
-                                    Text("Deselect All")
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 12)
-                                }
-                                .buttonStyle(.bordered)
-                                .tint(Color(.systemGray))
-                            }
-                            .listRowBackground(Color.clear)
-                        }
-                    }
-                }
-                .scrollContentBackground(.hidden)
-                .scrollIndicators(.hidden)
-            }
-            .bodySheetBackground()
-            .navigationTitle("Filter")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Apply") {
-                        selectedWorkoutTypes = tempSelectedWorkoutTypes
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
-
-    private func toggleWorkoutType(_ workoutType: BodyWorkoutType) {
-        tempSelectedWorkoutTypes = BodyWorkoutFilterLogic.toggled(workoutType, in: tempSelectedWorkoutTypes)
     }
 }
 

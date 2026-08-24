@@ -1732,6 +1732,125 @@
         }
       }
     },
+    "Off. Body is not reading this category." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off. Body is not reading this category."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已关闭。Body 不会读取此类别。"
+          }
+        }
+      }
+    },
+    "On, but Body has no data for this category yet." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On, but Body has no data for this category yet."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已开启，但 Body 目前还没有此类别的数据。"
+          }
+        }
+      }
+    },
+    "On, but it needs %@ on as well." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On, but it needs %@ on as well."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已开启，但还需要同时开启%@。"
+          }
+        }
+      }
+    },
+    "On, but no card on your dashboard uses it right now." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On, but no card on your dashboard uses it right now."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已开启，但你的主页面卡片目前未使用它。"
+          }
+        }
+      }
+    },
+    "On. Body has data for this category." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On. Body has data for this category."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已开启。Body 已有此类别的数据。"
+          }
+        }
+      }
+    },
+    "On. Body reads this only when it is needed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On. Body reads this only when it is needed."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已开启。Body 仅在需要时读取。"
+          }
+        }
+      }
+    },
+    "On. Checking for data." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On. Checking for data."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已开启。正在检查数据。"
+          }
+        }
+      }
+    },
     "cardioFitness.level.aboveAverage" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1796,6 +1915,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "低"
+          }
+        }
+      }
+    },
+    "comparison.noDeltaBadge" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--%"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--%"
           }
         }
       }
@@ -3257,6 +3393,23 @@
         }
       }
     },
+    "kJ" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kJ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kJ"
+          }
+        }
+      }
+    },
     "km" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3540,6 +3693,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最高心率"
+          }
+        }
+      }
+    },
+    "Max Power" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Power"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最大功率"
           }
         }
       }
@@ -3968,6 +4138,23 @@
         }
       }
     },
+    "No 30-day comparison yet" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No 30-day comparison yet"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无30天对比"
+          }
+        }
+      }
+    },
     "No Data" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4233,6 +4420,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "磅"
+          }
+        }
+      }
+    },
+    "Power" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Power"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "功率"
+          }
+        }
+      }
+    },
+    "Power, average %@ %@, maximum %@ %@, total work %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Power, average %@ %@, maximum %@ %@, total work %@ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "功率，平均 %@ %@，最高 %@ %@，总做功 %@ %@"
           }
         }
       }
@@ -4519,7 +4740,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "近期训练量的上升快于你的基线。注意拉开高强度训练的间隔并关注恢复。"
+            "value" : "近期训练量的上升快于你的基准。注意拉开高强度训练的间隔并关注恢复。"
           }
         }
       }
@@ -4536,7 +4757,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "近期训练量远高于你的基线。适当减量，以免负荷超过恢复能力。"
+            "value" : "近期训练量远高于你的基准。适当减量，以免负荷超过恢复能力。"
           }
         }
       }
@@ -4553,7 +4774,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "近期训练量低于你的基线。适合恢复，也可能说明训练量已经减少。"
+            "value" : "近期训练量低于你的基准。适合恢复，也可能说明训练量已经减少。"
           }
         }
       }
@@ -4570,7 +4791,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "近期训练量与你的基线相当，适合稳步提升体能。"
+            "value" : "近期训练量与你的基准相当，适合稳步提升体能。"
           }
         }
       }
@@ -6225,6 +6446,23 @@
         }
       }
     },
+    "Total Work" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total Work"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总做功"
+          }
+        }
+      }
+    },
     "Track And Field" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6271,7 +6509,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "训练负荷比较急性训练负荷与慢性训练负荷。急性负荷是训练强度的 7 天指数加权平均值，慢性负荷是反映身体已适应基准的 42 天加权平均值。0.80-1.30 附近的数值通常最可持续；持续高于该范围可能意味着对恢复状态的更高要求。"
+            "value" : "训练负荷比较短期训练负荷与长期训练负荷。短期负荷是训练强度的 7 天指数加权平均值，长期负荷是反映身体已适应基准的 42 天加权平均值。0.80-1.30 附近的数值通常最可持续；持续高于该范围可能意味着对恢复状态的更高要求。"
           }
         }
       }
@@ -6542,6 +6780,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "排球"
+          }
+        }
+      }
+    },
+    "W" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "W"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "W"
           }
         }
       }

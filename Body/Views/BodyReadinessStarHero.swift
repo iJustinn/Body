@@ -176,7 +176,7 @@ struct BodyReadinessHeroLabel: View {
     private var statusText: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(headline)
-                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .font(.system(size: 26, weight: .bold, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
 
@@ -195,7 +195,7 @@ struct BodyReadinessHeroLabel: View {
             if let startedTodayText {
                 Text(startedTodayText)
                     .font(.system(size: 15, weight: .medium, design: .rounded))
-                    .opacity(0.8)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -203,16 +203,27 @@ struct BodyReadinessHeroLabel: View {
 
     /// The explanation slot: the Apple Intelligence glyph leads both the placeholder and
     /// the generated comment; the authored one-liner has no glyph. Same type, size and
-    /// opacity either way, the placeholder a touch dimmer.
+    /// color in every state.
     @ViewBuilder
     private var explanationText: some View {
         switch aiComment {
         case .authored:
             Text(explanationString)
                 .font(.system(size: 15, weight: .medium, design: .rounded))
-                .opacity(0.92)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-        case .generating, .comment:
+        case .generating:
+            // The placeholder is one short line, so the glyph can sit in its own view
+            // here and spin while the model writes.
+            HStack(spacing: 5) {
+                BodyAppleIntelligenceSpinningGlyph()
+                Text(explanationString)
+            }
+            .font(.system(size: 15, weight: .medium, design: .rounded))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .modifier(BodyAppleIntelligenceShimmer(looping: true))
+        case .comment:
             // The glyph is interpolated into the text run rather than laid out in an
             // HStack, so wrapped lines flow full-width instead of indenting past it.
             (Text(Image(systemName: BodyAppleIntelligenceGlyph.symbolName))
@@ -220,8 +231,9 @@ struct BodyReadinessHeroLabel: View {
                 + Text(verbatim: " ")
                 + Text(explanationString))
                 .font(.system(size: 15, weight: .medium, design: .rounded))
-                .opacity(aiComment == .generating ? 0.7 : 0.92)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .modifier(BodyAppleIntelligenceShimmer(looping: false))
         }
     }
 
@@ -268,6 +280,91 @@ private struct BodyReadinessCommentRegenerateGesture: UIGestureRecognizerReprese
         guard recognizer.state == .began else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         onRecognized()
+    }
+}
+
+/// The Apple Intelligence glyph turning continuously while a comment generates.
+/// Static under Reduce Motion.
+private struct BodyAppleIntelligenceSpinningGlyph: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    @State private var isSpinning = false
+
+    var body: some View {
+        Image(systemName: BodyAppleIntelligenceGlyph.symbolName)
+            .font(.system(size: 13, weight: .semibold))
+            .rotationEffect(.degrees(isSpinning ? 360 : 0))
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.linear(duration: 2.4).repeatForever(autoreverses: false)) {
+                    isSpinning = true
+                }
+            }
+    }
+}
+
+/// The Apple Intelligence multicolor wave: a blue → purple → pink → orange band, with a
+/// soft blurred glow under it, sweeping left to right across the text it modifies.
+/// `looping` (the placeholder) repeats the sweep until the view goes away; otherwise
+/// (a freshly generated comment) it sweeps once and settles to the plain text. The
+/// modifier is re-created whenever the slot's text identity changes, so every new
+/// comment earns its own sweep. Skipped entirely under Reduce Motion.
+private struct BodyAppleIntelligenceShimmer: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let looping: Bool
+
+    /// 0 = band fully off the leading edge, 1 = fully off the trailing edge.
+    @State private var phase: CGFloat = 0
+    @State private var isVisible = true
+
+    private static let colors: [Color] = [
+        .clear,
+        Color(red: 0.36, green: 0.62, blue: 1.0),
+        Color(red: 0.68, green: 0.42, blue: 1.0),
+        Color(red: 1.0, green: 0.42, blue: 0.72),
+        Color(red: 1.0, green: 0.62, blue: 0.30),
+        .clear
+    ]
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if isVisible && !reduceMotion {
+                    ZStack {
+                        band.blur(radius: 6).opacity(0.8)
+                        band
+                    }
+                    .mask(content)
+                    .allowsHitTesting(false)
+                }
+            }
+            .onAppear(perform: start)
+    }
+
+    private var band: some View {
+        LinearGradient(
+            colors: Self.colors,
+            startPoint: UnitPoint(x: phase * 2 - 1, y: 0.5),
+            endPoint: UnitPoint(x: phase * 2, y: 0.5)
+        )
+    }
+
+    private func start() {
+        guard !reduceMotion else { return }
+        if looping {
+            withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) {
+                phase = 1
+            }
+        } else {
+            withAnimation(.easeInOut(duration: 1.4)) {
+                phase = 1
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.4))
+                isVisible = false
+            }
+        }
     }
 }
 

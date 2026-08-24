@@ -292,11 +292,16 @@ struct ReadinessSummary: Codable, Equatable {
     /// When today's workouts drained the live score (`activityDrainMorningScore` set),
     /// the workout-aware explanation takes over so the hero attributes the drop to
     /// training instead of the (now-misleading) morning driver.
+    /// Past midnight before wake, today's sleep session isn't recorded yet, so the
+    /// sleep component drops out while the score still computes from the other
+    /// signals. The hero then says only that sleep is pending.
+    var isAwaitingSleep: Bool {
+        score != nil && !components.contains(where: { $0.kind == .sleep })
+    }
+
     var heroExplanation: String {
-        // Past midnight before wake, today's sleep session isn't recorded yet, so the
-        // sleep component drops out while the score still computes from the other signals.
         // Keep the number as-is but tell the user we're still waiting on sleep.
-        if score != nil, !components.contains(where: { $0.kind == .sleep }) {
+        if isAwaitingSleep {
             return String(localized: "Today's sleep data isn't in yet. Get some rest and check back later for a more accurate result.", table: "BodyMetricsKit")
         }
         if let morningScore = activityDrainMorningScore {

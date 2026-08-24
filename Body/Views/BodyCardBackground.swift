@@ -77,6 +77,29 @@ extension View {
         }
     }
 
+    /// `bodySheetBackground`, shaped for a floating card: the same black wash over
+    /// iOS 26 Liquid Glass a sheet gets, clipped to a rounded rect and rimmed the way
+    /// `BodyGlassChip` rims its bars (white at 0.15, 1 pt).
+    func bodySheetCardBackground(cornerRadius: CGFloat = 30) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+
+        return background {
+            Group {
+                if #available(iOS 26.0, *) {
+                    Color.black.opacity(BodySheetBackgroundStyle.glassTintOpacity)
+                        .glassEffect(.regular, in: shape)
+                } else {
+                    // No glass to tint pre-26: the pill-tab-bar material stands in, washed
+                    // to the same depth so the card reads the same on both systems.
+                    shape
+                        .fill(.regularMaterial)
+                        .overlay(shape.fill(Color.black.opacity(BodySheetBackgroundStyle.glassTintOpacity)))
+                }
+            }
+        }
+        .overlay(shape.strokeBorder(Color.white.opacity(0.15), lineWidth: 1))
+    }
+
     func bodyCardBackground(cornerRadius: CGFloat = 30, translucent: Bool = false, translucentFillOpacity: Double = 0.06) -> some View {
         modifier(BodyCardBackgroundModifier(cornerRadius: cornerRadius, translucent: translucent, translucentFillOpacity: translucentFillOpacity))
     }

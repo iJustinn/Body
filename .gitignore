@@ -101,3 +101,6 @@ Apple_Health_*.xlsx
 
 # Rendered share-card example images (generated locally, not shipped)
 share-examples/
+
+## Onboarding preview renders (generated locally by a throwaway test)
+/onboarding/

@@ -6,7 +6,7 @@
 //  into everything a detail bar-chart card draws: bar geometry in unit-square
 //  fractions, axis labels in the user's units, and the localized headline
 //  strings. One `Spec` per metric keeps pace, speed, cadence, stride length,
-//  ground contact time and vertical oscillation on a single code path.
+//  ground contact time, vertical oscillation and power on a single code path.
 //
 
 import Foundation
@@ -57,6 +57,14 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
         let label: String
     }
 
+    /// A third headline stat some metrics add after the average and the
+    /// extreme (power's total work). Already formatted and localized.
+    struct HeadlineStat: Equatable, Sendable {
+        let valueText: String
+        let unitText: String
+        let caption: String
+    }
+
     /// One bucket's statistics, in the metric's canonical HealthKit unit.
     struct Bucket: Equatable {
         let index: Int
@@ -91,8 +99,15 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
         let decimals: Int
         /// Overrides the plain decimal formatting (pace renders `m:ss`).
         let formatValue: ((Double, Locale) -> String)?
-        /// `"…%@ %@…%@ %@"` — average, unit, extreme, unit.
+        /// `"…%@ %@…%@ %@"` — average, unit, extreme, unit. Metrics that add an
+        /// `extraStat` use a six-placeholder format instead: average, unit,
+        /// extreme, unit, extra, extra unit.
         let accessibilityFormat: String
+        /// Builds the optional third headline stat from the buckets that survived
+        /// validation, in the canonical unit — so a total can't count a bucket the
+        /// chart doesn't draw. nil for every metric that shows only avg + extreme.
+        /// `var` so the memberwise initializer can default it away.
+        var extraStat: (([(index: Int, value: Double)]) -> HeadlineStat?)? = nil
     }
 
     let source: Source
@@ -111,6 +126,9 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
     let unitText: String
     let averageText: String
     let extremeText: String
+    /// The optional third headline stat, drawn after the average and the
+    /// extreme; nil for every metric whose spec doesn't build one.
+    let extraStat: HeadlineStat?
     let title: String
     let averageCaption: String
     let extremeCaption: String
@@ -205,13 +223,29 @@ struct WorkoutBucketedSeriesPresentation: Equatable {
         yAxisLabels = axisRange.ticks.map(format)
         averageText = format(spec.convert(average))
         extremeText = format(spec.convert(extreme))
-        accessibilitySummary = String(
-            format: spec.accessibilityFormat,
-            averageText,
-            spec.unitText,
-            extremeText,
-            spec.unitText
-        )
+        // Built from `entries`, not `buckets`: the extra stat aggregates exactly
+        // the buckets the chart draws.
+        let extraStat = spec.extraStat?(entries.map { (index: $0.index, value: $0.value) })
+        self.extraStat = extraStat
+        if let extraStat {
+            accessibilitySummary = String(
+                format: spec.accessibilityFormat,
+                averageText,
+                spec.unitText,
+                extremeText,
+                spec.unitText,
+                extraStat.valueText,
+                extraStat.unitText
+            )
+        } else {
+            accessibilitySummary = String(
+                format: spec.accessibilityFormat,
+                averageText,
+                spec.unitText,
+                extremeText,
+                spec.unitText
+            )
+        }
     }
 
     /// Elapsed time at the middle of `bar`'s bucket, as `HH:mm:ss` — the timestamp
@@ -472,6 +506,52 @@ enum WorkoutMetricSeriesCharts {
                 localized: "Cycling cadence, average %@ %@, maximum %@ %@",
                 table: "BodyMetricsKit"
             )
+        )
+        return presentation(spec: spec, native: native, data: data, locale: locale)
+    }
+
+    // MARK: - Power
+
+    /// Recorded running or cycling power. `workout` rather than a bare type: the
+    /// chart exists only for activities HealthKit records power for, so injected
+    /// power on any other activity yields nil rather than a bogus card.
+    static func power(
+        workout: WorkoutSummary,
+        data: WorkoutMetricSeriesData,
+        locale: Locale = .current
+    ) -> WorkoutBucketedSeriesPresentation? {
+        guard workout.type.powerSource != nil, let native = data.powerWatts else { return nil }
+        let activeSeconds = data.bucketActiveSeconds
+        let spec = WorkoutBucketedSeriesPresentation.Spec(
+            title: String(localized: "Power", table: "BodyMetricsKit"),
+            averageCaption: String(localized: "Avg Power", table: "BodyMetricsKit"),
+            extremeCaption: String(localized: "Max Power", table: "BodyMetricsKit"),
+            extreme: .max,
+            unitText: String(localized: "W", table: "BodyMetricsKit"),
+            validRange: 1...2500,
+            convert: { $0 },
+            axisStep: 50,
+            minimumSpan: 100,
+            decimals: 0,
+            formatValue: nil,
+            accessibilityFormat: String(
+                localized: "Power, average %@ %@, maximum %@ %@, total work %@ %@",
+                table: "BodyMetricsKit"
+            ),
+            extraStat: { buckets in
+                // Work = Σ(bucket average watt × that bucket's active seconds),
+                // which assumes the samples cover the bucket evenly. A bucket the
+                // workout was paused through has no active-seconds entry and adds
+                // nothing.
+                let kilojoules = buckets.reduce(0.0) { total, bucket in
+                    total + bucket.value * (activeSeconds[bucket.index] ?? 0)
+                } / 1_000
+                return WorkoutBucketedSeriesPresentation.HeadlineStat(
+                    valueText: BodyValueFormat.numberText(kilojoules, decimals: 0, locale: locale),
+                    unitText: String(localized: "kJ", table: "BodyMetricsKit"),
+                    caption: String(localized: "Total Work", table: "BodyMetricsKit")
+                )
+            }
         )
         return presentation(spec: spec, native: native, data: data, locale: locale)
     }

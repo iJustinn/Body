@@ -2,9 +2,9 @@
 //  WorkoutDetailTilesTests.swift
 //  BodyTests
 //
-//  The workout-detail context tiles built from workout metadata (humidity,
-//  average METs) plus the heart-rate recovery tile, and the hero line's
-//  temperature text (which replaced the temperature tile).
+//  The workout-detail context tiles built from workout metadata (average METs)
+//  plus the heart-rate recovery tile, and the hero line's temperature text
+//  (which replaced the temperature tile). Humidity is hero-only — no tile.
 //
 
 import XCTest
@@ -16,6 +16,7 @@ final class WorkoutDetailTilesTests: XCTestCase {
     private func workout(
         temperatureCelsius: Double? = nil,
         humidityPercent: Double? = nil,
+        condition: WorkoutWeatherCondition? = nil,
         averageMETs: Double? = nil,
         heartRateRecoveryBPM: Double? = nil
     ) -> WorkoutSummary {
@@ -30,6 +31,7 @@ final class WorkoutDetailTilesTests: XCTestCase {
             endDate: Date(timeIntervalSince1970: 1_770_001_800),
             weatherTemperatureCelsius: temperatureCelsius,
             weatherHumidityPercent: humidityPercent,
+            weatherCondition: condition,
             averageMETs: averageMETs,
             heartRateRecoveryBPM: heartRateRecoveryBPM
         )
@@ -94,15 +96,19 @@ final class WorkoutDetailTilesTests: XCTestCase {
 
     // MARK: - Context tiles
 
-    func testHumidityAndMETsTiles() {
+    func testMETsTile() {
         let values = tiles(workout(humidityPercent: 68, averageMETs: 8.4))
-        XCTAssertEqual(values[.humidity], "68 %")
         XCTAssertEqual(values[.averageMETs], "8.4 METs")
+    }
+
+    /// Humidity is shown on the hero's weather line only — a recorded reading
+    /// must not come back as a Details tile.
+    func testRecordedHumidityEmitsNoTile() {
+        XCTAssertNil(tiles(workout(humidityPercent: 68))[.humidity])
     }
 
     func testAbsentAndNonFiniteValuesEmitNoTiles() {
         let empty = tiles(workout())
-        XCTAssertNil(empty[.humidity])
         XCTAssertNil(empty[.averageMETs])
 
         let nonFinite = tiles(workout(
@@ -110,7 +116,6 @@ final class WorkoutDetailTilesTests: XCTestCase {
             humidityPercent: .infinity,
             averageMETs: .nan
         ))
-        XCTAssertNil(nonFinite[.humidity])
         XCTAssertNil(nonFinite[.averageMETs])
 
         // Zero METs reads as "not recorded", like the other >0-gated tiles.
@@ -125,12 +130,11 @@ final class WorkoutDetailTilesTests: XCTestCase {
         XCTAssertEqual(metric.value, BodyValueFormat.heartRateText(beatsPerMinute: 32, locale: locale))
     }
 
-    /// Humidity, METs and HR recovery are all comparable against the 30-day
-    /// history — the tiles carry a badge like the performance ones.
+    /// METs and HR recovery are comparable against the 30-day history — the tiles
+    /// carry a badge like the performance ones.
     func testContextTilesExposeComparisonScalars() {
-        let summary = workout(humidityPercent: 68, averageMETs: 8.4, heartRateRecoveryBPM: 32)
+        let summary = workout(averageMETs: 8.4, heartRateRecoveryBPM: 32)
 
-        XCTAssertEqual(WorkoutMetricComparisonBuilder.scalar(for: .humidity, from: summary), 68)
         XCTAssertEqual(WorkoutMetricComparisonBuilder.scalar(for: .averageMETs, from: summary), 8.4)
         XCTAssertEqual(WorkoutMetricComparisonBuilder.scalar(for: .heartRateRecovery, from: summary), 32)
     }
@@ -153,6 +157,7 @@ final class WorkoutDetailTilesTests: XCTestCase {
         let summary = workout(
             temperatureCelsius: -3.5,
             humidityPercent: 68,
+            condition: .partlyCloudy,
             averageMETs: 8.4,
             heartRateRecoveryBPM: 32
         )
@@ -163,6 +168,8 @@ final class WorkoutDetailTilesTests: XCTestCase {
 
         XCTAssertEqual(decoded.weatherTemperatureCelsius, -3.5)
         XCTAssertEqual(decoded.weatherHumidityPercent, 68)
+        // Persisted by name, so the cached glyph survives a relaunch.
+        XCTAssertEqual(decoded.weatherCondition, .partlyCloudy)
         XCTAssertEqual(decoded.averageMETs, 8.4)
         XCTAssertEqual(decoded.heartRateRecoveryBPM, 32)
     }
@@ -174,13 +181,59 @@ final class WorkoutDetailTilesTests: XCTestCase {
         let stripped = workout(
             temperatureCelsius: -3.5,
             humidityPercent: 68,
+            condition: .partlyCloudy,
             averageMETs: 8.4,
             heartRateRecoveryBPM: 32
         ).removingWorkoutMetrics()
 
         XCTAssertEqual(stripped.weatherTemperatureCelsius, -3.5)
         XCTAssertEqual(stripped.weatherHumidityPercent, 68)
+        XCTAssertEqual(stripped.weatherCondition, .partlyCloudy)
         XCTAssertEqual(stripped.averageMETs, 8.4)
         XCTAssertEqual(stripped.heartRateRecoveryBPM, 32)
+    }
+
+    // MARK: - Custom workout name
+
+    func testCustomNameReplacesTheWorkoutTypeTitle() {
+        let presentation = WorkoutDetailPresentation(
+            workout: workout(),
+            locale: locale,
+            customName: "Morning Tempo"
+        )
+
+        XCTAssertEqual(presentation.title, "Morning Tempo")
+    }
+
+    func testBlankAndMissingCustomNamesFallBackToTheWorkoutType() {
+        let summary = workout()
+
+        XCTAssertEqual(
+            WorkoutDetailPresentation(workout: summary, locale: locale, customName: "   ").title,
+            summary.type.displayName
+        )
+        XCTAssertEqual(
+            WorkoutDetailPresentation(workout: summary, locale: locale, customName: nil).title,
+            summary.type.displayName
+        )
+    }
+
+    func testLongCustomNameIsTrimmedAndCappedAtSixtyCharacters() {
+        let raw = "  " + String(repeating: "a", count: 70) + "  "
+
+        XCTAssertEqual(
+            WorkoutDetailPresentation(workout: workout(), locale: locale, customName: raw).title,
+            String(repeating: "a", count: 60)
+        )
+    }
+
+    func testNormalizedCustomNameTrimsCapsAndRejectsBlanks() {
+        XCTAssertEqual(WorkoutSummary.normalizedCustomName("  Easy Spin \n"), "Easy Spin")
+        XCTAssertNil(WorkoutSummary.normalizedCustomName(nil))
+        XCTAssertNil(WorkoutSummary.normalizedCustomName(" \n "))
+        XCTAssertEqual(
+            WorkoutSummary.normalizedCustomName(String(repeating: "b", count: 61))?.count,
+            60
+        )
     }
 }

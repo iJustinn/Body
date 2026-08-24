@@ -152,6 +152,10 @@ struct BodyWorkoutRouteMapHero: View {
             return
         }
 
+        // A superseded `.task(id:)` render (e.g. a later anchor measurement) must not
+        // overwrite this snapshot with a stale framing after the fact.
+        guard !Task.isCancelled else { return }
+
         let image = Self.draw(route: route.coordinates, on: result, fallbackTint: UIColor(tint))
         // The view-level `.animation(value:)` on `mapLayer` drives the fade-in.
         snapshot = image

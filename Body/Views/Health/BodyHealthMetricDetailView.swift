@@ -418,6 +418,7 @@ struct BodyHealthMetricDetailView: View {
     @State private var selectedSleepScoreDetails: SleepScoreDetailsSelection?
     @State private var showsDataSourcePicker = false
     @State private var showsAddMeasurementSheet = false
+    @State private var showsReadinessImpactExplanation = false
     @State private var activeReadinessTrendValue: Double?
     @State private var activeTrainingLoadTrendValue: Double?
     @State private var activeCardioFitnessTrendValue: Double?
@@ -874,7 +875,7 @@ struct BodyHealthMetricDetailView: View {
             workouts = ReadinessComputeSupport.wakeCycleWorkouts(
                 from: allCachedWorkouts,
                 now: now,
-                sleepEnd: workoutStore.healthSummary.sleep.stageSnapshot.dateInterval?.end,
+                sleepEnd: workoutStore.healthSummary.sleep.stageSnapshot.wakeCycleEnd,
                 calendar: .bodyGregorian
             )
         } else {
@@ -2011,6 +2012,12 @@ struct BodyHealthMetricDetailView: View {
                 tint: model.symbolColor,
                 floatingCallout: floatingCallout
             )
+            // A warning is detected only once the day's samples have loaded, so the
+            // card's first render lands on a page that is already on screen — with no
+            // ambient animation behind it, the transition below has nothing to run on.
+            // The fade-in covers that arrival; the transition still carries the card
+            // when the day picker moves.
+            .bodyCardFadeIn()
             .transition(dayChartTransition)
         }
         // Warnings appear and disappear as the day picker moves, so the cards fade
@@ -2024,9 +2031,34 @@ struct BodyHealthMetricDetailView: View {
             let rows = selectedMetricActivityAverages
 
             VStack(alignment: .leading, spacing: 14) {
-                Text(metricActivityAveragesTitle)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(metricActivityAveragesTitle)
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
+
+                    Spacer(minLength: 0)
+
+                    // Readiness only: the other kinds list plain averages, which need
+                    // no explaining. The readiness rows are the ones that read wrong —
+                    // they can sum past the day's starting score.
+                    if model.kind == .readiness {
+                        Button {
+                            showsReadinessImpactExplanation = true
+                        } label: {
+                            Image(systemName: "questionmark.circle")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                // Grows the tap area to the 44 pt minimum without moving
+                                // the glyph or the header's height: the slop is padded in
+                                // here and cancelled out below, like the Details card's.
+                                .padding(Self.activityImpactHelpTapSlop)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(-Self.activityImpactHelpTapSlop)
+                        .accessibilityLabel(BodyReadinessImpactExplanationSheet.sheetTitle)
+                    }
+                }
 
                 if rows.isEmpty {
                     Text(metricActivityAveragesEmptyText)
@@ -2061,8 +2093,18 @@ struct BodyHealthMetricDetailView: View {
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .bodyCardBackground(translucent: true)
+            .sheet(isPresented: $showsReadinessImpactExplanation) {
+                BodyReadinessImpactExplanationSheet()
+                    // Opens at half height, draggable to full.
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
         }
     }
+
+    /// Invisible slop on all four sides of the Impact by Activity card's help button, so
+    /// its 18 pt glyph still meets the 44 pt minimum target without changing the header.
+    private static let activityImpactHelpTapSlop: CGFloat = 13
 
     private var metricActivityAveragesTitle: String {
         switch model.kind {
@@ -2252,7 +2294,7 @@ struct BodyHealthMetricDetailView: View {
                     kind: .workout,
                     startDate: $0.start,
                     endDate: $0.end,
-                    title: workout.type.displayName,
+                    title: workoutStore.workoutCustomNames[workout.id] ?? workout.type.displayName,
                     symbolName: workout.type.symbolName,
                     color: workout.type.color
                 )
