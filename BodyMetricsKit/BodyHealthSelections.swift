@@ -240,6 +240,137 @@ enum BodyHealthPermission: String, CaseIterable, Identifiable {
     }
 }
 
+extension BodyHealthPermission {
+    /// The permission this one rides on. A dependent toggle unlocks no HealthKit
+    /// read types on its own: `.dateOfBirth` is nested inside `.heart` and
+    /// `.workoutMetrics` inside `.workouts` (see `BodyHealthReadTypes`).
+    ///
+    /// Deliberately a direct map rather than differencing `readObjectTypes`
+    /// with and without the permission: read types OVERLAP across permissions,
+    /// so a set difference is not an attribution oracle. `.cardioFitness`
+    /// contributes the date-of-birth type independently of `.heart`, and
+    /// `.workouts` + `.workoutMetrics` contribute `.stepCount` independently of
+    /// `.steps` — differencing would report "needs Heart" with Heart already on.
+    var parentPermission: BodyHealthPermission? {
+        switch self {
+        case .dateOfBirth:
+            return .heart
+        case .workoutMetrics:
+            return .workouts
+        default:
+            return nil
+        }
+    }
+}
+
+/// Whether Body currently holds data for a permission's category.
+enum BodyHealthPermissionDataPresence: Equatable {
+    case present
+    case absent
+    /// Body cannot answer the question from the Permissions sheet without
+    /// issuing a read, so it must not claim either way.
+    case unobservable
+}
+
+/// What one row of the Permissions sheet reports about its access right now.
+///
+/// Every case is derived from state Body can actually observe. iOS never
+/// discloses whether a *read* authorization was granted (`authorizationStatus`
+/// covers sharing only, and has been seen returning `.sharingDenied` on a Full
+/// Access device), so no case here claims Apple Health allowed or denied
+/// anything.
+enum BodyHealthPermissionAccessState: Equatable {
+    case off
+    case needsParent(BodyHealthPermission)
+    case notUsedByDashboard
+    case checking
+    case hasData
+    case noData
+    case readOnDemand
+
+    /// Resolution order matters, and is the contract worth testing: an earlier
+    /// case always wins. A disabled switch never reports missing data; a
+    /// dependent toggle whose parent is off never reports missing data either,
+    /// because nothing was ever read for it; and a category no enabled card
+    /// fetches never reports missing data, because absence there reflects the
+    /// dashboard layout rather than Apple Health.
+    static func resolve(
+        permission: BodyHealthPermission,
+        selection: BodyHealthPermissionSelection,
+        isFetchedForDashboard: Bool,
+        hasCompletedInitialLoad: Bool,
+        isLoadInFlight: Bool,
+        presence: BodyHealthPermissionDataPresence
+    ) -> BodyHealthPermissionAccessState {
+        guard selection.includes(permission) else {
+            return .off
+        }
+
+        if let parent = permission.parentPermission, !selection.includes(parent) {
+            return .needsParent(parent)
+        }
+
+        guard isFetchedForDashboard else {
+            return .notUsedByDashboard
+        }
+
+        if !hasCompletedInitialLoad || isLoadInFlight {
+            return .checking
+        }
+
+        switch presence {
+        case .unobservable:
+            return .readOnDemand
+        case .present:
+            return .hasData
+        case .absent:
+            return .noData
+        }
+    }
+
+    /// One sentence for the row footer. Phrased around what Body holds, never
+    /// around what Apple Health is doing: the published values may have been
+    /// restored from the persisted dashboard at launch, or reused from cache
+    /// after a failed refresh, so presence proves Body has data and nothing more.
+    var footerText: String {
+        switch self {
+        case .off:
+            return String(localized: "Off. Body is not reading this category.", table: "BodyMetricsKit")
+        case .needsParent(let parent):
+            return String(
+                localized: "On, but it needs \(parent.title) on as well.",
+                table: "BodyMetricsKit"
+            )
+        case .notUsedByDashboard:
+            return String(
+                localized: "On, but no card on your dashboard uses it right now.",
+                table: "BodyMetricsKit"
+            )
+        case .checking:
+            return String(localized: "On. Checking for data.", table: "BodyMetricsKit")
+        case .hasData:
+            return String(localized: "On. Body has data for this category.", table: "BodyMetricsKit")
+        case .noData:
+            return String(
+                localized: "On, but Body has no data for this category yet.",
+                table: "BodyMetricsKit"
+            )
+        case .readOnDemand:
+            return String(localized: "On. Body reads this only when it is needed.", table: "BodyMetricsKit")
+        }
+    }
+
+    /// The states that mean "look at this" rather than "working as configured".
+    var wantsAttention: Bool {
+        switch self {
+        case .needsParent, .notUsedByDashboard, .noData:
+            return true
+        case .off, .checking, .hasData, .readOnDemand:
+            return false
+        }
+    }
+}
+
 struct BodyHealthPermissionSelection: Equatable {
     static let defaultValue = BodyHealthPermissionSelection(
         enabledPermissions: Set(BodyHealthPermission.allCases)

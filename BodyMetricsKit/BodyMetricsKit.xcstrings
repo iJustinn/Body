@@ -1732,6 +1732,125 @@
         }
       }
     },
+    "Off. Body is not reading this category." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off. Body is not reading this category."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已关闭。Body 不会读取此类别。"
+          }
+        }
+      }
+    },
+    "On, but Body has no data for this category yet." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On, but Body has no data for this category yet."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已开启，但 Body 目前还没有此类别的数据。"
+          }
+        }
+      }
+    },
+    "On, but it needs %@ on as well." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On, but it needs %@ on as well."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已开启，但还需要同时开启%@。"
+          }
+        }
+      }
+    },
+    "On, but no card on your dashboard uses it right now." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On, but no card on your dashboard uses it right now."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已开启，但你的主页面卡片目前未使用它。"
+          }
+        }
+      }
+    },
+    "On. Body has data for this category." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On. Body has data for this category."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已开启。Body 已有此类别的数据。"
+          }
+        }
+      }
+    },
+    "On. Body reads this only when it is needed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On. Body reads this only when it is needed."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已开启。Body 仅在需要时读取。"
+          }
+        }
+      }
+    },
+    "On. Checking for data." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On. Checking for data."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已开启。正在检查数据。"
+          }
+        }
+      }
+    },
     "cardioFitness.level.aboveAverage" : {
       "extractionState" : "manual",
       "localizations" : {

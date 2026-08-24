@@ -77,10 +77,11 @@ actor HealthKitFetchEngine {
     /// Whether a HealthKit error means the read permission was denied (or was
     /// never granted) rather than the query having failed. Sample and statistics
     /// queries just come back empty when a read is denied, but characteristic
-    /// reads and `HKActivitySummaryQueryDescriptor` throw instead. A denial is a
-    /// confirmed absence for as long as the permission stays off, not a
-    /// transient failure, so it must NOT withhold the freshness TTL or the
-    /// first-load completion — otherwise the first-launch overlay never clears.
+    /// reads throw and activity-summary queries hand the error to their results
+    /// callback instead. A denial is a confirmed absence for as long as the
+    /// permission stays off, not a transient failure, so it must NOT withhold
+    /// the freshness TTL or the first-load completion — otherwise the
+    /// first-launch overlay never clears.
     nonisolated static func isAuthorizationDenial(_ error: Error) -> Bool {
         guard let code = (error as? HKError)?.code else {
             return false

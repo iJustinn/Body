@@ -369,6 +369,22 @@ struct ActivityRingHistorySnapshot: Codable, Equatable {
         )
     }
 
+    /// REPLACES, it does not merge. Every month `other` claims as loaded loses
+    /// the days this snapshot holds for it, and keeps only the days `other`
+    /// supplies; months `other` does not claim are untouched. That is what
+    /// makes a refreshed window authoritative over the cache it overwrites.
+    ///
+    /// Read the name as "replacing", not as the `merging` sibling directly
+    /// above: a caller that hands over a month it has no days for silently
+    /// erases that month. This bit once, when a backfill chunk claimed months
+    /// all the way to the walk end instead of just its own window and wiped
+    /// days an earlier chunk had already published. It compiles, it runs, and
+    /// it produces a plausible looking calendar that is quietly missing data,
+    /// so the callers pin it with tests rather than trusting the shape:
+    /// `testActivityRingBackfillChunksNeverShareAMonth` (chunk windows can
+    /// never claim the same month) and
+    /// `testActivityRingHistoryChunksAccumulateThroughTheApplyFunnel` (days
+    /// survive across arrivals).
     func replacingLoadedMonths(
         with other: ActivityRingHistorySnapshot,
         calendar: Calendar = .bodyGregorian

@@ -3203,6 +3203,10 @@ private struct BodySourceSettingsSheet: View {
 
 private struct BodyHealthPermissionsSettingsSheet: View {
     @ObservedObject var workoutStore: HealthKitWorkoutStore
+    /// Sampled when the sheet appears (and again after a toggle settles) rather
+    /// than observed, so the footers stay put instead of flickering through
+    /// intermediate values while a refresh publishes.
+    @State private var accessStates: [BodyHealthPermission: BodyHealthPermissionAccessState] = [:]
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Permissions") {
@@ -3210,11 +3214,13 @@ private struct BodyHealthPermissionsSettingsSheet: View {
                 ForEach(BodyHealthPermission.allCases) { permission in
                     BodyHealthPermissionToggleRow(
                         permission: permission,
+                        accessState: accessStates[permission],
                         isEnabled: Binding {
                             workoutStore.permissionSelection.includes(permission)
                         } set: { isEnabled in
                             Task {
                                 await workoutStore.updateHealthPermission(permission, isEnabled: isEnabled)
+                                accessStates = workoutStore.healthPermissionAccessStates()
                             }
                         }
                     )
@@ -3226,6 +3232,9 @@ private struct BodyHealthPermissionsSettingsSheet: View {
                 }
             }
             .bodyCardBackground(translucent: true)
+            .onAppear {
+                accessStates = workoutStore.healthPermissionAccessStates()
+            }
 
             Text("Each switch controls which Apple Health category Body reads. Turning one on asks Apple Health for access if needed and refreshes the dashboard. Turning one off stops Body from reading that category and removes its data from the app and from the local cache. Body only ever reads, and Apple Health stays in charge: a category that is turned off in the Health app simply shows as empty here, and you can change that under Settings, Health, Data Access and Devices.")
                 .font(.system(.footnote, design: .rounded))
@@ -3240,6 +3249,7 @@ private struct BodyHealthPermissionsSettingsSheet: View {
 
 private struct BodyHealthPermissionToggleRow: View {
     let permission: BodyHealthPermission
+    let accessState: BodyHealthPermissionAccessState?
     @Binding var isEnabled: Bool
 
     var body: some View {
@@ -3260,6 +3270,15 @@ private struct BodyHealthPermissionToggleRow: View {
                     .foregroundColor(.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if let accessState {
+                    Text(accessState.footerText)
+                        .font(.system(.caption, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(accessState.wantsAttention ? .orange : .secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Spacer(minLength: 12)
@@ -3271,8 +3290,10 @@ private struct BodyHealthPermissionToggleRow: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(accessState?.footerText ?? "")
     }
 }
 
