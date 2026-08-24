@@ -947,7 +947,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BodyWatch/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Body;
+				INFOPLIST_KEY_CFBundleDisplayName = ohmybody;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Body reads workouts, workout effort, sleep, heart rate, resting heart rate, HRV, respiratory rate, blood oxygen, and skin temperature from Apple Health on your Apple Watch so it can update your metrics on your wrist when your iPhone isn't nearby.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Body does not write data to Apple Health.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
@@ -981,7 +981,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BodyWatch/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Body;
+				INFOPLIST_KEY_CFBundleDisplayName = ohmybody;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Body reads workouts, workout effort, sleep, heart rate, resting heart rate, HRV, respiratory rate, blood oxygen, and skin temperature from Apple Health on your Apple Watch so it can update your metrics on your wrist when your iPhone isn't nearby.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Body does not write data to Apple Health.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
@@ -1013,7 +1013,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BodyWatchWidgetExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Body;
+				INFOPLIST_KEY_CFBundleDisplayName = ohmybody;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1041,7 +1041,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BodyWatchWidgetExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Body;
+				INFOPLIST_KEY_CFBundleDisplayName = ohmybody;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
